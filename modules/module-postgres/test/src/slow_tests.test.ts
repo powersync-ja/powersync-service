@@ -94,10 +94,11 @@ bucket_definitions:
   global:
     data:
       - SELECT * FROM "test_data"
-`;
+    `;
     const syncRules = await f.updateSyncRules(updateSyncRulesFromYaml(syncRuleContent, { storageVersion }));
     const storage = f.getInstance(syncRules);
-    const helpers = new StorageDataHelpers(storage, syncRules);
+    const syncRulesContent = (await f.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
+    const helpers = new StorageDataHelpers(storage, syncRulesContent);
     abortController = new AbortController();
     const options: WalStreamOptions = {
       abort_signal: abortController.signal,

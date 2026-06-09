@@ -73,7 +73,7 @@ export const deploySyncRules = routeDefinition({
     const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules(updateSyncRulesFromConfig(syncConfig));
 
     return {
-      slot_name: sync_rules.slot_name
+      slot_name: sync_rules.replicationStreamName
     };
   }
 });
@@ -110,7 +110,7 @@ export const currentSyncRules = routeDefinition({
       storageEngine: { activeBucketStorage }
     } = service_context;
 
-    const sync_rules = await activeBucketStorage.getActiveSyncRulesContent();
+    const sync_rules = await activeBucketStorage.getActiveSyncConfigContent();
     if (!sync_rules) {
       throw new errors.ServiceError({
         status: 422,
@@ -121,13 +121,13 @@ export const currentSyncRules = routeDefinition({
 
     const apiHandler = service_context.routerEngine.getAPI();
     const info = await debugSyncRules(apiHandler, sync_rules.sync_rules_content);
-    const next = await activeBucketStorage.getNextSyncRulesContent();
+    const next = await activeBucketStorage.getDeployingSyncConfigContent();
 
     const next_info = next ? await debugSyncRules(apiHandler, next.sync_rules_content) : null;
 
     const response = {
       current: {
-        slot_name: sync_rules.slot_name,
+        slot_name: sync_rules.replicationStreamName,
         content: sync_rules.sync_rules_content,
         ...info
       },
@@ -135,7 +135,7 @@ export const currentSyncRules = routeDefinition({
         next == null
           ? null
           : {
-              slot_name: next.slot_name,
+              slot_name: next.replicationStreamName,
               content: next.sync_rules_content,
               ...next_info
             }
@@ -156,8 +156,16 @@ export const reprocessSyncRules = routeDefinition({
     const {
       storageEngine: { activeBucketStorage }
     } = payload.context.service_context;
-    const apiHandler = payload.context.service_context.routerEngine.getAPI();
-    const sync_rules = await activeBucketStorage.getActiveSyncRules(apiHandler.getParseSyncRulesOptions());
+    const next = await activeBucketStorage.getDeployingSyncConfigContent();
+    if (next != null) {
+      throw new errors.ServiceError({
+        status: 409,
+        code: ErrorCode.PSYNC_S4106,
+        description: 'Busy processing sync config - cannot reprocess'
+      });
+    }
+
+    const sync_rules = await activeBucketStorage.getActiveSyncConfigContent();
     if (sync_rules == null) {
       throw new errors.ServiceError({
         status: 422,
@@ -167,14 +175,14 @@ export const reprocessSyncRules = routeDefinition({
     }
 
     const new_rules = await activeBucketStorage.updateSyncRules(
-      updateSyncRulesFromYaml(sync_rules.syncConfigWithErrors.config.content, {
+      updateSyncRulesFromYaml(sync_rules.sync_rules_content, {
         // This sync config already passed validation. But if the rules are not valid anymore due
         // to a service change, we do want to report the error here.
         validate: true
       })
     );
     return {
-      slot_name: new_rules.slot_name
+      slot_name: new_rules.replicationStreamName
     };
   }
 });

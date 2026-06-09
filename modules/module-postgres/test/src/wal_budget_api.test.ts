@@ -37,7 +37,7 @@ bucket_definitions:
 
     const adapter = new PostgresRouteAPIAdapter(pool);
     const budget = await adapter.getSlotWalBudget({
-      slotName: context.storage!.slot_name
+      slotName: context.storage!.replicationStreamName
     });
 
     expect(budget).toBeDefined();
@@ -72,7 +72,7 @@ bucket_definitions:
 
     const adapter = new PostgresRouteAPIAdapter(pool);
     const budget = await adapter.getSlotWalBudget({
-      slotName: context.storage!.slot_name
+      slotName: context.storage!.replicationStreamName
     });
 
     expect(budget).toBeDefined();

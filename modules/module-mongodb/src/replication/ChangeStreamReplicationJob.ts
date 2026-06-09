@@ -47,7 +47,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
 
       if (e instanceof ChangeStreamInvalidatedError) {
         // This stops replication and restarts with a new instance
-        await this.options.storage.factory.restartReplication(this.storage.group_id);
+        await this.options.storage.factory.restartReplication(this.storage.replicationStreamId);
       }
 
       // No need to rethrow - the error is already logged, and retry behavior is the same on error

@@ -26,7 +26,8 @@ export function registerDataStorageParameterTests(config: storage.TestStorageCon
 
   test('save and load parameters', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -40,7 +41,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -92,7 +93,8 @@ bucket_definitions:
 
   test('it should use the latest version', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -106,7 +108,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -163,7 +165,8 @@ bucket_definitions:
 
   test('it should use the latest version after updates', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -177,7 +180,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -250,7 +253,8 @@ bucket_definitions:
 
   test('save and load parameters with different number types', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -264,7 +268,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -318,7 +322,8 @@ bucket_definitions:
     // test this to ensure correct deserialization.
 
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -332,7 +337,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -385,7 +390,8 @@ bucket_definitions:
 
   test('save and load parameters with workspaceId', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -401,7 +407,7 @@ bucket_definitions:
       )
     );
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', ['id'], config);
@@ -443,7 +449,8 @@ bucket_definitions:
 
   test('save and load parameters with dynamic global buckets', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -459,7 +466,7 @@ bucket_definitions:
       )
     );
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', undefined, config);
@@ -535,7 +542,8 @@ bucket_definitions:
 
   test('multiple parameter queries', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -553,7 +561,7 @@ bucket_definitions:
       )
     );
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', undefined, config);
@@ -639,7 +647,8 @@ bucket_definitions:
 
   test('truncate parameters', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -653,7 +662,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -732,7 +741,8 @@ bucket_definitions:
 
   test('sync streams smoke test', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(`
 config:
   edition: 3
@@ -744,7 +754,7 @@ streams:
       WHERE data.foo = param.bar AND param.baz = auth.user_id()
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -799,7 +809,8 @@ streams:
 
   test('respects parameter limit', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 config:
@@ -815,7 +826,7 @@ streams:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -851,7 +862,8 @@ streams:
 
   test('sync streams store multiple parameter outputs for a single source row and lookup', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(`
 config:
   edition: 3
@@ -864,7 +876,7 @@ streams:
       WHERE a.x = x.value AND y.value = auth.user_id()
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -979,7 +991,8 @@ streams:
 
   test('can request multiple lookups at once', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(`
 config:
   edition: 3
@@ -992,10 +1005,12 @@ streams:
     query: SELECT * FROM b WHERE p IN (SELECT id FROM param_b WHERE u = auth.user_id())
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     const parsedSyncRules = syncRules.parsed(test_utils.PARSE_OPTIONS);
     const hydrationState = parsedSyncRules.hydrationState;
-    const syncConfig = parsedSyncRules.syncConfigWithErrors.config;
+    const [parsedSyncConfig] = parsedSyncRules.syncConfigs;
+    expect(parsedSyncConfig).toBeDefined();
+    const syncConfig = parsedSyncConfig.config;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const paramATable = await test_utils.resolveTestTable(writer, 'param_a', ['id'], config, 1);
@@ -1069,7 +1084,8 @@ streams:
 
   test('sync streams preserve duplicate downstream lookups with different provenance', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 config:
@@ -1090,7 +1106,7 @@ streams:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);

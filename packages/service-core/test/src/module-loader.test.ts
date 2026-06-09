@@ -1,4 +1,11 @@
-import { AbstractModule, loadModules, ServiceContextContainer, TearDownOptions } from '@/index.js';
+import {
+  AbstractModule,
+  loadModules,
+  ModuleManager,
+  ServiceContextContainer,
+  storage,
+  TearDownOptions
+} from '@/index.js';
 import { describe, expect, it } from 'vitest';
 
 interface MockConfig {
@@ -26,6 +33,19 @@ class MockPostgresStorageModule extends AbstractModule {
   }
   async initialize(context: ServiceContextContainer): Promise<void> {}
   async teardown(options: TearDownOptions): Promise<void> {}
+}
+class RecordingModule extends AbstractModule {
+  teardownOptions: TearDownOptions | undefined;
+
+  constructor(name: string) {
+    super({ name });
+  }
+
+  async initialize(context: ServiceContextContainer): Promise<void> {}
+
+  async teardown(options: TearDownOptions): Promise<void> {
+    this.teardownOptions = options;
+  }
 }
 const mockLoaders = {
   connection: {
@@ -98,5 +118,17 @@ describe('module loader', () => {
     };
 
     await expect(loadModules(config as any, loaders)).rejects.toThrowError('Failed to load MySQL module');
+  });
+
+  it('passes replication streams through teardown options', async () => {
+    const module = new RecordingModule('RecordingModule');
+    const moduleManager = new ModuleManager();
+    const replicationStreams = [{ replicationStreamId: 1 }] as storage.PersistedReplicationStream[];
+
+    moduleManager.register([module]);
+    await moduleManager.tearDown({ replicationStreams, syncRules: replicationStreams });
+
+    expect(module.teardownOptions?.replicationStreams).toBe(replicationStreams);
+    expect(module.teardownOptions?.syncRules).toBe(replicationStreams);
   });
 });

@@ -30,7 +30,7 @@ export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
   private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
-  private syncRulesContent?: storage.PersistedSyncRulesContent;
+  private syncRulesContent?: storage.PersistedSyncConfigContent;
   public storage?: SyncRulesBucketStorage;
 
   /**
@@ -101,26 +101,30 @@ export class ChangeStreamTestContext {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules(
+    const replicationStream = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
     );
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = (await this.factory.getReplicationStreamConfigs(replicationStream.replicationStreamId))[0];
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
   async loadNextSyncRules() {
-    const syncRules = await this.factory.getNextSyncRulesContent();
-    if (syncRules == null) {
+    const syncConfigContent = await this.factory.getDeployingSyncConfigContent();
+    if (syncConfigContent == null) {
       throw new Error(`Next sync config not available`);
     }
 
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = syncConfigContent;
+    const replicationStream = await this.factory.getReplicationStream(syncConfigContent.replicationStreamId);
+    if (replicationStream == null) {
+      throw new Error(`Next replication stream not available`);
+    }
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
-  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+  private getSyncConfigContent(): storage.PersistedSyncConfigContent {
     if (this.syncRulesContent == null) {
       throw new Error('Sync config not configured - call updateSyncRules() first');
     }
@@ -197,8 +201,8 @@ export class ChangeStreamTestContext {
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.getSyncRulesContent();
-    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
+    const syncConfigContent = this.getSyncConfigContent();
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncConfigContent, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -207,9 +211,9 @@ export class ChangeStreamTestContext {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const syncRules = this.getSyncRulesContent();
+    const syncConfigContent = this.getSyncConfigContent();
     const checkpoint = await this.getCheckpoint(options);
-    let map = [bucketRequest(syncRules, bucket, start)];
+    let map = [bucketRequest(syncConfigContent, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
@@ -219,15 +223,15 @@ export class ChangeStreamTestContext {
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map = [bucketRequest(syncRules, bucket, BigInt(batches[0]!.chunkData.next_after))];
+      map = [bucketRequest(syncConfigContent, bucket, BigInt(batches[0]!.chunkData.next_after))];
     }
     return data;
   }
 
   async getChecksums(buckets: string[], options?: { timeout?: number }): Promise<utils.ChecksumMap> {
     let checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.getSyncRulesContent();
-    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncRules, bucket, 0n));
+    const syncConfigContent = this.getSyncConfigContent();
+    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncConfigContent, bucket, 0n));
     const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
 
     const unversioned: utils.ChecksumMap = new Map();

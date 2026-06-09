@@ -892,7 +892,8 @@ bucket_definitions:
 
     const checkpoint2 = await getCheckpointLines(iter);
 
-    const { bucket } = test_utils.bucketRequest(syncRules, 'by_user["user1"]');
+    const syncRulesContent = (await f.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
+    const { bucket } = test_utils.bucketRequest(syncRulesContent, 'by_user["user1"]');
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
     ).toEqual([bucket]);
@@ -947,7 +948,8 @@ bucket_definitions:
       iter.return?.();
     });
 
-    const { bucket } = bucketRequest(syncRules, 'by_user["user1"]');
+    const syncRulesContent = (await f.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
+    const { bucket } = bucketRequest(syncRulesContent, 'by_user["user1"]');
     const checkpoint1 = await getCheckpointLines(iter);
 
     expect((checkpoint1[0] as StreamingSyncCheckpoint).checkpoint?.buckets?.map((b) => b.bucket)).toEqual([bucket]);
@@ -1038,7 +1040,8 @@ bucket_definitions:
 
     await writer.commit('0/1');
 
-    const { bucket } = test_utils.bucketRequest(syncRules, 'by_user["user1"]');
+    const syncRulesContent = (await f.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
+    const { bucket } = test_utils.bucketRequest(syncRulesContent, 'by_user["user1"]');
 
     const checkpoint2 = await getCheckpointLines(iter);
     expect(

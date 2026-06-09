@@ -33,7 +33,7 @@ export class BinlogStreamTestContext {
   private streamPromise?: Promise<void>;
   public storage?: SyncRulesBucketStorage;
   private replicationDone = false;
-  private syncRulesContent?: storage.PersistedSyncRulesContent;
+  private syncRulesContent?: storage.PersistedSyncConfigContent;
 
   static async open(factory: storage.TestStorageFactory, options?: { doNotClear?: boolean }) {
     const f = await factory({ doNotClear: options?.doNotClear });
@@ -71,38 +71,46 @@ export class BinlogStreamTestContext {
   }
 
   async updateSyncRules(content: string): Promise<SyncRulesBucketStorage> {
-    const syncRules = await this.factory.updateSyncRules(
+    const replicationStream = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: LEGACY_STORAGE_VERSION })
     );
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = (await this.factory.getReplicationStreamConfigs(replicationStream.replicationStreamId))[0];
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
   async loadNextSyncRules() {
-    const syncRules = await this.factory.getNextSyncRulesContent();
-    if (syncRules == null) {
+    const syncConfigContent = await this.factory.getDeployingSyncConfigContent();
+    if (syncConfigContent == null) {
       throw new Error(`Next replication stream not available`);
     }
 
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = syncConfigContent;
+    const replicationStream = await this.factory.getReplicationStream(syncConfigContent.replicationStreamId);
+    if (replicationStream == null) {
+      throw new Error(`Next replication stream not available`);
+    }
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
   async loadActiveSyncRules() {
-    const syncRules = await this.factory.getActiveSyncRulesContent();
-    if (syncRules == null) {
+    const syncConfigContent = await this.factory.getActiveSyncConfigContent();
+    if (syncConfigContent == null) {
       throw new Error(`Active replication stream not available`);
     }
 
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = syncConfigContent;
+    const replicationStream = await this.factory.getReplicationStream(syncConfigContent.replicationStreamId);
+    if (replicationStream == null) {
+      throw new Error(`Active replication stream not available`);
+    }
+    this.storage = this.factory.getInstance(replicationStream);
     this.replicationDone = true;
     return this.storage!;
   }
 
-  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+  private getSyncConfigContent(): storage.PersistedSyncConfigContent {
     if (this.syncRulesContent == null) {
       throw new Error('Sync config not configured - call updateSyncRules() first');
     }
@@ -165,8 +173,8 @@ export class BinlogStreamTestContext {
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     const checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.getSyncRulesContent();
-    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
+    const syncConfigContent = this.getSyncConfigContent();
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncConfigContent, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -179,9 +187,9 @@ export class BinlogStreamTestContext {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const syncRules = this.getSyncRulesContent();
+    const syncConfigContent = this.getSyncConfigContent();
     const checkpoint = await this.getCheckpoint(options);
-    const map = [bucketRequest(syncRules, bucket, start)];
+    const map = [bucketRequest(syncConfigContent, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];

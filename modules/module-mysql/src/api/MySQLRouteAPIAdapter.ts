@@ -1,4 +1,4 @@
-import { api, ParseSyncRulesOptions, ReplicationHeadCallback } from '@powersync/service-core';
+import { api, ParseSyncConfigOptions, ReplicationHeadCallback } from '@powersync/service-core';
 
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
@@ -29,7 +29,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     return this.config;
   }
 
-  getParseSyncRulesOptions(): ParseSyncRulesOptions {
+  getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
       // In MySQL Schema and Database are the same thing. There is no default database
       defaultSchema: this.config.database

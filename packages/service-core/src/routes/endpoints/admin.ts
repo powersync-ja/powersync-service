@@ -65,20 +65,38 @@ export const diagnostics = routeDefinition({
     const {
       storageEngine: { activeBucketStorage }
     } = service_context;
-    const active = await activeBucketStorage.getActiveSyncRulesContent();
-    const next = await activeBucketStorage.getNextSyncRulesContent();
+    const active = await activeBucketStorage.getActiveSyncConfigContent();
+    const activeStorage = await activeBucketStorage.getActiveStorage();
+    const deploying = await activeBucketStorage.getDeployingSyncConfigContent();
 
-    const active_status = await api.getSyncRulesStatus(activeBucketStorage, apiHandler, active, {
-      include_content,
-      check_connection: status.connected,
-      live_status: true
-    });
+    const active_status = await api.getSyncRulesStatus(
+      apiHandler,
+      active,
+      {
+        include_content,
+        check_connection: status.connected,
+        live_status: true
+      },
+      activeStorage ?? undefined
+    );
 
-    const next_status = await api.getSyncRulesStatus(activeBucketStorage, apiHandler, next, {
-      include_content,
-      check_connection: status.connected,
-      live_status: true
-    });
+    const deploying_status =
+      deploying == null
+        ? undefined
+        : await (async (syncConfig) => {
+            const stream = await activeBucketStorage.getReplicationStream(syncConfig.replicationStreamId);
+            const systemStorage = stream == null ? undefined : activeBucketStorage.getInstance(stream);
+            return api.getSyncRulesStatus(
+              apiHandler,
+              syncConfig,
+              {
+                include_content,
+                check_connection: status.connected,
+                live_status: true
+              },
+              systemStorage
+            );
+          })(deploying);
 
     return internal_routes.DiagnosticsResponse.encode({
       connections: [
@@ -89,7 +107,7 @@ export const diagnostics = routeDefinition({
         }
       ],
       active_sync_rules: active_status,
-      deploying_sync_rules: next_status
+      deploying_sync_rules: deploying_status
     });
   }
 });
@@ -119,12 +137,16 @@ export const reprocess = routeDefinition({
       storageEngine: { activeBucketStorage }
     } = service_context;
     const apiHandler = service_context.routerEngine.getAPI();
-    const next = await activeBucketStorage.getNextSyncRules(apiHandler.getParseSyncRulesOptions());
+    const next = await activeBucketStorage.getDeployingSyncConfigContent();
     if (next != null) {
-      throw new Error(`Busy processing sync config - cannot reprocess`);
+      throw new errors.ServiceError({
+        status: 409,
+        code: ErrorCode.PSYNC_S4106,
+        description: 'Busy processing sync config - cannot reprocess'
+      });
     }
 
-    const active = await activeBucketStorage.getActiveSyncRules(apiHandler.getParseSyncRulesOptions());
+    const active = await activeBucketStorage.getActiveSyncConfigContent();
     if (active == null) {
       throw new errors.ServiceError({
         status: 422,
@@ -132,13 +154,12 @@ export const reprocess = routeDefinition({
         description: 'No active sync config'
       });
     }
-
     // There are some differences between this and using asUpdateOptions():
     // 1. This always re-parses the source YAML. If there are changes to the sync stream compiler, that can affect the sync plan.
     // 2. If the source does not set the storage version, this will update it do the current version.
     // We can consider tweaking this behavior in the future.
     const new_rules = await activeBucketStorage.updateSyncRules(
-      storage.updateSyncRulesFromYaml(active.syncConfigWithErrors.config.content, {
+      storage.updateSyncRulesFromYaml(active.sync_rules_content, {
         // This sync config already passed validation. But if the config is not valid anymore due
         // to a service change, we do want to report the error here.
         validate: true
@@ -153,43 +174,44 @@ export const reprocess = routeDefinition({
           // Previously the connection was asserted with `!`
           tag: baseConfig.tag,
           id: baseConfig.id,
-          slot_name: new_rules.slot_name
+          slot_name: new_rules.replicationStreamName
         }
       ]
     });
   }
 });
 
-class FakeSyncRulesContentForValidation extends storage.PersistedSyncRulesContent {
+class FakeSyncRulesContentForValidation extends storage.PersistedSyncConfigContent {
   constructor(
     private readonly apiHandler: api.RouteAPI,
     private readonly schema: SourceSchema,
-    data: storage.PersistedSyncRulesContentData
+    data: storage.PersistedSyncConfigContentData
   ) {
     super(data);
   }
 
-  current_lock: storage.ReplicationLock | null = null;
+  parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
+    const syncConfig = SqlSyncRules.fromYaml(this.sync_rules_content, {
+      ...this.apiHandler.getParseSyncRulesOptions(),
+      schema: this.schema
+    });
 
-  async lock(): Promise<storage.ReplicationLock> {
-    throw new Error('Lock not implemented');
-  }
-
-  parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
     return {
-      ...this,
-      syncConfigWithErrors: SqlSyncRules.fromYaml(this.sync_rules_content, {
-        ...this.apiHandler.getParseSyncRulesOptions(),
-        schema: this.schema
-      }),
+      replicationStreamId: this.replicationStreamId,
+      replicationStreamName: this.replicationStreamName,
+      syncConfigs: [syncConfig],
       hydrationState: DEFAULT_HYDRATION_STATE,
       hydratedSyncConfig() {
-        return this.syncConfigWithErrors.config.hydrate({
+        return syncConfig.config.hydrate({
           hydrationState: DEFAULT_HYDRATION_STATE,
           sqlite: nodeSqlite(sqlite)
         });
       }
     };
+  }
+
+  async getSyncConfigStatus(): Promise<storage.PersistedSyncConfigStatus | null> {
+    return null;
   }
 }
 
@@ -210,10 +232,8 @@ export const validate = routeDefinition({
 
     const sync_rules = new FakeSyncRulesContentForValidation(apiHandler, schema, {
       // Dummy values
-      id: 0,
-      slot_name: '',
-      active: false,
-      last_checkpoint_lsn: '',
+      replicationStreamId: 0,
+      replicationStreamName: '',
       storageVersion: storage.LEGACY_STORAGE_VERSION,
       sync_rules_content: content,
       compiled_plan: null
@@ -227,16 +247,11 @@ export const validate = routeDefinition({
       });
     }
 
-    const status = (await api.getSyncRulesStatus(
-      service_context.storageEngine.activeBucketStorage,
-      apiHandler,
-      sync_rules,
-      {
-        include_content: false,
-        check_connection: connectionStatus.connected,
-        live_status: false
-      }
-    ))!;
+    const status = (await api.getSyncRulesStatus(apiHandler, sync_rules, {
+      include_content: false,
+      check_connection: connectionStatus.connected,
+      live_status: false
+    }))!;
 
     if (connectionStatus == null) {
       status.errors.push({ level: 'fatal', message: 'No connection configured', ts: new Date().toISOString() });
