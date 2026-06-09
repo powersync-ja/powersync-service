@@ -65,38 +65,33 @@ export const diagnostics = routeDefinition({
     const {
       storageEngine: { activeBucketStorage }
     } = service_context;
-    const active = await activeBucketStorage.getActiveSyncConfigContent();
-    const activeStorage = await activeBucketStorage.getActiveStorage();
-    const deploying = await activeBucketStorage.getDeployingSyncConfigContent();
+    const active = await activeBucketStorage.getActiveSyncConfig();
+    const deploying = await activeBucketStorage.getDeployingSyncConfig();
 
     const active_status = await api.getSyncRulesStatus(
       apiHandler,
-      active,
+      active?.content ?? null,
       {
         include_content,
         check_connection: status.connected,
         live_status: true
       },
-      activeStorage ?? undefined
+      active?.storage
     );
 
     const deploying_status =
       deploying == null
         ? undefined
-        : await (async (syncConfig) => {
-            const stream = await activeBucketStorage.getReplicationStream(syncConfig.replicationStreamId);
-            const systemStorage = stream == null ? undefined : activeBucketStorage.getInstance(stream);
-            return api.getSyncRulesStatus(
-              apiHandler,
-              syncConfig,
-              {
-                include_content,
-                check_connection: status.connected,
-                live_status: true
-              },
-              systemStorage
-            );
-          })(deploying);
+        : await api.getSyncRulesStatus(
+            apiHandler,
+            deploying.content,
+            {
+              include_content,
+              check_connection: status.connected,
+              live_status: true
+            },
+            deploying.storage
+          );
 
     return internal_routes.DiagnosticsResponse.encode({
       connections: [
@@ -137,7 +132,7 @@ export const reprocess = routeDefinition({
       storageEngine: { activeBucketStorage }
     } = service_context;
     const apiHandler = service_context.routerEngine.getAPI();
-    const next = await activeBucketStorage.getDeployingSyncConfigContent();
+    const next = await activeBucketStorage.getDeployingSyncConfig();
     if (next != null) {
       throw new errors.ServiceError({
         status: 409,
@@ -146,7 +141,7 @@ export const reprocess = routeDefinition({
       });
     }
 
-    const active = await activeBucketStorage.getActiveSyncConfigContent();
+    const active = await activeBucketStorage.getActiveSyncConfig();
     if (active == null) {
       throw new errors.ServiceError({
         status: 422,
@@ -159,7 +154,7 @@ export const reprocess = routeDefinition({
     // 2. If the source does not set the storage version, this will update it do the current version.
     // We can consider tweaking this behavior in the future.
     const new_rules = await activeBucketStorage.updateSyncRules(
-      storage.updateSyncRulesFromYaml(active.sync_rules_content, {
+      storage.updateSyncRulesFromYaml(active.content.sync_rules_content, {
         // This sync config already passed validation. But if the config is not valid anymore due
         // to a service change, we do want to report the error here.
         validate: true

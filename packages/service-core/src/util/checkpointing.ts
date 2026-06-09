@@ -11,7 +11,7 @@ export interface CreateWriteCheckpointOptions {
 export async function createWriteCheckpoint(options: CreateWriteCheckpointOptions) {
   const full_user_id = checkpointUserId(options.userId, options.clientId);
 
-  const syncBucketStorage = await options.storage.getActiveStorage();
+  const syncBucketStorage = (await options.storage.getActiveSyncConfig())?.storage;
   if (!syncBucketStorage) {
     throw new ServiceError(ErrorCode.PSYNC_S2302, `Cannot create Write Checkpoint since no sync config is active.`);
   }

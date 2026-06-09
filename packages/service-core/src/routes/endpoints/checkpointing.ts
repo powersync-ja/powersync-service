@@ -30,7 +30,7 @@ export const writeCheckpoint = routeDefinition({
 
     logger.info(`Waiting for LSN checkpoint: ${head}`);
     while (Date.now() - start < timeout) {
-      const bucketStorage = await service_context.storageEngine.activeBucketStorage.getActiveStorage();
+      const bucketStorage = (await service_context.storageEngine.activeBucketStorage.getActiveSyncConfig())?.storage;
       const cp = await bucketStorage?.getCheckpoint();
       if (cp == null) {
         throw new Error('No sync config available');

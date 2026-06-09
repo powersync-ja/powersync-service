@@ -110,17 +110,13 @@ export class ChangeStreamTestContext {
   }
 
   async loadNextSyncRules() {
-    const syncConfigContent = await this.factory.getDeployingSyncConfigContent();
-    if (syncConfigContent == null) {
+    const syncConfig = await this.factory.getDeployingSyncConfig();
+    if (syncConfig == null) {
       throw new Error(`Next sync config not available`);
     }
 
-    this.syncRulesContent = syncConfigContent;
-    const replicationStream = await this.factory.getReplicationStream(syncConfigContent.replicationStreamId);
-    if (replicationStream == null) {
-      throw new Error(`Next replication stream not available`);
-    }
-    this.storage = this.factory.getInstance(replicationStream);
+    this.syncRulesContent = syncConfig.content;
+    this.storage = syncConfig.storage;
     return this.storage!;
   }
 
@@ -262,7 +258,7 @@ export async function getClientCheckpoint(
   let lastCp: ReplicationCheckpoint | null = null;
 
   while (Date.now() - start < timeout) {
-    const storage = await storageFactory.getActiveStorage();
+    const storage = (await storageFactory.getActiveSyncConfig())?.storage;
     const cp = await storage?.getCheckpoint();
     if (cp != null) {
       lastCp = cp;

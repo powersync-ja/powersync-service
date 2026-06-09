@@ -1628,8 +1628,8 @@ bucket_definitions:
     const cp2 = await bucketStorage.getCheckpoint();
     expect(cp2.lsn).toEqual('3/1');
 
-    const activeSyncRules = await factory.getActiveSyncConfigContent();
-    expect(activeSyncRules?.replicationStreamId).toEqual(syncRules.replicationStreamId);
+    const activeSyncRules = await factory.getActiveSyncConfig();
+    expect(activeSyncRules?.content.replicationStreamId).toEqual(syncRules.replicationStreamId);
 
     // At this point, it should be a truely empty checkpoint
     const result4 = await writer.commit('4/1', { createEmptyCheckpoints: false });

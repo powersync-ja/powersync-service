@@ -83,7 +83,7 @@ export function registerCompactAction(program: Command) {
       await serviceContext.lifeCycleEngine.start();
       const bucketStorage = serviceContext.storageEngine.activeBucketStorage;
 
-      const active = await bucketStorage.getActiveStorage();
+      const active = (await bucketStorage.getActiveSyncConfig())?.storage;
       if (active == null) {
         logger.info('No active instance to compact');
         return;

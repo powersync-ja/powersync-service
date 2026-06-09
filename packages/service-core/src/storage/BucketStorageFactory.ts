@@ -34,13 +34,13 @@ export abstract class BucketStorageFactory
   async configureSyncRules(
     options: UpdateSyncRulesOptions
   ): Promise<{ updated: boolean; persisted_sync_rules?: PersistedReplicationStream; lock?: ReplicationLock }> {
-    const deploying = await this.getDeployingSyncConfigContent();
-    const active = await this.getActiveSyncConfigContent();
+    const deploying = await this.getDeployingSyncConfig();
+    const active = await this.getActiveSyncConfig();
 
-    if (deploying?.sync_rules_content == options.config.yaml) {
+    if (deploying?.content.sync_rules_content == options.config.yaml) {
       logger.info('Sync config unchanged');
       return { updated: false };
-    } else if (deploying == null && active?.sync_rules_content == options.config.yaml) {
+    } else if (deploying == null && active?.content.sync_rules_content == options.config.yaml) {
       logger.info('Sync config unchanged');
       return { updated: false };
     } else {
@@ -76,22 +76,14 @@ export abstract class BucketStorageFactory
   abstract restartReplication(replicationStreamId: number): Promise<void>;
 
   /**
-   * Get the sync config used for querying.
+   * Get the sync config and storage used for querying.
    */
-  abstract getActiveSyncConfigContent(): Promise<PersistedSyncConfigContent | null>;
+  abstract getActiveSyncConfig(): Promise<ResolvedSyncConfig | null>;
 
   /**
-   * Get the sync config that is still deploying.
+   * Get the sync config and storage that is still deploying.
    */
-  abstract getDeployingSyncConfigContent(): Promise<PersistedSyncConfigContent | null>;
-
-  /**
-   * Get a replication stream by id, regardless of state.
-   *
-   * This is the canonical way to obtain a {@link PersistedReplicationStream} for use with
-   * {@link getInstance} when starting from a {@link PersistedSyncConfigContent}.
-   */
-  abstract getReplicationStream(replicationStreamId: number): Promise<PersistedReplicationStream | null>;
+  abstract getDeployingSyncConfig(): Promise<ResolvedSyncConfig | null>;
 
   /**
    * Get all replication streams currently replicating.
@@ -102,11 +94,6 @@ export abstract class BucketStorageFactory
    * Get all replication streams stopped but not terminated yet.
    */
   abstract getStoppedReplicationStreams(): Promise<PersistedReplicationStream[]>;
-
-  /**
-   * Get the active storage instance.
-   */
-  abstract getActiveStorage(): Promise<SyncRulesBucketStorage | null>;
 
   /**
    * Get storage size of active replication stream.
@@ -129,6 +116,12 @@ export abstract class BucketStorageFactory
 export interface BucketStorageFactoryListener {
   syncStorageCreated: (storage: SyncRulesBucketStorage) => void;
   replicationEvent: (event: ReplicationEventPayload) => void;
+}
+
+export interface ResolvedSyncConfig {
+  content: PersistedSyncConfigContent;
+  replicationStream: PersistedReplicationStream;
+  storage: SyncRulesBucketStorage;
 }
 
 export interface StorageMetrics {

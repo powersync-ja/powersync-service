@@ -1,4 +1,4 @@
-import { framework, GetIntanceOptions, storage, SyncRulesBucketStorage } from '@powersync/service-core';
+import { framework, GetIntanceOptions, storage } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
 import crypto from 'crypto';
 import * as uuid from 'uuid';
@@ -10,10 +10,7 @@ import { getStorageApplicationName } from '../utils/application-name.js';
 import { NOTIFICATION_CHANNEL, STORAGE_SCHEMA_NAME } from '../utils/db.js';
 import { notifySyncRulesUpdate } from './batch/PostgresBucketBatch.js';
 import { PostgresSyncRulesStorage } from './PostgresSyncRulesStorage.js';
-import {
-  PostgresPersistedReplicationStream,
-  PostgresPersistedSyncConfigContent
-} from './sync-rules/PostgresPersistedSyncConfigContent.js';
+import { PostgresPersistedReplicationStream } from './sync-rules/PostgresPersistedSyncConfigContent.js';
 
 export type PostgresBucketStorageOptions = {
   config: NormalizedPostgresStorageConfig;
@@ -75,8 +72,8 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   }
 
   async getStorageMetrics(): Promise<storage.StorageMetrics> {
-    const activeSyncConfigContent = await this.getActiveSyncConfigContent();
-    if (activeSyncConfigContent == null) {
+    const activeSyncConfig = await this.getActiveSyncConfig();
+    if (activeSyncConfig == null) {
       return {
         operations_size_bytes: 0,
         parameters_size_bytes: 0,
@@ -256,27 +253,27 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   }
 
   async restartReplication(replicationStreamId: number): Promise<void> {
-    const next = await this.getDeployingSyncConfigContent();
-    const active = await this.getActiveSyncConfigContent();
+    const next = await this.getDeployingSyncConfig();
+    const active = await this.getActiveSyncConfig();
 
     // In both the below cases, we create a new replication stream.
     // The current one will continue serving sync requests until the next one has finished processing.
-    if (next != null && next.replicationStreamId == replicationStreamId) {
+    if (next != null && next.content.replicationStreamId == replicationStreamId) {
       // We need to redo the "next" replication stream
 
-      await this.updateSyncRules(next.asUpdateOptions());
+      await this.updateSyncRules(next.content.asUpdateOptions());
       // Pro-actively stop replicating
       await this.db.sql`
         UPDATE sync_rules
         SET
           state = ${{ value: storage.SyncRuleState.STOP, type: 'varchar' }}
         WHERE
-          id = ${{ value: next.replicationStreamId, type: 'int4' }}
+          id = ${{ value: next.content.replicationStreamId, type: 'int4' }}
           AND state = ${{ value: storage.SyncRuleState.PROCESSING, type: 'varchar' }}
       `.execute();
-    } else if (next == null && active?.replicationStreamId == replicationStreamId) {
+    } else if (next == null && active?.content.replicationStreamId == replicationStreamId) {
       // Slot removed for "active" replication stream, while there is no "next" one.
-      await this.updateSyncRules(active.asUpdateOptions());
+      await this.updateSyncRules(active.content.asUpdateOptions());
 
       // Pro-actively stop replicating, but still serve clients with existing data
       await this.db.sql`
@@ -284,10 +281,10 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
         SET
           state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
         WHERE
-          id = ${{ value: active.replicationStreamId, type: 'int4' }}
+          id = ${{ value: active.content.replicationStreamId, type: 'int4' }}
           AND state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
       `.execute();
-    } else if (next != null && active?.replicationStreamId == replicationStreamId) {
+    } else if (next != null && active?.content.replicationStreamId == replicationStreamId) {
       // Already have "next" replication stream - don't update any.
 
       // Pro-actively stop replicating, but still serve clients with existing data
@@ -296,13 +293,13 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
         SET
           state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
         WHERE
-          id = ${{ value: active.replicationStreamId, type: 'int4' }}
+          id = ${{ value: active.content.replicationStreamId, type: 'int4' }}
           AND state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
       `.execute();
     }
   }
 
-  async getActiveSyncConfigContent(): Promise<storage.PersistedSyncConfigContent | null> {
+  async getActiveSyncConfig(): Promise<storage.ResolvedSyncConfig | null> {
     const activeRow = await this.db.sql`
       SELECT
         *
@@ -322,10 +319,10 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       return null;
     }
 
-    return new PostgresPersistedSyncConfigContent(this.db, activeRow);
+    return this.resolvedSyncConfigFromRow(activeRow, { cacheActiveStorage: true });
   }
 
-  async getDeployingSyncConfigContent(): Promise<storage.PersistedSyncConfigContent | null> {
+  async getDeployingSyncConfig(): Promise<storage.ResolvedSyncConfig | null> {
     const row = await this.db.sql`
       SELECT
         *
@@ -341,24 +338,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       .decoded(models.SyncRules)
       .first();
 
-    return row == null ? null : new PostgresPersistedSyncConfigContent(this.db, row);
-  }
-
-  async getReplicationStream(replicationStreamId: number): Promise<storage.PersistedReplicationStream | null> {
-    const row = await this.db.sql`
-      SELECT
-        *
-      FROM
-        sync_rules
-      WHERE
-        id = ${{ value: replicationStreamId, type: 'int4' }}
-    `
-      .decoded(models.SyncRules)
-      .first();
-    if (row == null) {
-      return null;
-    }
-    return new PostgresPersistedReplicationStream(this.db, row);
+    return row == null ? null : this.resolvedSyncConfigFromRow(row);
   }
 
   async getReplicatingReplicationStreams(): Promise<storage.PersistedReplicationStream[]> {
@@ -392,37 +372,34 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     return rows.map((row) => new PostgresPersistedReplicationStream(this.db, row));
   }
 
-  async getActiveStorage(): Promise<SyncRulesBucketStorage | null> {
-    const activeRow = await this.db.sql`
-      SELECT
-        *
-      FROM
-        sync_rules
-      WHERE
-        state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
-        OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
-      ORDER BY
-        id DESC
-      LIMIT
-        1
-    `
-      .decoded(models.SyncRules)
-      .first();
-    if (!activeRow) {
-      return null;
-    }
-    const stream = new PostgresPersistedReplicationStream(this.db, activeRow);
+  private resolvedSyncConfigFromRow(
+    row: models.SyncRulesDecoded,
+    options: { cacheActiveStorage?: boolean } = {}
+  ): storage.ResolvedSyncConfig {
+    const stream = new PostgresPersistedReplicationStream(this.db, row);
+    const content = stream.syncConfigContent[0];
+    const thisFactory = this;
 
-    // It is important that this instance is cached.
-    // Not for the instance construction itself, but to ensure that internal caches on the instance
-    // are re-used properly.
-    const activeStorageCache = this.activeStorageCache;
-    if (activeStorageCache?.replicationStreamId == stream.replicationStreamId) {
-      return activeStorageCache;
-    } else {
-      const instance = this.getInstance(stream);
-      this.activeStorageCache = instance;
-      return instance;
-    }
+    return {
+      content,
+      replicationStream: stream,
+      get storage() {
+        // It is important that this instance is cached.
+        // Not for the instance construction itself, but to ensure that internal caches on the instance
+        // are re-used properly.
+        if (options.cacheActiveStorage) {
+          const activeStorageCache = thisFactory.activeStorageCache;
+          if (activeStorageCache?.replicationStreamId == stream.replicationStreamId) {
+            return activeStorageCache;
+          }
+        }
+
+        const instance = thisFactory.getInstance(stream);
+        if (options.cacheActiveStorage) {
+          thisFactory.activeStorageCache = instance;
+        }
+        return instance;
+      }
+    };
   }
 }

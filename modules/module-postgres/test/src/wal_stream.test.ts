@@ -370,7 +370,7 @@ bucket_definitions:
     {
       await using context = await openContext({ doNotClear: true });
       const { pool } = context;
-      const storage = await context.factory.getActiveStorage();
+      const storage = (await context.factory.getActiveSyncConfig())?.storage;
 
       // Here we explicitly drop the replication slot, which should always be handled.
       await pool.query({
@@ -432,7 +432,7 @@ bucket_definitions:
     {
       await using context = await openContext({ doNotClear: true });
       const { pool } = context;
-      const storage = await context.factory.getActiveStorage();
+      const storage = (await context.factory.getActiveSyncConfig())?.storage;
       const slotName = storage?.replicationStreamName!;
 
       // Here, we write data to the WAL until the replication slot is lost.

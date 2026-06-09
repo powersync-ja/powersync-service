@@ -55,33 +55,26 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
   }
 
   async loadNextSyncRules() {
-    const syncConfigContent = await this.factory.getDeployingSyncConfigContent();
-    if (syncConfigContent == null) {
+    const syncConfig = await this.factory.getDeployingSyncConfig();
+    if (syncConfig == null) {
       throw new Error(`Next sync config not available`);
     }
-    const stream = await this.factory.getReplicationStream(syncConfigContent.replicationStreamId);
-    if (stream == null) {
-      throw new Error(`Next replication stream not available`);
-    }
 
-    this.syncRulesContent = syncConfigContent;
-    this.replicationStream = stream;
-    this.storage = this.factory.getInstance(stream);
+    this.syncRulesContent = syncConfig.content;
+    this.replicationStream = syncConfig.replicationStream;
+    this.storage = syncConfig.storage;
     return this.storage!;
   }
 
   async loadActiveSyncRules() {
-    const syncConfigContent = await this.factory.getActiveSyncConfigContent();
-    if (syncConfigContent == null) {
+    const syncConfig = await this.factory.getActiveSyncConfig();
+    if (syncConfig == null) {
       throw new Error(`Active sync config not available`);
     }
-    const storage = await this.factory.getActiveStorage();
-    if (storage == null) {
-      throw new Error(`Active replication stream not available`);
-    }
 
-    this.syncRulesContent = syncConfigContent;
-    this.storage = storage;
+    this.syncRulesContent = syncConfig.content;
+    this.replicationStream = syncConfig.replicationStream;
+    this.storage = syncConfig.storage;
     return this.storage!;
   }
 

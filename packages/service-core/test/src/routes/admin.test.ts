@@ -123,11 +123,16 @@ bucket_definitions:
         }
       }));
       const activeBucketStorage = {
-        getActiveSyncConfigContent: vi.fn(async () => active),
-        getActiveStorage: vi.fn(async () => getInstance()),
-        getDeployingSyncConfigContent: vi.fn(async () => deploying),
-        getReplicationStream: vi.fn(async (id: number) => ({ id, slot_name: `slot_${id}` })),
-        getInstance
+        getActiveSyncConfig: vi.fn(async () => ({
+          content: active,
+          replicationStream: {},
+          storage: getInstance()
+        })),
+        getDeployingSyncConfig: vi.fn(async () => ({
+          content: deploying,
+          replicationStream: {},
+          storage: getInstance()
+        }))
       };
 
       const response = await diagnostics.handler({
@@ -153,8 +158,12 @@ bucket_definitions:
         current_lock: null
       }));
       const activeBucketStorage = {
-        getDeployingSyncConfigContent: vi.fn(async () => null),
-        getActiveSyncConfigContent: vi.fn(async () => active),
+        getDeployingSyncConfig: vi.fn(async () => null),
+        getActiveSyncConfig: vi.fn(async () => ({
+          content: active,
+          replicationStream: {},
+          storage: {}
+        })),
         getSyncConfigContent: vi.fn(),
         updateSyncRules
       };
@@ -165,7 +174,7 @@ bucket_definitions:
         request
       });
 
-      expect(activeBucketStorage.getActiveSyncConfigContent).toHaveBeenCalledTimes(1);
+      expect(activeBucketStorage.getActiveSyncConfig).toHaveBeenCalledTimes(1);
       expect(activeBucketStorage.getSyncConfigContent).not.toHaveBeenCalled();
       expect(updateSyncRules).toHaveBeenCalledTimes(1);
       expect(response.connections[0].slot_name).toBe('new_slot');
@@ -173,8 +182,12 @@ bucket_definitions:
 
     it('rejects reprocess while a sync config is deploying', async () => {
       const activeBucketStorage = {
-        getDeployingSyncConfigContent: vi.fn(async () => makeSyncConfigContent({ id: 2, active: false })),
-        getActiveSyncConfigContent: vi.fn(),
+        getDeployingSyncConfig: vi.fn(async () => ({
+          content: makeSyncConfigContent({ id: 2, active: false }),
+          replicationStream: {},
+          storage: {}
+        })),
+        getActiveSyncConfig: vi.fn(),
         updateSyncRules: vi.fn()
       };
 
@@ -191,7 +204,7 @@ bucket_definitions:
           description: 'Busy processing sync config - cannot reprocess'
         }
       });
-      expect(activeBucketStorage.getActiveSyncConfigContent).not.toHaveBeenCalled();
+      expect(activeBucketStorage.getActiveSyncConfig).not.toHaveBeenCalled();
       expect(activeBucketStorage.updateSyncRules).not.toHaveBeenCalled();
     });
   });

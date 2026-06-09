@@ -80,32 +80,24 @@ export class BinlogStreamTestContext {
   }
 
   async loadNextSyncRules() {
-    const syncConfigContent = await this.factory.getDeployingSyncConfigContent();
-    if (syncConfigContent == null) {
+    const syncConfig = await this.factory.getDeployingSyncConfig();
+    if (syncConfig == null) {
       throw new Error(`Next replication stream not available`);
     }
 
-    this.syncRulesContent = syncConfigContent;
-    const replicationStream = await this.factory.getReplicationStream(syncConfigContent.replicationStreamId);
-    if (replicationStream == null) {
-      throw new Error(`Next replication stream not available`);
-    }
-    this.storage = this.factory.getInstance(replicationStream);
+    this.syncRulesContent = syncConfig.content;
+    this.storage = syncConfig.storage;
     return this.storage!;
   }
 
   async loadActiveSyncRules() {
-    const syncConfigContent = await this.factory.getActiveSyncConfigContent();
-    if (syncConfigContent == null) {
+    const syncConfig = await this.factory.getActiveSyncConfig();
+    if (syncConfig == null) {
       throw new Error(`Active replication stream not available`);
     }
 
-    this.syncRulesContent = syncConfigContent;
-    const replicationStream = await this.factory.getReplicationStream(syncConfigContent.replicationStreamId);
-    if (replicationStream == null) {
-      throw new Error(`Active replication stream not available`);
-    }
-    this.storage = this.factory.getInstance(replicationStream);
+    this.syncRulesContent = syncConfig.content;
+    this.storage = syncConfig.storage;
     this.replicationDone = true;
     return this.storage!;
   }
@@ -211,7 +203,7 @@ export async function getClientCheckpoint(
 
   logger.info('Expected Checkpoint: ' + gtid.comparable);
   while (Date.now() - start < timeout) {
-    const storage = await storageFactory.getActiveStorage();
+    const storage = (await storageFactory.getActiveSyncConfig())?.storage;
     const cp = await storage?.getCheckpoint();
     if (cp == null) {
       throw new Error('No replication stream available');
