@@ -71,7 +71,7 @@ function hydratedRulesFor(yaml: string) {
  * This relies on internals of bucket naming, but helps for simplifying tests.
  */
 function bucketDefinitionId(bucket: string) {
-  const match = bucket.match(/^([0-9a-f]+)\[/);
+  const match = bucket.match(/^\w+\|\w+\.\w+\.(\w+)\[/);
   if (match == null) {
     throw new Error(`Expected versioned bucket name, got ${bucket}`);
   }
@@ -774,16 +774,19 @@ streams:
     const statuses = await Promise.all(
       configs.map(async (config) => [config, await config.getSyncConfigStatus()] as const)
     );
-    const stoppedConfig = statuses.find(([, status]) => status?.state == storage.SyncRuleState.STOP)?.[0];
+    // ownerRules
     const activeConfig = statuses.find(([, status]) => status?.state == storage.SyncRuleState.ACTIVE)?.[0];
+    // projectRules
+    const stoppedConfig = statuses.find(([, status]) => status?.state == storage.SyncRuleState.STOP)?.[0];
+    // statusRules
     const processingConfig = statuses.find(([, status]) => status?.state == storage.SyncRuleState.PROCESSING)?.[0];
     expect(stoppedConfig).toBeDefined();
     expect(activeConfig).toBeDefined();
     expect(processingConfig).toBeDefined();
 
-    const stoppedPrefix = bucketRequest(stoppedConfig!, 'by_owner["owner"]').bucket;
-    const activePrefix = bucketRequest(activeConfig!, 'by_project["project"]').bucket;
-    const processingPrefix = bucketRequest(processingConfig!, 'by_status["status"]').bucket;
+    const activePrefix = bucketRequest(activeConfig!, 'by_owner|0["owner"]').bucket;
+    const stoppedPrefix = bucketRequest(stoppedConfig!, 'by_project|0["project"]').bucket;
+    const processingPrefix = bucketRequest(processingConfig!, 'by_status|0["status"]').bucket;
 
     expect(processingPrefix).not.toBe(stoppedPrefix);
     expect(processingPrefix).not.toBe(activePrefix);

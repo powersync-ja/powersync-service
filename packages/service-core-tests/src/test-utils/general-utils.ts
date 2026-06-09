@@ -112,12 +112,13 @@ export function bucketRequest(
   const parameterStart = bucket.indexOf('[');
   const definitionName = bucket.substring(0, parameterStart);
   const parameters = bucket.substring(parameterStart);
-  const source = parsed.syncConfigs
-    .flatMap((config) => config.config.bucketDataSources)
-    .find((b) => b.uniqueName === definitionName);
+  const availableSources = parsed.syncConfigs.flatMap((config) => config.config.bucketDataSources);
+  const source = availableSources.find((b) => b.uniqueName === definitionName);
 
   if (source == null) {
-    throw new Error(`Failed to find global bucket ${bucket}`);
+    throw new Error(
+      `Failed to find global bucket ${bucket}. Available: ${availableSources.map((s) => s.uniqueName).join(',')}`
+    );
   }
   const bucketName = hydrationState.getBucketSourceScope(source).bucketPrefix + parameters;
   return {
