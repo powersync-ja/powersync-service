@@ -72,6 +72,10 @@ export function sqliteExpressionEngine(sqlite: SQLite, compatibility: Compatibil
     });
   }
 
+  // We want upper / lower to use a JS implementation to make them Unicode aware.
+  registerPowerSyncFunction('upper');
+  registerPowerSyncFunction('lower');
+
   // Needed to make them deterministic / prevent passing 'now'
   registerPowerSyncFunction('unixepoch');
   registerPowerSyncFunction('datetime');
