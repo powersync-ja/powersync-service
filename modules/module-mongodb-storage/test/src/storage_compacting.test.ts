@@ -2078,5 +2078,27 @@ bucket_definitions:
       expect(allOps.length).toBe(1);
       expect(allOps[0].op).toBe('CLEAR');
     });
+
+    test('CLEAR document carries target_op from collapsed MOVE tombstones', async () => {
+      const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+      // Three versions of row A: ops 10, 20, 30.
+      // MOVE pass: 30 survives, 20 and 10 become MOVE tombstones (target=30).
+      // CLEAR pass: collapses both MOVEs. The CLEAR doc should carry target_op=30.
+      const doc = serializeBucketData(BUCKET, [
+        makeOp(10, 'A', 'a1', ctx, sourceTableId),
+        makeOp(20, 'A', 'a2', ctx, sourceTableId),
+        makeOp(30, 'A', 'a3', ctx, sourceTableId)
+      ]);
+      await insertDocs(collection, [doc]);
+      await insertBucketState(bucketStateCollection, ctx.definitionId, 30n);
+
+      await doCompact(bucketStorage, 30n);
+
+      const docsAfter = await collection.find({ '_id.b': BUCKET }).toArray();
+      const clearDoc = docsAfter.find((d: any) => d.ops.some((op: any) => op.op === 'CLEAR'));
+      expect(clearDoc).toBeDefined();
+      expect(clearDoc!.target_op).toBe(30n);
+    });
   });
 });
