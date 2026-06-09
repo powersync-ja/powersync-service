@@ -45,10 +45,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computePartialChecksumsForCollection(
         requests,
-        this.db.bucketData(
-          this.group_id,
-          definitionId
-        ) as unknown as lib_mongo.mongo.Collection<BucketDataDocumentBase>,
+        this.db.bucketData(this.group_id, definitionId) as unknown as lib_mongo.mongo.Collection<BucketDataDocumentBase>
       );
       for (const checksum of groupResults.values()) {
         results.set(checksum.bucket, checksum);
@@ -127,10 +124,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computePartialChecksumsForCollection(
         requests,
-        this.db.bucketData(
-          this.group_id,
-          definitionId
-        ) as unknown as lib_mongo.mongo.Collection<BucketDataDocumentBase>,
+        this.db.bucketData(this.group_id, definitionId) as unknown as lib_mongo.mongo.Collection<BucketDataDocumentBase>
       );
       for (const checksum of groupResults.values()) {
         results.set(checksum.bucket, checksum);
@@ -145,10 +139,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
   protected override async computePartialChecksumsForCollection<
     TRequest extends FetchPartialBucketChecksumByBucket,
     TBucketDataDocument extends BucketDataDocumentBase
-  >(
-    batch: TRequest[],
-    collection: lib_mongo.mongo.Collection<TBucketDataDocument>,
-  ): Promise<PartialChecksumMap> {
+  >(batch: TRequest[], collection: lib_mongo.mongo.Collection<TBucketDataDocument>): Promise<PartialChecksumMap> {
     const requests = new Map<string, FetchPartialBucketChecksumByBucket>();
     for (let request of batch) {
       requests.set(request.bucket, request);
