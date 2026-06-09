@@ -1,5 +1,5 @@
 import { describe, expect } from 'vitest';
-import { Equality, StableHasher } from '../../../../src/compiler/equality.js';
+import { StableHasher } from '../../../../src/compiler/equality.js';
 import {
   BucketDataSource,
   SerializedBucketDataSourceWithDataSources,
@@ -28,9 +28,6 @@ streams:
   stream:
     query: SELECT id, owner_id FROM todos WHERE owner_id = auth.user_id()
 `;
-    const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
-    const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
-
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 
@@ -51,9 +48,6 @@ streams:
   stream:
     query: SELECT id, title FROM todos WHERE owner_id = auth.user_id()
 `;
-    const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
-    const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
-
     expectSerializedBucketSources(firstYaml, secondYaml, false);
   });
 
@@ -74,9 +68,6 @@ streams:
   stream:
     query: SELECT * FROM todos WHERE project_id = auth.user_id()
 `;
-    const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
-    const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
-
     expectSerializedBucketSources(firstYaml, secondYaml, false);
   });
 
@@ -129,9 +120,6 @@ streams:
         SELECT id FROM organizations WHERE owner_id = auth.user_id()
       )
 `;
-    const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
-    const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
-
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 
@@ -152,9 +140,6 @@ streams:
   stream:
     query: SELECT * FROM todos WHERE owner_id = auth.parameter('user_id')
 `;
-    const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
-    const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
-
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 
@@ -179,9 +164,6 @@ streams:
       - SELECT * FROM stores
       - SELECT * FROM products
 `;
-    const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
-    const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
-
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 
@@ -208,8 +190,6 @@ streams:
       FROM customers, json_each(customers.active_regions) AS region
       WHERE region.value < 'm'
 `;
-    const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
-    const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
 
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
@@ -234,8 +214,8 @@ function expectSerializedBucketSources(
 
   expect(serializedStreamBucketDataSourceEquality.equals(first, second)).toBe(equal);
   if (equal) {
-    expect(hashWith(serializedStreamBucketDataSourceEquality, first)).toEqual(
-      hashWith(serializedStreamBucketDataSourceEquality, second)
+    expect(StableHasher.hashWith(serializedStreamBucketDataSourceEquality, first)).toEqual(
+      StableHasher.hashWith(serializedStreamBucketDataSourceEquality, second)
     );
   }
 }
@@ -246,10 +226,4 @@ function firstSerializedBucketSource(yaml: string): SerializedBucketDataSourceWi
     bucket: plan.buckets[0],
     dataSources: plan.dataSources
   };
-}
-
-function hashWith<T>(equality: Equality<T>, value: T): number {
-  const hasher = new StableHasher();
-  equality.hash(hasher, value);
-  return hasher.buildHashCode();
 }
