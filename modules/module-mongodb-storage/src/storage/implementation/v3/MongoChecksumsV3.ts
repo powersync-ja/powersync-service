@@ -49,7 +49,6 @@ export class MongoChecksumsV3 extends MongoChecksums {
           this.group_id,
           definitionId
         ) as unknown as lib_mongo.mongo.Collection<BucketDataDocumentBase>,
-        createBucketFilter
       );
       for (const checksum of groupResults.values()) {
         results.set(checksum.bucket, checksum);
@@ -132,7 +131,6 @@ export class MongoChecksumsV3 extends MongoChecksums {
           this.group_id,
           definitionId
         ) as unknown as lib_mongo.mongo.Collection<BucketDataDocumentBase>,
-        createBucketFilter
       );
       for (const checksum of groupResults.values()) {
         results.set(checksum.bucket, checksum);
@@ -150,14 +148,13 @@ export class MongoChecksumsV3 extends MongoChecksums {
   >(
     batch: TRequest[],
     collection: lib_mongo.mongo.Collection<TBucketDataDocument>,
-    createFilter: (request: TRequest) => any
   ): Promise<PartialChecksumMap> {
-    const requests = new Map<string, TRequest>();
+    const requests = new Map<string, FetchPartialBucketChecksumByBucket>();
     for (let request of batch) {
       requests.set(request.bucket, request);
     }
 
-    const pipeline = this.buildPartialChecksumPipeline(requests, createFilter);
+    const pipeline = this.buildPartialChecksumPipeline(requests);
     const aggregate = await collection
       .aggregate(pipeline, {
         session: undefined,
@@ -172,11 +169,8 @@ export class MongoChecksumsV3 extends MongoChecksums {
     return this.normalizePartialChecksumResults(batch, aggregate);
   }
 
-  private buildPartialChecksumPipeline<TRequest extends FetchPartialBucketChecksumByBucket>(
-    requests: Map<string, TRequest>,
-    createFilter: (request: TRequest) => any
-  ): bson.Document[] {
-    const filters = Array.from(requests.values(), createFilter);
+  private buildPartialChecksumPipeline(requests: Map<string, FetchPartialBucketChecksumByBucket>): bson.Document[] {
+    const filters = Array.from(requests.values(), createBucketFilter);
 
     return [
       // $match with $or filters
@@ -296,8 +290,8 @@ export class MongoChecksumsV3 extends MongoChecksums {
     ];
   }
 
-  private normalizePartialChecksumResults<TRequest extends FetchPartialBucketChecksumByBucket>(
-    batch: TRequest[],
+  private normalizePartialChecksumResults(
+    batch: FetchPartialBucketChecksumByBucket[],
     aggregate: bson.Document[]
   ): PartialChecksumMap {
     const partialChecksums = new Map<string, PartialOrFullChecksum>();
@@ -331,9 +325,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
   }
 }
 
-function createBucketFilter<TRequest extends Pick<FetchPartialBucketChecksumByBucket, 'bucket' | 'start' | 'end'>>(
-  request: TRequest
-) {
+function createBucketFilter(request: Pick<FetchPartialBucketChecksumByBucket, 'bucket' | 'start' | 'end'>) {
   return {
     _id: {
       $gt: {
