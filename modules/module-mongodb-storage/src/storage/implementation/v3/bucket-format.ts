@@ -64,7 +64,7 @@ export function* loadBucketDataDocument(
       row_id: op.row_id,
       checksum: op.checksum,
       data: op.data,
-      target_op: null
+      target_op: doc.target_op ?? null
     };
   }
 }

@@ -2521,8 +2521,56 @@ exports[`sync - mongodb > storage v3 > compacting data - invalidate checkpoint 2
     },
   },
   {
+    "checkpoint_diff": {
+      "last_op_id": "4",
+      "removed_buckets": [],
+      "updated_buckets": [
+        {
+          "bucket": "1#mybucket[]",
+          "checksum": 499012468,
+          "count": 4,
+          "priority": 3,
+          "subscriptions": [
+            {
+              "default": 0,
+            },
+          ],
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "2",
+      "bucket": "1#mybucket[]",
+      "data": [
+        {
+          "checksum": 1859363232,
+          "data": "{"id":"t1","description":"Test 1b"}",
+          "object_id": "t1",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "3",
+          "subkey": "e5aa2ddc-1328-58fa-a000-0b5ed31eaf1a",
+        },
+        {
+          "checksum": 3028503153,
+          "data": "{"id":"t2","description":"Test 2b"}",
+          "object_id": "t2",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "4",
+          "subkey": "13423353-9f27-59b4-baf0-64a5e09f1769",
+        },
+      ],
+      "has_more": false,
+      "next_after": "4",
+    },
+  },
+  {
     "checkpoint_complete": {
-      "last_op_id": "2",
+      "last_op_id": "4",
     },
   },
 ]
