@@ -6,6 +6,7 @@ import { v4 as uuid } from 'uuid';
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 
+import { CompatibilityContext } from '@powersync/service-sync-rules';
 import { ObjectId } from 'bson';
 import { generateReplicationStreamName } from '../utils/util.js';
 import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
@@ -18,7 +19,7 @@ import { MongoPersistedReplicationStream } from './implementation/MongoPersisted
 import { syncRuleStateUpdatePipeline } from './implementation/SyncRuleStateUpdate.js';
 import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
 import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyncMongoV3.js';
-import { ReplicationStreamDocumentV3, SyncConfigDefinition } from './storage-index.js';
+import { ReplicationStreamDocumentV3, SyncConfigDefinition, SyncRuleConfigStateV3 } from './storage-index.js';
 
 export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
@@ -154,6 +155,41 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     }
   }
 
+  private isCompatible(
+    replicationStream: ReplicationStreamDocumentV3,
+    existingConfig: SyncConfigDefinition[],
+    options: storage.UpdateSyncRulesOptions
+  ): boolean {
+    if (options.config.plan == null) {
+      // Only support sync streams with serialized plans
+      return false;
+    }
+
+    if (replicationStream.storage_version !== options.storageVersion) {
+      return false;
+    }
+
+    if (existingConfig.length == 0) {
+      // Could technically be compatible, but there is no reason to re-use this stream.
+      return false;
+    }
+
+    if (existingConfig.some((config) => config.serialized_plan == null)) {
+      // Only support sync streams with serialized plans
+      return false;
+    }
+
+    // Technically we can compare the serialized compatibility versions? But this does not add much overhead.
+    const first = existingConfig[0];
+    const streamCompatibility = CompatibilityContext.deserialize(first.serialized_plan!.compatibility);
+    if (!streamCompatibility.equals(options.config.parsed.config.compatibility)) {
+      // Compatibility options must match
+      return false;
+    }
+
+    return true;
+  }
+
   private async updateSyncRulesV3(
     options: storage.UpdateSyncRulesOptions,
     storageVersion: number,
@@ -165,6 +201,41 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const session = this.session;
 
     await session.withTransaction(async () => {
+      const active = await this.db.sync_rules.findOne<ReplicationStreamDocumentV3>(
+        {
+          state: storage.SyncRuleState.ACTIVE,
+          storage_version: storageVersion
+        },
+        { session, sort: { _id: -1 }, limit: 1 }
+      );
+      if (active != null) {
+        const activeConfigs = active.sync_configs.filter((config) => config.state == storage.SyncRuleState.ACTIVE);
+        const activeOnly = { ...active, sync_configs: activeConfigs };
+        const existingConfigDocs = await this.loadSyncConfigDefinitions(versioned, activeOnly, session);
+
+        if (this.isCompatible(activeOnly, existingConfigDocs, options)) {
+          await this.db.sync_rules.updateMany(
+            {
+              state: storage.SyncRuleState.PROCESSING
+            },
+            syncRuleStateUpdatePipeline(storage.SyncRuleState.STOP),
+            { session }
+          );
+          await this.stopEmbeddedDeployingConfigs(active, session);
+          rules = await this.appendSyncConfigToStream({
+            versioned,
+            existing: activeOnly,
+            existingConfigDocs,
+            options,
+            storageVersion,
+            session
+          });
+          return;
+        }
+
+        await this.stopEmbeddedDeployingConfigs(active, session);
+      }
+
       // Only have a single replication stream with PROCESSING.
       await this.db.sync_rules.updateMany(
         {
@@ -193,7 +264,12 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       const id = Number(id_doc!.op_id);
       const replicationStreamName = generateReplicationStreamName(this.slot_name_prefix, id);
 
-      const mapping = BucketDefinitionMapping.fromParsedSyncRules(options.config.parsed);
+      const mapping =
+        options.config.plan == null
+          ? // For legacy sync rules and streams, use the parsed config directly to create a mapping
+            BucketDefinitionMapping.fromParsedSyncConfig(options.config.parsed)
+          : // For new sync streams, always use the serialized version
+            BucketDefinitionMapping.constructIncrementalMappingFromSerializedPlans([], options.config.plan.plan, []);
 
       const syncConfigDoc: SyncConfigDefinition = {
         _id: new ObjectId(),
@@ -239,6 +315,142 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     });
 
     return rules!;
+  }
+
+  private async loadSyncConfigDefinitions(
+    versioned: VersionedPowerSyncMongoV3,
+    existing: ReplicationStreamDocumentV3,
+    session: mongo.ClientSession
+  ) {
+    const activeConfigIds = existing.sync_configs
+      .filter((config) => [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.PROCESSING].includes(config.state))
+      .map((config) => config._id);
+
+    return versioned.syncConfigDefinitions
+      .find(
+        {
+          _id: { $in: activeConfigIds }
+        },
+        { session }
+      )
+      .toArray();
+  }
+
+  /**
+   * Load _all_ definition mappings for a replication stream - used as a base to generate new ids.
+   */
+  private async loadHistoricalSyncConfigRuleMappings(
+    versioned: VersionedPowerSyncMongoV3,
+    replicationStreamId: number,
+    session: mongo.ClientSession
+  ) {
+    return versioned.syncConfigDefinitions
+      .find(
+        {
+          replication_stream_id: replicationStreamId
+        },
+        {
+          session,
+          projection: {
+            rule_mapping: 1
+          }
+        }
+      )
+      .toArray();
+  }
+
+  private async stopEmbeddedDeployingConfigs(existing: ReplicationStreamDocumentV3, session: mongo.ClientSession) {
+    const deployingConfigs = existing.sync_configs
+      .filter((config) => config.state == storage.SyncRuleState.PROCESSING)
+      .map((config) => config._id);
+    if (deployingConfigs.length == 0) {
+      return;
+    }
+
+    await this.db.sync_rules.updateOne(
+      {
+        _id: existing._id,
+        'sync_configs._id': { $in: deployingConfigs }
+      },
+      {
+        $set: {
+          'sync_configs.$[config].state': storage.SyncRuleState.STOP
+        }
+      },
+      {
+        session,
+        arrayFilters: [{ 'config._id': { $in: deployingConfigs } }]
+      }
+    );
+  }
+
+  private async appendSyncConfigToStream(options: {
+    versioned: VersionedPowerSyncMongoV3;
+    existing: ReplicationStreamDocumentV3;
+    existingConfigDocs: SyncConfigDefinition[];
+    options: storage.UpdateSyncRulesOptions;
+    storageVersion: number;
+    session: mongo.ClientSession;
+  }): Promise<MongoPersistedReplicationStream> {
+    const { versioned, existing, existingConfigDocs, options: updateOptions, storageVersion, session } = options;
+    const compatibleConfigs = existingConfigDocs.map((doc) => ({
+      plan: doc.serialized_plan!.plan,
+      mapping: BucketDefinitionMapping.fromSyncConfig(doc)
+    }));
+    const historicalRuleMappings = await this.loadHistoricalSyncConfigRuleMappings(versioned, existing._id, session);
+    const reservedMappings = historicalRuleMappings.map((doc) => BucketDefinitionMapping.fromSyncConfig(doc));
+    const mapping = BucketDefinitionMapping.constructIncrementalMappingFromSerializedPlans(
+      compatibleConfigs,
+      updateOptions.config.plan!.plan,
+      reservedMappings
+    );
+
+    const syncConfigDoc: SyncConfigDefinition = {
+      _id: new ObjectId(),
+      replication_stream_id: existing._id,
+      created_at: new Date(),
+      storage_version: storageVersion,
+      content: updateOptions.config.yaml,
+      serialized_plan: updateOptions.config.plan,
+      rule_mapping: mapping.serialize()
+    };
+    await versioned.syncConfigDefinitions.insertOne(syncConfigDoc, { session });
+    const syncConfigState: SyncRuleConfigStateV3 = {
+      _id: syncConfigDoc._id,
+      state: storage.SyncRuleState.PROCESSING,
+      keepalive_op: null,
+      last_checkpoint: null,
+      last_checkpoint_lsn: null,
+      no_checkpoint_before: null,
+      snapshot_done: false
+    };
+
+    await this.db.sync_rules.updateOne(
+      { _id: existing._id },
+      {
+        $push: {
+          sync_configs: syncConfigState
+        },
+        $set: {
+          last_fatal_error: null,
+          last_fatal_error_ts: null
+        }
+      },
+      { session }
+    );
+    await this.db.notifyCheckpoint();
+    const stream = new MongoPersistedReplicationStream(
+      this.db,
+      {
+        ...existing,
+        sync_configs: [...existing.sync_configs, syncConfigState]
+      },
+      [...existingConfigDocs, syncConfigDoc]
+    );
+    if (updateOptions.lock) {
+      await stream.lock(session);
+    }
+    return stream;
   }
 
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<MongoPersistedReplicationStream> {

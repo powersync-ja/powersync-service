@@ -13,6 +13,7 @@ import {
 } from '@powersync/service-sync-rules';
 import {
   BucketDefinitionMapping,
+  MultiSyncConfigBucketDefinitionMapping,
   SyncConfigWithMapping,
   SyncConfigWithRequiredMapping
 } from './BucketDefinitionMapping.js';
@@ -51,13 +52,9 @@ export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
       if (syncConfigs.some((c) => c.mapping == null)) {
         throw new ServiceAssertionError(`mapping is required for v3 storage`);
       }
-      if (syncConfigs.length != 1) {
-        throw new ServiceAssertionError(`multiple sync configs not supported just yet`);
-      }
-
       const mappedConfigs = syncConfigs as SyncConfigWithRequiredMapping[];
       this.hydrationState = new MongoHydrationState(mappedConfigs, this.replicationStreamId);
-      this.mapping = syncConfigs[0].mapping!;
+      this.mapping = new MultiSyncConfigBucketDefinitionMapping(mappedConfigs);
     } else if (!compatibility.isEnabled(CompatibilityOption.versionedBucketIds) && !storageConfig.versionedBuckets) {
       const [syncConfig] = syncConfigs;
       if (syncConfigs.length != 1 || syncConfig == null) {
