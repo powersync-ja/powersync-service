@@ -86,11 +86,6 @@ export abstract class BucketStorageFactory
   abstract getDeployingSyncConfigContent(): Promise<PersistedSyncConfigContent | null>;
 
   /**
-   * Get sync configs associated with a replication stream.
-   */
-  abstract getReplicationStreamConfigs(replicationStreamId: number): Promise<PersistedSyncConfigContent[]>;
-
-  /**
    * Get a replication stream by id, regardless of state.
    *
    * This is the canonical way to obtain a {@link PersistedReplicationStream} for use with

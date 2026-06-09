@@ -1777,7 +1777,7 @@ streams:
 `)
     );
 
-    const [deployedContent] = await factory.getReplicationStreamConfigs(deployed.replicationStreamId);
+    const [deployedContent] = deployed.syncConfigContent;
     expect(deployedContent).toBeDefined();
     const [deployedConfig] = deployedContent.parsed({ defaultSchema: 'ignored' }).syncConfigs;
     expect(deployedConfig).toBeDefined();

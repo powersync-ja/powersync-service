@@ -57,7 +57,7 @@ bucket_definitions:
     `)
       );
       const bucketStorage = factory.getInstance(syncRules);
-      const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
+      const syncRulesContent = syncRules.syncConfigContent[0];
       const { checkpoint } = await populate(bucketStorage, 1);
 
       return { bucketStorage, checkpoint, factory, syncRules: syncRulesContent };
@@ -116,7 +116,7 @@ bucket_definitions:
     `)
       );
       const bucketStorage = factory.getInstance(syncRules);
-      const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
+      const syncRulesContent = syncRules.syncConfigContent[0];
       const storageDb = (bucketStorage as any).db;
 
       await populate(bucketStorage, 2);

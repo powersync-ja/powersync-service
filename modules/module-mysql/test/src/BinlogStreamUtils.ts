@@ -74,7 +74,7 @@ export class BinlogStreamTestContext {
     const replicationStream = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: LEGACY_STORAGE_VERSION })
     );
-    this.syncRulesContent = (await this.factory.getReplicationStreamConfigs(replicationStream.replicationStreamId))[0];
+    this.syncRulesContent = replicationStream.syncConfigContent[0];
     this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }

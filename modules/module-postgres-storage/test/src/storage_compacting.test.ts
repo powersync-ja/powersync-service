@@ -17,7 +17,7 @@ bucket_definitions:
       `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
+    const syncRulesContent = syncRules.syncConfigContent[0];
 
     const result = await (async () => {
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -71,7 +71,7 @@ bucket_definitions:
       `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
+    const syncRulesContent = syncRules.syncConfigContent[0];
     const request = bucketRequest(syncRulesContent, 'global[]');
 
     const result = await (async () => {

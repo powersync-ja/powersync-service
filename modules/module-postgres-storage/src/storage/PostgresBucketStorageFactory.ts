@@ -344,24 +344,6 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     return row == null ? null : new PostgresPersistedSyncConfigContent(this.db, row);
   }
 
-  async getReplicationStreamConfigs(replicationStreamId: number): Promise<storage.PersistedSyncConfigContent[]> {
-    const row = await this.db.sql`
-      SELECT
-        *
-      FROM
-        sync_rules
-      WHERE
-        id = ${{ value: replicationStreamId, type: 'int4' }}
-    `
-      .decoded(models.SyncRules)
-      .first();
-    if (row == null) {
-      return [];
-    }
-
-    return [new PostgresPersistedSyncConfigContent(this.db, row)];
-  }
-
   async getReplicationStream(replicationStreamId: number): Promise<storage.PersistedReplicationStream | null> {
     const row = await this.db.sql`
       SELECT

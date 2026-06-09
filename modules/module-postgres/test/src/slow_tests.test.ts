@@ -97,7 +97,7 @@ bucket_definitions:
     `;
     const syncRules = await f.updateSyncRules(updateSyncRulesFromYaml(syncRuleContent, { storageVersion }));
     const storage = f.getInstance(syncRules);
-    const syncRulesContent = (await f.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
+    const syncRulesContent = syncRules.syncConfigContent[0];
     const helpers = new StorageDataHelpers(storage, syncRulesContent);
     abortController = new AbortController();
     const options: WalStreamOptions = {

@@ -416,22 +416,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     return this.getSyncConfigContentFromDoc(doc, [storage.SyncRuleState.PROCESSING]);
   }
 
-  async getReplicationStreamConfigs(
-    replicationStreamId: number
-  ): Promise<(MongoPersistedSyncConfigContentV1 | MongoPersistedSyncConfigContentV3)[]> {
-    const doc = await this.db.sync_rules.findOne({ _id: replicationStreamId });
-    if (doc == null) {
-      return [];
-    }
-
-    return this.getSyncConfigContentsFromDoc(doc, [
-      storage.SyncRuleState.PROCESSING,
-      storage.SyncRuleState.ACTIVE,
-      storage.SyncRuleState.ERRORED,
-      storage.SyncRuleState.STOP
-    ]);
-  }
-
   async getReplicatingReplicationStreams(): Promise<storage.PersistedReplicationStream[]> {
     const docs = await this.db.sync_rules
       .find({

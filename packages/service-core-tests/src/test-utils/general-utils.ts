@@ -25,7 +25,7 @@ export async function deploySyncRules(
   options: storage.UpdateSyncRulesOptions
 ): Promise<{ stream: storage.PersistedReplicationStream; content: storage.PersistedSyncConfigContent }> {
   const stream = await factory.updateSyncRules(options);
-  const content = (await factory.getReplicationStreamConfigs(stream.replicationStreamId))[0];
+  const content = stream.syncConfigContent[0];
   return { stream, content };
 }
 
