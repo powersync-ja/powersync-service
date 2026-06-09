@@ -332,7 +332,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   };
 }
 
-interface SerializedSyncPlanV1 {
+export interface SerializedSyncPlanV1 {
   version: number;
   dataSources: SerializedDataSource[];
   buckets: SerializedBucketDataSource[];
@@ -340,32 +340,32 @@ interface SerializedSyncPlanV1 {
   streams: SerializedStream[];
 }
 
-interface SerializedBucketDataSource {
+export interface SerializedBucketDataSource {
   hash: number;
   uniqueName: string;
   sources: number[];
 }
 
-interface SerializedTablePattern {
+export interface SerializedTablePattern {
   connection: string | null;
   schema: string | null;
   table: string;
 }
 
-interface SerializedTableProcessorTableValuedFunctionOutput {
+export interface SerializedTableProcessorTableValuedFunctionOutput {
   function: number;
   outputName: string;
 }
 
-type SerializedTableProcessorData = ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput;
+export type SerializedTableProcessorData = ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput;
 
-interface SerializedPartitionKey {
+export interface SerializedPartitionKey {
   expr: SqlExpression<SerializedTableProcessorData>;
 }
 
-type SerializedColumnSource = 'star' | { expr: SqlExpression<SerializedTableProcessorData>; alias: string };
+export type SerializedColumnSource = 'star' | { expr: SqlExpression<SerializedTableProcessorData>; alias: string };
 
-interface SerializedDataSource {
+export interface SerializedDataSource {
   table: SerializedTablePattern;
   outputTableName?: string;
   hash: number;
@@ -375,7 +375,7 @@ interface SerializedDataSource {
   partitionBy: SerializedPartitionKey[];
 }
 
-interface SerializedParameterIndexLookupCreator {
+export interface SerializedParameterIndexLookupCreator {
   table: SerializedTablePattern;
   hash: number;
   lookupScope: ParameterLookupDefinitionId;
@@ -385,19 +385,19 @@ interface SerializedParameterIndexLookupCreator {
   partitionBy: SerializedPartitionKey[];
 }
 
-interface SerializedStream {
+export interface SerializedStream {
   stream: StreamOptions;
   queriers: SerializedStreamQuerier[];
 }
 
-interface SerializedStreamQuerier {
+export interface SerializedStreamQuerier {
   requestFilters: SqlExpression<RequestSqlParameterValue>[];
   lookupStages: SerializedExpandingLookup[][];
   bucket: number;
   sourceInstantiation: SerializedParameterValue[];
 }
 
-type SerializedExpandingLookup =
+export type SerializedExpandingLookup =
   | {
       type: 'parameter';
       lookup: number;
@@ -411,12 +411,12 @@ type SerializedExpandingLookup =
       filters: SqlExpression<ColumnSqlParameterValue>[];
     };
 
-interface LookupReference {
+export interface LookupReference {
   stageId: number;
   idInStage: number;
 }
 
-type SerializedParameterValue =
+export type SerializedParameterValue =
   | { type: 'request'; expr: SqlExpression<RequestSqlParameterValue> }
   | { type: 'lookup'; lookup: LookupReference; resultIndex: number }
   | { type: 'intersection'; values: SerializedParameterValue[] };
