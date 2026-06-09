@@ -432,42 +432,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     ]);
   }
 
-  async getSyncConfigContent(
-    syncConfigId: storage.PersistedSyncConfigId
-  ): Promise<MongoPersistedSyncConfigContentV1 | MongoPersistedSyncConfigContentV3 | null> {
-    if (ObjectId.isValid(syncConfigId)) {
-      const syncConfigObjectId = new ObjectId(syncConfigId);
-      const stream = await this.db.sync_rules.findOne<ReplicationStreamDocumentV3>({
-        'sync_configs._id': syncConfigObjectId
-      });
-      if (stream != null) {
-        const storageConfig = getMongoStorageConfig(stream.storage_version ?? LEGACY_STORAGE_VERSION);
-        if (storageConfig.incrementalReprocessing) {
-          const db = this.db.versioned(storageConfig) as VersionedPowerSyncMongoV3;
-          const syncConfigDoc = await db.syncConfigDefinitions.findOne({ _id: syncConfigObjectId });
-          if (syncConfigDoc != null) {
-            return new MongoPersistedSyncConfigContentV3(this.db, stream, syncConfigDoc);
-          }
-        }
-      }
-    }
-
-    const replicationStreamId = Number(syncConfigId);
-    if (!Number.isInteger(replicationStreamId)) {
-      return null;
-    }
-
-    const doc = await this.db.sync_rules.findOne({ _id: replicationStreamId });
-    if (doc == null) {
-      return null;
-    }
-    const storageConfig = getMongoStorageConfig(doc.storage_version ?? LEGACY_STORAGE_VERSION);
-    if (storageConfig.incrementalReprocessing) {
-      return null;
-    }
-    return new MongoPersistedSyncConfigContentV1(this.db, doc as SyncRuleDocumentV1);
-  }
-
   async getReplicatingReplicationStreams(): Promise<storage.PersistedReplicationStream[]> {
     const docs = await this.db.sync_rules
       .find({

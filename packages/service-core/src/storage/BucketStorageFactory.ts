@@ -10,7 +10,7 @@ import {
 import { ReplicationError } from '@powersync/service-types';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
 import { PersistedReplicationStream } from './PersistedReplicationStream.js';
-import { PersistedSyncConfigContent, PersistedSyncConfigId } from './PersistedSyncConfigContent.js';
+import { PersistedSyncConfigContent } from './PersistedSyncConfigContent.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { ReportStorage } from './ReportStorage.js';
@@ -89,11 +89,6 @@ export abstract class BucketStorageFactory
    * Get sync configs associated with a replication stream.
    */
   abstract getReplicationStreamConfigs(replicationStreamId: number): Promise<PersistedSyncConfigContent[]>;
-
-  /**
-   * Get one exact sync config by persisted config id.
-   */
-  abstract getSyncConfigContent(syncConfigId: PersistedSyncConfigId): Promise<PersistedSyncConfigContent | null>;
 
   /**
    * Get a replication stream by id, regardless of state.
