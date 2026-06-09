@@ -28,7 +28,10 @@ export function getPgOutputRelation(source: PgoutputRelation, connectionTag: str
     name: source.name,
     schema: source.schema,
     objectId: getRelId(source),
-    replicaIdColumns: getReplicaIdColumns(source)
+    replicaIdColumns: getReplicaIdColumns(source),
+    // FULL is the only identity for which Postgres always sends the complete row. Reported here so a
+    // mid-stream ALTER TABLE ... REPLICA IDENTITY is picked up by resolveTables without a re-snapshot.
+    sendsCompleteRows: source.replicaIdentity === 'full'
   } satisfies storage.SourceEntityDescriptor;
 }
 

@@ -39,7 +39,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
     const syncRules = options.syncRules ?? this.sync_rules;
     const { connection_id, source } = options;
-    const { schema, name, objectId, replicaIdColumns, connectionTag } = source;
+    const { schema, name, objectId, replicaIdColumns, connectionTag, sendsCompleteRows } = source;
 
     const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
@@ -89,6 +89,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       sourceTable.syncEvent = syncRules.tableTriggersEvent(source);
       sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
       sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
+      sourceTable.storeCurrentData = sendsCompleteRows !== true;
       sourceTable.snapshotStatus =
         doc.snapshot_status == null
           ? undefined

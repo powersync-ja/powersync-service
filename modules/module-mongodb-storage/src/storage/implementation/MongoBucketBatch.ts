@@ -80,6 +80,15 @@ export abstract class MongoBucketBatch
   protected readonly group_id: number;
 
   private readonly slot_name: string;
+  /**
+   * Source-level setting for whether raw row data should be stored in current_data.
+   *
+   * Some sources always send complete rows (MongoDB, MySQL with binlog_row_image=full),
+   * in which case this is false for the whole batch. For sources where it depends on the
+   * table (Postgres REPLICA IDENTITY), this is true and the decision is refined per-table
+   * via SourceTable.storeCurrentData. The effective per-record value is the conjunction of
+   * the two.
+   */
   private readonly storeCurrentData: boolean;
   public readonly skipExistingRows: boolean;
   protected readonly mapping: BucketDefinitionMapping;
@@ -261,8 +270,12 @@ export abstract class MongoBucketBatch
   ): Promise<OperationBatch | null> {
     let sizes: Map<string, number> | undefined = undefined;
     using _ = this.tracer.span('storage', 'replicate_batch');
-    if (this.storeCurrentData && !this.skipExistingRows) {
-      // We skip this step if we don't store current_data, since the sizes will
+    // Only look up current_data sizes if the batch stores current_data and at least one
+    // table in it does too (per-table can disable it, e.g. Postgres REPLICA IDENTITY FULL).
+    const anyTableStoresCurrentData =
+      this.storeCurrentData && batch.batch.some((r) => r.record.sourceTable.storeCurrentData);
+    if (anyTableStoresCurrentData && !this.skipExistingRows) {
+      // We skip this step if no tables store current_data, since the sizes will
       // always be small in that case.
 
       // With skipExistingRows, we don't load the full documents into memory,
@@ -275,10 +288,14 @@ export abstract class MongoBucketBatch
       // (automatically limited to 48MB(?) per batch by MongoDB). The issue is that it changes
       // the order of processing, which then becomes really tricky to manage.
       // This now takes 2+ queries, but doesn't have any issues with order of operations.
-      const sizeLookups = batch.batch.map((r) => ({
-        sourceTableId: mongoTableId(r.record.sourceTable.id),
-        replicaId: r.beforeId
-      }));
+      // Within this branch this.storeCurrentData is true, so the per-table flag is the
+      // effective value - only look up sizes for tables that actually store current_data.
+      const sizeLookups = batch.batch
+        .filter((r) => r.record.sourceTable.storeCurrentData)
+        .map((r) => ({
+          sourceTableId: mongoTableId(r.record.sourceTable.id),
+          replicaId: r.beforeId
+        }));
 
       sizes = await this.sourceRecordStore.loadSizes(session, sizeLookups);
     }
@@ -374,6 +391,9 @@ export abstract class MongoBucketBatch
     const afterId = operation.afterId;
     let after = record.after;
     const sourceTable = record.sourceTable;
+    // Effective per-record flag: store current_data only if both the batch (source-level,
+    // e.g. Postgres) and the table (e.g. non-FULL replica identity) require it.
+    const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
 
     let existing_buckets: LoadedSourceRecord['buckets'] = [];
     let new_buckets: LoadedSourceRecord['buckets'] = [];
@@ -402,7 +422,7 @@ export abstract class MongoBucketBatch
         // Not an error if we re-apply a transaction
         existing_buckets = [];
         existing_lookups = [];
-        if (!isCompleteRow(this.storeCurrentData, after!)) {
+        if (!isCompleteRow(storeCurrentData, after!)) {
           if (this.markRecordUnavailable != null) {
             // This will trigger a "resnapshot" of the record.
             // This is not relevant if storeCurrentData is false, since we'll get the full row
@@ -418,7 +438,7 @@ export abstract class MongoBucketBatch
       } else {
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
-        if (this.storeCurrentData && result.data != null) {
+        if (storeCurrentData && result.data != null) {
           const data = deserializeBson(result.data.buffer) as SqliteRow;
           after = storage.mergeToast<SqliteValue>(after!, data);
         }
@@ -429,7 +449,9 @@ export abstract class MongoBucketBatch
         // Not an error if we re-apply a transaction
         existing_buckets = [];
         existing_lookups = [];
-        // Log to help with debugging if there was a consistency issue
+        // Log to help with debugging if there was a consistency issue.
+        // Gate on the batch-level flag: FULL tables (per-record flag false) still get a
+        // current_data entry, so a missing record on DELETE is meaningful for them too.
         if (this.storeCurrentData && this.markRecordUnavailable == null) {
           this.logger.warn(
             `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
@@ -442,7 +464,7 @@ export abstract class MongoBucketBatch
     }
 
     let afterData: bson.Binary | null = null;
-    if (afterId != null && !this.storeCurrentData) {
+    if (afterId != null && !storeCurrentData) {
       afterData = null;
     } else if (afterId != null) {
       try {
@@ -509,7 +531,7 @@ export abstract class MongoBucketBatch
     // However, it will be valid by the end of the transaction.
     //
     // In this case, we don't save the op, but we do save the current data.
-    if (afterId && after && utils.isCompleteRow(this.storeCurrentData, after)) {
+    if (afterId && after && utils.isCompleteRow(storeCurrentData, after)) {
       // Insert or update
       if (sourceTable.syncData) {
         const { results, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
@@ -725,6 +747,7 @@ export abstract class MongoBucketBatch
 
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
+    const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
     for (const event of this.getTableEvents(sourceTable)) {
       this.iterateListeners((cb) =>
         cb.replicationEvent?.({
@@ -732,8 +755,8 @@ export abstract class MongoBucketBatch
           table: sourceTable,
           data: {
             op: tag,
-            after: after && utils.isCompleteRow(this.storeCurrentData, after) ? after : undefined,
-            before: before && utils.isCompleteRow(this.storeCurrentData, before) ? before : undefined
+            after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
+            before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
           },
           event
         })

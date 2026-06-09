@@ -515,7 +515,9 @@ export class ChangeStream {
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
-    const tracer = new PerformanceTracer('MongoDB streaming replication');
+    const tracer = new PerformanceTracer<
+      'storage' | 'evaluate' | 'batch' | 'source_checkpoint' | 'changestream' | 'processing'
+    >('MongoDB streaming replication');
     await this.storage.startBatch(
       {
         logger: this.logger,
@@ -713,11 +715,16 @@ export class ChangeStream {
                 // change stream events, collapse standalone checkpoints into the normal batch
                 // checkpoint flow to avoid commit churn under sustained load.
                 const hasBufferedChanges = eventIndex < events.length - 1;
-                if (waitForCheckpointLsn != null || hasBufferedChanges) {
-                  if (waitForCheckpointLsn == null) {
-                    waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
-                  }
+                if (hasBufferedChanges && waitForCheckpointLsn == null) {
+                  // Buffered changes - create a new batch checkpoint to rate limit commits
+                  using _ = tracer.span('source_checkpoint');
+                  waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
                   continue;
+                } else if (waitForCheckpointLsn != null) {
+                  // Skip this checkpoint - wait for the batch checkpoint.
+                  continue;
+                } else {
+                  // No buffered changes, and no batch checkpoint pending - commit immediately.
                 }
               } else if (!this.checkpointStreamId.equals(checkpointId)) {
                 continue;
@@ -754,6 +761,7 @@ export class ChangeStream {
               changeDocument.operationType == 'delete'
             ) {
               if (waitForCheckpointLsn == null) {
+                using _ = tracer.span('source_checkpoint');
                 waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
               }
 
@@ -830,8 +838,8 @@ export class ChangeStream {
           }
 
           batchSpan.end();
-          const durations = outerSpan.end();
-          const duration = batchSpan.endAt - batchSpan.startAt;
+          const durationsMicroseconds = outerSpan.end();
+          const duration = batchSpan.durationMillis;
 
           this.logger.info(
             `Processed batch of ${events.length} changes / ${eventBatch.byteSize} bytes in ${duration}ms`,
@@ -839,7 +847,7 @@ export class ChangeStream {
               count: events.length,
               bytes: eventBatch.byteSize,
               duration,
-              t: durations
+              t: durationsMicroseconds
             }
           );
           outerSpan = tracer.span('batch');
