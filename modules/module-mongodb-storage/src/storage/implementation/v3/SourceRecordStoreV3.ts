@@ -15,7 +15,7 @@ import { CurrentDataDocumentV3, SourceTableDocumentV3 } from './models.js';
 export class SourceRecordStoreV3 implements SourceRecordStore {
   constructor(
     private readonly db: VersionedPowerSyncMongoV3,
-    private readonly groupId: number,
+    private readonly replicationStreamId: number,
     private readonly mapping: BucketDefinitionMapping
   ) {}
 
@@ -67,7 +67,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
         _id: { $in: replicaIds as any[] }
       } as unknown as mongo.Filter<CurrentDataDocumentV3>;
       const sizeCursor: mongo.AggregationCursor<CurrentDataDocumentV3 & { size: number }> = this.db
-        .sourceRecordsV3(this.groupId, sourceTableId)
+        .sourceRecordsV3(this.replicationStreamId, sourceTableId)
         .aggregate(
           [
             {
@@ -100,7 +100,9 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
       const filter = {
         _id: { $in: replicaIds as any[] }
       } as unknown as mongo.Filter<CurrentDataDocumentV3>;
-      const cursor = this.db.sourceRecordsV3(this.groupId, sourceTableId).find(filter, { session, projection });
+      const cursor = this.db
+        .sourceRecordsV3(this.replicationStreamId, sourceTableId)
+        .find(filter, { session, projection });
       for await (const doc of cursor.stream()) {
         const loaded = this.createLoadedDocument(
           sourceTableId,
@@ -120,7 +122,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     sourceTableId: bson.ObjectId,
     limit: number
   ): Promise<LoadedSourceRecord[]> {
-    const cursor = this.db.sourceRecordsV3(this.groupId, sourceTableId).find(
+    const cursor = this.db.sourceRecordsV3(this.replicationStreamId, sourceTableId).find(
       {
         pending_delete: { $exists: false }
       },
@@ -145,7 +147,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     // ones have dirty deletes in source_tables.
 
     const dirtySourceTables = await this.db
-      .sourceTablesV3(this.groupId)
+      .sourceTablesV3(this.replicationStreamId)
       .find(
         {
           latest_pending_delete: { $exists: true }
@@ -159,7 +161,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     let deletedCount = 0;
     const sourceTableUpdates: mongo.AnyBulkWriteOperation<SourceTableDocumentV3>[] = [];
     for (const sourceTable of dirtySourceTables) {
-      const collection = this.db.sourceRecordsV3(this.groupId, sourceTable._id);
+      const collection = this.db.sourceRecordsV3(this.replicationStreamId, sourceTable._id);
       const result = await this.deletePendingDeletes(collection, sourceTable._id, lastCheckpoint, logger);
       deletedCount += result.deletedCount;
 
@@ -182,7 +184,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     }
 
     if (sourceTableUpdates.length > 0) {
-      await this.db.sourceTablesV3(this.groupId).bulkWrite(sourceTableUpdates, { ordered: false });
+      await this.db.sourceTablesV3(this.replicationStreamId).bulkWrite(sourceTableUpdates, { ordered: false });
     }
     if (deletedCount > 0) {
       logger.info(`Cleaned up ${deletedCount} pending delete current_data records for checkpoint ${lastCheckpoint}`);

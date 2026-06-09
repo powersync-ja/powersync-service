@@ -42,9 +42,9 @@ const replicationMutex = new utils.Mutex();
 export interface MongoBucketBatchOptions {
   db: VersionedPowerSyncMongo;
   syncRules: HydratedSyncConfig;
-  groupId: number;
-  slotName: string;
-  syncConfigId?: bson.ObjectId | null;
+  replicationStreamId: number;
+  replicationStreamName: string;
+  syncConfigIds?: bson.ObjectId[];
   lastCheckpointLsn: string | null;
   keepaliveOp: InternalOpId | null;
   resumeFromLsn: string | null;
@@ -74,9 +74,9 @@ export abstract class MongoBucketBatch
   public readonly session: mongo.ClientSession;
   protected readonly sync_rules: HydratedSyncConfig;
 
-  protected readonly group_id: number;
+  protected readonly replicationStreamId: number;
 
-  private readonly slot_name: string;
+  private readonly replicationStreamName: string;
   /**
    * Source-level setting for whether raw row data should be stored in current_data.
    *
@@ -132,11 +132,11 @@ export abstract class MongoBucketBatch
     this.options = options;
     this.client = options.db.client;
     this.db = options.db;
-    this.group_id = options.groupId;
+    this.replicationStreamId = options.replicationStreamId;
     this.last_checkpoint_lsn = options.lastCheckpointLsn;
     this.resumeFromLsn = options.resumeFromLsn;
     this.session = this.client.startSession();
-    this.slot_name = options.slotName;
+    this.replicationStreamName = options.replicationStreamName;
     this.sync_rules = options.syncRules;
     this.storeCurrentData = options.storeCurrentData;
     this.mapping = options.mapping;
@@ -152,7 +152,7 @@ export abstract class MongoBucketBatch
   addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
     this.write_checkpoint_batch.push({
       ...checkpoint,
-      sync_rules_id: this.group_id
+      sync_rules_id: this.replicationStreamId
     });
   }
 
@@ -462,7 +462,7 @@ export abstract class MongoBucketBatch
           {
             level: errors.ErrorSeverity.WARNING,
             metadata: {
-              replication_slot: this.slot_name,
+              replication_slot: this.replicationStreamName,
               table: record.sourceTable.qualifiedName
             }
           }
@@ -521,7 +521,7 @@ export abstract class MongoBucketBatch
             {
               level: errors.ErrorSeverity.WARNING,
               metadata: {
-                replication_slot: this.slot_name,
+                replication_slot: this.replicationStreamName,
                 table: record.sourceTable.qualifiedName
               }
             }
@@ -556,7 +556,7 @@ export abstract class MongoBucketBatch
             {
               level: errors.ErrorSeverity.WARNING,
               metadata: {
-                replication_slot: this.slot_name,
+                replication_slot: this.replicationStreamName,
                 table: record.sourceTable.qualifiedName
               }
             }
@@ -691,7 +691,7 @@ export abstract class MongoBucketBatch
 
       await this.db.sync_rules.updateOne(
         {
-          _id: this.group_id
+          _id: this.replicationStreamId
         },
         {
           $set: {
@@ -767,7 +767,7 @@ export abstract class MongoBucketBatch
 
     await this.withTransaction(async () => {
       for (let table of sourceTables) {
-        await this.db.commonSourceTables(this.group_id).deleteOne({ _id: mongoTableId(table.id) });
+        await this.db.commonSourceTables(this.replicationStreamId).deleteOne({ _id: mongoTableId(table.id) });
       }
     });
 
@@ -853,7 +853,7 @@ export abstract class MongoBucketBatch
     copy.snapshotStatus = snapshotStatus;
 
     await this.withTransaction(async () => {
-      await this.db.commonSourceTables(this.group_id).updateOne(
+      await this.db.commonSourceTables(this.replicationStreamId).updateOne(
         { _id: mongoTableId(table.id) },
         {
           $set: {
@@ -879,7 +879,7 @@ export abstract class MongoBucketBatch
 
     await this.db.sync_rules.updateOne(
       {
-        _id: this.group_id
+        _id: this.replicationStreamId
       },
       {
         $set: {

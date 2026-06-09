@@ -17,12 +17,12 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
    */
   static async createLock(
     db: VersionedPowerSyncMongo,
-    sync_rules: storage.PersistedSyncRulesContent,
+    sync_rules: storage.PersistedReplicationStream,
     session?: mongo.ClientSession
   ): Promise<MongoSyncRulesLock> {
     const lockId = crypto.randomBytes(8).toString('hex');
     const doc = await db.sync_rules.findOneAndUpdate(
-      { _id: sync_rules.id, $or: [{ lock: null }, { 'lock.expires_at': { $lt: new Date() } }] },
+      { _id: sync_rules.replicationStreamId, $or: [{ lock: null }, { 'lock.expires_at': { $lt: new Date() } }] },
       {
         $set: {
           lock: {
@@ -40,7 +40,10 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
 
     if (doc == null) {
       // Query the existing lock to get the expiration time (best effort - it may have been released in the meantime).
-      const heldLock = await db.sync_rules.findOne({ _id: sync_rules.id }, { projection: { lock: 1 }, session });
+      const heldLock = await db.sync_rules.findOne(
+        { _id: sync_rules.replicationStreamId },
+        { projection: { lock: 1 }, session }
+      );
       if (heldLock?.lock?.expires_at) {
         throw new ServiceError(
           ErrorCode.PSYNC_S1003,
@@ -51,7 +54,7 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
       }
     }
     sync_rules.logger.info(`Locked replication stream for processing`);
-    return new MongoSyncRulesLock(db, sync_rules.id, lockId, sync_rules.logger);
+    return new MongoSyncRulesLock(db, sync_rules.replicationStreamId, lockId, sync_rules.logger);
   }
 
   constructor(
