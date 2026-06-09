@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { StableHasher } from '../../../../src/compiler/equality.js';
 import {
-  BucketDataSource,
   SerializedBucketDataSourceWithDataSources,
   serializedStreamBucketDataSourceEquality,
-  serializeSyncPlan,
-  SyncConfig
+  serializeSyncPlan
 } from '../../../../src/index.js';
 import { compileToSyncPlanWithoutErrors } from '../../compiler/utils.js';
 
@@ -87,8 +85,8 @@ streams:
   second_stream:
     query: SELECT id, owner_id FROM todos WHERE owner_id = auth.user_id()
 `;
-    const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
-    const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
+    const first = firstSerializedBucketSource(firstYaml).bucket;
+    const second = firstSerializedBucketSource(secondYaml).bucket;
 
     expect(first.uniqueName).not.toEqual(second.uniqueName);
     expectSerializedBucketSources(firstYaml, secondYaml, false, true);
@@ -193,10 +191,6 @@ streams:
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 });
-
-function firstBucketSource(config: SyncConfig): BucketDataSource {
-  return config.bucketDataSources[0];
-}
 
 function expectSerializedBucketSources(
   firstYaml: string,
