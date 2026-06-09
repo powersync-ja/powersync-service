@@ -18,7 +18,7 @@ describe('Migrations', () => {
     const setup = POSTGRES_STORAGE_SETUP;
     await using factory = new PostgresBucketStorageFactory({
       config: TEST_CONNECTION_OPTIONS,
-      slot_name_prefix: 'test_'
+      replicationStreamNamePrefix: 'test_'
     });
 
     await dropTables(factory.db);

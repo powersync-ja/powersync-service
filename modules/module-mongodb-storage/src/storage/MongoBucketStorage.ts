@@ -22,7 +22,19 @@ import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyn
 import { ReplicationStreamDocumentV3, SyncConfigDefinition, SyncRuleConfigStateV3 } from './storage-index.js';
 
 export interface MongoBucketStorageOptions {
+  /**
+   * Prefix for replication stream name and Postgres logical replication slot name.
+   */
+  replicationStreamNamePrefix: string;
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
+  /**
+   * Reuse a compatible active replication stream by appending a new sync config.
+   *
+   * This currently requires source replication support. MongoDB sources can process multiple
+   * sync configs in one replication stream, but other source connectors still expect a single
+   * sync config per stream.
+   */
+  supportsMultipleSyncConfigs?: boolean;
 }
 
 export class MongoBucketStorage extends storage.BucketStorageFactory {
@@ -30,8 +42,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
   private readonly client: mongo.MongoClient;
   private readonly session: mongo.ClientSession;
-  // TODO: This is still Postgres specific and needs to be reworked
-  public readonly slot_name_prefix: string;
+  public readonly replicationStreamNamePrefix: string;
 
   private activeStorageCache: MongoSyncBucketStorage | undefined;
 
@@ -39,16 +50,13 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
   constructor(
     db: PowerSyncMongo,
-    options: {
-      slot_name_prefix: string;
-    },
-    private internalOptions?: MongoBucketStorageOptions
+    private options: MongoBucketStorageOptions
   ) {
     super();
     this.client = db.client;
     this.db = db;
     this.session = this.client.startSession();
-    this.slot_name_prefix = options.slot_name_prefix;
+    this.replicationStreamNamePrefix = options.replicationStreamNamePrefix;
   }
 
   async [Symbol.asyncDispose]() {
@@ -74,7 +82,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       replicationStreamName,
       undefined,
       {
-        ...this.internalOptions,
+        checksumOptions: this.options.checksumOptions,
         storageConfig
       }
     );
@@ -213,7 +221,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         const activeOnly = { ...active, sync_configs: activeConfigs };
         const existingConfigDocs = await this.loadSyncConfigDefinitions(versioned, activeOnly, session);
 
-        if (this.isCompatible(activeOnly, existingConfigDocs, options)) {
+        if (this.options.supportsMultipleSyncConfigs && this.isCompatible(activeOnly, existingConfigDocs, options)) {
           await this.db.sync_rules.updateMany(
             {
               state: storage.SyncRuleState.PROCESSING
@@ -262,7 +270,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       );
 
       const id = Number(id_doc!.op_id);
-      const replicationStreamName = generateReplicationStreamName(this.slot_name_prefix, id);
+      const replicationStreamName = generateReplicationStreamName(this.replicationStreamNamePrefix, id);
 
       const mapping =
         options.config.plan == null
@@ -493,7 +501,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       );
 
       const id = Number(id_doc!.op_id);
-      const slot_name = generateReplicationStreamName(this.slot_name_prefix, id);
+      const slot_name = generateReplicationStreamName(this.replicationStreamNamePrefix, id);
 
       const doc: SyncRuleDocumentV1 = {
         _id: id,
