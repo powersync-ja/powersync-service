@@ -55,7 +55,7 @@ export interface SyncRulesBucketStorage
    */
   terminate(options?: TerminateOptions): Promise<void>;
 
-  getStatus(): Promise<SyncRuleStatus>;
+  getStatus(): Promise<ReplicationStreamStatus>;
 
   /**
    * Clear the storage, without changing state.
@@ -149,14 +149,15 @@ export interface BucketChecksumRequest {
   source: BucketDataSource;
 }
 
-export interface SyncRuleStatus {
-  checkpoint_lsn: string | null;
+export interface ReplicationStreamStatus {
   /**
    * Source position to resume replication from.
    */
-  resume_lsn: string | null;
-  active: boolean;
-  snapshot_done: boolean;
+  resumeLsn: string | null;
+  /**
+   * True if _every_ active/processing sync config has a client-visible checkpoint.
+   */
+  snapshotDone: boolean;
 }
 export interface ResolveTablesOptions {
   connection_id: number;

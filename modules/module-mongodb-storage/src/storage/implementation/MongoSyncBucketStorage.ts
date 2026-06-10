@@ -279,9 +279,9 @@ export abstract class MongoSyncBucketStorage
     await this.db.notifyCheckpoint();
   }
 
-  protected abstract getStatusImpl(): Promise<storage.SyncRuleStatus>;
+  protected abstract getStatusImpl(): Promise<storage.ReplicationStreamStatus>;
 
-  async getStatus(): Promise<storage.SyncRuleStatus> {
+  async getStatus(): Promise<storage.ReplicationStreamStatus> {
     return this.getStatusImpl();
   }
 

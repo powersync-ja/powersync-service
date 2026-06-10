@@ -215,8 +215,8 @@ export class BinLogStream {
    */
   protected async checkInitialReplicated(): Promise<boolean> {
     const status = await this.storage.getStatus();
-    const lastKnowGTID = status.resume_lsn ? common.ReplicatedGTID.fromSerialized(status.resume_lsn) : null;
-    if (status.snapshot_done && status.checkpoint_lsn) {
+    const lastKnowGTID = status.resumeLsn ? common.ReplicatedGTID.fromSerialized(status.resumeLsn) : null;
+    if (status.snapshotDone) {
       this.logger.info(`Initial replication already done.`);
 
       if (lastKnowGTID) {
@@ -409,7 +409,7 @@ export class BinLogStream {
     const serverId = createRandomServerId(this.storage.replicationStreamId);
 
     const connection = await this.connections.getConnection();
-    const { resume_lsn } = await this.storage.getStatus();
+    const { resumeLsn: resume_lsn } = await this.storage.getStatus();
     if (resume_lsn) {
       this.logger.info(`Existing resume LSN found: ${resume_lsn}`);
     }

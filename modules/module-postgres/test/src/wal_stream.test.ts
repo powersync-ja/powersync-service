@@ -514,7 +514,7 @@ bucket_definitions:
 
     // Snapshot should NOT be marked as complete
     const status = await context.storage!.getStatus();
-    expect(status.snapshot_done).toBe(false);
+    expect(status.snapshotDone).toBe(false);
   });
 
   test('slot invalidation error carries diagnostic context', { timeout: 120_000 }, async () => {
@@ -618,7 +618,7 @@ bucket_definitions:
 
         // Confirm snapshot_done is false — the snapshot was interrupted.
         const status = await context.storage!.getStatus();
-        expect(status.snapshot_done).toBe(false);
+        expect(status.snapshotDone).toBe(false);
       }
 
       // Phase 2: Open a new context on the same storage (doNotClear: true).

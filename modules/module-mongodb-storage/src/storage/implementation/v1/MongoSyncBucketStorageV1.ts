@@ -124,7 +124,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     );
   }
 
-  protected async getStatusImpl(): Promise<storage.SyncRuleStatus> {
+  protected async getStatusImpl(): Promise<storage.ReplicationStreamStatus> {
     const doc = (await this.db.sync_rules.findOne(
       {
         _id: this.replicationStreamId
@@ -133,7 +133,6 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
         projection: {
           snapshot_done: 1,
           last_checkpoint_lsn: 1,
-          state: 1,
           snapshot_lsn: 1
         }
       }
@@ -143,10 +142,8 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     }
 
     return {
-      snapshot_done: doc.snapshot_done,
-      resume_lsn: maxLsn(doc.snapshot_lsn, doc.last_checkpoint_lsn),
-      active: doc.state == storage.SyncRuleState.ACTIVE,
-      checkpoint_lsn: doc.last_checkpoint_lsn
+      snapshotDone: doc.snapshot_done && doc.last_checkpoint_lsn != null,
+      resumeLsn: maxLsn(doc.snapshot_lsn, doc.last_checkpoint_lsn)
     };
   }
 

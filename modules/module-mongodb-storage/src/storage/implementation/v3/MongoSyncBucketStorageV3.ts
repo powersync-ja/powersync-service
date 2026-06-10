@@ -6,7 +6,6 @@ import {
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
-  minLsn,
   ParameterSetLimitExceededError,
   ProtocolOpId,
   storage,
@@ -212,27 +211,20 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     );
   }
 
-  protected async getStatusImpl(): Promise<storage.SyncRuleStatus> {
+  protected async getStatusImpl(): Promise<storage.ReplicationStreamStatus> {
     const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
-      projection: this.syncConfigProjection({ state: 1, resume_lsn: 1 })
+      projection: this.syncConfigProjection({ resume_lsn: 1 })
     });
     const syncConfigs = this.selectedSyncConfigs(doc);
     if (doc == null || syncConfigs.length == 0) {
       throw new ServiceAssertionError('Cannot find replication stream status');
     }
-    const active = syncConfigs.some(
-      (config) => doc.state == storage.SyncRuleState.ACTIVE && config.state == storage.SyncRuleState.ACTIVE
-    );
-    const checkpointLsn = syncConfigs.reduce<string | null>(
-      (min, config) => minLsn(min, config.last_checkpoint_lsn),
-      null
-    );
 
     return {
-      snapshot_done: syncConfigs.every((config) => config.snapshot_done ?? false),
-      resume_lsn: doc.resume_lsn ?? null,
-      active,
-      checkpoint_lsn: checkpointLsn
+      snapshotDone:
+        syncConfigs.every((config) => config.snapshot_done ?? false) &&
+        syncConfigs.every((config) => config.last_checkpoint_lsn != null),
+      resumeLsn: doc.resume_lsn ?? null
     };
   }
 

@@ -74,7 +74,8 @@ export const diagnostics = routeDefinition({
       {
         include_content,
         check_connection: status.connected,
-        live_status: true
+        live_status: true,
+        active: true
       },
       active?.storage
     );
@@ -88,7 +89,8 @@ export const diagnostics = routeDefinition({
             {
               include_content,
               check_connection: status.connected,
-              live_status: true
+              live_status: true,
+              active: false
             },
             deploying.storage
           );
@@ -245,7 +247,8 @@ export const validate = routeDefinition({
     const status = (await api.getSyncRulesStatus(apiHandler, sync_rules, {
       include_content: false,
       check_connection: connectionStatus.connected,
-      live_status: false
+      live_status: false,
+      active: false
     }))!;
 
     if (connectionStatus == null) {

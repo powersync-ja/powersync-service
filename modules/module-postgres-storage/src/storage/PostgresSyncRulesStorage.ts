@@ -503,7 +503,7 @@ export class PostgresSyncRulesStorage
     `.execute();
   }
 
-  async getStatus(): Promise<storage.SyncRuleStatus> {
+  async getStatus(): Promise<storage.ReplicationStreamStatus> {
     const syncRulesRow = await this.db.sql`
       SELECT
         snapshot_done,
@@ -515,7 +515,7 @@ export class PostgresSyncRulesStorage
       WHERE
         id = ${{ type: 'int4', value: this.replicationStreamId }}
     `
-      .decoded(pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'state', 'snapshot_lsn']))
+      .decoded(pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'snapshot_lsn']))
       .first();
 
     if (syncRulesRow == null) {
@@ -523,10 +523,8 @@ export class PostgresSyncRulesStorage
     }
 
     return {
-      snapshot_done: syncRulesRow.snapshot_done,
-      active: syncRulesRow.state == storage.SyncRuleState.ACTIVE,
-      checkpoint_lsn: syncRulesRow.last_checkpoint_lsn ?? null,
-      resume_lsn: maxLsn(syncRulesRow.snapshot_lsn, syncRulesRow.last_checkpoint_lsn)
+      snapshotDone: syncRulesRow.snapshot_done && syncRulesRow.last_checkpoint_lsn != null,
+      resumeLsn: maxLsn(syncRulesRow.snapshot_lsn, syncRulesRow.last_checkpoint_lsn)
     };
   }
 

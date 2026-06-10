@@ -110,12 +110,12 @@ export class MongoSnapshotter {
 
   async checkSlot(): Promise<InitResult> {
     const status = await this.storage.getStatus();
-    if (status.snapshot_done && status.checkpoint_lsn) {
+    if (status.snapshotDone) {
       this.logger.info(`Initial replication already done`);
       return { needsInitialSync: false, snapshotLsn: null };
     }
 
-    return { needsInitialSync: true, snapshotLsn: status.resume_lsn };
+    return { needsInitialSync: true, snapshotLsn: status.resumeLsn };
   }
 
   async setupCheckpointsCollection() {
@@ -275,7 +275,7 @@ export class MongoSnapshotter {
     }
 
     const status = await this.storage.getStatus();
-    if (status.snapshot_done) {
+    if (status.snapshotDone) {
       return;
     }
 

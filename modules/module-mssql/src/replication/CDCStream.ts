@@ -571,7 +571,7 @@ export class CDCStream {
   private async checkSnapshotStatus(): Promise<SnapshotStatusResult> {
     const status = await this.storage.getStatus();
 
-    if (status.snapshot_done && status.checkpoint_lsn) {
+    if (status.snapshotDone) {
       const additionalTablesToSnapshot: Set<MSSQLSourceTable> = new Set();
       const newTables = this.tableCache
         .getAll()
@@ -586,7 +586,7 @@ export class CDCStream {
       // Snapshot is done, but we still need to check that the last known resume LSN is still
       // within the retention threshold of the CDC tables
 
-      const lastResumeLSN = LSN.fromString(status.resume_lsn!);
+      const lastResumeLSN = LSN.fromString(status.resumeLsn!);
       // Check that the CDC tables still have valid data
       const tablesOutsideRetentionThreshold = await checkRetentionThresholds({
         checkpointLSN: lastResumeLSN,
@@ -602,7 +602,7 @@ export class CDCStream {
       if (additionalTablesToSnapshot.size > 0) {
         return {
           status: SnapshotStatus.LIMITED_RESNAPSHOT,
-          snapshotLSN: status.resume_lsn,
+          snapshotLSN: status.resumeLsn,
           specificTablesToResnapshot: Array.from(additionalTablesToSnapshot)
         };
       } else {
@@ -613,8 +613,8 @@ export class CDCStream {
       }
     } else {
       return {
-        status: status.resume_lsn != null ? SnapshotStatus.RESUME : SnapshotStatus.INITIAL,
-        snapshotLSN: status.resume_lsn
+        status: status.resumeLsn != null ? SnapshotStatus.RESUME : SnapshotStatus.INITIAL,
+        snapshotLSN: status.resumeLsn
       };
     }
   }
