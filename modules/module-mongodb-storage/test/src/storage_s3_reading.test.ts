@@ -34,9 +34,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
   test('1. Round-trip write → read through S3', async () => {
     const { memoryStorage, factory: factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
-    const syncRules = await factory.updateSyncRules(
-      updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 })
-    );
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -86,9 +84,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
   test('2. Missing S3 object is handled gracefully', async () => {
     const { memoryStorage, factory: factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
-    const syncRules = await factory.updateSyncRules(
-      updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 })
-    );
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
 
     // Write two real ops through S3 writer (these ops live in S3)
@@ -157,9 +153,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
   test('3. Read with mixed inline + S3 docs', async () => {
     const { memoryStorage, factory: factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
-    const syncRules = await factory.updateSyncRules(
-      updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 })
-    );
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
 
     // Write two ops through S3 writer (these go to S3 with storage_ref)
@@ -218,7 +212,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
           checksum: 999n,
           data: JSON.stringify({ id: 'inline_item1', description: 'inline' })
         }
-      ],
+      ]
       // No storage_ref — this doc stores ops inline
     } as any);
 

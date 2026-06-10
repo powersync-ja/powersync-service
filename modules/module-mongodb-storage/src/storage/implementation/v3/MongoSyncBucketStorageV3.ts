@@ -1,3 +1,4 @@
+import * as zstd from '@mongodb-js/zstd';
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
@@ -473,8 +474,35 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       let sharedRemainingLimit = limit;
       let limitReached = false;
 
-      for (const raw of rawData) {
-        const doc = bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS);
+      // Deserialize all docs once
+      const docs: any[] = rawData.map((raw) => bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS));
+
+      // Pre-fetch S3 objects for all S3-backed docs in this batch
+      if (this.objectStorage) {
+        const s3Docs = docs.filter((d) => d.storage_ref);
+        if (s3Docs.length > 0) {
+          await Promise.all(
+            s3Docs.map(async (doc) => {
+              try {
+                const buffer = await this.objectStorage!.get(doc.storage_ref.path);
+                const decompressed = await zstd.decompress(buffer);
+                const wrapper = bson.deserialize(decompressed, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS);
+                doc.ops = wrapper.ops;
+              } catch (err) {
+                this.logger.warn(`Failed to fetch/decompress S3 object ${doc.storage_ref?.path}: ${err}`);
+              }
+            })
+          );
+        }
+      }
+
+      // Track sizes: for S3 docs use decompressed estimate, for inline use raw byteLength
+      const docSizes: number[] = rawData.map((raw, i) => {
+        const doc = docs[i];
+        return doc.storage_ref ? doc.storage_ref.compressed_size * 3 : raw.byteLength;
+      });
+
+      for (const [i, doc] of docs.entries()) {
         const {
           rows,
           remainingLimit,
@@ -482,8 +510,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         } = extractRowsFromDocument(doc, context, bucketMap, end, sharedRemainingLimit);
         data.push(...rows);
         documentOpCounts.push(rows.length);
-        documentSizes.push(raw.byteLength);
-        chunkSizeBytes += raw.byteLength;
+        documentSizes.push(docSizes[i]);
+        chunkSizeBytes += docSizes[i];
         sharedRemainingLimit = remainingLimit;
         if (docLimitReached) {
           limitReached = true;
