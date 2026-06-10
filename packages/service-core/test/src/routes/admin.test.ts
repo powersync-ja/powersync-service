@@ -116,10 +116,8 @@ bucket_definitions:
       const getInstance = vi.fn(() => ({
         async getStatus() {
           return {
-            active: true,
-            snapshot_done: false,
-            checkpoint_lsn: null,
-            resume_lsn: null
+            snapshotDone: false,
+            resumeLsn: null
           };
         }
       }));

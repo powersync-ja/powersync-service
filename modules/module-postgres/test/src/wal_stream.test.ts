@@ -303,7 +303,10 @@ bucket_definitions:
         })
       ]);
 
-      expect(await context.storage!.getStatus()).toMatchObject({ active: true, snapshot_done: true });
+      expect(await context.storage!.getStatus()).toMatchObject({ snapshotDone: true });
+      expect((await context.factory.getActiveSyncConfig())?.replicationStream.replicationStreamId).toBe(
+        context.storage!.replicationStreamId
+      );
     }
 
     {
@@ -364,7 +367,10 @@ bucket_definitions:
         })
       ]);
 
-      expect(await context.storage!.getStatus()).toMatchObject({ active: true, snapshot_done: true });
+      expect(await context.storage!.getStatus()).toMatchObject({ snapshotDone: true });
+      expect((await context.factory.getActiveSyncConfig())?.replicationStream.replicationStreamId).toBe(
+        context.storage!.replicationStreamId
+      );
     }
 
     {
@@ -426,7 +432,10 @@ bucket_definitions:
         })
       ]);
 
-      expect(await context.storage!.getStatus()).toMatchObject({ active: true, snapshot_done: true });
+      expect(await context.storage!.getStatus()).toMatchObject({ snapshotDone: true });
+      expect((await context.factory.getActiveSyncConfig())?.replicationStream.replicationStreamId).toBe(
+        context.storage!.replicationStreamId
+      );
     }
 
     {
