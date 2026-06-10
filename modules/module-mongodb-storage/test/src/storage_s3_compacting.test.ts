@@ -28,9 +28,7 @@ describe('S3 compaction (Phase 2d red tests)', () => {
   test('Compaction round-trip with S3-backed docs', async () => {
     const { memoryStorage, factory: factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
-    const syncRules = await factory.updateSyncRules(
-      updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 })
-    );
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
 
     // Write ops with duplicates to exercise dedup during compaction.
@@ -76,7 +74,6 @@ describe('S3 compaction (Phase 2d red tests)', () => {
     // Verify S3 objects were created (write path works).
     const storedPaths = (memoryStorage as any).store as Map<string, Buffer>;
     expect(storedPaths.size).toBeGreaterThan(0);
-    const initialObjectCount = storedPaths.size;
 
     // Verify MongoDB documents have storage_ref (no ops[]).
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
@@ -110,9 +107,7 @@ describe('S3 compaction (Phase 2d red tests)', () => {
 
     // Record the ops that exist so we can verify survival later.
     // Use the Phase 2c read path to read actual ops (this path works).
-    const batchBefore = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [request])
-    );
+    const batchBefore = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataBefore = test_utils.getBatchData(batchBefore);
     expect(dataBefore.length).toBe(4);
 
@@ -151,28 +146,34 @@ describe('S3 compaction (Phase 2d red tests)', () => {
     // The compacted_state.op_id must equal the maxOpId (checkpoint)
     expect(bucketStateAfter!.compacted_state!.op_id).toBe(checkpoint);
 
-    // --- Verification 2: S3 objects should have been cleaned/replaced ---
-    // Correct compaction uploads new S3 objects and deletes old ones.
-    // Currently, no S3 interaction happens at all.
-    const newObjectCount = storedPaths.size;
-    expect(newObjectCount).not.toBe(initialObjectCount);
-
-    // --- Verification 3: MongoDB docs should have been replaced ---
-    // Correct compaction deletes old docs (by _id) and inserts new ones
-    // with new _id.o values. Currently, the original docs survive unchanged.
+    // --- Verification 2: MongoDB docs replaced with new metadata shells ---
     const docsAfter = await collection.find({}).toArray();
-    const originalIds = new Set(docsBefore.map((d) => `${d._id.b}|${d._id.o}`));
-    const afterIds = new Set(docsAfter.map((d) => `${d._id.b}|${d._id.o}`));
-    expect(afterIds.size).not.toBe(originalIds.size);
+    for (const doc of docsAfter) {
+      expect(doc.storage_ref).toBeDefined();
+      expect(doc.ops).toBeUndefined();
+    }
+
+    // --- Verification 3: S3 objects cleaned/replaced ---
+    // Old writer-generated paths should be gone; new compaction paths exist.
+    const oldS3Paths = new Set(docsBefore.map((d: any) => d.storage_ref?.path).filter(Boolean));
+    const afterS3Paths = new Set(docsAfter.map((d: any) => d.storage_ref?.path).filter(Boolean));
+    for (const path of oldS3Paths) {
+      expect(storedPaths.has(path)).toBe(false);
+    }
+    for (const path of afterS3Paths) {
+      expect(storedPaths.has(path)).toBe(true);
+    }
+    expect(afterS3Paths.size).toBeGreaterThan(0);
+    for (const path of oldS3Paths) {
+      expect(afterS3Paths.has(path)).toBe(false);
+    }
 
     // --- Verification 4: Read path still returns correct ops ---
     // Phase 2c reads ops from S3 correctly. Since compaction didn't delete
     // the S3 objects or modify the docs, the ops are still readable.
     // This assertion should PASS today and must continue passing after
     // Phase 2d implementation.
-    const batchAfter = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [request])
-    );
+    const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataAfter = test_utils.getBatchData(batchAfter);
     expect(dataAfter.length).toBe(dataBefore.length);
     expect(dataAfter).toEqual(
