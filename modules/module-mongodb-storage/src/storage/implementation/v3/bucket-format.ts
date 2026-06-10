@@ -48,6 +48,9 @@ export function* loadBucketDataDocument(
   doc: BucketDataDocumentV3
 ): Generator<BucketDataDoc> {
   const { _id, ops } = doc;
+  if (!ops?.length) {
+    return;
+  }
   const bucketKey = {
     ...context,
     bucket: _id.b

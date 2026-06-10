@@ -37,7 +37,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   protected createPersistedBatch(writtenSize: number): PersistedBatch {
     return new PersistedBatchV3(this.db, this.group_id, this.mapping, writtenSize, {
-      logger: this.logger
+      logger: this.logger,
+      objectStorage: this.options.objectStorage
     });
   }
 

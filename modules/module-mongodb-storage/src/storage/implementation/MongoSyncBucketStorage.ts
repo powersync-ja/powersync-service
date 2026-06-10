@@ -36,10 +36,12 @@ import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContentV1 } from './MongoPersistedSyncRulesContent.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
+import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
   storageConfig: StorageConfig;
+  objectStorage?: ObjectStorage;
 }
 
 interface InternalCheckpointChanges extends CheckpointChanges {
@@ -75,6 +77,8 @@ export abstract class MongoSyncBucketStorage
 
   readonly checksums: MongoChecksums;
 
+  protected readonly objectStorage?: ObjectStorage;
+
   private parsedSyncRulesCache: { parsed: HydratedSyncConfig; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
   public readonly logger: Logger;
@@ -91,6 +95,7 @@ export abstract class MongoSyncBucketStorage
   ) {
     super();
     this.storageConfig = options.storageConfig;
+    this.objectStorage = options.objectStorage;
     this.db = factory.db.versioned(this.storageConfig);
     this.checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
@@ -212,7 +217,8 @@ export abstract class MongoSyncBucketStorage
       markRecordUnavailable: options.markRecordUnavailable,
       hooks: options.hooks,
       syncConfigId: state.syncConfigId,
-      tracer: options.tracer
+      tracer: options.tracer,
+      objectStorage: this.objectStorage
     };
     const writer = this.createWriterImpl(batchOptions);
     this.iterateListeners((cb) => cb.batchStarted?.(writer));

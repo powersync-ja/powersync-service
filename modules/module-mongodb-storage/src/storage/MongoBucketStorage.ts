@@ -20,11 +20,13 @@ import {
 } from './implementation/MongoPersistedSyncRulesContent.js';
 import { syncRuleStateUpdatePipeline } from './implementation/SyncRuleStateUpdate.js';
 import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
+import { ObjectStorage } from './implementation/v3/object-storage/ObjectStorage.js';
 import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyncMongoV3.js';
 import { ReplicationStreamDocumentV3, SyncConfigDefinition, SyncRuleConfigStateV3 } from './storage-index.js';
 
 export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
+  objectStorage?: ObjectStorage;
 }
 
 export class MongoBucketStorage extends storage.BucketStorageFactory {

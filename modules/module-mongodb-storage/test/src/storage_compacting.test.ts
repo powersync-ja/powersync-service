@@ -380,7 +380,7 @@ bucket_definitions:
 
     const doc = serializeBucketData('test[]', ops);
 
-    expect(doc.ops.map((op) => op.o)).toEqual([5n, 3n, 7n]);
+    expect(doc.ops!.map((op) => op.o)).toEqual([5n, 3n, 7n]);
   });
 
   test('1. ops[] ordering - preserved after compaction', async () => {
@@ -398,8 +398,8 @@ bucket_definitions:
 
     const docs = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
     for (const doc of docs) {
-      for (let i = 1; i < doc.ops.length; i++) {
-        expect(doc.ops[i].o).toBeGreaterThanOrEqual(doc.ops[i - 1].o);
+      for (let i = 1; i < doc.ops!.length; i++) {
+        expect(doc.ops![i].o).toBeGreaterThanOrEqual(doc.ops![i - 1].o);
       }
     }
   });
@@ -431,11 +431,11 @@ bucket_definitions:
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
     for (const doc of docs) {
-      expect(doc._id.o).toBe(doc.ops.reduce((max, op) => (op.o > max ? op.o : max), 0n));
-      expect(doc.min_op).toBe(doc.ops.reduce((min, op) => (op.o < min ? op.o : min), doc.ops[0].o));
-      expect(doc.count).toBe(doc.ops.length);
-      expect(doc.checksum).toBe(doc.ops.reduce((sum, op) => sum + op.checksum, 0n));
-      expect(doc.size).toBe(doc.ops.reduce((sum, op) => sum + (op.data?.length ?? 0), 0));
+      expect(doc._id.o).toBe(doc.ops!.reduce((max, op) => (op.o > max ? op.o : max), 0n));
+      expect(doc.min_op).toBe(doc.ops!.reduce((min, op) => (op.o < min ? op.o : min), doc.ops![0].o));
+      expect(doc.count).toBe(doc.ops!.length);
+      expect(doc.checksum).toBe(doc.ops!.reduce((sum, op) => sum + op.checksum, 0n));
+      expect(doc.size).toBe(doc.ops!.reduce((sum, op) => sum + (op.data?.length ?? 0), 0));
     }
   });
 
@@ -517,7 +517,7 @@ bucket_definitions:
     await compact(bucketStorage, 30n);
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
-    const allOps = docs.flatMap((d) => d.ops);
+    const allOps = docs.flatMap((d) => d.ops!);
     const moveOps = allOps.filter((op) => op.op === 'MOVE');
     expect(moveOps.length).toBe(1);
     expect(moveOps[0].o).toBe(10n);
@@ -542,7 +542,7 @@ bucket_definitions:
     await compact(bucketStorage, 30n);
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
-    const allOps = docs.flatMap((d) => d.ops);
+    const allOps = docs.flatMap((d) => d.ops!);
     const moveOps = allOps.filter((op) => op.op === 'MOVE');
     // Pre-existing MOVE@20 + new MOVE@10 are collapsed into CLEAR
     expect(moveOps.length).toBe(0);
@@ -568,7 +568,7 @@ bucket_definitions:
     await compact(bucketStorage, 25n);
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
-    const allOps = docs.flatMap((d) => d.ops);
+    const allOps = docs.flatMap((d) => d.ops!);
     const clearOps = allOps.filter((op) => op.op === 'CLEAR');
     expect(clearOps.length).toBe(1);
   });
@@ -586,7 +586,7 @@ bucket_definitions:
     await compact(bucketStorage, 20n);
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
-    const allOps = docs.flatMap((d) => d.ops);
+    const allOps = docs.flatMap((d) => d.ops!);
     // MOVE@10 + REMOVE@20 collapsed into CLEAR@20
     const clearOps = allOps.filter((op) => op.op === 'CLEAR');
     expect(clearOps.length).toBe(1);
@@ -635,7 +635,7 @@ bucket_definitions:
   test('9. serialization fidelity - null data preserved', () => {
     const ops = [makeBucketDataDoc({ o: 1n, data: null })];
     const doc = serializeBucketData('test[]', ops);
-    expect(doc.ops[0].data).toBeNull();
+    expect(doc.ops![0].data).toBeNull();
 
     const context = { replicationStreamId: 1, definitionId: '1' };
     const deserialized = [...loadBucketDataDocument(context, doc)];
@@ -645,7 +645,7 @@ bucket_definitions:
   test('9. serialization fidelity - empty string data preserved', () => {
     const ops = [makeBucketDataDoc({ o: 1n, data: '' })];
     const doc = serializeBucketData('test[]', ops);
-    expect(doc.ops[0].data).toBe('');
+    expect(doc.ops![0].data).toBe('');
 
     const context = { replicationStreamId: 1, definitionId: '1' };
     const deserialized = [...loadBucketDataDocument(context, doc)];
@@ -656,7 +656,7 @@ bucket_definitions:
     const unicodeData = '{"name":"日本語テスト","emoji":"🎉"}';
     const ops = [makeBucketDataDoc({ o: 1n, data: unicodeData })];
     const doc = serializeBucketData('test[]', ops);
-    expect(doc.ops[0].data).toBe(unicodeData);
+    expect(doc.ops![0].data).toBe(unicodeData);
 
     const context = { replicationStreamId: 1, definitionId: '1' };
     const deserialized = [...loadBucketDataDocument(context, doc)];
@@ -691,7 +691,7 @@ bucket_definitions:
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
     for (const doc of docs) {
-      const maxO = doc.ops.reduce((max, op) => (op.o > max ? op.o : max), 0n);
+      const maxO = doc.ops!.reduce((max, op) => (op.o > max ? op.o : max), 0n);
       expect(doc._id.o).toBe(maxO);
     }
   });
@@ -710,7 +710,7 @@ bucket_definitions:
     await compact(bucketStorage, 15n);
 
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
-    const allOpsAfter = docsAfter.flatMap((d) => d.ops);
+    const allOpsAfter = docsAfter.flatMap((d) => d.ops!);
 
     // All ops survive: ops <= maxOpId are deduplicated, ops > maxOpId pass through.
     expect(allOpsAfter.length).toBe(3);
@@ -742,7 +742,7 @@ bucket_definitions:
     }
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
-    const storedOps = docs.flatMap((d) => d.ops);
+    const storedOps = docs.flatMap((d) => d.ops!);
     let storedChecksum = 0;
     for (const op of storedOps) {
       storedChecksum = addChecksums(storedChecksum, Number(op.checksum));
@@ -1011,7 +1011,7 @@ bucket_definitions:
   async function readAllOps(collection: any): Promise<{ row_id: string; o: bigint; op: string }[]> {
     const docs = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
     return docs.flatMap((d: any) =>
-      d.ops.map((op: any) => ({ row_id: op.row_id!, o: op.o, op: op.op, target_op: op.target_op ?? undefined }))
+      d.ops!.map((op: any) => ({ row_id: op.row_id!, o: op.o, op: op.op, target_op: op.target_op ?? undefined }))
     );
   }
 
@@ -1299,7 +1299,7 @@ bucket_definitions:
 
     expect(checksumAfter).toBe(checksumBefore);
 
-    const allOpsAfter = docsAfter.flatMap((d) => d.ops);
+    const allOpsAfter = docsAfter.flatMap((d) => d.ops!);
     // Two MOVEs collapsed into one CLEAR
     expect(allOpsAfter.length).toBe(4);
     const clearOps = allOpsAfter.filter((op) => op.op === 'CLEAR');
@@ -1328,7 +1328,7 @@ bucket_definitions:
 
     expect(checksumAfter).toBe(checksumBefore);
 
-    const allOpsAfter = docsAfter.flatMap((d) => d.ops);
+    const allOpsAfter = docsAfter.flatMap((d) => d.ops!);
     // Two MOVEs collapsed into one CLEAR
     expect(allOpsAfter.length).toBe(5);
     const clearOps = allOpsAfter.filter((op) => op.op === 'CLEAR');
@@ -1349,7 +1349,7 @@ bucket_definitions:
     await compact(bucketStorage, 30n);
 
     const docs = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
-    const allOps = docs.flatMap((d) => d.ops);
+    const allOps = docs.flatMap((d) => d.ops!);
     const moveOps = allOps.filter((op) => op.op === 'MOVE');
     expect(moveOps.length).toBe(1);
     expect(moveOps[0].o).toBe(10n);
@@ -1386,15 +1386,15 @@ bucket_definitions:
     const checksumAfter = docs.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
     expect(checksumAfter).toBe(checksumBefore);
 
-    const allOps = docs.flatMap((d) => d.ops);
+    const allOps = docs.flatMap((d) => d.ops!);
     expect(allOps.length).toBe(5);
     const moveOp = allOps.find((op) => op.op === 'MOVE');
     expect(moveOp).toMatchObject({ o: 10n, data: null });
 
     expect(docs.length).toBe(1);
 
-    const moveOpsInDoc = docs[0].ops.filter((op) => op.op === 'MOVE');
-    const putOpsInDoc = docs[0].ops.filter((op) => op.op === 'PUT');
+    const moveOpsInDoc = docs[0].ops!.filter((op) => op.op === 'MOVE');
+    const putOpsInDoc = docs[0].ops!.filter((op) => op.op === 'PUT');
     expect(moveOpsInDoc.length).toBe(1);
     expect(putOpsInDoc.length).toBe(4);
   });
@@ -1482,7 +1482,7 @@ bucket_definitions:
   ): Promise<{ row_id: string | undefined; o: bigint; op: string; target_op: bigint | undefined }[]> {
     const docs = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
     return docs.flatMap((d: any) =>
-      d.ops.map((op: any) => ({
+      d.ops!.map((op: any) => ({
         row_id: op.row_id ?? undefined,
         o: op.o,
         op: op.op,
@@ -1603,7 +1603,7 @@ bucket_definitions:
     // The document at _id.o=600 must still be present and unmodified after compaction.
     // The streaming compactor should only touch documents containing ops <= maxOpId.
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
-    const allOpsAfter = docsAfter.flatMap((d) => d.ops);
+    const allOpsAfter = docsAfter.flatMap((d) => d.ops!);
     const op600 = allOpsAfter.find((op) => op.o === 600n);
     expect(op600).toBeDefined();
     expect(op600!.op).toBe('PUT');
@@ -1816,7 +1816,7 @@ bucket_definitions:
 
     // MOVEs have target_op stored at the document level (not per-op in V3).
     // Documents containing MOVEs should have non-null target_op.
-    const docsWithMoves = docsAfter.filter((d) => d.ops.some((op: any) => op.op === 'MOVE'));
+    const docsWithMoves = docsAfter.filter((d) => d.ops!.some((op: any) => op.op === 'MOVE'));
     expect(docsWithMoves.length).toBeGreaterThan(0);
     for (const doc of docsWithMoves) {
       expect(doc.target_op).toBeDefined();
@@ -2096,7 +2096,7 @@ bucket_definitions:
       await doCompact(bucketStorage, 30n);
 
       const docsAfter = await collection.find({ '_id.b': BUCKET }).toArray();
-      const clearDoc = docsAfter.find((d: any) => d.ops.some((op: any) => op.op === 'CLEAR'));
+      const clearDoc = docsAfter.find((d: any) => d.ops!.some((op: any) => op.op === 'CLEAR'));
       expect(clearDoc).toBeDefined();
       expect(clearDoc!.target_op).toBe(30n);
     });
