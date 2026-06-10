@@ -317,13 +317,15 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       };
 
       await this.db.sync_rules.insertOne(doc, { session });
-      await this.db.notifyCheckpoint();
       rules = new MongoPersistedReplicationStream(this.db, doc, [syncConfigDoc]);
       if (options.lock) {
         // The lock is persisted on rules.current_lock
         await rules.lock(session);
       }
     });
+
+    // Notify only after the transaction has committed, so listeners cannot observe pre-commit state.
+    await this.db.notifyCheckpoint();
 
     return rules!;
   }
@@ -450,7 +452,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       },
       { session }
     );
-    await this.db.notifyCheckpoint();
     const stream = new MongoPersistedReplicationStream(
       this.db,
       {
