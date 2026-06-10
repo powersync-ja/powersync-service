@@ -1,13 +1,13 @@
+import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
+import * as zstd from '@mongodb-js/zstd';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
-import * as zstd from '@mongodb-js/zstd';
 import { describe, expect, test } from 'vitest';
-import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
-import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 import { env } from './env.js';
+import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 
 const SYNC_RULES_YAML = `
 bucket_definitions:
@@ -91,10 +91,10 @@ describe('S3 write path (Phase 2b red tests)', () => {
 
     const doc = docs[0];
     expect(doc.storage_ref).toBeDefined();
-    expect(doc.storage_ref.path).toBeTruthy();
-    expect(doc.storage_ref.compressed_size).toBeTypeOf('number');
-    expect(doc.storage_ref.compressed_size).toBeGreaterThan(0);
-    expect(doc.storage_ref.compression).toBe('zstd');
+    expect(doc.storage_ref!.path).toBeTruthy();
+    expect(doc.storage_ref!.compressed_size).toBeTypeOf('number');
+    expect(doc.storage_ref!.compressed_size).toBeGreaterThan(0);
+    expect(doc.storage_ref!.compression).toBe('zstd');
     expect(doc.ops).toBeUndefined();
   });
 
@@ -153,15 +153,14 @@ describe('S3 write path (Phase 2b red tests)', () => {
     expect(doc.target_op === null || typeof doc.target_op === 'bigint').toBe(true);
 
     // With S3 offloading, the document MUST have storage_ref and MUST NOT have ops.
-    // This assertion FAILS now because the write path isn't implemented yet.
     expect(doc.storage_ref).toBeDefined();
-    expect(doc.storage_ref.compression).toBe('zstd');
-    expect(doc.storage_ref.compressed_size).toBeTypeOf('number');
-    expect(doc.storage_ref.compressed_size).toBeGreaterThan(0);
+    expect(doc.storage_ref!.compression).toBe('zstd');
+    expect(doc.storage_ref!.compressed_size).toBeTypeOf('number');
+    expect(doc.storage_ref!.compressed_size).toBeGreaterThan(0);
 
     // The size field should reflect the sum of decompressed op.data lengths
     // (NOT the compressed size from storage_ref.compressed_size)
-    expect(doc.size).not.toBe(doc.storage_ref.compressed_size);
+    expect(doc.size).not.toBe(doc.storage_ref!.compressed_size);
   });
 
   test('3. No object storage = unchanged behavior', async () => {
@@ -203,7 +202,7 @@ describe('S3 write path (Phase 2b red tests)', () => {
     const doc = docs[0];
     expect(doc.ops).toBeDefined();
     expect(Array.isArray(doc.ops)).toBe(true);
-    expect(doc.ops.length).toBeGreaterThan(0);
+    expect(doc.ops!.length).toBeGreaterThan(0);
     expect(doc.storage_ref).toBeUndefined();
   });
 });

@@ -1,3 +1,4 @@
+import * as zstd from '@mongodb-js/zstd';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
@@ -212,14 +213,81 @@ export class PersistedBatchV3 extends PersistedBatch {
       }
 
       const inserts: mongo.AnyBulkWriteOperation<BucketDataDocumentV3>[] = [];
-      for (const [bucket, ops] of operationsByBucket.entries()) {
-        const chunks = chunkBucketData(ops);
-        for (const chunk of chunks) {
-          inserts.push({
-            insertOne: {
-              document: serializeBucketData(bucket, chunk)
-            }
-          });
+
+      if (this.objectStorage) {
+        // S3 path: upload ops to S3, store metadata shells in MongoDB
+        for (const [bucket, ops] of operationsByBucket.entries()) {
+          const chunks = chunkBucketData(ops);
+          for (const chunk of chunks) {
+            const minOp = chunk[0].o;
+            const maxOp = chunk[chunk.length - 1].o;
+
+            let totalChecksum = 0n;
+            let totalSize = 0;
+            let maxTargetOp: bigint | null = null;
+            const bucketOps = chunk.map((op) => {
+              totalChecksum += op.checksum;
+              totalSize += op.data?.length ?? 0;
+              if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
+                maxTargetOp = op.target_op;
+              }
+              return {
+                o: op.o,
+                op: op.op,
+                source_table: op.source_table,
+                source_key: op.source_key,
+                table: op.table,
+                row_id: op.row_id,
+                checksum: op.checksum,
+                data: op.data
+              };
+            });
+
+            // BSON serialize { ops: bucketOps }
+            const bsonBuffer = Buffer.from(bson.serialize({ ops: bucketOps }));
+
+            // Zstd compress (returns Uint8Array, wrap in Buffer for ObjectStorage)
+            const compressedUint8 = await zstd.compress(bsonBuffer);
+            const compressed = Buffer.from(compressedUint8);
+
+            // Generate path: bucket-data/<group_id>/<def_id>/<bucket>/<minOp>-<maxOp>-<minOp>
+            // _id.o is maxOp (clustered index key). Path uses minOp-maxOp-minOp for uniqueness.
+            const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}-${minOp}`;
+
+            // Upload to S3
+            await this.objectStorage.put(path, compressed);
+
+            // Insert metadata shell (with storage_ref, without ops)
+            inserts.push({
+              insertOne: {
+                document: {
+                  _id: { b: bucket, o: maxOp },
+                  min_op: minOp,
+                  checksum: totalChecksum,
+                  count: chunk.length,
+                  size: totalSize,
+                  target_op: maxTargetOp,
+                  storage_ref: {
+                    path,
+                    compressed_size: compressed.byteLength,
+                    compression: 'zstd'
+                  }
+                }
+              }
+            });
+          }
+        }
+      } else {
+        // Existing code path (objectStorage undefined): put ops inline in MongoDB
+        for (const [bucket, ops] of operationsByBucket.entries()) {
+          const chunks = chunkBucketData(ops);
+          for (const chunk of chunks) {
+            inserts.push({
+              insertOne: {
+                document: serializeBucketData(bucket, chunk)
+              }
+            });
+          }
         }
       }
 
