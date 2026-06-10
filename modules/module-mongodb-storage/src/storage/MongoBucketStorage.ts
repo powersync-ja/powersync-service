@@ -1,6 +1,6 @@
 import { GetIntanceOptions, LEGACY_STORAGE_VERSION, storage } from '@powersync/service-core';
 
-import { DO_NOT_LOG, ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { DO_NOT_LOG, ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
@@ -164,19 +164,16 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   }
 
   private isCompatible(
-    replicationStream: ReplicationStreamDocumentV3,
     existingConfig: SyncConfigDefinition[],
-    options: storage.UpdateSyncRulesOptions
+    config: storage.UpdateSyncRulesOptions['config']
   ): boolean {
-    if (options.config.plan == null) {
+    if (config.plan == null) {
       // Only support sync streams with serialized plans
+      logger.info(`Not using current sync streams - incremental reprocessing not supported`);
       return false;
     }
 
-    if (replicationStream.storage_version !== options.storageVersion) {
-      return false;
-    }
-
+    // We don't check the storage version here - that is checked upstream.
     if (existingConfig.length == 0) {
       // Could technically be compatible, but there is no reason to re-use this stream.
       return false;
@@ -184,14 +181,18 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     if (existingConfig.some((config) => config.serialized_plan == null)) {
       // Only support sync streams with serialized plans
+      logger.info(
+        `Existing replication stream not using current sync streams - incremental reprocessing not supported`
+      );
       return false;
     }
 
     // Technically we can compare the serialized compatibility versions? But this does not add much overhead.
     const first = existingConfig[0];
     const streamCompatibility = CompatibilityContext.deserialize(first.serialized_plan!.compatibility);
-    if (!streamCompatibility.equals(options.config.parsed.config.compatibility)) {
+    if (!streamCompatibility.equals(config.parsed.config.compatibility)) {
       // Compatibility options must match
+      logger.info(`Compatibility options changed - incremental reprocessing not supported`);
       return false;
     }
 
@@ -217,11 +218,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         { session, sort: { _id: -1 }, limit: 1 }
       );
       if (active != null) {
-        const activeConfigs = active.sync_configs.filter((config) => config.state == storage.SyncRuleState.ACTIVE);
-        const activeOnly = { ...active, sync_configs: activeConfigs };
-        const existingConfigDocs = await this.loadSyncConfigDefinitions(versioned, activeOnly, session);
+        const existingConfigDocs = await this.loadSyncConfigDefinitions(versioned, active, session);
 
-        if (this.options.supportsMultipleSyncConfigs && this.isCompatible(activeOnly, existingConfigDocs, options)) {
+        if (this.options.supportsMultipleSyncConfigs && this.isCompatible(existingConfigDocs, options.config)) {
+          logger.info(`Using incremental reprocessing`);
           await this.db.sync_rules.updateMany(
             {
               state: storage.SyncRuleState.PROCESSING
@@ -232,7 +232,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           await this.stopEmbeddedDeployingConfigs(active, session);
           rules = await this.appendSyncConfigToStream({
             versioned,
-            existing: activeOnly,
+            existing: active,
             existingConfigDocs,
             options,
             storageVersion,
@@ -452,11 +452,15 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       },
       { session }
     );
+    const syncConfigStates = [
+      ...existing.sync_configs.filter((config) => config.state == storage.SyncRuleState.ACTIVE),
+      syncConfigState
+    ];
     const stream = new MongoPersistedReplicationStream(
       this.db,
       {
         ...existing,
-        sync_configs: [...existing.sync_configs, syncConfigState]
+        sync_configs: syncConfigStates
       },
       [...existingConfigDocs, syncConfigDoc]
     );
