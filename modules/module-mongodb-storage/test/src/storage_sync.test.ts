@@ -1071,6 +1071,106 @@ streams:
     }
   );
 
+  test.runIf(storageVersion >= 3)('creates a new replication stream when compatibility options differ', async () => {
+    await using factory = await storageConfig.factory();
+
+    const first = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+        { storageVersion }
+      )
+    );
+    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+    await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await firstWriter.markAllSnapshotDone('1/1');
+    await firstWriter.commit('1/1');
+
+    // Same streams, but a different compatibility edition - must not append to the active stream.
+    const second = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 2
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+        { storageVersion }
+      )
+    );
+    expect(second.replicationStreamId).not.toEqual(first.replicationStreamId);
+
+    // The first stream stays active until the replacement has replicated.
+    const active = await factory.getActiveSyncConfig();
+    expect(active?.replicationStream.replicationStreamId).toEqual(first.replicationStreamId);
+    expect((await factory.getDeployingSyncConfig())?.replicationStream.replicationStreamId).toEqual(
+      second.replicationStreamId
+    );
+  });
+
+  test.runIf(storageVersion >= 3)(
+    'creates a new replication stream for legacy sync rules without a serialized plan',
+    async () => {
+      await using factory = await storageConfig.factory();
+
+      const first = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+          { storageVersion }
+        )
+      );
+      const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+      await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+      await firstWriter.markAllSnapshotDone('1/1');
+      await firstWriter.commit('1/1');
+
+      // Legacy sync rules have no serialized plan - must not append to the active stream.
+      const second = await factory.updateSyncRules(updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion }));
+      expect(second.replicationStreamId).not.toEqual(first.replicationStreamId);
+    }
+  );
+
+  test.runIf(storageVersion >= 3)('does not append to an active legacy sync config', async () => {
+    await using factory = await storageConfig.factory();
+
+    const first = await factory.updateSyncRules(updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion }));
+    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+    await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await firstWriter.markAllSnapshotDone('1/1');
+    await firstWriter.commit('1/1');
+
+    // The active config has no serialized plan, so a new streams config must not be appended to it.
+    const second = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+        { storageVersion }
+      )
+    );
+    expect(second.replicationStreamId).not.toEqual(first.replicationStreamId);
+  });
+
   test.runIf(storageVersion < 3)('can replace processing legacy sync rules', async () => {
     await using factory = await storageConfig.factory();
 
