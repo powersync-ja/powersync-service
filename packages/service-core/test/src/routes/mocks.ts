@@ -18,8 +18,12 @@ export function mockServiceContext(storage: Partial<SyncRulesBucketStorage> | nu
 
   const storageEngine: StorageEngine = {
     activeBucketStorage: {
-      async getActiveStorage() {
-        return storage;
+      async getActiveSyncConfig() {
+        return storage == null
+          ? null
+          : {
+              storage
+            };
       }
     } as Partial<BucketStorageFactory>
   } as any;

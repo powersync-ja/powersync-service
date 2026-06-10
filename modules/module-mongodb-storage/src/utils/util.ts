@@ -26,9 +26,9 @@ export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.
   return filter;
 }
 
-export function generateSlotName(prefix: string, sync_rules_id: number) {
+export function generateReplicationStreamName(prefix: string, replicationStreamId: number) {
   const slot_suffix = crypto.randomBytes(2).toString('hex');
-  return `${prefix}${sync_rules_id}_${slot_suffix}`;
+  return `${prefix}${replicationStreamId}_${slot_suffix}`;
 }
 
 /**

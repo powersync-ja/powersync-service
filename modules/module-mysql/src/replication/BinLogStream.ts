@@ -82,7 +82,7 @@ export class BinLogStream {
     this.storage = options.storage;
     this.connections = options.connections;
     this.syncRules = options.storage.getParsedSyncRules({ defaultSchema: this.defaultSchema });
-    this.groupId = options.storage.group_id;
+    this.groupId = options.storage.replicationStreamId;
     this.abortSignal = options.abortSignal;
   }
 
@@ -406,7 +406,7 @@ export class BinLogStream {
   }
 
   async streamChanges() {
-    const serverId = createRandomServerId(this.storage.group_id);
+    const serverId = createRandomServerId(this.storage.replicationStreamId);
 
     const connection = await this.connections.getConnection();
     const { checkpoint_lsn } = await this.storage.getStatus();

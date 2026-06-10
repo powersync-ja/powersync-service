@@ -27,7 +27,7 @@ import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
-import { MongoPersistedSyncRulesContentV1 } from '../MongoPersistedSyncRulesContent.js';
+import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV1,
@@ -48,13 +48,13 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
 
   constructor(
     factory: MongoBucketStorage,
-    group_id: number,
-    sync_rules: MongoPersistedSyncRulesContentV1,
-    slot_name: string,
+    replicationStreamId: number,
+    replicationStream: MongoPersistedReplicationStream,
+    replicationStreamName: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
   ) {
-    super(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
+    super(factory, replicationStreamId, replicationStream, replicationStreamName, writeCheckpointMode, options);
   }
 
   protected async initializeVersionStorage(): Promise<void> {}
@@ -67,7 +67,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     session: mongo.ClientSession
   ): Promise<{ checkpoint: bigint; lsn: string | null } | null> {
     const doc = (await this.db.sync_rules.findOne(
-      { _id: this.group_id },
+      { _id: this.replicationStreamId },
       {
         session,
         projection: { _id: 1, state: 1, last_checkpoint: 1, last_checkpoint_lsn: 1, snapshot_done: 1 }
@@ -85,7 +85,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   protected async getWriterSyncState() {
     const doc = (await this.db.sync_rules.findOne(
       {
-        _id: this.group_id
+        _id: this.replicationStreamId
       },
       { projection: { last_checkpoint_lsn: 1, keepalive_op: 1, snapshot_lsn: 1 } }
     )) as SyncRuleDocumentV1;
@@ -93,15 +93,14 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     return {
       lastCheckpointLsn: checkpointLsn,
       resumeFromLsn: maxLsn(checkpointLsn, doc?.snapshot_lsn),
-      keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
-      syncConfigId: null
+      keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null
     };
   }
 
   protected async terminateSyncRuleState(): Promise<void> {
     await this.db.sync_rules.updateOne(
       {
-        _id: this.group_id
+        _id: this.replicationStreamId
       },
       {
         $set: {
@@ -116,7 +115,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   protected async getStatusImpl(): Promise<storage.SyncRuleStatus> {
     const doc = (await this.db.sync_rules.findOne(
       {
-        _id: this.group_id
+        _id: this.replicationStreamId
       },
       {
         projection: {
@@ -144,7 +143,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   protected async clearSyncRuleState(): Promise<void> {
     await this.db.sync_rules.updateOne(
       {
-        _id: this.group_id
+        _id: this.replicationStreamId
       },
       {
         $set: {
@@ -163,10 +162,10 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   }
 
   protected createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums {
-    return new MongoChecksumsV1(this.db, this.group_id, {
+    return new MongoChecksumsV1(this.db, this.replicationStreamId, {
       ...options.checksumOptions,
       storageConfig: options?.storageConfig,
-      mapping: this.sync_rules.mapping
+      mapping: this.replicationStream.storageContent.mapping
     });
   }
 
@@ -178,13 +177,13 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     checkpoint: InternalOpId,
     options: storage.CompactOptions
   ): MongoParameterCompactor {
-    return new MongoParameterCompactorV1(this.db, this.group_id, checkpoint, options);
+    return new MongoParameterCompactorV1(this.db, this.replicationStreamId, checkpoint, options);
   }
 
   protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV1> {
     return {
       db: this.db,
-      group_id: this.group_id,
+      group_id: this.replicationStreamId,
       mapping: this.mapping
     };
   }
@@ -211,7 +210,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
       () =>
         this.db.bucket_data.deleteMany(
           {
-            _id: idPrefixFilter<BucketDataKeyV1>({ g: this.group_id }, ['b', 'o'])
+            _id: idPrefixFilter<BucketDataKeyV1>({ g: this.replicationStreamId }, ['b', 'o'])
           },
           { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
         ),
@@ -225,7 +224,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
       () =>
         this.db.parameterIndexV1.deleteMany(
           {
-            'key.g': this.group_id
+            'key.g': this.replicationStreamId
           },
           { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
         ),
@@ -239,7 +238,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
       () =>
         this.db.sourceRecordsV1.deleteMany(
           {
-            _id: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
+            _id: idPrefixFilter<SourceKey>({ g: this.replicationStreamId }, ['t', 'k'])
           },
           { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
         ),
@@ -253,7 +252,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
       () =>
         this.db.bucketStateV1.deleteMany(
           {
-            _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
+            _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.replicationStreamId }, ['b'])
           },
           { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
         ),
@@ -265,9 +264,9 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     await this.clearDeleteMany(
       'source tables',
       () =>
-        this.db.commonSourceTables(this.group_id).deleteMany(
+        this.db.commonSourceTables(this.replicationStreamId).deleteMany(
           {
-            group_id: this.group_id
+            group_id: this.replicationStreamId
           },
           { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
         ),

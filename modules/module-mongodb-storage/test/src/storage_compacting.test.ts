@@ -63,9 +63,10 @@ bucket_definitions:
     `)
       );
       const bucketStorage = factory.getInstance(syncRules);
+      const syncRulesContent = syncRules.syncConfigContent[0];
       const { checkpoint } = await populate(bucketStorage, 1);
 
-      return { bucketStorage, checkpoint, factory, syncRules };
+      return { bucketStorage, checkpoint, factory, syncRules: syncRulesContent };
     };
 
     test('full compact', async () => {
@@ -76,7 +77,7 @@ bucket_definitions:
       if (storageDb.storageConfig.incrementalReprocessing) {
         // This should actually never happen on V3, but we test this anyway.
         // Can remove this if it causes issues in the future.
-        await (storageDb as VersionedPowerSyncMongoV3).bucketState(bucketStorage.group_id).deleteMany({});
+        await (storageDb as VersionedPowerSyncMongoV3).bucketState(bucketStorage.replicationStreamId).deleteMany({});
       } else {
         await factory.db.bucket_state.deleteMany({});
       }
@@ -121,6 +122,7 @@ bucket_definitions:
     `)
       );
       const bucketStorage = factory.getInstance(syncRules);
+      const syncRulesContent = syncRules.syncConfigContent[0];
       const storageDb = (bucketStorage as any).db;
 
       await populate(bucketStorage, 2);
@@ -147,7 +149,7 @@ bucket_definitions:
       expect(result2.buckets).toEqual(0);
 
       const users = ['u1', 'u2'];
-      const userRequests = users.map((user) => bucketRequest(syncRules, `by_user2["${user}"]`));
+      const userRequests = users.map((user) => bucketRequest(syncRulesContent, `by_user2["${user}"]`));
       const [u1Request, u2Request] = userRequests;
       const checksumAfter = await bucketStorage.getChecksums(checkpoint, userRequests);
       expect(checksumAfter.get(u1Request.bucket)).toEqual({
@@ -178,7 +180,9 @@ bucket_definitions:
       // This typically happens when buckets get very large (> 2GiB). We don't want to create that much
       // data in the tests, so we directly insert the bucket_state here.
       if (storageDb.storageConfig.incrementalReprocessing) {
-        const bucketStateCollection = (storageDb as VersionedPowerSyncMongoV3).bucketState(bucketStorage.group_id);
+        const bucketStateCollection = (storageDb as VersionedPowerSyncMongoV3).bucketState(
+          bucketStorage.replicationStreamId
+        );
         await bucketStateCollection.insertOne({
           _id: {
             d: '1',
@@ -199,7 +203,7 @@ bucket_definitions:
       } else {
         await factory.db.bucket_state.insertOne({
           _id: {
-            g: bucketStorage.group_id,
+            g: bucketStorage.replicationStreamId,
             b: 'global[]'
           },
           last_op: 5n,
@@ -308,12 +312,12 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData(bucketStorage.group_id, definitionId);
-    const bucketStateCollection = db.bucketState(bucketStorage.group_id);
+    const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
+    const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();
 
     const ctx = {
-      replicationStreamId: bucketStorage.group_id,
+      replicationStreamId: bucketStorage.replicationStreamId,
       definitionId,
       bucket: BUCKET
     };
@@ -771,11 +775,11 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData(bucketStorage.group_id, definitionId);
-    const bucketStateCollection = db.bucketState(bucketStorage.group_id);
+    const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
+    const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();
     const ctx = {
-      replicationStreamId: bucketStorage.group_id,
+      replicationStreamId: bucketStorage.replicationStreamId,
       definitionId,
       bucket: BUCKET
     };
@@ -945,12 +949,12 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData(bucketStorage.group_id, definitionId);
-    const bucketStateCollection = db.bucketState(bucketStorage.group_id);
+    const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
+    const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();
 
     const ctx = {
-      replicationStreamId: bucketStorage.group_id,
+      replicationStreamId: bucketStorage.replicationStreamId,
       definitionId,
       bucket: BUCKET
     };
@@ -1213,12 +1217,12 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData(bucketStorage.group_id, definitionId);
-    const bucketStateCollection = db.bucketState(bucketStorage.group_id);
+    const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
+    const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();
 
     const ctx = {
-      replicationStreamId: bucketStorage.group_id,
+      replicationStreamId: bucketStorage.replicationStreamId,
       definitionId,
       bucket: BUCKET
     };
@@ -1426,12 +1430,12 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData(bucketStorage.group_id, definitionId);
-    const bucketStateCollection = db.bucketState(bucketStorage.group_id);
+    const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
+    const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();
 
     const ctx = {
-      replicationStreamId: bucketStorage.group_id,
+      replicationStreamId: bucketStorage.replicationStreamId,
       definitionId,
       bucket: BUCKET
     };

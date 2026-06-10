@@ -27,6 +27,7 @@ import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { MongoSyncBucketStorageContext } from './common/MongoSyncBucketStorageContext.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
@@ -34,7 +35,7 @@ import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
-import { MongoPersistedSyncRulesContentV1 } from './MongoPersistedSyncRulesContent.js';
+import { MongoPersistedReplicationStream } from './MongoPersistedReplicationStream.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
@@ -47,11 +48,11 @@ interface InternalCheckpointChanges extends CheckpointChanges {
   invalidateWriteCheckpoints: boolean;
 }
 
-interface WriterSyncState {
+export interface WriterSyncState {
   lastCheckpointLsn: string | null;
   resumeFromLsn: string | null;
   keepaliveOp: InternalOpId | null;
-  syncConfigId?: bson.ObjectId | null;
+  syncConfigIds?: bson.ObjectId[];
 }
 
 /**
@@ -75,7 +76,7 @@ export abstract class MongoSyncBucketStorage
 
   readonly checksums: MongoChecksums;
 
-  private parsedSyncRulesCache: { parsed: HydratedSyncConfig; options: storage.ParseSyncRulesOptions } | undefined;
+  private parsedSyncConfigCache: { parsed: HydratedSyncConfig; options: storage.ParseSyncConfigOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
   public readonly logger: Logger;
   public readonly storageConfig: StorageConfig;
@@ -83,9 +84,9 @@ export abstract class MongoSyncBucketStorage
 
   constructor(
     public readonly factory: MongoBucketStorage,
-    public readonly group_id: number,
-    protected readonly sync_rules: MongoPersistedSyncRulesContentV1,
-    public readonly slot_name: string,
+    public readonly replicationStreamId: number,
+    public readonly replicationStream: MongoPersistedReplicationStream,
+    public readonly replicationStreamName: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
   ) {
@@ -96,9 +97,9 @@ export abstract class MongoSyncBucketStorage
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
-      sync_rules_id: group_id
+      sync_rules_id: replicationStreamId
     });
-    this.logger = sync_rules.logger;
+    this.logger = replicationStream.logger;
   }
 
   /**
@@ -119,13 +120,13 @@ export abstract class MongoSyncBucketStorage
   }
 
   get mapping() {
-    return this.sync_rules.mapping;
+    return this.replicationStream.storageContent.mapping;
   }
 
   protected get versionContext(): MongoSyncBucketStorageContext {
     return {
       db: this.db,
-      group_id: this.group_id,
+      group_id: this.replicationStreamId,
       mapping: this.mapping
     };
   }
@@ -141,17 +142,17 @@ export abstract class MongoSyncBucketStorage
   lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {
     return this.writeCheckpointAPI.lastWriteCheckpoint({
       ...filters,
-      sync_rules_id: this.group_id
+      sync_rules_id: this.replicationStreamId
     });
   }
 
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): HydratedSyncConfig {
-    const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
+  getParsedSyncRules(options: storage.ParseSyncConfigOptions): HydratedSyncConfig {
+    const { parsed, options: cachedOptions } = this.parsedSyncConfigCache ?? {};
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncConfig(), options };
+      this.parsedSyncConfigCache = { parsed: this.replicationStream.parsed(options).hydratedSyncConfig(), options };
     }
 
-    return this.parsedSyncRulesCache!.parsed;
+    return this.parsedSyncConfigCache!.parsed;
   }
 
   async getCheckpoint(): Promise<storage.ReplicationCheckpoint> {
@@ -184,7 +185,7 @@ export abstract class MongoSyncBucketStorage
       return;
     }
 
-    await this.db.initializeStreamStorage(this.group_id);
+    await this.db.initializeStreamStorage(this.replicationStreamId);
     await this.initializeVersionStorage();
     this.#storageInitialized = true;
   }
@@ -196,14 +197,17 @@ export abstract class MongoSyncBucketStorage
     await this.initializeStorage();
 
     const state = await this.getWriterSyncState();
+    const parsed = this.replicationStream.parsed(options) as storage.ParsedSyncConfigSet & {
+      mapping?: BucketDefinitionMapping;
+    };
 
     const batchOptions: MongoBucketBatchOptions = {
       logger: options.logger ?? this.logger,
       db: this.db,
-      syncRules: this.sync_rules.parsed(options).hydratedSyncConfig(),
-      mapping: this.sync_rules.mapping,
-      groupId: this.group_id,
-      slotName: this.slot_name,
+      syncRules: parsed.hydratedSyncConfig(),
+      mapping: parsed.mapping ?? this.replicationStream.storageContent.mapping,
+      replicationStreamId: this.replicationStreamId,
+      replicationStreamName: this.replicationStreamName,
       lastCheckpointLsn: state.lastCheckpointLsn,
       resumeFromLsn: state.resumeFromLsn,
       keepaliveOp: state.keepaliveOp,
@@ -211,7 +215,7 @@ export abstract class MongoSyncBucketStorage
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable,
       hooks: options.hooks,
-      syncConfigId: state.syncConfigId,
+      syncConfigIds: state.syncConfigIds,
       tracer: options.tracer
     };
     const writer = this.createWriterImpl(batchOptions);
@@ -334,7 +338,7 @@ export abstract class MongoSyncBucketStorage
     const message = String(e.message ?? 'Replication failure');
     await this.db.sync_rules.updateOne(
       {
-        _id: this.group_id
+        _id: this.replicationStreamId
       },
       {
         $set: {
@@ -414,7 +418,7 @@ export abstract class MongoSyncBucketStorage
     for await (const nextCheckpoint of iter) {
       if (nextCheckpoint.lsn != null && !queriedInitialWriteCheckpoint) {
         writeCheckpoint = await this.writeCheckpointAPI.lastWriteCheckpoint({
-          sync_rules_id: this.group_id,
+          sync_rules_id: this.replicationStreamId,
           user_id: options.user_id,
           heads: {
             '1': nextCheckpoint.lsn
@@ -447,7 +451,7 @@ export abstract class MongoSyncBucketStorage
         let updatedWriteCheckpoint = updates.updatedWriteCheckpoints.get(options.user_id) ?? null;
         if (updates.invalidateWriteCheckpoints) {
           updatedWriteCheckpoint = await this.writeCheckpointAPI.lastWriteCheckpoint({
-            sync_rules_id: this.group_id,
+            sync_rules_id: this.replicationStreamId,
             user_id: options.user_id,
             heads: {
               '1': nextCheckpoint.lsn!

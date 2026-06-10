@@ -1,6 +1,6 @@
 import {
   api,
-  ParseSyncRulesOptions,
+  ParseSyncConfigOptions,
   PatternResult,
   ReplicationHeadCallback,
   ReplicationLagOptions
@@ -227,7 +227,7 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
     return result;
   }
 
-  getParseSyncRulesOptions(): ParseSyncRulesOptions {
+  getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
       defaultSchema: this.connectionManager.schema
     };

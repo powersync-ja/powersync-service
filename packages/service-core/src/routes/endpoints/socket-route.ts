@@ -71,7 +71,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         storageEngine: { activeBucketStorage }
       } = service_context;
 
-      const bucketStorage = await activeBucketStorage.getActiveStorage();
+      const bucketStorage = (await activeBucketStorage.getActiveSyncConfig())?.storage;
       if (bucketStorage == null) {
         responder.onError(
           new errors.ServiceError({

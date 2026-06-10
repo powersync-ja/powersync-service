@@ -102,7 +102,7 @@ export class ConvexStreamTestContext extends AbstractStreamTestContext {
 
     logger.info(`Waiting for LSN checkpoint: ${lsn}`);
     while (Date.now() - start < timeout) {
-      const storage = await this.factory.getActiveStorage();
+      const storage = (await this.factory.getActiveSyncConfig())?.storage;
       const cp = await storage?.getCheckpoint();
 
       if (cp?.lsn != null && cp.lsn >= lsn) {

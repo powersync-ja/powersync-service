@@ -39,7 +39,7 @@ export class ConvexReplicationJob extends replication.AbstractReplicationJob {
       }
 
       if (error instanceof ConvexCursorExpiredError) {
-        await this.options.storage.factory.restartReplication(this.storage.group_id);
+        await this.options.storage.factory.restartReplication(this.storage.replicationStreamId);
       }
     } finally {
       this.abortController.abort();

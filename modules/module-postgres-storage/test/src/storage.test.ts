@@ -43,7 +43,8 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
         )
       );
       const bucketStorage = factory.getInstance(syncRules);
-      const globalBucket = bucketRequest(syncRules, 'global[]');
+      const syncRulesContent = syncRules.syncConfigContent[0];
+      const globalBucket = bucketRequest(syncRulesContent, 'global[]');
 
       const result = await (async () => {
         await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);

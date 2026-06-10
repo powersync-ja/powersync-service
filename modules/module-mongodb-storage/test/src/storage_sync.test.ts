@@ -1,6 +1,12 @@
 import { deserializeParameterLookup, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
-import { DEFAULT_HYDRATION_STATE, nodeSqlite, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
+import {
+  DEFAULT_HYDRATION_STATE,
+  nodeSqlite,
+  RequestParameters,
+  ScopedParameterLookup,
+  SqlSyncRules
+} from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import * as sqlite from 'node:sqlite';
 import { describe, expect, test } from 'vitest';
@@ -85,6 +91,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
@@ -139,7 +146,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     const options: storage.BucketDataBatchOptions = {};
     const batch1 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules, 'global[]', 0n)], options)
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRulesContent, 'global[]', 0n)], options)
     );
     expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
@@ -154,7 +161,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const batch2 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        [bucketRequest(syncRules, 'global[]', batch1[0].chunkData.next_after)],
+        [bucketRequest(syncRulesContent, 'global[]', batch1[0].chunkData.next_after)],
         options
       )
     );
@@ -170,7 +177,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const batch3 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        [bucketRequest(syncRules, 'global[]', batch2[0].chunkData.next_after)],
+        [bucketRequest(syncRulesContent, 'global[]', batch2[0].chunkData.next_after)],
         options
       )
     );
@@ -192,7 +199,10 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
             await Promise.all(
               (
                 await mongoFactory.db.db
-                  .listCollections({ name: new RegExp(`^bucket_data_${syncRules.id}_`) }, { nameOnly: true })
+                  .listCollections(
+                    { name: new RegExp(`^bucket_data_${syncRules.replicationStreamId}_`) },
+                    { nameOnly: true }
+                  )
                   .toArray()
               ).map((collection: { name: string }) =>
                 mongoFactory.db.db
@@ -534,7 +544,8 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
+    const syncRulesContent = syncRules.syncConfigContent[0];
+    const sync_rules = syncRulesContent.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
 
@@ -555,7 +566,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const parameters = new RequestParameters(new JwtPayload({ sub: 'u1', parameters: { test: 'shape-check' } }), {});
     const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
     const buckets = await querier.queryDynamicBucketDescriptions({
-      async getParameterSets(lookups) {
+      async getParameterSets(lookups: ScopedParameterLookup[]) {
         expect(lookups.map((l) => l.indexKey)).toEqual([['shape-check']]);
         expect(lookups[0].indexId).toEqual('1');
 
@@ -564,30 +575,34 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
         return parameter_sets;
       }
     });
-    expect(buckets.map((b) => b.bucket)).toEqual([bucketRequest(syncRules, 'global["user-1"]').bucket]);
+    expect(buckets.map((b) => b.bucket)).toEqual([bucketRequest(syncRulesContent, 'global["user-1"]').bucket]);
 
     const mongoFactory = factory as MongoBucketStorage;
     const db = (bucketStorage as MongoSyncBucketStorage).db as VersionedPowerSyncMongoV3;
-    const currentDataCollections = await db.listSourceRecordCollections(syncRules.id);
+    const currentDataCollections = await db.listSourceRecordCollections(syncRules.replicationStreamId);
     const currentData = await currentDataCollections[0]?.findOne({});
     const firstBucket: CurrentBucketV3 | undefined = currentData?.buckets[0] as CurrentBucketV3 | undefined;
     expect(firstBucket?.def).toMatch(/^[0-9a-f]+$/);
 
     const bucketCollections = await mongoFactory.db.db
-      .listCollections({ name: new RegExp(`^bucket_data_${syncRules.id}_`) }, { nameOnly: true })
+      .listCollections({ name: new RegExp(`^bucket_data_${syncRules.replicationStreamId}_`) }, { nameOnly: true })
       .toArray();
     expect(
-      bucketCollections.some((collection) => collection.name === `bucket_data_${syncRules.id}_${firstBucket?.def}`)
+      bucketCollections.some(
+        (collection) => collection.name === `bucket_data_${syncRules.replicationStreamId}_${firstBucket?.def}`
+      )
     ).toBe(true);
 
-    const syncRule = (await mongoFactory.db.sync_rules.findOne({ _id: syncRules.id })) as ReplicationStreamDocumentV3;
+    const syncRule = (await mongoFactory.db.sync_rules.findOne({
+      _id: syncRules.replicationStreamId
+    })) as ReplicationStreamDocumentV3;
     const syncConfig = await db.syncConfigDefinitions.findOne({ _id: syncRule.sync_configs[0]._id });
     const ruleMapping: SyncConfigDefinition['rule_mapping'] | undefined = syncConfig?.rule_mapping;
     expect(Object.keys(ruleMapping?.definitions ?? {})).not.toHaveLength(0);
 
     const parameterIndexId = Object.values(ruleMapping?.parameter_indexes ?? {})[0] as string | undefined;
     expect(parameterIndexId).toBeDefined();
-    const parameterEntry = await db.parameterIndex(syncRules.id, parameterIndexId!).findOne({});
+    const parameterEntry = await db.parameterIndex(syncRules.replicationStreamId, parameterIndexId!).findOne({});
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
   });
 
@@ -603,7 +618,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     ).resolves.toBeDefined();
 
     const mongoFactory = factory as MongoBucketStorage;
-    expect((await mongoFactory.db.sync_rules.findOne({ _id: firstSyncRules.id }))?.state).toBe(
+    expect((await mongoFactory.db.sync_rules.findOne({ _id: firstSyncRules.replicationStreamId }))?.state).toBe(
       storage.SyncRuleState.STOP
     );
   });
@@ -615,7 +630,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion, lock: true })
     );
 
-    expect(syncRules.current_lock?.sync_rules_id).toBe(syncRules.id);
+    expect(syncRules.current_lock?.sync_rules_id).toBe(syncRules.replicationStreamId);
     await syncRules.current_lock?.release();
   });
 
@@ -650,10 +665,10 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     await writer.commit('1/1');
 
     const mongoFactory = factory as MongoBucketStorage;
-    expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.id })).toBe(1);
+    expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.replicationStreamId })).toBe(1);
 
     const sourceRecordCollections = await mongoFactory.db.db
-      .listCollections({ name: new RegExp(`^source_records_${syncRules.id}_`) }, { nameOnly: true })
+      .listCollections({ name: new RegExp(`^source_records_${syncRules.replicationStreamId}_`) }, { nameOnly: true })
       .toArray();
     expect(sourceRecordCollections).toEqual([]);
   });
@@ -689,11 +704,11 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     await writer.commit('1/1');
 
     const mongoFactory = factory as MongoBucketStorage;
-    expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.id })).toBe(1);
+    expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.replicationStreamId })).toBe(1);
 
     await bucketStorage.clear();
 
-    expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.id })).toBe(0);
+    expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.replicationStreamId })).toBe(0);
   });
 
   test.runIf(storageVersion < 3)('storage metrics include v1 current_data', async () => {
@@ -728,7 +743,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     await writer.commit('1/1');
 
     const mongoFactory = factory as MongoBucketStorage;
-    expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.id })).toBe(1);
+    expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.replicationStreamId })).toBe(1);
 
     const metricsAfter = await factory.getStorageMetrics();
     expect(metricsAfter.replication_size_bytes).toBeGreaterThan(metricsBefore.replication_size_bytes);
@@ -801,13 +816,13 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     );
 
     const mongoFactory = factory as MongoBucketStorage;
-    const bucketStorage = mongoFactory.getInstance(syncRules) as any;
-    const db = bucketStorage.db;
-    await db.initializeStreamStorage(syncRules.id);
+    const bucketStorage = mongoFactory.getInstance(syncRules);
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
+    await db.initializeStreamStorage(syncRules.replicationStreamId);
 
     const sourceTableA = new bson.ObjectId();
     const sourceTableB = new bson.ObjectId();
-    await db.sourceTables(syncRules.id).insertMany([
+    await db.sourceTables(syncRules.replicationStreamId).insertMany([
       {
         _id: sourceTableA,
         connection_id: 1,
@@ -838,33 +853,53 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       }
     ]);
 
-    await db.sourceRecords(syncRules.id, sourceTableA).insertMany([
+    await db.sourceRecords(syncRules.replicationStreamId, sourceTableA).insertMany([
       { _id: 'deleted-1', data: null, buckets: [], lookups: [], pending_delete: 5n },
       { _id: 'deleted-2', data: null, buckets: [], lookups: [], pending_delete: 9n },
       { _id: 'active', data: null, buckets: [], lookups: [] }
     ]);
     await db
-      .sourceRecords(syncRules.id, sourceTableB)
+      .sourceRecords(syncRules.replicationStreamId, sourceTableB)
       .insertMany([{ _id: 'later-delete', data: null, buckets: [], lookups: [], pending_delete: 12n }]);
 
-    const store = new SourceRecordStoreV3(db, syncRules.id, bucketStorage.sync_rules.mapping);
+    const store = new SourceRecordStoreV3(
+      db,
+      syncRules.replicationStreamId,
+      bucketStorage.replicationStream.syncConfigContent[0].mapping
+    );
     const logger = { info() {} } as any;
 
     await store.postCommitCleanup(6n, logger);
 
-    expect(await db.sourceRecords(syncRules.id, sourceTableA).countDocuments({ pending_delete: 5n })).toBe(0);
-    expect(await db.sourceRecords(syncRules.id, sourceTableA).countDocuments({ pending_delete: 9n })).toBe(1);
-    expect(await db.sourceRecords(syncRules.id, sourceTableB).countDocuments({ pending_delete: 12n })).toBe(1);
-    expect((await db.sourceTables(syncRules.id).findOne({ _id: sourceTableA }))?.latest_pending_delete).toBe(9n);
-    expect((await db.sourceTables(syncRules.id).findOne({ _id: sourceTableB }))?.latest_pending_delete).toBe(12n);
+    expect(
+      await db.sourceRecords(syncRules.replicationStreamId, sourceTableA).countDocuments({ pending_delete: 5n })
+    ).toBe(0);
+    expect(
+      await db.sourceRecords(syncRules.replicationStreamId, sourceTableA).countDocuments({ pending_delete: 9n })
+    ).toBe(1);
+    expect(
+      await db.sourceRecords(syncRules.replicationStreamId, sourceTableB).countDocuments({ pending_delete: 12n })
+    ).toBe(1);
+    expect(
+      (await db.sourceTables(syncRules.replicationStreamId).findOne({ _id: sourceTableA }))?.latest_pending_delete
+    ).toBe(9n);
+    expect(
+      (await db.sourceTables(syncRules.replicationStreamId).findOne({ _id: sourceTableB }))?.latest_pending_delete
+    ).toBe(12n);
 
     await store.postCommitCleanup(10n, logger);
 
     expect(
-      await db.sourceRecords(syncRules.id, sourceTableA).countDocuments({ pending_delete: { $exists: true } })
+      await db
+        .sourceRecords(syncRules.replicationStreamId, sourceTableA)
+        .countDocuments({ pending_delete: { $exists: true } })
     ).toBe(0);
-    expect((await db.sourceTables(syncRules.id).findOne({ _id: sourceTableA }))?.latest_pending_delete).toBeUndefined();
-    expect((await db.sourceTables(syncRules.id).findOne({ _id: sourceTableB }))?.latest_pending_delete).toBe(12n);
+    expect(
+      (await db.sourceTables(syncRules.replicationStreamId).findOne({ _id: sourceTableA }))?.latest_pending_delete
+    ).toBeUndefined();
+    expect(
+      (await db.sourceTables(syncRules.replicationStreamId).findOne({ _id: sourceTableB }))?.latest_pending_delete
+    ).toBe(12n);
   });
 }
 
@@ -881,7 +916,7 @@ describe('sync - mongodb', () => {
     await legacyWriter.markAllSnapshotDone('1/1');
     await legacyWriter.commit('1/1');
 
-    expect((await mongoFactory.db.sync_rules.findOne({ _id: legacySyncRules.id }))?.state).toBe(
+    expect((await mongoFactory.db.sync_rules.findOne({ _id: legacySyncRules.replicationStreamId }))?.state).toBe(
       storage.SyncRuleState.ACTIVE
     );
 
@@ -893,7 +928,7 @@ describe('sync - mongodb', () => {
     await v3Writer.markAllSnapshotDone('2/1');
     await v3Writer.commit('2/1');
 
-    expect((await mongoFactory.db.sync_rules.findOne({ _id: legacySyncRules.id }))?.state).toBe(
+    expect((await mongoFactory.db.sync_rules.findOne({ _id: legacySyncRules.replicationStreamId }))?.state).toBe(
       storage.SyncRuleState.STOP
     );
   });
@@ -921,12 +956,12 @@ describe('sync - mongodb', () => {
 
           const request = bucketRequest(syncRules, 'global[]', 0n);
           const definitionId = bucketStorage.mapping.bucketSourceId(request.source);
-          const collection = db.bucketData(syncRules.id, definitionId);
+          const collection = db.bucketData(syncRules.replicationStreamId, definitionId);
 
           const bucketName = request.bucket;
           const sourceTable = new bson.ObjectId();
           const bucketKey: BucketKey = {
-            replicationStreamId: syncRules.id,
+            replicationStreamId: syncRules.replicationStreamId,
             definitionId,
             bucket: bucketName
           };
