@@ -118,7 +118,8 @@ bucket_definitions:
           return {
             active: true,
             snapshot_done: false,
-            checkpoint_lsn: null
+            checkpoint_lsn: null,
+            resume_lsn: null
           };
         }
       }));

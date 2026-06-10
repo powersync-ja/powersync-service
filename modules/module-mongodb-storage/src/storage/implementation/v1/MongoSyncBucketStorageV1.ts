@@ -144,7 +144,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
 
     return {
       snapshot_done: doc.snapshot_done,
-      snapshot_lsn: doc.snapshot_lsn ?? null,
+      resume_lsn: maxLsn(doc.snapshot_lsn, doc.last_checkpoint_lsn),
       active: doc.state == storage.SyncRuleState.ACTIVE,
       checkpoint_lsn: doc.last_checkpoint_lsn
     };

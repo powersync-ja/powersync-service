@@ -319,7 +319,7 @@ export class ConvexStream {
 
     return {
       needsInitialSync: true,
-      snapshotLsn: status.snapshot_lsn
+      snapshotLsn: status.resume_lsn
     };
   }
 

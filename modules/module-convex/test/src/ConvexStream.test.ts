@@ -169,6 +169,7 @@ function createFakeStorage(options?: {
         active: true,
         snapshot_done: options?.snapshotDone ?? false,
         checkpoint_lsn: options?.snapshotDone ? parseConvexLsn(CURSOR_100) : null,
+        resume_lsn: options?.snapshotLsn ?? (options?.snapshotDone ? parseConvexLsn(CURSOR_100) : null),
         snapshot_lsn: options?.snapshotLsn ?? null
       };
     }

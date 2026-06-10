@@ -224,7 +224,7 @@ export async function getSyncRulesStatus(
         slot_name: syncConfig.replicationStreamName,
         initial_replication_done: status?.snapshot_done ?? false,
         // TODO: Rename?
-        last_lsn: status?.checkpoint_lsn ?? undefined,
+        last_lsn: status?.resume_lsn ?? undefined,
         last_checkpoint_ts: statusSource?.last_checkpoint_ts?.toISOString(),
         last_keepalive_ts: statusSource?.last_keepalive_ts?.toISOString(),
         replication_lag_bytes: replication_lag_bytes,

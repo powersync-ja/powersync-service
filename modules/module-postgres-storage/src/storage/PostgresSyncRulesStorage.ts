@@ -526,7 +526,7 @@ export class PostgresSyncRulesStorage
       snapshot_done: syncRulesRow.snapshot_done,
       active: syncRulesRow.state == storage.SyncRuleState.ACTIVE,
       checkpoint_lsn: syncRulesRow.last_checkpoint_lsn ?? null,
-      snapshot_lsn: syncRulesRow.snapshot_lsn ?? null
+      resume_lsn: maxLsn(syncRulesRow.snapshot_lsn, syncRulesRow.last_checkpoint_lsn)
     };
   }
 

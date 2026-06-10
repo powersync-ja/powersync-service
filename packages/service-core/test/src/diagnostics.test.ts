@@ -60,6 +60,7 @@ function makeSystemStorage() {
       return {
         snapshot_done: true,
         checkpoint_lsn: 'some_lsn',
+        resume_lsn: 'some_lsn',
         active: true
       };
     }

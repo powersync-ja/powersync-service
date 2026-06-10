@@ -115,7 +115,7 @@ export class MongoSnapshotter {
       return { needsInitialSync: false, snapshotLsn: null };
     }
 
-    return { needsInitialSync: true, snapshotLsn: status.snapshot_lsn };
+    return { needsInitialSync: true, snapshotLsn: status.resume_lsn };
   }
 
   async setupCheckpointsCollection() {

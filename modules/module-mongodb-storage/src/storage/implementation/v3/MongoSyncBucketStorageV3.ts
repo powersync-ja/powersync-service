@@ -230,9 +230,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
     return {
       snapshot_done: syncConfigs.every((config) => config.snapshot_done ?? false),
-      // The stream-level resume position. During an in-progress snapshot, this is the position
-      // the snapshot was started at, which is what consumers use this for.
-      snapshot_lsn: doc.resume_lsn ?? null,
+      resume_lsn: doc.resume_lsn ?? null,
       active,
       checkpoint_lsn: checkpointLsn
     };

@@ -151,9 +151,12 @@ export interface BucketChecksumRequest {
 
 export interface SyncRuleStatus {
   checkpoint_lsn: string | null;
+  /**
+   * Source position to resume replication from.
+   */
+  resume_lsn: string | null;
   active: boolean;
   snapshot_done: boolean;
-  snapshot_lsn: string | null;
 }
 export interface ResolveTablesOptions {
   connection_id: number;
