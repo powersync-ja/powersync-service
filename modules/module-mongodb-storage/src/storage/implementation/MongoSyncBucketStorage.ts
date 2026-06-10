@@ -51,7 +51,11 @@ interface InternalCheckpointChanges extends CheckpointChanges {
 export interface WriterSyncState {
   lastCheckpointLsn: string | null;
   resumeFromLsn: string | null;
-  keepaliveOp: InternalOpId | null;
+  /**
+   * Seeds the writer's in-memory persisted-op tracking for v1 storage. v3 storage tracks the
+   * persisted-op head durably on the replication stream document instead.
+   */
+  keepaliveOp?: InternalOpId | null;
   syncConfigIds?: bson.ObjectId[];
 }
 

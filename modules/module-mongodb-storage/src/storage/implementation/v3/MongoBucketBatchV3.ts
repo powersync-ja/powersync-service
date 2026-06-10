@@ -4,7 +4,7 @@ import { ColumnDescriptor, storage } from '@powersync/service-core';
 import { HydratedSyncConfig, MatchingSources } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
-import { calculateCheckpointState } from '../CheckpointState.js';
+import { canCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { syncRuleStateUpdatePipeline } from '../SyncRuleStateUpdate.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
@@ -44,6 +44,26 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   protected get sourceRecordStore(): SourceRecordStore {
     return this.store;
+  }
+
+  protected override async onReplicationTransactionFlush(
+    session: lib_mongo.mongo.ClientSession,
+    lastOp: bigint
+  ): Promise<void> {
+    // Durably advance the stream-level head of persisted ops within the flush transaction.
+    // This ensures a checkpoint created later (even by an empty commit, or by a freshly-appended
+    // config that replicates nothing) covers all ops persisted before a potential crash.
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.replicationStreamId
+      },
+      {
+        $max: {
+          last_persisted_op: lastOp
+        }
+      },
+      { session }
+    );
   }
 
   private selectedSyncConfigObjectIds(syncConfigIds: string[]): bson.ObjectId[] {
@@ -364,7 +384,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       }
     );
 
-    const preUpdateDocument = await this.db.sync_rules.findOne(
+    const preUpdateDocument = (await this.db.sync_rules.findOne(
       {
         _id: this.replicationStreamId,
         'sync_configs._id': { $in: this.syncConfigIds }
@@ -373,15 +393,14 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         session: this.session,
         projection: {
           snapshot_lsn: 1,
-          sync_configs: 1
+          sync_configs: 1,
+          last_persisted_op: 1
         }
       }
-    );
+    )) as ReplicationStreamDocumentV3 | null;
 
     const states =
-      (preUpdateDocument as ReplicationStreamDocumentV3)?.sync_configs?.filter((config) =>
-        this.syncConfigIds.some((id) => id.equals(config._id))
-      ) ?? [];
+      preUpdateDocument?.sync_configs?.filter((config) => this.syncConfigIds.some((id) => id.equals(config._id))) ?? [];
     if (states.length == 0) {
       throw new ReplicationAssertionError(
         `Failed to update checkpoint - no matching sync_config for _id: ${this.replicationStreamId}/${this.syncConfigIds
@@ -389,43 +408,72 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           .join(',')}`
       );
     }
+    // The replication job / MongoBucketBatch must be constructed with all replicating (PROCESSING / ACTIVE)
+    // sync configs in the stream, otherwise we'll get inconsistencies. Configs in other states (e.g. STOP)
+    // remain embedded in the document and are ignored here.
+    const missingSyncConfig = preUpdateDocument!.sync_configs.find(
+      (config) =>
+        [storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ACTIVE].includes(config.state) &&
+        !this.syncConfigIds.some((id) => id.equals(config._id))
+    );
+    if (missingSyncConfig != null) {
+      throw new ReplicationAssertionError(`Replication job not configured for sync config ${missingSyncConfig._id}`);
+    }
+
+    // Effective head of the stream's op sequence.
+    // last_persisted_op is $max-advanced durably in the same transaction as every flush, and this
+    // read uses the same session, so it covers all ops persisted by this batch.
+    const newCheckpoint =
+      preUpdateDocument?.last_persisted_op == null ? 0n : BigInt(preUpdateDocument.last_persisted_op);
 
     let checkpointBlocked = false;
     let checkpointCreated = false;
     let checkpointLogState: unknown = null;
-    const cleanupCheckpoints: bigint[] = [];
+    const unblockedConfigIds: bson.ObjectId[] = [];
 
     for (const state of states) {
-      const checkpointState = calculateCheckpointState({
-        lsn,
+      if (state.last_checkpoint != null && state.last_checkpoint > newCheckpoint) {
+        // last_persisted_op is $max-advanced durably in the same transaction as every flush, and
+        // checkpoints are only ever created at that head, so a checkpoint past the head means the
+        // op sequence or the stored state is corrupt.
+        throw new ReplicationAssertionError(
+          `Invariant violation: sync config ${state._id} has last_checkpoint ${state.last_checkpoint} > stream head ${newCheckpoint}`
+        );
+      }
+
+      const canCheckpoint = canCheckpointState(lsn, {
         snapshotDone: state.snapshot_done === true,
         lastCheckpointLsn: state.last_checkpoint_lsn,
-        noCheckpointBefore: state.no_checkpoint_before,
-        keepaliveOp: state.keepalive_op == null ? null : BigInt(state.keepalive_op),
-        lastCheckpoint: state.last_checkpoint,
-        persistedOp: this.persisted_op,
-        createEmptyCheckpoints
+        noCheckpointBefore: state.no_checkpoint_before
       });
 
-      checkpointBlocked ||= checkpointState.checkpointBlocked;
-      checkpointCreated ||= checkpointState.checkpointCreated;
-      if (checkpointState.newLastCheckpoint != null) {
-        cleanupCheckpoints.push(checkpointState.newLastCheckpoint);
+      if (!canCheckpoint) {
+        checkpointBlocked = true;
+        // Log the first blocked config's state.
+        checkpointLogState ??= {
+          snapshot_done: state.snapshot_done,
+          last_checkpoint_lsn: state.last_checkpoint_lsn,
+          no_checkpoint_before: state.no_checkpoint_before
+        };
+        continue;
       }
-      checkpointLogState ??= {
-        snapshot_done: state.snapshot_done,
-        last_checkpoint_lsn: state.last_checkpoint_lsn,
-        no_checkpoint_before: state.no_checkpoint_before
-      };
 
+      checkpointCreated ||= createEmptyCheckpoints || state.last_checkpoint !== newCheckpoint;
+      unblockedConfigIds.push(state._id);
+    }
+
+    if (unblockedConfigIds.length > 0) {
+      // All unblocked configs get the SAME new value, so we apply it with a single updateOne
+      // (single-document atomicity).
       const updateSet: Record<string, any> = {
         last_keepalive_ts: now,
         last_fatal_error: null,
-        last_fatal_error_ts: null,
-        'sync_configs.$[config].keepalive_op': checkpointState.newKeepaliveOp,
-        'sync_configs.$[config].last_checkpoint': checkpointState.newLastCheckpoint
+        last_fatal_error_ts: null
       };
-      if (checkpointState.checkpointCreated) {
+      // Only advance checkpoint fields when an actual (non-empty) checkpoint is created, matching
+      // the previous per-config / v1 behaviour.
+      if (checkpointCreated) {
+        updateSet['sync_configs.$[config].last_checkpoint'] = newCheckpoint;
         updateSet['sync_configs.$[config].last_checkpoint_lsn'] = lsn;
         updateSet['snapshot_lsn'] = null;
         updateSet['last_checkpoint_ts'] = now;
@@ -434,15 +482,28 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       await this.db.sync_rules.updateOne(
         {
           _id: this.replicationStreamId,
-          'sync_configs._id': state._id
+          'sync_configs._id': { $in: unblockedConfigIds }
         },
-        {
-          $set: updateSet
-        },
+        { $set: updateSet },
         {
           session: this.session,
-          arrayFilters: [{ 'config._id': state._id }]
+          arrayFilters: checkpointCreated ? [{ 'config._id': { $in: unblockedConfigIds } }] : undefined
         }
+      );
+    } else {
+      // All selected configs are blocked - only update keepalive/error tracking.
+      await this.db.sync_rules.updateOne(
+        {
+          _id: this.replicationStreamId
+        },
+        {
+          $set: {
+            last_keepalive_ts: now,
+            last_fatal_error: null,
+            last_fatal_error_ts: null
+          }
+        },
+        { session: this.session }
       );
     }
 
@@ -459,12 +520,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       }
       await this.autoActivateV3(lsn);
       await this.db.notifyCheckpoint();
-      this.persisted_op = null;
       this.last_checkpoint_lsn = lsn;
-      const cleanupCheckpoint = cleanupCheckpoints.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0];
-      if (cleanupCheckpoint != null) {
-        await this.sourceRecordStore.postCommitCleanup(cleanupCheckpoint, this.logger);
-      }
+      // All configs are now checkpointed at newLastCheckpoint (the stream head).
+      await this.sourceRecordStore.postCommitCleanup(newCheckpoint, this.logger);
     }
     return {
       checkpointBlocked,

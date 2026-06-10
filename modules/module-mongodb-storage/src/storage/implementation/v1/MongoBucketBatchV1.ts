@@ -1,5 +1,5 @@
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { ColumnDescriptor, SourceTable, storage } from '@powersync/service-core';
+import { ColumnDescriptor, InternalOpId, SourceTable, storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { calculateCheckpointState } from '../CheckpointState.js';
@@ -18,9 +18,22 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   private needsActivation = true;
   private lastWaitingLogThrottled = 0;
 
+  /**
+   * The last persisted op that is not yet covered by a checkpoint, if any.
+   *
+   * Seeded from the persisted keepalive_op, so that ops persisted before a restart can still be
+   * included in the next checkpoint.
+   */
+  private persisted_op: InternalOpId | null = null;
+
   constructor(options: MongoBucketBatchOptions) {
     super(options);
+    this.persisted_op = options.keepaliveOp ?? null;
     this.store = new SourceRecordStoreV1(this.db, this.replicationStreamId);
+  }
+
+  protected override recordPersistedOp(lastOp: InternalOpId): void {
+    this.persisted_op = lastOp;
   }
 
   protected createPersistedBatch(writtenSize: number): PersistedBatch {

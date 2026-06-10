@@ -19,7 +19,7 @@ import {
 /**
  * Embedded in sync_rules.sync_configs.
  */
-export interface SyncRuleConfigStateV3 extends SyncRuleCheckpointFields<bigint | null> {
+export interface SyncRuleConfigStateV3 extends SyncRuleCheckpointFields {
   _id: bson.ObjectId;
 
   /**
@@ -47,6 +47,18 @@ export interface ReplicationStreamDocumentV3 extends SyncRuleDocumentBase {
    * but the model allows multiple configs in any state.
    */
   sync_configs: SyncRuleConfigStateV3[];
+
+  /**
+   * The monotonic head of the stream's op sequence: the highest op id persisted to bucket data,
+   * whether or not yet covered by a checkpoint.
+   *
+   * This is shared across all sync configs of the stream (they share the global op sequence).
+   * It is never cleared, only `$max`-advanced. A newly-appended config that replicates nothing
+   * adopts this value as its checkpoint rather than starting at 0.
+   *
+   * Stored as a mongo Long, nullable.
+   */
+  last_persisted_op?: bigint | null;
 }
 
 /**

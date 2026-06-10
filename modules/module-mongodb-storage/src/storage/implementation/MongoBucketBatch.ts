@@ -46,7 +46,11 @@ export interface MongoBucketBatchOptions {
   replicationStreamName: string;
   syncConfigIds?: bson.ObjectId[];
   lastCheckpointLsn: string | null;
-  keepaliveOp: InternalOpId | null;
+  /**
+   * Seeds the in-memory persisted-op tracking for v1 storage. Not used by v3 storage, which
+   * tracks the persisted-op head durably on the replication stream document instead.
+   */
+  keepaliveOp?: InternalOpId | null;
   resumeFromLsn: string | null;
   storeCurrentData: boolean;
   mapping: BucketDefinitionMapping;
@@ -107,8 +111,6 @@ export abstract class MongoBucketBatch
    */
   protected last_checkpoint_lsn: string | null = null;
 
-  protected persisted_op: InternalOpId | null = null;
-
   /**
    * Last written op, if any. This may not reflect a consistent checkpoint.
    */
@@ -145,7 +147,6 @@ export abstract class MongoBucketBatch
     this.hooks = options.hooks;
     this.batch = new OperationBatch();
 
-    this.persisted_op = options.keepaliveOp ?? null;
     this.tracer = options.tracer ?? new PerformanceTracer('MongoDB storage');
   }
 
@@ -230,7 +231,7 @@ export abstract class MongoBucketBatch
       throw new ReplicationAssertionError('Unexpected last_op == null');
     }
 
-    this.persisted_op = last_op;
+    this.recordPersistedOp(last_op);
     this.last_flushed_op = last_op;
     await this.hooks?.afterBatchFlush?.(this);
     return { flushed_op: last_op };
@@ -700,8 +701,37 @@ export abstract class MongoBucketBatch
         },
         { session }
       );
+
+      // Allow subclasses to persist additional flush-time state in the same transaction
+      // (e.g. v3 advances the stream-level last_persisted_op).
+      await this.onReplicationTransactionFlush(session, opSeq.last());
       // We don't notify checkpoint here - we don't make any checkpoint updates directly
     });
+  }
+
+  /**
+   * Hook called inside the replication flush transaction, after ops have been persisted.
+   *
+   * The base implementation does nothing; v3 storage overrides this to `$max` the stream-level
+   * `last_persisted_op` durably within the same transaction.
+   */
+  protected async onReplicationTransactionFlush(_session: mongo.ClientSession, _lastOp: InternalOpId): Promise<void> {
+    // No-op by default (v1 behaviour unchanged).
+  }
+
+  /**
+   * Called after a replication transaction has successfully committed, with the last persisted op id.
+   *
+   * v1 storage tracks this in memory to fold into the next checkpoint. v3 storage does not need it:
+   * the stream-level `last_persisted_op` is already advanced durably by
+   * {@link onReplicationTransactionFlush} within the same transaction, and checkpoints read it
+   * from the document.
+   *
+   * Keep calls to this adjacent to {@link withReplicationTransaction} usage - both must observe
+   * every path that persists ops.
+   */
+  protected recordPersistedOp(_lastOp: InternalOpId): void {
+    // No-op by default.
   }
 
   async [Symbol.asyncDispose]() {
@@ -784,7 +814,7 @@ export abstract class MongoBucketBatch
     }
 
     if (last_op) {
-      this.persisted_op = last_op;
+      this.recordPersistedOp(last_op);
       return {
         flushed_op: last_op
       };

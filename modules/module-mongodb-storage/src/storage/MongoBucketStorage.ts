@@ -301,7 +301,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           {
             _id: syncConfigDoc._id,
             state: storage.SyncRuleState.PROCESSING,
-            keepalive_op: null,
             last_checkpoint: null,
             last_checkpoint_lsn: null,
             no_checkpoint_before: null,
@@ -432,7 +431,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const syncConfigState: SyncRuleConfigStateV3 = {
       _id: syncConfigDoc._id,
       state: storage.SyncRuleState.PROCESSING,
-      keepalive_op: null,
       last_checkpoint: null,
       last_checkpoint_lsn: null,
       no_checkpoint_before: null,

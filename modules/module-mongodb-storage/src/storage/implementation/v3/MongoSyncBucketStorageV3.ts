@@ -185,14 +185,11 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         .map((config) => config.last_checkpoint_lsn)
         .filter((lsn) => lsn != null)
         .sort()[0] ?? null;
-    const keepaliveOp = syncConfigs.reduce<bigint | null>((min, config) => {
-      const value = config.keepalive_op ?? null;
-      return value != null && (min == null || value < min) ? value : min;
-    }, null);
+    // No keepaliveOp here: v3 checkpoints read the stream-level last_persisted_op directly,
+    // so the writer does not need in-memory persisted-op tracking.
     return {
       lastCheckpointLsn: checkpointLsn,
       resumeFromLsn: maxLsn(checkpointLsn, doc?.snapshot_lsn),
-      keepaliveOp,
       syncConfigIds: this.syncConfigIds
     };
   }
@@ -214,7 +211,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   protected async getStatusImpl(): Promise<storage.SyncRuleStatus> {
     const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
-      projection: this.syncConfigProjection({ state: 1, snapshot_lsn: 1, keepalive_op: 1 })
+      projection: this.syncConfigProjection({ state: 1, snapshot_lsn: 1, last_persisted_op: 1 })
     });
     const syncConfigs = this.selectedSyncConfigs(doc);
     if (doc == null || syncConfigs.length == 0) {
@@ -228,10 +225,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         .map((config) => config.last_checkpoint_lsn)
         .filter((lsn) => lsn != null)
         .sort()[0] ?? null;
-    const keepaliveOp = syncConfigs.reduce<bigint | null>((min, config) => {
-      const value = config.keepalive_op ?? null;
-      return value != null && (min == null || value < min) ? value : min;
-    }, null);
+    const keepaliveOp = doc.last_persisted_op == null ? null : BigInt(doc.last_persisted_op);
 
     return {
       snapshot_done: syncConfigs.every((config) => config.snapshot_done ?? false),
@@ -243,24 +237,27 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected async clearSyncRuleState(): Promise<void> {
+    // Clearing resets the entire replication stream (bucket data and the op sequence), so reset
+    // the checkpoint state for _all_ embedded sync configs, not only the ones selected for this
+    // storage instance. This maintains the invariant that no config has a last_checkpoint past
+    // the stream-level last_persisted_op.
     await this.syncRulesCollection.updateOne(
-      this.syncConfigMatch(),
+      { _id: this.replicationStreamId },
       {
         $set: {
           persisted_lsn: null,
-          'sync_configs.$[config].snapshot_done': false,
-          'sync_configs.$[config].last_checkpoint_lsn': null,
-          'sync_configs.$[config].last_checkpoint': null,
-          'sync_configs.$[config].no_checkpoint_before': null,
-          'sync_configs.$[config].keepalive_op': null
+          'sync_configs.$[].snapshot_done': false,
+          'sync_configs.$[].last_checkpoint_lsn': null,
+          'sync_configs.$[].last_checkpoint': null,
+          'sync_configs.$[].no_checkpoint_before': null
         },
         $unset: {
-          snapshot_lsn: 1
+          snapshot_lsn: 1,
+          last_persisted_op: 1
         }
       },
       {
-        maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
-        arrayFilters: this.syncConfigArrayFilters()
+        maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS
       }
     );
   }

@@ -977,6 +977,100 @@ streams:
     }
   );
 
+  test.runIf(storageVersion >= 3)(
+    'appended compatible config adopts the stream checkpoint instead of regressing to 0',
+    async () => {
+      await using factory = await storageConfig.factory();
+
+      // First config replicates some data, advancing the stream-level op head and its checkpoint.
+      const first = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+          { storageVersion }
+        )
+      );
+      const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+      await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const sourceTable = await test_utils.resolveTestTable(
+        firstWriter,
+        'todos',
+        ['id'],
+        INITIALIZED_MONGO_STORAGE_FACTORY
+      );
+      await firstWriter.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'todo-1',
+          owner_id: 'user-1',
+          project_id: 'project-1'
+        },
+        afterReplicaId: test_utils.rid('todo-1')
+      });
+      await firstWriter.markAllSnapshotDone('1/1');
+      await firstWriter.commit('1/1');
+
+      const firstCheckpoint = (await firstStorage.getCheckpoint()).checkpoint;
+      expect(firstCheckpoint).toBeGreaterThan(0n);
+
+      const mongoFactory = factory as MongoBucketStorage;
+      const streamDocBefore = (await mongoFactory.db.sync_rules.findOne({
+        _id: first.replicationStreamId
+      })) as ReplicationStreamDocumentV3;
+      // The stream-level head was advanced durably to (at least) the first config's checkpoint.
+      expect(streamDocBefore.last_persisted_op).not.toBeNull();
+      expect(BigInt(streamDocBefore.last_persisted_op!)).toBeGreaterThanOrEqual(firstCheckpoint);
+
+      // Append a compatible second config that replicates nothing new.
+      const second = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  by_project:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+`,
+          { storageVersion }
+        )
+      );
+      expect(second.replicationStreamId).toEqual(first.replicationStreamId);
+
+      const replicatingStreams = await factory.getReplicatingReplicationStreams();
+      expect(replicatingStreams).toHaveLength(1);
+      const secondStorage = factory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorage;
+      await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
+      // No new data replicated - just complete the snapshot and commit.
+      await secondWriter.markAllSnapshotDone('2/1');
+      await secondWriter.commit('2/1');
+
+      // The appended config's checkpoint must adopt the stream head, not regress to 0.
+      const streamDocAfter = (await mongoFactory.db.sync_rules.findOne({
+        _id: first.replicationStreamId
+      })) as ReplicationStreamDocumentV3;
+      const head = BigInt(streamDocAfter.last_persisted_op!);
+      for (const config of streamDocAfter.sync_configs) {
+        expect(config.last_checkpoint).not.toBeNull();
+        expect(BigInt(config.last_checkpoint!)).toEqual(head);
+      }
+      // All configs share the same checkpoint, equal to the stream head.
+      expect(head).toBeGreaterThanOrEqual(firstCheckpoint);
+
+      // After activation, the active config's checkpoint does not regress.
+      const activeStorage = (await factory.getActiveSyncConfig())?.storage as MongoSyncBucketStorage;
+      const activeCheckpoint = (await activeStorage.getCheckpoint()).checkpoint;
+      expect(activeCheckpoint).toBeGreaterThanOrEqual(firstCheckpoint);
+    }
+  );
+
   test.runIf(storageVersion < 3)('can replace processing legacy sync rules', async () => {
     await using factory = await storageConfig.factory();
 

@@ -208,7 +208,7 @@ export interface SyncRuleDocumentBase {
   storage_version?: number;
 }
 
-export interface SyncRuleCheckpointFields<TKeepaliveOp extends string | bigint | null> {
+export interface SyncRuleCheckpointFields {
   /**
    * The last consistent checkpoint.
    *
@@ -225,16 +225,6 @@ export interface SyncRuleCheckpointFields<TKeepaliveOp extends string | bigint |
    * If set, no new checkpoints may be created < this value.
    */
   no_checkpoint_before: string | null;
-
-  /**
-   * Goes together with no_checkpoint_before.
-   *
-   * If a keepalive is triggered that creates the checkpoint > no_checkpoint_before,
-   * then the checkpoint must be equal to this keepalive_op.
-   *
-   * This is a string in V1, bigint in V3.
-   */
-  keepalive_op: TKeepaliveOp;
 }
 
 export interface StorageConfig extends storage.StorageVersionConfig {
