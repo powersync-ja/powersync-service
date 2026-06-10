@@ -9,14 +9,14 @@ import {
 import { bucketRequest } from '../test-utils/general-utils.js';
 
 export function bucketRequestMap(
-  syncRules: storage.PersistedSyncRulesContent,
+  syncRules: storage.PersistedSyncConfigContent,
   buckets: Iterable<readonly [string, bigint]>
 ): storage.BucketDataRequest[] {
   return Array.from(buckets, ([bucketName, opId]) => bucketRequest(syncRules, bucketName, opId));
 }
 
 export function bucketRequests(
-  syncRules: storage.PersistedSyncRulesContent,
+  syncRules: storage.PersistedSyncConfigContent,
   bucketNames: string[]
 ): storage.BucketChecksumRequest[] {
   return bucketNames.map((bucketName) => {

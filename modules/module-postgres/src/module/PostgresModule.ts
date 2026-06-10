@@ -79,14 +79,18 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     });
 
     try {
-      if (options.syncRules) {
-        // TODO: In the future, once we have more replication types, we will need to check if these syncRules are for Postgres
-        for (let syncRules of options.syncRules) {
+      const replicationStreams = options.replicationStreams ?? options.syncRules;
+      if (replicationStreams) {
+        // TODO: In the future, once we have more replication types, we will need to check if these replication streams are for Postgres
+        for (let replicationStream of replicationStreams) {
           try {
-            await cleanUpReplicationSlot(syncRules.slot_name, connectionManager.pool);
+            await cleanUpReplicationSlot(replicationStream.replicationStreamName, connectionManager.pool);
           } catch (e) {
             // Not really much we can do here for failures, most likely the database is no longer accessible
-            this.logger.warn(`Failed to fully clean up Postgres replication slot: ${syncRules.slot_name}`, e);
+            this.logger.warn(
+              `Failed to fully clean up Postgres replication slot: ${replicationStream.replicationStreamName}`,
+              e
+            );
           }
         }
       }

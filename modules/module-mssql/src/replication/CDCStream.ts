@@ -139,7 +139,7 @@ export class CDCStream {
   }
 
   get groupId() {
-    return this.options.storage.group_id;
+    return this.options.storage.replicationStreamId;
   }
 
   get connectionId() {

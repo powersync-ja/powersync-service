@@ -116,7 +116,7 @@ export class ChangeStream {
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
-    this.group_id = options.storage.group_id;
+    this.group_id = options.storage.replicationStreamId;
     this.connections = options.connections;
     this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;

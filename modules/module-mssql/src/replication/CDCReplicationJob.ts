@@ -53,7 +53,7 @@ export class CDCReplicationJob extends replication.AbstractReplicationJob {
       }
       if (e instanceof CDCDataExpiredError) {
         // This stops replication and restarts with a new instance
-        await this.options.storage.factory.restartReplication(this.storage.group_id);
+        await this.options.storage.factory.restartReplication(this.storage.replicationStreamId);
       }
     } finally {
       this.abortController.abort();

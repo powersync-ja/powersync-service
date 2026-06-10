@@ -4,7 +4,7 @@ import * as bson from 'bson';
 
 export const ZERO_LSN = '0/0';
 
-export const PARSE_OPTIONS: storage.ParseSyncRulesOptions = {
+export const PARSE_OPTIONS: storage.ParseSyncConfigOptions = {
   defaultSchema: 'public'
 };
 
@@ -13,6 +13,21 @@ export const BATCH_OPTIONS: storage.CreateWriterOptions = {
   zeroLSN: ZERO_LSN,
   storeCurrentData: true
 };
+
+/**
+ * Deploy a sync config and return both the replication stream (for {@link storage.BucketStorageFactory.getInstance})
+ * and the deployed config content (for parsing / bucket requests).
+ *
+ * Replication streams and sync config content are separate concerns since one stream can hold multiple configs.
+ */
+export async function deploySyncRules(
+  factory: storage.BucketStorageFactory,
+  options: storage.UpdateSyncRulesOptions
+): Promise<{ stream: storage.PersistedReplicationStream; content: storage.PersistedSyncConfigContent }> {
+  const stream = await factory.updateSyncRules(options);
+  const content = stream.syncConfigContent[0];
+  return { stream, content };
+}
 
 /**
  * With newer storage versions, we need actual test tables, resolved via the writer.
@@ -78,9 +93,9 @@ export function getBatchData(
 }
 
 function isParsedSyncRules(
-  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules
-): syncRules is storage.PersistedSyncRules {
-  return (syncRules as storage.PersistedSyncRules).syncConfigWithErrors !== undefined;
+  syncRules: storage.PersistedSyncConfigContent | storage.ParsedSyncConfigSet
+): syncRules is storage.ParsedSyncConfigSet {
+  return (syncRules as storage.ParsedSyncConfigSet).syncConfigs !== undefined;
 }
 
 /**
@@ -88,7 +103,7 @@ function isParsedSyncRules(
  * This converts a bucket name like "global[]" into the actual bucket name, for use in tests.
  */
 export function bucketRequest(
-  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules,
+  syncRules: storage.PersistedSyncConfigContent | storage.ParsedSyncConfigSet,
   bucket: string,
   start?: InternalOpId | string | number
 ): BucketDataRequest {
@@ -97,10 +112,13 @@ export function bucketRequest(
   const parameterStart = bucket.indexOf('[');
   const definitionName = bucket.substring(0, parameterStart);
   const parameters = bucket.substring(parameterStart);
-  const source = parsed.syncConfigWithErrors.config.bucketDataSources.find((b) => b.uniqueName === definitionName);
+  const availableSources = parsed.syncConfigs.flatMap((config) => config.config.bucketDataSources);
+  const source = availableSources.find((b) => b.uniqueName === definitionName);
 
   if (source == null) {
-    throw new Error(`Failed to find global bucket ${bucket}`);
+    throw new Error(
+      `Failed to find global bucket ${bucket}. Available: ${availableSources.map((s) => s.uniqueName).join(',')}`
+    );
   }
   const bucketName = hydrationState.getBucketSourceScope(source).bucketPrefix + parameters;
   return {

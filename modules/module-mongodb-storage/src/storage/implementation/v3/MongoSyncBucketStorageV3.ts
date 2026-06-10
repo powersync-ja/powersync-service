@@ -25,11 +25,8 @@ import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
-import {
-  MongoPersistedSyncRulesContentV1,
-  MongoPersistedSyncRulesContentV3
-} from '../MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
+import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
+import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions, WriterSyncState } from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV3,
   BucketParameterDocumentV3,
@@ -49,25 +46,22 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   declare readonly db: VersionedPowerSyncMongoV3;
   declare readonly checksums: MongoChecksumsV3;
 
-  private readonly syncRulesV3: MongoPersistedSyncRulesContentV3;
-
   constructor(
     factory: MongoBucketStorage,
-    group_id: number,
-    sync_rules: MongoPersistedSyncRulesContentV1,
-    slot_name: string,
+    replicationStreamId: number,
+    replicationStream: MongoPersistedReplicationStream,
+    replicationStreamName: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
   ) {
-    super(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
-    if (!(sync_rules instanceof MongoPersistedSyncRulesContentV3)) {
+    super(factory, replicationStreamId, replicationStream, replicationStreamName, writeCheckpointMode, options);
+    if (replicationStream.syncConfigIds.length != 1) {
       throw new ServiceAssertionError('Missing sync config id for storage v3');
     }
-    this.syncRulesV3 = sync_rules;
   }
 
   private get syncConfigId(): bson.ObjectId {
-    return this.syncRulesV3.syncConfigId;
+    return this.replicationStream.syncConfigIds[0];
   }
 
   private get syncRulesCollection(): mongo.Collection<ReplicationStreamDocumentV3> {
@@ -76,7 +70,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   private syncConfigMatch(extra: mongo.Document = {}): mongo.Filter<ReplicationStreamDocumentV3> {
     return {
-      _id: this.group_id,
+      _id: this.replicationStreamId,
       sync_configs: {
         $elemMatch: {
           _id: this.syncConfigId,
@@ -89,11 +83,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   private syncConfigProjection(extra: mongo.Document = {}): mongo.Document {
     return {
       ...extra,
-      sync_configs: {
-        $elemMatch: {
-          _id: this.syncConfigId
-        }
-      }
+      sync_configs: 1
     };
   }
 
@@ -115,7 +105,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   protected async initializeVersionStorage(): Promise<void> {
     const mapping = this.mapping;
     for (let source of mapping.allBucketDefinitionIds()) {
-      const collection = this.db.bucketDataV3(this.group_id, source).collectionName;
+      const collection = this.db.bucketDataV3(this.replicationStreamId, source).collectionName;
       await this.db.db
         .createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
         .catch((error) => {
@@ -126,7 +116,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         });
     }
     for (let indexId of mapping.allParameterIndexIds()) {
-      await this.db.parameterIndexV3(this.group_id, indexId).createIndex(
+      await this.db.parameterIndexV3(this.replicationStreamId, indexId).createIndex(
         {
           lookup: 1,
           key: 1,
@@ -140,10 +130,10 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums {
-    return new MongoChecksumsV3(this.db, this.group_id, {
+    return new MongoChecksumsV3(this.db, this.replicationStreamId, {
       ...options.checksumOptions,
       storageConfig: options?.storageConfig,
-      mapping: this.sync_rules.mapping
+      mapping: this.replicationStream.storageContent.mapping
     });
   }
 
@@ -155,7 +145,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     checkpoint: InternalOpId,
     options: storage.CompactOptions
   ): MongoParameterCompactor {
-    return new MongoParameterCompactorV3(this.db, this.group_id, checkpoint, options);
+    return new MongoParameterCompactorV3(this.db, this.replicationStreamId, checkpoint, options);
   }
 
   protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
@@ -184,7 +174,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     };
   }
 
-  protected async getWriterSyncState() {
+  protected async getWriterSyncState(): Promise<WriterSyncState> {
     const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
       projection: this.syncConfigProjection({ snapshot_lsn: 1 })
     });
@@ -194,14 +184,14 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       lastCheckpointLsn: checkpointLsn,
       resumeFromLsn: maxLsn(checkpointLsn, doc?.snapshot_lsn),
       keepaliveOp: syncConfig?.keepalive_op ?? null,
-      syncConfigId: this.syncConfigId
+      syncConfigIds: [this.syncConfigId]
     };
   }
 
   protected async terminateSyncRuleState(): Promise<void> {
     await this.db.sync_rules.updateOne(
       {
-        _id: this.group_id
+        _id: this.replicationStreamId
       },
       {
         $set: {
@@ -257,7 +247,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3> {
     return {
       db: this.db,
-      group_id: this.group_id,
+      group_id: this.replicationStreamId,
       mapping: this.mapping
     };
   }
@@ -279,26 +269,26 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected async clearBucketData(_signal?: AbortSignal): Promise<void> {
-    for (const collection of await this.db.listBucketDataCollectionsV3(this.group_id)) {
+    for (const collection of await this.db.listBucketDataCollectionsV3(this.replicationStreamId)) {
       await collection.drop();
     }
   }
 
   protected async clearParameterIndexes(_signal?: AbortSignal): Promise<void> {
-    for (const collection of await this.db.listParameterIndexCollectionsV3(this.group_id)) {
+    for (const collection of await this.db.listParameterIndexCollectionsV3(this.replicationStreamId)) {
       await collection.collection.drop();
     }
   }
 
   protected async clearSourceRecords(_signal?: AbortSignal): Promise<void> {
-    for (const collection of await this.db.listSourceRecordCollectionsV3(this.group_id)) {
+    for (const collection of await this.db.listSourceRecordCollectionsV3(this.replicationStreamId)) {
       await collection.drop();
     }
   }
 
   protected async clearBucketState(_signal?: AbortSignal): Promise<void> {
     await this.db
-      .bucketStateV3(this.group_id)
+      .bucketStateV3(this.replicationStreamId)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
       .catch((error) => {
         if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
@@ -310,7 +300,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   protected async clearSourceTables(_signal?: AbortSignal): Promise<void> {
     await this.db
-      .sourceTablesV3(this.group_id)
+      .sourceTablesV3(this.replicationStreamId)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
       .catch((error) => {
         if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {

@@ -38,7 +38,8 @@ export function registerDataStorageDataTests(config: storage.TestStorageConfig) 
 
   test('removing row', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -49,7 +50,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
@@ -103,7 +104,8 @@ bucket_definitions:
 
   test('insert after delete in new batch', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -114,7 +116,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -167,7 +169,8 @@ bucket_definitions:
   test('update after delete in new batch', async () => {
     // Update after delete may not be common, but the storage layer should handle it in an eventually-consistent way.
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -178,7 +181,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -234,7 +237,8 @@ bucket_definitions:
 
   test('insert after delete in same batch', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -247,7 +251,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -296,7 +300,8 @@ bucket_definitions:
 
   test('(insert, delete, insert), (delete)', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -309,7 +314,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     {
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -374,7 +379,8 @@ bucket_definitions:
 
   test('changing client ids', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -387,7 +393,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -445,7 +451,8 @@ bucket_definitions:
 
   test('re-apply delete', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -458,7 +465,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -521,7 +528,8 @@ bucket_definitions:
 
   test('re-apply update + delete', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -532,7 +540,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -651,7 +659,8 @@ bucket_definitions:
     // 2. Output order not being correct.
 
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -662,7 +671,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
@@ -810,7 +819,8 @@ bucket_definitions:
       ]);
     }
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -823,7 +833,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id', 'description'], config);
@@ -923,7 +933,8 @@ bucket_definitions:
     }
 
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -936,7 +947,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id', 'description'], config);
@@ -1026,7 +1037,8 @@ bucket_definitions:
     // The specific batch splits is an implementation detail of the storage driver,
     // and the test will have to updated when other implementations are added.
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -1039,7 +1051,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -1138,7 +1150,8 @@ bucket_definitions:
   test('long batch', async () => {
     // Test syncing a batch of data that is limited by count.
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -1151,7 +1164,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -1217,7 +1230,8 @@ bucket_definitions:
   describe('batch has_more', () => {
     const setup = async (options: BucketDataBatchOptions) => {
       await using factory = await generateStorageFactory();
-      const syncRules = await factory.updateSyncRules(
+      const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+        factory,
         updateSyncRulesFromYaml(
           `
   bucket_definitions:
@@ -1231,7 +1245,7 @@ bucket_definitions:
           { storageVersion }
         )
       );
-      const bucketStorage = factory.getInstance(syncRules);
+      const bucketStorage = factory.getInstance(replicationStream);
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
       await writer.markAllSnapshotDone('1/1');
@@ -1392,7 +1406,8 @@ bucket_definitions:
     // but large enough in size to be split over multiple returned chunks.
     // Similar to the above test, but splits over 1MB chunks.
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
   bucket_definitions:
@@ -1406,7 +1421,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config, 1);
@@ -1444,7 +1459,8 @@ bucket_definitions:
 
   test('unchanged checksums', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -1457,7 +1473,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -1485,7 +1501,8 @@ bucket_definitions:
 
   test('empty checkpoints (1)', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -1496,7 +1513,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
     await writer.commit('1/1');
@@ -1521,7 +1538,8 @@ bucket_definitions:
 
   test('empty checkpoints (2)', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -1534,7 +1552,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer1 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer2, 'test', ['id'], config);
@@ -1571,7 +1589,8 @@ bucket_definitions:
 
   test('empty checkpoints (sync rule activation)', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -1584,7 +1603,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const result1 = await writer.commit('1/1', { createEmptyCheckpoints: false });
@@ -1609,8 +1628,8 @@ bucket_definitions:
     const cp2 = await bucketStorage.getCheckpoint();
     expect(cp2.lsn).toEqual('3/1');
 
-    const activeSyncRules = await factory.getActiveSyncRulesContent();
-    expect(activeSyncRules?.id).toEqual(syncRules.id);
+    const activeSyncRules = await factory.getActiveSyncConfig();
+    expect(activeSyncRules?.content.replicationStreamId).toEqual(syncRules.replicationStreamId);
 
     // At this point, it should be a truely empty checkpoint
     const result4 = await writer.commit('4/1', { createEmptyCheckpoints: false });
@@ -1623,7 +1642,8 @@ bucket_definitions:
 
   test.runIf(storageVersion >= 3)('deleting while streaming', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -1636,7 +1656,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using snapshotWriter = await bucketStorage.createWriter({
       ...test_utils.BATCH_OPTIONS,
       skipExistingRows: true
@@ -1692,7 +1712,8 @@ export function testChecksumBatching(config: storage.TestStorageConfig) {
   const storageVersion = config.storageVersion ?? CURRENT_STORAGE_VERSION;
   test('checksums for multiple buckets', async () => {
     await using factory = await config.factory();
-    const syncRules = await factory.updateSyncRules(
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
       updateSyncRulesFromYaml(
         `
 bucket_definitions:
@@ -1706,7 +1727,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = factory.getInstance(replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -1756,7 +1777,11 @@ streams:
 `)
     );
 
-    const { errors } = deployed.parsed({ defaultSchema: 'ignored' }).syncConfigWithErrors;
+    const [deployedContent] = deployed.syncConfigContent;
+    expect(deployedContent).toBeDefined();
+    const [deployedConfig] = deployedContent.parsed({ defaultSchema: 'ignored' }).syncConfigs;
+    expect(deployedConfig).toBeDefined();
+    const { errors } = deployedConfig;
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toStrictEqual('Expected a SELECT statement');
     expect(errors[0].location).toStrictEqual({

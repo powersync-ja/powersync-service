@@ -1,6 +1,6 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { ErrorCode, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
-import { api, ParseSyncRulesOptions, ReplicationHeadCallback } from '@powersync/service-core';
+import { api, ParseSyncConfigOptions, ReplicationHeadCallback } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
@@ -36,7 +36,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
     this.connectionTag = connectionTag ?? sync_rules.DEFAULT_TAG;
   }
 
-  getParseSyncRulesOptions(): ParseSyncRulesOptions {
+  getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
       defaultSchema: 'public'
     };
@@ -162,7 +162,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
 
   async getReplicationLagBytes(options: api.ReplicationLagOptions): Promise<number | undefined> {
     const { bucketStorage } = options;
-    const slotName = bucketStorage.slot_name;
+    const slotName = bucketStorage.replicationStreamName;
     const results = await lib_postgres.retriedQuery(this.pool, {
       statement: `SELECT
   slot_name,
