@@ -469,10 +469,12 @@ export class MongoSnapshotter {
       // Ignore the postImages check in this case.
     }
 
+    // Note: resolveTables uses the batch's own parsed sync config set. Passing
+    // this.syncRules here would pair sources from one parse with the batch's mapping
+    // from another parse.
     const result = await batch.resolveTables({
       connection_id: this.connectionId,
-      source: descriptor,
-      syncRules: this.syncRules
+      source: descriptor
     });
 
     // Drop conflicting collections.

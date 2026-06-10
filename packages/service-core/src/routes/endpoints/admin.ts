@@ -1,7 +1,13 @@
 import * as sqlite from 'node:sqlite';
 
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { nodeSqlite, SourceSchema, SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
+import {
+  HydratedSyncConfig,
+  nodeSqlite,
+  SourceSchema,
+  SqlSyncRules,
+  StaticSchema
+} from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
 import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules';
@@ -193,16 +199,18 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncConfigConte
       schema: this.schema
     });
 
+    let hydrated: HydratedSyncConfig | undefined;
     return {
       replicationStreamId: this.replicationStreamId,
       replicationStreamName: this.replicationStreamName,
       syncConfigs: [syncConfig],
       hydrationState: DEFAULT_HYDRATION_STATE,
-      hydratedSyncConfig() {
-        return syncConfig.config.hydrate({
+      get hydratedSyncConfig(): HydratedSyncConfig {
+        hydrated ??= syncConfig.config.hydrate({
           hydrationState: DEFAULT_HYDRATION_STATE,
           sqlite: nodeSqlite(sqlite)
         });
+        return hydrated;
       }
     };
   }

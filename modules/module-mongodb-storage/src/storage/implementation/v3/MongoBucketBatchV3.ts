@@ -4,8 +4,10 @@ import { ColumnDescriptor, storage } from '@powersync/service-core';
 import { HydratedSyncConfig, MatchingSources } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
+import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { canCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
+import { MongoParsedSyncConfigSet } from '../MongoParsedSyncConfigSet.js';
 import { syncRuleStateUpdatePipeline } from '../SyncRuleStateUpdate.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
@@ -135,7 +137,11 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
     const ref = options.source;
-    const syncRules = options.syncRules ?? this.sync_rules;
+    // The test-only override is a whole parsed set, so the sync rules and the mapping
+    // used below always come from the same parse.
+    const parsedOverride = options.parsedSyncConfig as MongoParsedSyncConfigSet | undefined;
+    const syncRules = parsedOverride?.hydratedSyncConfig ?? this.sync_rules;
+    const mapping = parsedOverride?.mapping ?? this.mapping;
     const matchingSources = syncRules.getMatchingSources(ref);
 
     const { connection_id, source } = options;
@@ -163,12 +169,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
       const exactDocs = (await col.find(exactFilter, { session }).toArray()) as SourceTableDocumentV3[];
       const bucketSourceById = new Map(
-        matchingSources.bucketDataSources.map((source) => [this.mapping.bucketSourceId(source), source] as const)
+        matchingSources.bucketDataSources.map((source) => [mapping.bucketSourceId(source), source] as const)
       );
       const parameterLookupSourceById = new Map(
-        matchingSources.parameterLookupSources.map(
-          (source) => [this.mapping.parameterLookupId(source), source] as const
-        )
+        matchingSources.parameterLookupSources.map((source) => [mapping.parameterLookupId(source), source] as const)
       );
       const desiredBucketIds = new Set(bucketSourceById.keys());
       const desiredLookupIds = new Set(parameterLookupSourceById.keys());
@@ -286,7 +290,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       result = {
         tables,
         dropTables: dropTables.map((doc) =>
-          this.sourceTableFromDocument(doc as SourceTableDocumentV3, connectionTag, syncRules)
+          this.sourceTableFromDocument(doc as SourceTableDocumentV3, connectionTag, syncRules, undefined, mapping)
         )
       };
     });
@@ -302,9 +306,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     doc: SourceTableDocumentV3,
     connectionTag: string,
     syncRules: HydratedSyncConfig,
-    memberships?: MatchingSources
+    memberships?: MatchingSources,
+    mapping: BucketDefinitionMapping = this.mapping
   ): storage.SourceTable {
-    const resolvedMemberships = memberships ?? this.sourceTableMembershipsFromDocument(doc, syncRules);
+    const resolvedMemberships = memberships ?? this.sourceTableMembershipsFromDocument(doc, syncRules, mapping);
     const table = new storage.SourceTable({
       id: doc._id,
       ref: {
@@ -336,17 +341,18 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   private sourceTableMembershipsFromDocument(
     doc: SourceTableDocumentV3,
-    syncRules: HydratedSyncConfig
+    syncRules: HydratedSyncConfig,
+    mapping: BucketDefinitionMapping = this.mapping
   ): MatchingSources {
     const bucketDataSourceIds = new Set(doc.bucket_data_source_ids);
     const parameterLookupSourceIds = new Set(doc.parameter_lookup_source_ids);
 
     return {
       bucketDataSources: syncRules.bucketDataSources.filter((source) =>
-        bucketDataSourceIds.has(this.mapping.bucketSourceId(source))
+        bucketDataSourceIds.has(mapping.bucketSourceId(source))
       ),
       parameterLookupSources: syncRules.bucketParameterLookupSources.filter((source) =>
-        parameterLookupSourceIds.has(this.mapping.parameterLookupId(source))
+        parameterLookupSourceIds.has(mapping.parameterLookupId(source))
       )
     };
   }

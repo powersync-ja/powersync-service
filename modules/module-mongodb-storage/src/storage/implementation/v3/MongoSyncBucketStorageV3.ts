@@ -16,10 +16,8 @@ import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powe
 import * as bson from 'bson';
 import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
-import {
-  MongoSyncBucketStorageCheckpoint,
-  MongoSyncBucketStorageContext
-} from '../common/MongoSyncBucketStorageContext.js';
+import { SingleSyncConfigBucketDefinitionMapping } from '../BucketDefinitionMapping.js';
+import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageCheckpoint.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
@@ -38,6 +36,18 @@ import { MongoCompactorV3 } from './MongoCompactorV3.js';
 import { MongoParameterCompactorV3 } from './MongoParameterCompactorV3.js';
 import { deserializeParameterLookupV3, serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+
+export interface MongoSyncBucketStorageContextV3 {
+  db: VersionedPowerSyncMongoV3;
+  replicationStreamId: number;
+  /**
+   * Persisted mapping of the single sync config that read operations are served from.
+   *
+   * Implemented as a lazy getter: accessing it on a storage instance with multiple sync
+   * configs throws, but operations that don't use it remain unaffected.
+   */
+  readonly mapping: SingleSyncConfigBucketDefinitionMapping;
+}
 
 export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   // Declare types to be more specific
@@ -94,8 +104,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected async initializeVersionStorage(): Promise<void> {
-    const mapping = this.mapping;
-    for (let source of mapping.allBucketDefinitionIds()) {
+    const storageIds = this.storageIds;
+    for (let source of storageIds.bucketDefinitionIds) {
       const collection = this.db.bucketDataV3(this.replicationStreamId, source).collectionName;
       await this.db.db
         .createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
@@ -106,7 +116,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
           throw error;
         });
     }
-    for (let indexId of mapping.allParameterIndexIds()) {
+    for (let indexId of storageIds.parameterIndexIds) {
       await this.db.parameterIndexV3(this.replicationStreamId, indexId).createIndex(
         {
           lookup: 1,
@@ -124,7 +134,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return new MongoChecksumsV3(this.db, this.replicationStreamId, {
       ...options.checksumOptions,
       storageConfig: options?.storageConfig,
-      mapping: this.replicationStream.storageContent.mapping
+      syncConfigMapping: () => this.singleSyncConfigMapping()
     });
   }
 
@@ -254,11 +264,37 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     );
   }
 
-  protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3> {
+  /**
+   * The persisted mapping of the single sync config that read operations are served from.
+   *
+   * Reads always operate on a single sync config: read-path storage instances are
+   * constructed for the active sync config only (see MongoBucketStorage.getActiveSyncConfig),
+   * and checkpoints are served from the single active config (see fetchCheckpointState).
+   * Within a single sync config, unique names are the persistence key of its rule mapping,
+   * so its name-keyed {@link SingleSyncConfigBucketDefinitionMapping} resolves sources from
+   * any parse of that config unambiguously - no parsed-set identity is required.
+   *
+   * Throws on storage instances with multiple sync configs (replication-side instances),
+   * which must not serve reads.
+   */
+  private singleSyncConfigMapping(): SingleSyncConfigBucketDefinitionMapping {
+    const content = this.replicationStream.syncConfigContent;
+    if (content.length != 1) {
+      throw new ServiceAssertionError(
+        `Read operations require a storage instance with a single sync config, got ${content.length}`
+      );
+    }
+    return content[0].mapping;
+  }
+
+  protected get versionContext(): MongoSyncBucketStorageContextV3 {
+    const self = this;
     return {
       db: this.db,
-      group_id: this.replicationStreamId,
-      mapping: this.mapping
+      replicationStreamId: this.replicationStreamId,
+      get mapping() {
+        return self.singleSyncConfigMapping();
+      }
     };
   }
 
@@ -334,7 +370,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 }
 
 export async function getParameterSetsV3(
-  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
+  ctx: MongoSyncBucketStorageContextV3,
   checkpoint: MongoSyncBucketStorageCheckpoint,
   lookups: ScopedParameterLookup[],
   limit: number
@@ -350,7 +386,7 @@ export async function getParameterSetsV3(
       pipeline: mongo.Document[];
     } => {
       const indexId = lookup.indexId;
-      const collection = ctx.db.parameterIndexV3(ctx.group_id, indexId);
+      const collection = ctx.db.parameterIndexV3(ctx.replicationStreamId, indexId);
       const lookupFilter = serializeParameterLookupV3(lookup);
 
       return {
@@ -434,7 +470,7 @@ export async function getParameterSetsV3(
 }
 
 export async function* getBucketDataBatchV3(
-  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
+  ctx: MongoSyncBucketStorageContextV3,
   checkpoint: utils.InternalOpId,
   dataBuckets: storage.BucketDataRequest[],
   options?: storage.BucketDataBatchOptions
@@ -478,7 +514,7 @@ export async function* getBucketDataBatchV3(
       }
     }));
 
-    const cursor = ctx.db.bucketDataV3(ctx.group_id, definitionId).find(
+    const cursor = ctx.db.bucketDataV3(ctx.replicationStreamId, definitionId).find(
       {
         $or: filters
       },
@@ -510,7 +546,7 @@ export async function* getBucketDataBatchV3(
 
     for (let rawData of data) {
       const row = loadBucketDataDocumentV3(
-        { replicationStreamId: ctx.group_id, definitionId },
+        { replicationStreamId: ctx.replicationStreamId, definitionId },
         bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3
       );
       const bucket = row.bucketKey.bucket;
@@ -569,12 +605,12 @@ export async function* getBucketDataBatchV3(
 }
 
 export async function getDataBucketChangesV3(
-  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
+  ctx: MongoSyncBucketStorageContextV3,
   options: GetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
   const limit = 1000;
   const bucketStateUpdates = await ctx.db
-    .bucketStateV3(ctx.group_id)
+    .bucketStateV3(ctx.replicationStreamId)
     .aggregate<{ _id: string; last_op: bigint }>(
       [
         {
@@ -611,14 +647,14 @@ export async function getDataBucketChangesV3(
 }
 
 export async function getParameterBucketChangesV3(
-  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
+  ctx: MongoSyncBucketStorageContextV3,
   options: GetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
   const limit = 1000;
   const indexIds = ctx.mapping.allParameterIndexIds();
   const collections = indexIds.map((indexId) => ({
     indexId,
-    collection: ctx.db.parameterIndexV3(ctx.group_id, indexId)
+    collection: ctx.db.parameterIndexV3(ctx.replicationStreamId, indexId)
   }));
   if (collections.length == 0) {
     return {

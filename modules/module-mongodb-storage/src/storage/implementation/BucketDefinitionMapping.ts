@@ -35,12 +35,15 @@ export interface SyncConfigWithRequiredMapping {
 
 /**
  * Represents a mapping from bucket data sources and parameter lookup sources to stable IDs used for bucket definition and parameter index persistence.
+ *
+ * Usage is deliberately restricted: writer/batch paths resolve through their own parsed
+ * sync config set's mapping, and read paths resolve through the persisted
+ * {@link SingleSyncConfigBucketDefinitionMapping} of the single sync config they serve.
+ * Do not construct ad-hoc resolution paths from parsed sources.
  */
 export interface BucketDefinitionMapping {
   /**
    * Given a BucketDataSource within the associated SyncConfig(s), return the BucketDefinitionId, or throw if not found.
-   *
-   * The behavior is undefined if the source is associated with a different SyncConfig.
    */
   bucketSourceId(source: BucketDataSource): BucketDefinitionId;
 
@@ -63,8 +66,10 @@ export interface BucketDefinitionMapping {
 /**
  * A BucketDefinitionMapping associated with a single SyncConfig.
  *
- * MongoHydrationState and MultiSyncConfigBucketDefinitionMapping handle the mapping across multiple SyncConfigs in
- * the same replication stream.
+ * Within a single SyncConfig, unique names are the persistence key for bucket definitions,
+ * so lookups here are name-based by design. MongoHydrationState and
+ * MultiSyncConfigBucketDefinitionMapping handle the mapping across multiple SyncConfigs in
+ * the same replication stream, where names are not unique.
  */
 export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinitionMapping {
   static fromSyncConfig(doc: Pick<SyncConfigDefinition, 'rule_mapping'>): SingleSyncConfigBucketDefinitionMapping {
@@ -240,12 +245,17 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
   }
 }
 
+/**
+ * A BucketDefinitionMapping across all SyncConfigs of one parse of a replication stream.
+ *
+ * Source lookups are strictly identity-based: a source that did not come from the parse
+ * this mapping was constructed with is an error. Unique names are not unique across sync
+ * configs in a replication stream, so there is deliberately no name-based fallback.
+ */
 export class MultiSyncConfigBucketDefinitionMapping implements BucketDefinitionMapping {
   private bucketDataSourceMappings = new WeakMap<BucketDataSource, SingleSyncConfigBucketDefinitionMapping>();
-  private bucketDataSourceMappingsByName = new Map<string, SyncConfigWithRequiredMapping[]>();
   private bucketDataSourceSyncConfigIdsById = new Map<BucketDefinitionId, Set<string>>();
   private parameterLookupMappings = new WeakMap<ParameterIndexLookupCreator, SingleSyncConfigBucketDefinitionMapping>();
-  private parameterLookupMappingsByKey = new Map<string, SyncConfigWithRequiredMapping[]>();
   private parameterLookupSyncConfigIdsById = new Map<ParameterIndexId, Set<string>>();
   private syncConfigsById = new Map<string, SyncConfigWithRequiredMapping>();
   private mappings: SingleSyncConfigBucketDefinitionMapping[];
@@ -257,12 +267,10 @@ export class MultiSyncConfigBucketDefinitionMapping implements BucketDefinitionM
       this.syncConfigsById.set(config.syncConfigId, config);
       for (const source of config.syncConfig.config.bucketDataSources) {
         this.bucketDataSourceMappings.set(source, config.mapping);
-        addMappingEntry(this.bucketDataSourceMappingsByName, source.uniqueName, config);
         addSetEntry(this.bucketDataSourceSyncConfigIdsById, config.mapping.bucketSourceId(source), config.syncConfigId);
       }
       for (const source of config.syncConfig.config.bucketParameterLookupSources) {
         this.parameterLookupMappings.set(source, config.mapping);
-        addMappingEntry(this.parameterLookupMappingsByKey, parameterLookupKey(source.sourceId), config);
         addSetEntry(
           this.parameterLookupSyncConfigIdsById,
           config.mapping.parameterLookupId(source),
@@ -274,15 +282,12 @@ export class MultiSyncConfigBucketDefinitionMapping implements BucketDefinitionM
 
   bucketSourceId(source: BucketDataSource): BucketDefinitionId {
     const mapping = this.bucketDataSourceMappings.get(source);
-    if (mapping != null) {
-      return mapping.bucketSourceId(source);
+    if (mapping == null) {
+      throw new ServiceAssertionError(
+        `Bucket source ${source.uniqueName} is not associated with this parse of the sync configs`
+      );
     }
-
-    const id = this.unambiguousBucketSourceIdByName(source.uniqueName);
-    if (id == null) {
-      throw new ServiceAssertionError(`No mapping found for bucket source ${source.uniqueName}`);
-    }
-    return id;
+    return mapping.bucketSourceId(source);
   }
 
   allBucketDefinitionIds(): BucketDefinitionId[] {
@@ -291,18 +296,12 @@ export class MultiSyncConfigBucketDefinitionMapping implements BucketDefinitionM
 
   parameterLookupId(source: ParameterIndexLookupCreator): ParameterIndexId {
     const mapping = this.parameterLookupMappings.get(source);
-    if (mapping != null) {
-      return mapping.parameterLookupId(source);
-    }
-
-    const key = parameterLookupKey(source.sourceId);
-    const id = this.unambiguousParameterLookupIdByKey(key);
-    if (id == null) {
+    if (mapping == null) {
       throw new ServiceAssertionError(
-        `No mapping found for parameter lookup source ${source.sourceId.lookupName}#${source.sourceId.queryId}`
+        `Parameter lookup source ${source.sourceId.lookupName}#${source.sourceId.queryId} is not associated with this parse of the sync configs`
       );
     }
-    return id;
+    return mapping.parameterLookupId(source);
   }
 
   allParameterIndexIds(): ParameterIndexId[] {
@@ -338,32 +337,10 @@ export class MultiSyncConfigBucketDefinitionMapping implements BucketDefinitionM
 
     return config.mapping.snapshotBlockingSourceTablesFilter(syncConfigId);
   }
-
-  private unambiguousBucketSourceIdByName(uniqueName: string): BucketDefinitionId | null {
-    const entries = this.bucketDataSourceMappingsByName.get(uniqueName) ?? [];
-    const ids = new Set(entries.map((entry) => entry.mapping.bucketSourceIdByName(uniqueName)));
-    return ids.size == 1 ? [...ids][0] : null;
-  }
-
-  private unambiguousParameterLookupIdByKey(key: string): ParameterIndexId | null {
-    const entries = this.parameterLookupMappingsByKey.get(key) ?? [];
-    const ids = new Set(entries.map((entry) => entry.mapping.parameterLookupIdByKey(key)));
-    return ids.size == 1 ? [...ids][0] : null;
-  }
 }
 
 export function parameterLookupKey(id: ParameterLookupDefinitionId) {
   return `${id.lookupName}#${id.queryId}`;
-}
-
-function addMappingEntry(
-  map: Map<string, SyncConfigWithRequiredMapping[]>,
-  key: string,
-  config: SyncConfigWithRequiredMapping
-) {
-  const existing = map.get(key) ?? [];
-  existing.push(config);
-  map.set(key, existing);
 }
 
 function addSetEntry<K, V>(map: Map<K, Set<V>>, key: K, value: V) {

@@ -1,16 +1,11 @@
 import { deserializeParameterLookup, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
-import {
-  DEFAULT_HYDRATION_STATE,
-  nodeSqlite,
-  RequestParameters,
-  ScopedParameterLookup,
-  SqlSyncRules
-} from '@powersync/service-sync-rules';
+import { RequestParameters, ScopedParameterLookup, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import * as sqlite from 'node:sqlite';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
+import { SingleSyncConfigBucketDefinitionMapping } from '../../src/storage/implementation/BucketDefinitionMapping.js';
+import { MongoParsedSyncConfigSet } from '../../src/storage/implementation/MongoParsedSyncConfigSet.js';
 import { MongoPersistedSyncConfigContentV3 } from '../../src/storage/implementation/MongoPersistedSyncConfigContent.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { getMongoStorageConfig } from '../../src/storage/implementation/models.js';
@@ -61,10 +56,22 @@ function objectIdGenerator(id: string) {
   };
 }
 
-function hydratedRulesFor(yaml: string) {
+/**
+ * Build a standalone parsed sync config set for the given yaml, with its own mapping.
+ *
+ * This keeps the sync rules and the bucket definition mapping paired, as required by
+ * `ResolveTablesOptions.parsedSyncConfig`.
+ */
+function parsedSyncConfigSetFor(yaml: string, storageVersion: number) {
   const parsed = SqlSyncRules.fromYaml(yaml, test_utils.PARSE_OPTIONS);
   expect(parsed.errors).toEqual([]);
-  return parsed.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) });
+  return new MongoParsedSyncConfigSet(1, getMongoStorageConfig(storageVersion), 'test_slot', [
+    {
+      syncConfigId: new bson.ObjectId().toHexString(),
+      syncConfig: parsed,
+      mapping: SingleSyncConfigBucketDefinitionMapping.fromParsedSyncConfig(parsed)
+    }
+  ]);
 }
 
 async function getMongoSyncConfigContents(factory: storage.BucketStorageFactory, replicationStreamId: number) {
@@ -478,10 +485,10 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(fullRulesYaml, { storageVersion }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const fullRules = hydratedRulesFor(fullRulesYaml);
-    const dataOnlyRules = hydratedRulesFor(dataOnlyRulesYaml);
-    const parameterOnlyRules = hydratedRulesFor(parameterOnlyRulesYaml);
-    const eventOnlyRules = hydratedRulesFor(eventOnlyRulesYaml);
+    const fullRules = parsedSyncConfigSetFor(fullRulesYaml, storageVersion);
+    const dataOnlyRules = parsedSyncConfigSetFor(dataOnlyRulesYaml, storageVersion);
+    const parameterOnlyRules = parsedSyncConfigSetFor(parameterOnlyRulesYaml, storageVersion);
+    const eventOnlyRules = parsedSyncConfigSetFor(eventOnlyRulesYaml, storageVersion);
     const source = sourceDescriptor('memberships', { objectId: 'memberships-relation' });
     const dataOnlyTableId = new bson.ObjectId('6544e3899293153fa7b38348');
     const addedParameterTableId = new bson.ObjectId('6544e3899293153fa7b38349');
@@ -491,7 +498,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       connection_id: 1,
       source,
       idGenerator: () => dataOnlyTableId,
-      syncRules: dataOnlyRules
+      parsedSyncConfig: dataOnlyRules
     });
     expect(dataOnly.tables.map((table) => table.id)).toEqual([dataOnlyTableId]);
     expect(dataOnly.dropTables.map((table) => table.id)).toEqual([]);
@@ -502,7 +509,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       connection_id: 1,
       source,
       idGenerator: () => addedParameterTableId,
-      syncRules: fullRules
+      parsedSyncConfig: fullRules
     });
     // Adding a definition always creates a new SourceTable
     expect(addedParameter.tables.map((table) => table.id)).toEqual([dataOnlyTableId, addedParameterTableId]);
@@ -516,7 +523,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       idGenerator: () => {
         throw new Error('data-only resolve should reuse existing v3 source table');
       },
-      syncRules: dataOnlyRules
+      parsedSyncConfig: dataOnlyRules
     });
     expect(removedParameter.tables.map((table) => table.id)).toEqual([dataOnlyTableId]);
     // Now this sourceTable is unused & dropped
@@ -529,7 +536,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       connection_id: 1,
       source,
       idGenerator: () => removedDataTableId,
-      syncRules: parameterOnlyRules
+      parsedSyncConfig: parameterOnlyRules
     });
 
     // This goes from dataOnlyRules -> parameterOnlyRules, which adds one definition and removes another.
@@ -546,7 +553,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       idGenerator: () => {
         throw new Error('resolve should reuse existing v3 source table');
       },
-      syncRules: eventOnlyRules
+      parsedSyncConfig: eventOnlyRules
     });
 
     // Event-only table can re-use any existing table.
@@ -576,7 +583,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     );
     const bucketStorage = factory.getInstance(syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
-    const sync_rules = syncRulesContent.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
+    const sync_rules = syncRulesContent.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
 
@@ -685,7 +692,7 @@ streams:
     expect(statuses.map((status) => status?.id)).toEqual(configs.map((config) => config.syncConfigId));
     const parsed = replicatingStreams[0].parsed(test_utils.PARSE_OPTIONS);
     expect(parsed.syncConfigs).toHaveLength(1);
-    expect(parsed.hydratedSyncConfig().bucketDataSources).toHaveLength(1);
+    expect(parsed.hydratedSyncConfig.bucketDataSources).toHaveLength(1);
 
     const bucketStorage = factory.getInstance(replicatingStreams[0]);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);

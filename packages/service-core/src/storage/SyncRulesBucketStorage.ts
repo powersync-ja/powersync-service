@@ -10,6 +10,7 @@ import { PerformanceTracer } from '../tracing/PerformanceTracer.js';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
+import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { ParseSyncConfigOptions } from './PersistedSyncConfigContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
@@ -44,6 +45,19 @@ export interface SyncRulesBucketStorage
     callback: (batch: BucketStorageBatch) => Promise<void>
   ): Promise<FlushedResult | null>;
 
+  /**
+   * Get the canonical parsed sync config set for the given parse options.
+   *
+   * Repeated calls with the same options return the same instance for the lifetime of
+   * this storage instance. This is the identity boundary for parsed sync config state:
+   * all operations against this storage instance must use parsed objects from sets
+   * returned here, never from an independent parse of the same content.
+   */
+  getParsedSyncConfigSet(options: ParseSyncConfigOptions): ParsedSyncConfigSet;
+
+  /**
+   * Shortcut for `getParsedSyncConfigSet(options).hydratedSyncConfig`.
+   */
   getParsedSyncRules(options: ParseSyncConfigOptions): HydratedSyncConfig;
 
   /**
@@ -167,9 +181,13 @@ export interface ResolveTablesOptions {
    */
   idGenerator?: () => string | bson.ObjectId;
   /**
-   * For tests only - override the sync rules used.
+   * For tests only - override the parsed sync config set used.
+   *
+   * This must be a whole parsed set rather than only a `HydratedSyncConfig`, so that the
+   * sync rules and any storage-specific id mappings derived from them always come from
+   * the same parse.
    */
-  syncRules?: HydratedSyncConfig;
+  parsedSyncConfig?: ParsedSyncConfigSet;
 }
 
 export interface ResolveTablesResult {

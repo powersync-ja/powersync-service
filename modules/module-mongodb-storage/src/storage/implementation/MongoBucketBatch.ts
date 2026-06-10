@@ -29,6 +29,7 @@ import { LoadedSourceRecord, SourceRecordStore } from './common/SourceRecordStor
 import type { VersionedPowerSyncMongo } from './db.js';
 import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
+import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
 
@@ -41,7 +42,15 @@ const replicationMutex = new utils.Mutex();
 
 export interface MongoBucketBatchOptions {
   db: VersionedPowerSyncMongo;
-  syncRules: HydratedSyncConfig;
+  /**
+   * The parsed sync config set for this batch.
+   *
+   * The batch derives both the hydrated sync rules and the bucket definition mapping from
+   * this single set, so they always come from the same parse. Do not add separate
+   * syncRules/mapping options - pairing values from different parses is exactly the bug
+   * this shape prevents.
+   */
+  parsedSyncConfig: MongoParsedSyncConfigSet;
   replicationStreamId: number;
   replicationStreamName: string;
   syncConfigIds?: bson.ObjectId[];
@@ -52,7 +61,6 @@ export interface MongoBucketBatchOptions {
   keepaliveOp?: InternalOpId | null;
   resumeFromLsn: string | null;
   storeCurrentData: boolean;
-  mapping: BucketDefinitionMapping;
   /**
    * Set to true for initial replication.
    */
@@ -128,9 +136,9 @@ export abstract class MongoBucketBatch
     this.resumeFromLsn = options.resumeFromLsn;
     this.session = this.client.startSession();
     this.replicationStreamName = options.replicationStreamName;
-    this.sync_rules = options.syncRules;
+    this.sync_rules = options.parsedSyncConfig.hydratedSyncConfig;
     this.storeCurrentData = options.storeCurrentData;
-    this.mapping = options.mapping;
+    this.mapping = options.parsedSyncConfig.mapping;
     this.skipExistingRows = options.skipExistingRows;
     this.markRecordUnavailable = options.markRecordUnavailable;
     this.hooks = options.hooks;

@@ -27,19 +27,19 @@ import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
-import { MongoSyncBucketStorageContext } from './common/MongoSyncBucketStorageContext.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
+import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import { MongoPersistedReplicationStream } from './MongoPersistedReplicationStream.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
+import { ReplicationStreamStorageIds } from './ReplicationStreamStorageIds.js';
 
 export interface MongoSyncBucketStorageOptions {
-  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
+  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   storageConfig: StorageConfig;
 }
 
@@ -68,7 +68,14 @@ export abstract class MongoSyncBucketStorage
 
   readonly checksums: MongoChecksums;
 
-  private parsedSyncConfigCache: { parsed: HydratedSyncConfig; options: storage.ParseSyncConfigOptions } | undefined;
+  /**
+   * Canonical parsed sync config sets, keyed by defaultSchema.
+   *
+   * Entries are never evicted: each parse options value maps to exactly one parsed set for
+   * the lifetime of this storage instance, so parsed source objects and mappings always
+   * stay associated.
+   */
+  private readonly parsedSyncConfigSets = new Map<string, MongoParsedSyncConfigSet>();
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
   public readonly logger: Logger;
   public readonly storageConfig: StorageConfig;
@@ -111,16 +118,11 @@ export abstract class MongoSyncBucketStorage
     return this.writeCheckpointAPI.writeCheckpointMode;
   }
 
-  get mapping() {
-    return this.replicationStream.storageContent.mapping;
-  }
-
-  protected get versionContext(): MongoSyncBucketStorageContext {
-    return {
-      db: this.db,
-      group_id: this.replicationStreamId,
-      mapping: this.mapping
-    };
+  /**
+   * Persisted storage ids of all sync configs in this replication stream. Parse-free.
+   */
+  get storageIds(): ReplicationStreamStorageIds {
+    return this.replicationStream.storageIds;
   }
 
   setWriteCheckpointMode(mode: storage.WriteCheckpointMode): void {
@@ -138,13 +140,17 @@ export abstract class MongoSyncBucketStorage
     });
   }
 
-  getParsedSyncRules(options: storage.ParseSyncConfigOptions): HydratedSyncConfig {
-    const { parsed, options: cachedOptions } = this.parsedSyncConfigCache ?? {};
-    if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncConfigCache = { parsed: this.replicationStream.parsed(options).hydratedSyncConfig(), options };
+  getParsedSyncConfigSet(options: storage.ParseSyncConfigOptions): MongoParsedSyncConfigSet {
+    let parsed = this.parsedSyncConfigSets.get(options.defaultSchema);
+    if (parsed == null) {
+      parsed = this.replicationStream.parsed(options);
+      this.parsedSyncConfigSets.set(options.defaultSchema, parsed);
     }
+    return parsed;
+  }
 
-    return this.parsedSyncConfigCache!.parsed;
+  getParsedSyncRules(options: storage.ParseSyncConfigOptions): HydratedSyncConfig {
+    return this.getParsedSyncConfigSet(options).hydratedSyncConfig;
   }
 
   async getCheckpoint(): Promise<storage.ReplicationCheckpoint> {
@@ -193,15 +199,10 @@ export abstract class MongoSyncBucketStorage
    * The version-independent part of the batch options.
    */
   protected writerBatchOptions(options: storage.CreateWriterOptions): Omit<MongoBucketBatchOptions, 'resumeFromLsn'> {
-    const parsed = this.replicationStream.parsed(options) as storage.ParsedSyncConfigSet & {
-      mapping?: BucketDefinitionMapping;
-    };
-
     return {
       logger: options.logger ?? this.logger,
       db: this.db,
-      syncRules: parsed.hydratedSyncConfig(),
-      mapping: parsed.mapping ?? this.replicationStream.storageContent.mapping,
+      parsedSyncConfig: this.getParsedSyncConfigSet(options),
       replicationStreamId: this.replicationStreamId,
       replicationStreamName: this.replicationStreamName,
       storeCurrentData: options.storeCurrentData,

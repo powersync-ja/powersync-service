@@ -73,13 +73,16 @@ export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
     }
   }
 
-  hydratedSyncConfig(): HydratedSyncConfig {
-    return new HydratedSyncConfig({
+  #hydratedSyncConfig: HydratedSyncConfig | undefined;
+
+  get hydratedSyncConfig(): HydratedSyncConfig {
+    this.#hydratedSyncConfig ??= new HydratedSyncConfig({
       definitions: this.syncConfigs.map((config) => config.config),
       createParams: {
         hydrationState: this.hydrationState,
         sqlite: nodeSqlite(sqlite)
       }
     });
+    return this.#hydratedSyncConfig;
   }
 }

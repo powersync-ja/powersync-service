@@ -26,7 +26,7 @@ export interface MongoBucketStorageOptions {
    * Prefix for replication stream name and Postgres logical replication slot name.
    */
   replicationStreamNamePrefix: string;
-  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
+  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   /**
    * Reuse a compatible active replication stream by appending a new sync config.
    *

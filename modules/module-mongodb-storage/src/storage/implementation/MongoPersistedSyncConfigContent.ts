@@ -36,7 +36,7 @@ export abstract class MongoPersistedSyncConfigContentBase extends storage.Persis
     return getMongoStorageConfig(this.storageVersion);
   }
 
-  parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
+  parsed(options: storage.ParseSyncConfigOptions): MongoParsedSyncConfigSet {
     const parsed = super.parsed(options);
     const storageConfig = this.getStorageConfig();
     const [syncConfig] = parsed.syncConfigs;

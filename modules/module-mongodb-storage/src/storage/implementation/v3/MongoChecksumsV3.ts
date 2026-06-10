@@ -6,7 +6,7 @@ import {
   PartialChecksumMap,
   PartialOrFullChecksum
 } from '@powersync/service-core';
-import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
+import { SingleSyncConfigBucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import {
   emptyChecksumForRequest,
   FetchPartialBucketChecksumV3,
@@ -15,19 +15,40 @@ import {
 } from '../MongoChecksums.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
-export class MongoChecksumsV3 extends MongoChecksums {
-  declare protected readonly db: VersionedPowerSyncMongoV3;
-  private readonly mapping: BucketDefinitionMapping;
+/**
+ * Checksum operations addressed by persisted definition id.
+ *
+ * Safe on any storage instance, including multi-config replication-side instances - no
+ * source resolution is involved. This is the only checksum surface the compactor may use.
+ */
+export interface DefinitionChecksumOperations {
+  computePartialChecksumsDirectByDefinition(batch: FetchPartialBucketChecksumV3[]): Promise<PartialChecksumMap>;
+}
 
-  constructor(db: VersionedPowerSyncMongoV3, group_id: number, options: MongoChecksumOptions) {
+export interface MongoChecksumOptionsV3 extends MongoChecksumOptions {
+  /**
+   * The persisted mapping of the single sync config that reads are served from.
+   *
+   * A thunk rather than a plain value: checksums are constructed eagerly with the storage
+   * instance, but the single-config requirement may only be asserted when a read happens.
+   */
+  syncConfigMapping: () => SingleSyncConfigBucketDefinitionMapping;
+}
+
+export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecksumOperations {
+  declare protected readonly db: VersionedPowerSyncMongoV3;
+  private readonly syncConfigMapping: () => SingleSyncConfigBucketDefinitionMapping;
+
+  constructor(db: VersionedPowerSyncMongoV3, group_id: number, options: MongoChecksumOptionsV3) {
     super(db, group_id, options);
-    this.mapping = options.mapping!;
+    this.syncConfigMapping = options.syncConfigMapping;
   }
 
   private normalizeBatch(batch: FetchPartialBucketChecksum[]): FetchPartialBucketChecksumV3[] {
+    const mapping = this.syncConfigMapping();
     return batch.map((request) => ({
       bucket: request.bucket,
-      definitionId: this.mapping.bucketSourceId(request.source),
+      definitionId: mapping.bucketSourceId(request.source),
       start: request.start,
       end: request.end
     }));
