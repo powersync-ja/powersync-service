@@ -1,3 +1,4 @@
+import * as zstd from '@mongodb-js/zstd';
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
@@ -475,8 +476,39 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       // Buckets whose matched document contributed no rows after filtering.
       const completeEmptyBuckets = new Set<string>();
 
-      for (const raw of rawData) {
-        const doc = bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3;
+      // Deserialize all docs once
+      const docs: any[] = rawData.map((raw) => bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS));
+
+      // Pre-fetch S3 objects for all S3-backed docs in this batch
+      if (this.objectStorage) {
+        const s3Docs = docs.filter((d) => d.storage_ref);
+        if (s3Docs.length > 0) {
+          await Promise.all(
+            s3Docs.map(async (doc) => {
+              try {
+                const buffer = await this.objectStorage!.get(doc.storage_ref.path);
+                const decompressed = await zstd.decompress(buffer);
+                const wrapper = bson.deserialize(decompressed, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS);
+                doc.ops = wrapper.ops;
+              } catch (err) {
+                this.logger.warn(`Failed to fetch/decompress S3 object ${doc.storage_ref?.path}: ${err}`);
+              }
+            })
+          );
+        }
+      }
+
+      // Track sizes: for S3 docs use decompressed estimate, for inline use raw byteLength
+      const docSizes: number[] = rawData.map((raw, i) => {
+        const doc = docs[i];
+        return doc.storage_ref ? doc.storage_ref.compressed_size * 3 : raw.byteLength;
+      });
+
+      for (const [i, doc] of docs.entries()) {
+        if (doc.ops && !doc.ops.length) {
+          // Skip documents that failed S3 fetch (empty ops set by catch block)
+          continue;
+        }
         const {
           rows,
           remainingLimit,
@@ -492,7 +524,32 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         }
         data.push(...rows);
         documentOpCounts.push(rows.length);
+        documentSizes.push(docSizes[i]);
+        chunkSizeBytes += docSizes[i];
+        const {
+          rows,
+          remainingLimit,
+          limitReached: docLimitReached
+        } = extractRowsFromDocument(doc, context, bucketMap, end, sharedRemainingLimit);
+        if (rows.length == 0) {
+          // The document straddles the requested (start, end] window: it matched the
+          // query, but none of its ops are in range. Since its _id.o (max op) must be
+          // > end (any op <= end would have been > start, and thus in range), and
+          // document ranges per bucket are disjoint, no later document for this bucket
+          // can match either. The bucket is complete through the checkpoint.
+          completeEmptyBuckets.add(doc._id.b);
+        }
+        data.push(...rows);
+        documentOpCounts.push(rows.length);
+<<<<<<< HEAD
         documentSizes.push(raw.byteLength);
+||||||| parent of c6109e62 (feat: implement S3 read path in getBucketDataBatch, add Phase 2d red test)
+        documentSizes.push(raw.byteLength);
+        chunkSizeBytes += raw.byteLength;
+=======
+        documentSizes.push(docSizes[i]);
+        chunkSizeBytes += docSizes[i];
+>>>>>>> c6109e62 (feat: implement S3 read path in getBucketDataBatch, add Phase 2d red test)
         sharedRemainingLimit = remainingLimit;
         if (docLimitReached) {
           limitReached = true;
