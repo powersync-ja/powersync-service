@@ -35,7 +35,7 @@ export class MongoHydrationState implements HydrationState {
     const defId = mapping.bucketSourceId(source);
     // Currently uniqueName is constant for a BucketDataSource within a replication stream. This may change in the
     // future, in which case we need to reconsider the bucketPrefix here.
-    // However, the definition may change without changing the name, so we unique defId in the bucketPrefix.
+    // However, the definition may change without changing the name, so we include the defId in the bucketPrefix.
     // defId is not unique across replication streams, so we include the replicationStreamId as well.
     return {
       bucketPrefix: `${source.uniqueName}.${this.replicationStreamId.toString(16)}.${defId}`,
