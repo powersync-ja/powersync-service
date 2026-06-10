@@ -175,11 +175,11 @@ export abstract class MongoBucketBatch
     if (this.listSourceRecordCollections == null) {
       return;
     }
-    const collections = await this.listSourceRecordCollections(this.group_id);
+    const collections = await this.listSourceRecordCollections(this.replicationStreamId);
     const tableIds = new Set(sourceTables.map((t) => mongoTableId(t.id).toHexString()));
     for (const collection of collections) {
       const name = collection.collectionName;
-      const prefix = `source_records_${this.group_id}_`;
+      const prefix = `source_records_${this.replicationStreamId}_`;
       if (name.startsWith(prefix)) {
         const tableId = name.slice(prefix.length);
         if (tableIds.has(tableId)) {

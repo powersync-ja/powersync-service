@@ -954,7 +954,7 @@ describe('sync - mongodb', () => {
           const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
           const db = bucketStorage.db as VersionedPowerSyncMongoV3;
 
-          const request = bucketRequest(syncRules, 'global[]', 0n);
+          const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
           const definitionId = bucketStorage.mapping.bucketSourceId(request.source);
           const collection = db.bucketData(syncRules.replicationStreamId, definitionId);
 
@@ -991,7 +991,7 @@ describe('sync - mongodb', () => {
 
         async function getFilteredOps(start: number, checkpoint: number): Promise<bigint[]> {
           const { syncRules, bucketStorage } = await setupFilteringTest();
-          const request = bucketRequest(syncRules, 'global[]', BigInt(start));
+          const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', BigInt(start));
           const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(BigInt(checkpoint), [request]));
           const ops = batch.flatMap((b) => b.chunkData.data.map((d) => BigInt(d.op_id)));
           return ops;
