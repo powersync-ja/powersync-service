@@ -140,6 +140,14 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return new MongoParameterCompactorV3(this.db, this.replicationStreamId, checkpoint, options);
   }
 
+  protected async fetchPersistedOpHead(): Promise<InternalOpId | null> {
+    const doc = await this.syncRulesCollection.findOne(
+      { _id: this.replicationStreamId },
+      { projection: { last_persisted_op: 1 } }
+    );
+    return doc?.last_persisted_op == null ? null : BigInt(doc.last_persisted_op);
+  }
+
   protected async createWriterImpl(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
     const doc = await this.syncRulesCollection.findOne(
       { _id: this.replicationStreamId },
@@ -206,7 +214,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   protected async getStatusImpl(): Promise<storage.SyncRuleStatus> {
     const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
-      projection: this.syncConfigProjection({ state: 1, resume_lsn: 1, last_persisted_op: 1 })
+      projection: this.syncConfigProjection({ state: 1, resume_lsn: 1 })
     });
     const syncConfigs = this.selectedSyncConfigs(doc);
     if (doc == null || syncConfigs.length == 0) {
@@ -219,7 +227,6 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       (min, config) => minLsn(min, config.last_checkpoint_lsn),
       null
     );
-    const keepaliveOp = doc.last_persisted_op == null ? null : BigInt(doc.last_persisted_op);
 
     return {
       snapshot_done: syncConfigs.every((config) => config.snapshot_done ?? false),
@@ -227,8 +234,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       // the snapshot was started at, which is what consumers use this for.
       snapshot_lsn: doc.resume_lsn ?? null,
       active,
-      checkpoint_lsn: checkpointLsn,
-      keepalive_op: keepaliveOp
+      checkpoint_lsn: checkpointLsn
     };
   }
 

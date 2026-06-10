@@ -59,6 +59,21 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
 
   protected async initializeVersionStorage(): Promise<void> {}
 
+  protected async fetchPersistedOpHead(): Promise<InternalOpId | null> {
+    const doc = (await this.db.sync_rules.findOne(
+      { _id: this.replicationStreamId },
+      { projection: { keepalive_op: 1, last_checkpoint: 1 } }
+    )) as SyncRuleDocumentV1;
+    // keepalive_op covers ops not yet in a checkpoint (cleared once checkpointed),
+    // so the head is the max of the two.
+    const keepaliveOp = doc?.keepalive_op == null ? null : BigInt(doc.keepalive_op);
+    const lastCheckpoint = doc?.last_checkpoint ?? null;
+    if (keepaliveOp == null && lastCheckpoint == null) {
+      return null;
+    }
+    return (keepaliveOp ?? 0n) > (lastCheckpoint ?? 0n) ? keepaliveOp : lastCheckpoint;
+  }
+
   protected async createWriterImpl(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
     const doc = (await this.db.sync_rules.findOne(
       {
@@ -119,8 +134,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
           snapshot_done: 1,
           last_checkpoint_lsn: 1,
           state: 1,
-          snapshot_lsn: 1,
-          keepalive_op: 1
+          snapshot_lsn: 1
         }
       }
     )) as SyncRuleDocumentV1;
@@ -132,8 +146,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
       snapshot_done: doc.snapshot_done,
       snapshot_lsn: doc.snapshot_lsn ?? null,
       active: doc.state == storage.SyncRuleState.ACTIVE,
-      checkpoint_lsn: doc.last_checkpoint_lsn,
-      keepalive_op: doc.keepalive_op == null ? null : BigInt(doc.keepalive_op)
+      checkpoint_lsn: doc.last_checkpoint_lsn
     };
   }
 

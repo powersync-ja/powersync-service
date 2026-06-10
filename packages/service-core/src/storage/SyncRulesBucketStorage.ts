@@ -154,10 +154,6 @@ export interface SyncRuleStatus {
   active: boolean;
   snapshot_done: boolean;
   snapshot_lsn: string | null;
-  /**
-   * Last persisted operation that must be included in the next checkpoint once checkpointing is unblocked.
-   */
-  keepalive_op: util.InternalOpId | null;
 }
 export interface ResolveTablesOptions {
   connection_id: number;
@@ -287,7 +283,14 @@ export interface CompactOptions {
 }
 
 export interface PopulateChecksumCacheOptions {
-  maxOpId: util.InternalOpId;
+  /**
+   * Compute checksums up to this op id.
+   *
+   * Defaults to the highest persisted op id for the replication stream, which covers
+   * the common case of populating the cache right after initial replication, before
+   * the first checkpoint exists.
+   */
+  maxOpId?: util.InternalOpId;
   minBucketChanges?: number;
   signal?: AbortSignal;
 }

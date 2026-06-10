@@ -359,11 +359,21 @@ export abstract class MongoSyncBucketStorage
     }
   }
 
+  /**
+   * The highest op id persisted for this stream, whether or not covered by a checkpoint.
+   *
+   * Used as the default `maxOpId` for {@link populatePersistentChecksumCache}, which runs after
+   * initial replication but before the first checkpoint exists.
+   */
+  protected abstract fetchPersistedOpHead(): Promise<InternalOpId | null>;
+
   async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
     this.logger.info(`Populating persistent checksum cache...`);
     const start = Date.now();
+    const maxOpId = options.maxOpId ?? (await this.fetchPersistedOpHead()) ?? undefined;
     const compactor = this.createMongoCompactor({
       ...options,
+      maxOpId,
       memoryLimitMB: 0,
       logger: this.logger
     });

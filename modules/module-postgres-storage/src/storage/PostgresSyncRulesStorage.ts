@@ -509,16 +509,13 @@ export class PostgresSyncRulesStorage
         snapshot_done,
         snapshot_lsn,
         last_checkpoint_lsn,
-        state,
-        keepalive_op
+        state
       FROM
         sync_rules
       WHERE
         id = ${{ type: 'int4', value: this.replicationStreamId }}
     `
-      .decoded(
-        pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'state', 'snapshot_lsn', 'keepalive_op'])
-      )
+      .decoded(pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'state', 'snapshot_lsn']))
       .first();
 
     if (syncRulesRow == null) {
@@ -529,8 +526,7 @@ export class PostgresSyncRulesStorage
       snapshot_done: syncRulesRow.snapshot_done,
       active: syncRulesRow.state == storage.SyncRuleState.ACTIVE,
       checkpoint_lsn: syncRulesRow.last_checkpoint_lsn ?? null,
-      snapshot_lsn: syncRulesRow.snapshot_lsn ?? null,
-      keepalive_op: syncRulesRow.keepalive_op ?? null
+      snapshot_lsn: syncRulesRow.snapshot_lsn ?? null
     };
   }
 
