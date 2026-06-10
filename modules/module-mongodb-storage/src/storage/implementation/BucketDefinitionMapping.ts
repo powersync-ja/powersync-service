@@ -18,33 +18,63 @@ import { SyncConfigDefinition } from '../storage-index.js';
 
 export interface SerializedSyncConfigWithMapping {
   plan: SerializedSyncPlanV1;
-  mapping: BucketDefinitionMapping;
+  mapping: SingleSyncConfigBucketDefinitionMapping;
 }
 
 export interface SyncConfigWithMapping {
   syncConfigId?: string;
   syncConfig: SyncConfigWithErrors;
-  mapping: BucketDefinitionMapping | null;
+  mapping: SingleSyncConfigBucketDefinitionMapping | null;
 }
 
 export interface SyncConfigWithRequiredMapping {
   syncConfigId: string;
   syncConfig: SyncConfigWithErrors;
-  mapping: BucketDefinitionMapping;
+  mapping: SingleSyncConfigBucketDefinitionMapping;
 }
 
 /**
  * Represents a mapping from bucket data sources and parameter lookup sources to stable IDs used for bucket definition and parameter index persistence.
- *
- * An instance of BucketDefinitionMapping is associated with a specific SyncConfig.
- * MongoHydrationState handles the mapping across multiple SyncConfigs in the same replication stream.
  */
-export class BucketDefinitionMapping {
-  static fromSyncConfig(doc: Pick<SyncConfigDefinition, 'rule_mapping'>): BucketDefinitionMapping {
-    return new BucketDefinitionMapping(doc.rule_mapping?.definitions ?? {}, doc.rule_mapping?.parameter_indexes ?? {});
+export interface BucketDefinitionMapping {
+  /**
+   * Given a BucketDataSource within the associated SyncConfig(s), return the BucketDefinitionId, or throw if not found.
+   *
+   * The behavior is undefined if the source is associated with a different SyncConfig.
+   */
+  bucketSourceId(source: BucketDataSource): BucketDefinitionId;
+
+  parameterLookupId(source: ParameterIndexLookupCreator): ParameterIndexId;
+
+  allBucketDefinitionIds(): BucketDefinitionId[];
+
+  allParameterIndexIds(): ParameterIndexId[];
+
+  syncConfigIdsForSourceTable(
+    selectedSyncConfigIds: string[],
+    table: SourceTableRef,
+    bucketDataSourceIds: BucketDefinitionId[],
+    parameterLookupSourceIds: ParameterIndexId[]
+  ): string[];
+
+  snapshotBlockingSourceTablesFilter(syncConfigId: string): Record<string, unknown>;
+}
+
+/**
+ * A BucketDefinitionMapping associated with a single SyncConfig.
+ *
+ * MongoHydrationState and MultiSyncConfigBucketDefinitionMapping handle the mapping across multiple SyncConfigs in
+ * the same replication stream.
+ */
+export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinitionMapping {
+  static fromSyncConfig(doc: Pick<SyncConfigDefinition, 'rule_mapping'>): SingleSyncConfigBucketDefinitionMapping {
+    return new SingleSyncConfigBucketDefinitionMapping(
+      doc.rule_mapping?.definitions ?? {},
+      doc.rule_mapping?.parameter_indexes ?? {}
+    );
   }
 
-  static fromParsedSyncConfig(syncConfig: SyncConfigWithErrors): BucketDefinitionMapping {
+  static fromParsedSyncConfig(syncConfig: SyncConfigWithErrors): SingleSyncConfigBucketDefinitionMapping {
     const definitionNames = syncConfig.config.bucketDataSources.map((source) => source.uniqueName).sort();
     const parameterKeys = syncConfig.config.bucketParameterLookupSources
       .map((source) => `${source.sourceId.lookupName}#${source.sourceId.queryId}`)
@@ -60,7 +90,7 @@ export class BucketDefinitionMapping {
       parameterLookups[key] = (index + 1).toString(16);
     }
 
-    return new BucketDefinitionMapping(definitions, parameterLookups);
+    return new SingleSyncConfigBucketDefinitionMapping(definitions, parameterLookups);
   }
 
   /**
@@ -73,8 +103,8 @@ export class BucketDefinitionMapping {
   static constructIncrementalMappingFromSerializedPlans(
     compatibleConfigs: SerializedSyncConfigWithMapping[],
     newPlan: SerializedSyncPlanV1,
-    reservedMappings: BucketDefinitionMapping[]
-  ): BucketDefinitionMapping {
+    reservedMappings: SingleSyncConfigBucketDefinitionMapping[]
+  ): SingleSyncConfigBucketDefinitionMapping {
     let nextBucketDefinitionId =
       reservedMappings
         .map((mapping) => mapping.allBucketDefinitionIds())
@@ -131,7 +161,7 @@ export class BucketDefinitionMapping {
       parameterLookups[parameterLookupKey(parameterLookup.lookupScope)] = id;
     }
 
-    return new BucketDefinitionMapping(definitions, parameterLookups);
+    return new SingleSyncConfigBucketDefinitionMapping(definitions, parameterLookups);
   }
 
   constructor(
@@ -139,11 +169,6 @@ export class BucketDefinitionMapping {
     private parameterLookupMapping: Record<string, ParameterIndexId> = {}
   ) {}
 
-  /**
-   * Given a BucketDataSource within this SyncConfig, return the BucketDefinitionId, or throw if not found.
-   *
-   * The behavior is undefined if the source is associated with a different SyncConfig.
-   */
   bucketSourceId(source: BucketDataSource): BucketDefinitionId {
     return this.bucketSourceIdByName(source.uniqueName);
   }
@@ -215,18 +240,17 @@ export class BucketDefinitionMapping {
   }
 }
 
-export class MultiSyncConfigBucketDefinitionMapping extends BucketDefinitionMapping {
-  private bucketDataSourceMappings = new WeakMap<BucketDataSource, BucketDefinitionMapping>();
+export class MultiSyncConfigBucketDefinitionMapping implements BucketDefinitionMapping {
+  private bucketDataSourceMappings = new WeakMap<BucketDataSource, SingleSyncConfigBucketDefinitionMapping>();
   private bucketDataSourceMappingsByName = new Map<string, SyncConfigWithRequiredMapping[]>();
   private bucketDataSourceSyncConfigIdsById = new Map<BucketDefinitionId, Set<string>>();
-  private parameterLookupMappings = new WeakMap<ParameterIndexLookupCreator, BucketDefinitionMapping>();
+  private parameterLookupMappings = new WeakMap<ParameterIndexLookupCreator, SingleSyncConfigBucketDefinitionMapping>();
   private parameterLookupMappingsByKey = new Map<string, SyncConfigWithRequiredMapping[]>();
   private parameterLookupSyncConfigIdsById = new Map<ParameterIndexId, Set<string>>();
   private syncConfigsById = new Map<string, SyncConfigWithRequiredMapping>();
-  private mappings: BucketDefinitionMapping[];
+  private mappings: SingleSyncConfigBucketDefinitionMapping[];
 
   constructor(syncConfigs: SyncConfigWithRequiredMapping[]) {
-    super();
     this.mappings = syncConfigs.map((config) => config.mapping);
 
     for (const config of syncConfigs) {

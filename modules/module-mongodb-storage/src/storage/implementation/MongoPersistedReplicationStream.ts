@@ -3,7 +3,7 @@ import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { ReplicationStreamDocumentV3, SyncConfigDefinition } from '../storage-index.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { SingleSyncConfigBucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import {
   MongoPersistedSyncConfigContentBase,
@@ -88,7 +88,7 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
           storageVersion: this.storageVersion,
           parseOptions: options
         }),
-        mapping: BucketDefinitionMapping.fromSyncConfig(config)
+        mapping: SingleSyncConfigBucketDefinitionMapping.fromSyncConfig(config)
       };
     });
 

@@ -14,6 +14,7 @@ import {
 import {
   BucketDefinitionMapping,
   MultiSyncConfigBucketDefinitionMapping,
+  SingleSyncConfigBucketDefinitionMapping,
   SyncConfigWithMapping,
   SyncConfigWithRequiredMapping
 } from './BucketDefinitionMapping.js';
@@ -61,14 +62,14 @@ export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
         throw new ServiceAssertionError(`Non-incremental storage requires exactly one sync config`);
       }
       this.hydrationState = DEFAULT_HYDRATION_STATE;
-      this.mapping = syncConfig.mapping ?? new BucketDefinitionMapping();
+      this.mapping = syncConfig.mapping ?? new SingleSyncConfigBucketDefinitionMapping();
     } else {
       const [syncConfig] = syncConfigs;
       if (syncConfigs.length != 1 || syncConfig == null) {
         throw new ServiceAssertionError(`Non-incremental storage requires exactly one sync config`);
       }
       this.hydrationState = versionedHydrationState(this.replicationStreamId);
-      this.mapping = syncConfig.mapping ?? new BucketDefinitionMapping();
+      this.mapping = syncConfig.mapping ?? new SingleSyncConfigBucketDefinitionMapping();
     }
   }
 

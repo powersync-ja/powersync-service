@@ -9,7 +9,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { CompatibilityContext } from '@powersync/service-sync-rules';
 import { ObjectId } from 'bson';
 import { generateReplicationStreamName } from '../utils/util.js';
-import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
+import { SingleSyncConfigBucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { PowerSyncMongo } from './implementation/db.js';
@@ -275,9 +275,13 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       const mapping =
         options.config.plan == null
           ? // For legacy sync rules and streams, use the parsed config directly to create a mapping
-            BucketDefinitionMapping.fromParsedSyncConfig(options.config.parsed)
+            SingleSyncConfigBucketDefinitionMapping.fromParsedSyncConfig(options.config.parsed)
           : // For new sync streams, always use the serialized version
-            BucketDefinitionMapping.constructIncrementalMappingFromSerializedPlans([], options.config.plan.plan, []);
+            SingleSyncConfigBucketDefinitionMapping.constructIncrementalMappingFromSerializedPlans(
+              [],
+              options.config.plan.plan,
+              []
+            );
 
       const syncConfigDoc: SyncConfigDefinition = {
         _id: new ObjectId(),
@@ -403,11 +407,13 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const { versioned, existing, existingConfigDocs, options: updateOptions, storageVersion, session } = options;
     const compatibleConfigs = existingConfigDocs.map((doc) => ({
       plan: doc.serialized_plan!.plan,
-      mapping: BucketDefinitionMapping.fromSyncConfig(doc)
+      mapping: SingleSyncConfigBucketDefinitionMapping.fromSyncConfig(doc)
     }));
     const historicalRuleMappings = await this.loadHistoricalSyncConfigRuleMappings(versioned, existing._id, session);
-    const reservedMappings = historicalRuleMappings.map((doc) => BucketDefinitionMapping.fromSyncConfig(doc));
-    const mapping = BucketDefinitionMapping.constructIncrementalMappingFromSerializedPlans(
+    const reservedMappings = historicalRuleMappings.map((doc) =>
+      SingleSyncConfigBucketDefinitionMapping.fromSyncConfig(doc)
+    );
+    const mapping = SingleSyncConfigBucketDefinitionMapping.constructIncrementalMappingFromSerializedPlans(
       compatibleConfigs,
       updateOptions.config.plan!.plan,
       reservedMappings
