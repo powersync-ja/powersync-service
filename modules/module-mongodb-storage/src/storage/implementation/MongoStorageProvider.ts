@@ -23,6 +23,10 @@ export class MongoStorageProvider implements storage.StorageProvider {
     }
 
     const decodedConfig = MongoStorageConfig.decode(storage as any);
+
+    // TODO(Phase 2e): If decodedConfig.object_storage is present, create S3ObjectStorage here
+    const objectStorage = undefined;
+
     const client = lib_mongo.db.createMongoClient(decodedConfig, {
       powersyncVersion: POWERSYNC_VERSION,
       maxPoolSize: resolvedConfig.storage.max_pool_size ?? 8
@@ -38,10 +42,16 @@ export class MongoStorageProvider implements storage.StorageProvider {
     await client.connect();
 
     const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
-    const syncStorageFactory = new MongoBucketStorage(database, {
-      // TODO currently need the entire resolved config due to this
-      slot_name_prefix: resolvedConfig.slot_name_prefix
-    });
+    const syncStorageFactory = new MongoBucketStorage(
+      database,
+      {
+        // TODO currently need the entire resolved config due to this
+        slot_name_prefix: resolvedConfig.slot_name_prefix
+      },
+      {
+        objectStorage
+      }
+    );
 
     // Storage factory for reports
     const reportStorageFactory = new MongoReportStorage(database);
