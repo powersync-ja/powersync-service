@@ -392,7 +392,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       {
         session: this.session,
         projection: {
-          snapshot_lsn: 1,
           sync_configs: 1,
           last_persisted_op: 1
         }
@@ -462,6 +461,12 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       unblockedConfigIds.push(state._id);
     }
 
+    // Every commit advances the stream's resume position: commit() flushes first, so all
+    // source changes up to this lsn have been persisted, even when checkpoints are blocked.
+    // In the future we could also advance this on flush, when the connector provides the
+    // current position (see setResumeLsn, which connectors may already call after flushing).
+    const resumeLsnUpdate = { resume_lsn: lsn };
+
     if (unblockedConfigIds.length > 0) {
       // All unblocked configs get the SAME new value, so we apply it with a single updateOne
       // (single-document atomicity).
@@ -475,7 +480,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       if (checkpointCreated) {
         updateSet['sync_configs.$[config].last_checkpoint'] = newCheckpoint;
         updateSet['sync_configs.$[config].last_checkpoint_lsn'] = lsn;
-        updateSet['snapshot_lsn'] = null;
         updateSet['last_checkpoint_ts'] = now;
       }
 
@@ -484,14 +488,15 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           _id: this.replicationStreamId,
           'sync_configs._id': { $in: unblockedConfigIds }
         },
-        { $set: updateSet },
+        { $set: updateSet, $max: resumeLsnUpdate },
         {
           session: this.session,
           arrayFilters: checkpointCreated ? [{ 'config._id': { $in: unblockedConfigIds } }] : undefined
         }
       );
     } else {
-      // All selected configs are blocked - only update keepalive/error tracking.
+      // All selected configs are blocked - only update keepalive/error tracking and the
+      // resume position.
       await this.db.sync_rules.updateOne(
         {
           _id: this.replicationStreamId
@@ -501,7 +506,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
             last_keepalive_ts: now,
             last_fatal_error: null,
             last_fatal_error_ts: null
-          }
+          },
+          $max: resumeLsnUpdate
         },
         { session: this.session }
       );
@@ -520,8 +526,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       }
       await this.autoActivateV3(lsn);
       await this.db.notifyCheckpoint();
-      this.last_checkpoint_lsn = lsn;
-      // All configs are now checkpointed at newLastCheckpoint (the stream head).
+      // All configs are now checkpointed at newCheckpoint (the stream head).
       await this.sourceRecordStore.postCommitCleanup(newCheckpoint, this.logger);
     }
     return {
@@ -541,7 +546,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       },
       {
         $set: {
-          snapshot_lsn: lsn
+          resume_lsn: lsn
         }
       },
       { session: this.session }

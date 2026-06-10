@@ -23,7 +23,6 @@ import {
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
 import { SourceKey } from '../models.js';
-import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
@@ -60,8 +59,20 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
 
   protected async initializeVersionStorage(): Promise<void> {}
 
-  protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
-    return new MongoBucketBatchV1(batchOptions);
+  protected async createWriterImpl(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
+    const doc = (await this.db.sync_rules.findOne(
+      {
+        _id: this.replicationStreamId
+      },
+      { projection: { last_checkpoint_lsn: 1, keepalive_op: 1, snapshot_lsn: 1 } }
+    )) as SyncRuleDocumentV1;
+
+    return new MongoBucketBatchV1({
+      ...this.writerBatchOptions(options),
+      // Resume from the last consistent checkpoint, or the in-progress snapshot position if it is newer.
+      resumeFromLsn: maxLsn(doc?.last_checkpoint_lsn, doc?.snapshot_lsn),
+      keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null
+    });
   }
 
   protected async fetchCheckpointState(
@@ -80,21 +91,6 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     return {
       checkpoint: doc.last_checkpoint ?? 0n,
       lsn: doc.last_checkpoint_lsn ?? null
-    };
-  }
-
-  protected async getWriterSyncState() {
-    const doc = (await this.db.sync_rules.findOne(
-      {
-        _id: this.replicationStreamId
-      },
-      { projection: { last_checkpoint_lsn: 1, keepalive_op: 1, snapshot_lsn: 1 } }
-    )) as SyncRuleDocumentV1;
-    const checkpointLsn = doc?.last_checkpoint_lsn ?? null;
-    return {
-      lastCheckpointLsn: checkpointLsn,
-      resumeFromLsn: maxLsn(checkpointLsn, doc?.snapshot_lsn),
-      keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null
     };
   }
 

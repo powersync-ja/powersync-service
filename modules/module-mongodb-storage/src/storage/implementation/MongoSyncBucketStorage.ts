@@ -48,17 +48,6 @@ interface InternalCheckpointChanges extends CheckpointChanges {
   invalidateWriteCheckpoints: boolean;
 }
 
-export interface WriterSyncState {
-  lastCheckpointLsn: string | null;
-  resumeFromLsn: string | null;
-  /**
-   * Seeds the writer's in-memory persisted-op tracking for v1 storage. v3 storage tracks the
-   * persisted-op head durably on the replication stream document instead.
-   */
-  keepaliveOp?: InternalOpId | null;
-  syncConfigIds?: bson.ObjectId[];
-}
-
 /**
  * Only keep checkpoints around for a minute, before fetching a fresh one.
  *
@@ -193,35 +182,40 @@ export abstract class MongoSyncBucketStorage
     this.#storageInitialized = true;
   }
 
-  protected abstract createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch;
-  protected abstract getWriterSyncState(): Promise<WriterSyncState>;
+  /**
+   * Create the version-specific writer. Implementations fetch their own resume state
+   * (e.g. resume LSN, v1 keepalive op) and construct the batch from
+   * {@link writerBatchOptions} plus the version-specific fields.
+   */
+  protected abstract createWriterImpl(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch>;
 
-  async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
-    await this.initializeStorage();
-
-    const state = await this.getWriterSyncState();
+  /**
+   * The version-independent part of the batch options.
+   */
+  protected writerBatchOptions(options: storage.CreateWriterOptions): Omit<MongoBucketBatchOptions, 'resumeFromLsn'> {
     const parsed = this.replicationStream.parsed(options) as storage.ParsedSyncConfigSet & {
       mapping?: BucketDefinitionMapping;
     };
 
-    const batchOptions: MongoBucketBatchOptions = {
+    return {
       logger: options.logger ?? this.logger,
       db: this.db,
       syncRules: parsed.hydratedSyncConfig(),
       mapping: parsed.mapping ?? this.replicationStream.storageContent.mapping,
       replicationStreamId: this.replicationStreamId,
       replicationStreamName: this.replicationStreamName,
-      lastCheckpointLsn: state.lastCheckpointLsn,
-      resumeFromLsn: state.resumeFromLsn,
-      keepaliveOp: state.keepaliveOp,
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable,
       hooks: options.hooks,
-      syncConfigIds: state.syncConfigIds,
       tracer: options.tracer
     };
-    const writer = this.createWriterImpl(batchOptions);
+  }
+
+  async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
+    await this.initializeStorage();
+
+    const writer = await this.createWriterImpl(options);
     this.iterateListeners((cb) => cb.batchStarted?.(writer));
     return writer;
   }

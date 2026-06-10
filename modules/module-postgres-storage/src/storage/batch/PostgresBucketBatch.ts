@@ -129,10 +129,6 @@ export class PostgresBucketBatch
     }
   }
 
-  get lastCheckpointLsn() {
-    return this.last_checkpoint_lsn;
-  }
-
   async [Symbol.asyncDispose]() {
     if (this.batch != null || this.write_checkpoint_batch.length > 0) {
       // We don't error here, since:

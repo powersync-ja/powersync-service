@@ -45,7 +45,6 @@ export interface MongoBucketBatchOptions {
   replicationStreamId: number;
   replicationStreamName: string;
   syncConfigIds?: bson.ObjectId[];
-  lastCheckpointLsn: string | null;
   /**
    * Seeds the in-memory persisted-op tracking for v1 storage. Not used by v3 storage, which
    * tracks the persisted-op head durably on the replication stream document instead.
@@ -103,23 +102,14 @@ export abstract class MongoBucketBatch
   private tracer: PerformanceTracer<'storage' | 'evaluate'>;
 
   /**
-   * Last LSN received associated with a checkpoint.
-   *
-   * This could be either:
-   * 1. A commit LSN.
-   * 2. A keepalive message LSN.
-   */
-  protected last_checkpoint_lsn: string | null = null;
-
-  /**
    * Last written op, if any. This may not reflect a consistent checkpoint.
    */
   public last_flushed_op: InternalOpId | null = null;
 
   /**
-   * lastCheckpointLsn is the last consistent commit.
+   * LSN to resume replication from.
    *
-   * While that is generally a "safe" point to resume from, there are cases where we may want to resume from a different point:
+   * This is typically the last commit LSN, but there are cases where it differs:
    * 1. After an initial snapshot, we don't have a consistent commit yet, but need to resume from the snapshot LSN.
    * 2. If "no_checkpoint_before_lsn" is set far in advance, it may take a while to reach that point. We
    *    may want to resume at incremental points before that.
@@ -135,7 +125,6 @@ export abstract class MongoBucketBatch
     this.client = options.db.client;
     this.db = options.db;
     this.replicationStreamId = options.replicationStreamId;
-    this.last_checkpoint_lsn = options.lastCheckpointLsn;
     this.resumeFromLsn = options.resumeFromLsn;
     this.session = this.client.startSession();
     this.replicationStreamName = options.replicationStreamName;
@@ -155,10 +144,6 @@ export abstract class MongoBucketBatch
       ...checkpoint,
       sync_rules_id: this.replicationStreamId
     });
-  }
-
-  get lastCheckpointLsn() {
-    return this.last_checkpoint_lsn;
   }
 
   abstract resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult>;

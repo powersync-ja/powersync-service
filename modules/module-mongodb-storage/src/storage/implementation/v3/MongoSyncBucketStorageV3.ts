@@ -6,7 +6,7 @@ import {
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
-  maxLsn,
+  minLsn,
   ParameterSetLimitExceededError,
   ProtocolOpId,
   storage,
@@ -21,7 +21,6 @@ import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
-import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
@@ -141,8 +140,19 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return new MongoParameterCompactorV3(this.db, this.replicationStreamId, checkpoint, options);
   }
 
-  protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
-    return new MongoBucketBatchV3(batchOptions);
+  protected async createWriterImpl(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
+    const doc = await this.syncRulesCollection.findOne(
+      { _id: this.replicationStreamId },
+      { projection: { resume_lsn: 1 } }
+    );
+
+    return new MongoBucketBatchV3({
+      ...this.writerBatchOptions(options),
+      // The stream-level replication position - per-config checkpoint LSNs are consistency
+      // markers and do not affect where replication resumes.
+      resumeFromLsn: doc?.resume_lsn ?? null,
+      syncConfigIds: this.syncConfigIds
+    });
   }
 
   protected async fetchCheckpointState(
@@ -157,40 +167,25 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         projection: this.syncConfigProjection()
       }
     );
-    const syncConfigs = this.selectedSyncConfigs(doc);
-    if (syncConfigs.length == 0 || syncConfigs.some((config) => !config.snapshot_done)) {
+    // Checkpoints are served from the single active config. A PROCESSING config in the same
+    // stream (incremental reprocessing) does not affect checkpoints until it is activated.
+    const syncConfigs = this.selectedSyncConfigs(doc).filter((config) =>
+      [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED].includes(config.state)
+    );
+    if (syncConfigs.length > 1) {
+      // Activation atomically replaces the previous active config, so this cannot happen unless
+      // the stored state is corrupt.
+      throw new ServiceAssertionError(
+        `Expected a single active sync config, got ${syncConfigs.map((config) => config._id.toHexString()).join(', ')}`
+      );
+    }
+    const syncConfig = syncConfigs[0];
+    if (syncConfig == null || !syncConfig.snapshot_done) {
       return null;
     }
-    const checkpoint = syncConfigs.reduce<bigint | null>((min, config) => {
-      const value = config.last_checkpoint ?? 0n;
-      return min == null || value < min ? value : min;
-    }, null);
     return {
-      checkpoint: checkpoint ?? 0n,
-      lsn:
-        syncConfigs
-          .map((config) => config.last_checkpoint_lsn)
-          .filter((lsn) => lsn != null)
-          .sort()[0] ?? null
-    };
-  }
-
-  protected async getWriterSyncState() {
-    const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
-      projection: this.syncConfigProjection({ snapshot_lsn: 1 })
-    });
-    const syncConfigs = this.selectedSyncConfigs(doc);
-    const checkpointLsn =
-      syncConfigs
-        .map((config) => config.last_checkpoint_lsn)
-        .filter((lsn) => lsn != null)
-        .sort()[0] ?? null;
-    // No keepaliveOp here: v3 checkpoints read the stream-level last_persisted_op directly,
-    // so the writer does not need in-memory persisted-op tracking.
-    return {
-      lastCheckpointLsn: checkpointLsn,
-      resumeFromLsn: maxLsn(checkpointLsn, doc?.snapshot_lsn),
-      syncConfigIds: this.syncConfigIds
+      checkpoint: syncConfig.last_checkpoint ?? 0n,
+      lsn: syncConfig.last_checkpoint_lsn ?? null
     };
   }
 
@@ -211,7 +206,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   protected async getStatusImpl(): Promise<storage.SyncRuleStatus> {
     const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
-      projection: this.syncConfigProjection({ state: 1, snapshot_lsn: 1, last_persisted_op: 1 })
+      projection: this.syncConfigProjection({ state: 1, resume_lsn: 1, last_persisted_op: 1 })
     });
     const syncConfigs = this.selectedSyncConfigs(doc);
     if (doc == null || syncConfigs.length == 0) {
@@ -220,16 +215,17 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     const active = syncConfigs.some(
       (config) => doc.state == storage.SyncRuleState.ACTIVE && config.state == storage.SyncRuleState.ACTIVE
     );
-    const checkpointLsn =
-      syncConfigs
-        .map((config) => config.last_checkpoint_lsn)
-        .filter((lsn) => lsn != null)
-        .sort()[0] ?? null;
+    const checkpointLsn = syncConfigs.reduce<string | null>(
+      (min, config) => minLsn(min, config.last_checkpoint_lsn),
+      null
+    );
     const keepaliveOp = doc.last_persisted_op == null ? null : BigInt(doc.last_persisted_op);
 
     return {
       snapshot_done: syncConfigs.every((config) => config.snapshot_done ?? false),
-      snapshot_lsn: doc.snapshot_lsn ?? null,
+      // The stream-level resume position. During an in-progress snapshot, this is the position
+      // the snapshot was started at, which is what consumers use this for.
+      snapshot_lsn: doc.resume_lsn ?? null,
       active,
       checkpoint_lsn: checkpointLsn,
       keepalive_op: keepaliveOp
@@ -252,7 +248,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
           'sync_configs.$[].no_checkpoint_before': null
         },
         $unset: {
-          snapshot_lsn: 1,
+          resume_lsn: 1,
           last_persisted_op: 1
         }
       },

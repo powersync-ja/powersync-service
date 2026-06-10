@@ -59,6 +59,19 @@ export interface ReplicationStreamDocumentV3 extends SyncRuleDocumentBase {
    * Stored as a mongo Long, nullable.
    */
   last_persisted_op?: bigint | null;
+
+  /**
+   * The stream's replication position: all source changes up to this LSN have been processed,
+   * and the resulting ops persisted. Replication resumes from here.
+   *
+   * Like {@link last_persisted_op}, this is shared across all sync configs of the stream -
+   * per-config last_checkpoint_lsn values are consistency markers, not replication positions.
+   *
+   * Set via setResumeLsn() (snapshot start, and per-batch progress during streaming), and
+   * advanced on every commit/keepalive - including checkpoint-blocked ones, since commit
+   * flushes first and blocking only delays consistency markers, not data persistence.
+   */
+  resume_lsn?: string | null;
 }
 
 /**

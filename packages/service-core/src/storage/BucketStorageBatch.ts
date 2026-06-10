@@ -84,11 +84,6 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
   setResumeLsn(lsn: string): Promise<void>;
 
   /**
-   * Get the last checkpoint LSN, from either commit or keepalive.
-   */
-  lastCheckpointLsn: string | null;
-
-  /**
    * LSN to resume from.
    *
    * Not relevant for streams where the source keeps track of replication progress, such as Postgres.
