@@ -525,9 +525,11 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         this.logger.debug(`Created checkpoint at ${lsn}`);
       }
       await this.autoActivateV3(lsn);
-      await this.db.notifyCheckpoint();
       // All configs are now checkpointed at newCheckpoint (the stream head).
       await this.sourceRecordStore.postCommitCleanup(newCheckpoint, this.logger);
+    }
+    if (checkpointCreated) {
+      await this.db.notifyCheckpoint();
     }
     return {
       checkpointBlocked,
