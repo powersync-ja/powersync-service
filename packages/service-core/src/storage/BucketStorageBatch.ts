@@ -211,8 +211,6 @@ export interface CheckpointResult {
   /**
    * True if a checkpoint was actually created by this operation. This can be false even if checkpointBlocked is false,
    * if the checkpoint was empty.
-   *
-   * This is primarily used for testing.
    */
   checkpointCreated: boolean;
 }
