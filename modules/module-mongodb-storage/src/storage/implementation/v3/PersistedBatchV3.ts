@@ -250,9 +250,8 @@ export class PersistedBatchV3 extends PersistedBatch {
             const compressedUint8 = await zstd.compress(bsonBuffer);
             const compressed = Buffer.from(compressedUint8);
 
-            // Generate path: bucket-data/<group_id>/<def_id>/<bucket>/<minOp>-<maxOp>-<minOp>
-            // _id.o is maxOp (clustered index key). Path uses minOp-maxOp-minOp for uniqueness.
-            const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}-${minOp}`;
+            // _id.o is maxOp (clustered index key). Path uses minOp-maxOp-maxOp for uniqueness.
+            const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}-${maxOp}`;
 
             // Upload to S3
             await this.objectStorage.put(path, compressed);
