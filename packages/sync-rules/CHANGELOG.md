@@ -1,5 +1,15 @@
 # @powersync/service-sync-rules
 
+## 0.38.0
+
+### Minor Changes
+
+- c3f75df: [Internal] Add comparison methods for serialized sync plans.
+
+### Patch Changes
+
+- 184c39f: Make `lower()` and `upper()` Unicode aware even when `unstable_sqlite_expression_engine: true` is enabled.
+
 ## 0.37.0
 
 ### Minor Changes

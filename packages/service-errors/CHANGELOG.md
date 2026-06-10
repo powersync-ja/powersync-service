@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.4.4
+
+### Patch Changes
+
+- 32a8d9e: [Internal] Restructure storage models to support multiple sync configs per replication stream.
+
 ## 0.4.3
 
 ### Patch Changes

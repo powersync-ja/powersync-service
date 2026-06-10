@@ -1,5 +1,21 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.18.0
+
+### Minor Changes
+
+- 32a8d9e: [Internal] Restructure storage models to support multiple sync configs per replication stream.
+
+### Patch Changes
+
+- Updated dependencies [32a8d9e]
+- Updated dependencies [184c39f]
+- Updated dependencies [c3f75df]
+  - @powersync/service-core@1.23.0
+  - @powersync/service-sync-rules@0.38.0
+  - @powersync/lib-services-framework@0.9.6
+  - @powersync/lib-service-mongodb@0.6.27
+
 ## 0.17.0
 
 ### Minor Changes

@@ -1,5 +1,22 @@
 # @powersync/service-module-postgres-storage
 
+## 0.16.0
+
+### Minor Changes
+
+- 32a8d9e: [Internal] Restructure storage models to support multiple sync configs per replication stream.
+
+### Patch Changes
+
+- Updated dependencies [32a8d9e]
+- Updated dependencies [184c39f]
+- Updated dependencies [c3f75df]
+  - @powersync/service-core@1.23.0
+  - @powersync/service-sync-rules@0.38.0
+  - @powersync/lib-services-framework@0.9.6
+  - @powersync/service-jpgwire@0.21.20
+  - @powersync/lib-service-postgres@0.4.29
+
 ## 0.15.0
 
 ### Minor Changes
