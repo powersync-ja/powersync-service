@@ -1,6 +1,8 @@
+import * as zstd from '@mongodb-js/zstd';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { addChecksums, storage, utils } from '@powersync/service-core';
+import * as bson from 'bson';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketDataDocumentGeneric, SingleBucketStore } from '../common/SingleBucketStore.js';
@@ -168,6 +170,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             size: 1,
             target_op: 1,
             ops: 1,
+            storage_ref: 1,
             bsonSize: { $bsonSize: '$$ROOT' }
           }
         }
@@ -189,7 +192,12 @@ export class MongoCompactorV3 extends MongoCompactor {
       let batchCutIndex = rawBatch.length;
 
       for (let i = 0; i < rawBatch.length; i++) {
-        cumulativeBytes += Number(rawBatch[i].bsonSize);
+        const doc = rawBatch[i] as any;
+        let docSize = Number(doc.bsonSize);
+        if (doc.storage_ref) {
+          docSize += doc.storage_ref.compressed_size ?? 0;
+        }
+        cumulativeBytes += docSize;
         if (cumulativeBytes > this.moveBatchByteLimit && i > 0) {
           // Byte limit exceeded; cut batch at current index. Always include
           // at least one document (i > 0 guard) to guarantee forward progress.
@@ -199,6 +207,25 @@ export class MongoCompactorV3 extends MongoCompactor {
       }
 
       const batchDocs = rawBatch.slice(0, batchCutIndex);
+
+      // Pre-fetch S3 objects for all S3-backed docs in this batch
+      if (this.storage.objectStorage) {
+        const s3Docs = batchDocs.filter((d: any) => d.storage_ref);
+        if (s3Docs.length > 0) {
+          await Promise.all(
+            s3Docs.map(async (doc: any) => {
+              try {
+                const buffer = await this.storage.objectStorage!.get(doc.storage_ref.path);
+                const decompressed = await zstd.decompress(buffer);
+                const wrapper = bson.deserialize(decompressed, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS);
+                doc.ops = wrapper.ops;
+              } catch (err) {
+                this.logger.warn(`Compaction: failed to fetch/decompress S3 object ${doc.storage_ref?.path}: ${err}`);
+              }
+            })
+          );
+        }
+      }
 
       // --- Decode documents into individual ops ---
       // Processable: document has at least one op <= maxOpId.
@@ -304,7 +331,68 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       // --- Rechunk survivors into new V3 documents ---
       const chunks = chunkBucketData(surviving);
-      const newDocs = chunks.map((chunk) => serializeBucketData(bucket, chunk));
+
+      // Track old S3 refs for cleanup
+      const oldStorageRefs: string[] = processableDocs
+        .filter((d: any) => d.storage_ref)
+        .map((d: any) => d.storage_ref.path);
+
+      let newDocs: BucketDataDocumentV3[];
+      const newStoragePaths = new Set<string>();
+
+      // If object storage is configured, upload before transaction
+      if (this.storage.objectStorage) {
+        newDocs = [];
+        for (const chunk of chunks) {
+          const minOp = chunk[0].o;
+          const maxOp = chunk[chunk.length - 1].o;
+
+          let totalChecksum = 0n;
+          let totalSize = 0;
+          let maxTargetOp: bigint | null = null;
+          const bucketOps = chunk.map((op) => {
+            totalChecksum += op.checksum;
+            totalSize += op.data?.length ?? 0;
+            if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
+              maxTargetOp = op.target_op;
+            }
+            return {
+              o: op.o,
+              op: op.op,
+              source_table: op.source_table,
+              source_key: op.source_key,
+              table: op.table,
+              row_id: op.row_id,
+              checksum: op.checksum,
+              data: op.data
+            };
+          });
+
+          const bsonBuffer = Buffer.from(bson.serialize({ ops: bucketOps }));
+          const compressedUint8 = await zstd.compress(bsonBuffer);
+          const compressed = Buffer.from(compressedUint8);
+          const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${minOp}-${maxOp}-${maxOp}`;
+          await this.storage.objectStorage.put(path, compressed);
+          newStoragePaths.add(path);
+
+          newDocs.push({
+            _id: { b: bucket, o: maxOp },
+            min_op: minOp,
+            checksum: totalChecksum,
+            count: chunk.length,
+            size: totalSize,
+            target_op: maxTargetOp,
+            storage_ref: {
+              path,
+              compressed_size: compressed.byteLength,
+              compression: 'zstd'
+            }
+          });
+        }
+      } else {
+        // EXISTING inline path
+        newDocs = chunks.map((chunk) => serializeBucketData(bucket, chunk));
+      }
 
       // --- Commit: scoped delete + insert in transaction ---
       const session = this.db.client.startSession();
@@ -359,6 +447,18 @@ export class MongoCompactorV3 extends MongoCompactor {
         );
       } finally {
         await session.endSession();
+      }
+
+      // After commit: delete old S3 objects (best-effort), skip paths reused by new docs
+      if (this.storage.objectStorage && oldStorageRefs.length > 0) {
+        const toDelete = oldStorageRefs.filter((p) => !newStoragePaths.has(p));
+        if (toDelete.length > 0) {
+          try {
+            await this.storage.objectStorage.delete(toDelete);
+          } catch (err) {
+            this.logger.warn(`Failed to delete old S3 objects for bucket ${bucket}: ${err}`);
+          }
+        }
       }
 
       // --- Accumulate bucket state ---

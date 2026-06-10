@@ -77,7 +77,7 @@ export abstract class MongoSyncBucketStorage
 
   readonly checksums: MongoChecksums;
 
-  protected readonly objectStorage?: ObjectStorage;
+  readonly objectStorage?: ObjectStorage;
 
   private parsedSyncRulesCache: { parsed: HydratedSyncConfig; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
