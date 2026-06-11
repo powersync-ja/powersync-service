@@ -745,19 +745,24 @@ export abstract class MongoBucketBatch
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
-    for (const event of this.getTableEvents(sourceTable)) {
-      this.iterateListeners((cb) =>
-        cb.replicationEvent?.({
-          batch: this,
-          table: sourceTable,
-          data: {
-            op: tag,
-            after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
-            before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
-          },
-          event
-        })
-      );
+    // syncEvent is the per-table designation from resolveTables. With v3 storage, multiple
+    // SourceTables can exist for the same ref, with a row change saved once per table -
+    // only the designated event carrier may fire events, so each event fires once per row.
+    if (sourceTable.syncEvent) {
+      for (const event of this.getTableEvents(sourceTable)) {
+        this.iterateListeners((cb) =>
+          cb.replicationEvent?.({
+            batch: this,
+            table: sourceTable,
+            data: {
+              op: tag,
+              after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
+              before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
+            },
+            event
+          })
+        );
+      }
     }
 
     /**

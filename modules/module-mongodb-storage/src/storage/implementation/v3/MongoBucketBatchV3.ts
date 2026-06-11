@@ -171,7 +171,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     }));
 
     let result: storage.ResolveTablesResult | null = null;
-    const initializeSourceRecordsFor: bson.ObjectId[] = [];
+    let ensureSourceRecordIndexesFor: bson.ObjectId[] = [];
 
     await this.db.client.withSession(async (session) => {
       const col = this.db.commonSourceTables(this.replicationStreamId);
@@ -209,10 +209,24 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         const coversDesiredMembership = bucketDataSourceIds.length > 0 || parameterLookupSourceIds.length > 0;
         const coversEventOnlyTable = !desiredHasMembership && triggersEvent && !retainedEventOnlyTable;
 
+        // Membership sets must be pairwise disjoint across the docs of one physical table:
+        // each desired id is covered by exactly one doc, so each definition receives each
+        // row exactly once. The algorithm maintains this (new docs only get uncovered ids,
+        // narrowing only removes ids) - overlap means the persisted state is corrupt.
         for (const id of bucketDataSourceIds) {
+          if (coveredBucketIds.has(id)) {
+            throw new ReplicationAssertionError(
+              `Source table ${doc._id} duplicates coverage of bucket data source ${id} for ${schema}.${name}`
+            );
+          }
           coveredBucketIds.add(id);
         }
         for (const id of parameterLookupSourceIds) {
+          if (coveredLookupIds.has(id)) {
+            throw new ReplicationAssertionError(
+              `Source table ${doc._id} duplicates coverage of parameter lookup source ${id} for ${schema}.${name}`
+            );
+          }
           coveredLookupIds.add(id);
         }
 
@@ -287,10 +301,22 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         };
 
         await col.insertOne(createDoc, { session });
-        initializeSourceRecordsFor.push(createDoc._id);
         retainedDocIds.push(createDoc._id);
         tables.push(sourceTable);
       }
+
+      if (triggersEvent) {
+        // A single source row change must fire each event only once, even when memberships
+        // are split over multiple source tables (connectors save each row change once per
+        // table, and save() fires events per call). Designate one table per ref as the
+        // event carrier. Prefer a snapshot-complete table, so that snapshotting a new
+        // table for added definitions does not replay events for existing rows.
+        const eventCarrier = tables.find((table) => table.snapshotComplete) ?? tables[0];
+        for (const table of tables) {
+          table.syncEvent = table === eventCarrier;
+        }
+      }
+      ensureSourceRecordIndexesFor = retainedDocIds;
 
       const conflictFilter = [{ schema_name: schema, table_name: name }] as Record<string, unknown>[];
       if (objectId != null) {
@@ -325,7 +351,11 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       };
     });
 
-    for (const sourceTableId of initializeSourceRecordsFor) {
+    // Index creation is idempotent. Running it for all retained tables - not only newly
+    // created ones - heals the index if an earlier resolveTables crashed between inserting
+    // the document and reaching this point (this runs outside the session on purpose, since
+    // index creation cannot be transactional).
+    for (const sourceTableId of ensureSourceRecordIndexesFor) {
       await this.db.initializeSourceRecordsCollection(this.replicationStreamId, sourceTableId);
     }
 
@@ -395,7 +425,12 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       return null;
     }
 
-    return this.sourceTableFromDocument(doc, table.ref.connectionTag, this.sync_rules);
+    const refreshed = this.sourceTableFromDocument(doc, table.ref.connectionTag, this.sync_rules);
+    // The event-carrier designation is decided per resolveTables result and not persisted -
+    // preserve the caller's designation instead of recomputing it from the ref, so that
+    // refreshing a non-carrier table does not make it fire events.
+    refreshed.syncEvent = table.syncEvent;
+    return refreshed;
   }
 
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {

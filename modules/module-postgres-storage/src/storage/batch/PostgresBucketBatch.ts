@@ -358,19 +358,22 @@ export class PostgresBucketBatch
     // TODO maybe share with abstract class
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.options.store_current_data && sourceTable.storeCurrentData;
-    for (const event of this.getTableEvents(sourceTable)) {
-      this.iterateListeners((cb) =>
-        cb.replicationEvent?.({
-          batch: this,
-          table: sourceTable,
-          data: {
-            op: tag,
-            after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
-            before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
-          },
-          event
-        })
-      );
+    // Only the table designated as event carrier by resolveTables may fire events.
+    if (sourceTable.syncEvent) {
+      for (const event of this.getTableEvents(sourceTable)) {
+        this.iterateListeners((cb) =>
+          cb.replicationEvent?.({
+            batch: this,
+            table: sourceTable,
+            data: {
+              op: tag,
+              after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
+              before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
+            },
+            event
+          })
+        );
+      }
     }
     /**
      * Return if the table is just an event table
