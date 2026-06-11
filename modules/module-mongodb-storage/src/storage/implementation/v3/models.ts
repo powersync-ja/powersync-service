@@ -176,13 +176,19 @@ export function taggedBucketParameterDocumentToV3(document: TaggedBucketParamete
   return rest as BucketParameterDocumentV3;
 }
 
+export interface ReplicaIdColumn {
+  name: string;
+  type_oid?: number;
+  type?: string;
+}
+
 export interface SourceTableDocumentV3 {
   _id: bson.ObjectId;
   connection_id: number;
   relation_id: number | string | undefined;
   schema_name: string;
   table_name: string;
-  replica_id_columns: { name: string; type_oid?: number; type?: string }[];
+  replica_id_columns: ReplicaIdColumn[];
   snapshot_done: boolean;
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
   bucket_data_source_ids: BucketDefinitionId[];

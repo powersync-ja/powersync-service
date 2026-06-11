@@ -8,14 +8,15 @@ import {
   ParameterIndexId,
   ParameterIndexLookupCreator
 } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
-import { SourceTableDocumentV3 } from './models.js';
+import { ReplicaIdColumn, SourceTableDocumentV3 } from './models.js';
 
 export interface SourceTableIdentity {
   schema: string;
   name: string;
   objectId: number | string | undefined;
-  replicaIdColumns: NonNullable<SourceTableDocumentV3['replica_id_columns']>;
+  replicaIdColumns: ReplicaIdColumn[];
 }
 
 export interface SourceTableMembershipIds {
@@ -50,13 +51,13 @@ export interface SourceTableRetentionPlanningContext {
 
 export interface SourceTableRetentionPlan {
   coveredMembershipIds: SourceTableMembershipIdSets;
-  retainedDocIds: SourceTableDocumentV3['_id'][];
+  retainedDocIds: bson.ObjectId[];
   tables: storage.SourceTable[];
   narrowingUpdates: SourceTableMembershipUpdate[];
 }
 
 export interface SourceTableMembershipUpdate {
-  id: SourceTableDocumentV3['_id'];
+  id: bson.ObjectId;
   memberships: SourceTableMembershipIds;
 }
 
@@ -254,10 +255,7 @@ class SourceTableRetentionPlanner {
   }
 }
 
-export function sameReplicaIdColumns(
-  left: SourceTableDocumentV3['replica_id_columns'] | undefined,
-  right: NonNullable<SourceTableDocumentV3['replica_id_columns']>
-) {
+export function sameReplicaIdColumns(left: ReplicaIdColumn[] | undefined, right: ReplicaIdColumn[]) {
   return (
     left != null &&
     left.length == right.length &&
@@ -293,10 +291,10 @@ export function overlappingSourceTableFilter(
 }
 
 export function createNewSourceTable(options: {
-  id: SourceTableDocumentV3['_id'];
+  id: bson.ObjectId;
   connectionId: number;
   source: storage.SourceEntityDescriptor;
-  replicaIdColumns: NonNullable<SourceTableDocumentV3['replica_id_columns']>;
+  replicaIdColumns: ReplicaIdColumn[];
   memberships: SourceTableMembershipIds;
   syncRules: HydratedSyncConfig;
   mapping: BucketDefinitionMapping;
@@ -338,7 +336,7 @@ export function designateEventCarrier(tables: storage.SourceTable[], triggersEve
 
 export function conflictingSourceTableDocs(
   candidateDocs: SourceTableDocumentV3[],
-  retainedDocIds: SourceTableDocumentV3['_id'][],
+  retainedDocIds: bson.ObjectId[],
   currentIdentity: SourceTableIdentity,
   options: { dropSameIdentity: boolean }
 ) {
