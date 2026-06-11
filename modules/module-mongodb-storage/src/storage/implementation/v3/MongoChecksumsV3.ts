@@ -9,7 +9,6 @@ import {
   PartialOrFullChecksum
 } from '@powersync/service-core';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
-import { BucketDataDocumentBase } from '../models.js';
 import {
   checksumFromAggregate,
   emptyChecksumForRequest,
@@ -19,6 +18,7 @@ import {
   MongoChecksums
 } from '../MongoChecksums.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+import { BucketDataDocumentV3 } from './models.js';
 
 export class MongoChecksumsV3 extends MongoChecksums {
   private readonly mapping: BucketDefinitionMapping;
@@ -45,7 +45,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computeChecksumsByDefinition(
         requests,
-        this.db.bucketData(this.group_id, definitionId) as unknown as lib_mongo.mongo.Collection<BucketDataDocumentBase>
+        this.db.bucketData(this.group_id, definitionId)
       );
       for (const checksum of groupResults.values()) {
         results.set(checksum.bucket, checksum);
@@ -124,7 +124,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computeChecksumsByDefinition(
         requests,
-        this.db.bucketData(this.group_id, definitionId) as unknown as lib_mongo.mongo.Collection<BucketDataDocumentBase>
+        this.db.bucketData(this.group_id, definitionId)
       );
       for (const checksum of groupResults.values()) {
         results.set(checksum.bucket, checksum);
@@ -138,7 +138,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
 
   private async computeChecksumsByDefinition(
     batch: FetchPartialBucketChecksumByBucket[],
-    collection: lib_mongo.mongo.Collection<BucketDataDocumentBase>
+    collection: lib_mongo.mongo.Collection<BucketDataDocumentV3>
   ): Promise<PartialChecksumMap> {
     const requests = new Map<string, FetchPartialBucketChecksumByBucket>();
     for (let request of batch) {
