@@ -1,5 +1,5 @@
 ---
-'@powersync/module-mongodb-storage': minor
+'@powersync/service-module-mongodb-storage': minor
 '@powersync/service-core': minor
 ---
 
