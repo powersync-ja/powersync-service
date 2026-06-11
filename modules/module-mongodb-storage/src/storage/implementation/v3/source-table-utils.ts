@@ -4,7 +4,7 @@ export interface SourceTableIdentity {
   schema: string;
   name: string;
   objectId: number | string | undefined;
-  replicaIdColumns: NonNullable<SourceTableDocumentV3['replica_id_columns2']>;
+  replicaIdColumns: NonNullable<SourceTableDocumentV3['replica_id_columns']>;
 }
 
 export function sameStringArray(left: string[], right: string[]) {
@@ -12,8 +12,8 @@ export function sameStringArray(left: string[], right: string[]) {
 }
 
 export function sameReplicaIdColumns(
-  left: SourceTableDocumentV3['replica_id_columns2'] | undefined,
-  right: NonNullable<SourceTableDocumentV3['replica_id_columns2']>
+  left: SourceTableDocumentV3['replica_id_columns'] | undefined,
+  right: NonNullable<SourceTableDocumentV3['replica_id_columns']>
 ) {
   return (
     left != null &&
@@ -30,7 +30,7 @@ export function matchingSourceTableIdentity(doc: SourceTableDocumentV3, identity
     doc.schema_name == identity.schema &&
     doc.table_name == identity.name &&
     (identity.objectId == null || doc.relation_id == identity.objectId) &&
-    sameReplicaIdColumns(doc.replica_id_columns2, identity.replicaIdColumns)
+    sameReplicaIdColumns(doc.replica_id_columns, identity.replicaIdColumns)
   );
 }
 
@@ -47,8 +47,4 @@ export function overlappingSourceTableFilter(
     connection_id: connectionId,
     $or: clauses
   };
-}
-
-export function snapshotDone(doc: SourceTableDocumentV3) {
-  return doc.snapshot_done ?? true;
 }

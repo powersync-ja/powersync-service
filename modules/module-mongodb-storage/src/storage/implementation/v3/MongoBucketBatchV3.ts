@@ -15,12 +15,7 @@ import { PersistedBatchV3 } from './PersistedBatchV3.js';
 import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { ReplicationStreamDocumentV3, SourceTableDocumentV3 } from './models.js';
-import {
-  matchingSourceTableIdentity,
-  overlappingSourceTableFilter,
-  sameStringArray,
-  snapshotDone
-} from './source-table-utils.js';
+import { matchingSourceTableIdentity, overlappingSourceTableFilter, sameStringArray } from './source-table-utils.js';
 
 export class MongoBucketBatchV3 extends MongoBucketBatch {
   declare public readonly db: VersionedPowerSyncMongoV3;
@@ -214,7 +209,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         const updates: Partial<SourceTableDocumentV3> = {};
         if (
           (parsedOverride != null || coversDesiredMembership || coversEventOnlyTable) &&
-          !snapshotDone(doc) &&
+          !doc.snapshot_done &&
           (!sameStringArray(doc.bucket_data_source_ids, bucketDataSourceIds) ||
             !sameStringArray(doc.parameter_lookup_source_ids, parameterLookupSourceIds))
         ) {
@@ -253,33 +248,23 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
       if (uncoveredBucketIds.length > 0 || uncoveredLookupIds.length > 0 || (triggersEvent && tables.length == 0)) {
         const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
-        const sourceTable = new storage.SourceTable({
-          id,
-          ref,
-          objectId,
-          replicaIdColumns,
-          snapshotComplete: false,
-          bucketDataSources: uncoveredBucketIds.map((id) => bucketSourceById.get(id)!),
-          parameterLookupSources: uncoveredLookupIds.map((id) => parameterLookupSourceById.get(id)!)
-        });
-        sourceTable.syncData = uncoveredBucketIds.length > 0;
-        sourceTable.syncParameters = uncoveredLookupIds.length > 0;
-        sourceTable.syncEvent = triggersEvent;
-        sourceTable.storeCurrentData = sendsCompleteRows !== true;
-
         const createDoc: SourceTableDocumentV3 = {
           _id: id,
           connection_id,
           relation_id: objectId,
           schema_name: schema,
           table_name: name,
-          replica_id_columns: null,
-          replica_id_columns2: normalizedReplicaIdColumns,
+          replica_id_columns: normalizedReplicaIdColumns,
           snapshot_done: false,
           snapshot_status: undefined,
           bucket_data_source_ids: uncoveredBucketIds,
           parameter_lookup_source_ids: uncoveredLookupIds
         };
+        const sourceTable = this.sourceTableFromDocument(createDoc, connectionTag, syncRules, {
+          bucketDataSources: uncoveredBucketIds.map((id) => bucketSourceById.get(id)!),
+          parameterLookupSources: uncoveredLookupIds.map((id) => parameterLookupSourceById.get(id)!)
+        });
+        sourceTable.storeCurrentData = sendsCompleteRows !== true;
 
         await col.insertOne(createDoc, { session });
         retainedDocIds.push(createDoc._id);
@@ -341,7 +326,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         name: doc.table_name
       },
       objectId: doc.relation_id,
-      replicaIdColumns: doc.replica_id_columns2!.map(
+      replicaIdColumns: doc.replica_id_columns!.map(
         (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
       ),
       snapshotComplete: doc.snapshot_done ?? true,

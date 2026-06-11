@@ -182,9 +182,8 @@ export interface SourceTableDocumentV3 {
   relation_id: number | string | undefined;
   schema_name: string;
   table_name: string;
-  replica_id_columns: string[] | null;
-  replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
-  snapshot_done: boolean | undefined;
+  replica_id_columns: { name: string; type_oid?: number; type?: string }[];
+  snapshot_done: boolean;
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
