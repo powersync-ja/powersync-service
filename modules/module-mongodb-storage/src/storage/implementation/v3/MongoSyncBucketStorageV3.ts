@@ -470,7 +470,6 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       const data: BucketDataDoc[] = [];
       const documentOpCounts: number[] = [];
       const documentSizes: number[] = [];
-      let chunkSizeBytes = 0;
       let sharedRemainingLimit = limit;
       let limitReached = false;
 
@@ -484,7 +483,6 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         data.push(...rows);
         documentOpCounts.push(rows.length);
         documentSizes.push(raw.byteLength);
-        chunkSizeBytes += raw.byteLength;
         sharedRemainingLimit = remainingLimit;
         if (docLimitReached) {
           limitReached = true;
