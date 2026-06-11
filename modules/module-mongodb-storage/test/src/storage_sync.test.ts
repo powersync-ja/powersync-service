@@ -762,6 +762,70 @@ streams:
     expect(activeStatus?.bucketDataSources).toHaveLength(1);
   });
 
+  test.runIf(storageVersion >= 3)(
+    'editing a stream query on the same table does not drop the active source table',
+    async () => {
+      await using factory = await storageConfig.factory();
+
+      const first = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  todos:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+          { storageVersion }
+        )
+      );
+      const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+      await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const source = sourceDescriptor('todos', { objectId: 'todos-relation' });
+      const firstResolved = await firstWriter.resolveTables({
+        connection_id: 1,
+        source,
+        idGenerator: objectIdGenerator('6544e3899293153fa7b3834d')
+      });
+      expect(firstResolved.dropTables).toHaveLength(0);
+      await firstWriter.markAllSnapshotDone('1/1');
+      await firstWriter.commit('1/1');
+
+      const second = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  todos:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+`,
+          { storageVersion }
+        )
+      );
+      expect(second.replicationStreamId).toBe(first.replicationStreamId);
+
+      const deploying = await factory.getDeployingSyncConfig();
+      expect(deploying?.replicationStream.replicationStreamId).toBe(first.replicationStreamId);
+      const bucketStorage = deploying!.storage;
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const resolved = await writer.resolveTables({
+        connection_id: 1,
+        source,
+        idGenerator: objectIdGenerator('6544e3899293153fa7b3834e')
+      });
+
+      expect(resolved.dropTables).toHaveLength(0);
+      expect(resolved.tables.map((table) => table.id.toString())).toEqual(['6544e3899293153fa7b3834e']);
+      expect(resolved.tables[0].bucketDataSources).toHaveLength(1);
+
+      const activeStatus = await firstWriter.getSourceTableStatus(firstResolved.tables[0]);
+      expect(activeStatus?.bucketDataSources).toHaveLength(1);
+    }
+  );
+
   test.runIf(storageVersion >= 3)('reserves historical mapping ids without reusing stopped configs', async () => {
     await using factory = await storageConfig.factory();
 

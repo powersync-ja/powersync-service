@@ -20,6 +20,24 @@ function sameStringArray(left: string[], right: string[]) {
   return left.length == right.length && left.every((value, index) => value == right[index]);
 }
 
+function sameReplicaIdColumns(
+  left: SourceTableDocumentV3['replica_id_columns2'] | undefined,
+  right: NonNullable<SourceTableDocumentV3['replica_id_columns2']>
+) {
+  return (
+    left != null &&
+    left.length == right.length &&
+    left.every(
+      (column, index) =>
+        column.name == right[index].name && column.type == right[index].type && column.type_oid == right[index].type_oid
+    )
+  );
+}
+
+function snapshotDone(doc: SourceTableDocumentV3) {
+  return doc.snapshot_done ?? true;
+}
+
 export class MongoBucketBatchV3 extends MongoBucketBatch {
   declare public readonly db: VersionedPowerSyncMongoV3;
 
@@ -200,8 +218,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
         const updates: Partial<SourceTableDocumentV3> = {};
         if (
-          !sameStringArray(doc.bucket_data_source_ids, bucketDataSourceIds) ||
-          !sameStringArray(doc.parameter_lookup_source_ids, parameterLookupSourceIds)
+          !snapshotDone(doc) &&
+          (!sameStringArray(doc.bucket_data_source_ids, bucketDataSourceIds) ||
+            !sameStringArray(doc.parameter_lookup_source_ids, parameterLookupSourceIds))
         ) {
           updates.bucket_data_source_ids = bucketDataSourceIds;
           updates.parameter_lookup_source_ids = parameterLookupSourceIds;
@@ -286,10 +305,20 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           { session }
         )
         .toArray();
+      const conflictingTables = dropTables.filter(
+        (doc) =>
+          !(
+            doc.schema_name == schema &&
+            doc.table_name == name &&
+            (objectId == null || doc.relation_id == objectId) &&
+            snapshotDone(doc as SourceTableDocumentV3) &&
+            sameReplicaIdColumns(doc.replica_id_columns2, normalizedReplicaIdColumns)
+          )
+      );
 
       result = {
         tables,
-        dropTables: dropTables.map((doc) =>
+        dropTables: conflictingTables.map((doc) =>
           this.sourceTableFromDocument(doc as SourceTableDocumentV3, connectionTag, syncRules, undefined, mapping)
         )
       };
