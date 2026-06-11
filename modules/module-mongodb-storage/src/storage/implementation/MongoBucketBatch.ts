@@ -1,4 +1,3 @@
-import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { HydratedSyncConfig, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
@@ -61,8 +60,6 @@ export interface MongoBucketBatchOptions {
 
   logger: Logger;
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
-
-  listSourceRecordCollections?: (groupId: number) => Promise<mongo.Collection<any>[]>;
 }
 
 export abstract class MongoBucketBatch
@@ -98,7 +95,6 @@ export abstract class MongoBucketBatch
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private hooks: storage.StorageHooks | undefined;
   private clearedError = false;
-  private listSourceRecordCollections?: (groupId: number) => Promise<mongo.Collection<any>[]>;
 
   private tracer: PerformanceTracer<'storage' | 'evaluate'>;
 
@@ -146,7 +142,6 @@ export abstract class MongoBucketBatch
     this.mapping = options.mapping;
     this.skipExistingRows = options.skipExistingRows;
     this.markRecordUnavailable = options.markRecordUnavailable;
-    this.listSourceRecordCollections = options.listSourceRecordCollections;
     this.hooks = options.hooks;
     this.batch = new OperationBatch();
 
@@ -171,28 +166,7 @@ export abstract class MongoBucketBatch
 
   protected abstract get sourceRecordStore(): SourceRecordStore;
 
-  protected async cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]) {
-    if (this.listSourceRecordCollections == null) {
-      return;
-    }
-    const collections = await this.listSourceRecordCollections(this.replicationStreamId);
-    const tableIds = new Set(sourceTables.map((t) => mongoTableId(t.id).toHexString()));
-    for (const collection of collections) {
-      const name = collection.collectionName;
-      const prefix = `source_records_${this.replicationStreamId}_`;
-      if (name.startsWith(prefix)) {
-        const tableId = name.slice(prefix.length);
-        if (tableIds.has(tableId)) {
-          await collection.drop().catch((error) => {
-            if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
-              return;
-            }
-            throw error;
-          });
-        }
-      }
-    }
-  }
+  protected abstract cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]): Promise<void>;
 
   abstract commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult>;
 
