@@ -214,7 +214,18 @@ export class PersistedBatchV3 extends PersistedBatch {
 
       const inserts: mongo.AnyBulkWriteOperation<BucketDataDocumentV3>[] = [];
 
-      if (this.objectStorage) {
+      if (!this.objectStorage) {
+        for (const [bucket, ops] of operationsByBucket.entries()) {
+          const chunks = chunkBucketData(ops);
+          for (const chunk of chunks) {
+            inserts.push({
+              insertOne: {
+                document: serializeBucketData(bucket, chunk)
+              }
+            });
+          }
+        }
+      } else {
         // S3 path: upload ops to S3, store metadata shells in MongoDB
         for (const [bucket, ops] of operationsByBucket.entries()) {
           const chunks = chunkBucketData(ops);
@@ -250,8 +261,8 @@ export class PersistedBatchV3 extends PersistedBatch {
             const compressedUint8 = await zstd.compress(bsonBuffer);
             const compressed = Buffer.from(compressedUint8);
 
-            // _id.o is maxOp (clustered index key). Path uses minOp-maxOp-maxOp for uniqueness.
-            const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}-${maxOp}`;
+            // _id.o is maxOp (clustered index key, unique per bucket).
+            const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}`;
 
             // Upload to S3
             await this.objectStorage.put(path, compressed);
@@ -268,22 +279,9 @@ export class PersistedBatchV3 extends PersistedBatch {
                   target_op: maxTargetOp,
                   storage_ref: {
                     path,
-                    compressed_size: compressed.byteLength,
-                    compression: 'zstd'
+                    compressed_size: compressed.byteLength
                   }
                 }
-              }
-            });
-          }
-        }
-      } else {
-        // Existing code path (objectStorage undefined): put ops inline in MongoDB
-        for (const [bucket, ops] of operationsByBucket.entries()) {
-          const chunks = chunkBucketData(ops);
-          for (const chunk of chunks) {
-            inserts.push({
-              insertOne: {
-                document: serializeBucketData(bucket, chunk)
               }
             });
           }

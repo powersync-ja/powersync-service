@@ -94,7 +94,6 @@ describe('S3 write path (Phase 2b red tests)', () => {
     expect(doc.storage_ref!.path).toBeTruthy();
     expect(doc.storage_ref!.compressed_size).toBeTypeOf('number');
     expect(doc.storage_ref!.compressed_size).toBeGreaterThan(0);
-    expect(doc.storage_ref!.compression).toBe('zstd');
     expect(doc.ops).toBeUndefined();
   });
 
@@ -154,7 +153,6 @@ describe('S3 write path (Phase 2b red tests)', () => {
 
     // With S3 offloading, the document MUST have storage_ref and MUST NOT have ops.
     expect(doc.storage_ref).toBeDefined();
-    expect(doc.storage_ref!.compression).toBe('zstd');
     expect(doc.storage_ref!.compressed_size).toBeTypeOf('number');
     expect(doc.storage_ref!.compressed_size).toBeGreaterThan(0);
 

@@ -492,13 +492,17 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
                 doc.ops = wrapper.ops;
               } catch (err) {
                 this.logger.warn(`Failed to fetch/decompress S3 object ${doc.storage_ref?.path}: ${err}`);
+                doc.ops = [];
               }
             })
           );
         }
       }
 
-      // Track sizes: for S3 docs use decompressed estimate, for inline use raw byteLength
+      // Track sizes: for S3 docs multiply compressed_size by 3 as a rough
+      // decompressed estimate to keep chunk byte tracking bounded. Without a
+      // multiplier, metadata shells (~200 bytes) would let thousands of
+      // S3-backed docs pack into a single chunk before splitting.
       const docSizes: number[] = rawData.map((raw, i) => {
         const doc = docs[i];
         return doc.storage_ref ? doc.storage_ref.compressed_size * 3 : raw.byteLength;
