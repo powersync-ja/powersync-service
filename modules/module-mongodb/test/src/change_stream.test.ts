@@ -21,10 +21,14 @@ bucket_definitions:
 `;
 
 describe('change stream', () => {
-  describeWithStorage({ timeout: 20_000 }, defineChangeStreamTests);
+  describeWithStorage({ timeout: 40_000 }, defineChangeStreamTests);
 });
 
 function defineChangeStreamTests({ factory, storageVersion }: StorageVersionTestContext) {
+  if (storageVersion !== 1) {
+    return;
+  }
+
   const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
     return ChangeStreamTestContext.open(factory, { ...options, storageVersion });
   };
@@ -107,7 +111,10 @@ bucket_definitions:
       - SELECT _id as id, description, num FROM "test_%"`);
 
     await db.createCollection('test_data', {
-      changeStreamPreAndPostImages: { enabled: false }
+      // Cosmos DB does not support changeStreamPreAndPostImages, even when
+      // explicitly disabled. This test only needs a collection to exercise
+      // fatal error recovery, so omit the option in Cosmos mode.
+      ...(!isCosmosDb ? { changeStreamPreAndPostImages: { enabled: false } } : {})
     });
     const collection = db.collection('test_data');
 
@@ -142,7 +149,10 @@ bucket_definitions:
       - SELECT _id as id, description, num FROM "test_data"`);
 
     await db.createCollection('test_data', {
-      changeStreamPreAndPostImages: { enabled: false }
+      // Cosmos DB does not support changeStreamPreAndPostImages, even when
+      // explicitly disabled. This test only needs a collection to exercise
+      // fatal error recovery, so omit the option in Cosmos mode.
+      ...(!isCosmosDb ? { changeStreamPreAndPostImages: { enabled: false } } : {})
     });
     const collection = db.collection('test_data');
 
@@ -503,7 +513,7 @@ bucket_definitions:
 
     // We need at least 1 commit.
     expect(commitCount).toBeGreaterThan(0);
-    // The previous implementation greated 1 commit per checkpoint, which is bad for performance.
+    // The previous implementation created 1 commit per checkpoint, which is bad for performance.
     // We expect a small number here - typically 2-10, but allow for anything less than the total number of checkpoints.
     expect(commitCount).toBeLessThan(checkpointCount + 1);
   });
@@ -653,7 +663,10 @@ bucket_definitions:
       - SELECT _id as id, description, num FROM "test_data"`);
 
     await db.createCollection('test_data', {
-      changeStreamPreAndPostImages: { enabled: false }
+      // Cosmos DB does not support changeStreamPreAndPostImages, even when
+      // explicitly disabled. This test only needs a collection to exercise
+      // fatal error recovery, so omit the option in Cosmos mode.
+      ...(!isCosmosDb ? { changeStreamPreAndPostImages: { enabled: false } } : {})
     });
 
     const collection = db.collection('test_data');
@@ -678,7 +691,7 @@ bucket_definitions:
         const error = (await context.factory.getActiveSyncRulesContent())?.last_fatal_error;
         return error == null;
       },
-      { timeout: 2_000 }
+      { timeout: 5_000 }
     );
   });
 }

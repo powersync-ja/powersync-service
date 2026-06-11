@@ -7,7 +7,11 @@ import * as service_types from '@powersync/service-types';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { MongoManager } from '../replication/MongoManager.js';
-import { constructAfterRecord, STANDALONE_CHECKPOINT_ID } from '../replication/MongoRelation.js';
+import {
+  constructAfterRecord,
+  createCosmosCheckpointLsn,
+  STANDALONE_CHECKPOINT_ID
+} from '../replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '../replication/replication-utils.js';
 import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
@@ -217,21 +221,13 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   }
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
+    if (await this.detectCosmosDb()) {
+      const head = await createCosmosCheckpointLsn(this.client, this.db);
+      return await callback(head);
+    }
+
     const session = this.client.startSession();
     try {
-      if (await this.detectCosmosDb()) {
-        // Cosmos DB: write sentinel to trigger change stream advance
-        await this.db
-          .collection(CHECKPOINTS_COLLECTION)
-          .findOneAndUpdate(
-            { _id: STANDALONE_CHECKPOINT_ID as any },
-            { $inc: { i: 1 } },
-            { upsert: true, returnDocument: 'after', session }
-          );
-        // HEAD is unknown — caller must poll storage to determine it
-        return await callback(null);
-      }
-
       // Standard MongoDB: existing path
       await this.db.command({ hello: 1 }, { session });
       const head = session.clusterTime?.clusterTime;

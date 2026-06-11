@@ -14,6 +14,7 @@ import {
 } from '@powersync/service-sync-rules';
 
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { CosmosDBLSN, normalizeSentinel } from '../common/CosmosDBLSN.js';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 
@@ -236,6 +237,40 @@ export async function createCheckpoint(
     // LSNs from getEventTimestamp().
     const fallbackTimestamp = mongo.Timestamp.fromBits(0, Math.floor(Date.now() / 1000));
     return new MongoLSN({ timestamp: fallbackTimestamp }).comparable;
+  } finally {
+    await session.endSession();
+  }
+}
+
+/**
+ * Create a Cosmos DB comparable LSN by advancing the shared standalone
+ * checkpoint document. The returned LSN uses the checkpoint increment as its
+ * ordered component instead of a wallTime-derived MongoDB timestamp.
+ *
+ * This counter is intentionally global to the source database. It is used for
+ * storage/client checkpoint comparisons and write checkpoint heads, so it must
+ * not reset when a new ChangeStream instance or new sync rules start. Stream
+ * local sentinel ids are still useful as private commit barriers, but their
+ * counters are not safe as client-visible LSN coordinates.
+ */
+export async function createCosmosCheckpointLsn(client: mongo.MongoClient, db: mongo.Db): Promise<string> {
+  const session = client.startSession();
+  try {
+    const result = await db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
+      {
+        _id: STANDALONE_CHECKPOINT_ID as any
+      },
+      {
+        $inc: { i: 1 }
+      },
+      {
+        upsert: true,
+        returnDocument: 'after',
+        session
+      }
+    );
+
+    return new CosmosDBLSN({ sentinel: normalizeSentinel(result?.i ?? 0) }).comparable;
   } finally {
     await session.endSession();
   }

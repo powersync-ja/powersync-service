@@ -17,9 +17,14 @@ import {
 } from '@powersync/service-core';
 import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
+import { CosmosDBLSN } from '@module/common/CosmosDBLSN.js';
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
 import { MongoManager } from '@module/replication/MongoManager.js';
-import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
+import {
+  createCheckpoint,
+  createCosmosCheckpointLsn,
+  STANDALONE_CHECKPOINT_ID
+} from '@module/replication/MongoRelation.js';
 import { NormalizedMongoConnectionConfig } from '@module/types/types.js';
 
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
@@ -45,6 +50,11 @@ export class ChangeStreamTestContext {
       storageVersion?: number;
       mongoOptions?: Partial<NormalizedMongoConnectionConfig>;
       streamOptions?: Partial<ChangeStreamOptions>;
+      /**
+       * Optional override for tests that need to force a mode. By default the
+       * test context detects Cosmos DB from the hello response.
+       */
+      cosmosDbMode?: boolean;
     }
   ) {
     const f = await factory({ doNotClear: options?.doNotClear });
@@ -56,8 +66,16 @@ export class ChangeStreamTestContext {
 
     const storageVersion = options?.storageVersion ?? LEGACY_STORAGE_VERSION;
     const versionedBuckets = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false;
+    const cosmosDbMode = options?.cosmosDbMode ?? (await detectCosmosDb(connectionManager.db));
 
-    return new ChangeStreamTestContext(f, connectionManager, options?.streamOptions, storageVersion, versionedBuckets);
+    return new ChangeStreamTestContext(
+      f,
+      connectionManager,
+      options?.streamOptions,
+      storageVersion,
+      versionedBuckets,
+      cosmosDbMode
+    );
   }
 
   constructor(
@@ -65,7 +83,8 @@ export class ChangeStreamTestContext {
     public connectionManager: MongoManager,
     private streamOptions: Partial<ChangeStreamOptions> = {},
     private storageVersion: number = LEGACY_STORAGE_VERSION,
-    private versionedBuckets: boolean = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false
+    private versionedBuckets: boolean = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false,
+    private cosmosDbMode: boolean = false
   ) {
     createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
     initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
@@ -175,7 +194,24 @@ export class ChangeStreamTestContext {
    * would result in inconsistent data.
    */
   async markSnapshotConsistent() {
-    const checkpoint = await createCheckpoint(this.client, this.db, STANDALONE_CHECKPOINT_ID);
+    let checkpoint: string;
+    if (this.cosmosDbMode) {
+      const sentinelCheckpoint = CosmosDBLSN.fromSerialized(await createCosmosCheckpointLsn(this.client, this.db));
+      const status = await this.storage!.getStatus();
+      const resumeFrom = status.checkpoint_lsn ?? status.snapshot_lsn;
+      const resumeToken = resumeFrom ? CosmosDBLSN.fromSerialized(resumeFrom).resumeToken : null;
+
+      // This helper artificially marks the snapshot as consistent without
+      // waiting for the stream to observe the sentinel. Keep the sentinel as the
+      // comparable position, but carry forward the existing snapshot resume
+      // token so later Cosmos streaming still resumes from a real token.
+      checkpoint = new CosmosDBLSN({
+        sentinel: sentinelCheckpoint.sentinel,
+        resume_token: resumeToken
+      }).comparable;
+    } else {
+      checkpoint = await createCheckpoint(this.client, this.db, STANDALONE_CHECKPOINT_ID);
+    }
 
     await using writer = await this.storage!.createWriter(test_utils.BATCH_OPTIONS);
     await writer.keepalive(checkpoint);
@@ -193,7 +229,9 @@ export class ChangeStreamTestContext {
   async getCheckpoint(options?: { timeout?: number }) {
     let checkpoint = await Promise.race([
       getClientCheckpoint(this.client, this.db, this.factory, {
-        timeout: options?.timeout ?? 15_000
+        timeout: options?.timeout ?? 15_000,
+        cosmosDbMode: this.cosmosDbMode,
+        storage: this.storage
       }),
       this.streamPromise?.then((e) => {
         if (e.status == 'rejected') {
@@ -274,23 +312,32 @@ export class ChangeStreamTestContext {
   }
 }
 
+async function detectCosmosDb(db: mongo.Db) {
+  const hello = await db.command({ hello: 1 });
+  return hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
+}
+
 export async function getClientCheckpoint(
   client: mongo.MongoClient,
   db: mongo.Db,
   storageFactory: BucketStorageFactory,
-  options?: { timeout?: number }
+  options?: { timeout?: number; cosmosDbMode?: boolean; storage?: SyncRulesBucketStorage }
 ): Promise<InternalOpId> {
   const start = Date.now();
+  const cosmosDbMode = options?.cosmosDbMode ?? (await detectCosmosDb(db));
 
-  const lsn = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID);
+  const lsn = cosmosDbMode
+    ? await createCosmosCheckpointLsn(client, db)
+    : await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID);
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 
   const timeout = options?.timeout ?? 50_000;
+  let lastCosmosCheckpointCreated = Date.now();
   let lastCp: ReplicationCheckpoint | null = null;
 
   while (Date.now() - start < timeout) {
-    const storage = await storageFactory.getActiveStorage();
+    const storage = options?.storage ?? (await storageFactory.getActiveStorage());
     const cp = await storage?.getCheckpoint();
     if (cp != null) {
       lastCp = cp;
@@ -298,6 +345,17 @@ export async function getClientCheckpoint(
         return cp.checkpoint;
       }
     }
+
+    if (cosmosDbMode && Date.now() - lastCosmosCheckpointCreated >= 1_000) {
+      // Cosmos streams can open from "now" when the stored LSN has no resume
+      // token. If the first standalone checkpoint was written before the
+      // cursor was actually established, nudge the stream with another
+      // sentinel. Keep waiting for the original target LSN: any later sentinel
+      // commit will compare greater than it.
+      await createCosmosCheckpointLsn(client, db);
+      lastCosmosCheckpointCreated = Date.now();
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 30));
   }
 

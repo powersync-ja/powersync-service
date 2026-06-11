@@ -259,9 +259,9 @@ bucket_definitions:
     // Insert data so the stream has something to process
     await collection.insertOne({ description: 'write_cp_test' });
 
-    // Exercise the write checkpoint flow: createReplicationHead → createWriteCheckpoint polling.
-    // On Cosmos DB, createReplicationHead passes null HEAD to the callback, and
-    // createWriteCheckpoint must poll storage for the HEAD LSN.
+    // Exercise the write checkpoint flow. On Cosmos DB, createReplicationHead
+    // uses hello.operationTime as an approximate source-side head, then writes
+    // a sentinel checkpoint document to nudge replication forward.
     const result = await createWriteCheckpoint({
       userId: 'test_user',
       clientId: 'test_client',
@@ -307,10 +307,7 @@ bucket_definitions:
     await using context2 = await openContext({ doNotClear: true });
     const db2 = context2.db;
 
-    const activeContent = await context2.factory.getActiveSyncRulesContent();
-    if (!activeContent) throw new Error('Active sync rules not found');
-    (context2 as any).syncRulesContent = activeContent;
-    context2.storage = context2.factory.getInstance(activeContent);
+    await context2.loadActiveSyncRules();
 
     context2.startStreaming();
 
@@ -376,7 +373,7 @@ bucket_definitions:
     // Wait for the data to be replicated and checkpoint to advance
     await context.getCheckpoint();
 
-    const dataBefore = await context.getBucketData('global[]');
+    const dataBefore = await context.getBucketDataAtLatestCheckpoint('global[]');
     expect(dataBefore).toMatchObject([
       test_utils.putOp('test_data', { id: id1.toHexString(), description: 'before_restart' })
     ]);
@@ -389,12 +386,7 @@ bucket_definitions:
     await using context2 = await openContext({ doNotClear: true });
     const db2 = context2.db;
 
-    // Load the existing sync rules — must set both syncRulesContent and storage
-    // for getBucketData() to work (it needs syncRulesContent for bucket versioning)
-    const activeContent = await context2.factory.getActiveSyncRulesContent();
-    if (!activeContent) throw new Error('Active sync rules not found after restart');
-    (context2 as any).syncRulesContent = activeContent;
-    context2.storage = context2.factory.getInstance(activeContent);
+    await context2.loadActiveSyncRules();
 
     context2.startStreaming();
 
@@ -406,25 +398,19 @@ bucket_definitions:
     const result2 = await collection2.insertOne({ description: 'after_restart' });
     const id2 = result2.insertedId;
 
-    // On Cosmos DB, wall-clock LSNs have second precision. The getClientCheckpoint
-    // poll can resolve before data events are committed if the checkpoint LSN
-    // matches the storage LSN (same second). This mirrors production behavior
-    // where write checkpoints may take up to ~1s to resolve on a quiet system.
-    // Use a polling approach with retries to handle this latency.
+    // On Cosmos DB, wall-clock LSNs have second precision and stored LSNs may
+    // include resume-token suffixes. Avoid creating a fresh sentinel checkpoint
+    // on every poll; read at the latest persisted checkpoint instead.
     // 50s timeout — remote Cosmos DB clusters can have 10-30s latency spikes.
     const deadline = Date.now() + 50_000;
     let found = false;
     while (Date.now() < deadline) {
-      try {
-        const dataAfter = await context2.getBucketData('global[]', undefined, { timeout: 2_000 });
-        const afterRestartOps = dataAfter.filter((op) => op.object_id === id2.toHexString() && op.op === 'PUT');
-        if (afterRestartOps.length >= 1) {
-          expect(JSON.parse(afterRestartOps[0].data as string)).toMatchObject({ description: 'after_restart' });
-          found = true;
-          break;
-        }
-      } catch {
-        // getCheckpoint may timeout — retry
+      const dataAfter = await context2.getBucketDataAtLatestCheckpoint('global[]');
+      const afterRestartOps = dataAfter.filter((op) => op.object_id === id2.toHexString() && op.op === 'PUT');
+      if (afterRestartOps.length >= 1) {
+        expect(JSON.parse(afterRestartOps[0].data as string)).toMatchObject({ description: 'after_restart' });
+        found = true;
+        break;
       }
       await setTimeout(200);
     }
