@@ -21,6 +21,24 @@ export interface SerializedSyncConfigWithMapping {
   mapping: SingleSyncConfigBucketDefinitionMapping;
 }
 
+export type IncrementalMappingDefinitionType = 'bucket_data' | 'parameter_lookup';
+
+export interface IncrementalMappingDefinitionChange {
+  type: IncrementalMappingDefinitionType;
+  name: string;
+  id: BucketDefinitionId | ParameterIndexId;
+}
+
+export interface IncrementalMappingChanges {
+  reusedDefinitions: IncrementalMappingDefinitionChange[];
+  addedDefinitions: IncrementalMappingDefinitionChange[];
+}
+
+export interface IncrementalMappingResult {
+  mapping: SingleSyncConfigBucketDefinitionMapping;
+  changes: IncrementalMappingChanges;
+}
+
 export interface SyncConfigWithMapping {
   syncConfigId?: string;
   syncConfig: SyncConfigWithErrors;
@@ -110,6 +128,14 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
     newPlan: SerializedSyncPlanV1,
     reservedMappings: SingleSyncConfigBucketDefinitionMapping[]
   ): SingleSyncConfigBucketDefinitionMapping {
+    return this.constructIncrementalMappingWithChanges(compatibleConfigs, newPlan, reservedMappings).mapping;
+  }
+
+  static constructIncrementalMappingWithChanges(
+    compatibleConfigs: SerializedSyncConfigWithMapping[],
+    newPlan: SerializedSyncPlanV1,
+    reservedMappings: SingleSyncConfigBucketDefinitionMapping[]
+  ): IncrementalMappingResult {
     let nextBucketDefinitionId =
       reservedMappings
         .map((mapping) => mapping.allBucketDefinitionIds())
@@ -133,6 +159,10 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
 
     const definitions: Record<string, BucketDefinitionId> = {};
     const parameterLookups: Record<string, ParameterIndexId> = {};
+    const changes: IncrementalMappingChanges = {
+      reusedDefinitions: [],
+      addedDefinitions: []
+    };
     const compatibleBuckets = new HashMap<SerializedBucketDataSourceWithDataSources, BucketDefinitionId>(
       serializedStreamBucketDataSourceEquality
     );
@@ -158,15 +188,39 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
       const compatibleId = compatibleBuckets.get({ bucket, dataSources: newPlan.dataSources });
       const id = compatibleId ?? generateNewBucketDefinitionId();
       definitions[bucket.uniqueName] = id;
+      const change: IncrementalMappingDefinitionChange = {
+        type: 'bucket_data',
+        name: bucket.uniqueName,
+        id
+      };
+      if (compatibleId == null) {
+        changes.addedDefinitions.push(change);
+      } else {
+        changes.reusedDefinitions.push(change);
+      }
     }
 
     for (const parameterLookup of newPlan.parameterIndexes) {
       const compatibleId = compatibleParameterLookups.get(parameterLookup);
       const id = compatibleId ?? generateNewParameterIndexId();
-      parameterLookups[parameterLookupKey(parameterLookup.lookupScope)] = id;
+      const key = parameterLookupKey(parameterLookup.lookupScope);
+      parameterLookups[key] = id;
+      const change: IncrementalMappingDefinitionChange = {
+        type: 'parameter_lookup',
+        name: key,
+        id
+      };
+      if (compatibleId == null) {
+        changes.addedDefinitions.push(change);
+      } else {
+        changes.reusedDefinitions.push(change);
+      }
     }
 
-    return new SingleSyncConfigBucketDefinitionMapping(definitions, parameterLookups);
+    return {
+      mapping: new SingleSyncConfigBucketDefinitionMapping(definitions, parameterLookups),
+      changes
+    };
   }
 
   constructor(
@@ -190,8 +244,28 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
     return Object.values(this.definitions);
   }
 
+  bucketDefinitionEntries(): IncrementalMappingDefinitionChange[] {
+    return Object.entries(this.definitions).map(([name, id]) => ({
+      type: 'bucket_data',
+      name,
+      id
+    }));
+  }
+
   allParameterIndexIds(): ParameterIndexId[] {
     return Object.values(this.parameterLookupMapping);
+  }
+
+  parameterIndexEntries(): IncrementalMappingDefinitionChange[] {
+    return Object.entries(this.parameterLookupMapping).map(([name, id]) => ({
+      type: 'parameter_lookup',
+      name,
+      id
+    }));
+  }
+
+  allDefinitionEntries(): IncrementalMappingDefinitionChange[] {
+    return [...this.bucketDefinitionEntries(), ...this.parameterIndexEntries()];
   }
 
   parameterLookupId(source: ParameterIndexLookupCreator): ParameterIndexId {

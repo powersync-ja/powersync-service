@@ -13,6 +13,10 @@ import { SingleSyncConfigBucketDefinitionMapping } from './implementation/Bucket
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { PowerSyncMongo } from './implementation/db.js';
+import {
+  describeIncrementalSyncConfigUpdate,
+  formatIncrementalSyncConfigUpdateLog
+} from './implementation/IncrementalReprocessingSyncConfigLog.js';
 import { getMongoStorageConfig, StorageConfig, SyncRuleDocumentBase } from './implementation/models.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 import { MongoPersistedReplicationStream } from './implementation/MongoPersistedReplicationStream.js';
@@ -397,6 +401,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     );
   }
 
+  private logIncrementalDefinitionChanges(changes: ReturnType<typeof describeIncrementalSyncConfigUpdate>) {
+    logger.info(`Incremental reprocessing sync config update:\n${formatIncrementalSyncConfigUpdateLog(changes)}`);
+  }
+
   private async appendSyncConfigToStream(options: {
     versioned: VersionedPowerSyncMongoV3;
     existing: ReplicationStreamDocumentV3;
@@ -414,10 +422,19 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const reservedMappings = historicalRuleMappings.map((doc) =>
       SingleSyncConfigBucketDefinitionMapping.fromSyncConfig(doc)
     );
-    const mapping = SingleSyncConfigBucketDefinitionMapping.constructIncrementalMappingFromSerializedPlans(
+    const mappingResult = SingleSyncConfigBucketDefinitionMapping.constructIncrementalMappingWithChanges(
       compatibleConfigs,
       updateOptions.config.plan!.plan,
       reservedMappings
+    );
+    const mapping = mappingResult.mapping;
+    this.logIncrementalDefinitionChanges(
+      describeIncrementalSyncConfigUpdate({
+        activeMappings: existingConfigDocs.map((doc) => SingleSyncConfigBucketDefinitionMapping.fromSyncConfig(doc)),
+        newMapping: mapping,
+        newSyncConfig: updateOptions.config.parsed,
+        mappingChanges: mappingResult.changes
+      })
     );
 
     const syncConfigDoc: SyncConfigDefinition = {
