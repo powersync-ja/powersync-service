@@ -54,14 +54,14 @@ function* walkDocumentOps(
 }
 
 function extractRowsFromDocument(
-  doc: bson.Document,
+  doc: BucketDataDocumentV3,
   context: { replicationStreamId: number; definitionId: string },
   bucketMap: Map<string, InternalOpId>,
   endOpId: InternalOpId,
   remainingLimit: number
 ): { rows: BucketDataDoc[]; remainingLimit: number; limitReached: boolean } {
   const rows: BucketDataDoc[] = [];
-  for (const row of loadBucketDataDocument(context, doc as BucketDataDocumentV3)) {
+  for (const row of loadBucketDataDocument(context, doc)) {
     const bucket = row.bucketKey.bucket;
     const bucketStart = bucketMap.get(bucket);
     if (bucketStart == null) {
@@ -473,14 +473,24 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       let chunkSizeBytes = 0;
       let sharedRemainingLimit = limit;
       let limitReached = false;
+      // Buckets whose matched document contributed no rows after filtering.
+      const completeEmptyBuckets = new Set<string>();
 
       for (const raw of rawData) {
-        const doc = bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS);
+        const doc = bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3;
         const {
           rows,
           remainingLimit,
           limitReached: docLimitReached
         } = extractRowsFromDocument(doc, context, bucketMap, end, sharedRemainingLimit);
+        if (rows.length == 0) {
+          // The document straddles the requested (start, end] window: it matched the
+          // query, but none of its ops are in range. Since its _id.o (max op) must be
+          // > end (any op <= end would have been > start, and thus in range), and
+          // document ranges per bucket are disjoint, no later document for this bucket
+          // can match either. The bucket is complete through the checkpoint.
+          completeEmptyBuckets.add(doc._id.b);
+        }
         data.push(...rows);
         documentOpCounts.push(rows.length);
         documentSizes.push(raw.byteLength);
@@ -494,7 +504,36 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
       const batchHasMore = hasMore || limitReached;
 
+      // Empty chunks are not forwarded to clients, but report progress to the caller:
+      // the bucket's position advances to the checkpoint, so it is not re-requested.
+      // If the batch produced no data at all, the last empty chunk also carries the
+      // has_more signal, so the caller re-requests the remaining buckets instead of
+      // treating an all-filtered batch as the end of the stream.
+      const emptyBuckets = Array.from(completeEmptyBuckets);
+      for (const [index, bucket] of emptyBuckets.entries()) {
+        const startOpId = bucketMap.get(bucket);
+        if (startOpId == null) {
+          throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
+        }
+        const isLastChunkOfBatch = data.length == 0 && index == emptyBuckets.length - 1;
+        yield {
+          chunkData: {
+            bucket,
+            after: internalToExternalOpId(startOpId),
+            has_more: isLastChunkOfBatch && batchHasMore,
+            data: [],
+            next_after: internalToExternalOpId(end)
+          },
+          targetOp: null
+        };
+      }
+
       if (data.length == 0) {
+        if (batchHasMore) {
+          // The remaining documents are read in the next round, after the caller has
+          // advanced the positions of the empty buckets above.
+          return;
+        }
         continue;
       }
 
