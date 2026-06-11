@@ -389,13 +389,7 @@ export class MongoCompactorV3 extends MongoCompactor {
 
     // --- Clear: collapse leading MOVE/REMOVE/CLEAR sequence ---
     if (lastNotPut != null && opsSincePut >= 2) {
-      const cleared = await this.clearBucketLeading(
-        lastNotPut,
-        bucketContext,
-        collection,
-        context,
-        resolvedDefinitionId
-      );
+      const cleared = await this.clearBucketLeading(lastNotPut, bucketContext, collection, context);
       if (cleared > 0) {
         totalOpCount = totalOpCount - cleared + 1; // cleared ops replaced by one CLEAR op
       }
@@ -433,11 +427,9 @@ export class MongoCompactorV3 extends MongoCompactor {
     lastNotPut: bigint,
     bucketContext: SingleBucketStore,
     collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
-    context: { replicationStreamId: number; definitionId: string },
-    resolvedDefinitionId: string
+    context: { replicationStreamId: number; definitionId: string }
   ): Promise<number> {
     const bucket = bucketContext.key.bucket;
-    const lowerBound = bucketContext.minId;
     let highestSeenOp = 0n;
 
     const idsToDelete: BucketDataDocumentV3['_id'][] = [];
