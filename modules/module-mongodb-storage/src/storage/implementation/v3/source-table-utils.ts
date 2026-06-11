@@ -60,8 +60,47 @@ export interface SourceTableMembershipUpdate {
   memberships: SourceTableMembershipIds;
 }
 
+export interface SourceTableDesiredResolution {
+  membershipIds: SourceTableMembershipIdSets;
+  bucketSourceById: Map<string, BucketDataSource>;
+  parameterLookupSourceById: Map<string, ParameterIndexLookupCreator>;
+}
+
+export interface NewSourceTable {
+  doc: SourceTableDocumentV3;
+  table: storage.SourceTable;
+}
+
 function sameStringArray(left: string[], right: string[]) {
   return left.length == right.length && left.every((value, index) => value == right[index]);
+}
+
+export function sourceTableDesiredResolution(
+  matchingSources: MatchingSources,
+  mapping: BucketDefinitionMapping
+): SourceTableDesiredResolution {
+  const bucketSourceById = new Map(
+    matchingSources.bucketDataSources.map((source) => [mapping.bucketSourceId(source), source] as const)
+  );
+  const parameterLookupSourceById = new Map(
+    matchingSources.parameterLookupSources.map((source) => [mapping.parameterLookupId(source), source] as const)
+  );
+
+  return {
+    bucketSourceById,
+    parameterLookupSourceById,
+    membershipIds: {
+      bucketDataSourceIds: new Set(bucketSourceById.keys()),
+      parameterLookupSourceIds: new Set(parameterLookupSourceById.keys())
+    }
+  };
+}
+
+export function planSourceTableRetention(
+  exactDocs: SourceTableDocumentV3[],
+  context: SourceTableRetentionPlanningContext
+): SourceTableRetentionPlan {
+  return new SourceTableRetentionPlanner(context).plan(exactDocs);
 }
 
 export function intersectSourceTableMembershipIds(
@@ -101,7 +140,7 @@ export function sameSourceTableMembershipIds(doc: SourceTableDocumentV3, members
   );
 }
 
-export class SourceTableRetentionPlanner {
+class SourceTableRetentionPlanner {
   private readonly coveredMembershipIds = {
     bucketDataSourceIds: new Set<string>(),
     parameterLookupSourceIds: new Set<string>()
@@ -251,6 +290,64 @@ export function overlappingSourceTableFilter(
     connection_id: connectionId,
     $or: clauses
   };
+}
+
+export function createNewSourceTable(options: {
+  id: SourceTableDocumentV3['_id'];
+  connectionId: number;
+  source: storage.SourceEntityDescriptor;
+  replicaIdColumns: NonNullable<SourceTableDocumentV3['replica_id_columns']>;
+  memberships: SourceTableMembershipIds;
+  syncRules: HydratedSyncConfig;
+  mapping: BucketDefinitionMapping;
+  bucketSourceById: Map<string, BucketDataSource>;
+  parameterLookupSourceById: Map<string, ParameterIndexLookupCreator>;
+}): NewSourceTable {
+  const { id, connectionId, source, replicaIdColumns, memberships, syncRules, mapping } = options;
+  const doc: SourceTableDocumentV3 = {
+    _id: id,
+    connection_id: connectionId,
+    relation_id: source.objectId,
+    schema_name: source.schema,
+    table_name: source.name,
+    replica_id_columns: replicaIdColumns,
+    snapshot_done: false,
+    snapshot_status: undefined,
+    bucket_data_source_ids: memberships.bucketDataSourceIds,
+    parameter_lookup_source_ids: memberships.parameterLookupSourceIds
+  };
+  const table = sourceTableFromDocument(doc, source.connectionTag, syncRules, mapping, {
+    bucketDataSources: memberships.bucketDataSourceIds.map((id) => options.bucketSourceById.get(id)!),
+    parameterLookupSources: memberships.parameterLookupSourceIds.map((id) => options.parameterLookupSourceById.get(id)!)
+  });
+  table.storeCurrentData = source.sendsCompleteRows !== true;
+
+  return { doc, table };
+}
+
+export function designateEventCarrier(tables: storage.SourceTable[], triggersEvent: boolean) {
+  if (!triggersEvent) {
+    return;
+  }
+
+  const eventCarrier = tables.find((table) => table.snapshotComplete) ?? tables[0];
+  for (const table of tables) {
+    table.syncEvent = table === eventCarrier;
+  }
+}
+
+export function conflictingSourceTableDocs(
+  candidateDocs: SourceTableDocumentV3[],
+  retainedDocIds: SourceTableDocumentV3['_id'][],
+  currentIdentity: SourceTableIdentity,
+  options: { dropSameIdentity: boolean }
+) {
+  const retainedDocIdStrings = new Set(retainedDocIds.map((id) => id.toHexString()));
+  return candidateDocs.filter(
+    (doc) =>
+      !retainedDocIdStrings.has(doc._id.toHexString()) &&
+      (options.dropSameIdentity || !matchingSourceTableIdentity(doc, currentIdentity))
+  );
 }
 
 export function sourceTableMembershipsFromDocument(

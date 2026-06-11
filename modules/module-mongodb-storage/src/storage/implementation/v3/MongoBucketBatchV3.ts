@@ -14,10 +14,14 @@ import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { ReplicationStreamDocumentV3, SourceTableDocumentV3 } from './models.js';
 import {
-  SourceTableRetentionPlanner,
+  conflictingSourceTableDocs,
+  createNewSourceTable,
+  designateEventCarrier,
   hasSourceTableMembershipIds,
   matchingSourceTableIdentity,
   overlappingSourceTableFilter,
+  planSourceTableRetention,
+  sourceTableDesiredResolution,
   sourceTableFromDocument,
   uncoveredSourceTableMembershipIds
 } from './source-table-utils.js';
@@ -166,21 +170,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         .find(overlappingSourceTableFilter(connection_id, currentIdentity), { session })
         .toArray();
       const exactDocs = candidateDocs.filter((doc) => matchingSourceTableIdentity(doc, currentIdentity));
-      const bucketSourceById = new Map(
-        matchingSources.bucketDataSources.map((source) => [mapping.bucketSourceId(source), source] as const)
-      );
-      const parameterLookupSourceById = new Map(
-        matchingSources.parameterLookupSources.map((source) => [mapping.parameterLookupId(source), source] as const)
-      );
-      const desiredBucketIds = new Set(bucketSourceById.keys());
-      const desiredLookupIds = new Set(parameterLookupSourceById.keys());
-      const desiredMembershipIds = {
-        bucketDataSourceIds: desiredBucketIds,
-        parameterLookupSourceIds: desiredLookupIds
-      };
+      const desired = sourceTableDesiredResolution(matchingSources, mapping);
       const triggersEvent = syncRules.tableTriggersEvent(ref);
 
-      const { coveredMembershipIds, retainedDocIds, tables, narrowingUpdates } = new SourceTableRetentionPlanner({
+      const { coveredMembershipIds, retainedDocIds, tables, narrowingUpdates } = planSourceTableRetention(exactDocs, {
         source: {
           schema,
           name,
@@ -193,12 +186,12 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           mapping
         },
         desired: {
-          membershipIds: desiredMembershipIds,
+          membershipIds: desired.membershipIds,
           triggersEvent,
-          bucketSourceById,
-          parameterLookupSourceById
+          bucketSourceById: desired.bucketSourceById,
+          parameterLookupSourceById: desired.parameterLookupSourceById
         }
-      }).plan(exactDocs);
+      });
 
       for (const update of narrowingUpdates) {
         await col.updateOne(
@@ -213,54 +206,33 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         );
       }
 
-      const uncoveredMembershipIds = uncoveredSourceTableMembershipIds(desiredMembershipIds, coveredMembershipIds);
+      const uncoveredMembershipIds = uncoveredSourceTableMembershipIds(desired.membershipIds, coveredMembershipIds);
 
       if (hasSourceTableMembershipIds(uncoveredMembershipIds) || (triggersEvent && tables.length == 0)) {
         const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
-        const createDoc: SourceTableDocumentV3 = {
-          _id: id,
-          connection_id,
-          relation_id: objectId,
-          schema_name: schema,
-          table_name: name,
-          replica_id_columns: normalizedReplicaIdColumns,
-          snapshot_done: false,
-          snapshot_status: undefined,
-          bucket_data_source_ids: uncoveredMembershipIds.bucketDataSourceIds,
-          parameter_lookup_source_ids: uncoveredMembershipIds.parameterLookupSourceIds
-        };
-        const sourceTable = sourceTableFromDocument(createDoc, connectionTag, syncRules, mapping, {
-          bucketDataSources: uncoveredMembershipIds.bucketDataSourceIds.map((id) => bucketSourceById.get(id)!),
-          parameterLookupSources: uncoveredMembershipIds.parameterLookupSourceIds.map(
-            (id) => parameterLookupSourceById.get(id)!
-          )
+        const newSourceTable = createNewSourceTable({
+          id,
+          connectionId: connection_id,
+          source,
+          replicaIdColumns: normalizedReplicaIdColumns,
+          memberships: uncoveredMembershipIds,
+          syncRules,
+          mapping,
+          bucketSourceById: desired.bucketSourceById,
+          parameterLookupSourceById: desired.parameterLookupSourceById
         });
-        sourceTable.storeCurrentData = sendsCompleteRows !== true;
 
-        await col.insertOne(createDoc, { session });
-        await this.db.initializeSourceRecordsCollection(this.replicationStreamId, createDoc._id, session);
-        retainedDocIds.push(createDoc._id);
-        tables.push(sourceTable);
+        await col.insertOne(newSourceTable.doc, { session });
+        await this.db.initializeSourceRecordsCollection(this.replicationStreamId, newSourceTable.doc._id, session);
+        retainedDocIds.push(newSourceTable.doc._id);
+        tables.push(newSourceTable.table);
       }
 
-      if (triggersEvent) {
-        // A single source row change must fire each event only once, even when memberships
-        // are split over multiple source tables (connectors save each row change once per
-        // table, and save() fires events per call). Designate one table per ref as the
-        // event carrier. Prefer a snapshot-complete table, so that snapshotting a new
-        // table for added definitions does not replay events for existing rows.
-        const eventCarrier = tables.find((table) => table.snapshotComplete) ?? tables[0];
-        for (const table of tables) {
-          table.syncEvent = table === eventCarrier;
-        }
-      }
+      designateEventCarrier(tables, triggersEvent);
 
-      const retainedDocIdStrings = new Set(retainedDocIds.map((id) => id.toHexString()));
-      const conflictingTables = candidateDocs.filter(
-        (doc) =>
-          !retainedDocIdStrings.has(doc._id.toHexString()) &&
-          (parsedOverride != null || !matchingSourceTableIdentity(doc, currentIdentity))
-      );
+      const conflictingTables = conflictingSourceTableDocs(candidateDocs, retainedDocIds, currentIdentity, {
+        dropSameIdentity: parsedOverride != null
+      });
 
       result = {
         tables,
