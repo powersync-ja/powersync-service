@@ -155,7 +155,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     }));
 
     let result: storage.ResolveTablesResult | null = null;
-    let ensureSourceRecordIndexesFor: bson.ObjectId[] = [];
     const session = this.db.client.startSession();
     await using _ = { [Symbol.asyncDispose]: () => session.endSession() };
 
@@ -239,6 +238,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         sourceTable.storeCurrentData = sendsCompleteRows !== true;
 
         await col.insertOne(createDoc, { session });
+        await this.db.initializeSourceRecordsCollection(this.replicationStreamId, createDoc._id, session);
         retainedDocIds.push(createDoc._id);
         tables.push(sourceTable);
       }
@@ -254,7 +254,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           table.syncEvent = table === eventCarrier;
         }
       }
-      ensureSourceRecordIndexesFor = retainedDocIds;
 
       const retainedDocIdStrings = new Set(retainedDocIds.map((id) => id.toHexString()));
       const conflictingTables = candidateDocs.filter(
@@ -268,14 +267,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         dropTables: conflictingTables.map((doc) => sourceTableFromDocument(doc, connectionTag, syncRules, mapping))
       };
     });
-
-    // Index creation is idempotent. Running it for all retained tables - not only newly
-    // created ones - heals the index if an earlier resolveTables crashed between inserting
-    // the document and reaching this point (this runs outside the session on purpose, since
-    // index creation cannot be transactional).
-    for (const sourceTableId of ensureSourceRecordIndexesFor) {
-      await this.db.initializeSourceRecordsCollection(this.replicationStreamId, sourceTableId);
-    }
 
     return result!;
   }
