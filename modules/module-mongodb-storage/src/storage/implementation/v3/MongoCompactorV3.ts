@@ -195,6 +195,9 @@ export class MongoCompactorV3 extends MongoCompactor {
         const doc = rawBatch[i] as any;
         let docSize = Number(doc.bsonSize);
         if (doc.storage_ref) {
+          // compressed_size * 3: rough decompressed estimate to keep batch memory bounded.
+          // Without a multiplier, the byte limiter sees metadata shells (~200 bytes) and
+          // packs thousands per batch, then Promise.all decompresses all at once.
           docSize += (doc.storage_ref.compressed_size ?? 0) * 3;
         }
         cumulativeBytes += docSize;
@@ -210,7 +213,7 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       // Pre-fetch S3 objects for all S3-backed docs in this batch
       if (this.storage.objectStorage) {
-        const s3Docs = batchDocs.filter((d: any) => d.storage_ref);
+        const s3Docs = batchDocs.filter((d: BucketDataDocumentV3) => d.storage_ref);
         if (s3Docs.length > 0) {
           await Promise.all(
             s3Docs.map(async (doc: any) => {
@@ -221,6 +224,7 @@ export class MongoCompactorV3 extends MongoCompactor {
                 doc.ops = wrapper.ops;
               } catch (err) {
                 this.logger.warn(`Compaction: failed to fetch/decompress S3 object ${doc.storage_ref?.path}: ${err}`);
+                doc.ops = [];
               }
             })
           );
@@ -334,14 +338,16 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       // Track old S3 refs for cleanup
       const oldStorageRefs: string[] = processableDocs
-        .filter((d: any) => d.storage_ref)
-        .map((d: any) => d.storage_ref.path);
+        .filter((d: BucketDataDocumentV3) => d.storage_ref)
+        .map((d: BucketDataDocumentV3) => d.storage_ref!.path);
 
       let newDocs: BucketDataDocumentV3[];
       const newStoragePaths = new Set<string>();
 
-      // If object storage is configured, upload before transaction
-      if (this.storage.objectStorage) {
+      if (!this.storage.objectStorage) {
+        newDocs = chunks.map((chunk) => serializeBucketData(bucket, chunk));
+      } else if (this.storage.objectStorage) {
+        // If object storage is configured, upload before transaction
         newDocs = [];
         for (const chunk of chunks) {
           const minOp = chunk[0].o;
@@ -371,7 +377,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           const bsonBuffer = Buffer.from(bson.serialize({ ops: bucketOps }));
           const compressedUint8 = await zstd.compress(bsonBuffer);
           const compressed = Buffer.from(compressedUint8);
-          const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${minOp}-${maxOp}-${maxOp}`;
+          const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${minOp}-${maxOp}`;
           await this.storage.objectStorage.put(path, compressed);
           newStoragePaths.add(path);
 
@@ -384,16 +390,11 @@ export class MongoCompactorV3 extends MongoCompactor {
             target_op: maxTargetOp,
             storage_ref: {
               path,
-              compressed_size: compressed.byteLength,
-              compression: 'zstd'
+              compressed_size: compressed.byteLength
             }
           });
         }
-      } else {
-        // EXISTING inline path
-        newDocs = chunks.map((chunk) => serializeBucketData(bucket, chunk));
       }
-
       // --- Commit: scoped delete + insert in transaction ---
       const session = this.db.client.startSession();
       try {
@@ -596,8 +597,8 @@ export class MongoCompactorV3 extends MongoCompactor {
           // Boundary inside this document: split
           boundaryFound = true;
           idsToDelete.push(doc._id);
-          if ((doc as any).storage_ref?.path) {
-            oldRefs.push((doc as any).storage_ref.path);
+          if (doc.storage_ref?.path) {
+            oldRefs.push(doc.storage_ref.path);
           }
           expectedDocCount++;
           expectedChecksum += doc.checksum;
@@ -623,8 +624,8 @@ export class MongoCompactorV3 extends MongoCompactor {
         } else {
           // Entire doc is in CLEAR region
           idsToDelete.push(doc._id);
-          if ((doc as any).storage_ref?.path) {
-            oldRefs.push((doc as any).storage_ref.path);
+          if (doc.storage_ref?.path) {
+            oldRefs.push(doc.storage_ref.path);
           }
           expectedDocCount++;
           expectedChecksum += doc.checksum;
@@ -665,7 +666,23 @@ export class MongoCompactorV3 extends MongoCompactor {
     let clearDoc: BucketDataDocumentV3;
     let boundaryDocShells: BucketDataDocumentV3[];
 
-    if (this.storage.objectStorage) {
+    if (!this.storage.objectStorage) {
+      const clearOp = {
+        bucketKey: { ...context, bucket },
+        o: lastNotPut,
+        op: 'CLEAR' as const,
+        checksum: combinedChecksum,
+        data: null,
+        target_op: maxTargetOp
+      } satisfies BucketDataDoc;
+      clearDoc = serializeBucketData(bucket, [clearOp]);
+
+      boundaryDocShells =
+        boundarySurvivors.length > 0
+          ? chunkBucketData(boundarySurvivors).map((chunk) => serializeBucketData(bucket, chunk))
+          : [];
+    } else {
+      // S3 path: upload to object storage
       // --- CLEAR doc: upload to S3, build metadata shell ---
       {
         const clearOp: BucketDataDoc = {
@@ -693,7 +710,7 @@ export class MongoCompactorV3 extends MongoCompactor {
         const bsonBuffer = Buffer.from(bson.serialize({ ops: bucketOps }));
         const compressedUint8 = await zstd.compress(bsonBuffer);
         const compressed = Buffer.from(compressedUint8);
-        const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${lastNotPut}-${lastNotPut}-${lastNotPut}`;
+        const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${lastNotPut}-${lastNotPut}`;
         await this.storage.objectStorage.put(path, compressed);
         newStoragePaths.add(path);
 
@@ -706,8 +723,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           target_op: maxTargetOp,
           storage_ref: {
             path,
-            compressed_size: compressed.byteLength,
-            compression: 'zstd'
+            compressed_size: compressed.byteLength
           }
         };
       }
@@ -744,7 +760,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           const bsonBuffer = Buffer.from(bson.serialize({ ops: bucketOps }));
           const compressedUint8 = await zstd.compress(bsonBuffer);
           const compressed = Buffer.from(compressedUint8);
-          const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${minOp}-${maxOp}-${maxOp}`;
+          const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${minOp}-${maxOp}`;
           await this.storage.objectStorage.put(path, compressed);
           newStoragePaths.add(path);
 
@@ -757,28 +773,11 @@ export class MongoCompactorV3 extends MongoCompactor {
             target_op: chunkMaxTargetOp,
             storage_ref: {
               path,
-              compressed_size: compressed.byteLength,
-              compression: 'zstd'
+              compressed_size: compressed.byteLength
             }
           });
         }
       }
-    } else {
-      // Inline path (existing behavior)
-      const clearOp = {
-        bucketKey: { ...context, bucket },
-        o: lastNotPut,
-        op: 'CLEAR' as const,
-        checksum: combinedChecksum,
-        data: null,
-        target_op: maxTargetOp
-      } satisfies BucketDataDoc;
-      clearDoc = serializeBucketData(bucket, [clearOp]);
-
-      boundaryDocShells =
-        boundarySurvivors.length > 0
-          ? chunkBucketData(boundarySurvivors).map((chunk) => serializeBucketData(bucket, chunk))
-          : [];
     }
 
     // --- Write: single atomic transaction ---

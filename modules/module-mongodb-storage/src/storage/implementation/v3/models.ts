@@ -137,7 +137,6 @@ export interface BucketOperation {
 export interface StorageRef {
   path: string;
   compressed_size: number;
-  compression: 'zstd';
 }
 
 export interface BucketDataDocumentV3 {

@@ -124,8 +124,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
       target_op: null,
       storage_ref: {
         path: 'nonexistent/missing-object/path',
-        compressed_size: 100,
-        compression: 'zstd'
+        compressed_size: 100
       }
       // Intentionally no ops[] — the S3 object at this path does not exist
     } as any);
