@@ -38,7 +38,7 @@ export const SYNC_SNAPSHOT_PATH = path.resolve(__dirname, '../__snapshots/sync.t
  */
 export function registerSyncTests(
   configOrFactory: storage.TestStorageConfig | storage.TestStorageFactory,
-  options: { storageVersion?: number; tableIdStrings?: boolean; compressedBucketStorage?: boolean } = {}
+  options: { storageVersion?: number; tableIdStrings?: boolean } = {}
 ) {
   const config: storage.TestStorageConfig =
     typeof configOrFactory == 'function'
@@ -1195,63 +1195,47 @@ bucket_definitions:
     // in this test.
     expect(lines2).toMatchSnapshot();
 
-    if (options.compressedBucketStorage) {
-      // v3+ converts superseded ops to MOVE tombstones during the MOVE pass,
-      // then the CLEAR pass collapses the leading MOVE sequence into a CLEAR op.
-      expect(lines2[0]).toEqual({
-        data: expect.objectContaining({
-          has_more: false,
-          data: [
-            // The first two ops have been replaced by a single CLEAR op
-            expect.objectContaining({
-              op: 'CLEAR'
-            })
-          ]
-        })
-      });
-    } else {
-      expect(lines2[0]).toEqual({
-        data: expect.objectContaining({
-          has_more: false,
-          data: [
-            // The first two ops have been replaced by a single CLEAR op
-            expect.objectContaining({
-              op: 'CLEAR'
-            })
-          ]
-        })
-      });
+    expect(lines2[0]).toEqual({
+      data: expect.objectContaining({
+        has_more: false,
+        data: [
+          // The first two ops have been replaced by a single CLEAR op
+          expect.objectContaining({
+            op: 'CLEAR'
+          })
+        ]
+      })
+    });
 
-      // Note: No checkpoint_complete here, since the checkpoint has been
-      // invalidated by the CLEAR op.
+    // Note: No checkpoint_complete here, since the checkpoint has been
+    // invalidated by the CLEAR op.
 
-      expect(lines2[1]).toEqual({
-        checkpoint_diff: expect.objectContaining({
-          last_op_id: '4'
-        })
-      });
+    expect(lines2[1]).toEqual({
+      checkpoint_diff: expect.objectContaining({
+        last_op_id: '4'
+      })
+    });
 
-      expect(lines2[2]).toEqual({
-        data: expect.objectContaining({
-          has_more: false,
-          data: [
-            expect.objectContaining({
-              op: 'PUT'
-            }),
-            expect.objectContaining({
-              op: 'PUT'
-            })
-          ]
-        })
-      });
+    expect(lines2[2]).toEqual({
+      data: expect.objectContaining({
+        has_more: false,
+        data: [
+          expect.objectContaining({
+            op: 'PUT'
+          }),
+          expect.objectContaining({
+            op: 'PUT'
+          })
+        ]
+      })
+    });
 
-      // Now we get a checkpoint_complete
-      expect(lines2[3]).toEqual({
-        checkpoint_complete: expect.objectContaining({
-          last_op_id: '4'
-        })
-      });
-    }
+    // Now we get a checkpoint_complete
+    expect(lines2[3]).toEqual({
+      checkpoint_complete: expect.objectContaining({
+        last_op_id: '4'
+      })
+    });
   });
 
   test('write checkpoint', async () => {

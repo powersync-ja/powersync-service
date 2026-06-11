@@ -70,8 +70,7 @@ function hydratedRulesFor(yaml: string) {
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
   register.registerSyncTests(storageConfig.factory, {
     storageVersion,
-    tableIdStrings: storageConfig.tableIdStrings,
-    compressedBucketStorage: storageVersion >= 3
+    tableIdStrings: storageConfig.tableIdStrings
   });
   // The split of returned results can vary depending on storage drivers
   test('large batch (2)', async () => {

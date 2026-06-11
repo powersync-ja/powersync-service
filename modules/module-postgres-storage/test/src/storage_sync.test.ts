@@ -14,8 +14,7 @@ function registerStorageVersionTests(storageVersion: number) {
 
     register.registerSyncTests(storageFactory.factory, {
       storageVersion,
-      tableIdStrings: storageFactory.tableIdStrings,
-      compressedBucketStorage: false
+      tableIdStrings: storageFactory.tableIdStrings
     });
 
     test('large batch (2)', async () => {
