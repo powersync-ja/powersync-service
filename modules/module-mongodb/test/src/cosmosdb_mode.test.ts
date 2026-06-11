@@ -1,12 +1,13 @@
 import { setTimeout } from 'node:timers/promises';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import { createWriteCheckpoint } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
+import { mongo } from '@powersync/lib-service-mongodb';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
-import { describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
+import { connectMongoData, describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -26,6 +27,17 @@ bucket_definitions:
 // commit history on the cosmos branch for the full investigation.
 const isCosmosDb = process.env.COSMOS_DB_TEST === 'true';
 describe.skipIf(!isCosmosDb)('cosmosDbMode', () => {
+  test('prints hello response and detects Cosmos DB', async () => {
+    const { client, db } = await connectMongoData();
+    try {
+      const hello = await db.command({ hello: 1 });
+      console.dir({ hello }, { depth: null });
+      expect(hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null).toBe(true);
+    } finally {
+      await client.close();
+    }
+  });
+
   // 120s timeout — remote Cosmos DB clusters can have 10-30s latency spikes
   // for change stream delivery. Tests that poll for data need headroom.
   describeWithStorage({ timeout: 120_000 }, defineCosmosDbModeTests);
@@ -128,6 +140,99 @@ bucket_definitions:
     expect(data.length).toBeGreaterThanOrEqual(1);
     const lastOp = data[data.length - 1];
     expect(JSON.parse(lastOp.data as string)).toMatchObject({ description: 'after_keepalive' });
+  });
+
+  test.skipIf(storageVersion !== 1)('respects maxAwaitTimeMS for idle getMore calls in cosmosDbMode', async () => {
+    const maxAwaitTimeMS = 2_000;
+
+    await using context = await openContext({
+      streamOptions: {
+        maxAwaitTimeMS
+      }
+    });
+
+    // Cosmos DB uses a cluster-level change stream through client.db('admin'), so
+    // spying on only context.db.command would miss the getMore calls. Spying on
+    // the Db prototype captures command calls from both the test DB and admin DB
+    // while still delegating to the real MongoDB driver implementation.
+    const dbPrototype = Object.getPrototypeOf(context.db);
+    const originalCommand = dbPrototype.command;
+    const getMoreTimings: {
+      collection: unknown;
+      maxTimeMS: unknown;
+      durationMS: number;
+      nextBatchLength: number | undefined;
+    }[] = [];
+    const commandSpy = vi.spyOn(dbPrototype, 'command').mockImplementation(async function (
+      this: unknown,
+      command: any,
+      options?: any
+    ) {
+      if (command?.getMore == null) {
+        return originalCommand.call(this, command, options);
+      }
+
+      // Measure the actual round-trip duration of the driver's getMore command.
+      // This verifies the server waits for maxTimeMS when the change stream is
+      // idle, rather than returning empty batches immediately.
+      const start = performance.now();
+      let result: any;
+      try {
+        result = await originalCommand.call(this, command, options);
+        return result;
+      } finally {
+        const cursor = Buffer.isBuffer(result?.cursor)
+          ? mongo.BSON.deserialize(result.cursor, {
+              useBigInt64: true,
+              fieldsAsRaw: { nextBatch: true },
+              validation: { utf8: false }
+            })
+          : result?.cursor;
+
+        getMoreTimings.push({
+          collection: command.collection,
+          maxTimeMS: command.maxTimeMS,
+          durationMS: Math.round(performance.now() - start),
+          nextBatchLength: cursor?.nextBatch?.length
+        });
+      }
+    });
+
+    try {
+      const { db } = context;
+      await context.updateSyncRules(BASIC_SYNC_RULES);
+
+      await db.createCollection('test_data');
+      const collection = db.collection('test_data');
+
+      await context.replicateSnapshot();
+      context.startStreaming();
+
+      const result = await collection.insertOne({ description: 'maxAwaitTimeMS_test' });
+      await context.getBucketData('global[]');
+
+      // Once the stream has caught up, the latest getMore call should eventually
+      // be an idle poll. That idle poll should wait for maxTimeMS instead of
+      // returning immediately, and the response should contain an empty batch.
+      await vi.waitFor(
+        () => {
+          const lastGetMore = getMoreTimings.at(-1);
+          expect(lastGetMore?.durationMS).toBeGreaterThanOrEqual(maxAwaitTimeMS);
+          expect(lastGetMore?.nextBatchLength).toEqual(0);
+        },
+        {
+          timeout: maxAwaitTimeMS + 2_000,
+          interval: 100
+        }
+      );
+
+      console.dir({ getMoreMaxAwaitTimeMSTimings: getMoreTimings }, { depth: null });
+
+      expect(result.insertedId).toBeTruthy();
+      expect(getMoreTimings.length).toBeGreaterThan(0);
+    } finally {
+      commandSpy.mockRestore();
+    }
   });
 
   test('write checkpoint flow in cosmosDbMode', async () => {

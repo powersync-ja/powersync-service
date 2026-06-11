@@ -123,6 +123,18 @@ export class ChangeStreamTestContext {
     return this.storage!;
   }
 
+  async loadActiveSyncRules() {
+    const syncRules = await this.factory.getActiveSyncRulesContent();
+    if (syncRules == null) {
+      throw new Error(`Active sync rules not found`);
+    }
+
+    this.syncRulesId = syncRules.id;
+    this.syncRulesContent = syncRules;
+    this.storage = this.factory.getInstance(syncRules);
+    return this.storage!;
+  }
+
   private getSyncRulesContent(): storage.PersistedSyncRulesContent {
     if (this.syncRulesContent == null) {
       throw new Error('Sync rules not configured - call updateSyncRules() first');
@@ -205,12 +217,29 @@ export class ChangeStreamTestContext {
   }
 
   async getBucketData(bucket: string, start?: ProtocolOpId | InternalOpId | undefined, options?: { timeout?: number }) {
+    const checkpoint = await this.getCheckpoint(options);
+    return this.getBucketDataAtCheckpoint(bucket, checkpoint, start);
+  }
+
+  async getBucketDataAtLatestCheckpoint(bucket: string, start?: ProtocolOpId | InternalOpId | undefined) {
+    if (this.storage == null) {
+      throw new Error('updateSyncRules() first');
+    }
+
+    const checkpoint = await this.storage.getCheckpoint();
+    return this.getBucketDataAtCheckpoint(bucket, checkpoint.checkpoint, start);
+  }
+
+  async getBucketDataAtCheckpoint(
+    bucket: string,
+    checkpoint: InternalOpId,
+    start?: ProtocolOpId | InternalOpId | undefined
+  ) {
     start ??= 0n;
     if (typeof start == 'string') {
       start = BigInt(start);
     }
     const syncRules = this.getSyncRulesContent();
-    const checkpoint = await this.getCheckpoint(options);
     let map = [bucketRequest(syncRules, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
