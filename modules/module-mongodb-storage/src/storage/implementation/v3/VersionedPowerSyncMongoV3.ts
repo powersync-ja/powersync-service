@@ -38,7 +38,7 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
   }
 
   commonSourceTables(replicationStreamId: number): mongo.Collection<CommonSourceTableDocument> {
-    return this.sourceTablesV3(replicationStreamId) as mongo.Collection<CommonSourceTableDocument>;
+    return this.sourceTablesV3(replicationStreamId) as any as mongo.Collection<CommonSourceTableDocument>;
   }
 
   bucketStateV3(replicationStreamId: number): mongo.Collection<BucketStateDocumentV3> {

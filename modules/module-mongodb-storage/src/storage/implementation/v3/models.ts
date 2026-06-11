@@ -9,7 +9,7 @@ import {
   BucketStateDocumentBase,
   CurrentBucket,
   ReplicaId,
-  SourceTableDocument,
+  SourceTableDocumentSnapshotStatus,
   SourceTableKey,
   SyncRuleCheckpointFields,
   SyncRuleDocumentBase,
@@ -176,7 +176,16 @@ export function taggedBucketParameterDocumentToV3(document: TaggedBucketParamete
   return rest as BucketParameterDocumentV3;
 }
 
-export interface SourceTableDocumentV3 extends SourceTableDocument {
+export interface SourceTableDocumentV3 {
+  _id: bson.ObjectId;
+  connection_id: number;
+  relation_id: number | string | undefined;
+  schema_name: string;
+  table_name: string;
+  replica_id_columns: string[] | null;
+  replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
+  snapshot_done: boolean | undefined;
+  snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
   latest_pending_delete?: InternalOpId | undefined;

@@ -382,7 +382,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
     const doc = (await this.db
-      .commonSourceTables(this.replicationStreamId)
+      .sourceTablesV3(this.replicationStreamId)
       .findOne({ _id: mongoTableId(table.id) }, { session: this.session })) as SourceTableDocumentV3 | null;
     if (doc == null) {
       return null;
@@ -760,7 +760,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const syncConfigIds = this.relevantSyncConfigIdsForTables(tables);
 
     await this.withTransaction(async () => {
-      await this.db.commonSourceTables(this.replicationStreamId).updateMany(
+      await this.db.sourceTablesV3(this.replicationStreamId).updateMany(
         { _id: { $in: ids } },
         {
           $set: {

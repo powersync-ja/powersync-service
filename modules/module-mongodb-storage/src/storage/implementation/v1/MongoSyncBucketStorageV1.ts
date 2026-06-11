@@ -271,7 +271,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     await this.clearDeleteMany(
       'source tables',
       () =>
-        this.db.commonSourceTables(this.replicationStreamId).deleteMany(
+        this.db.sourceTablesV1(this.replicationStreamId).deleteMany(
           {
             group_id: this.replicationStreamId
           },
