@@ -218,6 +218,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
         const updates: Partial<SourceTableDocumentV3> = {};
         if (
+          (parsedOverride != null || coversDesiredMembership || coversEventOnlyTable) &&
           !snapshotDone(doc) &&
           (!sameStringArray(doc.bucket_data_source_ids, bucketDataSourceIds) ||
             !sameStringArray(doc.parameter_lookup_source_ids, parameterLookupSourceIds))
@@ -307,11 +308,11 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         .toArray();
       const conflictingTables = dropTables.filter(
         (doc) =>
+          parsedOverride != null ||
           !(
             doc.schema_name == schema &&
             doc.table_name == name &&
             (objectId == null || doc.relation_id == objectId) &&
-            snapshotDone(doc as SourceTableDocumentV3) &&
             sameReplicaIdColumns(doc.replica_id_columns2, normalizedReplicaIdColumns)
           )
       );

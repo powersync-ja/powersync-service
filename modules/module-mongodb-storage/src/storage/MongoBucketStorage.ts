@@ -336,7 +336,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     session: mongo.ClientSession
   ) {
     const activeConfigIds = existing.sync_configs
-      .filter((config) => [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.PROCESSING].includes(config.state))
+      .filter((config) => config.state == storage.SyncRuleState.ACTIVE)
       .map((config) => config._id);
 
     return versioned.syncConfigDefinitions
