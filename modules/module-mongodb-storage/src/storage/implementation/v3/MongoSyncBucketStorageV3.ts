@@ -447,7 +447,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       const context = { replicationStreamId: this.replicationStreamId, definitionId };
       const limit = remainingLimit;
 
-      const cursorOptions: { limit?: number; batchSize?: number } = {};
+      const cursorOptions = { limit: remainingLimit, batchSize: remainingLimit + 1 };
 
       // raw: true returns Buffers, but the driver typing doesn't reflect that
       // without an explicit cast to FindCursor<Buffer>.
