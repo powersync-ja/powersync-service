@@ -1,10 +1,8 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { ColumnDescriptor, storage } from '@powersync/service-core';
-import { HydratedSyncConfig, MatchingSources } from '@powersync/service-sync-rules';
+import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
-import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { canCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoParsedSyncConfigSet } from '../MongoParsedSyncConfigSet.js';
@@ -15,7 +13,14 @@ import { PersistedBatchV3 } from './PersistedBatchV3.js';
 import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { ReplicationStreamDocumentV3, SourceTableDocumentV3 } from './models.js';
-import { matchingSourceTableIdentity, overlappingSourceTableFilter, sameStringArray } from './source-table-utils.js';
+import {
+  SourceTableRetentionPlanner,
+  hasSourceTableMembershipIds,
+  matchingSourceTableIdentity,
+  overlappingSourceTableFilter,
+  sourceTableFromDocument,
+  uncoveredSourceTableMembershipIds
+} from './source-table-utils.js';
 
 export class MongoBucketBatchV3 extends MongoBucketBatch {
   declare public readonly db: VersionedPowerSyncMongoV3;
@@ -170,83 +175,48 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       );
       const desiredBucketIds = new Set(bucketSourceById.keys());
       const desiredLookupIds = new Set(parameterLookupSourceById.keys());
-      const desiredHasMembership = desiredBucketIds.size > 0 || desiredLookupIds.size > 0;
+      const desiredMembershipIds = {
+        bucketDataSourceIds: desiredBucketIds,
+        parameterLookupSourceIds: desiredLookupIds
+      };
       const triggersEvent = syncRules.tableTriggersEvent(ref);
 
-      const coveredBucketIds = new Set<string>();
-      const coveredLookupIds = new Set<string>();
-      const retainedDocIds: bson.ObjectId[] = [];
-      const tables: storage.SourceTable[] = [];
-      let retainedEventOnlyTable = false;
-
-      for (const doc of exactDocs) {
-        const bucketDataSourceIds = doc.bucket_data_source_ids.filter((id) => desiredBucketIds.has(id));
-        const parameterLookupSourceIds = doc.parameter_lookup_source_ids.filter((id) => desiredLookupIds.has(id));
-        const coversDesiredMembership = bucketDataSourceIds.length > 0 || parameterLookupSourceIds.length > 0;
-        const coversEventOnlyTable = !desiredHasMembership && triggersEvent && !retainedEventOnlyTable;
-
-        // Membership sets must be pairwise disjoint across the docs of one physical table:
-        // each desired id is covered by exactly one doc, so each definition receives each
-        // row exactly once. The algorithm maintains this (new docs only get uncovered ids,
-        // narrowing only removes ids) - overlap means the persisted state is corrupt.
-        for (const id of bucketDataSourceIds) {
-          if (coveredBucketIds.has(id)) {
-            throw new ReplicationAssertionError(
-              `Source table ${doc._id} duplicates coverage of bucket data source ${id} for ${schema}.${name}`
-            );
-          }
-          coveredBucketIds.add(id);
+      const { coveredMembershipIds, retainedDocIds, tables, narrowingUpdates } = new SourceTableRetentionPlanner({
+        source: {
+          schema,
+          name,
+          connectionTag,
+          storeCurrentData: sendsCompleteRows !== true
+        },
+        config: {
+          forceNarrowing: parsedOverride != null,
+          syncRules,
+          mapping
+        },
+        desired: {
+          membershipIds: desiredMembershipIds,
+          triggersEvent,
+          bucketSourceById,
+          parameterLookupSourceById
         }
-        for (const id of parameterLookupSourceIds) {
-          if (coveredLookupIds.has(id)) {
-            throw new ReplicationAssertionError(
-              `Source table ${doc._id} duplicates coverage of parameter lookup source ${id} for ${schema}.${name}`
-            );
-          }
-          coveredLookupIds.add(id);
-        }
+      }).plan(exactDocs);
 
-        const updates: Partial<SourceTableDocumentV3> = {};
-        if (
-          (parsedOverride != null || coversDesiredMembership || coversEventOnlyTable) &&
-          !doc.snapshot_done &&
-          (!sameStringArray(doc.bucket_data_source_ids, bucketDataSourceIds) ||
-            !sameStringArray(doc.parameter_lookup_source_ids, parameterLookupSourceIds))
-        ) {
-          updates.bucket_data_source_ids = bucketDataSourceIds;
-          updates.parameter_lookup_source_ids = parameterLookupSourceIds;
-        }
-        if (Object.keys(updates).length > 0) {
-          await col.updateOne({ _id: doc._id }, { $set: updates }, { session });
-        }
-
-        if (coversDesiredMembership || coversEventOnlyTable) {
-          if (coversEventOnlyTable) {
-            retainedEventOnlyTable = true;
-          }
-          retainedDocIds.push(doc._id);
-          const table = this.sourceTableFromDocument(
-            {
-              ...doc,
-              bucket_data_source_ids: bucketDataSourceIds,
-              parameter_lookup_source_ids: parameterLookupSourceIds
-            },
-            connectionTag,
-            syncRules,
-            {
-              bucketDataSources: bucketDataSourceIds.map((id) => bucketSourceById.get(id)!),
-              parameterLookupSources: parameterLookupSourceIds.map((id) => parameterLookupSourceById.get(id)!)
+      for (const update of narrowingUpdates) {
+        await col.updateOne(
+          { _id: update.id },
+          {
+            $set: {
+              bucket_data_source_ids: update.memberships.bucketDataSourceIds,
+              parameter_lookup_source_ids: update.memberships.parameterLookupSourceIds
             }
-          );
-          table.storeCurrentData = sendsCompleteRows !== true;
-          tables.push(table);
-        }
+          },
+          { session }
+        );
       }
 
-      const uncoveredBucketIds = [...desiredBucketIds].filter((id) => !coveredBucketIds.has(id));
-      const uncoveredLookupIds = [...desiredLookupIds].filter((id) => !coveredLookupIds.has(id));
+      const uncoveredMembershipIds = uncoveredSourceTableMembershipIds(desiredMembershipIds, coveredMembershipIds);
 
-      if (uncoveredBucketIds.length > 0 || uncoveredLookupIds.length > 0 || (triggersEvent && tables.length == 0)) {
+      if (hasSourceTableMembershipIds(uncoveredMembershipIds) || (triggersEvent && tables.length == 0)) {
         const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
         const createDoc: SourceTableDocumentV3 = {
           _id: id,
@@ -257,12 +227,14 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           replica_id_columns: normalizedReplicaIdColumns,
           snapshot_done: false,
           snapshot_status: undefined,
-          bucket_data_source_ids: uncoveredBucketIds,
-          parameter_lookup_source_ids: uncoveredLookupIds
+          bucket_data_source_ids: uncoveredMembershipIds.bucketDataSourceIds,
+          parameter_lookup_source_ids: uncoveredMembershipIds.parameterLookupSourceIds
         };
-        const sourceTable = this.sourceTableFromDocument(createDoc, connectionTag, syncRules, {
-          bucketDataSources: uncoveredBucketIds.map((id) => bucketSourceById.get(id)!),
-          parameterLookupSources: uncoveredLookupIds.map((id) => parameterLookupSourceById.get(id)!)
+        const sourceTable = sourceTableFromDocument(createDoc, connectionTag, syncRules, mapping, {
+          bucketDataSources: uncoveredMembershipIds.bucketDataSourceIds.map((id) => bucketSourceById.get(id)!),
+          parameterLookupSources: uncoveredMembershipIds.parameterLookupSourceIds.map(
+            (id) => parameterLookupSourceById.get(id)!
+          )
         });
         sourceTable.storeCurrentData = sendsCompleteRows !== true;
 
@@ -293,9 +265,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
       result = {
         tables,
-        dropTables: conflictingTables.map((doc) =>
-          this.sourceTableFromDocument(doc as SourceTableDocumentV3, connectionTag, syncRules, undefined, mapping)
-        )
+        dropTables: conflictingTables.map((doc) => sourceTableFromDocument(doc, connectionTag, syncRules, mapping))
       };
     });
 
@@ -310,61 +280,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     return result!;
   }
 
-  private sourceTableFromDocument(
-    doc: SourceTableDocumentV3,
-    connectionTag: string,
-    syncRules: HydratedSyncConfig,
-    memberships?: MatchingSources,
-    mapping: BucketDefinitionMapping = this.mapping
-  ): storage.SourceTable {
-    const resolvedMemberships = memberships ?? this.sourceTableMembershipsFromDocument(doc, syncRules, mapping);
-    const table = new storage.SourceTable({
-      id: doc._id,
-      ref: {
-        connectionTag,
-        schema: doc.schema_name,
-        name: doc.table_name
-      },
-      objectId: doc.relation_id,
-      replicaIdColumns: doc.replica_id_columns!.map(
-        (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
-      ),
-      snapshotComplete: doc.snapshot_done ?? true,
-      bucketDataSources: resolvedMemberships.bucketDataSources,
-      parameterLookupSources: resolvedMemberships.parameterLookupSources
-    });
-    table.syncData = table.bucketDataSources.length > 0;
-    table.syncParameters = table.parameterLookupSources.length > 0;
-    table.syncEvent = syncRules.tableTriggersEvent(table.ref);
-    table.snapshotStatus =
-      doc.snapshot_status == null
-        ? undefined
-        : {
-            lastKey: doc.snapshot_status.last_key?.buffer ?? null,
-            totalEstimatedCount: doc.snapshot_status.total_estimated_count,
-            replicatedCount: doc.snapshot_status.replicated_count
-          };
-    return table;
-  }
-
-  private sourceTableMembershipsFromDocument(
-    doc: SourceTableDocumentV3,
-    syncRules: HydratedSyncConfig,
-    mapping: BucketDefinitionMapping = this.mapping
-  ): MatchingSources {
-    const bucketDataSourceIds = new Set(doc.bucket_data_source_ids);
-    const parameterLookupSourceIds = new Set(doc.parameter_lookup_source_ids);
-
-    return {
-      bucketDataSources: syncRules.bucketDataSources.filter((source) =>
-        bucketDataSourceIds.has(mapping.bucketSourceId(source))
-      ),
-      parameterLookupSources: syncRules.bucketParameterLookupSources.filter((source) =>
-        parameterLookupSourceIds.has(mapping.parameterLookupId(source))
-      )
-    };
-  }
-
   async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
     const doc = (await this.db
       .sourceTablesV3(this.replicationStreamId)
@@ -373,7 +288,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       return null;
     }
 
-    const refreshed = this.sourceTableFromDocument(doc, table.ref.connectionTag, this.sync_rules);
+    const refreshed = sourceTableFromDocument(doc, table.ref.connectionTag, this.sync_rules, this.mapping);
     // The event-carrier designation is decided per resolveTables result and not persisted -
     // preserve the caller's designation instead of recomputing it from the ref, so that
     // refreshing a non-carrier table does not make it fire events.
