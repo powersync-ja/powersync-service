@@ -433,7 +433,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     let highestSeenOp = 0n;
 
     const idsToDelete: BucketDataDocumentV3['_id'][] = [];
-    let combinedChecksum = 0n;
+    let combinedChecksum = 0;
     let clearedOpCount = 0;
     let maxTargetOp: bigint | null = null;
     const boundarySurvivors: BucketDataDoc[] = [];
@@ -498,7 +498,7 @@ export class MongoCompactorV3 extends MongoCompactor {
                   `Unexpected PUT at op ${op.o} in CLEAR region for bucket ${bucket}`
                 );
               }
-              combinedChecksum += op.checksum;
+              combinedChecksum = addChecksums(combinedChecksum, Number(op.checksum));
               clearedOpCount++;
               if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
                 maxTargetOp = op.target_op;
@@ -519,7 +519,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             if (op.op == 'PUT') {
               throw new ReplicationAssertionError(`Unexpected PUT at op ${op.o} in CLEAR region for bucket ${bucket}`);
             }
-            combinedChecksum += op.checksum;
+            combinedChecksum = addChecksums(combinedChecksum, Number(op.checksum));
             clearedOpCount++;
             if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
               maxTargetOp = op.target_op;
@@ -584,7 +584,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             bucketKey: { ...context, bucket },
             o: lastNotPut,
             op: 'CLEAR' as const,
-            checksum: combinedChecksum,
+            checksum: BigInt(combinedChecksum),
             data: null,
             target_op: maxTargetOp
           } satisfies BucketDataDoc;

@@ -2511,7 +2511,7 @@ exports[`sync - mongodb > storage v3 > compacting data - invalidate checkpoint 2
       "bucket": "1#mybucket[]",
       "data": [
         {
-          "checksum": 4201080675,
+          "checksum": -93886621,
           "op": "CLEAR",
           "op_id": "2",
         },
