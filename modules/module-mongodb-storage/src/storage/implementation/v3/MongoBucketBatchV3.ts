@@ -15,28 +15,12 @@ import { PersistedBatchV3 } from './PersistedBatchV3.js';
 import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { ReplicationStreamDocumentV3, SourceTableDocumentV3 } from './models.js';
-
-function sameStringArray(left: string[], right: string[]) {
-  return left.length == right.length && left.every((value, index) => value == right[index]);
-}
-
-function sameReplicaIdColumns(
-  left: SourceTableDocumentV3['replica_id_columns2'] | undefined,
-  right: NonNullable<SourceTableDocumentV3['replica_id_columns2']>
-) {
-  return (
-    left != null &&
-    left.length == right.length &&
-    left.every(
-      (column, index) =>
-        column.name == right[index].name && column.type == right[index].type && column.type_oid == right[index].type_oid
-    )
-  );
-}
-
-function snapshotDone(doc: SourceTableDocumentV3) {
-  return doc.snapshot_done ?? true;
-}
+import {
+  matchingSourceTableIdentity,
+  overlappingSourceTableFilter,
+  sameStringArray,
+  snapshotDone
+} from './source-table-utils.js';
 
 export class MongoBucketBatchV3 extends MongoBucketBatch {
   declare public readonly db: VersionedPowerSyncMongoV3;
@@ -172,20 +156,17 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
     let result: storage.ResolveTablesResult | null = null;
     let ensureSourceRecordIndexesFor: bson.ObjectId[] = [];
+    const session = this.db.client.startSession();
+    await using _ = { [Symbol.asyncDispose]: () => session.endSession() };
 
-    await this.db.client.withSession(async (session) => {
-      const col = this.db.commonSourceTables(this.replicationStreamId);
-      const exactFilter: Record<string, unknown> = {
-        connection_id,
-        schema_name: schema,
-        table_name: name,
-        replica_id_columns2: normalizedReplicaIdColumns
-      };
-      if (objectId != null) {
-        exactFilter.relation_id = objectId;
-      }
+    await session.withTransaction(async () => {
+      const col = this.db.sourceTablesV3(this.replicationStreamId);
+      const currentIdentity = { schema, name, objectId, replicaIdColumns: normalizedReplicaIdColumns };
 
-      const exactDocs = (await col.find(exactFilter, { session }).toArray()) as SourceTableDocumentV3[];
+      const candidateDocs = await col
+        .find(overlappingSourceTableFilter(connection_id, currentIdentity), { session })
+        .toArray();
+      const exactDocs = candidateDocs.filter((doc) => matchingSourceTableIdentity(doc, currentIdentity));
       const bucketSourceById = new Map(
         matchingSources.bucketDataSources.map((source) => [mapping.bucketSourceId(source), source] as const)
       );
@@ -318,29 +299,11 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       }
       ensureSourceRecordIndexesFor = retainedDocIds;
 
-      const conflictFilter = [{ schema_name: schema, table_name: name }] as Record<string, unknown>[];
-      if (objectId != null) {
-        conflictFilter.push({ relation_id: objectId });
-      }
-      const dropTables = await col
-        .find(
-          {
-            connection_id,
-            _id: { $nin: retainedDocIds },
-            $or: conflictFilter
-          },
-          { session }
-        )
-        .toArray();
-      const conflictingTables = dropTables.filter(
+      const retainedDocIdStrings = new Set(retainedDocIds.map((id) => id.toHexString()));
+      const conflictingTables = candidateDocs.filter(
         (doc) =>
-          parsedOverride != null ||
-          !(
-            doc.schema_name == schema &&
-            doc.table_name == name &&
-            (objectId == null || doc.relation_id == objectId) &&
-            sameReplicaIdColumns(doc.replica_id_columns2, normalizedReplicaIdColumns)
-          )
+          !retainedDocIdStrings.has(doc._id.toHexString()) &&
+          (parsedOverride != null || !matchingSourceTableIdentity(doc, currentIdentity))
       );
 
       result = {

@@ -9,9 +9,6 @@ This document explains the conceptual flow around `resolveTables`:
 
 _Partially AI-generated, manually reviewed and modified._
 
-For the storage-version-3 MongoDB implementation details (membership coverage, narrowing,
-drop semantics, invariants), see [resolve-tables-v3.md](./resolve-tables-v3.md).
-
 ## Core concepts
 
 ### TablePattern
