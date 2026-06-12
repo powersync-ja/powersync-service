@@ -1,9 +1,4 @@
-import {
-  BucketDataSource,
-  ParameterIndexLookupCreator,
-  SyncConfigWithErrors,
-  TablePattern
-} from '@powersync/service-sync-rules';
+import { BucketDataSource, ParameterIndexLookupCreator, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import {
   IncrementalMappingChanges,
   IncrementalMappingDefinitionChange,
@@ -72,9 +67,7 @@ function sourceTablesForDefinition(
 }
 
 function sourceTablesForSources(sources: Array<BucketDataSource | ParameterIndexLookupCreator>) {
-  return uniqueSorted(
-    sources.flatMap((source) => [...source.getSourceTables()].map((table) => formatTablePattern(table)))
-  );
+  return uniqueSorted(sources.flatMap((source) => [...source.getSourceTables()].map((table) => table.tablePattern)));
 }
 
 function definitionKey(definition: IncrementalMappingDefinitionChange) {
@@ -91,10 +84,6 @@ function uniqueDefinitions(definitions: IncrementalMappingDefinitionChange[]) {
     byKey.set(definitionKey(definition), definition);
   }
   return [...byKey.values()];
-}
-
-function formatTablePattern(pattern: TablePattern) {
-  return `${pattern.connectionTag}.${pattern.schema}.${pattern.tablePattern}`;
 }
 
 function formatDefinitionSection(
