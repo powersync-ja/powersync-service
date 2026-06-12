@@ -364,11 +364,13 @@ export class MongoCompactorV3 extends MongoCompactor {
       // --- Accumulate bucket state ---
       for (const chunk of chunks) {
         for (const op of chunk) {
-          totalChecksum = addChecksums(totalChecksum, Number(op.checksum));
-          totalOpBytes += op.data?.length ?? 0;
+          if (op.o <= this.maxOpId) {
+            totalChecksum = addChecksums(totalChecksum, Number(op.checksum));
+            totalOpBytes += op.data?.length ?? 0;
+          }
         }
       }
-      totalOpCount += surviving.length;
+      totalOpCount += surviving.filter((op) => op.o <= this.maxOpId).length;
 
       // --- Advance to next batch ---
       upperBound = rawBatch[batchCutIndex - 1]._id as typeof upperBound;

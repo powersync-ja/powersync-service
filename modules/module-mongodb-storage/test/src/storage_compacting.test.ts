@@ -2135,10 +2135,7 @@ bucket_definitions:
 
       // Expected checksum: only ops ≤ 40
       const opsWithinHorizon = [10, 20, 30];
-      const expectedChecksum = opsWithinHorizon.reduce(
-        (sum, id) => addChecksums(sum, id * 7),
-        0
-      );
+      const expectedChecksum = opsWithinHorizon.reduce((sum, id) => addChecksums(sum, id * 7), 0);
       expect(state!.compacted_state!.checksum).toBe(BigInt(expectedChecksum));
       // All 5 ops survive (3 counted + 2 pass-through)
       const allOps = await readAllOps(collection);
