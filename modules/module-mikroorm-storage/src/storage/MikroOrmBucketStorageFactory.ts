@@ -130,7 +130,7 @@ export class MikroOrmBucketStorageFactory extends storage.BucketStorageFactory {
   }
 
   async getReplicatingReplicationStreams(): Promise<storage.PersistedReplicationStream[]> {
-    const rows = await this.findSyncRulesRows([storage.SyncRuleState.PROCESSING]);
+    const rows = await this.findSyncRulesRows([storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ACTIVE]);
     return rows.map((row) => new MikroOrmPersistedReplicationStream(this.orm, this.dialect, row));
   }
 

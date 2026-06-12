@@ -9,11 +9,7 @@ export const MikroOrmSqliteStorageConfig = configFile.BaseStorageConfig.and(
     /**
      * SQLite database file. Use ":memory:" for in-memory storage.
      */
-    filename: t.string,
-    /**
-     * Optional base directory for MikroORM migrations.
-     */
-    migrations_path: t.string.optional()
+    filename: t.string
   })
 );
 
@@ -29,7 +25,6 @@ export const isMikroOrmSqliteStorageConfig = (
 export interface NormalizedMikroOrmSqliteStorageConfig {
   type: typeof MIKRO_ORM_SQLITE_STORAGE_TYPE;
   filename: string;
-  migrations_path?: string;
   max_pool_size: number;
 }
 
@@ -39,7 +34,6 @@ export function normalizeMikroOrmSqliteStorageConfig(
   return {
     type: MIKRO_ORM_SQLITE_STORAGE_TYPE,
     filename: config.filename,
-    migrations_path: config.migrations_path,
     max_pool_size: config.max_pool_size ?? 1
   };
 }

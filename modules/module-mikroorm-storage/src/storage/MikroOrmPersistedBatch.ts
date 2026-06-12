@@ -25,6 +25,8 @@ export type CurrentBucket = {
   id: string;
 };
 
+const MAX_ROW_SIZE = 15 * 1024 * 1024;
+
 /**
  * Handles the writes for a single persisted operation chunk.
  *
@@ -157,7 +159,7 @@ export class MikroOrmPersistedBatch {
     const storeCurrentData = this.options.storeCurrentData && sourceTable.storeCurrentData;
     let existingBuckets = currentBuckets(existingCurrentData);
     let existingLookups = currentLookups(existingCurrentData);
-    let after = record.after;
+    let after: sync_rules.ToastableSqliteRow | null | undefined = record.after;
 
     if (this.options.skipExistingRows) {
       if (record.tag == storage.SaveOperationTag.INSERT) {
@@ -204,15 +206,24 @@ export class MikroOrmPersistedBatch {
     let newBuckets: CurrentBucket[] = [];
     let newLookups: Buffer[] = [];
     let afterData: Buffer | undefined;
+    let afterDataWasTruncated = false;
     if (afterId != null && after != null && utils.isCompleteRow(storeCurrentData, after)) {
-      afterData = storeCurrentData ? storage.serializeBson(after) : storage.serializeBson({});
+      if (storeCurrentData) {
+        const prepared = this.serializeCurrentData(record, after);
+        after = prepared.after;
+        afterData = prepared.data;
+        afterDataWasTruncated = prepared.truncated;
+      } else {
+        afterData = storage.serializeBson({});
+      }
 
       if (sourceTable.syncData) {
-        const { results, errors } = this.options.syncRules.evaluateRowWithErrors({
-          record: after,
+        const { results: rawResults, errors } = this.options.syncRules.evaluateRowWithErrors({
+          record: after as sync_rules.SqliteRow,
           sourceTable: sourceTable.ref,
           bucketDataSources: sourceTable.bucketDataSources
         });
+        const results = afterDataWasTruncated ? rawResults.filter(hasUsableObjectId) : rawResults;
         for (const error of errors) {
           this.options.logger.error(
             `Failed to evaluate data query on ${sourceTable.qualifiedName}.${after.id}: ${error.error}`
@@ -233,9 +244,13 @@ export class MikroOrmPersistedBatch {
       }
 
       if (sourceTable.syncParameters) {
-        const { results, errors } = this.options.syncRules.evaluateParameterRowWithErrors(sourceTable.ref, after, {
-          parameterLookupSources: sourceTable.parameterLookupSources
-        });
+        const { results, errors } = this.options.syncRules.evaluateParameterRowWithErrors(
+          sourceTable.ref,
+          after as sync_rules.SqliteRow,
+          {
+            parameterLookupSources: sourceTable.parameterLookupSources
+          }
+        );
         for (const error of errors) {
           this.options.logger.error(
             `Failed to evaluate parameter query on ${sourceTable.qualifiedName}.${after.id}: ${error.error}`
@@ -291,6 +306,31 @@ export class MikroOrmPersistedBatch {
           });
     for (const row of rows) {
       this.currentDataById.set(row.id, row);
+    }
+  }
+
+  private serializeCurrentData(
+    record: storage.SaveOptions,
+    after: sync_rules.ToastableSqliteRow
+  ): { after: sync_rules.ToastableSqliteRow; data: Buffer; truncated: boolean } {
+    try {
+      const serialized = storage.serializeBson(after);
+      if (serialized.byteLength > MAX_ROW_SIZE) {
+        throw new Error(`Row too large: ${serialized.byteLength}`);
+      }
+      return { after, data: serialized, truncated: false };
+    } catch (e) {
+      const error = e instanceof Error ? e : new Error(String(e));
+      this.options.logger.warn(
+        `Data too big on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.message}`
+      );
+
+      // Keep the current_data row present, but drop field values. This mirrors
+      // the Postgres storage behavior for oversized BSON payloads and allows
+      // future TOAST-style updates to be marked unavailable instead of crashing
+      // the replication batch.
+      const emptyValues = Object.fromEntries(Object.keys(after).map((key) => [key, undefined]));
+      return { after: emptyValues, data: storage.serializeBson(emptyValues), truncated: true };
     }
   }
 
@@ -365,6 +405,10 @@ function currentDataId(groupId: number, sourceTable: string, sourceKey: Buffer):
 
 function currentBucketKey(bucket: CurrentBucket | sync_rules.EvaluatedRow): string {
   return `${bucket.bucket}/${bucket.table}/${bucket.id}`;
+}
+
+function hasUsableObjectId(row: sync_rules.EvaluatedRow): boolean {
+  return row.id !== '' || row.data.id != null;
 }
 
 function replicaIdToSubkey(tableId: storage.SourceTableId, id: storage.ReplicaId): string {

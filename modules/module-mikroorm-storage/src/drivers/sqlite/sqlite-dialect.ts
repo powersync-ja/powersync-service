@@ -56,6 +56,11 @@ export const sqliteMikroOrmStorageDialect: MikroOrmStorageDialect = {
       return;
     }
 
+    // SQLite reads can complete synchronously enough that tight polling loops
+    // starve replication/checkpoint work in the same process. Yield once before
+    // the query so single-process unified mode remains cooperative.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
     const filters = options.dataBuckets.map((request) => ({
       bucketName: request.bucket,
       opId: { $gt: request.start, $lte: options.checkpoint }

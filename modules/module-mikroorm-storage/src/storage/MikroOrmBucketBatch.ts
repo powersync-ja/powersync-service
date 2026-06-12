@@ -77,15 +77,18 @@ export class MikroOrmBucketBatch
     return em.transactional(async (transactionalEntityManager) => {
       const existingRows = await transactionalEntityManager.find(this.options.dialect.sourceTableEntity, {
         groupId: this.options.replicationStreamId,
-        connectionId: connection_id,
-        schemaName: schema,
-        tableName: table
+        connectionId: connection_id
       });
 
       let sourceTableRow =
         existingRows.find((row) => {
           const matchesRelationId = objectId == null || relationObjectId(row.relationId) == objectId;
-          return matchesRelationId && jsonEquals(row.replicaIdColumns, normalizedReplicaIdColumns);
+          return (
+            row.schemaName == schema &&
+            row.tableName == table &&
+            matchesRelationId &&
+            jsonEquals(row.replicaIdColumns, normalizedReplicaIdColumns)
+          );
         }) ?? null;
 
       if (sourceTableRow == null) {
@@ -97,7 +100,7 @@ export class MikroOrmBucketBatch
           schemaName: schema,
           tableName: table,
           replicaIdColumns: normalizedReplicaIdColumns,
-          snapshotDone: true,
+          snapshotDone: false,
           snapshotTotalEstimatedCount: null,
           snapshotReplicatedCount: null,
           snapshotLastKey: null
@@ -111,7 +114,10 @@ export class MikroOrmBucketBatch
 
       const dropTables = existingRows
         .filter((row) => row.id != sourceTableRow.id)
-        .filter((row) => objectId == null || relationObjectId(row.relationId) == objectId)
+        .filter((row) => {
+          const matchesTableName = row.schemaName == schema && row.tableName == table;
+          return objectId == null ? matchesTableName : relationObjectId(row.relationId) == objectId || matchesTableName;
+        })
         .map((row) => sourceTableFromRow(row, connectionTag, syncRules));
 
       return {
@@ -213,6 +219,12 @@ export class MikroOrmBucketBatch
     const lastOpId = nextOpId - 1n;
     this.persistedOp = lastOpId;
     this.last_flushed_op = lastOpId;
+    this.logFlushedOperations({
+      operationCount: sourceTables.length,
+      firstOpId,
+      nextOpId,
+      operationLabel: 'truncate source table'
+    });
     return { flushed_op: lastOpId };
   }
 
@@ -237,6 +249,7 @@ export class MikroOrmBucketBatch
       const operations = this.pendingOperations.splice(0);
       const em = this.options.orm.em.fork();
       let nextOpId = await this.getNextOpId(em);
+      const firstOpId = nextOpId;
       for (const batch of chunked(operations, MAX_OPERATION_BATCH_COUNT)) {
         await this.options.orm.em.fork().transactional(async (transactionalEntityManager) => {
           const persistedBatch = this.createPersistedBatch(transactionalEntityManager);
@@ -248,6 +261,11 @@ export class MikroOrmBucketBatch
       this.persistedOp = lastOpId;
       this.last_flushed_op = lastOpId;
       result = { flushed_op: lastOpId };
+      this.logFlushedOperations({
+        operationCount: operations.length,
+        firstOpId,
+        nextOpId
+      });
       await this.options.hooks?.afterBatchFlush?.(this);
     }
 
@@ -507,6 +525,28 @@ export class MikroOrmBucketBatch
     return maxBigint(bucketData?.opId, bucketParameters?.id, pendingDelete?.pendingDelete, 0n) + 1n;
   }
 
+  private logFlushedOperations(options: {
+    operationCount: number;
+    firstOpId: bigint;
+    nextOpId: bigint;
+    operationLabel?: string;
+  }): void {
+    const storageOperationCount = options.nextOpId - options.firstOpId;
+    const operationLabel = options.operationLabel ?? 'source operation';
+    const pluralizedOperationLabel = options.operationCount == 1 ? operationLabel : `${operationLabel}s`;
+
+    if (storageOperationCount == 0n) {
+      this.options.logger.info(
+        `[${this.options.replicationStreamName}] Flushed ${options.operationCount} ${pluralizedOperationLabel} to MikroORM storage DB with no new storage ops`
+      );
+      return;
+    }
+
+    this.options.logger.info(
+      `[${this.options.replicationStreamName}] Flushed ${options.operationCount} ${pluralizedOperationLabel} to MikroORM storage DB as ${storageOperationCount.toString()} storage ops (${options.firstOpId.toString()}-${(options.nextOpId - 1n).toString()})`
+    );
+  }
+
   private async markSnapshotDoneInternal(noCheckpointBeforeLsn: string): Promise<void> {
     const em = this.options.orm.em.fork();
     await em.transactional(async (transactionalEntityManager) => {
@@ -606,7 +646,7 @@ function normalizeReplicaIdColumns(replicaIdColumns: ColumnDescriptor[]): Column
   return replicaIdColumns.map((column) => ({
     name: column.name,
     type: column.type,
-    typeId: column.typeId
+    typeId: typeof column.typeId === 'undefined' ? column.typeId : Number(column.typeId)
   }));
 }
 

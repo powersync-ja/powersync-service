@@ -12,8 +12,8 @@ export function createSqliteMikroOrmOptions(config: NormalizedMikroOrmSqliteStor
     entities: sqliteMikroOrmStorageDialect.entityClasses,
     extensions: [Migrator],
     migrations: {
-      path: config.migrations_path ?? SQLITE_MIKRO_ORM_MIGRATIONS_PATH,
-      pathTs: config.migrations_path ?? SQLITE_MIKRO_ORM_MIGRATIONS_PATH,
+      path: SQLITE_MIKRO_ORM_MIGRATIONS_PATH,
+      pathTs: SQLITE_MIKRO_ORM_MIGRATIONS_PATH,
       glob: '!(*.d).{js,ts}',
       emit: 'ts',
       snapshot: false

@@ -21,6 +21,7 @@ COPY modules/module-postgres/package.json modules/module-postgres/tsconfig.json 
 COPY modules/module-postgres-storage/package.json modules/module-postgres-storage/tsconfig.json modules/module-postgres-storage/
 COPY modules/module-mongodb/package.json modules/module-mongodb/tsconfig.json modules/module-mongodb/
 COPY modules/module-mongodb-storage/package.json modules/module-mongodb-storage/tsconfig.json modules/module-mongodb-storage/
+COPY modules/module-mikroorm-storage/package.json modules/module-mikroorm-storage/tsconfig.json modules/module-mikroorm-storage/
 COPY modules/module-mysql/package.json modules/module-mysql/tsconfig.json modules/module-mysql/
 COPY modules/module-mssql/package.json modules/module-mssql/tsconfig.json modules/module-mssql/
 COPY modules/module-convex/package.json modules/module-convex/tsconfig.json modules/module-convex/
@@ -50,13 +51,16 @@ COPY modules/module-postgres/sql modules/module-postgres/sql/
 COPY modules/module-postgres-storage/src modules/module-postgres-storage/src/
 COPY modules/module-mongodb/src modules/module-mongodb/src/
 COPY modules/module-mongodb-storage/src modules/module-mongodb-storage/src/
+COPY modules/module-mikroorm-storage/src modules/module-mikroorm-storage/src/
 COPY modules/module-mysql/src modules/module-mysql/src/
 COPY modules/module-mssql/src modules/module-mssql/src/
 COPY modules/module-convex/src modules/module-convex/src/
 
 RUN pnpm build:production && \
     rm -rf node_modules **/node_modules && \
-    pnpm install --frozen-lockfile --prod --ignore-scripts
+    pnpm install --frozen-lockfile --prod --ignore-scripts && \
+    cd modules/module-mikroorm-storage && \
+    pnpm rebuild better-sqlite3
 
 # === PROD ===
 
