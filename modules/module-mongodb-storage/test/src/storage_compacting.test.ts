@@ -2104,5 +2104,45 @@ bucket_definitions:
       expect(clearDoc).toBeDefined();
       expect(clearDoc!.target_op).toBe(30n);
     });
+
+    test('compacted_state.checksum excludes pass-through ops above maxOpId', async () => {
+      const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+      // Row A at 10, 30, 50 — ops 10+30 ≤ maxOpId=40, op 50 > 40 (pass-through)
+      // Row B at 20 — ≤ 40, first occurrence
+      // Row C at 60 — > 40 (pass-through, no earlier version)
+      const doc = serializeBucketData(BUCKET, [
+        makeOp(10, 'A', 'a1', ctx, sourceTableId),
+        makeOp(20, 'B', 'b1', ctx, sourceTableId),
+        makeOp(30, 'A', 'a2', ctx, sourceTableId),
+        makeOp(50, 'A', 'a3', ctx, sourceTableId),
+        makeOp(60, 'C', 'c1', ctx, sourceTableId)
+      ]);
+      await insertDocs(collection, [doc]);
+      await insertBucketState(bucketStateCollection, ctx.definitionId, 60n);
+
+      await doCompact(bucketStorage, 40n);
+
+      const state = await bucketStateCollection.findOne({
+        _id: { d: ctx.definitionId, b: BUCKET }
+      });
+      expect(state).toBeDefined();
+      expect(state!.compacted_state).toBeDefined();
+
+      // MOVE dedup: A@50 pass-through, C@60 pass-through survive as PUT.
+      // A@30 (first ≤ 40) survives, B@20 survives. A@10 → MOVE.
+      // compacted_state covers only ops ≤ 40: MOVE@10, PUT@20, PUT@30 = 3 ops.
+
+      // Expected checksum: only ops ≤ 40
+      const opsWithinHorizon = [10, 20, 30];
+      const expectedChecksum = opsWithinHorizon.reduce(
+        (sum, id) => addChecksums(sum, id * 7),
+        0
+      );
+      expect(state!.compacted_state!.checksum).toBe(BigInt(expectedChecksum));
+      // All 5 ops survive (3 counted + 2 pass-through)
+      const allOps = await readAllOps(collection);
+      expect(allOps.length).toBe(5);
+    });
   });
 });
