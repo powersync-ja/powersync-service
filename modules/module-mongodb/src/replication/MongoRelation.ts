@@ -265,21 +265,58 @@ export async function createCheckpoint(
 export async function createCosmosCheckpointLsn(client: mongo.MongoClient, db: mongo.Db): Promise<string> {
   const session = client.startSession();
   try {
-    const result = await db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
-      {
-        _id: STANDALONE_CHECKPOINT_ID as any
-      },
-      {
-        $inc: { i: 1 }
-      },
-      {
-        upsert: true,
-        returnDocument: 'after',
-        session
-      }
-    );
+    const collection = db.collection(CHECKPOINTS_COLLECTION);
 
-    return new CosmosDBLSN({ sentinel: normalizeSentinel(result?.i ?? 0) }).comparable;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      // Common path: increment the existing counter.
+      const result = await collection.findOneAndUpdate(
+        {
+          _id: STANDALONE_CHECKPOINT_ID as any,
+          i: { $exists: true }
+        },
+        {
+          $inc: { i: 1 }
+        },
+        {
+          returnDocument: 'after',
+          session
+        }
+      );
+      if (result != null) {
+        return new CosmosDBLSN({ sentinel: normalizeSentinel(result.i) }).comparable;
+      }
+
+      // The counter document does not exist: first run, or a consumer deleted
+      // it in their source database. Seed the counter at the current epoch
+      // milliseconds instead of starting at 1. Counter increments accumulate
+      // far slower than one per millisecond, so a re-created counter always
+      // resumes ahead of any previously issued coordinate — keeping the LSN
+      // domain monotonic even across deletion, instead of silently moving it
+      // backwards (which would let new write checkpoint heads resolve against
+      // old, higher committed LSNs).
+      //
+      // $setOnInsert cannot be combined with $inc on the same field, so this
+      // is a separate upsert; the loop then retries the increment. The
+      // $setOnInsert is a no-op if another process created the document
+      // concurrently.
+      await collection.updateOne(
+        {
+          _id: STANDALONE_CHECKPOINT_ID as any
+        },
+        {
+          $setOnInsert: { i: mongo.Long.fromBigInt(BigInt(Date.now())) }
+        },
+        {
+          upsert: true,
+          session
+        }
+      );
+    }
+
+    throw new ServiceError(
+      ErrorCode.PSYNC_S1301,
+      `Failed to increment the standalone checkpoint counter - the checkpoint document may be getting deleted concurrently.`
+    );
   } finally {
     await session.endSession();
   }

@@ -1,14 +1,19 @@
 import { describe, expect, test } from 'vitest';
 
+import { CosmosDBLSN } from '@module/common/CosmosDBLSN.js';
 import { MongoLSN } from '@module/common/MongoLSN.js';
-import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
+import {
+  createCheckpoint,
+  createCosmosCheckpointLsn,
+  STANDALONE_CHECKPOINT_ID
+} from '@module/replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '@module/replication/replication-utils.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { connectMongoData } from './util.js';
 
 describe('Cosmos DB helpers', () => {
   describe('getEventTimestamp behavior', () => {
-    // getEventTimestamp is a private method on ChangeStream. These tests document the
+    // getEventTimestamp is a utility in CheckpointImplementation.ts. These tests document the
     // expected behavior, tested indirectly. The integration tests in cosmosdb_mode.test.ts
     // exercise the actual code path. Here we test the underlying logic that the method
     // should implement.
@@ -113,6 +118,41 @@ describe('Cosmos DB helpers', () => {
         // i should be a number (the incrementing counter)
         expect(Number.isInteger(Number(parts[2]))).toBe(true);
       } finally {
+        await client.close();
+      }
+    });
+
+    test('standalone counter is seeded at a timestamp value on creation', { timeout: 30_000 }, async () => {
+      // If a consumer deletes the standalone checkpoint document in their
+      // source database, the re-created counter must not restart below
+      // already-committed LSNs. createCosmosCheckpointLsn seeds new counters
+      // at the current epoch milliseconds, so the coordinate jumps forward
+      // instead of resetting.
+      const { client, db: sharedDb } = await connectMongoData();
+      // Use an isolated database: other test files run in parallel against the
+      // shared test database and both bump and clear the standalone checkpoint
+      // document, which would make these exact assertions racy.
+      const db = client.db(`${sharedDb.databaseName}_seed_test`);
+      try {
+        const before = BigInt(Date.now());
+        const first = CosmosDBLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
+        const after = BigInt(Date.now());
+
+        // Seeded at epoch ms, not at 1.
+        expect(first.sentinel).toBeGreaterThanOrEqual(before);
+        expect(first.sentinel).toBeLessThanOrEqual(after + 1n);
+
+        // Subsequent calls increment normally.
+        const second = CosmosDBLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
+        expect(second.sentinel).toEqual(first.sentinel + 1n);
+
+        // Simulate a consumer deleting the document after the counter has
+        // accumulated increments: the re-created counter resumes ahead.
+        await db.collection(CHECKPOINTS_COLLECTION).deleteOne({ _id: STANDALONE_CHECKPOINT_ID as any });
+        const recreated = CosmosDBLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
+        expect(recreated.sentinel).toBeGreaterThan(second.sentinel);
+      } finally {
+        await db.dropDatabase().catch(() => {});
         await client.close();
       }
     });

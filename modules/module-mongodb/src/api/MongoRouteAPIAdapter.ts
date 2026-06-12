@@ -4,14 +4,14 @@ import { api, ParseSyncRulesOptions, ReplicationHeadCallback, SourceTable } from
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { MongoLSN } from '../common/MongoLSN.js';
-import { MongoManager } from '../replication/MongoManager.js';
+import { logger } from '@powersync/lib-services-framework';
 import {
-  constructAfterRecord,
-  createCosmosCheckpointLsn,
-  STANDALONE_CHECKPOINT_ID
-} from '../replication/MongoRelation.js';
+  CheckpointImplementation,
+  SentinelCheckpointImplementation,
+  TimestampCheckpointImplementation
+} from '../replication/CheckpointImplementation.js';
+import { MongoManager } from '../replication/MongoManager.js';
+import { constructAfterRecord } from '../replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '../replication/replication-utils.js';
 import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
@@ -24,6 +24,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   defaultSchema: string;
 
   private isCosmosDb: boolean | null = null;
+  private checkpointImplementation: CheckpointImplementation | null = null;
 
   constructor(protected config: types.ResolvedConnectionConfig) {
     const manager = new MongoManager(config);
@@ -221,50 +222,24 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   }
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
-    if (await this.detectCosmosDb()) {
-      const head = await createCosmosCheckpointLsn(this.client, this.db);
-      const result = await callback(head);
-      // create another bump to ensure movement after the reported head
-      await createCosmosCheckpointLsn(this.client, this.db);
-      return result;
+    const mode = await this.getCheckpointImplementation();
+    return mode.createReplicationHead(callback);
+  }
+
+  private async getCheckpointImplementation(): Promise<CheckpointImplementation> {
+    if (this.checkpointImplementation == null) {
+      const context = {
+        client: this.client,
+        db: this.db,
+        // The adapter never streams, so it has no real barrier document.
+        checkpointStreamId: new mongo.ObjectId(),
+        logger
+      };
+      this.checkpointImplementation = (await this.detectCosmosDb())
+        ? new SentinelCheckpointImplementation(context)
+        : new TimestampCheckpointImplementation(context);
     }
-
-    const session = this.client.startSession();
-    try {
-      // Standard MongoDB: existing path
-      await this.db.command({ hello: 1 }, { session });
-      const head = session.clusterTime?.clusterTime;
-      if (head == null) {
-        throw new ServiceAssertionError(`clusterTime not available for write checkpoint`);
-      }
-
-      const r = await callback(new MongoLSN({ timestamp: head }).comparable);
-
-      // Trigger a change on the changestream.
-      await this.db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
-        {
-          _id: STANDALONE_CHECKPOINT_ID as any
-        },
-        {
-          $inc: { i: 1 }
-        },
-        {
-          upsert: true,
-          returnDocument: 'after',
-          session
-        }
-      );
-      const time = session.operationTime!;
-      if (time == null) {
-        throw new ServiceAssertionError(`operationTime not available for write checkpoint`);
-      } else if (time.lt(head)) {
-        throw new ServiceAssertionError(`operationTime must be > clusterTime`);
-      }
-
-      return r;
-    } finally {
-      await session.endSession();
-    }
+    return this.checkpointImplementation;
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {

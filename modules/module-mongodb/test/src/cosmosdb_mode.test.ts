@@ -43,7 +43,7 @@ describe.skipIf(!isCosmosDb)('cosmosDbMode', () => {
   // `fullDocument` on update events is the write-time post-image, not a
   // read-time lookup of the document's current state.
   //
-  // ChangeStream.ts tracks `latestCosmosSentinel` from `fullDocument.i` on
+  // SentinelCheckpointImplementation tracks its position from `fullDocument.i` on
   // updates to the standalone checkpoint document, and commits LSNs based on
   // that value. With read-time (updateLookup) semantics, a backlogged stream
   // reading an old event would see a *future* counter value, letting the
