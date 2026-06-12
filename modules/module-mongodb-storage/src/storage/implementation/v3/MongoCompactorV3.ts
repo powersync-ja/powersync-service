@@ -441,7 +441,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     const boundarySurvivors: BucketDataDoc[] = [];
 
     let expectedDocCount = 0;
-    let expectedChecksum = 0n;
+    let expectedChecksum = 0;
     let expectedOpCount = 0;
 
     // --- Read: paginate ascending, collect docs to delete ---
@@ -490,7 +490,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           boundaryFound = true;
           idsToDelete.push(doc._id);
           expectedDocCount++;
-          expectedChecksum += doc.checksum;
+          expectedChecksum = addChecksums(expectedChecksum, Number(doc.checksum));
           expectedOpCount += doc.count;
 
           for (const op of loadBucketDataDocument(context, doc as unknown as BucketDataDocumentV3)) {
@@ -514,7 +514,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           // Entire doc is in CLEAR region
           idsToDelete.push(doc._id);
           expectedDocCount++;
-          expectedChecksum += doc.checksum;
+          expectedChecksum = addChecksums(expectedChecksum, Number(doc.checksum));
           expectedOpCount += doc.count;
 
           for (const op of loadBucketDataDocument(context, doc as unknown as BucketDataDocumentV3)) {
@@ -571,10 +571,10 @@ export class MongoCompactorV3 extends MongoCompactor {
             .next();
 
           if (
-            verification == null ||
-            verification.docCount !== expectedDocCount ||
-            verification.checksumSum !== expectedChecksum ||
-            verification.opCountSum !== expectedOpCount
+            verification == null || // all docs deleted
+            verification.docCount !== expectedDocCount || // some docs deleted
+            (Number((verification.checksumSum ?? 0n) & 0xffffffffn) | 0) !== expectedChecksum || // docs modified
+            verification.opCountSum !== expectedOpCount // ops changed within docs
           ) {
             throw new Error(`Concurrent modification detected during CLEAR for bucket ${bucket}. Aborting.`);
           }
