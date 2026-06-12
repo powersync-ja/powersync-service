@@ -1,4 +1,5 @@
 import { ConvexConnectionConfig } from '@powersync/service-module-convex/types';
+import { MikroOrmStorageConfig } from '@powersync/service-module-mikroorm-storage/types';
 import { MongoStorageConfig } from '@powersync/service-module-mongodb-storage/types';
 import { MongoConnectionConfig } from '@powersync/service-module-mongodb/types';
 import { MSSQLConnectionConfig } from '@powersync/service-module-mssql/types';
@@ -25,7 +26,9 @@ const mergedDataSourceConfig = configFile.genericDataSourceConfig
   .or(PostgresConnectionConfig)
   .or(ConvexConnectionConfig);
 
-const mergedStorageConfig = configFile.GenericStorageConfig.or(PostgresStorageConfig).or(MongoStorageConfig);
+const mergedStorageConfig = configFile.GenericStorageConfig.or(PostgresStorageConfig)
+  .or(MongoStorageConfig)
+  .or(MikroOrmStorageConfig);
 
 const mergedConfig = t.object({
   ...baseShape,

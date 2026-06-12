@@ -5,6 +5,7 @@ import { ActiveStorage, StorageProvider } from './StorageProvider.js';
 
 export type StorageEngineOptions = {
   configuration: ResolvedPowerSyncConfig;
+  serviceMode: string;
 };
 
 export interface StorageEngineListener {
@@ -45,7 +46,8 @@ export class StorageEngine extends BaseObserver<StorageEngineListener> {
     logger.info('Starting Storage Engine...');
     const { configuration } = this.options;
     this.currentActiveStorage = await this.storageProviders.get(configuration.storage.type)!.getStorage({
-      resolvedConfig: configuration
+      resolvedConfig: configuration,
+      serviceMode: this.options.serviceMode
     });
     this.iterateListeners((cb) => cb.storageActivated?.(this.activeBucketStorage));
     this.currentActiveStorage.onFatalError?.((error) => {
