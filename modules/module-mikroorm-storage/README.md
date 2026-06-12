@@ -83,6 +83,14 @@ sync_rules:
 
 Only use this storage type when starting PowerSync in unified mode. Do not run separate API and sync runners against the same SQLite storage file.
 
+## SQLite Concurrency
+
+For file-backed SQLite, the module enables WAL mode and uses MikroORM read replicas to open separate SQLite handles when `storage.max_pool_size` is greater than `1`. This allows SQLite-level read-while-write behavior for API reads during replication writes.
+
+The current MikroORM SQLite stack uses Kysely's `better-sqlite3` dialect. Those query calls are asynchronous in shape, but they execute on synchronous `better-sqlite3` handles rather than being delegated to worker threads. This means WAL and read replicas improve database handle concurrency, but a long-running SQLite statement can still occupy the Node.js event loop for the process executing it.
+
+The PowerSync SDK has a Node SQLite dialect that delegates SQLite work to workers. That may be a future workaround if this module needs stronger read concurrency while retaining SQLite storage.
+
 ## Service Registration
 
 The service image registers this module dynamically under the storage key `mikroorm:sqlite`. The service package depends on `@powersync/service-module-mikroorm-storage`, and `service/src/util/modules.ts` loads `MikroOrmStorageModule` when the config uses this storage type.

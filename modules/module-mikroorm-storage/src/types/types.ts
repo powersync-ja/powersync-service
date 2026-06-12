@@ -34,6 +34,6 @@ export function normalizeMikroOrmSqliteStorageConfig(
   return {
     type: MIKRO_ORM_SQLITE_STORAGE_TYPE,
     filename: config.filename,
-    max_pool_size: config.max_pool_size ?? 1
+    max_pool_size: config.max_pool_size ?? 10
   };
 }

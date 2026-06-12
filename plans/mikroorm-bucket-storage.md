@@ -2,21 +2,28 @@
 
 ## Goal
 
-Build a bucket storage module backed by MikroORM, with SQLite as the first supported driver and a path for future SQL drivers. The module should use common storage logic and common entity definitions wherever possible, while isolating driver-specific concerns behind a small dialect interface.
+Build an experimental bucket storage module backed by MikroORM, with SQLite as the first supported driver and a clean path for future SQL drivers. The module must share entity definitions and storage algorithms by default, while isolating database-specific behavior behind small dialect and migration-lock abstractions.
 
-The current first target is `mikroorm:sqlite`.
+The first public storage identifier is:
 
-## Lessons Learned
+```yaml
+storage:
+  type: mikroorm:sqlite
+```
 
-- Start from the shared PowerSync storage contract, not from the database schema alone. The quickest validation came from importing the standard core storage and sync tests into the new module.
-- MikroORM already handles the primitive types we need well enough for the SQLite first pass. We do not need custom bigint/blob/json property builders for the initial implementation.
-- Do not redeclare entities per driver until the driver needs a real difference. Common `defineEntity` schema constants and common classes are enough for SQLite today.
-- Driver-specific classes are still useful in a typical MikroORM project when a concrete entity needs methods, hooks, or driver-only behavior. For this module, keep that option open, but do not create empty SQLite subclasses just for ceremony.
-- The dialect abstraction should expose concrete entity classes directly, not a nested `MikroOrmStorageEntities` registry. The extra registry layer did not buy much once the common entity classes became stable.
-- Advanced read paths should stream. This matters for bucket reads and compaction, where loading all rows into memory is the wrong shape.
-- Batch flushes must be split into smaller persisted chunks. A long-lived `BucketBatch` should not keep every record in one MikroORM unit of work.
-- SQLite checkpoint notification is process-local only. The provider should reject split service modes for SQLite and require the unified runner, while future drivers can expose cross-process notification.
-- Migration locking is a chicken-and-egg problem. The lock must be created before generated MikroORM migrations run, so the lock manager needs a tiny amount of driver-specific raw SQL.
+SQLite storage is intended for single-process unified PowerSync service deployments only. Future drivers can add cross-process notifications and split-runner support through the dialect layer.
+
+## Architecture Decisions
+
+- Start from the PowerSync bucket storage contract, not from a database-first schema design.
+- Use MikroORM v7 and its SQL driver stack.
+- Use common `defineEntity` schema constants and common TypeScript entity classes for all entities that do not actually vary by driver.
+- Do not create empty driver-specific entity subclasses. Add subclasses only when a driver needs methods, hooks, or different behavior.
+- Use MikroORM built-in property types for the first SQLite implementation. Avoid custom bigint/blob/json builders unless a later driver proves they are necessary.
+- Keep storage algorithms common. Add dialect methods only for query streaming, notification behavior, lock behavior, or raw SQL that cannot be expressed cleanly through typed ORM calls.
+- Split high-volume writes into persisted chunks so one `BucketBatch` does not keep every operation in one MikroORM unit of work.
+- Stream hot read paths and compaction inputs. Do not load full bucket or compaction result sets into memory.
+- Run the shared core storage/sync suites and selected module-postgres replication suites against the MikroORM SQLite storage.
 
 ## Module Layout
 
@@ -25,6 +32,7 @@ modules/module-mikroorm-storage/
   package.json
   tsconfig.json
   vitest.config.ts
+  README.md
   src/
     index.ts
     mikro-orm.config.ts
@@ -76,18 +84,11 @@ modules/module-mikroorm-storage/
       util.ts
 ```
 
-## Entity Strategy
+## Entity Model
 
-Use common MikroORM `defineEntity` schema constants plus common TypeScript classes:
+Use common entity classes with MikroORM `defineEntity` schema constants:
 
 ```ts
-export class BucketData {
-  declare id: string;
-  declare groupId: number;
-  declare bucketName: string;
-  declare opId: bigint;
-}
-
 export const BucketDataSchema = defineEntity({
   name: 'BucketData',
   tableName: 'bucket_data',
@@ -98,10 +99,12 @@ export const BucketDataSchema = defineEntity({
     opId: p.bigint('bigint')
   }
 });
+
+export class BucketData extends BucketDataSchema.class {}
 BucketDataSchema.setClass(BucketData);
 ```
 
-The common entities currently cover:
+The common entity set is:
 
 - `bucket_data`
 - `bucket_parameters`
@@ -111,11 +114,11 @@ The common entities currently cover:
 - `sync_rules`
 - `write_checkpoints`
 
-Keep indexes in the common schema when they are part of the logical access pattern and valid for SQLite. Add driver-specific indexes only when a later driver needs a different shape.
+Indexes belong in the common entity schema when they represent logical access patterns shared by drivers. SQLite must include indexes for bucket reads, parameter lookup reads, source-table resolution, current-data lookups, write checkpoints, and sync-rule state queries.
 
-Avoid schema factories like `defineBucketDataEntity(options)` and avoid `property-builders` for now. They made sense when we thought every driver would need custom bigint/blob/json storage, but MikroORM's built-in `p.bigint('bigint')`, `p.blob()`, `p.json()`, `p.string()`, and date handling are enough for the current module.
+Source-table metadata must be JSON-safe. Normalize replica id column type ids to `number` before storing them so MikroORM JSON serialization never sees `bigint` values.
 
-Future drivers can still introduce concrete subclasses using the documented MikroORM pattern:
+Future driver subclasses should follow the documented MikroORM pattern only when the subclass adds real value:
 
 ```ts
 export class PostgresBucketData extends BucketDataSchema.class {
@@ -124,11 +127,9 @@ export class PostgresBucketData extends BucketDataSchema.class {
 BucketDataSchema.setClass(PostgresBucketData);
 ```
 
-Only do that when the subclass has a real purpose.
+## Dialect Interface
 
-## Dialect Strategy
-
-Storage code should depend on `MikroOrmStorageDialect`, not on SQLite imports. The dialect should expose the small set of driver-specific things the common layer needs:
+Common storage code depends on `MikroOrmStorageDialect`, not SQLite imports.
 
 ```ts
 export interface MikroOrmStorageDialect {
@@ -148,42 +149,53 @@ export interface MikroOrmStorageDialect {
 
 The dialect owns:
 
-- the public storage identifier, such as `mikroorm:sqlite`
-- the entity classes passed to MikroORM and migration tooling
-- streaming query implementation for hot bucket reads
+- public storage identifier, for example `mikroorm:sqlite`
+- entity class registration for MikroORM and migration tooling
+- streamed bucket-data reads
 - checkpoint watch/notify implementation
-- future raw SQL escape hatches where an operation cannot be expressed well through typed ORM calls
+- future database-specific raw SQL helpers
 
-Keep common storage classes responsible for the high-level algorithm. Pull database-specific behavior down into dialect methods only when the common implementation would otherwise need driver-specific SQL or notification behavior.
+SQLite bucket-data streaming should use MikroORM query builder streaming. It must also yield to the event loop before the query so tight single-process polling loops cannot starve replication/checkpoint work.
 
-## SQLite First Pass
+## SQLite Configuration
 
-SQLite-specific choices:
+SQLite config should be small and explicit:
 
-- Use `type: 'mikroorm:sqlite'` as the public storage identifier.
-- Use a `db_filename` config value, with `:memory:` supported for fast tests.
-- Use MikroORM v7 and its current driver stack. Do not introduce Knex-based helpers.
-- Use MikroORM's query builder streaming for bucket reads.
-- Use an in-process checkpoint watcher for local wakeups.
-- Reject split `api`/`sync` service runners for SQLite storage. SQLite cannot notify sharded pods, so it should only run in unified mode, while command-style contexts used by tooling remain allowed.
-- Generate SQLite migrations with the MikroORM CLI instead of hand-writing schema migrations.
-- Include indexes needed by the read, write, current-data, source-table, and checkpoint paths in the generated migration.
+```yaml
+storage:
+  type: mikroorm:sqlite
+  filename: ./powersync-storage.sqlite
+```
+
+Rules:
+
+- `filename` controls the SQLite database file. SQLite creates the file if it does not exist.
+- `:memory:` is supported for focused unit tests, but file-backed databases should be used for integration tests that reopen storage with `doNotClear`.
+- Do not expose a migrations path in public config. The module owns its bundled migration path.
+- Register the module with the service so `mikroorm:sqlite` can be used in normal self-hosted config.
+- Include the module in the service Docker build.
+- Ensure native `better-sqlite3` bindings are built in the production Docker image.
+
+SQLite must reject split API/sync runner modes. It can run in unified service mode and command/tooling contexts.
 
 ## Migrations
 
-Migrations should use MikroORM migrations internally and be exposed through the standard PowerSync service migration surface.
+Use MikroORM migrations internally and expose them through the standard PowerSync migration surface.
 
-Implementation shape:
+Implementation requirements:
 
 - `MikroOrmMigrationAgent` extends the service migration agent and overrides `run()`.
-- The service migration layer triggers the agent, but MikroORM owns migration discovery and migration state.
-- `NoOpMigrationStore` exists because PowerSync should not duplicate MikroORM migration bookkeeping.
+- The service migration surface triggers the agent.
+- MikroORM owns migration discovery and migration state.
+- `NoOpMigrationStore` prevents duplicate PowerSync migration bookkeeping.
 - `AbstractMikroOrmMigrationLockManager` defines the DB-backed lock contract.
-- `SqliteMigrationLockManager` bootstraps its own lock table with raw SQLite.
+- `SqliteMigrationLockManager` bootstraps its lock table with raw SQLite.
 
-The raw SQLite lock bootstrap is intentional. We need a DB-backed lock before migrations run, but migrations are what normally create tables. For SQLite, the lock manager solves that classic chicken-and-egg problem with `CREATE TABLE IF NOT EXISTS` against MikroORM's connection before invoking the migrator.
+The raw SQLite lock bootstrap is required. Migration locking has a classic chicken-and-egg problem: migrations normally create tables, but a distributed-safe migration trigger needs a table-backed lock before migrations run. For SQLite, use `CREATE TABLE IF NOT EXISTS` in the lock manager before invoking MikroORM migrations.
 
-Tests should verify that the migration agent creates representative storage tables, not just that the migrator returns successfully.
+Generate SQLite migration scripts with the MikroORM CLI. Do not hand-write the initial schema migration except for intentional lock-manager bootstrap SQL.
+
+Migration tests must verify that representative storage tables and indexes are created.
 
 ## Storage Implementation
 
@@ -198,7 +210,7 @@ Implement the common storage classes in this order:
 7. `MikroOrmCompactor`
 8. `MikroOrmReportStorage`
 
-`MikroOrmBucketBatch` should own the public writer lifecycle:
+`MikroOrmBucketBatch` owns:
 
 - listener notifications
 - `resolveTables`
@@ -210,82 +222,158 @@ Implement the common storage classes in this order:
 - snapshot state
 - write checkpoints
 
-`MikroOrmPersistedBatch` should own per-transaction write state:
+`MikroOrmPersistedBatch` owns:
 
-- preload `current_data` for a chunk
-- evaluate bucket data and parameter rows
-- insert `bucket_data`
-- insert `bucket_parameters`
-- upsert or mark-delete `current_data`
+- per-transaction `current_data` preload
+- bucket data evaluation
+- parameter data evaluation
+- `bucket_data` inserts
+- `bucket_parameters` inserts
+- `current_data` upserts and pending-delete markers
 
-Flush pending operations in chunks, currently `2_000` operations per persisted transaction. This keeps high-volume sync tests fast and avoids growing a single MikroORM unit of work across tens of thousands of rows.
+Flush pending operations in bounded chunks, currently `2_000` source operations per persisted transaction. Log successful flushes with source-operation counts and resulting storage-op ranges.
 
-## Reads, Streaming, and Compaction
+## Source Tables and Schema Changes
 
-Bucket reads should stream rows from the dialect through `streamBucketDataRows()`. The common sync path should consume the async iterable and batch output without buffering the entire query result.
+`resolveTables()` must detect both same-name changes and relation-id changes:
 
-Compaction should also stream candidate rows. Use typed ORM calls when they express the operation cleanly. Use raw SQL only for database-specific operations that are awkward or inefficient through MikroORM, and isolate those operations behind common methods or dialect-level helpers.
+- Match the active source table by connection, schema, table name, relation id, and normalized replica id columns.
+- When a table is renamed, return old source-table rows in `dropTables` if they share the same `relation_id.object_id`.
+- When a table changes replica identity or relevant column type metadata, return old source-table rows in `dropTables`.
+- New source-table rows must start with `snapshotDone: false` so initial and triggered snapshots are explicit.
 
-The compactor should be validated with the shared sync tests, especially checkpoint invalidation cases.
+This behavior is required for table recreate, rename, replica identity, and publication-change replication tests.
 
-## Test Strategy
+## Large Rows and Current Data
 
-The module should import and run the shared core tests instead of building only bespoke SQLite tests.
+Current-data persistence must tolerate rows that cannot be serialized to BSON or exceed the maximum persisted row size.
 
-Current expected coverage:
+Rules:
 
+- Use a `15 MiB` current-data row limit, matching existing storage behavior.
+- If full-row BSON serialization fails or exceeds the limit, log a warning and store a BSON row where each field value is `undefined`.
+- Evaluate sync rules against the truncated row so future TOAST-style updates can still be marked unavailable rather than crashing replication.
+- Suppress evaluated bucket rows produced only from a truncated row with no usable object id. This prevents placeholder blank-id bucket ops and follow-up blank-id removes.
+- Keep legitimate empty-string ids valid when `data.id` is explicitly present.
+
+## Reads and Checkpoints
+
+`MikroOrmSyncRulesStorage.getBucketDataBatch()` should consume dialect-streamed rows and chunk output without buffering the full query result.
+
+Bucket read output must include subkeys whenever `source_table` and `source_key` are present.
+
+`MikroOrmBucketStorageFactory.getReplicatingReplicationStreams()` must return both processing and active streams. Active streams still replicate after initial snapshot completion and must remain visible to replication management.
+
+SQLite checkpoint watching is process-local:
+
+- writes should notify the in-process watcher
+- reads should remain cooperative with the event loop
+- split-service deployments must be rejected at provider startup
+
+## Compaction
+
+Compaction should stream candidate rows and avoid loading full result sets into memory.
+
+Use typed ORM calls where they are readable and efficient. Use raw SQL for database-specific operations that are awkward or inefficient through MikroORM, and isolate that SQL behind common methods or dialect helpers.
+
+Validate compaction through the shared storage sync tests, especially checkpoint invalidation and bucket batch cases.
+
+## Tests
+
+The module must import shared PowerSync storage tests instead of relying only on bespoke SQLite tests.
+
+Required module-level coverage:
+
+- migration agent tests
+- storage provider tests, including SQLite unified-mode guard
 - shared storage tests
 - shared sync tests across storage protocol versions
-- migration agent tests
 - sync-rules storage tests
-- provider/service-mode tests
+- compaction tests
 
-Known verification commands:
+The module-postgres replication tests should be runnable against MikroORM SQLite storage with:
+
+```sh
+TEST_MONGO_STORAGE=false
+TEST_POSTGRES_STORAGE=false
+TEST_MIKROORM_SQLITE_STORAGE=true
+```
+
+module-postgres integration tests should use a file-backed SQLite storage filename by default. Allow `MIKROORM_SQLITE_STORAGE_TEST_FILENAME` to override it, but do not default those tests to `:memory:` because resume and `doNotClear` flows need storage state to survive factory reopen.
+
+Sequential module-postgres files to run against MikroORM SQLite storage:
+
+- `checkpoints.test.ts`
+- `chunked_snapshots.test.ts`
+- `large_batch.test.ts`
+- `pg_test.test.ts`
+- `replica_identity_full.test.ts`
+- `replication_retry.test.ts`
+- `resuming_snapshots.test.ts`
+- `route_api_adapter.test.ts`
+- `schema_changes.test.ts`
+- `slow_tests.test.ts`
+- `storage_combination.test.ts`
+- `types/registry.test.ts`
+- `validation.test.ts`
+- `wal_budget_api.test.ts`
+- `wal_budget.test.ts`
+- `wal_stream.test.ts`
+
+Some files are skipped unless their suite-specific environment flags are enabled.
+
+## Verification Commands
 
 ```sh
 source ~/.nvm/nvm.sh && nvm use && corepack pnpm --filter @powersync/service-module-mikroorm-storage build
 source ~/.nvm/nvm.sh && nvm use && corepack pnpm --filter @powersync/service-module-mikroorm-storage build:tests
-source ~/.nvm/nvm.sh && nvm use && corepack pnpm --filter @powersync/service-module-mikroorm-storage test test/src/storage_sync.test.ts --run
 source ~/.nvm/nvm.sh && nvm use && corepack pnpm --filter @powersync/service-module-mikroorm-storage test --run
+source ~/.nvm/nvm.sh && nvm use && corepack pnpm --filter @powersync/service-module-postgres build:tests
+source ~/.nvm/nvm.sh && nvm use && TEST_MONGO_STORAGE=false TEST_POSTGRES_STORAGE=false TEST_MIKROORM_SQLITE_STORAGE=true corepack pnpm --filter @powersync/service-module-postgres test test/src/wal_stream.test.ts --run
+source ~/.nvm/nvm.sh && nvm use && TEST_MONGO_STORAGE=false TEST_POSTGRES_STORAGE=false TEST_MIKROORM_SQLITE_STORAGE=true corepack pnpm --filter @powersync/service-module-postgres test test/src/schema_changes.test.ts --run
 ```
 
-Current observed status after implementing the SQLite vertical slice:
+Expected baseline:
 
-- source build passes
-- test build passes
-- sync suite passes with `51 passed`
-- full module suite passes with `223 passed | 2 skipped`
-
-There has been an intermittent native SQLite/Vitest `139` exit during full-suite startup. Rerunning has passed cleanly, so treat this as runner instability unless a failure includes test-level assertions.
+- MikroORM storage source build passes.
+- MikroORM storage test build passes.
+- Full MikroORM storage suite passes with the shared storage/sync tests.
+- module-postgres `wal_stream.test.ts` passes against MikroORM SQLite storage.
+- module-postgres `schema_changes.test.ts` passes against MikroORM SQLite storage.
 
 ## Build Order From Scratch
 
-1. Create the package, TypeScript config, Vitest config, exports, and workspace wiring.
-2. Add the common entity schemas and classes.
+1. Create the package, TypeScript config, Vitest config, exports, README, and workspace wiring.
+2. Add common MikroORM entity schemas and classes.
 3. Add SQLite config and dialect with entity class registration.
 4. Configure MikroORM migrations and generate the SQLite initial migration with the MikroORM CLI.
 5. Add the DB-backed migration lock and migration agent override.
-6. Add provider config for `mikroorm:sqlite` and register it with the service storage engine.
-7. Implement factory and sync-rule persistence.
-8. Implement writer creation and `MikroOrmBucketBatch`.
-9. Split persisted operation writes into `MikroOrmPersistedBatch`.
-10. Implement streamed bucket reads through the dialect.
-11. Implement write checkpoints and checkpoint watching.
-12. Implement compaction with streaming.
-13. Add the SQLite unified-runner guard.
-14. Import the shared storage and sync tests, then fill gaps until they pass.
-15. Run focused sync tests and the full module suite.
+6. Add provider config for `mikroorm:sqlite`.
+7. Register the module with the service module loader and Docker build.
+8. Implement factory and sync-rule persistence.
+9. Implement writer creation and `MikroOrmBucketBatch`.
+10. Split persisted operation writes into `MikroOrmPersistedBatch`.
+11. Implement oversized current-data handling.
+12. Implement source-table rename and replica-identity drop detection.
+13. Implement streamed bucket reads through the dialect.
+14. Implement write checkpoints and checkpoint watching.
+15. Implement compaction with streamed reads.
+16. Add the SQLite unified-runner guard.
+17. Import shared storage and sync tests.
+18. Add module-postgres MikroORM SQLite storage test wiring.
+19. Run the verification commands and the sequential module-postgres files.
 
 ## Future Driver Guidance
 
 For Postgres or another SQL driver:
 
-- reuse the common entity definitions first
-- add concrete entity subclasses only when methods/hooks/driver behavior require them
+- reuse common entity definitions first
+- add concrete entity subclasses only for real driver-specific behavior
 - add a new dialect object with its own entity class list
 - implement cross-process checkpoint notification in `createCheckpointWatcher()`
 - move raw SQL into dialect methods when query shape differs by database
-- keep migrations generated by MikroORM for that driver
-- add driver-specific migration locking before invoking the migrator
+- generate migrations with the MikroORM CLI for that driver
+- add a DB-backed migration lock before invoking the migrator
+- run the shared storage/sync suites and relevant replication-module integration tests against the new driver
 
-This keeps the module abstract without over-abstracting the entity model before a second driver proves what actually varies.
+This keeps the module abstract without over-abstracting the entity model before another driver proves what varies.
