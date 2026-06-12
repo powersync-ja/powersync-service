@@ -182,10 +182,6 @@ export interface ResolveTablesOptions {
   idGenerator?: () => string | bson.ObjectId;
   /**
    * For tests only - override the parsed sync config set used.
-   *
-   * This must be a whole parsed set rather than only a `HydratedSyncConfig`, so that the
-   * sync rules and any storage-specific id mappings derived from them always come from
-   * the same parse.
    */
   parsedSyncConfig?: ParsedSyncConfigSet;
 }

@@ -146,9 +146,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     // The test-only override is a whole parsed set, so the sync rules and the mapping
     // used below always come from the same parse.
     const parsedOverride = options.parsedSyncConfig as MongoParsedSyncConfigSet | undefined;
-    const syncRules = parsedOverride?.hydratedSyncConfig ?? this.sync_rules;
+    const syncConfig = parsedOverride?.hydratedSyncConfig ?? this.sync_rules;
     const mapping = parsedOverride?.mapping ?? this.mapping;
-    const matchingSources = syncRules.getMatchingSources(ref);
+    const matchingSources = syncConfig.getMatchingSources(ref);
 
     const { connection_id, source } = options;
     const { schema, name, objectId, replicaIdColumns, connectionTag, sendsCompleteRows } = source;
@@ -166,13 +166,17 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       const col = this.db.sourceTablesV3(this.replicationStreamId);
       const currentIdentity = { schema, name, objectId, replicaIdColumns: normalizedReplicaIdColumns };
 
+      // Fetch every persisted source-table doc that can overlap this physical table.
+      // Exact-identity docs are candidates for reuse; non-exact overlaps are possible drops.
       const candidateDocs = await col
         .find(overlappingSourceTableFilter(connection_id, currentIdentity), { session })
         .toArray();
       const exactDocs = candidateDocs.filter((doc) => matchingSourceTableIdentity(doc, currentIdentity));
       const desired = sourceTableDesiredResolution(matchingSources, mapping);
-      const triggersEvent = syncRules.tableTriggersEvent(ref);
+      const triggersEvent = syncConfig.tableTriggersEvent(ref);
 
+      // Plan how existing exact docs cover the current desired memberships. The planner is pure:
+      // it returns retained tables and any narrowing writes we must apply below.
       const { coveredMembershipIds, retainedDocIds, tables, narrowingUpdates } = planSourceTableRetention(exactDocs, {
         source: {
           schema,
@@ -182,7 +186,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         },
         config: {
           forceNarrowing: parsedOverride != null,
-          syncRules,
+          syncConfig,
           mapping
         },
         desired: {
@@ -193,6 +197,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         }
       });
 
+      // Persist narrowing for incomplete snapshots only. Snapshot-complete docs keep stale
+      // coverage ids so compatible future configs can reuse already-snapshotted data.
+      // Narrowing occurs after removing a sync config, meaning we don't process those
+      // definitions anymore.
       for (const update of narrowingUpdates) {
         await col.updateOne(
           { _id: update.id },
@@ -208,6 +216,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
       const uncoveredMembershipIds = uncoveredSourceTableMembershipIds(desired.membershipIds, coveredMembershipIds);
 
+      // Any desired membership not covered by an existing doc gets a new source table.
+      // That table snapshots only the uncovered memberships.
       if (hasSourceTableMembershipIds(uncoveredMembershipIds) || (triggersEvent && tables.length == 0)) {
         const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
         const newSourceTable = createNewSourceTable({
@@ -216,7 +226,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           source,
           replicaIdColumns: normalizedReplicaIdColumns,
           memberships: uncoveredMembershipIds,
-          syncRules,
+          syncConfig,
           mapping,
           bucketSourceById: desired.bucketSourceById,
           parameterLookupSourceById: desired.parameterLookupSourceById
@@ -228,15 +238,18 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         tables.push(newSourceTable.table);
       }
 
+      // If memberships are split across multiple source tables, only one may fire events.
       designateEventCarrier(tables, triggersEvent);
 
+      // Return identity-overlapping docs that represent renames / relation-id changes /
+      // replica-identity changes. Same-identity stale docs are retained in production.
       const conflictingTables = conflictingSourceTableDocs(candidateDocs, retainedDocIds, currentIdentity, {
         dropSameIdentity: parsedOverride != null
       });
 
       result = {
         tables,
-        dropTables: conflictingTables.map((doc) => sourceTableFromDocument(doc, connectionTag, syncRules, mapping))
+        dropTables: conflictingTables.map((doc) => sourceTableFromDocument(doc, connectionTag, syncConfig, mapping))
       };
     });
 

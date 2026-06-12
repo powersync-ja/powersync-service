@@ -38,7 +38,7 @@ export interface SourceTableRetentionPlanningContext {
   };
   config: {
     forceNarrowing: boolean;
-    syncRules: HydratedSyncConfig;
+    syncConfig: HydratedSyncConfig;
     mapping: BucketDefinitionMapping;
   };
   desired: {
@@ -241,7 +241,7 @@ class SourceTableRetentionPlanner {
         parameter_lookup_source_ids: memberships.parameterLookupSourceIds
       },
       source.connectionTag,
-      config.syncRules,
+      config.syncConfig,
       config.mapping,
       {
         bucketDataSources: memberships.bucketDataSourceIds.map((id) => desired.bucketSourceById.get(id)!),
@@ -296,12 +296,12 @@ export function createNewSourceTable(options: {
   source: storage.SourceEntityDescriptor;
   replicaIdColumns: ReplicaIdColumn[];
   memberships: SourceTableMembershipIds;
-  syncRules: HydratedSyncConfig;
+  syncConfig: HydratedSyncConfig;
   mapping: BucketDefinitionMapping;
   bucketSourceById: Map<string, BucketDataSource>;
   parameterLookupSourceById: Map<string, ParameterIndexLookupCreator>;
 }): NewSourceTable {
-  const { id, connectionId, source, replicaIdColumns, memberships, syncRules, mapping } = options;
+  const { id, connectionId, source, replicaIdColumns, memberships, syncConfig, mapping } = options;
   const doc: SourceTableDocumentV3 = {
     _id: id,
     connection_id: connectionId,
@@ -314,7 +314,7 @@ export function createNewSourceTable(options: {
     bucket_data_source_ids: memberships.bucketDataSourceIds,
     parameter_lookup_source_ids: memberships.parameterLookupSourceIds
   };
-  const table = sourceTableFromDocument(doc, source.connectionTag, syncRules, mapping, {
+  const table = sourceTableFromDocument(doc, source.connectionTag, syncConfig, mapping, {
     bucketDataSources: memberships.bucketDataSourceIds.map((id) => options.bucketSourceById.get(id)!),
     parameterLookupSources: memberships.parameterLookupSourceIds.map((id) => options.parameterLookupSourceById.get(id)!)
   });
@@ -350,17 +350,17 @@ export function conflictingSourceTableDocs(
 
 export function sourceTableMembershipsFromDocument(
   doc: SourceTableDocumentV3,
-  syncRules: HydratedSyncConfig,
+  syncConfig: HydratedSyncConfig,
   mapping: BucketDefinitionMapping
 ): MatchingSources {
   const bucketDataSourceIds = new Set(doc.bucket_data_source_ids);
   const parameterLookupSourceIds = new Set(doc.parameter_lookup_source_ids);
 
   return {
-    bucketDataSources: syncRules.bucketDataSources.filter((source) =>
+    bucketDataSources: syncConfig.bucketDataSources.filter((source) =>
       bucketDataSourceIds.has(mapping.bucketSourceId(source))
     ),
-    parameterLookupSources: syncRules.bucketParameterLookupSources.filter((source) =>
+    parameterLookupSources: syncConfig.bucketParameterLookupSources.filter((source) =>
       parameterLookupSourceIds.has(mapping.parameterLookupId(source))
     )
   };
@@ -369,11 +369,11 @@ export function sourceTableMembershipsFromDocument(
 export function sourceTableFromDocument(
   doc: SourceTableDocumentV3,
   connectionTag: string,
-  syncRules: HydratedSyncConfig,
+  syncConfig: HydratedSyncConfig,
   mapping: BucketDefinitionMapping,
   memberships?: MatchingSources
 ): storage.SourceTable {
-  const resolvedMemberships = memberships ?? sourceTableMembershipsFromDocument(doc, syncRules, mapping);
+  const resolvedMemberships = memberships ?? sourceTableMembershipsFromDocument(doc, syncConfig, mapping);
   const table = new storage.SourceTable({
     id: doc._id,
     ref: {
@@ -391,7 +391,7 @@ export function sourceTableFromDocument(
   });
   table.syncData = table.bucketDataSources.length > 0;
   table.syncParameters = table.parameterLookupSources.length > 0;
-  table.syncEvent = syncRules.tableTriggersEvent(table.ref);
+  table.syncEvent = syncConfig.tableTriggersEvent(table.ref);
   table.snapshotStatus =
     doc.snapshot_status == null
       ? undefined
