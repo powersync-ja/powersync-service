@@ -39,12 +39,6 @@ export interface SourceTableReconciliationContext {
   syncConfig: HydratedSyncConfig;
   mapping: BucketDefinitionMapping;
   desired: SourceTableDesiredResolution;
-  /**
-   * Test-only, set when resolving with a parsedSyncConfig override. Simulates membership
-   * removal: narrows snapshot-incomplete docs even when they cover no desired membership,
-   * and drops non-retained docs even when their identity matches the current descriptor.
-   */
-  reconcileRemovals: boolean;
 }
 
 export interface SourceTableReconciliationPlan {
@@ -141,7 +135,7 @@ class SourceTableReconciliationPlanner {
   constructor(private readonly context: SourceTableReconciliationContext) {}
 
   plan(candidateDocs: SourceTableDocumentV3[]): SourceTableReconciliationPlan {
-    const { identity, reconcileRemovals } = this.context;
+    const { identity } = this.context;
     for (const doc of candidateDocs) {
       if (matchingSourceTableIdentity(doc, identity)) {
         this.retainDoc(doc);
@@ -155,9 +149,7 @@ class SourceTableReconciliationPlanner {
       // Non-retained overlapping docs represent renames / relation-id changes /
       // replica-identity changes. Same-identity stale docs are retained in production.
       dropDocs: candidateDocs.filter(
-        (doc) =>
-          !this.retainedDocIds.has(doc._id.toHexString()) &&
-          (reconcileRemovals || !matchingSourceTableIdentity(doc, identity))
+        (doc) => !this.retainedDocIds.has(doc._id.toHexString()) && !matchingSourceTableIdentity(doc, identity)
       )
     };
   }
@@ -216,9 +208,7 @@ class SourceTableReconciliationPlanner {
     coversEventOnlyTable: boolean
   ) {
     const shouldNarrow =
-      (this.context.reconcileRemovals || coversDesiredMembership || coversEventOnlyTable) &&
-      !doc.snapshot_done &&
-      !sameMembershipIds(doc, memberships);
+      (coversDesiredMembership || coversEventOnlyTable) && !doc.snapshot_done && !sameMembershipIds(doc, memberships);
 
     if (!shouldNarrow) {
       return;

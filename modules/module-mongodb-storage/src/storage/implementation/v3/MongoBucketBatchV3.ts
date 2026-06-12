@@ -162,8 +162,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       storeCurrentData: source.sendsCompleteRows !== true,
       syncConfig,
       mapping,
-      desired: sourceTableDesiredResolution(syncConfig, source, mapping),
-      reconcileRemovals: parsedOverride != null
+      desired: sourceTableDesiredResolution(syncConfig, source, mapping)
     };
 
     let result: storage.ResolveTablesResult | null = null;

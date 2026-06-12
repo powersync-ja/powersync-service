@@ -439,8 +439,8 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     }
   );
 
-  test.runIf(storageVersion >= 3)('resolveTables handles v3 source membership additions and removals', async () => {
-    // Tests the behavior of resolveTables when bucket data sources and parameter index creators are added or removed.
+  test.runIf(storageVersion >= 3)('resolveTables handles v3 source membership additions', async () => {
+    // Tests the behavior of resolveTables when bucket data sources and parameter index creators are added.
     // These are not end-to-end tests yet, since we don't have a full incremental reprocessing implementation.
     // This just tests the specific resolveTables behavior.
 
@@ -492,7 +492,6 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const source = sourceDescriptor('memberships', { objectId: 'memberships-relation' });
     const dataOnlyTableId = new bson.ObjectId('6544e3899293153fa7b38348');
     const addedParameterTableId = new bson.ObjectId('6544e3899293153fa7b38349');
-    const removedDataTableId = new bson.ObjectId('6544e3899293153fa7b3834a');
 
     const dataOnly = await writer.resolveTables({
       connection_id: 1,
@@ -526,26 +525,26 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       parsedSyncConfig: dataOnlyRules
     });
     expect(removedParameter.tables.map((table) => table.id)).toEqual([dataOnlyTableId]);
-    // Now this sourceTable is unused & dropped
-    expect(removedParameter.dropTables.map((table) => table.id)).toEqual([addedParameterTableId]);
+    // Same-identity tables that no longer cover desired memberships are left in place.
+    expect(removedParameter.dropTables.map((table) => table.id)).toEqual([]);
     expect(removedParameter.tables[0].bucketDataSources).toHaveLength(1);
     expect(removedParameter.tables[0].parameterLookupSources).toHaveLength(0);
-    await writer.drop(removedParameter.dropTables);
 
     const removedData = await writer.resolveTables({
       connection_id: 1,
       source,
-      idGenerator: () => removedDataTableId,
+      idGenerator: () => {
+        throw new Error('parameter-only resolve should reuse existing v3 source table');
+      },
       parsedSyncConfig: parameterOnlyRules
     });
 
-    // This goes from dataOnlyRules -> parameterOnlyRules, which adds one definition and removes another.
-    // This generates a new SourceTable again, and removes all others.
-    expect(removedData.tables.map((table) => table.id)).toEqual([removedDataTableId]);
-    expect(removedData.dropTables.map((table) => table.id)).toEqual([dataOnlyTableId]);
+    // This goes from dataOnlyRules -> parameterOnlyRules, which removes one definition but
+    // reuses the existing parameter-only source table.
+    expect(removedData.tables.map((table) => table.id)).toEqual([addedParameterTableId]);
+    expect(removedData.dropTables.map((table) => table.id)).toEqual([]);
     expect(removedData.tables[0].bucketDataSources).toHaveLength(0);
     expect(removedData.tables[0].parameterLookupSources).toHaveLength(1);
-    await writer.drop(removedData.dropTables);
 
     const eventOnly = await writer.resolveTables({
       connection_id: 1,
@@ -557,7 +556,8 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     });
 
     // Event-only table can re-use any existing table.
-    expect(eventOnly.tables.map((table) => table.id)).toEqual([removedDataTableId]);
+    expect(eventOnly.tables).toHaveLength(1);
+    expect([dataOnlyTableId.toString(), addedParameterTableId.toString()]).toContain(eventOnly.tables[0].id.toString());
     expect(eventOnly.dropTables.map((table) => table.id)).toEqual([]);
     expect(eventOnly.tables[0].bucketDataSources).toHaveLength(0);
     expect(eventOnly.tables[0].parameterLookupSources).toHaveLength(0);
