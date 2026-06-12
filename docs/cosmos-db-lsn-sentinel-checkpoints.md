@@ -175,6 +175,40 @@ For stream-local barriers, the expected checkpoint id is the current stream's `c
 
 The `i` value matters because each checkpoint document is reused. It identifies a specific sentinel write, not just the checkpoint collection document in general.
 
+## `fullDocument` Is the Write-Time Post-Image
+
+Sentinel tracking reads the counter from `fullDocument.i` on update events. This is only safe if `fullDocument` reflects the document state at the time of the write, not at the time the event is read from the cursor.
+
+The two semantics differ in an important way:
+
+```text
+write-time post-image
+  each event carries the i value its own write produced
+
+read-time lookup (standard MongoDB updateLookup semantics)
+  the server fetches the document when the cursor reads the event;
+  an old event can report a newer i
+```
+
+Read-time semantics would be unsafe for the sentinel design. A backlogged stream reading an old standalone checkpoint event could observe a future counter value, commit an LSN ahead of data events it has not processed yet, and allow a write checkpoint to resolve before the caller's write has replicated.
+
+Cosmos DB does not expose `updateDescription` on update events, so the oplog-style event-time delta is not available as an alternative. The implementation must rely on `fullDocument`.
+
+Testing against a Microsoft dev cluster confirmed write-time semantics. With a change stream position captured, five rapid `$inc` writes were issued with no cursor reading, and the events were replayed afterwards:
+
+```text
+writes:         i = 4, 5, 6, 7, 8
+replayed events i = 4, 5, 6, 7, 8
+```
+
+All writes completed before the replay cursor was opened, so read-time lookup would have reported `i = 8` on every event. Each event instead carried its own value. This also confirms Cosmos does not coalesce rapid updates to the same document — five increments produced five discrete events — which sentinel barrier matching by exact `i` depends on.
+
+Despite the driver option being named `updateLookup` (Cosmos rejects `required` since it does not support `changeStreamPreAndPostImages`), the engine materializes the post-image into the change entry at write time.
+
+This assumption is verified automatically by the `fullDocument on update events is the write-time post-image` test in `cosmosdb_mode.test.ts`. If a future Cosmos change moves to read-time lookups or starts coalescing updates, that test fails.
+
+Note: the sample update event earlier in this document shows no `fullDocument` field — that capture was taken without the `fullDocument` option enabled, not because Cosmos cannot return it.
+
 ## Cosmos LSN Ordering
 
 The committed Cosmos LSN now uses this shape:

@@ -25,10 +25,6 @@ describe('change stream', () => {
 });
 
 function defineChangeStreamTests({ factory, storageVersion }: StorageVersionTestContext) {
-  if (storageVersion !== 1) {
-    return;
-  }
-
   const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
     return ChangeStreamTestContext.open(factory, { ...options, storageVersion });
   };

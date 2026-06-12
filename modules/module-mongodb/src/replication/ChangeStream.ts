@@ -357,17 +357,21 @@ export class ChangeStream {
 
         if (ns?.coll == CHECKPOINTS_COLLECTION && 'documentKey' in changeDocument) {
           const checkpointId = changeDocument.documentKey._id as string | mongo.ObjectId;
-          const fullDocument = 'fullDocument' in changeDocument ? changeDocument.fullDocument : null;
 
-          if (this.isCosmosDb && checkpointId == STANDALONE_CHECKPOINT_ID && fullDocument) {
+          if (this.isCosmosDb && checkpointId == STANDALONE_CHECKPOINT_ID) {
             // createBatchCheckpoint() writes the global standalone sentinel
             // before the stream-local sentinel. The global value is the
             // comparable Cosmos LSN coordinate, but we still wait for this
             // stream's private checkpoint below so snapshot acquisition does
             // not accidentally use another stream's/write checkpoint's marker
             // as its owned barrier.
-            const fullDoc = mongo.BSON.deserialize(fullDocument as Buffer, { useBigInt64: true });
-            latestCosmosSentinel = normalizeSentinel(fullDoc?.i ?? 0);
+            //
+            // Never move the sentinel backwards — replayed or reordered
+            // standalone events must not regress the LSN coordinate.
+            const observed = this.readStandaloneSentinel(changeDocument);
+            if (observed > latestCosmosSentinel) {
+              latestCosmosSentinel = observed;
+            }
             continue;
           }
 
@@ -513,7 +517,18 @@ export class ChangeStream {
       // Clear the collection on startup, to keep it clean
       // We never query this collection directly, and don't want to keep the data around.
       // We only use this to get data into the oplog/changestream.
-      await this.defaultDb.collection(CHECKPOINTS_COLLECTION).deleteMany({});
+      //
+      // Exception: on Cosmos DB, the standalone checkpoint document must survive
+      // restarts. Its `i` counter is the globally-ordered component of every
+      // committed Cosmos LSN, including write checkpoint heads. Deleting it
+      // would reset the counter to 1 on the next upsert, moving the LSN
+      // coordinate system backwards. That would make new commits compare below
+      // the persisted last_checkpoint_lsn (failing the out-of-order commit
+      // guard in a restart loop), and would let new write checkpoint heads
+      // resolve against old, higher committed LSNs before their data has
+      // actually replicated.
+      const filter = this.isCosmosDb ? { _id: { $ne: STANDALONE_CHECKPOINT_ID } as any } : {};
+      await this.defaultDb.collection(CHECKPOINTS_COLLECTION).deleteMany(filter);
     }
   }
 
@@ -913,6 +928,37 @@ export class ChangeStream {
     }).comparable;
   }
 
+  /**
+   * Read the sentinel counter from a standalone checkpoint change event
+   * (Cosmos DB only).
+   *
+   * `fullDocument` and its `i` field are required: Cosmos materializes the
+   * write-time post-image on insert/update/replace events, and every sentinel
+   * write `$inc`s the `i` field. If either is missing, the event cannot be a
+   * sentinel write we created — most likely the document was deleted or
+   * replaced externally, which destroys the Cosmos LSN coordinate system
+   * (a re-created counter restarts below already-committed LSNs). Invalidate
+   * the stream so replication restarts from scratch instead of stalling
+   * against a broken coordinate.
+   */
+  private readStandaloneSentinel(changeDocument: ProjectedChangeStreamDocument): bigint {
+    const fullDocument = 'fullDocument' in changeDocument ? changeDocument.fullDocument : null;
+    if (!fullDocument) {
+      throw new ChangeStreamInvalidatedError(
+        'Standalone checkpoint event has no fullDocument — cannot read the Cosmos sentinel',
+        new Error(`Unexpected ${changeDocument.operationType} event on the standalone checkpoint document`)
+      );
+    }
+    const fullDoc = mongo.BSON.deserialize(fullDocument as Buffer, { useBigInt64: true });
+    if (fullDoc?.i == null) {
+      throw new ChangeStreamInvalidatedError(
+        'Standalone checkpoint document has no `i` field — cannot read the Cosmos sentinel',
+        new Error(`Standalone checkpoint document: ${JSON.stringify(fullDoc)}`)
+      );
+    }
+    return normalizeSentinel(fullDoc.i);
+  }
+
   private rawChangeStreamBatches(options: {
     lsn: string | null;
     maxAwaitTimeMS?: number;
@@ -1078,16 +1124,33 @@ export class ChangeStream {
             // doing a keepalive in the middle of a transaction.
             if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > this.keepaliveIntervalMs) {
               if (this.isCosmosDb) {
-                // Keep the comparable sentinel coordinate unchanged and only
-                // refresh the opaque token used for resumeAfter.
-                const lsn = new CosmosDBLSN({
-                  sentinel: latestCosmosSentinel,
-                  resume_token: resumeToken
-                }).comparable;
-                await batch.keepalive(lsn);
+                // Advance the shared sentinel, but do not persist a checkpoint
+                // here. The bump's own change event will flow through the
+                // stream and be committed by the standalone checkpoint
+                // handling above, which advances the ordered LSN prefix and
+                // refreshes the resume token (using the event's own token).
+                //
+                // Why bump at all: with an unchanged sentinel, LSN comparison
+                // against the previously persisted LSN falls to the opaque
+                // base64 token suffix, which is not lexicographically
+                // meaningful — storage would silently reject roughly half of
+                // plain token refreshes, leaving the persisted resume token to
+                // go stale on an idle stream. (Standard MongoDB avoids this
+                // because its keepalive timestamp is parsed from the resume
+                // token itself, so the ordered prefix always advances with the
+                // token.)
+                //
+                // Why not persist immediately: writes that landed after this
+                // empty batch was read — including a write checkpoint head —
+                // would be covered by the persisted LSN before the stream has
+                // processed them, allowing write checkpoints to resolve before
+                // the corresponding data is replicated. Committing only when
+                // the bump's event is observed preserves the "commit only what
+                // the stream has seen" barrier property.
+                await createCosmosCheckpointLsn(this.client, this.defaultDb);
                 this.touch();
                 lastEmptyResume = performance.now();
-                this.logger.info(`Idle change stream (CosmosDB). Persisted resumeToken.`);
+                this.logger.info(`Idle change stream (CosmosDB). Bumped sentinel to advance the checkpoint.`);
               } else {
                 // Standard MongoDB: parse timestamp from resume token
                 const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(resumeToken);
@@ -1225,15 +1288,13 @@ export class ChangeStream {
 
               if (checkpointId == STANDALONE_CHECKPOINT_ID) {
                 if (this.isCosmosDb) {
-                  // We need to track the latest standalone sentinel value when using CosmosDB
-                  if (!changeDocument.fullDocument) {
-                    this.logger.warn(
-                      'Standalone checkpoint event missing fullDocument — cannot update Cosmos sentinel'
-                    );
-                    continue;
+                  // We need to track the latest standalone sentinel value when using CosmosDB.
+                  // Never move the sentinel backwards — replayed standalone
+                  // events after a resume must not regress the LSN coordinate.
+                  const observed = this.readStandaloneSentinel(changeDocument);
+                  if (observed > latestCosmosSentinel) {
+                    latestCosmosSentinel = observed;
                   }
-                  const fullDoc = mongo.BSON.deserialize(changeDocument.fullDocument as Buffer, { useBigInt64: true });
-                  latestCosmosSentinel = normalizeSentinel(fullDoc.i);
                 }
 
                 // Standalone / write checkpoint received.
@@ -1259,17 +1320,31 @@ export class ChangeStream {
 
               const lsn = this.createEventLsn(changeDocument, latestCosmosSentinel);
               if (batch.lastCheckpointLsn != null && lsn < batch.lastCheckpointLsn) {
-                // Checkpoint out of order - should never happen with MongoDB.
-                // If it does happen, we throw an error to stop the replication - restarting should recover.
-                // Since we use batch.lastCheckpointLsn for the next resumeAfter, this should not result in an infinite loop.
-                // Originally a workaround for https://jira.mongodb.org/browse/NODE-7042.
-                // This has been fixed in the driver in the meantime, but we still keep this as a safety-check.
-                const eventTime = this.isCosmosDb
-                  ? `sentinel ${latestCosmosSentinel}`
-                  : timestampToDate(this.getEventTimestamp(changeDocument)).toISOString();
-                throw new ReplicationAssertionError(
-                  `Change resumeToken ${(changeDocument._id as any)._data} (${eventTime}) is less than last checkpoint LSN ${batch.lastCheckpointLsn}. Restarting replication.`
-                );
+                // For Cosmos DB, an LSN with the same sentinel as the last
+                // committed LSN differs only in the opaque resume token
+                // suffix, which carries no ordering meaning — e.g. when a
+                // restart replays the event behind an already-persisted
+                // checkpoint. That is not an ordering violation: fall through
+                // and let the commit below no-op (storage rejects it as
+                // checkpointBlocked), while still processing a pending barrier
+                // match.
+                const cosmosSentinelTie =
+                  this.isCosmosDb &&
+                  CosmosDBLSN.fromSerialized(lsn).sentinel ===
+                    CosmosDBLSN.fromSerialized(batch.lastCheckpointLsn).sentinel;
+                if (!cosmosSentinelTie) {
+                  // Checkpoint out of order - should never happen with MongoDB.
+                  // If it does happen, we throw an error to stop the replication - restarting should recover.
+                  // Since we use batch.lastCheckpointLsn for the next resumeAfter, this should not result in an infinite loop.
+                  // Originally a workaround for https://jira.mongodb.org/browse/NODE-7042.
+                  // This has been fixed in the driver in the meantime, but we still keep this as a safety-check.
+                  const eventTime = this.isCosmosDb
+                    ? `sentinel ${latestCosmosSentinel}`
+                    : timestampToDate(this.getEventTimestamp(changeDocument)).toISOString();
+                  throw new ReplicationAssertionError(
+                    `Change resumeToken ${(changeDocument._id as any)._data} (${eventTime}) is less than last checkpoint LSN ${batch.lastCheckpointLsn}. Restarting replication.`
+                  );
+                }
               }
 
               if (waitForCheckpointLsn != null) {

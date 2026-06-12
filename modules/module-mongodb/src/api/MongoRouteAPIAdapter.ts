@@ -223,7 +223,10 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
     if (await this.detectCosmosDb()) {
       const head = await createCosmosCheckpointLsn(this.client, this.db);
-      return await callback(head);
+      const result = await callback(head);
+      // create another bump to ensure movement after the reported head
+      await createCosmosCheckpointLsn(this.client, this.db);
+      return result;
     }
 
     const session = this.client.startSession();

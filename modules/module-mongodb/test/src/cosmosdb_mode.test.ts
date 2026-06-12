@@ -5,6 +5,7 @@ import { createWriteCheckpoint } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
+import { CHECKPOINTS_COLLECTION } from '@module/replication/replication-utils.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { connectMongoData, describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
@@ -33,6 +34,137 @@ describe.skipIf(!isCosmosDb)('cosmosDbMode', () => {
       const hello = await db.command({ hello: 1 });
       console.dir({ hello }, { depth: null });
       expect(hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null).toBe(true);
+    } finally {
+      await client.close();
+    }
+  });
+
+  // Verifies a core assumption of the Cosmos sentinel LSN design: that
+  // `fullDocument` on update events is the write-time post-image, not a
+  // read-time lookup of the document's current state.
+  //
+  // ChangeStream.ts tracks `latestCosmosSentinel` from `fullDocument.i` on
+  // updates to the standalone checkpoint document, and commits LSNs based on
+  // that value. With read-time (updateLookup) semantics, a backlogged stream
+  // reading an old event would see a *future* counter value, letting the
+  // committed LSN run ahead of unprocessed data events — which would allow
+  // write checkpoints to resolve before the caller's write has replicated.
+  //
+  // The test bursts increments while no cursor is reading, then replays the
+  // events. Write-time semantics yield one event per increment, each carrying
+  // its own value. Read-time semantics yield events all reporting the final
+  // value. Collapsed/missing events would indicate Cosmos coalesces rapid
+  // same-document updates, which would be its own significant finding.
+  test('fullDocument on update events is the write-time post-image', { timeout: 120_000 }, async () => {
+    const { client, db } = await connectMongoData();
+    try {
+      const collection = db.collection<{ _id: string; i: number }>(CHECKPOINTS_COLLECTION);
+      const docId = '_test_fulldoc_semantics';
+
+      const pipeline = [
+        {
+          $match: {
+            operationType: 'update',
+            'ns.db': db.databaseName,
+            'ns.coll': CHECKPOINTS_COLLECTION,
+            'documentKey._id': docId
+          }
+        }
+      ];
+
+      // Establish a resume position past the priming writes, so the replay
+      // below starts cleanly before the burst.
+      //
+      // The stream only delivers events written after the cursor is
+      // established (Cosmos has no startAtOperationTime), and the driver opens
+      // the cursor lazily on the first read. So keep writing priming
+      // increments until the first event comes through — the same approach the
+      // production retry loop uses during initial LSN acquisition.
+      let resumeToken: unknown;
+      console.log('[prime] opening change stream');
+      const before = client.watch(pipeline, { fullDocument: 'updateLookup', maxAwaitTimeMS: 500 });
+      try {
+        const deadline = Date.now() + 60_000;
+        let lastPrimedI = 0;
+        let drainedTo = -1;
+        while (drainedTo < 0 && Date.now() < deadline) {
+          const result = await collection.findOneAndUpdate(
+            { _id: docId },
+            { $inc: { i: 1 } },
+            { upsert: true, returnDocument: 'after' }
+          );
+          lastPrimedI = result!.i;
+          console.log(`[prime] wrote i=${lastPrimedI}, polling stream`);
+          const event = await before.tryNext();
+          if (event != null && 'fullDocument' in event) {
+            drainedTo = event.fullDocument?.i ?? -1;
+            console.log(`[prime] stream is live, first event has i=${drainedTo}`);
+          }
+        }
+        expect(drainedTo, 'change stream never delivered the priming events').toBeGreaterThan(0);
+
+        // Drain the remaining priming events so they don't leak into the
+        // replay below.
+        while (drainedTo < lastPrimedI && Date.now() < deadline) {
+          const event = await before.tryNext();
+          if (event != null && 'fullDocument' in event) {
+            drainedTo = event.fullDocument?.i ?? drainedTo;
+            console.log(`[prime] drained event i=${drainedTo}`);
+          }
+        }
+        expect(drainedTo, 'timed out draining priming events').toEqual(lastPrimedI);
+
+        resumeToken = before.resumeToken;
+        console.log(`[prime] resume token captured: ${JSON.stringify(resumeToken)}`);
+        expect(resumeToken).toBeTruthy();
+      } finally {
+        await before.close();
+      }
+
+      // Burst increments with no cursor reading. All writes complete before
+      // any event is fetched, so a read-time lookup cannot accidentally
+      // return event-time values.
+      const expected: number[] = [];
+      for (let k = 0; k < 5; k++) {
+        const result = await collection.findOneAndUpdate(
+          { _id: docId },
+          { $inc: { i: 1 } },
+          { upsert: true, returnDocument: 'after' }
+        );
+        expected.push(result!.i);
+      }
+      console.log(`[burst] wrote increments: ${expected.join(', ')}`);
+
+      // Replay the burst and record the value each event carries.
+      const seen: number[] = [];
+      console.log('[replay] opening change stream from captured resume token');
+      const after = client.watch(pipeline, {
+        fullDocument: 'updateLookup',
+        maxAwaitTimeMS: 500,
+        resumeAfter: resumeToken
+      });
+      try {
+        const start = Date.now();
+        const deadline = start + 60_000;
+        while (seen.length < expected.length && Date.now() < deadline) {
+          const event = await after.tryNext();
+          if (event != null && 'fullDocument' in event) {
+            seen.push(event.fullDocument?.i);
+            console.log(
+              `[replay] event ${seen.length}/${expected.length}: i=${event.fullDocument?.i} (+${Date.now() - start}ms)`
+            );
+          }
+        }
+        if (seen.length < expected.length) {
+          console.log(`[replay] timed out with ${seen.length}/${expected.length} events`);
+        }
+      } finally {
+        await after.close();
+      }
+
+      console.dir({ fullDocumentSemantics: { expected, seen } }, { depth: null });
+
+      expect(seen).toEqual(expected);
     } finally {
       await client.close();
     }
@@ -125,7 +257,7 @@ bucket_definitions:
     context.startStreaming();
 
     // Wait for the initial checkpoint to be processed
-    await context.getCheckpoint();
+    await context.getCheckpoint({ timeout: 50_000 });
 
     // Wait past the keepalive interval so the idle keepalive path fires.
     // On Cosmos DB, this must NOT crash from parseResumeTokenTimestamp
@@ -260,8 +392,9 @@ bucket_definitions:
     await collection.insertOne({ description: 'write_cp_test' });
 
     // Exercise the write checkpoint flow. On Cosmos DB, createReplicationHead
-    // uses hello.operationTime as an approximate source-side head, then writes
-    // a sentinel checkpoint document to nudge replication forward.
+    // advances the standalone checkpoint sentinel and uses the resulting
+    // sentinel-based LSN as the source-side head. The sentinel write also
+    // nudges replication forward on an idle stream.
     const result = await createWriteCheckpoint({
       userId: 'test_user',
       clientId: 'test_client',
@@ -315,7 +448,7 @@ bucket_definitions:
     // process its initial checkpoint before we insert test data. Without this,
     // the insert can happen before the ChangeStream's lazy aggregate command
     // is sent, causing the event to be missed entirely (not a .lte() issue).
-    await context2.getCheckpoint({ timeout: 10_000 });
+    await context2.getCheckpoint({ timeout: 50_000 });
 
     // Insert — if .lte() drops same-second events, this data will never appear.
     const collection2 = db2.collection('test_data');
