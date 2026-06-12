@@ -1060,6 +1060,101 @@ describe('sync - mongodb', () => {
           const ops = await getFilteredOps(50, 55);
           expect(ops).toEqual([]);
         });
+
+        test('all-filtered first batch still returns data behind the batch boundary', async () => {
+          // Documents straddling the requested (start, end] window are matched by the
+          // query, but contribute no rows after filtering. If an entire server batch
+          // (~101 documents) consists of such straddlers, the remaining documents in
+          // the cursor must still be reachable. Storage reports the straddler buckets
+          // as complete via empty chunks, and the caller re-requests the rest.
+          await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+          const syncRules = await factory.updateSyncRules(
+            updateSyncRulesFromYaml(
+              `
+          bucket_definitions:
+            by_user:
+              parameters: select request.user_id() as user_id
+              data: [select * from test where owner_id = bucket.user_id]
+          `,
+              { storageVersion }
+            )
+          );
+          const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+          const db = bucketStorage.db as VersionedPowerSyncMongoV3;
+
+          const start = 5n;
+          const end = 50n;
+
+          // 150 buckets sorted before the data bucket, each with a single document
+          // containing ops at 1 and 100: matched (_id.o=100 > start, min_op=1 <= end),
+          // but no op in (5, 50].
+          const straddlerNames = Array.from({ length: 150 }, (_, i) => `b${`${i}`.padStart(3, '0')}`);
+          const requests = [...straddlerNames, 'zzz'].map((id) =>
+            bucketRequest(syncRules.syncConfigContent[0], `by_user["${id}"]`, start)
+          );
+          const definitionId = bucketStorage.mapping.bucketSourceId(requests[0].source);
+          const collection = db.bucketData(syncRules.replicationStreamId, definitionId);
+          const sourceTable = new bson.ObjectId();
+
+          function makeOps(bucket: string, opIds: bigint[]): BucketDataDoc[] {
+            const bucketKey: BucketKey = {
+              replicationStreamId: syncRules.replicationStreamId,
+              definitionId,
+              bucket
+            };
+            return opIds.map((opId) => ({
+              bucketKey,
+              o: opId,
+              op: 'PUT' as const,
+              source_table: sourceTable,
+              source_key: test_utils.rid(`row-${opId}`),
+              table: 'test',
+              row_id: `row-${opId}`,
+              checksum: BigInt(opId) * 10n,
+              data: `{"id":"row-${opId}"}`
+            }));
+          }
+
+          const straddlerDocs = requests
+            .slice(0, -1)
+            .map((request) => serializeBucketData(request.bucket, makeOps(request.bucket, [1n, 100n])));
+          const dataBucket = requests[requests.length - 1].bucket;
+          const dataDoc = serializeBucketData(dataBucket, makeOps(dataBucket, [10n]));
+          await collection.insertMany([...straddlerDocs, dataDoc]);
+
+          // Emulate the caller loop in sync.ts / BucketChecksumState: advance bucket
+          // positions from each chunk, drop completed buckets, and re-request while
+          // any chunk reported has_more.
+          const positions = new Map(requests.map((request) => [request.bucket, request.start]));
+          const pending = new Set(positions.keys());
+          const receivedOps: bigint[] = [];
+          let rounds = 0;
+
+          while (rounds < 10) {
+            rounds++;
+            const roundRequests = requests
+              .filter((request) => pending.has(request.bucket))
+              .map((request) => ({ ...request, start: positions.get(request.bucket)! }));
+            const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(end, roundRequests));
+            let anyHasMore = false;
+            for (const { chunkData } of batch) {
+              positions.set(chunkData.bucket, BigInt(chunkData.next_after));
+              if (chunkData.has_more) {
+                anyHasMore = true;
+              } else {
+                pending.delete(chunkData.bucket);
+              }
+              receivedOps.push(...chunkData.data.map((entry) => BigInt(entry.op_id)));
+            }
+            if (!anyHasMore) {
+              break;
+            }
+          }
+
+          // The op behind the all-straddler first batch must be returned.
+          expect(receivedOps).toEqual([10n]);
+          expect(rounds).toBeLessThan(10);
+        });
       });
     });
   }
