@@ -367,6 +367,11 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         checkpointInvalidated = true;
       }
       if (r.data.length == 0) {
+        // An empty chunk is not sent to the client, but may still report progress:
+        // storage can emit an empty chunk for a bucket that has no operations in the
+        // requested range, and its position must advance so the bucket is not
+        // re-requested indefinitely.
+        checkpointLine.updateBucketPosition({ bucket: r.bucket, nextAfter: BigInt(r.next_after), hasMore: r.has_more });
         continue;
       }
       logger.debug(`Sending data for ${r.bucket}`);
