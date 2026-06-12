@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import { MongoLSN } from '@module/common/MongoLSN.js';
 import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
+import { CHECKPOINTS_COLLECTION } from '@module/replication/replication-utils.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { connectMongoData } from './util.js';
 
@@ -111,6 +112,23 @@ describe('Cosmos DB helpers', () => {
         expect(parts[1]).toEqual(STANDALONE_CHECKPOINT_ID);
         // i should be a number (the incrementing counter)
         expect(Number.isInteger(Number(parts[2]))).toBe(true);
+      } finally {
+        await client.close();
+      }
+    });
+
+    test('createCheckpoint embeds globalSentinel in the barrier document', async () => {
+      // createBatchCheckpoint() passes the standalone counter value so the
+      // stream can read the global LSN coordinate from its own barrier event,
+      // without depending on cross-document change stream ordering.
+      const { client, db } = await connectMongoData();
+      try {
+        const barrierId = new mongo.ObjectId();
+        await createCheckpoint(client, db, barrierId, { mode: 'sentinel', globalSentinel: 42n });
+
+        const doc = await db.collection(CHECKPOINTS_COLLECTION).findOne({ _id: barrierId as any });
+        expect(doc?.i).toEqual(1);
+        expect(BigInt(doc!.globalSentinel)).toEqual(42n);
       } finally {
         await client.close();
       }

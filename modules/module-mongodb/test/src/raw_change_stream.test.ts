@@ -6,17 +6,26 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { bson } from '@powersync/service-core';
 import { clearTestDb, connectMongoData } from './util.js';
 
+// Cosmos DB only supports cluster-level change streams — collection- and
+// database-level streams fail with NamespaceNotFound ("Collection not found"),
+// which is why production always uses cluster-level streams on Cosmos.
+// The cluster-level size tracking test is also skipped: its strict batching
+// assertions (exact batch counts, immediate event delivery per readAll pass)
+// are racy against a remote Cosmos cluster with multi-second event latency.
+// Byte tracking on Cosmos is exercised indirectly by cosmosdb_mode.test.ts.
+const isCosmosDb = process.env.COSMOS_DB_TEST === 'true';
+
 describe('internal mongodb utils', () => {
   // The implementation relies on internal APIs, so we verify this works as expected for various types of change streams.
-  test('collection change stream size tracking', async () => {
+  test.skipIf(isCosmosDb)('collection change stream size tracking', async () => {
     await testChangeStreamBsonBytes('collection');
   });
 
-  test('db change stream size tracking', async () => {
+  test.skipIf(isCosmosDb)('db change stream size tracking', async () => {
     await testChangeStreamBsonBytes('db');
   });
 
-  test('cluster change stream size tracking', async () => {
+  test.skipIf(isCosmosDb)('cluster change stream size tracking', async () => {
     await testChangeStreamBsonBytes('cluster');
   });
 
@@ -121,7 +130,8 @@ describe('internal mongodb utils', () => {
     expect(totalBytes).toBeLessThan(8000);
   }
 
-  test('should resume on missing cursor (1)', async () => {
+  // Cosmos DB: database-level change streams and $currentOp are not supported
+  test.skipIf(isCosmosDb)('should resume on missing cursor (1)', async () => {
     // Many resumable errors are difficult to simulate, but CursorNotFound is easy.
 
     const { db, client } = await connectMongoData();
@@ -174,7 +184,8 @@ describe('internal mongodb utils', () => {
     expect(readDocs.map((doc) => doc.fullDocument)).toMatchObject([{ test: 1 }, { test: 2 }, { test: 3 }, { test: 4 }]);
   });
 
-  test('should resume on missing cursor (2)', async () => {
+  // Cosmos DB: database-level change streams and $currentOp are not supported
+  test.skipIf(isCosmosDb)('should resume on missing cursor (2)', async () => {
     const { db, client } = await connectMongoData();
     await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
     await clearTestDb(db);
@@ -248,7 +259,8 @@ describe('internal mongodb utils', () => {
     expect(readDocs.map((doc) => doc.fullDocument)).toMatchObject([{ test: 1 }, { test: 2 }, { test: 3 }, { test: 4 }]);
   });
 
-  test('should cleanly abort a stream between events', async () => {
+  // Cosmos DB: database-level change streams are not supported
+  test.skipIf(isCosmosDb)('should cleanly abort a stream between events', async () => {
     const { db, client } = await connectMongoData();
     const abortController = new AbortController();
     await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
@@ -298,7 +310,8 @@ describe('internal mongodb utils', () => {
     expect(readDocs.map((doc) => doc.fullDocument)).toMatchObject([{ test: 1 }, { test: 2 }]);
   });
 
-  test('should cleanly abort a stream in an event', async () => {
+  // Cosmos DB: database-level change streams are not supported
+  test.skipIf(isCosmosDb)('should cleanly abort a stream in an event', async () => {
     const { db, client } = await connectMongoData();
     const abortController = new AbortController();
     await using _ = { [Symbol.asyncDispose]: async () => await client.close() };

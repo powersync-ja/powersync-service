@@ -116,6 +116,29 @@ Decoded Cosmos `_data` tokens appear to contain structured internal fields, for 
 
 This is useful for debugging, but the token remains opaque. We should not parse it or assume it is lexicographically sortable unless Microsoft documents that guarantee.
 
+## Cluster-Scoped Streams and the Source Database Change Gap
+
+Cosmos DB only supports cluster-level change streams. Collection- and database-level streams are rejected with `NamespaceNotFound` ("Collection not found"). The implementation therefore always opens the stream through `client.db('admin')` with `allChangesForCluster: true` and filters namespaces in the pipeline.
+
+This has a side effect on resume safety. Cosmos resume tokens are cluster-scoped, so they stay valid regardless of which database the pipeline filters target:
+
+```text
+standard MongoDB
+  database-scoped stream — resuming against a different source database
+  invalidates the token and raises ChangeStreamInvalidatedError
+
+Cosmos DB
+  cluster-scoped stream — the token stays valid when only the database
+  name changes; the stream silently continues, filtered to the new
+  (typically empty) database
+```
+
+On standard MongoDB this acts as a safeguard: repointing a connection at a different source database without resyncing fails loudly and triggers a resync. On Cosmos that safeguard never fires — replication continues from the old token as if nothing changed, scoped to the new database.
+
+This is a known detection gap, not a test environment limitation. The `resuming with a different source database` test in `resume.test.ts` is skipped on Cosmos for this reason.
+
+A possible future fix is to persist the source database name alongside the LSN and validate it on resume, raising `ChangeStreamInvalidatedError` on mismatch to force a resync.
+
 ## Why the `.lte()` Dedupe Guard Is Disabled for Cosmos
 
 Standard MongoDB can use event timestamp comparison to skip duplicate boundary events after resume:
@@ -174,6 +197,55 @@ fullDocument.i == expectedI
 For stream-local barriers, the expected checkpoint id is the current stream's `checkpointStreamId`. For standalone/write checkpoints, the expected checkpoint id is `STANDALONE_CHECKPOINT_ID`.
 
 The `i` value matters because each checkpoint document is reused. It identifies a specific sentinel write, not just the checkpoint collection document in general.
+
+## Embedded Global Sentinel in Barrier Documents
+
+Each Cosmos batch checkpoint (`createBatchCheckpoint`) performs two writes, to two different documents:
+
+```text
+write 1: $inc _standalone_checkpoint.i        -> global coordinate N
+write 2: $inc <checkpointStreamId>.i          -> this stream's barrier
+```
+
+The committed LSN pairs the global coordinate from write 1 with the resume token of write 2's change event. An earlier design relied on the change stream delivering write 1's event before write 2's event. That holds when both documents live on the same node, but change streams only guarantee ordering per document — delivery order across different documents is not guaranteed (relevant if `_powersync_checkpoints` is ever sharded, or under any feed reordering).
+
+To remove that dependency, write 2 embeds the global value in the barrier document:
+
+```text
+{ $inc: { i: 1 }, $set: { globalSentinel: N } }
+```
+
+The barrier event is then self-describing: when the stream observes its own barrier, it reads `fullDocument.globalSentinel` directly. The committed LSN no longer depends on the standalone event having been delivered first.
+
+### Commit triggers
+
+Commits are not exclusively driven by barrier events. There are two triggers, and both matter:
+
+```text
+own barrier event
+  normal batch flow; coordinate from the embedded globalSentinel
+
+standalone checkpoint event (immediate commit when caught up)
+  required for write checkpoint latency on an idle stream, and for the
+  keepalive design (the keepalive bump is committed via this path);
+  coordinate from the event's own i, which is the global counter itself
+```
+
+Both event types are self-describing for the coordinate, just via different fields.
+
+### Why `latestCosmosSentinel` tracking still exists
+
+The in-memory `latestCosmosSentinel` is not made redundant by the embedding. It is a monotonic merge point fed by three sources:
+
+```text
+resume seed        sentinel parsed from the stored LSN at startup
+standalone events  fullDocument.i
+own barrier events fullDocument.globalSentinel
+```
+
+It exists because one LSN producer is not self-describing: the `setResumeLsn` path builds an LSN from a plain data event during long catch-up stretches (20k+ changes without a commit). Data events carry no sentinel, so the coordinate must come from tracked state. The resume seed also lets the monotonic guard absorb replayed standalone events after a restart (their `i` is below the resumed position) without treating them as ordering violations.
+
+The embedding changed what the tracking means: it is no longer load-bearing for cross-document ordering, only a cache of the highest coordinate proven so far. Any single source being late or absent no longer affects correctness.
 
 ## `fullDocument` Is the Write-Time Post-Image
 

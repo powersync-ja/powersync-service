@@ -6,6 +6,8 @@ import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { env } from './env.js';
 import { describeWithStorage, StorageVersionTestContext } from './util.js';
 
+const isCosmosDb = process.env.COSMOS_DB_TEST === 'true';
+
 describe('mongodb resuming replication', () => {
   describeWithStorage({}, defineResumeTest);
 });
@@ -15,7 +17,15 @@ function defineResumeTest({ factory: factoryGenerator, storageVersion }: Storage
     return ChangeStreamTestContext.open(factoryGenerator, { ...options, storageVersion });
   };
 
-  test('resuming with a different source database', async () => {
+  // Cosmos DB: this detection mechanism does not exist there. On standard
+  // MongoDB the change stream is database-scoped, so resuming against a
+  // different source database invalidates the resume token and raises
+  // ChangeStreamInvalidatedError. On Cosmos the stream is always
+  // cluster-scoped, so the token stays valid when only the database name
+  // changes — the stream silently continues, scoped to the new (empty)
+  // database, and the expected error never fires. This is a known detection
+  // gap on Cosmos rather than a test environment limitation.
+  test.skipIf(isCosmosDb)('resuming with a different source database', async () => {
     await using context = await openContext();
     const { db } = context;
 

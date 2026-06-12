@@ -190,12 +190,18 @@ export const STANDALONE_CHECKPOINT_ID = '_standalone_checkpoint';
  *     available (standard MongoDB), falls back to wall clock (Cosmos DB).
  *   'sentinel' — return a sentinel marker for event-based matching in the
  *     streaming loop.
+ * @param globalSentinel
+ *   Cosmos DB only: the current standalone checkpoint counter value, embedded
+ *   in the barrier document. This lets the stream read the global LSN
+ *   coordinate from its own barrier event, without depending on the standalone
+ *   checkpoint event having been delivered first — change stream ordering
+ *   across different documents is not guaranteed.
  */
 export async function createCheckpoint(
   client: mongo.MongoClient,
   db: mongo.Db,
   id: mongo.ObjectId | string,
-  options?: { mode?: 'lsn' | 'sentinel' }
+  options?: { mode?: 'lsn' | 'sentinel'; globalSentinel?: bigint }
 ): Promise<string> {
   const mode = options?.mode ?? 'lsn';
   const session = client.startSession();
@@ -208,7 +214,10 @@ export async function createCheckpoint(
         _id: id as any
       },
       {
-        $inc: { i: 1 }
+        $inc: { i: 1 },
+        ...(options?.globalSentinel != null
+          ? { $set: { globalSentinel: mongo.Long.fromBigInt(options.globalSentinel) } }
+          : {})
       },
       {
         upsert: true,

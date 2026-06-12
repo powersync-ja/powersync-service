@@ -380,9 +380,20 @@ export class ChangeStream {
             continue;
           }
 
-          if (this.isCosmosDb && latestCosmosSentinel == CosmosDBLSN.ZERO.sentinel) {
-            // Wait for the event we created (should be non-zero)
-            continue;
+          if (this.isCosmosDb) {
+            // Our own barrier event embeds the global sentinel advanced just
+            // before the barrier write — read the coordinate from the event
+            // itself instead of relying on the standalone event having been
+            // delivered first.
+            const embedded = this.readEmbeddedGlobalSentinel(changeDocument);
+            if (embedded != null && embedded > latestCosmosSentinel) {
+              latestCosmosSentinel = embedded;
+            }
+
+            if (latestCosmosSentinel == CosmosDBLSN.ZERO.sentinel) {
+              // Wait for the event we created (should be non-zero)
+              continue;
+            }
           }
 
           return this.createEventLsn(changeDocument, latestCosmosSentinel);
@@ -898,17 +909,20 @@ export class ChangeStream {
       //    committing the batch. The private barrier proves this stream has
       //    observed a commit boundary, but it must not become the global LSN.
       //
-      // The mutation order matters: the global counter is advanced first, then
-      // the private barrier is written. When the stream later observes the
-      // private barrier, it must also have had the opportunity to observe the
-      // preceding global sentinel. The committed LSN can then use
-      // `CosmosDBLSN(globalSentinel, resumeTokenFromPrivateBarrier)`.
-      await createCosmosCheckpointLsn(this.client, this.defaultDb);
+      // The global value from write 1 is embedded in the barrier document in
+      // write 2. When the stream observes its barrier event, it reads the
+      // global sentinel from the event itself, so the committed LSN
+      // `CosmosDBLSN(globalSentinel, resumeTokenFromBarrier)` does not depend
+      // on the standalone event having been delivered first — change stream
+      // ordering across different documents is not guaranteed.
+      const globalLsn = CosmosDBLSN.fromSerialized(await createCosmosCheckpointLsn(this.client, this.defaultDb));
+      return createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
+        mode: 'sentinel',
+        globalSentinel: globalLsn.sentinel
+      });
     }
 
-    return createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-      mode: this.isCosmosDb ? 'sentinel' : 'lsn'
-    });
+    return createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, { mode: 'lsn' });
   }
 
   private createEventLsn(changeDocument: ProjectedChangeStreamDocument, cosmosSentinel?: bigint) {
@@ -957,6 +971,25 @@ export class ChangeStream {
       );
     }
     return normalizeSentinel(fullDoc.i);
+  }
+
+  /**
+   * Read the embedded global sentinel from one of this stream's own barrier
+   * checkpoint events (Cosmos DB only). createBatchCheckpoint() embeds the
+   * standalone counter value in the barrier document, so the barrier event is
+   * self-describing — the stream does not depend on the standalone checkpoint
+   * event having been delivered first.
+   *
+   * Returns null when absent; the standalone-event path still provides the
+   * value in that case.
+   */
+  private readEmbeddedGlobalSentinel(changeDocument: ProjectedChangeStreamDocument): bigint | null {
+    const fullDocument = 'fullDocument' in changeDocument ? changeDocument.fullDocument : null;
+    if (!fullDocument) {
+      return null;
+    }
+    const fullDoc = mongo.BSON.deserialize(fullDocument as Buffer, { useBigInt64: true });
+    return fullDoc?.globalSentinel == null ? null : normalizeSentinel(fullDoc.globalSentinel);
   }
 
   private rawChangeStreamBatches(options: {
@@ -1316,6 +1349,15 @@ export class ChangeStream {
                 }
               } else if (!this.checkpointStreamId.equals(checkpointId)) {
                 continue;
+              } else if (this.isCosmosDb) {
+                // This is one of our own barrier events. It embeds the global
+                // sentinel advanced just before the barrier write, so read the
+                // coordinate from the event itself instead of relying on the
+                // standalone event having been delivered first.
+                const embedded = this.readEmbeddedGlobalSentinel(changeDocument);
+                if (embedded != null && embedded > latestCosmosSentinel) {
+                  latestCosmosSentinel = embedded;
+                }
               }
 
               const lsn = this.createEventLsn(changeDocument, latestCosmosSentinel);
