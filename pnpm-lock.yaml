@@ -271,6 +271,9 @@ importers:
       '@mikro-orm/migrations':
         specifier: ^7.1.4
         version: 7.1.4(@mikro-orm/core@7.1.4)
+      '@mikro-orm/mysql':
+        specifier: ^7.1.4
+        version: 7.1.4(@mikro-orm/core@7.1.4)(@types/node@25.5.0)
       '@mikro-orm/sql':
         specifier: ^7.1.4
         version: 7.1.4(@mikro-orm/core@7.1.4)
@@ -1412,6 +1415,12 @@ packages:
 
   '@mikro-orm/migrations@7.1.4':
     resolution: {integrity: sha512-M9rsHpuuaWavoXb0yitgwb+Dy2wzIEzFh5cdJ1NHjPVwyWrTiTTcKmZUiytvHInzLvusuTomRKNRiNUENqnFvQ==}
+    engines: {node: '>= 22.17.0'}
+    peerDependencies:
+      '@mikro-orm/core': 7.1.4
+
+  '@mikro-orm/mysql@7.1.4':
+    resolution: {integrity: sha512-Gck977Bp91KD9gB3TO0Trd46jiNw0fSM53kPOiX9WiBNoYdKIli6Yz8mAzYnd63dYb2q67jif5/gjZ2IMYlJIQ==}
     engines: {node: '>= 22.17.0'}
     peerDependencies:
       '@mikro-orm/core': 7.1.4
@@ -3274,6 +3283,9 @@ packages:
   long@5.2.3:
     resolution: {integrity: sha512-lcHwpNoggQTObv5apGNCTdJrO69eHOZMi4BNC+rTLER8iHAqGrUVeLh/irVIM7zTw2bOXA8T6uNPeujwOLg/2Q==}
 
+  long@5.3.2:
+    resolution: {integrity: sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==}
+
   lossless-json@2.0.11:
     resolution: {integrity: sha512-BP0vn+NGYvzDielvBZaFain/wgeJ1hTvURCqtKvhr1SCPePdaaTanmmcplrHfEJSJOUql7hk4FHwToNJjWRY3g==}
 
@@ -3286,6 +3298,10 @@ packages:
 
   lru.min@1.1.1:
     resolution: {integrity: sha512-FbAj6lXil6t8z4z3j0E5mfRlPzxkySotzUHwRXjlpRh10vc6AI6WN62ehZj82VG7M20rqogJ0GLwar2Xa05a8Q==}
+    engines: {bun: '>=1.0.0', deno: '>=1.30.0', node: '>=8.0.0'}
+
+  lru.min@1.1.4:
+    resolution: {integrity: sha512-DqC6n3QQ77zdFpCMASA1a3Jlb64Hv2N2DciFGkO/4L9+q/IpIAuRlKOvCXabtRW6cQf8usbmM6BE/TOPysCdIA==}
     engines: {bun: '>=1.0.0', deno: '>=1.30.0', node: '>=8.0.0'}
 
   lucia@3.2.2:
@@ -3413,9 +3429,19 @@ packages:
     resolution: {integrity: sha512-Qpu2ADfbKzyLdwC/5d4W7+5Yz7yBzCU05YWt5npWzACST37wJsB23wgOSo00qi043urkiRwXtEvJc9UnuLX/MQ==}
     engines: {node: '>= 8.0'}
 
+  mysql2@3.22.4:
+    resolution: {integrity: sha512-CtXYlmL7ZamiYKbmqkamQHWJROUHSfm+f3kByzGfknw7kW51mcB2ouMUqYq1XfYxbXmnWo6RhPydx6OCqdgcmQ==}
+    engines: {node: '>= 8.0'}
+    peerDependencies:
+      '@types/node': '>= 8'
+
   named-placeholders@1.1.3:
     resolution: {integrity: sha512-eLoBxg6wE/rZkJPhU/xRX1WTpkFEwDJEN96oxFrTsqBdbT5ec295Q+CoHrL9IT0DipqKhmGcaZmwOt8OON5x1w==}
     engines: {node: '>=12.0.0'}
+
+  named-placeholders@1.1.6:
+    resolution: {integrity: sha512-Tz09sEL2EEuv5fFowm419c1+a/jSMiBjI9gHxVLrVdbUkkNUUfjsVYs9pVZu5oCon/kmRh9TfLEObFtkVxmY0w==}
+    engines: {node: '>=8.0.0'}
 
   nanoid@3.3.11:
     resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
@@ -3958,6 +3984,10 @@ packages:
 
   sprintf-js@1.1.3:
     resolution: {integrity: sha512-Oo+0REFV59/rz3gfJNKQiBlwfHaSESl1pcGyABQsnnIfWOFt6JNj5gCog2U6MLZ//IGYD+nA8nI+mTShREReaA==}
+
+  sql-escaper@1.3.3:
+    resolution: {integrity: sha512-BsTCV265VpTp8tm1wyIm1xqQCS+Q9NHx2Sr+WcnUrgLrQ6yiDIvHYJV5gHxsj1lMBy2zm5twLaZao8Jd+S8JJw==}
+    engines: {bun: '>=1.0.0', deno: '>=2.0.0', node: '>=12.0.0'}
 
   sql-formatter@15.4.9:
     resolution: {integrity: sha512-5vmt2HlCAVozxsBZuXWkAki/KGawaK+b5GG5x+BtXOFVpN/8cqppblFUxHl4jxdA0cvo14lABhM+KBnrUapOlw==}
@@ -4982,6 +5012,16 @@ snapshots:
     dependencies:
       '@mikro-orm/core': 7.1.4
       '@mikro-orm/sql': 7.1.4(@mikro-orm/core@7.1.4)
+
+  '@mikro-orm/mysql@7.1.4(@mikro-orm/core@7.1.4)(@types/node@25.5.0)':
+    dependencies:
+      '@mikro-orm/core': 7.1.4
+      '@mikro-orm/sql': 7.1.4(@mikro-orm/core@7.1.4)
+      kysely: 0.29.2
+      mysql2: 3.22.4(@types/node@25.5.0)
+      sqlstring: 2.3.3
+    transitivePeerDependencies:
+      - '@types/node'
 
   '@mikro-orm/sql@7.1.4(@mikro-orm/core@7.1.4)':
     dependencies:
@@ -6831,6 +6871,8 @@ snapshots:
 
   long@5.2.3: {}
 
+  long@5.3.2: {}
+
   lossless-json@2.0.11: {}
 
   lru-cache@10.4.3: {}
@@ -6838,6 +6880,8 @@ snapshots:
   lru-cache@7.18.3: {}
 
   lru.min@1.1.1: {}
+
+  lru.min@1.1.4: {}
 
   lucia@3.2.2:
     dependencies:
@@ -6943,9 +6987,25 @@ snapshots:
       seq-queue: 0.0.5
       sqlstring: 2.3.3
 
+  mysql2@3.22.4(@types/node@25.5.0):
+    dependencies:
+      '@types/node': 25.5.0
+      aws-ssl-profiles: 1.1.2
+      denque: 2.1.0
+      generate-function: 2.3.1
+      iconv-lite: 0.7.2
+      long: 5.3.2
+      lru.min: 1.1.4
+      named-placeholders: 1.1.6
+      sql-escaper: 1.3.3
+
   named-placeholders@1.1.3:
     dependencies:
       lru-cache: 7.18.3
+
+  named-placeholders@1.1.6:
+    dependencies:
+      lru.min: 1.1.1
 
   nanoid@3.3.11: {}
 
@@ -7501,6 +7561,8 @@ snapshots:
   sprintf-js@1.0.3: {}
 
   sprintf-js@1.1.3: {}
+
+  sql-escaper@1.3.3: {}
 
   sql-formatter@15.4.9:
     dependencies:

@@ -1,8 +1,4 @@
-import { defineEntity, p } from '@mikro-orm/core';
-
-export class Instance {
-  declare id: string;
-}
+import { defineEntity, p, type InferEntity } from '@mikro-orm/core';
 
 export const InstanceSchema = defineEntity({
   name: 'Instance',
@@ -11,4 +7,6 @@ export const InstanceSchema = defineEntity({
     id: p.string().primary()
   }
 });
-InstanceSchema.setClass(Instance);
+
+export const Instance = InstanceSchema.class;
+export type Instance = InferEntity<typeof InstanceSchema>;

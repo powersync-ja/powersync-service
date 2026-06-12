@@ -1,7 +1,12 @@
 import { modules, system } from '@powersync/service-core';
 import { MikroOrmMigrationAgent } from '../migrations/MikroOrmMigrationAgent.js';
 import { MikroOrmStorageProvider } from '../storage/MikroOrmStorageProvider.js';
-import { isMikroOrmSqliteStorageConfig, MikroOrmSqliteStorageConfig } from '../types/types.js';
+import {
+  isMikroOrmStorageConfig,
+  MIKRO_ORM_MYSQL_STORAGE_TYPE,
+  MIKRO_ORM_SQLITE_STORAGE_TYPE,
+  MikroOrmStorageConfig
+} from '../types/types.js';
 
 export class MikroOrmStorageModule extends modules.AbstractModule {
   constructor() {
@@ -11,11 +16,12 @@ export class MikroOrmStorageModule extends modules.AbstractModule {
   }
 
   async initialize(context: system.ServiceContextContainer): Promise<void> {
-    context.storageEngine.registerProvider(new MikroOrmStorageProvider());
+    context.storageEngine.registerProvider(new MikroOrmStorageProvider(MIKRO_ORM_SQLITE_STORAGE_TYPE));
+    context.storageEngine.registerProvider(new MikroOrmStorageProvider(MIKRO_ORM_MYSQL_STORAGE_TYPE));
 
-    if (isMikroOrmSqliteStorageConfig(context.configuration.storage)) {
+    if (isMikroOrmStorageConfig(context.configuration.storage)) {
       context.migrations.registerMigrationAgent(
-        new MikroOrmMigrationAgent(MikroOrmSqliteStorageConfig.decode(context.configuration.storage))
+        new MikroOrmMigrationAgent(MikroOrmStorageConfig.decode(context.configuration.storage))
       );
     }
   }

@@ -1,4 +1,4 @@
-import type { EntityClass, EntityManager } from '@mikro-orm/core';
+import type { EntityClass, EntityManager, EntityName } from '@mikro-orm/core';
 import type { BucketDataRequest } from '@powersync/service-core';
 import type {
   BucketData,
@@ -17,7 +17,7 @@ export interface MikroOrmStorageDialect {
   /** Public storage type identifier, e.g. `mikroorm:sqlite`. */
   readonly type: string;
   /** Flat entity class list passed to MikroORM initialization and migration tooling. */
-  readonly entityClasses: EntityClass<unknown>[];
+  readonly entityClasses: EntityName<any>[];
   /** Stored bucket operations, typically read by bucket and operation id. */
   readonly bucketDataEntity: EntityClass<BucketData>;
   /** Materialized parameter lookups for bucket parameter queries. */
@@ -62,4 +62,40 @@ export interface MikroOrmCheckpointWatcher {
   notify(): void;
   /** Yield whenever a checkpoint change should be re-read. */
   watch(signal: AbortSignal): AsyncIterable<void>;
+}
+
+/**
+ * Process-local checkpoint watcher for drivers without a database notification implementation.
+ *
+ * This is sufficient for single-process runners and tests. Drivers that support cross-process notifications should
+ * replace this with a watcher backed by the database or an external event channel.
+ */
+export class InProcessMikroOrmCheckpointWatcher implements MikroOrmCheckpointWatcher {
+  private readonly listeners = new Set<() => void>();
+
+  notify(): void {
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+
+  async *watch(signal: AbortSignal): AsyncIterable<void> {
+    while (!signal.aborted) {
+      yield await new Promise<void>((resolve) => {
+        const listener = () => {
+          this.listeners.delete(listener);
+          resolve();
+        };
+        this.listeners.add(listener);
+        signal.addEventListener(
+          'abort',
+          () => {
+            this.listeners.delete(listener);
+            resolve();
+          },
+          { once: true }
+        );
+      });
+    }
+  }
 }

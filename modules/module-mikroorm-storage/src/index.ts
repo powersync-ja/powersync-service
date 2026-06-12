@@ -1,3 +1,6 @@
+export * from './drivers/mysql/mysql-config.js';
+export * from './drivers/mysql/mysql-dialect.js';
+export * from './drivers/mysql/MySqlMikroOrmStorageFactory.js';
 export * from './drivers/sqlite/sqlite-config.js';
 export * from './drivers/sqlite/sqlite-dialect.js';
 export * from './drivers/sqlite/SqliteMikroOrmStorageFactory.js';

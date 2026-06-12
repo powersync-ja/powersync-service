@@ -2,7 +2,7 @@
 
 Experimental MikroORM-backed bucket storage for the PowerSync service.
 
-This module currently supports SQLite through the `mikroorm:sqlite` storage type. It is intended to prove out a shared MikroORM storage layer that can support more database drivers later, while keeping most bucket storage behavior in common code.
+This module currently supports SQLite through the `mikroorm:sqlite` storage type and has an initial MySQL dialect through `mikroorm:mysql`. It is intended to prove out a shared MikroORM storage layer that can support more database drivers while keeping most bucket storage behavior in common code.
 
 ## Status
 
@@ -22,7 +22,7 @@ The module stores PowerSync bucket state in MikroORM entities:
 - `write_checkpoints` stores custom write checkpoint state.
 - `instance` stores the PowerSync storage instance id.
 
-Common entity definitions live in `src/entities/common`. The SQLite driver reuses those definitions directly instead of redeclaring SQLite-specific entity classes.
+Common entity definitions live in `src/entities/common`. The SQLite and MySQL drivers reuse those definitions directly instead of redeclaring driver-specific entity classes.
 
 Common storage classes implement most behavior:
 
@@ -83,6 +83,27 @@ sync_rules:
 
 Only use this storage type when starting PowerSync in unified mode. Do not run separate API and sync runners against the same SQLite storage file.
 
+MySQL example:
+
+```yaml
+replication:
+  connections:
+    - type: postgresql
+      uri: !env PS_DATA_SOURCE_URI
+      sslmode: disable
+
+storage:
+  type: mikroorm:mysql
+  uri: !env PS_STORAGE_MYSQL_URI
+
+port: 8080
+
+sync_rules:
+  path: sync-rules.yaml
+```
+
+The MySQL dialect is newer than SQLite and should be treated as experimental. It currently uses the common in-process checkpoint watcher; database-backed notifications can be added behind `MikroOrmStorageDialect` when needed.
+
 ## SQLite Concurrency
 
 For file-backed SQLite, the module enables WAL mode and uses MikroORM read replicas to open separate SQLite handles when `storage.max_pool_size` is greater than `1`. This allows SQLite-level read-while-write behavior for API reads during replication writes.
@@ -93,7 +114,7 @@ The PowerSync SDK has a Node SQLite dialect that delegates SQLite work to worker
 
 ## Service Registration
 
-The service image registers this module dynamically under the storage key `mikroorm:sqlite`. The service package depends on `@powersync/service-module-mikroorm-storage`, and `service/src/util/modules.ts` loads `MikroOrmStorageModule` when the config uses this storage type.
+The service image registers this module dynamically under the storage keys `mikroorm:sqlite` and `mikroorm:mysql`. The service package depends on `@powersync/service-module-mikroorm-storage`, and `service/src/util/modules.ts` loads `MikroOrmStorageModule` when the config uses one of these storage types.
 
 The module also contributes its config type to the generated PowerSync config schema.
 
@@ -113,10 +134,36 @@ Focused sync suite:
 corepack pnpm --filter @powersync/service-module-mikroorm-storage test test/src/storage_sync.test.ts --run
 ```
 
+Opt into MySQL storage tests by setting a test database URI:
+
+```sh
+MIKROORM_MYSQL_STORAGE_TEST_URI=mysql://repl_user:good_password@localhost:3306/powersync \
+  corepack pnpm --filter @powersync/service-module-mikroorm-storage test test/src/mysql-storage.test.ts --run
+```
+
 Generate a new SQLite migration from entity changes:
 
 ```sh
 corepack pnpm --filter @powersync/service-module-mikroorm-storage mikroorm:generate-migration:sqlite
+```
+
+Generate a MySQL migration from entity changes:
+
+```sh
+MIKRO_ORM_MYSQL_URI=mysql://repl_user:good_password@localhost:3306/powersync \
+  corepack pnpm --filter @powersync/service-module-mikroorm-storage mikroorm:generate-migration:mysql
+```
+
+Generate migrations for all supported dialects:
+
+```sh
+corepack pnpm --filter @powersync/service-module-mikroorm-storage mikroorm:generate-migrations
+```
+
+Generate initial migrations for all supported dialects:
+
+```sh
+corepack pnpm --filter @powersync/service-module-mikroorm-storage mikroorm:generate-initial-migrations
 ```
 
 Review generated migrations before committing them.

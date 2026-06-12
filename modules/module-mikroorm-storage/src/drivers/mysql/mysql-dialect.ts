@@ -16,10 +16,10 @@ import {
   WriteCheckpointSchema
 } from '../../entities/entities-index.js';
 import { InProcessMikroOrmCheckpointWatcher, MikroOrmStorageDialect } from '../../storage/MikroOrmStorageDialect.js';
-import { MIKRO_ORM_SQLITE_STORAGE_TYPE } from '../../types/types.js';
+import { MIKRO_ORM_MYSQL_STORAGE_TYPE } from '../../types/types.js';
 
-export const sqliteMikroOrmStorageDialect: MikroOrmStorageDialect = {
-  type: MIKRO_ORM_SQLITE_STORAGE_TYPE,
+export const mysqlMikroOrmStorageDialect: MikroOrmStorageDialect = {
+  type: MIKRO_ORM_MYSQL_STORAGE_TYPE,
   entityClasses: [
     BucketDataSchema,
     BucketParametersSchema,
@@ -40,11 +40,6 @@ export const sqliteMikroOrmStorageDialect: MikroOrmStorageDialect = {
     if (options.dataBuckets.length == 0) {
       return;
     }
-
-    // SQLite reads can complete synchronously enough that tight polling loops
-    // starve replication/checkpoint work in the same process. Yield once before
-    // the query so single-process unified mode remains cooperative.
-    await new Promise<void>((resolve) => setImmediate(resolve));
 
     const filters = options.dataBuckets.map((request) => ({
       bucketName: request.bucket,

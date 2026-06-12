@@ -1,11 +1,14 @@
 import { Migrator } from '@mikro-orm/migrations';
 import { defineConfig, MikroORM, SqliteDriver } from '@mikro-orm/sqlite';
+import { configureDefaultEntityColumnTypes } from '../../entities/entity-column-types.js';
 import { NormalizedMikroOrmSqliteStorageConfig } from '../../types/types.js';
 import { sqliteMikroOrmStorageDialect } from './sqlite-dialect.js';
 
 export const SQLITE_MIKRO_ORM_MIGRATIONS_PATH = new URL('../../migrations/sqlite', import.meta.url).pathname;
 
 export function createSqliteMikroOrmOptions(config: NormalizedMikroOrmSqliteStorageConfig) {
+  configureDefaultEntityColumnTypes();
+
   const fileBacked = config.filename != ':memory:';
   const readReplicaCount = fileBacked ? Math.max(0, config.max_pool_size - 1) : 0;
 
@@ -26,7 +29,8 @@ export function createSqliteMikroOrmOptions(config: NormalizedMikroOrmSqliteStor
       pathTs: SQLITE_MIKRO_ORM_MIGRATIONS_PATH,
       glob: '!(*.d).{js,ts}',
       emit: 'ts',
-      snapshot: false
+      snapshot: false,
+      dropTables: false
     }
   });
 }

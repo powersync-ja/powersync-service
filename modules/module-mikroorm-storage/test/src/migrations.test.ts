@@ -3,15 +3,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { MikroORM } from '@mikro-orm/core';
+import { MySqlDriver } from '@mikro-orm/mysql';
 import { SqliteDriver } from '@mikro-orm/sqlite';
 import { Direction } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createMySqlMikroOrmOptions } from '../../src/drivers/mysql/mysql-config.js';
 import { createSqliteMikroOrmOptions } from '../../src/drivers/sqlite/sqlite-config.js';
 import { sqliteMikroOrmStorageDialect } from '../../src/drivers/sqlite/sqlite-dialect.js';
-import { MIKRO_ORM_SQLITE_STORAGE_TYPE } from '../../src/index.js';
+import { MIKRO_ORM_MYSQL_STORAGE_TYPE, MIKRO_ORM_SQLITE_STORAGE_TYPE } from '../../src/index.js';
 import { MikroOrmMigrationAgent } from '../../src/migrations/MikroOrmMigrationAgent.js';
-import { normalizeMikroOrmSqliteStorageConfig } from '../../src/types/types.js';
+import { normalizeMikroOrmMySqlStorageConfig, normalizeMikroOrmSqliteStorageConfig } from '../../src/types/types.js';
+import { env } from './env.js';
 
 describe('MikroORM migrations', () => {
   const dbFiles: string[] = [];
@@ -278,6 +281,66 @@ describe('MikroORM migrations', () => {
     }
   });
 
+  it('configures MySQL migrations outside MikroORM transactions', () => {
+    const options = createMySqlMikroOrmOptions(
+      normalizeMikroOrmMySqlStorageConfig({
+        type: MIKRO_ORM_MYSQL_STORAGE_TYPE,
+        uri: env.MIKROORM_MYSQL_STORAGE_TEST_URI || 'mysql://repl_user:good_password@localhost:3306/powersync'
+      })
+    );
+
+    expect(options.migrations?.transactional).toBe(false);
+    expect(options.migrations?.allOrNothing).toBe(false);
+  });
+
+  it.skipIf(!env.MIKROORM_MYSQL_STORAGE_TEST_URI)(
+    'runs MySQL migrations through the service migration agent without transactional DDL',
+    async () => {
+      const config = {
+        type: MIKRO_ORM_MYSQL_STORAGE_TYPE,
+        uri: env.MIKROORM_MYSQL_STORAGE_TEST_URI
+      } as const;
+      const normalizedConfig = normalizeMikroOrmMySqlStorageConfig(config);
+      const setupOrm = await MikroORM.init<MySqlDriver>(createMySqlMikroOrmOptions(normalizedConfig));
+
+      try {
+        await dropMySqlMigrationTables(setupOrm);
+      } finally {
+        await setupOrm.close(true);
+      }
+
+      await using agent = new MikroOrmMigrationAgent(config);
+
+      await agent.run({
+        direction: Direction.Up,
+        migrations: []
+      });
+
+      const orm = await MikroORM.init<MySqlDriver>(createMySqlMikroOrmOptions(normalizedConfig));
+
+      try {
+        const tables = await orm.em.getConnection().execute<{ tableName: string }[]>(
+          `
+          select table_name as tableName
+          from information_schema.tables
+          where table_schema = database()
+          order by table_name
+          `
+        );
+        const tableNames = tables.map((row) => row.tableName);
+
+        expect(tableNames).toContain('powersync_mikroorm_migration_locks');
+        expect(tableNames).toContain('mikro_orm_migrations');
+        expect(tableNames).toContain('instance');
+        expect(tableNames).toContain('sync_rules');
+        expect(tableNames).toContain('bucket_data');
+        expect(tableNames).toContain('write_checkpoints');
+      } finally {
+        await orm.close(true);
+      }
+    }
+  );
+
   it('hydrates SQLite-specific storage columns as service-facing values', async () => {
     const filename = createDbFile();
 
@@ -373,3 +436,21 @@ describe('MikroORM migrations', () => {
     }
   });
 });
+
+async function dropMySqlMigrationTables(orm: MikroORM<MySqlDriver>): Promise<void> {
+  const connection = orm.em.getConnection();
+
+  for (const table of [
+    'write_checkpoints',
+    'bucket_parameters',
+    'current_data',
+    'bucket_data',
+    'source_tables',
+    'sync_rules',
+    'instance',
+    'mikro_orm_migrations',
+    'powersync_mikroorm_migration_locks'
+  ]) {
+    await connection.execute(`drop table if exists \`${table}\``, [], 'run');
+  }
+}

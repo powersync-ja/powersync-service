@@ -19,7 +19,7 @@ function getStorageOptions(serviceMode: system.ServiceContextMode): storage.GetS
 
 describe('MikroORM SQLite storage provider', () => {
   it('rejects split service runners', async () => {
-    const provider = new MikroOrmStorageProvider();
+    const provider = new MikroOrmStorageProvider(MIKRO_ORM_SQLITE_STORAGE_TYPE);
 
     await expect(provider.getStorage(getStorageOptions(system.ServiceContextMode.API))).rejects.toThrow(
       'MikroORM SQLite storage only supports the unified service runner'
@@ -30,7 +30,7 @@ describe('MikroORM SQLite storage provider', () => {
   });
 
   it('allows the unified service runner', async () => {
-    const provider = new MikroOrmStorageProvider();
+    const provider = new MikroOrmStorageProvider(MIKRO_ORM_SQLITE_STORAGE_TYPE);
     const activeStorage = await provider.getStorage(getStorageOptions(system.ServiceContextMode.UNIFIED));
 
     await activeStorage.shutDown();

@@ -1,19 +1,4 @@
-import type { Opt } from '@mikro-orm/core';
-import { defineEntity, p } from '@mikro-orm/core';
-
-export class SourceTable {
-  declare id: string;
-  declare groupId: number;
-  declare connectionId: number;
-  declare relationId: unknown | null;
-  declare schemaName: string;
-  declare tableName: string;
-  declare replicaIdColumns: unknown | null;
-  declare snapshotDone: Opt<boolean>;
-  declare snapshotTotalEstimatedCount: bigint | null;
-  declare snapshotReplicatedCount: bigint | null;
-  declare snapshotLastKey: Buffer | Uint8Array | null;
-}
+import { defineEntity, p, type InferEntity } from '@mikro-orm/core';
 
 export const SourceTableSchema = defineEntity({
   name: 'SourceTable',
@@ -38,4 +23,6 @@ export const SourceTableSchema = defineEntity({
     snapshotLastKey: p.blob().nullable()
   }
 });
-SourceTableSchema.setClass(SourceTable);
+
+export const SourceTable = SourceTableSchema.class;
+export type SourceTable = InferEntity<typeof SourceTableSchema>;

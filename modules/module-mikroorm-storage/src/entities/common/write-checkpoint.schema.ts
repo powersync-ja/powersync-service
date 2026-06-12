@@ -1,13 +1,4 @@
-import { defineEntity, p } from '@mikro-orm/core';
-
-export class WriteCheckpoint {
-  declare id: string;
-  declare syncRulesId: number | null;
-  declare userId: string;
-  declare checkpoint: bigint;
-  declare heads: unknown | null;
-  declare createdAt: Date;
-}
+import { defineEntity, p, type InferEntity } from '@mikro-orm/core';
 
 export const WriteCheckpointSchema = defineEntity({
   name: 'WriteCheckpoint',
@@ -27,4 +18,6 @@ export const WriteCheckpointSchema = defineEntity({
     createdAt: p.datetime()
   }
 });
-WriteCheckpointSchema.setClass(WriteCheckpoint);
+
+export const WriteCheckpoint = WriteCheckpointSchema.class;
+export type WriteCheckpoint = InferEntity<typeof WriteCheckpointSchema>;

@@ -10,10 +10,16 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "rm -rf ./dist ./tsconfig.tsbuildinfo && tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
     "clean": "rm -rf ./dist && tsc -b --clean",
     "mikroorm:generate-migration": "pnpm build && mikro-orm migration:create --config dist/mikro-orm.config.js",
+    "mikroorm:generate-migrations": "pnpm mikroorm:generate-migration:sqlite && pnpm mikroorm:generate-migration:mysql",
+    "mikroorm:generate-initial-migration": "pnpm build && mikro-orm migration:create --initial --config dist/mikro-orm.config.js",
+    "mikroorm:generate-initial-migrations": "pnpm mikroorm:generate-initial-migration:sqlite && pnpm mikroorm:generate-initial-migration:mysql",
+    "mikroorm:generate-initial-migration:mysql": "MIKRO_ORM_STORAGE_DIALECT=mysql pnpm mikroorm:generate-initial-migration",
+    "mikroorm:generate-initial-migration:sqlite": "MIKRO_ORM_STORAGE_DIALECT=sqlite pnpm mikroorm:generate-initial-migration",
+    "mikroorm:generate-migration:mysql": "MIKRO_ORM_STORAGE_DIALECT=mysql pnpm mikroorm:generate-migration",
     "mikroorm:generate-migration:sqlite": "MIKRO_ORM_STORAGE_DIALECT=sqlite pnpm mikroorm:generate-migration",
     "test": "vitest"
   },
@@ -34,6 +40,7 @@
   "dependencies": {
     "@mikro-orm/core": "^7.1.4",
     "@mikro-orm/migrations": "^7.1.4",
+    "@mikro-orm/mysql": "^7.1.4",
     "@mikro-orm/sql": "^7.1.4",
     "@mikro-orm/sqlite": "^7.1.4",
     "@powersync/lib-services-framework": "workspace:*",

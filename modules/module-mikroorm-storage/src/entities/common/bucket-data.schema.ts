@@ -1,19 +1,4 @@
-import { defineEntity, p } from '@mikro-orm/core';
-
-export class BucketData {
-  declare id: string;
-  declare groupId: number;
-  declare bucketName: string;
-  declare opId: bigint;
-  declare op: string;
-  declare sourceTable: string | null;
-  declare sourceKey: Buffer | Uint8Array | null;
-  declare tableName: string | null;
-  declare rowId: string | null;
-  declare checksum: bigint;
-  declare data: string | null;
-  declare targetOp: bigint | null;
-}
+import { defineEntity, p, type InferEntity } from '@mikro-orm/core';
 
 export const BucketDataSchema = defineEntity({
   name: 'BucketData',
@@ -39,8 +24,10 @@ export const BucketDataSchema = defineEntity({
     tableName: p.string().fieldName('table_name').nullable(),
     rowId: p.string().fieldName('row_id').nullable(),
     checksum: p.bigint('bigint'),
-    data: p.string().nullable(),
+    data: p.text().nullable(),
     targetOp: p.bigint('bigint').nullable()
   }
 });
-BucketDataSchema.setClass(BucketData);
+
+export const BucketData = BucketDataSchema.class;
+export type BucketData = InferEntity<typeof BucketDataSchema>;

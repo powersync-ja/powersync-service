@@ -1,9 +1,17 @@
 import { MikroORM } from '@mikro-orm/core';
 import * as framework from '@powersync/lib-services-framework';
 import { migrations } from '@powersync/service-core';
+import { createMySqlMikroOrm } from '../drivers/mysql/mysql-config.js';
+import { MySqlMigrationLockManager } from '../drivers/mysql/MySqlMigrationLockManager.js';
 import { createSqliteMikroOrm } from '../drivers/sqlite/sqlite-config.js';
 import { SqliteMigrationLockManager } from '../drivers/sqlite/SqliteMigrationLockManager.js';
-import { MikroOrmSqliteStorageConfigDecoded, normalizeMikroOrmSqliteStorageConfig } from '../types/types.js';
+import {
+  MIKRO_ORM_MYSQL_STORAGE_TYPE,
+  MIKRO_ORM_SQLITE_STORAGE_TYPE,
+  MikroOrmStorageConfigDecoded,
+  normalizeMikroOrmMySqlStorageConfig,
+  normalizeMikroOrmSqliteStorageConfig
+} from '../types/types.js';
 import { NoOpMigrationStore } from './NoOpMigrationStore.js';
 
 /**
@@ -18,14 +26,12 @@ export class MikroOrmMigrationAgent extends migrations.AbstractPowerSyncMigratio
 
   private readonly ormPromise: Promise<MikroORM>;
 
-  constructor(config: MikroOrmSqliteStorageConfigDecoded) {
+  constructor(config: MikroOrmStorageConfigDecoded) {
     super();
-    this.ormPromise = createSqliteMikroOrm(normalizeMikroOrmSqliteStorageConfig(config));
+    const runtime = createMigrationRuntime(config);
+    this.ormPromise = runtime.ormPromise;
     this.store = new NoOpMigrationStore();
-    this.locks = new SqliteMigrationLockManager({
-      name: 'mikroorm-migrations',
-      orm: this.ormPromise
-    });
+    this.locks = runtime.lockManager;
   }
 
   getInternalScriptsDir(): string {
@@ -62,9 +68,9 @@ export class MikroOrmMigrationAgent extends migrations.AbstractPowerSyncMigratio
       }
 
       const orm = await this.ormPromise;
-      const migrator = orm.migrator;
 
       logger.info(`Running MikroORM migrations ${params.direction}`);
+      const migrator = orm.migrator;
       if (migrator != null) {
         if (params.direction == framework.Direction.Up) {
           await migrator.up();
@@ -89,5 +95,33 @@ export class MikroOrmMigrationAgent extends migrations.AbstractPowerSyncMigratio
   async [Symbol.asyncDispose](): Promise<void> {
     const orm = await this.ormPromise;
     await orm.close(true);
+  }
+}
+
+function createMigrationRuntime(config: MikroOrmStorageConfigDecoded): {
+  ormPromise: Promise<MikroORM>;
+  lockManager: framework.LockManager;
+} {
+  switch (config.type) {
+    case MIKRO_ORM_SQLITE_STORAGE_TYPE: {
+      const ormPromise = createSqliteMikroOrm(normalizeMikroOrmSqliteStorageConfig(config));
+      return {
+        ormPromise,
+        lockManager: new SqliteMigrationLockManager({
+          name: 'mikroorm-migrations',
+          orm: ormPromise
+        })
+      };
+    }
+    case MIKRO_ORM_MYSQL_STORAGE_TYPE: {
+      const ormPromise = createMySqlMikroOrm(normalizeMikroOrmMySqlStorageConfig(config));
+      return {
+        ormPromise,
+        lockManager: new MySqlMigrationLockManager({
+          name: 'mikroorm-migrations',
+          orm: ormPromise
+        })
+      };
+    }
   }
 }

@@ -1,13 +1,4 @@
-import { defineEntity, p } from '@mikro-orm/core';
-
-export class BucketParameters {
-  declare id: bigint;
-  declare groupId: number;
-  declare sourceTable: string;
-  declare sourceKey: Buffer | Uint8Array;
-  declare lookup: Buffer | Uint8Array;
-  declare bucketParameters: unknown;
-}
+import { defineEntity, p, type InferEntity } from '@mikro-orm/core';
 
 export const BucketParametersSchema = defineEntity({
   name: 'BucketParameters',
@@ -31,4 +22,6 @@ export const BucketParametersSchema = defineEntity({
     bucketParameters: p.json()
   }
 });
-BucketParametersSchema.setClass(BucketParameters);
+
+export const BucketParameters = BucketParametersSchema.class;
+export type BucketParameters = InferEntity<typeof BucketParametersSchema>;

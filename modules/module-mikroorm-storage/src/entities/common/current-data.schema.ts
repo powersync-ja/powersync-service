@@ -1,15 +1,4 @@
-import { defineEntity, p } from '@mikro-orm/core';
-
-export class CurrentData {
-  declare id: string;
-  declare groupId: number;
-  declare sourceTable: string;
-  declare sourceKey: Buffer | Uint8Array;
-  declare buckets: unknown;
-  declare lookups: unknown;
-  declare data: Buffer | Uint8Array;
-  declare pendingDelete: bigint | null;
-}
+import { defineEntity, p, type InferEntity } from '@mikro-orm/core';
 
 export const CurrentDataSchema = defineEntity({
   name: 'CurrentData',
@@ -35,4 +24,6 @@ export const CurrentDataSchema = defineEntity({
     pendingDelete: p.bigint('bigint').nullable()
   }
 });
-CurrentDataSchema.setClass(CurrentData);
+
+export const CurrentData = CurrentDataSchema.class;
+export type CurrentData = InferEntity<typeof CurrentDataSchema>;
