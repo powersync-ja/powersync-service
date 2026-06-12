@@ -22,11 +22,9 @@ describe('Mongo Sync Bucket Storage - split operations', () =>
     mongoTestStorageFactoryGenerator({
       url: env.MONGO_TEST_URL,
       isCI: env.CI,
-      internalOptions: {
-        checksumOptions: {
-          bucketBatchLimit: 100,
-          operationBatchLimit: 1
-        }
+      checksumOptions: {
+        bucketBatchLimit: 100,
+        operationBatchLimit: 1
       }
     })
   ));
@@ -36,11 +34,9 @@ describe('Mongo Sync Bucket Storage - split buckets', () =>
     mongoTestStorageFactoryGenerator({
       url: env.MONGO_TEST_URL,
       isCI: env.CI,
-      internalOptions: {
-        checksumOptions: {
-          bucketBatchLimit: 1,
-          operationBatchLimit: 100
-        }
+      checksumOptions: {
+        bucketBatchLimit: 1,
+        operationBatchLimit: 100
       }
     })
   ));

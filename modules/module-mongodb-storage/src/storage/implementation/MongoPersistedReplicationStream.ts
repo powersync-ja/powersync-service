@@ -3,7 +3,7 @@ import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { ReplicationStreamDocumentV3, SyncConfigDefinition } from '../storage-index.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { SingleSyncConfigBucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import {
   MongoPersistedSyncConfigContentBase,
@@ -11,6 +11,7 @@ import {
   MongoPersistedSyncConfigContentV3
 } from './MongoPersistedSyncConfigContent.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
+import { ReplicationStreamStorageIds } from './ReplicationStreamStorageIds.js';
 import { PowerSyncMongo } from './db.js';
 import { getMongoStorageConfig } from './models.js';
 import { SyncRuleDocumentV1 } from './v1/models.js';
@@ -65,6 +66,18 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
     return this.configs.map((config) => config._id);
   }
 
+  #storageIds: ReplicationStreamStorageIds | undefined;
+
+  /**
+   * Persisted storage ids for all sync configs in this replication stream.
+   *
+   * Derived from the persisted rule_mapping documents - requires no parsed sync configs.
+   */
+  get storageIds(): ReplicationStreamStorageIds {
+    this.#storageIds ??= new ReplicationStreamStorageIds(this.syncConfigContent.map((content) => content.mapping));
+    return this.#storageIds;
+  }
+
   get storageContent(): MongoPersistedSyncConfigContentBase {
     const [content] = this.syncConfigContent;
     if (content == null) {
@@ -73,7 +86,14 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
     return content;
   }
 
-  parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
+  /**
+   * Parse the sync configs for this replication stream.
+   *
+   * This creates a fresh parse on every call. Do not call this from operational paths -
+   * use {@link MongoSyncBucketStorage.getParsedSyncConfigSet} instead, which returns a
+   * canonical instance so that parsed source objects and mappings stay associated.
+   */
+  parsed(options: storage.ParseSyncConfigOptions): MongoParsedSyncConfigSet {
     const storageConfig = this.getStorageConfig();
     if (!storageConfig.incrementalReprocessing) {
       return this.storageContent.parsed(options);
@@ -88,7 +108,7 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
           storageVersion: this.storageVersion,
           parseOptions: options
         }),
-        mapping: BucketDefinitionMapping.fromSyncConfig(config)
+        mapping: SingleSyncConfigBucketDefinitionMapping.fromSyncConfig(config)
       };
     });
 

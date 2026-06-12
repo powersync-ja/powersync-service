@@ -55,7 +55,7 @@ export type ResolvedPowerSyncConfig = {
     max_parameter_query_results: number;
   };
 
-  /** Prefix for postgres replication slot names. May eventually be connection-specific. */
+  /** Prefix for postgres replication slot names, as well as replication stream names. */
   slot_name_prefix: string;
 
   healthcheck: {

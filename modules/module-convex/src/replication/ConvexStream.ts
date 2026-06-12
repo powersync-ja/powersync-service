@@ -309,7 +309,7 @@ export class ConvexStream {
 
   private async initSlot(): Promise<{ needsInitialSync: boolean; snapshotLsn: string | null }> {
     const status = await this.storage.getStatus();
-    if (status.snapshot_done && status.checkpoint_lsn) {
+    if (status.snapshotDone) {
       this.logger.info('Initial replication already done');
       return {
         needsInitialSync: false,
@@ -319,7 +319,7 @@ export class ConvexStream {
 
     return {
       needsInitialSync: true,
-      snapshotLsn: status.snapshot_lsn
+      snapshotLsn: status.resumeLsn
     };
   }
 

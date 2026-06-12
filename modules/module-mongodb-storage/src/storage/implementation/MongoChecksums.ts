@@ -16,7 +16,6 @@ import type { VersionedPowerSyncMongo } from './db.js';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { BucketDataDocumentBase, StorageConfig } from './models.js';
 
 export interface FetchPartialBucketChecksumV3 {
@@ -47,7 +46,6 @@ export interface MongoChecksumOptions {
   operationBatchLimit?: number;
 
   storageConfig: StorageConfig;
-  mapping?: BucketDefinitionMapping;
 }
 
 const DEFAULT_BUCKET_BATCH_LIMIT = 200;

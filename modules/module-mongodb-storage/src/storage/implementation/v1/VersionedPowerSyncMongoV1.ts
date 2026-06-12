@@ -1,7 +1,13 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { BaseVersionedPowerSyncMongo } from '../common/VersionedPowerSyncMongoBase.js';
 import { CommonSourceTableDocument } from '../models.js';
-import { BucketDataDocumentV1, BucketParameterDocument, BucketStateDocumentV1, CurrentDataDocument } from './models.js';
+import {
+  BucketDataDocumentV1,
+  BucketParameterDocument,
+  BucketStateDocumentV1,
+  CurrentDataDocument,
+  SourceTableDocumentV1
+} from './models.js';
 
 export class VersionedPowerSyncMongoV1 extends BaseVersionedPowerSyncMongo {
   get sourceRecordsV1(): mongo.Collection<CurrentDataDocument> {
@@ -14,6 +20,10 @@ export class VersionedPowerSyncMongoV1 extends BaseVersionedPowerSyncMongo {
 
   commonSourceTables(_replicationStreamId: number): mongo.Collection<CommonSourceTableDocument> {
     return this.upstream.source_tables as any as mongo.Collection<CommonSourceTableDocument>;
+  }
+
+  sourceTablesV1(_replicationStreamId: number): mongo.Collection<SourceTableDocumentV1> {
+    return this.upstream.source_tables as any as mongo.Collection<SourceTableDocumentV1>;
   }
 
   async initializeStreamStorage(_replicationStreamId: number): Promise<void> {}

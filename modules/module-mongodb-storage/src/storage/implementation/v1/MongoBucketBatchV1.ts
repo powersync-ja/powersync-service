@@ -1,5 +1,5 @@
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { ColumnDescriptor, SourceTable, storage } from '@powersync/service-core';
+import { ColumnDescriptor, InternalOpId, SourceTable, storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { calculateCheckpointState } from '../CheckpointState.js';
@@ -9,7 +9,7 @@ import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { PersistedBatchV1 } from './PersistedBatchV1.js';
 import { SourceRecordStoreV1 } from './SourceRecordStoreV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
-import { SourceTableDocumentV1, SyncRuleDocumentV1 } from './models.js';
+import { SyncRuleDocumentV1 } from './models.js';
 
 export class MongoBucketBatchV1 extends MongoBucketBatch {
   declare public readonly db: VersionedPowerSyncMongoV1;
@@ -18,9 +18,22 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   private needsActivation = true;
   private lastWaitingLogThrottled = 0;
 
+  /**
+   * The last persisted op that is not yet covered by a checkpoint, if any.
+   *
+   * Seeded from the persisted keepalive_op, so that ops persisted before a restart can still be
+   * included in the next checkpoint.
+   */
+  private persisted_op: InternalOpId | null = null;
+
   constructor(options: MongoBucketBatchOptions) {
     super(options);
+    this.persisted_op = options.keepaliveOp ?? null;
     this.store = new SourceRecordStoreV1(this.db, this.replicationStreamId);
+  }
+
+  protected override recordPersistedOp(lastOp: InternalOpId): void {
+    this.persisted_op = lastOp;
   }
 
   protected createPersistedBatch(writtenSize: number): PersistedBatch {
@@ -38,7 +51,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   }
 
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
-    const syncRules = options.syncRules ?? this.sync_rules;
+    const syncRules = options.parsedSyncConfig?.hydratedSyncConfig ?? this.sync_rules;
     const { connection_id, source } = options;
     const { schema, name, objectId, replicaIdColumns, connectionTag, sendsCompleteRows } = source;
 
@@ -50,7 +63,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
     let result: storage.ResolveTablesResult | null = null;
     await this.db.client.withSession(async (session) => {
-      const col = this.db.commonSourceTables(this.replicationStreamId);
+      const col = this.db.sourceTablesV1(this.replicationStreamId);
       const filter: any = {
         group_id: this.replicationStreamId,
         connection_id,
@@ -145,13 +158,13 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   }
 
   async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
-    const doc = (await this.db.commonSourceTables(this.replicationStreamId).findOne(
+    const doc = await this.db.sourceTablesV1(this.replicationStreamId).findOne(
       {
         group_id: this.replicationStreamId,
         _id: mongoTableId(table.id)
       },
       { session: this.session }
-    )) as SourceTableDocumentV1 | null;
+    );
     if (doc == null) {
       return null;
     }
@@ -330,7 +343,6 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       await this.autoActivate(lsn);
       await this.db.notifyCheckpoint();
       this.persisted_op = null;
-      this.last_checkpoint_lsn = lsn;
       if (checkpointState.newLastCheckpoint != null) {
         await this.sourceRecordStore.postCommitCleanup(checkpointState.newLastCheckpoint, this.logger);
       }
@@ -381,7 +393,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
     await this.withTransaction(async () => {
       // Protect against race conditions
-      const count = await this.db.commonSourceTables(this.replicationStreamId).countDocuments(
+      const count = await this.db.sourceTablesV1(this.replicationStreamId).countDocuments(
         {
           group_id: this.replicationStreamId,
           snapshot_done: false
@@ -424,7 +436,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     const ids = tables.map((table) => mongoTableId(table.id));
 
     await this.withTransaction(async () => {
-      await this.db.commonSourceTables(this.replicationStreamId).updateMany(
+      await this.db.sourceTablesV1(this.replicationStreamId).updateMany(
         { _id: { $in: ids } },
         {
           $set: {

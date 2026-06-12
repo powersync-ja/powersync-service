@@ -2384,7 +2384,7 @@ exports[`sync - mongodb > storage v3 > can override priority when subscribing to
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "1#todos|0["a"]",
+          "bucket": "todos|0.1.1["a"]",
           "checksum": -1712802421,
           "count": 1,
           "priority": 0,
@@ -2398,7 +2398,7 @@ exports[`sync - mongodb > storage v3 > can override priority when subscribing to
           ],
         },
         {
-          "bucket": "1#todos|0["b"]",
+          "bucket": "todos|0.1.1["b"]",
           "checksum": -1291414318,
           "count": 1,
           "priority": 3,
@@ -2423,7 +2423,7 @@ exports[`sync - mongodb > storage v3 > can override priority when subscribing to
   {
     "data": {
       "after": "0",
-      "bucket": "1#todos|0["a"]",
+      "bucket": "todos|0.1.1["a"]",
       "data": [
         {
           "checksum": 2582164875,
@@ -2448,7 +2448,7 @@ exports[`sync - mongodb > storage v3 > can override priority when subscribing to
   {
     "data": {
       "after": "0",
-      "bucket": "1#todos|0["b"]",
+      "bucket": "todos|0.1.1["b"]",
       "data": [
         {
           "checksum": 3003552978,
@@ -2478,7 +2478,7 @@ exports[`sync - mongodb > storage v3 > compacting data - invalidate checkpoint 1
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "1#mybucket[]",
+          "bucket": "mybucket.1.1[]",
           "checksum": -93886621,
           "count": 2,
           "priority": 3,
@@ -2508,7 +2508,7 @@ exports[`sync - mongodb > storage v3 > compacting data - invalidate checkpoint 2
   {
     "data": {
       "after": "0",
-      "bucket": "1#mybucket[]",
+      "bucket": "mybucket.1.1[]",
       "data": [
         {
           "checksum": -93886621,
@@ -2526,7 +2526,7 @@ exports[`sync - mongodb > storage v3 > compacting data - invalidate checkpoint 2
       "removed_buckets": [],
       "updated_buckets": [
         {
-          "bucket": "1#mybucket[]",
+          "bucket": "mybucket.1.1[]",
           "checksum": 499012468,
           "count": 4,
           "priority": 3,
@@ -2543,7 +2543,7 @@ exports[`sync - mongodb > storage v3 > compacting data - invalidate checkpoint 2
   {
     "data": {
       "after": "2",
-      "bucket": "1#mybucket[]",
+      "bucket": "mybucket.1.1[]",
       "data": [
         {
           "checksum": 1859363232,
@@ -2582,7 +2582,7 @@ exports[`sync - mongodb > storage v3 > encodes sync rules id in buckets for stre
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "1#test|0[]",
+          "bucket": "test|0.1.1[]",
           "checksum": 920318466,
           "count": 1,
           "priority": 3,
@@ -2607,7 +2607,7 @@ exports[`sync - mongodb > storage v3 > encodes sync rules id in buckets for stre
   {
     "data": {
       "after": "0",
-      "bucket": "1#test|0[]",
+      "bucket": "test|0.1.1[]",
       "data": [
         {
           "checksum": 920318466,
@@ -2637,7 +2637,7 @@ exports[`sync - mongodb > storage v3 > encodes sync rules id in buckets for stre
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "2#test2|0[]",
+          "bucket": "test2|0.2.1[]",
           "checksum": 920318466,
           "count": 1,
           "priority": 3,
@@ -2662,7 +2662,7 @@ exports[`sync - mongodb > storage v3 > encodes sync rules id in buckets for stre
   {
     "data": {
       "after": "0",
-      "bucket": "2#test2|0[]",
+      "bucket": "test2|0.2.1[]",
       "data": [
         {
           "checksum": 920318466,
@@ -2700,7 +2700,7 @@ exports[`sync - mongodb > storage v3 > expiring token 1`] = `
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "1#mybucket[]",
+          "bucket": "mybucket.1.1[]",
           "checksum": 0,
           "count": 0,
           "priority": 3,
@@ -2744,7 +2744,7 @@ exports[`sync - mongodb > storage v3 > sends checkpoint complete line for empty 
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "1#mybucket[]",
+          "bucket": "mybucket.1.1[]",
           "checksum": -1221282404,
           "count": 1,
           "priority": 3,
@@ -2769,7 +2769,7 @@ exports[`sync - mongodb > storage v3 > sends checkpoint complete line for empty 
   {
     "data": {
       "after": "0",
-      "bucket": "1#mybucket[]",
+      "bucket": "mybucket.1.1[]",
       "data": [
         {
           "checksum": 3073684892,
@@ -2813,7 +2813,7 @@ exports[`sync - mongodb > storage v3 > sync buckets in order 1`] = `
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "1#b0[]",
+          "bucket": "b0.1.1[]",
           "checksum": 920318466,
           "count": 1,
           "priority": 2,
@@ -2824,7 +2824,7 @@ exports[`sync - mongodb > storage v3 > sync buckets in order 1`] = `
           ],
         },
         {
-          "bucket": "1#b1[]",
+          "bucket": "b1.1.2[]",
           "checksum": -1382098757,
           "count": 1,
           "priority": 1,
@@ -2854,7 +2854,7 @@ exports[`sync - mongodb > storage v3 > sync buckets in order 1`] = `
   {
     "data": {
       "after": "0",
-      "bucket": "1#b1[]",
+      "bucket": "b1.1.2[]",
       "data": [
         {
           "checksum": 2912868539,
@@ -2879,7 +2879,7 @@ exports[`sync - mongodb > storage v3 > sync buckets in order 1`] = `
   {
     "data": {
       "after": "0",
-      "bucket": "1#b0[]",
+      "bucket": "b0.1.1[]",
       "data": [
         {
           "checksum": 920318466,
@@ -2909,7 +2909,7 @@ exports[`sync - mongodb > storage v3 > sync global data 1`] = `
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "1#mybucket[]",
+          "bucket": "mybucket.1.1[]",
           "checksum": -93886621,
           "count": 2,
           "priority": 3,
@@ -2934,7 +2934,7 @@ exports[`sync - mongodb > storage v3 > sync global data 1`] = `
   {
     "data": {
       "after": "0",
-      "bucket": "1#mybucket[]",
+      "bucket": "mybucket.1.1[]",
       "data": [
         {
           "checksum": 920318466,
@@ -2973,7 +2973,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "1#b0a[]",
+          "bucket": "b0a.1.1[]",
           "checksum": -659831575,
           "count": 2000,
           "priority": 2,
@@ -2984,7 +2984,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
           ],
         },
         {
-          "bucket": "1#b0b[]",
+          "bucket": "b0b.1.2[]",
           "checksum": -659831575,
           "count": 2000,
           "priority": 2,
@@ -2995,7 +2995,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
           ],
         },
         {
-          "bucket": "1#b1[]",
+          "bucket": "b1.1.3[]",
           "checksum": -1096116670,
           "count": 1,
           "priority": 1,
@@ -3030,7 +3030,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
   {
     "data": {
       "after": "0",
-      "bucket": "1#b1[]",
+      "bucket": "b1.1.3[]",
       "data": undefined,
       "has_more": false,
       "next_after": "1",
@@ -3045,7 +3045,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
   {
     "data": {
       "after": "0",
-      "bucket": "1#b0a[]",
+      "bucket": "b0a.1.1[]",
       "data": undefined,
       "has_more": true,
       "next_after": "2000",
@@ -3054,7 +3054,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
   {
     "data": {
       "after": "2000",
-      "bucket": "1#b0a[]",
+      "bucket": "b0a.1.1[]",
       "data": undefined,
       "has_more": true,
       "next_after": "4000",
@@ -3066,7 +3066,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
       "removed_buckets": [],
       "updated_buckets": [
         {
-          "bucket": "1#b0a[]",
+          "bucket": "b0a.1.1[]",
           "checksum": 883076828,
           "count": 2001,
           "priority": 2,
@@ -3077,7 +3077,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
           ],
         },
         {
-          "bucket": "1#b0b[]",
+          "bucket": "b0b.1.2[]",
           "checksum": 883076828,
           "count": 2001,
           "priority": 2,
@@ -3088,7 +3088,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
           ],
         },
         {
-          "bucket": "1#b1[]",
+          "bucket": "b1.1.3[]",
           "checksum": 1841937527,
           "count": 2,
           "priority": 1,
@@ -3105,7 +3105,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
   {
     "data": {
       "after": "1",
-      "bucket": "1#b1[]",
+      "bucket": "b1.1.3[]",
       "data": undefined,
       "has_more": false,
       "next_after": "4002",
@@ -3120,7 +3120,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
   {
     "data": {
       "after": "4000",
-      "bucket": "1#b0a[]",
+      "bucket": "b0a.1.1[]",
       "data": undefined,
       "has_more": false,
       "next_after": "4003",
@@ -3129,7 +3129,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
   {
     "data": {
       "after": "0",
-      "bucket": "1#b0b[]",
+      "bucket": "b0b.1.2[]",
       "data": undefined,
       "has_more": true,
       "next_after": "1999",
@@ -3138,7 +3138,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
   {
     "data": {
       "after": "1999",
-      "bucket": "1#b0b[]",
+      "bucket": "b0b.1.2[]",
       "data": undefined,
       "has_more": true,
       "next_after": "3999",
@@ -3147,7 +3147,7 @@ exports[`sync - mongodb > storage v3 > sync interrupts low-priority buckets on n
   {
     "data": {
       "after": "3999",
-      "bucket": "1#b0b[]",
+      "bucket": "b0b.1.2[]",
       "data": undefined,
       "has_more": false,
       "next_after": "4004",
@@ -3167,7 +3167,7 @@ exports[`sync - mongodb > storage v3 > sync legacy non-raw data 1`] = `
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "1#mybucket[]",
+          "bucket": "mybucket.1.1[]",
           "checksum": -852817836,
           "count": 1,
           "priority": 3,
@@ -3192,7 +3192,7 @@ exports[`sync - mongodb > storage v3 > sync legacy non-raw data 1`] = `
   {
     "data": {
       "after": "0",
-      "bucket": "1#mybucket[]",
+      "bucket": "mybucket.1.1[]",
       "data": [
         {
           "checksum": 3442149460n,
@@ -3227,7 +3227,7 @@ exports[`sync - mongodb > storage v3 > sync updates to data query only 1`] = `
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "1#by_user["user1"]",
+          "bucket": "by_user.1.1["user1"]",
           "checksum": 0,
           "count": 0,
           "priority": 3,
@@ -3265,7 +3265,7 @@ exports[`sync - mongodb > storage v3 > sync updates to data query only 2`] = `
       "removed_buckets": [],
       "updated_buckets": [
         {
-          "bucket": "1#by_user["user1"]",
+          "bucket": "by_user.1.1["user1"]",
           "checksum": 1418351250,
           "count": 1,
           "priority": 3,
@@ -3282,7 +3282,7 @@ exports[`sync - mongodb > storage v3 > sync updates to data query only 2`] = `
   {
     "data": {
       "after": "0",
-      "bucket": "1#by_user["user1"]",
+      "bucket": "by_user.1.1["user1"]",
       "data": [
         {
           "checksum": 1418351250,
@@ -3312,7 +3312,7 @@ exports[`sync - mongodb > storage v3 > sync updates to global data 1`] = `
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "1#mybucket[]",
+          "bucket": "mybucket.1.1[]",
           "checksum": 0,
           "count": 0,
           "priority": 3,
@@ -3350,7 +3350,7 @@ exports[`sync - mongodb > storage v3 > sync updates to global data 2`] = `
       "removed_buckets": [],
       "updated_buckets": [
         {
-          "bucket": "1#mybucket[]",
+          "bucket": "mybucket.1.1[]",
           "checksum": 920318466,
           "count": 1,
           "priority": 3,
@@ -3367,7 +3367,7 @@ exports[`sync - mongodb > storage v3 > sync updates to global data 2`] = `
   {
     "data": {
       "after": "0",
-      "bucket": "1#mybucket[]",
+      "bucket": "mybucket.1.1[]",
       "data": [
         {
           "checksum": 920318466,
@@ -3399,7 +3399,7 @@ exports[`sync - mongodb > storage v3 > sync updates to global data 3`] = `
       "removed_buckets": [],
       "updated_buckets": [
         {
-          "bucket": "1#mybucket[]",
+          "bucket": "mybucket.1.1[]",
           "checksum": -93886621,
           "count": 2,
           "priority": 3,
@@ -3416,7 +3416,7 @@ exports[`sync - mongodb > storage v3 > sync updates to global data 3`] = `
   {
     "data": {
       "after": "1",
-      "bucket": "1#mybucket[]",
+      "bucket": "mybucket.1.1[]",
       "data": [
         {
           "checksum": 3280762209,
@@ -3472,7 +3472,7 @@ exports[`sync - mongodb > storage v3 > sync updates to parameter query + data 2`
       "removed_buckets": [],
       "updated_buckets": [
         {
-          "bucket": "1#by_user["user1"]",
+          "bucket": "by_user.1.1["user1"]",
           "checksum": 1418351250,
           "count": 1,
           "priority": 3,
@@ -3489,7 +3489,7 @@ exports[`sync - mongodb > storage v3 > sync updates to parameter query + data 2`
   {
     "data": {
       "after": "0",
-      "bucket": "1#by_user["user1"]",
+      "bucket": "by_user.1.1["user1"]",
       "data": [
         {
           "checksum": 1418351250,
@@ -3545,7 +3545,7 @@ exports[`sync - mongodb > storage v3 > sync updates to parameter query only 2`] 
       "removed_buckets": [],
       "updated_buckets": [
         {
-          "bucket": "1#by_user["user1"]",
+          "bucket": "by_user.1.1["user1"]",
           "checksum": 0,
           "count": 0,
           "priority": 3,

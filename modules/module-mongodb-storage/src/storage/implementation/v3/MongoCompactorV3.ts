@@ -6,6 +6,7 @@ import { SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { BucketStateDocumentV3 } from './models.js';
+import { DefinitionChecksumOperations } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
@@ -50,10 +51,18 @@ export class MongoCompactorV3 extends MongoCompactor {
       .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[], { ordered: false });
   }
 
+  /**
+   * The compactor operates on persisted definition ids only - never on parsed sources.
+   * This narrowed view makes the source-resolving checksum methods unreachable here.
+   */
+  private get definitionChecksums(): DefinitionChecksumOperations {
+    return this.storage.checksums;
+  }
+
   protected async computeChecksumsForBuckets(
     buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
   ): Promise<storage.PartialChecksumMap> {
-    return this.storage.checksums.computePartialChecksumsDirectByDefinition(
+    return this.definitionChecksums.computePartialChecksumsDirectByDefinition(
       buckets.map(({ bucket, definitionId }) => {
         if (definitionId == null) {
           throw new ServiceAssertionError(`Missing definitionId for V3 bucket checksum update on bucket ${bucket}`);
@@ -88,7 +97,7 @@ export class MongoCompactorV3 extends MongoCompactor {
   ): Promise<SingleBucketStore | null> {
     if (definitionId == null) {
       // Not the _most_ efficient approach, but this is not used often
-      const allDefinitionIds = this.storage.mapping.allBucketDefinitionIds();
+      const allDefinitionIds = this.storage.storageIds.bucketDefinitionIds;
       if (allDefinitionIds.length == 0) {
         return null;
       }

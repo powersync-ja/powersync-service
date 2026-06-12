@@ -10,6 +10,7 @@ import { PerformanceTracer } from '../tracing/PerformanceTracer.js';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
+import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { ParseSyncConfigOptions } from './PersistedSyncConfigContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
@@ -44,6 +45,19 @@ export interface SyncRulesBucketStorage
     callback: (batch: BucketStorageBatch) => Promise<void>
   ): Promise<FlushedResult | null>;
 
+  /**
+   * Get the canonical parsed sync config set for the given parse options.
+   *
+   * Repeated calls with the same options return the same instance for the lifetime of
+   * this storage instance. This is the identity boundary for parsed sync config state:
+   * all operations against this storage instance must use parsed objects from sets
+   * returned here, never from an independent parse of the same content.
+   */
+  getParsedSyncConfigSet(options: ParseSyncConfigOptions): ParsedSyncConfigSet;
+
+  /**
+   * Shortcut for `getParsedSyncConfigSet(options).hydratedSyncConfig`.
+   */
   getParsedSyncRules(options: ParseSyncConfigOptions): HydratedSyncConfig;
 
   /**
@@ -55,7 +69,7 @@ export interface SyncRulesBucketStorage
    */
   terminate(options?: TerminateOptions): Promise<void>;
 
-  getStatus(): Promise<SyncRuleStatus>;
+  getStatus(): Promise<ReplicationStreamStatus>;
 
   /**
    * Clear the storage, without changing state.
@@ -149,15 +163,15 @@ export interface BucketChecksumRequest {
   source: BucketDataSource;
 }
 
-export interface SyncRuleStatus {
-  checkpoint_lsn: string | null;
-  active: boolean;
-  snapshot_done: boolean;
-  snapshot_lsn: string | null;
+export interface ReplicationStreamStatus {
   /**
-   * Last persisted operation that must be included in the next checkpoint once checkpointing is unblocked.
+   * Source position to resume replication from.
    */
-  keepalive_op: util.InternalOpId | null;
+  resumeLsn: string | null;
+  /**
+   * True if _every_ active/processing sync config has a client-visible checkpoint.
+   */
+  snapshotDone: boolean;
 }
 export interface ResolveTablesOptions {
   connection_id: number;
@@ -167,9 +181,9 @@ export interface ResolveTablesOptions {
    */
   idGenerator?: () => string | bson.ObjectId;
   /**
-   * For tests only - override the sync rules used.
+   * For tests only - override the parsed sync config set used.
    */
-  syncRules?: HydratedSyncConfig;
+  parsedSyncConfig?: ParsedSyncConfigSet;
 }
 
 export interface ResolveTablesResult {
@@ -287,7 +301,14 @@ export interface CompactOptions {
 }
 
 export interface PopulateChecksumCacheOptions {
-  maxOpId: util.InternalOpId;
+  /**
+   * Compute checksums up to this op id.
+   *
+   * Defaults to the highest persisted op id for the replication stream, which covers
+   * the common case of populating the cache right after initial replication, before
+   * the first checkpoint exists.
+   */
+  maxOpId?: util.InternalOpId;
   minBucketChanges?: number;
   signal?: AbortSignal;
 }

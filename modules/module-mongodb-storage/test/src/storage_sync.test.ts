@@ -1,17 +1,14 @@
 import { deserializeParameterLookup, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
-import {
-  DEFAULT_HYDRATION_STATE,
-  nodeSqlite,
-  RequestParameters,
-  ScopedParameterLookup,
-  SqlSyncRules
-} from '@powersync/service-sync-rules';
+import { RequestParameters, ScopedParameterLookup, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import * as sqlite from 'node:sqlite';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
+import { SingleSyncConfigBucketDefinitionMapping } from '../../src/storage/implementation/BucketDefinitionMapping.js';
+import { MongoParsedSyncConfigSet } from '../../src/storage/implementation/MongoParsedSyncConfigSet.js';
+import { MongoPersistedSyncConfigContentV3 } from '../../src/storage/implementation/MongoPersistedSyncConfigContent.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
+import { getMongoStorageConfig } from '../../src/storage/implementation/models.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import {
@@ -59,10 +56,54 @@ function objectIdGenerator(id: string) {
   };
 }
 
-function hydratedRulesFor(yaml: string) {
+/**
+ * Build a standalone parsed sync config set for the given yaml, with its own mapping.
+ *
+ * This keeps the sync rules and the bucket definition mapping paired, as required by
+ * `ResolveTablesOptions.parsedSyncConfig`.
+ */
+function parsedSyncConfigSetFor(yaml: string, storageVersion: number) {
   const parsed = SqlSyncRules.fromYaml(yaml, test_utils.PARSE_OPTIONS);
   expect(parsed.errors).toEqual([]);
-  return parsed.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) });
+  return new MongoParsedSyncConfigSet(1, getMongoStorageConfig(storageVersion), 'test_slot', [
+    {
+      syncConfigId: new bson.ObjectId().toHexString(),
+      syncConfig: parsed,
+      mapping: SingleSyncConfigBucketDefinitionMapping.fromParsedSyncConfig(parsed)
+    }
+  ]);
+}
+
+async function getMongoSyncConfigContents(factory: storage.BucketStorageFactory, replicationStreamId: number) {
+  const mongoFactory = factory as MongoBucketStorage;
+  const doc = (await mongoFactory.db.sync_rules.findOne({
+    _id: replicationStreamId
+  })) as ReplicationStreamDocumentV3 | null;
+  if (doc == null) {
+    return [];
+  }
+
+  const db = mongoFactory.db.versioned(getMongoStorageConfig(doc.storage_version)) as VersionedPowerSyncMongoV3;
+  const syncConfigDocs = await db.syncConfigDefinitions
+    .find({
+      _id: { $in: doc.sync_configs.map((config) => config._id) }
+    })
+    .toArray();
+
+  return syncConfigDocs.map((config) => new MongoPersistedSyncConfigContentV3(mongoFactory.db, doc, config));
+}
+
+/**
+ * Get a MongoDB V3 storage bucket definition id, from a bucket name.
+ *
+ * This relies on internals of bucket naming, but helps for simplifying tests.
+ */
+function bucketDefinitionId(bucket: string) {
+  const match = bucket.match(/^\w+\|\w+\.\w+\.(\w+)\[/);
+  if (match == null) {
+    throw new Error(`Expected versioned bucket name, got ${bucket}`);
+  }
+  return parseInt(match[1], 16);
 }
 
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
@@ -398,8 +439,8 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     }
   );
 
-  test.runIf(storageVersion >= 3)('resolveTables handles v3 source membership additions and removals', async () => {
-    // Tests the behavior of resolveTables when bucket data sources and parameter index creators are added or removed.
+  test.runIf(storageVersion >= 3)('resolveTables handles v3 source membership additions', async () => {
+    // Tests the behavior of resolveTables when bucket data sources and parameter index creators are added.
     // These are not end-to-end tests yet, since we don't have a full incremental reprocessing implementation.
     // This just tests the specific resolveTables behavior.
 
@@ -444,20 +485,19 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(fullRulesYaml, { storageVersion }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const fullRules = hydratedRulesFor(fullRulesYaml);
-    const dataOnlyRules = hydratedRulesFor(dataOnlyRulesYaml);
-    const parameterOnlyRules = hydratedRulesFor(parameterOnlyRulesYaml);
-    const eventOnlyRules = hydratedRulesFor(eventOnlyRulesYaml);
+    const fullRules = parsedSyncConfigSetFor(fullRulesYaml, storageVersion);
+    const dataOnlyRules = parsedSyncConfigSetFor(dataOnlyRulesYaml, storageVersion);
+    const parameterOnlyRules = parsedSyncConfigSetFor(parameterOnlyRulesYaml, storageVersion);
+    const eventOnlyRules = parsedSyncConfigSetFor(eventOnlyRulesYaml, storageVersion);
     const source = sourceDescriptor('memberships', { objectId: 'memberships-relation' });
     const dataOnlyTableId = new bson.ObjectId('6544e3899293153fa7b38348');
     const addedParameterTableId = new bson.ObjectId('6544e3899293153fa7b38349');
-    const removedDataTableId = new bson.ObjectId('6544e3899293153fa7b3834a');
 
     const dataOnly = await writer.resolveTables({
       connection_id: 1,
       source,
       idGenerator: () => dataOnlyTableId,
-      syncRules: dataOnlyRules
+      parsedSyncConfig: dataOnlyRules
     });
     expect(dataOnly.tables.map((table) => table.id)).toEqual([dataOnlyTableId]);
     expect(dataOnly.dropTables.map((table) => table.id)).toEqual([]);
@@ -468,7 +508,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       connection_id: 1,
       source,
       idGenerator: () => addedParameterTableId,
-      syncRules: fullRules
+      parsedSyncConfig: fullRules
     });
     // Adding a definition always creates a new SourceTable
     expect(addedParameter.tables.map((table) => table.id)).toEqual([dataOnlyTableId, addedParameterTableId]);
@@ -482,29 +522,29 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       idGenerator: () => {
         throw new Error('data-only resolve should reuse existing v3 source table');
       },
-      syncRules: dataOnlyRules
+      parsedSyncConfig: dataOnlyRules
     });
     expect(removedParameter.tables.map((table) => table.id)).toEqual([dataOnlyTableId]);
-    // Now this sourceTable is unused & dropped
-    expect(removedParameter.dropTables.map((table) => table.id)).toEqual([addedParameterTableId]);
+    // Same-identity tables that no longer cover desired memberships are left in place.
+    expect(removedParameter.dropTables.map((table) => table.id)).toEqual([]);
     expect(removedParameter.tables[0].bucketDataSources).toHaveLength(1);
     expect(removedParameter.tables[0].parameterLookupSources).toHaveLength(0);
-    await writer.drop(removedParameter.dropTables);
 
     const removedData = await writer.resolveTables({
       connection_id: 1,
       source,
-      idGenerator: () => removedDataTableId,
-      syncRules: parameterOnlyRules
+      idGenerator: () => {
+        throw new Error('parameter-only resolve should reuse existing v3 source table');
+      },
+      parsedSyncConfig: parameterOnlyRules
     });
 
-    // This goes from dataOnlyRules -> parameterOnlyRules, which adds one definition and removes another.
-    // This generates a new SourceTable again, and removes all others.
-    expect(removedData.tables.map((table) => table.id)).toEqual([removedDataTableId]);
-    expect(removedData.dropTables.map((table) => table.id)).toEqual([dataOnlyTableId]);
+    // This goes from dataOnlyRules -> parameterOnlyRules, which removes one definition but
+    // reuses the existing parameter-only source table.
+    expect(removedData.tables.map((table) => table.id)).toEqual([addedParameterTableId]);
+    expect(removedData.dropTables.map((table) => table.id)).toEqual([]);
     expect(removedData.tables[0].bucketDataSources).toHaveLength(0);
     expect(removedData.tables[0].parameterLookupSources).toHaveLength(1);
-    await writer.drop(removedData.dropTables);
 
     const eventOnly = await writer.resolveTables({
       connection_id: 1,
@@ -512,11 +552,12 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       idGenerator: () => {
         throw new Error('resolve should reuse existing v3 source table');
       },
-      syncRules: eventOnlyRules
+      parsedSyncConfig: eventOnlyRules
     });
 
     // Event-only table can re-use any existing table.
-    expect(eventOnly.tables.map((table) => table.id)).toEqual([removedDataTableId]);
+    expect(eventOnly.tables).toHaveLength(1);
+    expect([dataOnlyTableId.toString(), addedParameterTableId.toString()]).toContain(eventOnly.tables[0].id.toString());
     expect(eventOnly.dropTables.map((table) => table.id)).toEqual([]);
     expect(eventOnly.tables[0].bucketDataSources).toHaveLength(0);
     expect(eventOnly.tables[0].parameterLookupSources).toHaveLength(0);
@@ -524,6 +565,76 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     expect(eventOnly.tables[0].syncParameters).toBe(false);
     expect(eventOnly.tables[0].syncEvent).toBe(true);
   });
+
+  test.runIf(storageVersion >= 3)(
+    'resolveTables designates a single event carrier across split source tables',
+    async () => {
+      // When memberships are split over multiple SourceTables for the same ref, a row change
+      // is saved once per table. Only one table may fire events, otherwise the same event
+      // would fire once per table for every row change.
+      const dataOnlyEventYaml = `
+    bucket_definitions:
+      by_owner:
+        parameters:
+          - SELECT token_parameters.owner_id as owner_id
+        data:
+          - SELECT id, owner_id FROM memberships WHERE owner_id = bucket.owner_id
+
+    event_definitions:
+      write_checkpoints:
+        payloads:
+          - SELECT id, owner_id FROM memberships
+    `;
+      const fullEventYaml = `
+    bucket_definitions:
+      by_owner:
+        parameters:
+          - SELECT owner_id FROM memberships WHERE id = token_parameters.test_id
+        data:
+          - SELECT id, owner_id FROM memberships WHERE owner_id = bucket.owner_id
+
+    event_definitions:
+      write_checkpoints:
+        payloads:
+          - SELECT id, owner_id FROM memberships
+    `;
+
+      await using factory = await storageConfig.factory();
+      const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(dataOnlyEventYaml, { storageVersion }));
+      const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const dataOnlyRules = parsedSyncConfigSetFor(dataOnlyEventYaml, storageVersion);
+      const fullRules = parsedSyncConfigSetFor(fullEventYaml, storageVersion);
+      const source = sourceDescriptor('memberships', { objectId: 'memberships-relation' });
+
+      const initial = await writer.resolveTables({
+        connection_id: 1,
+        source,
+        idGenerator: objectIdGenerator('6544e3899293153fa7b3834b'),
+        parsedSyncConfig: dataOnlyRules
+      });
+      expect(initial.tables).toHaveLength(1);
+      expect(initial.tables[0].syncEvent).toBe(true);
+
+      // Adding the table-based parameter lookup creates a second SourceTable for the same ref.
+      const split = await writer.resolveTables({
+        connection_id: 1,
+        source,
+        idGenerator: objectIdGenerator('6544e3899293153fa7b3834c'),
+        parsedSyncConfig: fullRules
+      });
+      expect(split.tables).toHaveLength(2);
+      // Both tables match the event by ref, but only one may carry it.
+      const carriers = split.tables.filter((table) => table.syncEvent);
+      expect(carriers).toHaveLength(1);
+
+      // getSourceTableStatus preserves the carrier designation rather than recomputing it
+      // from the ref, so refreshing a non-carrier table does not make it fire events.
+      const nonCarrier = split.tables.find((table) => !table.syncEvent)!;
+      const refreshed = await writer.getSourceTableStatus(nonCarrier);
+      expect(refreshed!.syncEvent).toBe(false);
+    }
+  );
 
   test.runIf(storageVersion >= 3)('uses v3 mongodb model shapes', async () => {
     await using factory = await storageConfig.factory();
@@ -542,7 +653,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     );
     const bucketStorage = factory.getInstance(syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
-    const sync_rules = syncRulesContent.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
+    const sync_rules = syncRulesContent.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
 
@@ -601,6 +712,604 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     expect(parameterIndexId).toBeDefined();
     const parameterEntry = await db.parameterIndexV3(syncRules.replicationStreamId, parameterIndexId!).findOne({});
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
+  });
+
+  test.runIf(storageVersion >= 3)('replaces an existing deploying sync config', async () => {
+    await using factory = await storageConfig.factory();
+
+    const first = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 2
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+        { storageVersion }
+      )
+    );
+    const second = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 2
+
+streams:
+  by_project:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+`,
+        { storageVersion }
+      )
+    );
+
+    expect(second.replicationStreamId).not.toEqual(first.replicationStreamId);
+    expect(
+      (await factory.getStoppedReplicationStreams()).find(
+        (stream) => stream.replicationStreamId == first.replicationStreamId
+      )?.state
+    ).toBe(storage.SyncRuleState.STOP);
+
+    const replicatingStreams = await factory.getReplicatingReplicationStreams();
+    expect(replicatingStreams).toHaveLength(1);
+    expect(replicatingStreams[0].replicationStreamId).toEqual(second.replicationStreamId);
+
+    const configs = second.syncConfigContent;
+    expect(configs).toHaveLength(1);
+    const statuses = await Promise.all(configs.map((config) => config.getSyncConfigStatus()));
+    expect(statuses.map((status) => status?.state)).toEqual([storage.SyncRuleState.PROCESSING]);
+    expect(statuses.map((status) => status?.id)).toEqual(configs.map((config) => config.syncConfigId));
+    const parsed = replicatingStreams[0].parsed(test_utils.PARSE_OPTIONS);
+    expect(parsed.syncConfigs).toHaveLength(1);
+    expect(parsed.hydratedSyncConfig.bucketDataSources).toHaveLength(1);
+
+    const bucketStorage = factory.getInstance(replicatingStreams[0]);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const resolved = await writer.resolveTables({
+      connection_id: 1,
+      source: sourceDescriptor('todos', { objectId: 'todos-relation' }),
+      idGenerator: objectIdGenerator('6544e3899293153fa7b3834b')
+    });
+    expect(resolved.tables).toHaveLength(1);
+    expect(resolved.tables[0].bucketDataSources).toHaveLength(1);
+  });
+
+  test.runIf(storageVersion >= 3)('removing one config keeps shared source-table membership', async () => {
+    await using factory = await storageConfig.factory();
+
+    const first = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+        { storageVersion }
+      )
+    );
+    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+    await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await firstWriter.markAllSnapshotDone('1/1');
+    await firstWriter.commit('1/1');
+
+    const second = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_project:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+`,
+        { storageVersion }
+      )
+    );
+    expect(second.replicationStreamId).toEqual(first.replicationStreamId);
+
+    const bucketStorage = factory.getInstance(second);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const source = sourceDescriptor('todos', { objectId: 'todos-relation' });
+
+    const resolved = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      idGenerator: objectIdGenerator('6544e3899293153fa7b3834c')
+    });
+    expect(resolved.tables).toHaveLength(1);
+    expect(resolved.tables[0].bucketDataSources).toHaveLength(2);
+
+    await writer.markAllSnapshotDone('2/1');
+    await writer.commit('2/1');
+
+    const activeStorage = (await factory.getActiveSyncConfig())?.storage as MongoSyncBucketStorage;
+    await using activeWriter = await activeStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const activeStatus = await activeWriter.getSourceTableStatus(resolved.tables[0]);
+    expect(activeStatus?.bucketDataSources).toHaveLength(1);
+  });
+
+  test.runIf(storageVersion >= 3)(
+    'editing a stream query on the same table does not drop the active source table',
+    async () => {
+      await using factory = await storageConfig.factory();
+
+      const first = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  todos:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+          { storageVersion }
+        )
+      );
+      const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+      await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const source = sourceDescriptor('todos', { objectId: 'todos-relation' });
+      const firstResolved = await firstWriter.resolveTables({
+        connection_id: 1,
+        source,
+        idGenerator: objectIdGenerator('6544e3899293153fa7b3834d')
+      });
+      expect(firstResolved.dropTables).toHaveLength(0);
+      await firstWriter.markAllSnapshotDone('1/1');
+      await firstWriter.commit('1/1');
+
+      const second = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  todos:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+`,
+          { storageVersion }
+        )
+      );
+      expect(second.replicationStreamId).toBe(first.replicationStreamId);
+
+      const deploying = await factory.getDeployingSyncConfig();
+      expect(deploying?.replicationStream.replicationStreamId).toBe(first.replicationStreamId);
+      const bucketStorage = deploying!.storage;
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const resolved = await writer.resolveTables({
+        connection_id: 1,
+        source,
+        idGenerator: objectIdGenerator('6544e3899293153fa7b3834e')
+      });
+
+      expect(resolved.dropTables).toHaveLength(0);
+      expect(resolved.tables.map((table) => table.id.toString())).toEqual(['6544e3899293153fa7b3834e']);
+      expect(resolved.tables[0].bucketDataSources).toHaveLength(1);
+
+      const activeStatus = await firstWriter.getSourceTableStatus(firstResolved.tables[0]);
+      expect(activeStatus?.bucketDataSources).toHaveLength(1);
+    }
+  );
+
+  test.runIf(storageVersion >= 3)('reserves historical mapping ids without reusing stopped configs', async () => {
+    await using factory = await storageConfig.factory();
+
+    const ownerRules = `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`;
+    const projectRules = `
+config:
+  edition: 3
+
+streams:
+  by_project:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+`;
+    const statusRules = `
+config:
+  edition: 3
+
+streams:
+  by_status:
+    query: SELECT * FROM todos WHERE status = subscription.parameter('status')
+`;
+
+    const first = await factory.updateSyncRules(updateSyncRulesFromYaml(ownerRules, { storageVersion }));
+    const firstStorage = factory.getInstance(first);
+    await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await firstWriter.markAllSnapshotDone('1/1');
+    await firstWriter.commit('1/1');
+
+    const second = await factory.updateSyncRules(updateSyncRulesFromYaml(projectRules, { storageVersion }));
+    expect(second.replicationStreamId).toBe(first.replicationStreamId);
+
+    const third = await factory.updateSyncRules(updateSyncRulesFromYaml(statusRules, { storageVersion }));
+    expect(third.replicationStreamId).toBe(first.replicationStreamId);
+
+    const configs = await getMongoSyncConfigContents(factory, first.replicationStreamId);
+    const statuses = await Promise.all(
+      configs.map(async (config) => [config, await config.getSyncConfigStatus()] as const)
+    );
+    // ownerRules
+    const activeConfig = statuses.find(([, status]) => status?.state == storage.SyncRuleState.ACTIVE)?.[0];
+    // projectRules
+    const stoppedConfig = statuses.find(([, status]) => status?.state == storage.SyncRuleState.STOP)?.[0];
+    // statusRules
+    const processingConfig = statuses.find(([, status]) => status?.state == storage.SyncRuleState.PROCESSING)?.[0];
+    expect(stoppedConfig).toBeDefined();
+    expect(activeConfig).toBeDefined();
+    expect(processingConfig).toBeDefined();
+
+    const activePrefix = bucketRequest(activeConfig!, 'by_owner|0["owner"]').bucket;
+    const stoppedPrefix = bucketRequest(stoppedConfig!, 'by_project|0["project"]').bucket;
+    const processingPrefix = bucketRequest(processingConfig!, 'by_status|0["status"]').bucket;
+
+    expect(processingPrefix).not.toBe(stoppedPrefix);
+    expect(processingPrefix).not.toBe(activePrefix);
+    expect(bucketDefinitionId(processingPrefix)).toBeGreaterThan(
+      Math.max(bucketDefinitionId(stoppedPrefix), bucketDefinitionId(activePrefix))
+    );
+  });
+
+  test.runIf(storageVersion >= 3)('table snapshot status only affects sync configs using that table', async () => {
+    await using factory = await storageConfig.factory();
+
+    const first = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+        { storageVersion }
+      )
+    );
+    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+    await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await firstWriter.markAllSnapshotDone('1/1');
+    await firstWriter.commit('1/1');
+
+    const second = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+  by_project:
+    query: SELECT * FROM projects WHERE id = subscription.parameter('project_id')
+`,
+        { storageVersion }
+      )
+    );
+    expect(second.replicationStreamId).toBe(first.replicationStreamId);
+
+    const bucketStorage = factory.getInstance(second);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const resolved = await writer.resolveTables({
+      connection_id: 1,
+      source: sourceDescriptor('projects', { objectId: 'projects-relation' }),
+      idGenerator: objectIdGenerator('6544e3899293153fa7b3834d')
+    });
+    expect(resolved.tables).toHaveLength(1);
+
+    await writer.markAllSnapshotDone('2/1');
+    await writer.markTableSnapshotRequired(resolved.tables[0]);
+
+    const configsAfterRequired = await getMongoSyncConfigContents(factory, first.replicationStreamId);
+    const statusesAfterRequired = await Promise.all(configsAfterRequired.map((config) => config.getSyncConfigStatus()));
+    const ownerConfigAfterRequired = statusesAfterRequired.find(
+      (status) => status?.state == storage.SyncRuleState.ACTIVE
+    );
+    const projectConfigAfterRequired = statusesAfterRequired.find(
+      (status) => status?.state == storage.SyncRuleState.PROCESSING
+    );
+    expect(ownerConfigAfterRequired?.snapshot_done).toBe(true);
+    expect(projectConfigAfterRequired?.snapshot_done).toBe(false);
+
+    await writer.markTableSnapshotDone(resolved.tables, '3/1');
+
+    const configsAfterDone = await getMongoSyncConfigContents(factory, first.replicationStreamId);
+    const statusesAfterDone = await Promise.all(configsAfterDone.map((config) => config.getSyncConfigStatus()));
+    const ownerConfigAfterDone = statusesAfterDone.find((status) => status?.id == ownerConfigAfterRequired!.id);
+    const projectConfigAfterDone = statusesAfterDone.find((status) => status?.id == projectConfigAfterRequired!.id);
+    expect(ownerConfigAfterDone?.snapshot_done).toBe(true);
+    expect(projectConfigAfterDone?.snapshot_done).toBe(false);
+  });
+
+  test.runIf(storageVersion >= 3)(
+    'keeps compatible active and deploying sync configs in one replication stream',
+    async () => {
+      await using factory = await storageConfig.factory();
+
+      const first = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+          { storageVersion }
+        )
+      );
+      const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+      await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+      await firstWriter.markAllSnapshotDone('1/1');
+      await firstWriter.commit('1/1');
+      const initialActiveStorage = (await factory.getActiveSyncConfig())?.storage as MongoSyncBucketStorage;
+
+      let configs = first.syncConfigContent;
+      const firstConfigId = configs[0].syncConfigId;
+      expect((await factory.getActiveSyncConfig())?.content.syncConfigId).toBe(firstConfigId);
+
+      const second = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  by_project:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+`,
+          { storageVersion }
+        )
+      );
+      expect(second.replicationStreamId).toEqual(first.replicationStreamId);
+
+      configs = await getMongoSyncConfigContents(factory, first.replicationStreamId);
+      const deploying = await factory.getDeployingSyncConfig();
+      expect(configs).toHaveLength(2);
+      expect(deploying).not.toBeNull();
+      expect((await factory.getActiveSyncConfig())?.content.syncConfigId).toBe(firstConfigId);
+
+      const stream = (await factory.getActiveSyncConfig())?.replicationStream;
+      expect(stream?.state).toBe(storage.SyncRuleState.ACTIVE);
+      expect(
+        (await Promise.all(configs.map((config) => config.getSyncConfigStatus()))).map((status) => status?.state).sort()
+      ).toEqual([storage.SyncRuleState.ACTIVE, storage.SyncRuleState.PROCESSING]);
+
+      const replicatingStreams = await factory.getReplicatingReplicationStreams();
+      expect(replicatingStreams).toHaveLength(1);
+      for (const config of configs) {
+        expect(replicatingStreams[0].replicationJobId).toContain(config.syncConfigId);
+      }
+
+      const secondStorage = factory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorage;
+      await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
+      await secondWriter.markAllSnapshotDone('2/1');
+      await secondWriter.commit('2/1');
+
+      const updatedStream = (await factory.getActiveSyncConfig())?.replicationStream;
+      expect(updatedStream?.state).toBe(storage.SyncRuleState.ACTIVE);
+      const updatedConfigs = await getMongoSyncConfigContents(factory, first.replicationStreamId);
+      expect(
+        (await Promise.all(updatedConfigs.map((config) => config.getSyncConfigStatus())))
+          .map((status) => status?.state)
+          .sort()
+      ).toEqual([storage.SyncRuleState.ACTIVE, storage.SyncRuleState.STOP]);
+      expect(await factory.getDeployingSyncConfig()).toBeNull();
+      expect((await factory.getActiveSyncConfig())?.content.syncConfigId).not.toBe(firstConfigId);
+      const updatedActiveStorage = (await factory.getActiveSyncConfig())?.storage as MongoSyncBucketStorage;
+      expect(updatedActiveStorage.replicationStream.replicationJobId).not.toBe(
+        initialActiveStorage.replicationStream.replicationJobId
+      );
+      expect(updatedActiveStorage.replicationStream.replicationJobId).toContain(
+        (await factory.getActiveSyncConfig())!.content.syncConfigId
+      );
+    }
+  );
+
+  test.runIf(storageVersion >= 3)(
+    'appended compatible config adopts the stream checkpoint instead of regressing to 0',
+    async () => {
+      await using factory = await storageConfig.factory();
+
+      // First config replicates some data, advancing the stream-level op head and its checkpoint.
+      const first = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+          { storageVersion }
+        )
+      );
+      const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+      await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const sourceTable = await test_utils.resolveTestTable(
+        firstWriter,
+        'todos',
+        ['id'],
+        INITIALIZED_MONGO_STORAGE_FACTORY
+      );
+      await firstWriter.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'todo-1',
+          owner_id: 'user-1',
+          project_id: 'project-1'
+        },
+        afterReplicaId: test_utils.rid('todo-1')
+      });
+      await firstWriter.markAllSnapshotDone('1/1');
+      await firstWriter.commit('1/1');
+
+      const firstCheckpoint = (await firstStorage.getCheckpoint()).checkpoint;
+      expect(firstCheckpoint).toBeGreaterThan(0n);
+
+      const mongoFactory = factory as MongoBucketStorage;
+      const streamDocBefore = (await mongoFactory.db.sync_rules.findOne({
+        _id: first.replicationStreamId
+      })) as ReplicationStreamDocumentV3;
+      // The stream-level head was advanced durably to (at least) the first config's checkpoint.
+      expect(streamDocBefore.last_persisted_op).not.toBeNull();
+      expect(BigInt(streamDocBefore.last_persisted_op!)).toBeGreaterThanOrEqual(firstCheckpoint);
+
+      // Append a compatible second config that replicates nothing new.
+      const second = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  by_project:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+`,
+          { storageVersion }
+        )
+      );
+      expect(second.replicationStreamId).toEqual(first.replicationStreamId);
+
+      const replicatingStreams = await factory.getReplicatingReplicationStreams();
+      expect(replicatingStreams).toHaveLength(1);
+      const secondStorage = factory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorage;
+      await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
+      // No new data replicated - just complete the snapshot and commit.
+      await secondWriter.markAllSnapshotDone('2/1');
+      await secondWriter.commit('2/1');
+
+      // The appended config's checkpoint must adopt the stream head, not regress to 0.
+      const streamDocAfter = (await mongoFactory.db.sync_rules.findOne({
+        _id: first.replicationStreamId
+      })) as ReplicationStreamDocumentV3;
+      const head = BigInt(streamDocAfter.last_persisted_op!);
+      for (const config of streamDocAfter.sync_configs) {
+        expect(config.last_checkpoint).not.toBeNull();
+        expect(BigInt(config.last_checkpoint!)).toEqual(head);
+      }
+      // All configs share the same checkpoint, equal to the stream head.
+      expect(head).toBeGreaterThanOrEqual(firstCheckpoint);
+
+      // After activation, the active config's checkpoint does not regress.
+      const activeStorage = (await factory.getActiveSyncConfig())?.storage as MongoSyncBucketStorage;
+      const activeCheckpoint = (await activeStorage.getCheckpoint()).checkpoint;
+      expect(activeCheckpoint).toBeGreaterThanOrEqual(firstCheckpoint);
+    }
+  );
+
+  test.runIf(storageVersion >= 3)('creates a new replication stream when compatibility options differ', async () => {
+    await using factory = await storageConfig.factory();
+
+    const first = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+        { storageVersion }
+      )
+    );
+    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+    await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await firstWriter.markAllSnapshotDone('1/1');
+    await firstWriter.commit('1/1');
+
+    // Same streams, but a different compatibility edition - must not append to the active stream.
+    const second = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 2
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+        { storageVersion }
+      )
+    );
+    expect(second.replicationStreamId).not.toEqual(first.replicationStreamId);
+
+    // The first stream stays active until the replacement has replicated.
+    const active = await factory.getActiveSyncConfig();
+    expect(active?.replicationStream.replicationStreamId).toEqual(first.replicationStreamId);
+    expect((await factory.getDeployingSyncConfig())?.replicationStream.replicationStreamId).toEqual(
+      second.replicationStreamId
+    );
+  });
+
+  test.runIf(storageVersion >= 3)(
+    'creates a new replication stream for legacy sync rules without a serialized plan',
+    async () => {
+      await using factory = await storageConfig.factory();
+
+      const first = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+          { storageVersion }
+        )
+      );
+      const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+      await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+      await firstWriter.markAllSnapshotDone('1/1');
+      await firstWriter.commit('1/1');
+
+      // Legacy sync rules have no serialized plan - must not append to the active stream.
+      const second = await factory.updateSyncRules(updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion }));
+      expect(second.replicationStreamId).not.toEqual(first.replicationStreamId);
+    }
+  );
+
+  test.runIf(storageVersion >= 3)('does not append to an active legacy sync config', async () => {
+    await using factory = await storageConfig.factory();
+
+    const first = await factory.updateSyncRules(updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion }));
+    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+    await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await firstWriter.markAllSnapshotDone('1/1');
+    await firstWriter.commit('1/1');
+
+    // The active config has no serialized plan, so a new streams config must not be appended to it.
+    const second = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+        { storageVersion }
+      )
+    );
+    expect(second.replicationStreamId).not.toEqual(first.replicationStreamId);
   });
 
   test.runIf(storageVersion < 3)('can replace processing legacy sync rules', async () => {
@@ -826,8 +1535,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
         relation_id: 'a',
         schema_name: 'public',
         table_name: 'table_a',
-        replica_id_columns: null,
-        replica_id_columns2: [],
+        replica_id_columns: [],
         snapshot_done: true,
         snapshot_status: undefined,
         bucket_data_source_ids: [],
@@ -840,8 +1548,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
         relation_id: 'b',
         schema_name: 'public',
         table_name: 'table_b',
-        replica_id_columns: null,
-        replica_id_columns2: [],
+        replica_id_columns: [],
         snapshot_done: true,
         snapshot_status: undefined,
         bucket_data_source_ids: [],

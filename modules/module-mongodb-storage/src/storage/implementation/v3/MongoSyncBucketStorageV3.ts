@@ -6,7 +6,6 @@ import {
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
-  maxLsn,
   ParameterSetLimitExceededError,
   ProtocolOpId,
   storage,
@@ -17,16 +16,13 @@ import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powe
 import * as bson from 'bson';
 import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
-import {
-  MongoSyncBucketStorageCheckpoint,
-  MongoSyncBucketStorageContext
-} from '../common/MongoSyncBucketStorageContext.js';
-import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
+import { SingleSyncConfigBucketDefinitionMapping } from '../BucketDefinitionMapping.js';
+import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageCheckpoint.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions, WriterSyncState } from '../MongoSyncBucketStorage.js';
+import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV3,
   BucketParameterDocumentV3,
@@ -40,6 +36,18 @@ import { MongoCompactorV3 } from './MongoCompactorV3.js';
 import { MongoParameterCompactorV3 } from './MongoParameterCompactorV3.js';
 import { deserializeParameterLookupV3, serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+
+export interface MongoSyncBucketStorageContextV3 {
+  db: VersionedPowerSyncMongoV3;
+  replicationStreamId: number;
+  /**
+   * Persisted mapping of the single sync config that read operations are served from.
+   *
+   * Implemented as a lazy getter: accessing it on a storage instance with multiple sync
+   * configs throws, but operations that don't use it remain unaffected.
+   */
+  readonly mapping: SingleSyncConfigBucketDefinitionMapping;
+}
 
 export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   // Declare types to be more specific
@@ -55,13 +63,13 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     options: MongoSyncBucketStorageOptions
   ) {
     super(factory, replicationStreamId, replicationStream, replicationStreamName, writeCheckpointMode, options);
-    if (replicationStream.syncConfigIds.length != 1) {
+    if (replicationStream.syncConfigIds.length == 0) {
       throw new ServiceAssertionError('Missing sync config id for storage v3');
     }
   }
 
-  private get syncConfigId(): bson.ObjectId {
-    return this.replicationStream.syncConfigIds[0];
+  private get syncConfigIds(): bson.ObjectId[] {
+    return this.replicationStream.syncConfigIds;
   }
 
   private get syncRulesCollection(): mongo.Collection<ReplicationStreamDocumentV3> {
@@ -73,7 +81,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       _id: this.replicationStreamId,
       sync_configs: {
         $elemMatch: {
-          _id: this.syncConfigId,
+          _id: { $in: this.syncConfigIds },
           ...extra
         }
       }
@@ -88,23 +96,16 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   private syncConfigArrayFilters(): mongo.UpdateOptions['arrayFilters'] {
-    return [{ 'config._id': this.syncConfigId }];
+    return [{ 'config._id': { $in: this.syncConfigIds } }];
   }
 
-  /**
-   * For now, we only support a single sync config per replication stream.
-   *
-   * In the future we'll add support for multiple.
-   */
-  private selectedSyncConfig(
-    doc: Pick<ReplicationStreamDocumentV3, 'sync_configs'> | null
-  ): SyncRuleConfigStateV3 | null {
-    return doc?.sync_configs?.[0] ?? null;
+  private selectedSyncConfigs(doc: Pick<ReplicationStreamDocumentV3, 'sync_configs'> | null): SyncRuleConfigStateV3[] {
+    return doc?.sync_configs?.filter((config) => this.syncConfigIds.some((id) => id.equals(config._id))) ?? [];
   }
 
   protected async initializeVersionStorage(): Promise<void> {
-    const mapping = this.mapping;
-    for (let source of mapping.allBucketDefinitionIds()) {
+    const storageIds = this.storageIds;
+    for (let source of storageIds.bucketDefinitionIds) {
       const collection = this.db.bucketDataV3(this.replicationStreamId, source).collectionName;
       await this.db.db
         .createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
@@ -115,7 +116,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
           throw error;
         });
     }
-    for (let indexId of mapping.allParameterIndexIds()) {
+    for (let indexId of storageIds.parameterIndexIds) {
       await this.db.parameterIndexV3(this.replicationStreamId, indexId).createIndex(
         {
           lookup: 1,
@@ -133,7 +134,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return new MongoChecksumsV3(this.db, this.replicationStreamId, {
       ...options.checksumOptions,
       storageConfig: options?.storageConfig,
-      mapping: this.replicationStream.storageContent.mapping
+      syncConfigMapping: () => this.singleSyncConfigMapping()
     });
   }
 
@@ -148,8 +149,27 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return new MongoParameterCompactorV3(this.db, this.replicationStreamId, checkpoint, options);
   }
 
-  protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
-    return new MongoBucketBatchV3(batchOptions);
+  protected async fetchPersistedOpHead(): Promise<InternalOpId | null> {
+    const doc = await this.syncRulesCollection.findOne(
+      { _id: this.replicationStreamId },
+      { projection: { last_persisted_op: 1 } }
+    );
+    return doc?.last_persisted_op == null ? null : BigInt(doc.last_persisted_op);
+  }
+
+  protected async createWriterImpl(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
+    const doc = await this.syncRulesCollection.findOne(
+      { _id: this.replicationStreamId },
+      { projection: { resume_lsn: 1 } }
+    );
+
+    return new MongoBucketBatchV3({
+      ...this.writerBatchOptions(options),
+      // The stream-level replication position - per-config checkpoint LSNs are consistency
+      // markers and do not affect where replication resumes.
+      resumeFromLsn: doc?.resume_lsn ?? null,
+      syncConfigIds: this.syncConfigIds
+    });
   }
 
   protected async fetchCheckpointState(
@@ -164,27 +184,25 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         projection: this.syncConfigProjection()
       }
     );
-    const syncConfig = this.selectedSyncConfig(doc);
-    if (!syncConfig?.snapshot_done) {
+    // Checkpoints are served from the single active config. A PROCESSING config in the same
+    // stream (incremental reprocessing) does not affect checkpoints until it is activated.
+    const syncConfigs = this.selectedSyncConfigs(doc).filter((config) =>
+      [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED].includes(config.state)
+    );
+    if (syncConfigs.length > 1) {
+      // Activation atomically replaces the previous active config, so this cannot happen unless
+      // the stored state is corrupt.
+      throw new ServiceAssertionError(
+        `Expected a single active sync config, got ${syncConfigs.map((config) => config._id.toHexString()).join(', ')}`
+      );
+    }
+    const syncConfig = syncConfigs[0];
+    if (syncConfig == null || !syncConfig.snapshot_done) {
       return null;
     }
     return {
       checkpoint: syncConfig.last_checkpoint ?? 0n,
       lsn: syncConfig.last_checkpoint_lsn ?? null
-    };
-  }
-
-  protected async getWriterSyncState(): Promise<WriterSyncState> {
-    const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
-      projection: this.syncConfigProjection({ snapshot_lsn: 1 })
-    });
-    const syncConfig = this.selectedSyncConfig(doc);
-    const checkpointLsn = syncConfig?.last_checkpoint_lsn ?? null;
-    return {
-      lastCheckpointLsn: checkpointLsn,
-      resumeFromLsn: maxLsn(checkpointLsn, doc?.snapshot_lsn),
-      keepaliveOp: syncConfig?.keepalive_op ?? null,
-      syncConfigIds: [this.syncConfigId]
     };
   }
 
@@ -203,52 +221,80 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     );
   }
 
-  protected async getStatusImpl(): Promise<storage.SyncRuleStatus> {
+  protected async getStatusImpl(): Promise<storage.ReplicationStreamStatus> {
     const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
-      projection: this.syncConfigProjection({ state: 1, snapshot_lsn: 1, keepalive_op: 1 })
+      projection: this.syncConfigProjection({ resume_lsn: 1 })
     });
-    const syncConfig = this.selectedSyncConfig(doc);
-    if (doc == null || syncConfig == null) {
+    const syncConfigs = this.selectedSyncConfigs(doc);
+    if (doc == null || syncConfigs.length == 0) {
       throw new ServiceAssertionError('Cannot find replication stream status');
     }
 
     return {
-      snapshot_done: syncConfig.snapshot_done ?? false,
-      snapshot_lsn: doc.snapshot_lsn ?? null,
-      active: doc.state == storage.SyncRuleState.ACTIVE && syncConfig.state == storage.SyncRuleState.ACTIVE,
-      checkpoint_lsn: syncConfig.last_checkpoint_lsn ?? null,
-      keepalive_op: syncConfig.keepalive_op ?? null
+      snapshotDone:
+        syncConfigs.every((config) => config.snapshot_done ?? false) &&
+        syncConfigs.every((config) => config.last_checkpoint_lsn != null),
+      resumeLsn: doc.resume_lsn ?? null
     };
   }
 
   protected async clearSyncRuleState(): Promise<void> {
+    // Clearing resets the entire replication stream (bucket data and the op sequence), so reset
+    // the checkpoint state for _all_ embedded sync configs, not only the ones selected for this
+    // storage instance. This maintains the invariant that no config has a last_checkpoint past
+    // the stream-level last_persisted_op.
     await this.syncRulesCollection.updateOne(
-      this.syncConfigMatch(),
+      { _id: this.replicationStreamId },
       {
         $set: {
           persisted_lsn: null,
-          'sync_configs.$[config].snapshot_done': false,
-          'sync_configs.$[config].last_checkpoint_lsn': null,
-          'sync_configs.$[config].last_checkpoint': null,
-          'sync_configs.$[config].no_checkpoint_before': null,
-          'sync_configs.$[config].keepalive_op': null
+          'sync_configs.$[].snapshot_done': false,
+          'sync_configs.$[].last_checkpoint_lsn': null,
+          'sync_configs.$[].last_checkpoint': null,
+          'sync_configs.$[].no_checkpoint_before': null
         },
         $unset: {
-          snapshot_lsn: 1
+          resume_lsn: 1,
+          last_persisted_op: 1
         }
       },
       {
-        maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
-        arrayFilters: this.syncConfigArrayFilters()
+        maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS
       }
     );
   }
 
-  protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3> {
+  /**
+   * The persisted mapping of the single sync config that read operations are served from.
+   *
+   * Reads always operate on a single sync config: read-path storage instances are
+   * constructed for the active sync config only (see MongoBucketStorage.getActiveSyncConfig),
+   * and checkpoints are served from the single active config (see fetchCheckpointState).
+   * Within a single sync config, unique names are the persistence key of its rule mapping,
+   * so its name-keyed {@link SingleSyncConfigBucketDefinitionMapping} resolves sources from
+   * any parse of that config unambiguously - no parsed-set identity is required.
+   *
+   * Throws on storage instances with multiple sync configs (replication-side instances),
+   * which must not serve reads.
+   */
+  private singleSyncConfigMapping(): SingleSyncConfigBucketDefinitionMapping {
+    const content = this.replicationStream.syncConfigContent;
+    if (content.length != 1) {
+      throw new ServiceAssertionError(
+        `Read operations require a storage instance with a single sync config, got ${content.length}`
+      );
+    }
+    return content[0].mapping;
+  }
+
+  protected get versionContext(): MongoSyncBucketStorageContextV3 {
+    const self = this;
     return {
       db: this.db,
-      group_id: this.replicationStreamId,
-      mapping: this.mapping
+      replicationStreamId: this.replicationStreamId,
+      get mapping() {
+        return self.singleSyncConfigMapping();
+      }
     };
   }
 
@@ -324,7 +370,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 }
 
 export async function getParameterSetsV3(
-  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
+  ctx: MongoSyncBucketStorageContextV3,
   checkpoint: MongoSyncBucketStorageCheckpoint,
   lookups: ScopedParameterLookup[],
   limit: number
@@ -340,7 +386,7 @@ export async function getParameterSetsV3(
       pipeline: mongo.Document[];
     } => {
       const indexId = lookup.indexId;
-      const collection = ctx.db.parameterIndexV3(ctx.group_id, indexId);
+      const collection = ctx.db.parameterIndexV3(ctx.replicationStreamId, indexId);
       const lookupFilter = serializeParameterLookupV3(lookup);
 
       return {
@@ -424,7 +470,7 @@ export async function getParameterSetsV3(
 }
 
 export async function* getBucketDataBatchV3(
-  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
+  ctx: MongoSyncBucketStorageContextV3,
   checkpoint: utils.InternalOpId,
   dataBuckets: storage.BucketDataRequest[],
   options?: storage.BucketDataBatchOptions
@@ -468,7 +514,7 @@ export async function* getBucketDataBatchV3(
       }
     }));
 
-    const cursor = ctx.db.bucketDataV3(ctx.group_id, definitionId).find(
+    const cursor = ctx.db.bucketDataV3(ctx.replicationStreamId, definitionId).find(
       {
         $or: filters
       },
@@ -500,7 +546,7 @@ export async function* getBucketDataBatchV3(
 
     for (let rawData of data) {
       const row = loadBucketDataDocumentV3(
-        { replicationStreamId: ctx.group_id, definitionId },
+        { replicationStreamId: ctx.replicationStreamId, definitionId },
         bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3
       );
       const bucket = row.bucketKey.bucket;
@@ -559,12 +605,12 @@ export async function* getBucketDataBatchV3(
 }
 
 export async function getDataBucketChangesV3(
-  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
+  ctx: MongoSyncBucketStorageContextV3,
   options: GetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
   const limit = 1000;
   const bucketStateUpdates = await ctx.db
-    .bucketStateV3(ctx.group_id)
+    .bucketStateV3(ctx.replicationStreamId)
     .aggregate<{ _id: string; last_op: bigint }>(
       [
         {
@@ -601,14 +647,14 @@ export async function getDataBucketChangesV3(
 }
 
 export async function getParameterBucketChangesV3(
-  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
+  ctx: MongoSyncBucketStorageContextV3,
   options: GetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
   const limit = 1000;
   const indexIds = ctx.mapping.allParameterIndexIds();
   const collections = indexIds.map((indexId) => ({
     indexId,
-    collection: ctx.db.parameterIndexV3(ctx.group_id, indexId)
+    collection: ctx.db.parameterIndexV3(ctx.replicationStreamId, indexId)
   }));
   if (collections.length == 0) {
     return {

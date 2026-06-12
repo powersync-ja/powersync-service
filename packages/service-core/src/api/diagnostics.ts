@@ -20,6 +20,11 @@ export interface DiagnosticsOptions {
   live_status: boolean;
 
   /**
+   * Whether this is the active sync config or not.
+   */
+  active: boolean;
+
+  /**
    * Check against the source postgres connection.
    */
   check_connection: boolean;
@@ -180,7 +185,7 @@ export async function getSyncRulesStatus(
     }
   }
 
-  if (live_status && status?.active) {
+  if (live_status && options.active) {
     // Check replication lag for active replication stream.
     // Right now we exclude mysql, since it we don't have consistent keepalives for it.
     if (statusSource?.last_checkpoint_ts == null && statusSource?.last_keepalive_ts == null) {
@@ -222,9 +227,9 @@ export async function getSyncRulesStatus(
         id: sourceConfig.id ?? DEFAULT_DATASOURCE_ID,
         tag: tag,
         slot_name: syncConfig.replicationStreamName,
-        initial_replication_done: status?.snapshot_done ?? false,
+        initial_replication_done: status?.snapshotDone ?? false,
         // TODO: Rename?
-        last_lsn: status?.checkpoint_lsn ?? undefined,
+        last_lsn: status?.resumeLsn ?? undefined,
         last_checkpoint_ts: statusSource?.last_checkpoint_ts?.toISOString(),
         last_keepalive_ts: statusSource?.last_keepalive_ts?.toISOString(),
         replication_lag_bytes: replication_lag_bytes,

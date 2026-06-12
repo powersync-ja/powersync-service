@@ -5,6 +5,7 @@ import {
   DEFAULT_HYDRATION_STATE,
   deserializeSyncPlan,
   ErrorLocation,
+  HydratedSyncConfig,
   HydrationState,
   nodeSqlite,
   PrecompiledSyncConfig,
@@ -145,13 +146,15 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
       hydrationState = DEFAULT_HYDRATION_STATE;
     }
 
+    let hydrated: HydratedSyncConfig | undefined;
     return {
       replicationStreamId: this.replicationStreamId,
       replicationStreamName: this.replicationStreamName,
       syncConfigs: [config],
       hydrationState,
-      hydratedSyncConfig: () => {
-        return config.config.hydrate({ hydrationState, sqlite: nodeSqlite(sqlite) });
+      get hydratedSyncConfig(): HydratedSyncConfig {
+        hydrated ??= config.config.hydrate({ hydrationState, sqlite: nodeSqlite(sqlite) });
+        return hydrated;
       }
     };
   }
