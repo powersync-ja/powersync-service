@@ -5,7 +5,8 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
 import { logger } from '@powersync/lib-services-framework';
-import { CheckpointImplementation, createCheckpointImplementation } from '../replication/CheckpointImplementation.js';
+import { CheckpointImplementation } from '../replication/checkpoints/CheckPointImplementation.js';
+import { createCheckpointImplementation } from '../replication/checkpoints/create-checkpoint-implementation.js';
 import { MongoManager } from '../replication/MongoManager.js';
 import { constructAfterRecord } from '../replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION, detectCosmosDb } from '../replication/replication-utils.js';
