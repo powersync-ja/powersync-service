@@ -2,7 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 
 export type SentinelLSNSpecification = {
-  sentinel: bigint | number | string;
+  sentinel: bigint;
   /**
    * Resume tokens are opaque on sentinel-based sources (e.g. Cosmos DB). The
    * sentinel component is the comparable position; this token is only used to
@@ -38,7 +38,7 @@ export class SentinelLSN {
   constructor(protected options: SentinelLSNSpecification) {}
 
   get sentinel() {
-    return normalizeSentinel(this.options.sentinel);
+    return this.options.sentinel;
   }
 
   get resumeToken() {
@@ -58,17 +58,5 @@ export class SentinelLSN {
 
   toString() {
     return this.comparable;
-  }
-}
-
-export function normalizeSentinel(value: bigint | number | string | mongo.Long): bigint {
-  if (typeof value == 'bigint') {
-    return value;
-  } else if (typeof value == 'number') {
-    return BigInt(value);
-  } else if (typeof value == 'string') {
-    return BigInt(value);
-  } else {
-    return value.toBigInt();
   }
 }

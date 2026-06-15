@@ -3,7 +3,7 @@ import { Logger, ServiceAssertionError } from '@powersync/lib-services-framework
 import { ReplicationHeadCallback, storage } from '@powersync/service-core';
 
 import { MongoLSN } from '../common/MongoLSN.js';
-import { normalizeSentinel, SentinelLSN } from '../common/SentinelLSN.js';
+import { SentinelLSN } from '../common/SentinelLSN.js';
 import { ChangeStreamInvalidatedError } from './ChangeStream.js';
 import { createCheckpoint, createCosmosCheckpointLsn, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
 import { ProjectedChangeStreamDocument } from './RawChangeStream.js';
@@ -536,7 +536,7 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
         new Error(`Standalone checkpoint document: ${JSON.stringify(fullDoc)}`)
       );
     }
-    return normalizeSentinel(fullDoc.i);
+    return BigInt(fullDoc.i);
   }
 
   /**
@@ -546,7 +546,7 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
    */
   private readEmbeddedGlobalSentinel(doc: ProjectedChangeStreamDocument): bigint | null {
     const fullDoc = deserializeFullDocument(doc);
-    return fullDoc?.globalSentinel == null ? null : normalizeSentinel(fullDoc.globalSentinel);
+    return fullDoc?.globalSentinel == null ? null : BigInt(fullDoc.globalSentinel);
   }
 }
 

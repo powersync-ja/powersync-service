@@ -201,8 +201,8 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   }
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
-    const mode = await this.getCheckpointImplementation();
-    return mode.createReplicationHead(callback);
+    const checkpointImplementation = await this.getCheckpointImplementation();
+    return checkpointImplementation.createReplicationHead(callback);
   }
 
   private async getCheckpointImplementation(): Promise<CheckpointImplementation> {
