@@ -16,6 +16,8 @@ import {
 } from '@powersync/service-sync-rules';
 import { SyncConfigDefinition } from '../storage-index.js';
 
+export type { BucketDefinitionId, ParameterIndexId };
+
 export interface SerializedSyncConfigWithMapping {
   plan: SerializedSyncPlanV1;
   mapping: SingleSyncConfigBucketDefinitionMapping;
@@ -38,7 +40,6 @@ export interface IncrementalMappingResult {
   mapping: SingleSyncConfigBucketDefinitionMapping;
   changes: IncrementalMappingChanges;
 }
-
 export interface SyncConfigWithMapping {
   syncConfigId?: string;
   syncConfig: SyncConfigWithErrors;

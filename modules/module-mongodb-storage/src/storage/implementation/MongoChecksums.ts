@@ -7,18 +7,16 @@ import {
   ChecksumMap,
   FetchPartialBucketChecksum,
   InternalOpId,
-  isPartialChecksum,
   PartialChecksum,
   PartialChecksumMap,
   PartialOrFullChecksum
 } from '@powersync/service-core';
 import type { VersionedPowerSyncMongo } from './db.js';
 
-import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
-import { BucketDataDocumentBase, StorageConfig } from './models.js';
+import { StorageConfig } from './models.js';
 
-export interface FetchPartialBucketChecksumV3 {
+export interface FetchPartialBucketChecksumByDefinition {
   bucket: string;
   definitionId: BucketDefinitionId;
   start?: InternalOpId;
@@ -49,11 +47,11 @@ export interface MongoChecksumOptions {
 }
 
 const DEFAULT_BUCKET_BATCH_LIMIT = 200;
-const DEFAULT_OPERATION_BATCH_LIMIT = 50_000;
+export const DEFAULT_OPERATION_BATCH_LIMIT = 50_000;
 
 export abstract class MongoChecksums {
   private _cache: ChecksumCache | undefined;
-  private readonly storageConfig: StorageConfig;
+  protected readonly storageConfig: StorageConfig;
 
   constructor(
     protected readonly db: VersionedPowerSyncMongo,
@@ -176,138 +174,10 @@ export abstract class MongoChecksums {
   protected abstract fetchPreStates(
     batch: FetchPartialBucketChecksum[]
   ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>>;
-
-  protected async computePartialChecksumsForCollection<
-    TRequest extends FetchPartialBucketChecksumByBucket,
-    TBucketDataDocument extends BucketDataDocumentBase
-  >(
-    batch: TRequest[],
-    collection: lib_mongo.mongo.Collection<TBucketDataDocument>,
-    createFilter: (request: TRequest) => any
-  ): Promise<PartialChecksumMap> {
-    const batchLimit = this.options?.operationBatchLimit ?? DEFAULT_OPERATION_BATCH_LIMIT;
-
-    // Map requests by bucket. We adjust this as we get partial results.
-    let requests = new Map<string, TRequest>();
-    for (let request of batch) {
-      requests.set(request.bucket, request);
-    }
-
-    const partialChecksums = new Map<string, PartialOrFullChecksum>();
-
-    while (requests.size > 0) {
-      const filters = Array.from(requests.values(), createFilter);
-
-      // Historically, checksum may be stored as 'int' or 'double'.
-      // More recently, this should be a 'long'.
-      // $toLong ensures that we always sum it as a long, avoiding inaccuracies in the calculations.
-      const checksumLong = this.storageConfig.longChecksums ? '$checksum' : { $toLong: '$checksum' };
-
-      // Aggregate over a max of `batchLimit` operations at a time.
-      // Let's say we have 3 buckets (A, B, C), each with 10 operations, and our batch limit is 12.
-      // Then we'll do three batches:
-      // 1. Query: A[1-end], B[1-end], C[1-end]
-      //    Returns: A[1-10], B[1-2]
-      // 2. Query: B[3-end], C[1-end]
-      //    Returns: B[3-10], C[1-4]
-      // 3. Query: C[5-end]
-      //    Returns: C[5-10]
-      const aggregate = await collection
-        .aggregate(
-          [
-            {
-              $match: {
-                $or: filters
-              }
-            },
-            // sort and limit _before_ grouping
-            { $sort: { _id: 1 } },
-            { $limit: batchLimit },
-            {
-              $group: {
-                _id: '$_id.b',
-                checksum_total: { $sum: checksumLong },
-                count: { $sum: 1 },
-                has_clear_op: {
-                  $max: {
-                    $cond: [{ $eq: ['$op', 'CLEAR'] }, 1, 0]
-                  }
-                },
-                last_op: { $max: '$_id.o' }
-              }
-            },
-            // Sort the aggregated results (100 max, so should be fast).
-            // This is important to identify which buckets we have partial data for.
-            { $sort: { _id: 1 } }
-          ],
-          { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
-        )
-        .toArray()
-        .catch((e) => {
-          throw lib_mongo.mapQueryError(e, 'while reading checksums');
-        });
-
-      let batchCount = 0;
-      let limitReached = false;
-      for (let doc of aggregate) {
-        const bucket = doc._id;
-        const checksum = checksumFromAggregate(doc);
-
-        const existing = partialChecksums.get(bucket);
-        if (existing != null) {
-          partialChecksums.set(bucket, addPartialChecksums(bucket, existing, checksum));
-        } else {
-          partialChecksums.set(bucket, checksum);
-        }
-
-        batchCount += doc.count;
-        if (batchCount == batchLimit) {
-          // Limit reached. Request more in the next batch.
-          // Note that this only affects the _last_ bucket in a batch.
-          limitReached = true;
-          const req = requests.get(bucket);
-          requests.set(bucket, {
-            ...req!,
-            start: doc.last_op
-          });
-        } else {
-          // All done for this bucket
-          requests.delete(bucket);
-        }
-      }
-      if (!limitReached) {
-        break;
-      }
-    }
-
-    return new Map<string, PartialOrFullChecksum>(
-      batch.map((request) => {
-        const bucket = request.bucket;
-        // Could be null if we got no data
-        let partialChecksum = partialChecksums.get(bucket);
-        if (partialChecksum == null) {
-          partialChecksum = {
-            bucket,
-            partialCount: 0,
-            partialChecksum: 0
-          };
-        }
-        if (request.start == null && isPartialChecksum(partialChecksum)) {
-          partialChecksum = {
-            bucket,
-            count: partialChecksum.partialCount,
-            checksum: partialChecksum.partialChecksum
-          };
-        }
-
-        return [bucket, partialChecksum];
-      })
-    );
-  }
 }
 
 export function emptyChecksumForRequest(
-  request: Pick<FetchPartialBucketChecksum | FetchPartialBucketChecksumV3, 'bucket' | 'start'>
+  request: Pick<FetchPartialBucketChecksum | FetchPartialBucketChecksumByDefinition, 'bucket' | 'start'>
 ): PartialOrFullChecksum {
   if (request.start == null) {
     return { bucket: request.bucket, count: 0, checksum: 0 };
@@ -318,7 +188,7 @@ export function emptyChecksumForRequest(
 /**
  * Convert output of the $group stage into a checksum.
  */
-function checksumFromAggregate(doc: bson.Document): PartialOrFullChecksum {
+export function checksumFromAggregate(doc: bson.Document): PartialOrFullChecksum {
   const partialChecksum = Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff;
   const bucket = doc._id;
 

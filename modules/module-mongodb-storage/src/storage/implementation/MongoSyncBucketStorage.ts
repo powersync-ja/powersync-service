@@ -64,6 +64,7 @@ export abstract class MongoSyncBucketStorage
   implements storage.SyncRulesBucketStorage
 {
   readonly db: VersionedPowerSyncMongo;
+
   [DO_NOT_LOG] = true;
 
   readonly checksums: MongoChecksums;
@@ -630,7 +631,7 @@ class EmptyReplicationCheckpoint implements ReplicationCheckpoint {
   readonly checkpoint: InternalOpId = 0n;
   readonly lsn: string | null = null;
 
-  async getParameterSets(_lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
+  async getParameterSets(_lookups: ScopedParameterLookup[], _limit: number): Promise<ParameterLookupRows[]> {
     return [];
   }
 }

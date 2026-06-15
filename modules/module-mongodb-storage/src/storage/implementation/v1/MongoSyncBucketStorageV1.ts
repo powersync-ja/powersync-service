@@ -44,7 +44,6 @@ export interface MongoSyncBucketStorageContextV1 {
 }
 
 export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
-  // Declare types to be more specific
   declare readonly db: VersionedPowerSyncMongoV1;
   declare readonly checksums: MongoChecksumsV1;
 
@@ -404,6 +403,8 @@ export async function* getBucketDataBatchV1(
   const batchLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
   const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
 
+  // raw: true returns Buffers, but the driver typing doesn't reflect that
+  // without an explicit cast to FindCursor<Buffer>.
   const cursor = ctx.db.bucket_data.find(
     {
       $or: filters

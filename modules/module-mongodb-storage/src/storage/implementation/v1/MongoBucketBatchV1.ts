@@ -12,7 +12,7 @@ import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 import { SyncRuleDocumentV1 } from './models.js';
 
 export class MongoBucketBatchV1 extends MongoBucketBatch {
-  declare public readonly db: VersionedPowerSyncMongoV1;
+  declare readonly db: VersionedPowerSyncMongoV1;
 
   private readonly store: SourceRecordStore;
   private needsActivation = true;
@@ -45,7 +45,6 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   protected get sourceRecordStore(): SourceRecordStore {
     return this.store;
   }
-
   protected async cleanupDroppedSourceTables(_tables: SourceTable[]) {
     // No-op for V1: source records live in a shared collection.
   }

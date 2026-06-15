@@ -276,6 +276,9 @@ export interface CompactOptions {
   /** Minimum of 1 */
   moveBatchQueryLimit?: number;
 
+  /** Byte cap per read batch for streaming compaction. Default 64MB. */
+  moveBatchByteLimit?: number;
+
   /**
    * Minimum number new operations in a bucket to trigger compaction of that bucket.
    *

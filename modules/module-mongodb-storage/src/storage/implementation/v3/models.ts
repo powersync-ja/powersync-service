@@ -1,13 +1,18 @@
-import { InternalOpId, SerializedSyncPlan, SyncRuleState } from '@powersync/service-core';
-import { BucketDefinitionId, ParameterIndexId } from '@powersync/service-sync-rules';
-import * as bson from 'bson';
-import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
 import {
-  BucketDataDocumentBase,
+  InternalOpId,
+  SerializedSyncPlan,
+  SyncRuleState,
+  deserializeParameterLookup as deserializeParameterLookupCore
+} from '@powersync/service-core';
+import { ScopedParameterLookup, SqliteJsonValue } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
+import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
+import {
   BucketDataKey,
   BucketParameterDocumentBase,
   BucketStateDocumentBase,
   CurrentBucket,
+  OpType,
   ReplicaId,
   SourceTableDocumentSnapshotStatus,
   SourceTableKey,
@@ -133,44 +138,6 @@ export interface BucketParameterDocumentV3 extends BucketParameterDocumentBase<S
 
 export type BucketDataKeyV3 = BucketDataKey;
 
-export interface BucketDataDocumentV3 extends BucketDataDocumentBase {
-  _id: BucketDataKeyV3;
-}
-
-export function serializeBucketDataV3(document: BucketDataDoc): BucketDataDocumentV3 {
-  const { bucketKey, o } = document;
-  return {
-    _id: {
-      b: bucketKey.bucket,
-      o: o
-    },
-    // List fields directly, so that we don't accidentally persist any unknown fields
-    op: document.op,
-    source_table: document.source_table,
-    source_key: document.source_key,
-    table: document.table,
-    row_id: document.row_id,
-    checksum: document.checksum,
-    data: document.data,
-    target_op: document.target_op
-  };
-}
-
-export function loadBucketDataDocumentV3(
-  context: Pick<BucketKey, 'replicationStreamId' | 'definitionId'>,
-  doc: BucketDataDocumentV3
-): BucketDataDoc {
-  const { _id, ...rest } = doc;
-  return {
-    bucketKey: {
-      ...context,
-      bucket: _id.b
-    },
-    o: _id.o,
-    ...rest
-  };
-}
-
 export function taggedBucketParameterDocumentToV3(document: TaggedBucketParameterDocument): BucketParameterDocumentV3 {
   const { index: _index, ...rest } = document;
   return rest as BucketParameterDocumentV3;
@@ -200,4 +167,40 @@ export interface BucketStateDocumentV3 extends BucketStateDocumentBase {
   _id: BucketStateDocumentBase['_id'] & {
     d: BucketDefinitionId;
   };
+}
+
+export interface BucketOperation {
+  o: bigint;
+  op: OpType;
+  source_table?: bson.ObjectId;
+  source_key?: ReplicaId;
+  table?: string;
+  row_id?: string;
+  checksum: bigint;
+  data: string | null;
+}
+
+export interface BucketDataDocumentV3 {
+  _id: BucketDataKey;
+  min_op: bigint;
+  checksum: bigint;
+  count: number;
+  size: number;
+  target_op?: bigint | null;
+  ops: BucketOperation[];
+}
+
+export function serializeParameterLookup(lookup: ScopedParameterLookup): bson.Binary {
+  return new bson.Binary(bson.serialize({ l: lookup.values.slice(2) }));
+}
+
+export function deserializeParameterLookup(lookup: bson.Binary, indexId: ParameterIndexId): SqliteJsonValue[] {
+  return [indexId, '', ...deserializeParameterLookupCore(lookup)];
+}
+
+export function taggedBucketParameterDocumentToTagged(
+  document: TaggedBucketParameterDocument
+): BucketParameterDocumentV3 {
+  const { index: _index, ...rest } = document;
+  return rest as BucketParameterDocumentV3;
 }

@@ -9,7 +9,11 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
     register.registerDataStorageParameterTests({ ...INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion }));
 
   describe(`Mongo Sync Bucket Storage - Data - v${storageVersion}`, () =>
-    register.registerDataStorageDataTests({ ...INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion }));
+    register.registerDataStorageDataTests({
+      ...INITIALIZED_MONGO_STORAGE_FACTORY,
+      storageVersion,
+      compressedBucketStorage: storageVersion >= 3
+    }));
 
   describe(`Mongo Sync Bucket Storage - Checkpoints - v${storageVersion}`, () =>
     register.registerDataStorageCheckpointTests({ ...INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion }));

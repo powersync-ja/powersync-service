@@ -24,7 +24,7 @@ import {
 } from './source-table-utils.js';
 
 export class MongoBucketBatchV3 extends MongoBucketBatch {
-  declare public readonly db: VersionedPowerSyncMongoV3;
+  declare readonly db: VersionedPowerSyncMongoV3;
 
   private readonly store: SourceRecordStore;
   private readonly syncConfigIds: bson.ObjectId[];
@@ -127,7 +127,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   protected async cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]) {
     for (const table of sourceTables) {
       await this.db
-        .sourceRecordsV3(this.replicationStreamId, mongoTableId(table.id))
+        .sourceRecords(this.replicationStreamId, mongoTableId(table.id))
         .drop()
         .catch((error) => {
           if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
@@ -170,7 +170,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     await using _ = { [Symbol.asyncDispose]: () => session.endSession() };
 
     await session.withTransaction(async () => {
-      const col = this.db.sourceTablesV3(this.replicationStreamId);
+      const col = this.db.sourceTables(this.replicationStreamId);
 
       // Fetch every persisted source-table doc that can overlap this physical table.
       // Exact-identity docs are candidates for reuse; non-exact overlaps are possible drops.
@@ -224,7 +224,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
     const doc = (await this.db
-      .sourceTablesV3(this.replicationStreamId)
+      .sourceTables(this.replicationStreamId)
       .findOne({ _id: mongoTableId(table.id) }, { session: this.session })) as SourceTableDocumentV3 | null;
     if (doc == null) {
       return null;
@@ -554,7 +554,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     await this.withTransaction(async () => {
       // Protect against race conditions
       const count = await this.db
-        .sourceTablesV3(this.replicationStreamId)
+        .sourceTables(this.replicationStreamId)
         .countDocuments(this.snapshotBlockingSourceTablesFilter(), { session: this.session });
       if (count > 0) {
         if (options?.throwOnConflict ?? true) {
@@ -602,7 +602,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const syncConfigIds = this.relevantSyncConfigIdsForTables(tables);
 
     await this.withTransaction(async () => {
-      await this.db.sourceTablesV3(this.replicationStreamId).updateMany(
+      await this.db.sourceTables(this.replicationStreamId).updateMany(
         { _id: { $in: ids } },
         {
           $set: {
