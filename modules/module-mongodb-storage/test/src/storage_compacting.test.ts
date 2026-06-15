@@ -2141,5 +2141,54 @@ bucket_definitions:
       const allOps = await readAllOps(collection);
       expect(allOps.length).toBe(5);
     });
+
+    test('upperBound pagination prevents re-reading replacement documents', async () => {
+      const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+      // Two distinct-row PUTs at ~600KB each. Rechunking produces two
+      // documents: C1(_id.o=10) and C2(_id.o=30). The fix sets upperBound
+      // from the oldest replacement C1, so _id < { o: 10 } excludes both.
+      // No re-read. Both PUTs survive with intact data and valid row_ids.
+      const largeData = 'x'.repeat(600_000);
+      const doc = serializeBucketData(BUCKET, [
+        makeOp(10, 'A', largeData, ctx, sourceTableId),
+        makeOp(30, 'B', largeData, ctx, sourceTableId)
+      ]);
+      await insertDocs(collection, [doc]);
+      await insertBucketState(bucketStateCollection, ctx.definitionId, 40n);
+
+      await bucketStorage.compact({
+        clearBatchLimit: 200,
+        moveBatchLimit: 10,
+        moveBatchQueryLimit: 1,
+        minBucketChanges: 1,
+        minChangeRatio: 0,
+        maxOpId: 40n,
+        signal: null as any
+      });
+
+      const docsAfter = await collection.find({ '_id.b': BUCKET }).toArray();
+      const rawOps = docsAfter.flatMap((d: any) => d.ops) as any[];
+
+      // Row A@10 must survive as PUT with data intact
+      const rowA = rawOps.find((op: any) => op.row_id === 'A' && op.o === 10n);
+      expect(rowA).toBeDefined();
+      expect(rowA!.op).toBe('PUT');
+      expect(rowA!.data).not.toBeNull();
+
+      // Row B@30 must survive as PUT with data intact
+      const rowB = rawOps.find((op: any) => op.row_id === 'B' && op.o === 30n);
+      expect(rowB).toBeDefined();
+      expect(rowB!.op).toBe('PUT');
+      expect(rowB!.data).not.toBeNull();
+
+      // Checksum preserved
+      const expectedChecksum = [10, 30].reduce((sum, id) => addChecksums(sum, id * 7), 0);
+      const checksumAfter = docsAfter.reduce(
+        (s: number, d: any) => addChecksums(s, Number(d.checksum)),
+        0
+      );
+      expect(checksumAfter).toBe(expectedChecksum);
+    });
   });
 });
