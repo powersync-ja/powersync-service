@@ -20,6 +20,9 @@
       "path": "../../module-mongodb-storage"
     },
     {
+      "path": "../../module-mikroorm-storage"
+    },
+    {
       "path": "../../module-postgres-storage"
     }
   ]
