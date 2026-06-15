@@ -17,15 +17,17 @@ function defineResumeTest({ factory: factoryGenerator, storageVersion }: Storage
     return ChangeStreamTestContext.open(factoryGenerator, { ...options, storageVersion });
   };
 
-  // Cosmos DB: this detection mechanism does not exist there. On standard
-  // MongoDB the change stream is database-scoped, so resuming against a
-  // different source database invalidates the resume token and raises
-  // ChangeStreamInvalidatedError. On Cosmos the stream is always
-  // cluster-scoped, so the token stays valid when only the database name
-  // changes — the stream silently continues, scoped to the new (empty)
-  // database, and the expected error never fires. This is a known detection
-  // gap on Cosmos rather than a test environment limitation.
-  test.skipIf(isCosmosDb)('resuming with a different source database', async () => {
+  test.skip('resuming with a different source database', async () => {
+    // This test is not functioning anymore.
+    // Previously, we mostly used individual change stream _id's for resumeTokens. Those would become invalid
+    // when the database is changed.
+    // Now, we mostly use postBatchResumeToken when we can, which do not become invalidated in this case.
+    // This is recommended by the change stream spec.
+    // The old behavior wasn't 100% consistent either - it _could_ use postBatchResumeToken, in which
+    // case it would similarly not be invalidated.
+    // We can revisit the logic to invalidate the change stream at a later point, potentially by
+    // keeping track of the source database name.
+
     await using context = await openContext();
     const { db } = context;
 
@@ -65,10 +67,10 @@ function defineResumeTest({ factory: factoryGenerator, storageVersion }: Storage
     );
     const factory = await factoryGenerator({ doNotClear: true });
 
-    // Create a new context without updating the sync rules
+    // Create a new context without updating the sync config
     await using context2 = new ChangeStreamTestContext(factory, connectionManager, {}, storageVersion);
-    const activeContent = await factory.getActiveSyncRulesContent();
-    context2.storage = factory.getInstance(activeContent!);
+    const active = await factory.getActiveSyncConfig();
+    context2.storage = active!.storage;
 
     // If this test times out, it likely didn't throw the expected error here.
     const result = await context2.startStreaming();

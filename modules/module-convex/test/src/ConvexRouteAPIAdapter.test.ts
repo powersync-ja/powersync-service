@@ -1,0 +1,102 @@
+import { ConvexRouteAPIAdapter } from '@module/api/ConvexRouteAPIAdapter.js';
+import { ConvexJsonSchemasResult } from '@module/client/ConvexAPITypes.js';
+import { parseConvexLsn } from '@module/common/ConvexLSN.js';
+import { normalizeConnectionConfig } from '@module/types/types.js';
+import { ExpressionType, SqlSyncRules } from '@powersync/service-sync-rules';
+import { describe, expect, it, vi } from 'vitest';
+
+const HEAD_CURSOR = '1772817606884944123';
+
+function createAdapter() {
+  const config = normalizeConnectionConfig({
+    type: 'convex',
+    deployment_url: 'https://example.convex.cloud',
+    deploy_key: 'test-key'
+  });
+
+  const adapter = new ConvexRouteAPIAdapter({
+    ...config,
+    type: 'convex',
+    deployment_url: 'https://example.convex.cloud',
+    deploy_key: 'test-key'
+  });
+
+  (adapter as any).connectionManager.client = {
+    getJsonSchemas: async () => {
+      return {
+        tables: [
+          {
+            tableName: 'users',
+            schema: {
+              type: 'object',
+              properties: {
+                _id: { type: 'string' },
+                age: { type: 'integer' },
+                avatar: { type: 'string', $description: 'base64 bytes' }
+              }
+            }
+          }
+        ]
+      } satisfies ConvexJsonSchemasResult;
+    },
+    getHeadCursor: async () => HEAD_CURSOR,
+    createWriteCheckpointMarker: async () => undefined
+  };
+
+  return adapter;
+}
+
+describe('ConvexRouteAPIAdapter', () => {
+  it('returns connection schema from Convex json schema', async () => {
+    const adapter = createAdapter();
+
+    const schema = await adapter.getConnectionSchema();
+    expect(schema[0]?.name).toBe('convex');
+    expect(schema[0]?.tables[0]?.name).toBe('users');
+    expect(schema[0]?.tables[0]?.columns.find((column) => column.name == '_id')?.type).toBe('id');
+    expect(schema[0]?.tables[0]?.columns.find((column) => column.name == '_creationTime')).toBeUndefined();
+    expect(schema[0]?.tables[0]?.columns.find((column) => column.name == 'avatar')?.sqlite_type).toBe(
+      ExpressionType.TEXT.typeFlags
+    );
+
+    await adapter.shutdown();
+  });
+
+  it('builds debug table info for matching patterns', async () => {
+    const adapter = createAdapter();
+
+    const syncRules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  test:
+    data:
+      - SELECT _id AS id FROM users
+`,
+      {
+        defaultSchema: 'convex'
+      }
+    );
+
+    const result = await adapter.getDebugTablesInfo(syncRules.config.getSourceTables(), syncRules.config);
+    expect(result[0]?.table?.name).toBe('users');
+
+    await adapter.shutdown();
+  });
+
+  it('creates replication head from the global snapshot cursor', async () => {
+    const adapter = createAdapter();
+    const getHeadCursor = vi.fn(async (_options?: any) => HEAD_CURSOR);
+    const createWriteCheckpointMarker = vi.fn(async (_options?: any) => undefined);
+    (adapter as any).connectionManager.client.getHeadCursor = getHeadCursor;
+    (adapter as any).connectionManager.client.createWriteCheckpointMarker = createWriteCheckpointMarker;
+
+    const result = await adapter.createReplicationHead(async (head) => head);
+    expect(result).toBe(parseConvexLsn(HEAD_CURSOR));
+    expect(getHeadCursor).toHaveBeenCalledTimes(1);
+    expect(getHeadCursor).toHaveBeenCalledWith();
+    expect(createWriteCheckpointMarker).toHaveBeenCalledTimes(1);
+    expect(createWriteCheckpointMarker).toHaveBeenCalledWith();
+
+    await adapter.shutdown();
+  });
+});

@@ -138,7 +138,8 @@ streams:
     });
 
     test('local ctes take precedence', () => {
-      compileToSyncPlanWithoutErrors(`
+      const [errors] = yamlToSyncPlan(
+        `
 config:
   edition: 3
 
@@ -151,7 +152,19 @@ streams:
       owned_orgs: SELECT id AS org_id FROM orgs WHERE owner = auth.user_id()
     # This would emit an error about a missing org_id column if the global definition was used.
     query: SELECT * FROM orgs WHERE id IN (SELECT org_id FROM owned_orgs)
-`);
+`,
+        { defaultSchema: 'ignored', includeErrorSpans: true }
+      );
+
+      expect(errors).toStrictEqual([
+        {
+          message: "This common table expression isn't referenced.",
+          source: 'owned_orgs',
+          isWarning: true,
+          // The first owned_orgs (global CTE).
+          startOffset: 31
+        }
+      ]);
     });
   });
 
@@ -205,5 +218,28 @@ streams:
         source: 'owned_orgs'
       }
     ]);
+  });
+
+  test('can reference CTE multiple times', () => {
+    const plan = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  a:
+    accept_potentially_dangerous_queries: true
+    with:
+      selected_profile: |
+        SELECT id FROM user_profiles WHERE id = auth.user_id()
+    queries:
+      - SELECT * FROM tbl_a
+        WHERE col_1 IN selected_profile
+          AND col_2 IN (
+            SELECT id FROM tbl_2
+            WHERE col_1 IN selected_profile
+          )
+`);
+
+    expect(serializeSyncPlan(plan)).toMatchSnapshot();
   });
 });

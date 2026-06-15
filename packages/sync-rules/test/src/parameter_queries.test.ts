@@ -8,7 +8,7 @@ import {
   ParameterLookupScope,
   QuerierError,
   ScopedParameterLookup,
-  SourceTableInterface,
+  SourceTableRef,
   SqlParameterQuery,
   UnscopedParameterLookup
 } from '../../src/index.js';
@@ -20,11 +20,12 @@ import {
   findQuerierLookups,
   lookupScope,
   PARSE_OPTIONS,
-  requestParameters
+  requestParameters,
+  testHydrationInput
 } from './util.js';
 
 describe('parameter queries', () => {
-  const table = (name: string): SourceTableInterface => ({
+  const table = (name: string): SourceTableRef => ({
     connectionTag: 'default',
     name,
     schema: PARSE_OPTIONS.defaultSchema
@@ -890,8 +891,8 @@ describe('parameter queries', () => {
       },
       getParameterIndexLookupScope(source): ParameterLookupScope {
         return {
-          lookupName: `${source.defaultLookupScope.lookupName}.test`,
-          queryId: `${source.defaultLookupScope.queryId}.test`,
+          lookupName: `${source.sourceId.lookupName}.test`,
+          queryId: `${source.sourceId.queryId}.test`,
           source
         };
       }
@@ -913,7 +914,7 @@ describe('parameter queries', () => {
     });
 
     test('for lookups', function () {
-      const merged = mergeParameterIndexLookupCreators(hydrationState, [query]);
+      const merged = mergeParameterIndexLookupCreators(testHydrationInput({ hydrationState }), [query]);
       const result = merged.evaluateParameterRow(TABLE_GROUPS, {
         id: 'group1',
         user_ids: JSON.stringify(['test-user', 'other-user'])

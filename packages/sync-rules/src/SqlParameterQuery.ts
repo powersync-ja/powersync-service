@@ -13,17 +13,18 @@ import {
 } from './BucketParameterQuerier.js';
 import { CreateSourceParams, ParameterIndexLookupCreator } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
-import { BucketDataScope, ParameterLookupScope } from './HydrationState.js';
+import { BucketDataScope, ParameterLookupDefinitionId, ParameterLookupScope } from './HydrationState.js';
 import {
   BucketDataSource,
   BucketParameterQuerierSource,
   GetQuerierOptions,
+  ParameterIndexLookupEvaluator,
   resolvedBucket,
   ScopedParameterLookup,
   UnscopedEvaluatedParameters,
   UnscopedEvaluatedParametersResult
 } from './index.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
@@ -76,7 +77,7 @@ export interface SqlParameterQueryOptions {
  *  SELECT id as user_id FROM users WHERE users.user_id = token_parameters.user_id
  *  SELECT id as user_id, token_parameters.is_admin as is_admin FROM users WHERE users.user_id = token_parameters.user_id
  */
-export class SqlParameterQuery implements ParameterIndexLookupCreator {
+export class SqlParameterQuery implements ParameterIndexLookupCreator, ParameterIndexLookupEvaluator {
   static fromSql(
     descriptorName: string,
     sql: string,
@@ -335,15 +336,14 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
     this.querierDataSource = options.querierDataSource;
   }
 
-  public get defaultLookupScope(): ParameterLookupScope {
+  public get sourceId(): ParameterLookupDefinitionId {
     return {
       lookupName: this.descriptorName,
-      queryId: this.queryId,
-      source: this
+      queryId: this.queryId
     };
   }
 
-  tableSyncsParameters(table: SourceTableInterface): boolean {
+  tableSyncsParameters(table: SourceTableRef): boolean {
     return this.sourceTable.matches(table);
   }
 
@@ -364,10 +364,14 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
     };
   }
 
+  createEvaluator(): ParameterIndexLookupEvaluator {
+    return this;
+  }
+
   /**
    * Given a replicated row, results an array of bucket parameter rows to persist.
    */
-  evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): UnscopedEvaluatedParametersResult[] {
+  evaluateParameterRow(sourceTable: SourceTableRef, row: SqliteRow): UnscopedEvaluatedParametersResult[] {
     if (!this.tableSyncsParameters(sourceTable)) {
       return [];
     }
@@ -540,11 +544,13 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
       };
     }
 
+    const debugName = `Legacy Bucket Definition ${bucketDataScope.source.uniqueName}`;
     return {
       staticBuckets: [],
       hasDynamicBuckets: true,
       queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
-        const bucketParameters = await source.getParameterSets(lookups);
+        const lookupResults = await source.getParameterSets(lookups, debugName);
+        const bucketParameters = lookupResults.flatMap(({ rows }) => rows);
         return this.resolveBucketDescriptions(bucketParameters, requestParameters, bucketDataScope).map((bucket) => {
           return resolvedBucket(bucket, { definition: this.descriptorName, inclusion_reasons: reasons });
         });

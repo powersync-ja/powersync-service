@@ -7,7 +7,7 @@ import {
   TimeValuePrecision
 } from './compatibility.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.js';
-import { PreparedSubquery } from './compiler/sqlite.js';
+import { CommonTableExpression } from './compiler/sqlite.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { validateSyncRulesSchema } from './json_schema.js';
@@ -15,7 +15,6 @@ import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js'
 import { SqlSyncRules } from './SqlSyncRules.js';
 import { validateStorageVersion } from './StorageVersion.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
-import { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { TablePattern } from './TablePattern.js';
@@ -35,6 +34,8 @@ export class SyncConfigFromYaml {
 
   // Names of bucket definitions and sync streams, to prevent duplicates.
   readonly #definitionNames = new Set<string>();
+
+  readonly #definedCtes: CommonTableExpressionWithName[] = [];
 
   constructor(
     private readonly options: SyncConfigFromYamlOptions,
@@ -64,7 +65,7 @@ export class SyncConfigFromYaml {
       this.#errors.push(...parsed.errors.map((e) => new YamlError(e)));
       this.#throwOnErrorIfRequested();
 
-      // Return an empty sync rules instance if we couldn't parse YAML, it doesn't make sense to try parsing the broken
+      // Return an empty sync config instance if we couldn't parse YAML, it doesn't make sense to try parsing the broken
       // structure further.
       return new SqlSyncRules(this.yaml);
     }
@@ -75,6 +76,19 @@ export class SyncConfigFromYaml {
       const declaredOptions = parsed.get('config') as YAMLMap;
       compatibility = this.#parseCompatibilityOptions(declaredOptions);
       storageVersion = this.#validateStorageVersion(declaredOptions);
+
+      if (compatibility.isEnabled(CompatibilityOption.sqliteExpressionEngine)) {
+        // Evaluating expressions with SQLite requires edition: 3, older systems always use JavaScript.
+        if (compatibility.edition < CompatibilityEdition.SYNC_STREAMS) {
+          this.#errors.push(
+            this.#yamlError(declaredOptions, 'Enabling unstable_sqlite_expression_engine requires edition: 3')
+          );
+        } else if (!compatibility.isEnabled(CompatibilityOption.fixedJsonExtract)) {
+          this.#errors.push(
+            this.#yamlError(declaredOptions, 'Enabling unstable_sqlite_expression_engine requires fixed_json_extract')
+          );
+        }
+      }
     } else {
       compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
     }
@@ -87,6 +101,7 @@ export class SyncConfigFromYaml {
     let result: SyncConfig;
     if (compatibility.edition >= CompatibilityEdition.COMPILED_STREAMS) {
       result = this.#compileSyncPlan(bucketMap, streamMap, globalCtes, compatibility);
+      this.#warnOnUnusedCtes();
     } else {
       if (globalCtes != null) {
         // We don't support CTEs at all in this compiler implementation.
@@ -108,20 +123,27 @@ export class SyncConfigFromYaml {
 
     // Validate that there are no additional properties.
     // Since these errors don't contain line numbers, do this last.
-    const valid = validateSyncRulesSchema(parsed.toJSON());
-    if (!valid) {
-      this.#errors.push(
-        ...validateSyncRulesSchema.errors!.map((e: any) => {
-          return new YamlError(e);
-        })
-      );
+    if (!this.#hasFatalError) {
+      const valid = validateSyncRulesSchema(parsed.toJSON());
+      if (!valid) {
+        this.#errors.push(
+          ...validateSyncRulesSchema.errors!.map((e: any) => {
+            return new YamlError(e);
+          })
+        );
+      }
     }
+
     this.#throwOnErrorIfRequested();
     return result;
   }
 
+  get #hasFatalError(): boolean {
+    return this.#errors.find((e) => e.type != 'warning') != null;
+  }
+
   #throwOnErrorIfRequested() {
-    if (this.options.throwOnError && this.#errors.find((e) => e.type != 'warning') != null) {
+    if (this.options.throwOnError && this.#hasFatalError) {
       throw new SyncRulesErrors(this.#errors);
     }
   }
@@ -188,11 +210,11 @@ export class SyncConfigFromYaml {
 
     const compiler = new SyncStreamsCompiler(this.options);
 
-    const parseCommonTableExpressions = (from: YAMLMap | null): Map<string, PreparedSubquery> => {
-      const map = new Map();
+    const parseCommonTableExpressions = (from: YAMLMap | null): Map<string, CommonTableExpression> => {
+      const map = new Map<string, CommonTableExpression>();
       if (from != null) {
         for (const entry of from.items ?? []) {
-          const { key: cteNameScalar, value: cteQuery } = entry as { key: Scalar<string>; value: Scalar };
+          const { key: cteNameScalar, value: cteQuery } = entry as { key: Scalar<string>; value: Node };
           const cteName = cteNameScalar.value;
 
           if (this.options.schema) {
@@ -208,10 +230,14 @@ export class SyncConfigFromYaml {
             }
           }
 
-          const [sql, errorListener] = this.#scalarErrorListener(cteQuery);
-          const parsed = compiler.commonTableExpression(sql, errorListener);
-          if (parsed) {
-            map.set(cteName, parsed);
+          if (this.#expectScalar(cteQuery)) {
+            const [sql, errorListener] = this.#scalarErrorListener(cteQuery);
+            const parsed = compiler.commonTableExpression(sql, errorListener);
+            if (parsed) {
+              const cte = { subquery: parsed, used: false };
+              this.#definedCtes.push({ cte, name: cteNameScalar });
+              map.set(cteName, cte);
+            }
           }
         }
       }
@@ -248,12 +274,14 @@ export class SyncConfigFromYaml {
         streamCompiler.registerCommonTableExpression(name, query)
       );
 
-      const addQuery = (query: Scalar<string>) => {
-        const [sql, errorListener] = this.#scalarErrorListener(query);
-        streamCompiler.addQuery(sql, errorListener);
+      const addQuery = (query: Node) => {
+        if (this.#expectScalar(query)) {
+          const [sql, errorListener] = this.#scalarErrorListener(query);
+          streamCompiler.addQuery(sql, errorListener);
+        }
       };
 
-      const queries = value.get('queries') as YAMLSeq | null;
+      const queries = value.get('queries') as YAMLSeq<Node> | null;
       const query = value.get('query', true) as Scalar<string> | null;
 
       if ((queries == null) == (query == null)) {
@@ -264,9 +292,7 @@ export class SyncConfigFromYaml {
       }
       if (queries) {
         for (const queryEntry of queries.items) {
-          if (queryEntry instanceof Scalar) {
-            addQuery(queryEntry as Scalar<string>);
-          }
+          addQuery(queryEntry);
         }
       }
 
@@ -276,9 +302,18 @@ export class SyncConfigFromYaml {
     // We pass an empty array for eventDefinitions here because those will get parsed in #parseEventDefinitions.
     return new PrecompiledSyncConfig(compiler.output.toSyncPlan(), compatibility, [], {
       defaultSchema: this.options.defaultSchema,
-      engine: javaScriptExpressionEngine(compatibility),
       sourceText: this.yaml
     });
+  }
+
+  #warnOnUnusedCtes() {
+    for (const cte of this.#definedCtes) {
+      if (!cte.cte.used) {
+        const error = this.#yamlError(cte.name, `This common table expression isn't referenced.`);
+        error.type = 'warning';
+        this.#errors.push(error);
+      }
+    }
   }
 
   #legacyParseBucketDefinitionsAndStreams(
@@ -518,7 +553,20 @@ export class SyncConfigFromYaml {
     return new YamlError(new Error(message), { start, end });
   }
 
-  #withScalar(scalar: Scalar, cb: (value: string) => QueryParseResult) {
+  #expectScalar(node: Node): node is Scalar {
+    if (!(node instanceof Scalar)) {
+      this.#errors.push(this.#yamlError(node, 'Expected a scalar value here.'));
+      return false;
+    }
+
+    return true;
+  }
+
+  #withScalar(scalar: Scalar, cb: (value: string) => QueryParseResult): void {
+    if (!this.#expectScalar(scalar)) {
+      return;
+    }
+
     const value = scalar.toString();
 
     const wrapped = (value: string): QueryParseResult => {
@@ -536,7 +584,7 @@ export class SyncConfigFromYaml {
     for (let err of result.errors) {
       this.#addErrorFromScalar(scalar, value, err);
     }
-    return result;
+    return;
   }
 
   /**
@@ -609,4 +657,10 @@ export interface SyncConfigFromYamlOptions {
    * 'public' for Postgres, default database for MongoDB/MySQL.
    */
   readonly defaultSchema: string;
+}
+
+interface CommonTableExpressionWithName {
+  // The key in a `with` map defining the CTE.
+  name: Scalar<string>;
+  cte: CommonTableExpression;
 }

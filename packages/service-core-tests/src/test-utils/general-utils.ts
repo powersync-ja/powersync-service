@@ -4,7 +4,7 @@ import * as bson from 'bson';
 
 export const ZERO_LSN = '0/0';
 
-export const PARSE_OPTIONS: storage.ParseSyncRulesOptions = {
+export const PARSE_OPTIONS: storage.ParseSyncConfigOptions = {
   defaultSchema: 'public'
 };
 
@@ -14,50 +14,65 @@ export const BATCH_OPTIONS: storage.CreateWriterOptions = {
   storeCurrentData: true
 };
 
-export function makeTestTable(
-  name: string,
-  replicaIdColumns?: string[] | undefined,
-  options?: { tableIdStrings: boolean }
-) {
-  const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
-  const id =
-    options?.tableIdStrings == false ? new bson.ObjectId('6544e3899293153fa7b38331') : '6544e3899293153fa7b38331';
-  return new storage.SourceTable({
-    id: id,
-    connectionTag: storage.SourceTable.DEFAULT_TAG,
-    objectId: relId,
-    schema: 'public',
-    name: name,
-    replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
-    snapshotComplete: true
-  });
-}
 /**
- * With incremental reprocessing, we need actual test tables, resolved via the writer.
+ * Deploy a sync config and return both the replication stream (for {@link storage.BucketStorageFactory.getInstance})
+ * and the deployed config content (for parsing / bucket requests).
  *
- * This prepares for it.
+ * Replication streams and sync config content are separate concerns since one stream can hold multiple configs.
+ */
+export async function deploySyncRules(
+  factory: storage.BucketStorageFactory,
+  options: storage.UpdateSyncRulesOptions
+): Promise<{ stream: storage.PersistedReplicationStream; content: storage.PersistedSyncConfigContent }> {
+  const stream = await factory.updateSyncRules(options);
+  const content = stream.syncConfigContent[0];
+  return { stream, content };
+}
+
+/**
+ * With newer storage versions, we need actual test tables, resolved via the writer.
  */
 export async function resolveTestTable(
-  _writer: storage.BucketStorageBatch,
+  writer: storage.BucketStorageBatch,
   name: string,
   replicaIdColumns: string[] | undefined,
   options: { tableIdStrings: boolean },
   idIndex: number = 1
 ) {
+  void idIndex;
+  void options;
+
   const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
-  // Generate unique ids per test table (if idIndex is specified), without completely
-  // breaking all the existing tests.
+  // Semi-hardcoded id for tests, to get consistent output.
+  // If the same test uses multiple tables, pass idIndex to get different ids.
   const idString = '6544e3899293153fa7b383' + (30 + idIndex).toString().padStart(2, '0');
   const id = options.tableIdStrings == false ? new bson.ObjectId(idString) : idString;
-  return new storage.SourceTable({
-    id: id,
+  let didGenerateId = false;
+
+  const source: storage.SourceEntityDescriptor = {
     connectionTag: storage.SourceTable.DEFAULT_TAG,
     objectId: relId,
     schema: 'public',
     name: name,
-    replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
-    snapshotComplete: true
+    replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 }))
+  };
+  const resolved = await writer.resolveTables({
+    connection_id: 1,
+    source,
+    idGenerator: () => {
+      if (didGenerateId) {
+        throw new Error('idGenerator called multiple times - not supported in tests');
+      }
+      didGenerateId = true;
+      return id;
+    }
   });
+
+  const table = resolved.tables[0];
+  if (table == null) {
+    throw new Error(`Failed to resolve test table ${source.schema}.${source.name}`);
+  }
+  return table;
 }
 
 export function getBatchData(
@@ -78,17 +93,17 @@ export function getBatchData(
 }
 
 function isParsedSyncRules(
-  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules
-): syncRules is storage.PersistedSyncRules {
-  return (syncRules as storage.PersistedSyncRules).sync_rules !== undefined;
+  syncRules: storage.PersistedSyncConfigContent | storage.ParsedSyncConfigSet
+): syncRules is storage.ParsedSyncConfigSet {
+  return (syncRules as storage.ParsedSyncConfigSet).syncConfigs !== undefined;
 }
 
 /**
- * Bucket names no longer purely depend on the sync rules.
+ * Bucket names no longer purely depend on the sync config.
  * This converts a bucket name like "global[]" into the actual bucket name, for use in tests.
  */
 export function bucketRequest(
-  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules,
+  syncRules: storage.PersistedSyncConfigContent | storage.ParsedSyncConfigSet,
   bucket: string,
   start?: InternalOpId | string | number
 ): BucketDataRequest {
@@ -97,10 +112,13 @@ export function bucketRequest(
   const parameterStart = bucket.indexOf('[');
   const definitionName = bucket.substring(0, parameterStart);
   const parameters = bucket.substring(parameterStart);
-  const source = parsed.sync_rules.config.bucketDataSources.find((b) => b.uniqueName === definitionName);
+  const availableSources = parsed.syncConfigs.flatMap((config) => config.config.bucketDataSources);
+  const source = availableSources.find((b) => b.uniqueName === definitionName);
 
   if (source == null) {
-    throw new Error(`Failed to find global bucket ${bucket}`);
+    throw new Error(
+      `Failed to find global bucket ${bucket}. Available: ${availableSources.map((s) => s.uniqueName).join(',')}`
+    );
   }
   const bucketName = hydrationState.getBucketSourceScope(source).bucketPrefix + parameters;
   return {

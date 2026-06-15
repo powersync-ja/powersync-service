@@ -80,6 +80,7 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
     uri = urijs.parse('postgresql:///');
   }
 
+  // urijs returns a normalized hostname; URL / mongodb-connection-string-url do not — see hostnameFromSocketAddress.
   const hostname = options.hostname ?? uri.host ?? '';
   const port = validatePort(options.port ?? uri.port ?? 5432);
 

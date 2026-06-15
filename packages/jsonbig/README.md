@@ -3,8 +3,8 @@
 JSON is used everywhere, including:
 
 1. PostgreSQL (json/jsonb types)
-2. Sync rules input (values are normalized to JSON text).
-3. Sync rule transformations (extracting values, constructing objects in the future)
+2. Sync query input (values are normalized to JSON text).
+3. Sync query transformations (extracting values, constructing objects in the future)
 4. Persisting data in the database.
 5. Sending to the client.
 

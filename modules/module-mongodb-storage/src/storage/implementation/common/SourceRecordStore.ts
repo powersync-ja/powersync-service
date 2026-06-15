@@ -1,9 +1,8 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
-import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
+import { BucketDefinitionId, EvaluatedParameters, EvaluatedRow, ParameterIndexId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
 
 export interface SourceRecordLookupEntry {
   sourceTableId: bson.ObjectId;

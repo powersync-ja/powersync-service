@@ -17,7 +17,7 @@ export class BinLogReplicator extends replication.AbstractReplicator<BinLogRepli
 
   createJob(options: replication.CreateJobOptions): BinLogReplicationJob {
     return new BinLogReplicationJob({
-      id: this.createJobId(options.storage.group_id),
+      id: this.createJobId(options.storage.replicationStreamId),
       storage: options.storage,
       metrics: this.metrics,
       lock: options.lock,

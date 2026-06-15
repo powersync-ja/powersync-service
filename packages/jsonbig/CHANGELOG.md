@@ -1,5 +1,11 @@
 # @powersync/service-jsonbig
 
+## 0.17.13
+
+### Patch Changes
+
+- 040fffd: Improve consistency of logs and error messages
+
 ## 0.17.12
 
 ### Patch Changes

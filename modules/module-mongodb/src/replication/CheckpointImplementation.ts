@@ -99,6 +99,15 @@ export interface CheckpointImplementation {
   keepalive(batch: storage.BucketStorageBatch, resumeToken: mongo.ResumeToken): Promise<void>;
 
   /**
+   * Build a comparable resume LSN from a bare batch-level resume token (no
+   * change event). Used for the per-batch `setResumeLsn` progress marker.
+   *
+   * The timestamp implementation parses the timestamp embedded in the token.
+   * The sentinel implementation pairs the token with the current coordinate.
+   */
+  resumeLsnFromToken(resumeToken: mongo.ResumeToken): string;
+
+  /**
    * Source-side replication head for write checkpoints. The LSN passed to the
    * callback must compare at or below any LSN committed after the caller's
    * preceding writes.
@@ -216,6 +225,11 @@ export class TimestampCheckpointImplementation implements CheckpointImplementati
     this.context.logger.info(
       `Idle change stream. Persisted resumeToken for ${timestampToDate(timestamp).toISOString()}`
     );
+  }
+
+  resumeLsnFromToken(resumeToken: mongo.ResumeToken): string {
+    // The timestamp is embedded in the resume token.
+    return MongoLSN.fromResumeToken(resumeToken).comparable;
   }
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
@@ -385,6 +399,13 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     );
   }
 
+  resumeLsnFromToken(resumeToken: mongo.ResumeToken): string {
+    // Pair the bare token with the current coordinate. The coordinate is
+    // frozen between checkpoint events, so a per-batch resume marker only
+    // advances the token; that is all resumption needs (see the design doc).
+    return new CosmosDBLSN({ sentinel: this.position, resume_token: resumeToken }).comparable;
+  }
+
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
     const head = await createCosmosCheckpointLsn(this.context.client, this.context.db);
     const result = await callback(head);
@@ -527,4 +548,25 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     const fullDoc = deserializeFullDocument(doc);
     return fullDoc?.globalSentinel == null ? null : normalizeSentinel(fullDoc.globalSentinel);
   }
+}
+
+/**
+ * Detect whether the connected server is Cosmos DB (Azure Cosmos DB for
+ * MongoDB vCore / DocumentDB), which lacks usable clusterTime/operationTime
+ * and needs the sentinel checkpoint implementation.
+ */
+export async function detectCosmosDb(db: mongo.Db): Promise<boolean> {
+  const hello = await db.command({ hello: 1 });
+  return hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
+}
+
+/**
+ * Select the checkpoint implementation for a source: sentinel-based for Cosmos
+ * DB, clusterTime-based for standard MongoDB.
+ */
+export function createCheckpointImplementation(
+  isCosmosDb: boolean,
+  context: CheckpointImplementationContext
+): CheckpointImplementation {
+  return isCosmosDb ? new SentinelCheckpointImplementation(context) : new TimestampCheckpointImplementation(context);
 }

@@ -1,7 +1,12 @@
-import { DEFAULT_TAG } from '@powersync/service-sync-rules';
+import {
+  BucketDataSource,
+  DEFAULT_TAG,
+  ParameterIndexLookupCreator,
+  SourceTableRef
+} from '@powersync/service-sync-rules';
 import { bson } from '../index.js';
 import * as util from '../util/util-index.js';
-import { ColumnDescriptor, SourceEntityDescriptor } from './SourceEntity.js';
+import { ColumnDescriptor } from './SourceEntity.js';
 
 /**
  * Format of the id depends on the bucket storage module. It should be consistent within the module.
@@ -10,12 +15,12 @@ export type SourceTableId = string | bson.ObjectId;
 
 export interface SourceTableOptions {
   id: SourceTableId;
-  connectionTag: string;
+  ref: SourceTableRef;
   objectId: number | string | undefined;
-  schema: string;
-  name: string;
   replicaIdColumns: ColumnDescriptor[];
   snapshotComplete: boolean;
+  bucketDataSources: BucketDataSource[];
+  parameterLookupSources: ParameterIndexLookupCreator[];
 }
 
 export interface TableSnapshotStatus {
@@ -24,11 +29,17 @@ export interface TableSnapshotStatus {
   lastKey: Uint8Array | null;
 }
 
-export class SourceTable implements SourceEntityDescriptor {
+/**
+ * Represents a resolved source table.
+ *
+ * There could be multiple of these for the same SourceTableRef.
+ * For that reason, we do not implement the SourceTableRef interface, to ensure that the two are not used interchangably.
+ */
+export class SourceTable {
   static readonly DEFAULT_TAG = DEFAULT_TAG;
 
   /**
-   * True if the table is used in sync rules for data queries.
+   * True if the table is used in sync config for data queries.
    *
    * This value is resolved externally, and cached here.
    *
@@ -37,7 +48,7 @@ export class SourceTable implements SourceEntityDescriptor {
   public syncData = true;
 
   /**
-   * True if the table is used in sync rules for data queries.
+   * True if the table is used in sync config for data queries.
    *
    * This value is resolved externally, and cached here.
    *
@@ -46,13 +57,26 @@ export class SourceTable implements SourceEntityDescriptor {
   public syncParameters = true;
 
   /**
-   * True if the table is used in sync rules for events.
+   * True if the table is used in sync config for events.
    *
    * This value is resolved externally, and cached here.
    *
    * Defaults to true for tests.
    */
   public syncEvent = true;
+
+  /**
+   * True if raw data should be stored in current_data collection.
+   *
+   * This is needed when the source sends partial row data (e.g. TOAST values).
+   * When REPLICA IDENTITY FULL is configured, complete rows are always sent,
+   * so we don't need to store raw data.
+   *
+   * This value is resolved externally based on table configuration.
+   *
+   * Defaults to true for tests (conservative approach).
+   */
+  public storeCurrentData = true;
 
   /**
    * Always undefined if snapshotComplete = true.
@@ -71,31 +95,39 @@ export class SourceTable implements SourceEntityDescriptor {
     return this.options.id;
   }
 
-  get connectionTag() {
-    return this.options.connectionTag;
-  }
-
   get objectId() {
     return this.options.objectId;
   }
 
   get schema() {
-    return this.options.schema;
+    return this.options.ref.schema;
   }
   get name() {
-    return this.options.name;
+    return this.options.ref.name;
+  }
+
+  get ref() {
+    return this.options.ref;
   }
 
   get replicaIdColumns() {
     return this.options.replicaIdColumns;
   }
 
+  get bucketDataSources() {
+    return this.options.bucketDataSources;
+  }
+
+  get parameterLookupSources() {
+    return this.options.parameterLookupSources;
+  }
+
   /**
-   *  Sanitized name of the entity in the format of "{schema}.{entity name}"
-   *  Suitable for safe use in Postgres queries.
+   * Sanitized name of the entity in the format of "{schema}.{entity name}".
+   * Suitable for safe use in Postgres queries.
    */
   get qualifiedName() {
-    return `${util.escapeIdentifier(this.schema)}.${util.escapeIdentifier(this.name)}`;
+    return util.qualifiedName(this.ref);
   }
 
   get syncAny() {
@@ -108,15 +140,17 @@ export class SourceTable implements SourceEntityDescriptor {
   clone() {
     const copy = new SourceTable({
       id: this.id,
-      connectionTag: this.connectionTag,
+      ref: this.options.ref,
       objectId: this.objectId,
-      schema: this.schema,
-      name: this.name,
       replicaIdColumns: this.replicaIdColumns,
-      snapshotComplete: this.snapshotComplete
+      snapshotComplete: this.snapshotComplete,
+      bucketDataSources: this.bucketDataSources,
+      parameterLookupSources: this.parameterLookupSources
     });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;
+    copy.syncEvent = this.syncEvent;
+    copy.storeCurrentData = this.storeCurrentData;
     copy.snapshotStatus = this.snapshotStatus;
     return copy;
   }

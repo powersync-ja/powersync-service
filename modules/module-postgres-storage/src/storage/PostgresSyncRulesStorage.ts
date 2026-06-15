@@ -9,6 +9,7 @@ import {
   internalToExternalOpId,
   LastValueSink,
   maxLsn,
+  ParameterSetLimitExceededError,
   PartialChecksum,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
@@ -21,8 +22,7 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
-import * as uuid from 'uuid';
-import { BIGINT_MAX } from '../types/codecs.js';
+import { bigint, BIGINT_MAX } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
 import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
@@ -30,7 +30,7 @@ import { mapOpEntry } from '../utils/bucket-data.js';
 import * as framework from '@powersync/lib-services-framework';
 import { StatementParam } from '@powersync/service-jpgwire';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
-import { SourceTableDecoded, StoredRelationId } from '../types/models/SourceTable.js';
+import * as t from 'ts-codec';
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
@@ -41,7 +41,7 @@ import { PostgresCompactor } from './PostgresCompactor.js';
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
   db: lib_postgres.DatabaseClient;
-  sync_rules: storage.PersistedSyncRulesContent;
+  replicationStream: storage.PersistedReplicationStream;
   write_checkpoint_mode?: storage.WriteCheckpointMode;
   batchLimits: RequiredOperationBatchLimits;
 };
@@ -52,11 +52,13 @@ export class PostgresSyncRulesStorage
 {
   [framework.DO_NOT_LOG] = true;
 
-  public readonly group_id: number;
-  public readonly sync_rules: storage.PersistedSyncRulesContent;
-  public readonly slot_name: string;
+  public readonly replicationStreamId: number;
+  public readonly replicationStream: storage.PersistedReplicationStream;
+  public readonly sync_rules: storage.PersistedSyncConfigContent;
+  public readonly replicationStreamName: string;
   public readonly factory: PostgresBucketStorageFactory;
   public readonly storageConfig: StorageVersionConfig;
+  public readonly logger: framework.Logger;
 
   private sharedIterator = new BroadcastIterable((signal) => this.watchActiveCheckpoint(signal));
 
@@ -66,19 +68,21 @@ export class PostgresSyncRulesStorage
 
   //   TODO we might be able to share this in an abstract class
   private parsedSyncRulesCache:
-    | { parsed: sync_rules.HydratedSyncRules; options: storage.ParseSyncRulesOptions }
+    | { parsed: sync_rules.HydratedSyncConfig; options: storage.ParseSyncConfigOptions }
     | undefined;
   private _checksumCache: storage.ChecksumCache | undefined;
 
   constructor(protected options: PostgresSyncRulesStorageOptions) {
     super();
-    this.group_id = options.sync_rules.id;
+    this.replicationStream = options.replicationStream;
+    this.replicationStreamId = options.replicationStream.replicationStreamId;
     this.db = options.db;
-    this.sync_rules = options.sync_rules;
-    this.slot_name = options.sync_rules.slot_name;
+    this.sync_rules = options.replicationStream.syncConfigContent[0];
+    this.replicationStreamName = options.replicationStream.replicationStreamName;
     this.factory = options.factory;
-    this.storageConfig = options.sync_rules.getStorageConfig();
+    this.storageConfig = options.replicationStream.getStorageConfig();
     this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
+    this.logger = options.replicationStream.logger;
 
     this.writeCheckpointAPI = new PostgresWriteCheckpointAPI({
       db: this.db,
@@ -105,14 +109,14 @@ export class PostgresSyncRulesStorage
   }
 
   //   TODO we might be able to share this in an abstract class
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): sync_rules.HydratedSyncRules {
+  getParsedSyncRules(options: storage.ParseSyncConfigOptions): sync_rules.HydratedSyncConfig {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
-     * Check if the cached sync rules, if present, had the same options.
-     * Parse sync rules if the options are different or if there is no cached value.
+     * Check if the cached sync config, if present, had the same options.
+     * Parse sync config if the options are different or if there is no cached value.
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
+      this.parsedSyncRulesCache = { parsed: this.replicationStream.parsed(options).hydratedSyncConfig(), options };
     }
 
     return this.parsedSyncRulesCache!.parsed;
@@ -125,7 +129,7 @@ export class PostgresSyncRulesStorage
       SET
         last_fatal_error = ${{ type: 'varchar', value: message }}
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }};
+        id = ${{ type: 'int4', value: this.replicationStreamId }};
     `.execute();
   }
 
@@ -137,13 +141,14 @@ export class PostgresSyncRulesStorage
       maxOpId = checkpoint.checkpoint;
     }
 
-    return new PostgresCompactor(this.db, this.group_id, {
+    return new PostgresCompactor(this.db, this.replicationStreamId, {
       ...options,
-      maxOpId
+      maxOpId,
+      logger: this.logger
     }).compact();
   }
 
-  async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
+  async populatePersistentChecksumCache(_options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
     // no-op - checksum cache is not implemented for Postgres yet
     return { buckets: 0 };
   }
@@ -151,7 +156,7 @@ export class PostgresSyncRulesStorage
   lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {
     return this.writeCheckpointAPI.lastWriteCheckpoint({
       ...filters,
-      sync_rules_id: this.group_id
+      sync_rules_id: this.replicationStreamId
     });
   }
 
@@ -171,7 +176,7 @@ export class PostgresSyncRulesStorage
       FROM
         sync_rules
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `
       .decoded(pick(models.SyncRules, ['last_checkpoint', 'last_checkpoint_lsn']))
       .first();
@@ -181,168 +186,6 @@ export class PostgresSyncRulesStorage
       checkpointRow?.last_checkpoint ?? 0n,
       checkpointRow?.last_checkpoint_lsn ?? null
     );
-  }
-
-  async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
-    const { group_id, connection_id, connection_tag, entity_descriptor } = options;
-
-    const { schema, name: table, objectId, replicaIdColumns } = entity_descriptor;
-
-    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
-      name: column.name,
-      type: column.type,
-      // The PGWire returns this as a BigInt. We want to store this as JSONB
-      type_oid: typeof column.typeId !== 'undefined' ? Number(column.typeId) : column.typeId
-    }));
-    return this.db.transaction(async (db) => {
-      let sourceTableRow: SourceTableDecoded | null;
-      if (objectId != null) {
-        sourceTableRow = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
-            AND schema_name = ${{ type: 'varchar', value: schema }}
-            AND table_name = ${{ type: 'varchar', value: table }}
-            AND replica_id_columns = ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
-        `
-          .decoded(models.SourceTable)
-          .first();
-      } else {
-        sourceTableRow = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND schema_name = ${{ type: 'varchar', value: schema }}
-            AND table_name = ${{ type: 'varchar', value: table }}
-            AND replica_id_columns = ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
-        `
-          .decoded(models.SourceTable)
-          .first();
-      }
-
-      if (sourceTableRow == null) {
-        const row = await db.sql`
-          INSERT INTO
-            source_tables (
-              id,
-              group_id,
-              connection_id,
-              relation_id,
-              schema_name,
-              table_name,
-              replica_id_columns
-            )
-          VALUES
-            (
-              ${{ type: 'varchar', value: uuid.v4() }},
-              ${{ type: 'int4', value: group_id }},
-              ${{ type: 'int4', value: connection_id }},
-              --- The objectId can be string | number | undefined, we store it as jsonb value
-              ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }},
-              ${{ type: 'varchar', value: schema }},
-              ${{ type: 'varchar', value: table }},
-              ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
-            )
-          RETURNING
-            *
-        `
-          .decoded(models.SourceTable)
-          .first();
-        sourceTableRow = row;
-      }
-
-      const sourceTable = new storage.SourceTable({
-        id: sourceTableRow!.id,
-        connectionTag: connection_tag,
-        objectId: objectId,
-        schema: schema,
-        name: table,
-        replicaIdColumns: replicaIdColumns,
-        snapshotComplete: sourceTableRow!.snapshot_done ?? true
-      });
-      if (!sourceTable.snapshotComplete) {
-        sourceTable.snapshotStatus = {
-          totalEstimatedCount: Number(sourceTableRow!.snapshot_total_estimated_count ?? -1n),
-          replicatedCount: Number(sourceTableRow!.snapshot_replicated_count ?? 0n),
-          lastKey: sourceTableRow!.snapshot_last_key
-        };
-      }
-      sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
-      sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
-      sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
-
-      let truncatedTables: SourceTableDecoded[] = [];
-      if (objectId != null) {
-        // relation_id present - check for renamed tables
-        truncatedTables = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
-            AND (
-              relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
-              OR (
-                schema_name = ${{ type: 'varchar', value: schema }}
-                AND table_name = ${{ type: 'varchar', value: table }}
-              )
-            )
-        `
-          .decoded(models.SourceTable)
-          .rows();
-      } else {
-        // relation_id not present - only check for changed replica_id_columns
-        truncatedTables = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
-            AND (
-              schema_name = ${{ type: 'varchar', value: schema }}
-              AND table_name = ${{ type: 'varchar', value: table }}
-            )
-        `
-          .decoded(models.SourceTable)
-          .rows();
-      }
-
-      return {
-        table: sourceTable,
-        dropTables: truncatedTables.map(
-          (doc) =>
-            new storage.SourceTable({
-              id: doc.id,
-              connectionTag: connection_tag,
-              objectId: doc.relation_id?.object_id ?? 0,
-              schema: doc.schema_name,
-              name: doc.table_name,
-              replicaIdColumns:
-                doc.replica_id_columns?.map((c) => ({
-                  name: c.name,
-                  typeOid: c.typeId,
-                  type: c.type
-                })) ?? [],
-              snapshotComplete: doc.snapshot_done ?? true
-            })
-        )
-      };
-    });
   }
 
   async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
@@ -355,7 +198,7 @@ export class PostgresSyncRulesStorage
       FROM
         sync_rules
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `
       .decoded(pick(models.SyncRules, ['last_checkpoint_lsn', 'no_checkpoint_before', 'keepalive_op', 'snapshot_lsn']))
       .first();
@@ -363,11 +206,11 @@ export class PostgresSyncRulesStorage
     const checkpoint_lsn = syncRules?.last_checkpoint_lsn ?? null;
 
     const writer = new PostgresBucketBatch({
-      logger: options.logger ?? framework.logger,
+      logger: options.logger ?? this.logger,
       db: this.db,
-      sync_rules: this.sync_rules.parsed(options).hydratedSyncRules(),
-      group_id: this.group_id,
-      slot_name: this.slot_name,
+      sync_rules: this.sync_rules.parsed(options).hydratedSyncConfig(),
+      replicationStreamId: this.replicationStreamId,
+      replicationStreamName: this.replicationStreamName,
       last_checkpoint_lsn: checkpoint_lsn,
       keep_alive_op: syncRules?.keepalive_op,
       resumeFromLsn: maxLsn(syncRules?.snapshot_lsn, checkpoint_lsn),
@@ -375,6 +218,7 @@ export class PostgresSyncRulesStorage
       skip_existing_rows: options.skipExistingRows ?? false,
       batch_limits: this.options.batchLimits,
       markRecordUnavailable: options.markRecordUnavailable,
+      hooks: options.hooks,
       storageConfig: this.storageConfig
     });
     this.iterateListeners((cb) => cb.batchStarted?.(writer));
@@ -396,42 +240,69 @@ export class PostgresSyncRulesStorage
 
   async getParameterSets(
     checkpoint: ReplicationCheckpoint,
-    lookups: sync_rules.ScopedParameterLookup[]
-  ): Promise<sync_rules.SqliteJsonRow[]> {
+    lookups: sync_rules.ScopedParameterLookup[],
+    limit: number
+  ): Promise<sync_rules.ParameterLookupRows[]> {
     const rows = await this.db.sql`
-      SELECT DISTINCT
-        ON (lookup, source_table, source_key) lookup,
-        source_table,
-        source_key,
-        id,
-        bucket_parameters
-      FROM
-        bucket_parameters
-      WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
-        AND lookup = ANY (
-          SELECT
-            decode((FILTER ->> 0)::text, 'hex') -- Decode the hex string to bytea
+      WITH
+        rows AS (
+          SELECT DISTINCT
+            ON (lookup, source_table, source_key) requested.index - 1 AS index,
+            bucket_parameters
           FROM
+            bucket_parameters,
             jsonb_array_elements(${{
         type: 'jsonb',
         value: lookups.map((l) => storage.serializeLookupBuffer(l).toString('hex'))
-      }}) AS FILTER
+      }}) WITH ORDINALITY AS requested (value, index)
+          WHERE
+            group_id = ${{ type: 'int4', value: this.replicationStreamId }}
+            AND lookup = decode((requested.value ->> 0)::text, 'hex') -- Decode the hex string to bytea
+            AND id <= ${{ type: 'int8', value: checkpoint.checkpoint }}
+          ORDER BY
+            lookup,
+            source_table,
+            source_key,
+            id DESC
         )
-        AND id <= ${{ type: 'int8', value: checkpoint.checkpoint }}
-      ORDER BY
-        lookup,
-        source_table,
-        source_key,
-        id DESC
+      SELECT
+        index,
+        bucket_parameters
+      FROM
+        rows
+      WHERE
+        bucket_parameters != '[]'
+      LIMIT
+        ${{ type: 'int4', value: limit + 1 }}
     `
-      .decoded(pick(models.BucketParameters, ['bucket_parameters']))
+      .decoded(parameterSetsRow)
       .rows();
 
-    const groupedParameters = rows.map((row) => {
-      return JSONBig.parse(row.bucket_parameters) as sync_rules.SqliteJsonRow;
-    });
-    return groupedParameters.flat();
+    let totalRows = 0;
+    const resultsByLookup = new Map<sync_rules.ScopedParameterLookup, sync_rules.SqliteJsonRow[]>();
+    for (const row of rows) {
+      const parameterRows = JSONBig.parse(row.bucket_parameters) as sync_rules.SqliteJsonRow[];
+      const lookup = lookups[Number(row.index)];
+      totalRows += parameterRows.length;
+
+      const existingResults = resultsByLookup.get(lookup);
+      if (existingResults != null) {
+        existingResults.push(...parameterRows);
+      } else {
+        resultsByLookup.set(lookup, parameterRows);
+      }
+    }
+
+    if (totalRows > limit) {
+      // Note that the LIMIT in the query allows more rows than parameters (because each row stores an array of
+      // parameter results). That array is very small though, and it doesn't allow fewer rows (due to the != []), so
+      // the SQL limit is good enough.
+      throw new ParameterSetLimitExceededError(limit);
+    }
+
+    const results: sync_rules.ParameterLookupRows[] = [];
+    resultsByLookup.forEach((rows, lookup) => results.push({ lookup, rows }));
+    return results;
   }
 
   async *getBucketDataBatch(
@@ -512,7 +383,7 @@ export class PostgresSyncRulesStorage
           LIMIT
             $3;`,
       params: [
-        { type: 'int4', value: this.group_id },
+        { type: 'int4', value: this.replicationStreamId },
         { type: 'int8', value: end },
         { type: 'int4', value: batchRowLimit },
         ...filters.flatMap((f) => [
@@ -628,7 +499,7 @@ export class PostgresSyncRulesStorage
         state = ${{ type: 'varchar', value: storage.SyncRuleState.TERMINATED }},
         snapshot_done = ${{ type: 'bool', value: false }}
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
   }
 
@@ -638,24 +509,28 @@ export class PostgresSyncRulesStorage
         snapshot_done,
         snapshot_lsn,
         last_checkpoint_lsn,
-        state
+        state,
+        keepalive_op
       FROM
         sync_rules
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `
-      .decoded(pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'state', 'snapshot_lsn']))
+      .decoded(
+        pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'state', 'snapshot_lsn', 'keepalive_op'])
+      )
       .first();
 
     if (syncRulesRow == null) {
-      throw new Error('Cannot find sync rules status');
+      throw new Error('Cannot find replication stream status');
     }
 
     return {
       snapshot_done: syncRulesRow.snapshot_done,
       active: syncRulesRow.state == storage.SyncRuleState.ACTIVE,
       checkpoint_lsn: syncRulesRow.last_checkpoint_lsn ?? null,
-      snapshot_lsn: syncRulesRow.snapshot_lsn ?? null
+      snapshot_lsn: syncRulesRow.snapshot_lsn ?? null,
+      keepalive_op: syncRulesRow.keepalive_op ?? null
     };
   }
 
@@ -669,27 +544,27 @@ export class PostgresSyncRulesStorage
         last_checkpoint = NULL,
         no_checkpoint_before = NULL
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
 
     await this.db.sql`
       DELETE FROM bucket_data
       WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
+        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
 
     await this.db.sql`
       DELETE FROM bucket_parameters
       WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
+        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
 
-    await this.currentDataStore.deleteGroupRows(this.db, { groupId: this.group_id });
+    await this.currentDataStore.deleteGroupRows(this.db, { groupId: this.replicationStreamId });
 
     await this.db.sql`
       DELETE FROM source_tables
       WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
+        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
   }
 
@@ -730,7 +605,7 @@ export class PostgresSyncRulesStorage
         AND b.op_id > f.start_op_id
         AND b.op_id <= f.end_op_id
       WHERE
-        b.group_id = ${{ type: 'int4', value: this.group_id }}
+        b.group_id = ${{ type: 'int4', value: this.replicationStreamId }}
       GROUP BY
         b.bucket_name;
     `.rows<{ bucket: string; checksum_total: bigint; total: bigint; has_clear_op: number }>();
@@ -841,7 +716,7 @@ export class PostgresSyncRulesStorage
 
     if (doc == null) {
       // Abort the connections - clients will have to retry later.
-      throw new framework.ServiceError(framework.ErrorCode.PSYNC_S2302, 'No active sync rules available');
+      throw new framework.ServiceError(framework.ErrorCode.PSYNC_S2302, 'No active replication stream available');
     }
 
     const sink = new LastValueSink<string>(undefined);
@@ -868,7 +743,7 @@ export class PostgresSyncRulesStorage
         continue;
       }
       if (Number(notification.active_checkpoint.id) != doc.id) {
-        // Active sync rules changed - abort and restart the stream
+        // Active replication stream changed - abort and restart the stream
         break;
       }
 
@@ -898,7 +773,15 @@ class PostgresReplicationCheckpoint implements storage.ReplicationCheckpoint {
     public readonly lsn: string | null
   ) {}
 
-  getParameterSets(lookups: sync_rules.ScopedParameterLookup[]): Promise<sync_rules.SqliteJsonRow[]> {
-    return this.storage.getParameterSets(this, lookups);
+  getParameterSets(
+    lookups: sync_rules.ScopedParameterLookup[],
+    limit: number
+  ): Promise<sync_rules.ParameterLookupRows[]> {
+    return this.storage.getParameterSets(this, lookups, limit);
   }
 }
+
+const parameterSetsRow = t.object({
+  index: bigint,
+  bucket_parameters: t.string
+});

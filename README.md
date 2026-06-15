@@ -32,7 +32,7 @@ The service can be started using the public Docker image. See the image [notes](
 
 - [packages/sync-rules](./packages/sync-rules/README.md)
 
-  - Library containing logic for PowerSync sync rules
+  - Library containing logic for PowerSync sync config (sync streams or sync rules)
 
 - [packages/types](./packages/types/)
   - Type definitions for the PowerSync Service
@@ -61,6 +61,10 @@ The service can be started using the public Docker image. See the image [notes](
 
   - MySQL replication module.
 
+- [modules/module-convex](./modules/module-convex/README.md)
+
+  - Convex replication module. See the module README for local integration testing with the `dev:convex` backend.
+
 - [modules/module-postgres](./modules/module-postgres/README.md)
 
   - Postgres replication module.
@@ -81,7 +85,7 @@ Technical documentation regarding the implementation of PowerSync.
 
 - [test-client](./test-client/README.md)
 
-Contains a minimal client demonstrating direct usage of the HTTP stream sync API. This can be used to test sync rules in contexts such as automated testing.
+Contains a minimal client demonstrating direct usage of the HTTP stream sync API. This can be used to test sync config in contexts such as automated testing.
 
 # Developing
 

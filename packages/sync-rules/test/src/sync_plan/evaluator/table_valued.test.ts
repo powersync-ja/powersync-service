@@ -2,14 +2,14 @@ import { describe, expect } from 'vitest';
 import {
   deserializeSyncPlan,
   ImplicitSchemaTablePattern,
+  ParameterLookupRows,
   ScopedParameterLookup,
   serializeSyncPlan,
-  SqliteJsonRow,
   StreamDataSource,
   TableProcessorTableValuedFunction
 } from '../../../../src/index.js';
 import { PreparedStreamBucketDataSource } from '../../../../src/sync_plan/evaluator/bucket_data_source.js';
-import { lookupScope, requestParameters, TestSourceTable } from '../../util.js';
+import { lookupScope, requestParameters, testHydrationInput, TestSourceTable } from '../../util.js';
 import { syncTest } from './utils.js';
 
 describe('table-valued functions', () => {
@@ -59,12 +59,7 @@ streams:
         bucketParameters: [
           {
             '0': 'user'
-          }
-        ]
-      },
-      {
-        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['chat']),
-        bucketParameters: [
+          },
           {
             '0': 'another'
           }
@@ -81,10 +76,10 @@ streams:
     });
 
     const buckets = await querier.queryDynamicBucketDescriptions({
-      getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+      getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
         expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['chat'])]);
 
-        return [{ '0': 'user' }, { '0': 'another' }];
+        return [{ lookup: lookups[0], rows: [{ '0': 'user' }, { '0': 'another' }] }];
       }
     });
 
@@ -141,9 +136,8 @@ streams:
 
     const evaluator = new PreparedStreamBucketDataSource(plan.buckets[0], {
       defaultSchema: 'test_schema',
-      engine: sync.engine,
       sourceText: ''
-    });
+    }).createEvaluator(testHydrationInput());
     const products = new TestSourceTable('products');
 
     expect(

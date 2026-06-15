@@ -1,4 +1,4 @@
-import { container, logger } from '@powersync/lib-services-framework';
+import { container } from '@powersync/lib-services-framework';
 import { MissingReplicationSlotError, shouldRetryReplication } from './MissingReplicationSlotError.js';
 import { PgManager } from './PgManager.js';
 import { sendKeepAlive, WalStream } from './WalStream.js';
@@ -18,7 +18,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
 
   constructor(options: WalStreamReplicationJobOptions) {
     super(options);
-    this.logger = logger.child({ prefix: `[${this.slotName}] ` });
+    this.logger = options.storage.logger;
     this.connectionFactory = options.connectionFactory;
   }
 
@@ -45,7 +45,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
   }
 
   get slotName() {
-    return this.options.storage.slot_name;
+    return this.options.storage.replicationStreamName;
   }
 
   async replicate() {
@@ -94,7 +94,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       if (e instanceof MissingReplicationSlotError) {
         if (shouldRetryReplication(e)) {
           // This stops replication on this slot and restarts with a new slot
-          await this.options.storage.factory.restartReplication(this.storage.group_id);
+          await this.options.storage.factory.restartReplication(this.storage.replicationStreamId);
         }
       }
 

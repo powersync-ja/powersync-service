@@ -1,5 +1,5 @@
 import { Equatable, StableHasher } from './compiler/equality.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 
 export const DEFAULT_TAG = 'default';
 
@@ -85,6 +85,15 @@ export class TablePattern extends ImplicitSchemaTablePattern {
     super(schema, tablePattern);
   }
 
+  /**
+   * Unique key for this table pattern, used for caching.
+   *
+   * Do not use for persisted values.
+   */
+  key() {
+    return JSON.stringify([this.connectionTag, this.schema, this.tablePattern]);
+  }
+
   get tablePrefix() {
     if (!this.isWildcard) {
       throw new Error('Not a wildcard table');
@@ -92,7 +101,7 @@ export class TablePattern extends ImplicitSchemaTablePattern {
     return this.tablePattern.substring(0, this.tablePattern.length - 1);
   }
 
-  matches(table: SourceTableInterface) {
+  matches(table: SourceTableRef) {
     if (this.connectionTag != table.connectionTag || this.schema != table.schema) {
       return false;
     }

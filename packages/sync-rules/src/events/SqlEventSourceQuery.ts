@@ -3,7 +3,7 @@ import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from '..
 import { CompatibilityContext } from '../compatibility.js';
 import { SqlRuleError } from '../errors.js';
 import { ExpressionType } from '../ExpressionType.js';
-import { SourceTableInterface } from '../SourceTableInterface.js';
+import { SourceTableRef } from '../SourceTableRef.js';
 import { AvailableTable, SqlTools } from '../sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from '../sql_support.js';
 import { SyncRulesOptions } from '../SqlSyncRules.js';
@@ -133,7 +133,7 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
     super(options);
   }
 
-  evaluateRowWithErrors(table: SourceTableInterface, row: SqliteRow): EvaluatedEventRowWithErrors {
+  evaluateRowWithErrors(table: SourceTableRef, row: SqliteRow): EvaluatedEventRowWithErrors {
     try {
       const tables = { [this.table!.nameInSchema]: this.addSpecialParameters(table, row) };
 

@@ -1,5 +1,74 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.17.0
+
+### Minor Changes
+
+- e2bf1ad: [Internal] rework resolveTables to handle multiple SourceTables.
+- cd5a222: [MongoDB V3 Storage] Split storage for "sync config definition" versus "replication stream status".
+- 15e2466: [MongoDB] Support snapshotting concurrently with streaming in storage v3+.
+- ebeaa3b: [Postgres] Skip storing a redundant copy of replicated rows in `current_data` for tables with `REPLICA IDENTITY FULL`.
+
+### Patch Changes
+
+- 6e2a57e: Refactor HydratedSyncConfig to support multiple SyncConfigs.
+- 92cc83b: Add the experimental `unstable_sqlite_expression_engine` sync config option to evaluate Sync Streams with SQLite.
+- Updated dependencies [17fd96b]
+- Updated dependencies [6e2a57e]
+- Updated dependencies [ec6df9f]
+- Updated dependencies [99d33d5]
+- Updated dependencies [cae92ce]
+- Updated dependencies [5ac5345]
+- Updated dependencies [15cb880]
+- Updated dependencies [f2f5086]
+- Updated dependencies [5b1b215]
+- Updated dependencies [e2bf1ad]
+- Updated dependencies [92cc83b]
+- Updated dependencies [0aab0f9]
+- Updated dependencies [15e2466]
+- Updated dependencies [ebeaa3b]
+- Updated dependencies [b116857]
+- Updated dependencies [a94b6c3]
+  - @powersync/service-core@1.22.0
+  - @powersync/service-sync-rules@0.37.0
+  - @powersync/lib-services-framework@0.9.5
+  - @powersync/lib-service-mongodb@0.6.26
+
+## 0.16.0
+
+### Minor Changes
+
+- 01c29c3: Avoid parameter results loaded from bucket storage exceeding the configured limit.
+- 8afe719: When querying parameter rows, track which lookups resulted in which rows.
+
+### Patch Changes
+
+- cdb8993: Add `config.storage_version` configuration option.
+- 7c7b525: [MongoDB] Log replication timing info per batch
+- 040fffd: Improve consistency of logs and error messages
+- 2b19fc3: Update first-party uuid dependencies to v14.
+- Updated dependencies [f20f318]
+- Updated dependencies [9add445]
+- Updated dependencies [17503d1]
+- Updated dependencies [ad9ea06]
+- Updated dependencies [01c29c3]
+- Updated dependencies [8afe719]
+- Updated dependencies [b8f0195]
+- Updated dependencies [cdb8993]
+- Updated dependencies [7c7b525]
+- Updated dependencies [824e229]
+- Updated dependencies [6304a21]
+- Updated dependencies [040fffd]
+- Updated dependencies [9e474d3]
+- Updated dependencies [423822c]
+- Updated dependencies [2b19fc3]
+  - @powersync/service-core@1.21.0
+  - @powersync/service-sync-rules@0.36.0
+  - @powersync/lib-services-framework@0.9.4
+  - @powersync/service-types@0.15.2
+  - @powersync/lib-service-mongodb@0.6.25
+  - @powersync/service-jsonbig@0.17.13
+
 ## 0.15.4
 
 ### Patch Changes

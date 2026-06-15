@@ -1,10 +1,9 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
-import { BucketDataSource } from '@powersync/service-sync-rules';
+import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
-import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import {
   BucketStateUpdate,
   PersistedBatch,

@@ -5,6 +5,7 @@ import { InternalOpId } from '../util/utils.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
 import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
+import { ResolveTablesOptions, ResolveTablesResult } from './SyncRulesBucketStorage.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
   createEmptyCheckpoints: true,
@@ -21,6 +22,11 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * Last written op, if any. This may not reflect a consistent checkpoint.
    */
   last_flushed_op: InternalOpId | null;
+
+  /**
+   * True for snapshot batches that should skip rows already present in current_data.
+   */
+  readonly skipExistingRows: boolean;
 
   /**
    * Save an op, and potentially flush.
@@ -91,9 +97,35 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
 
   markTableSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn?: string): Promise<SourceTable[]>;
   markTableSnapshotRequired(table: SourceTable): Promise<void>;
+
+  /**
+   * Mark the full replication snapshot as done without validating individual source table snapshot state.
+   *
+   * This is primarily intended for storage tests and setup helpers that manually construct storage state.
+   * Replicators should use `markSnapshotDone()` instead, because that validates that all known source tables
+   * have completed snapshotting before allowing checkpoints to be unblocked.
+   */
   markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
 
+  /**
+   * Mark the full replication snapshot as done after validating that all known source tables have completed snapshotting.
+   *
+   * Replicators should use this method when completing an initial snapshot. The validation prevents races where
+   * new source tables are marked as requiring a snapshot while global snapshot finalization is running.
+   *
+   * If `throwOnConflict` is false, this will instead return early without throwing if there are source tables that still require snapshotting.
+   * Use that only in cases where concurrency is expected, and can automatically retry/continue.
+   */
+  markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void>;
+
   updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
+
+  /**
+   * Get the current status for an existing source table without creating or resolving a replacement table.
+   */
+  getSourceTableStatus(table: SourceTable): Promise<SourceTable | null>;
+
+  resolveTables(options: ResolveTablesOptions): Promise<ResolveTablesResult>;
 
   /**
    * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.

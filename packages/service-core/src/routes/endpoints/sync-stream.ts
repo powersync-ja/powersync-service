@@ -62,13 +62,13 @@ export const syncStreamed = routeDefinition({
       });
     }
 
-    const bucketStorage = await storageEngine.activeBucketStorage.getActiveStorage();
+    const bucketStorage = (await storageEngine.activeBucketStorage.getActiveSyncConfig())?.storage;
 
     if (bucketStorage == null) {
       throw new errors.ServiceError({
         status: 500,
         code: ErrorCode.PSYNC_S2302,
-        description: 'No sync rules available'
+        description: 'No sync config available'
       });
     }
 
@@ -121,7 +121,7 @@ export const syncStreamed = routeDefinition({
       });
 
       stream.on('end', () => {
-        // Auth failure or switch to new sync rules
+        // Auth failure or switch to new sync config
         closeReason ??= 'service closing stream';
       });
 

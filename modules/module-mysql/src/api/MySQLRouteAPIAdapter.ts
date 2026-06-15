@@ -1,4 +1,4 @@
-import { api, ParseSyncRulesOptions, ReplicationHeadCallback, storage } from '@powersync/service-core';
+import { api, ParseSyncConfigOptions, ReplicationHeadCallback } from '@powersync/service-core';
 
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
@@ -29,7 +29,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     return this.config;
   }
 
-  getParseSyncRulesOptions(): ParseSyncRulesOptions {
+  getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
       // In MySQL Schema and Database are the same thing. There is no default database
       defaultSchema: this.config.database
@@ -220,20 +220,16 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     }
 
     const idColumns = idColumnsResult?.columns ?? [];
-    const sourceTable = new storage.SourceTable({
-      id: '', // not used
+    const ref: sync_rules.SourceTableRef = {
       connectionTag: this.config.tag,
-      objectId: tableName,
-      schema: schema,
-      name: tableName,
-      replicaIdColumns: idColumns,
-      snapshotComplete: true
-    });
-    const syncData = syncRules.tableSyncsData(sourceTable);
-    const syncParameters = syncRules.tableSyncsParameters(sourceTable);
+      schema,
+      name: tableName
+    };
+    const syncData = syncRules.tableSyncsData(ref);
+    const syncParameters = syncRules.tableSyncsParameters(ref);
 
     if (idColumns.length == 0 && idColumnsError == null) {
-      let message = `No replication id found for ${sourceTable.qualifiedName}. Replica identity: ${idColumnsResult?.identity}.`;
+      let message = `No replication id found for ${mysql_utils.qualifiedMySQLTable(ref)}. Replica identity: ${idColumnsResult?.identity}.`;
       if (idColumnsResult?.identity == 'default') {
         message += ' Configure a primary key on the table.';
       }
@@ -243,7 +239,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     let selectError: service_types.ReplicationError | null = null;
     try {
       await this.retriedQuery({
-        query: `SELECT * FROM ${sourceTable.name} LIMIT 1`
+        query: `SELECT * FROM ${mysql_utils.qualifiedMySQLTable(ref)} LIMIT 1`
       });
     } catch (e) {
       selectError = { level: 'fatal', message: e.message };

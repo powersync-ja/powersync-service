@@ -2,13 +2,15 @@ import { BaseObserver, logger } from '@powersync/lib-services-framework';
 import {
   PrecompiledSyncConfig,
   SerializedCompatibilityContext,
+  SerializedSyncPlanV1,
   serializeSyncPlan,
   SqlSyncRules,
   SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
 import { ReplicationError } from '@powersync/service-types';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
-import { ParseSyncRulesOptions, PersistedSyncRules, PersistedSyncRulesContent } from './PersistedSyncRulesContent.js';
+import { PersistedReplicationStream } from './PersistedReplicationStream.js';
+import { PersistedSyncConfigContent } from './PersistedSyncConfigContent.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { ReportStorage } from './ReportStorage.js';
@@ -17,107 +19,89 @@ import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
 /**
  * Represents a configured storage provider.
  *
- * The provider can handle multiple copies of sync rules concurrently, each with their own storage.
- * This is to handle replication of a new version of sync rules, while the old version is still active.
+ * The provider can handle multiple replication streams concurrently, each with their own storage.
+ * This is to handle replication of a new version of sync config, while the old replication stream is still active.
  *
- * Storage APIs for a specific copy of sync rules are provided by the `SyncRulesBucketStorage` instances.
+ * Storage APIs for a specific replication stream are provided by the `SyncRulesBucketStorage` instances.
  */
 export abstract class BucketStorageFactory
   extends BaseObserver<BucketStorageFactoryListener>
   implements AsyncDisposable
 {
   /**
-   * Update sync rules from configuration, if changed.
+   * Update sync config from configuration, if changed.
    */
   async configureSyncRules(
     options: UpdateSyncRulesOptions
-  ): Promise<{ updated: boolean; persisted_sync_rules?: PersistedSyncRulesContent; lock?: ReplicationLock }> {
-    const next = await this.getNextSyncRulesContent();
-    const active = await this.getActiveSyncRulesContent();
+  ): Promise<{ updated: boolean; persisted_sync_rules?: PersistedReplicationStream; lock?: ReplicationLock }> {
+    const deploying = await this.getDeployingSyncConfig();
+    const active = await this.getActiveSyncConfig();
 
-    if (next?.sync_rules_content == options.config.yaml) {
-      logger.info('Sync rules from configuration unchanged');
+    if (deploying?.content.sync_rules_content == options.config.yaml) {
+      logger.info('Sync config unchanged');
       return { updated: false };
-    } else if (next == null && active?.sync_rules_content == options.config.yaml) {
-      logger.info('Sync rules from configuration unchanged');
+    } else if (deploying == null && active?.content.sync_rules_content == options.config.yaml) {
+      logger.info('Sync config unchanged');
       return { updated: false };
     } else {
-      logger.info('Sync rules updated from configuration');
+      logger.info('Sync config updated');
       const persisted_sync_rules = await this.updateSyncRules(options);
       return { updated: true, persisted_sync_rules, lock: persisted_sync_rules.current_lock ?? undefined };
     }
   }
 
   /**
-   * Get a storage instance to query sync data for specific sync rules.
+   * Get a storage instance to query sync data for specific sync config.
    */
-  abstract getInstance(syncRules: PersistedSyncRulesContent, options?: GetIntanceOptions): SyncRulesBucketStorage;
+  abstract getInstance(
+    replicationStream: PersistedReplicationStream,
+    options?: GetIntanceOptions
+  ): SyncRulesBucketStorage;
 
   /**
-   * Deploy new sync rules.
+   * Deploy new sync config.
    */
-  abstract updateSyncRules(options: UpdateSyncRulesOptions): Promise<PersistedSyncRulesContent>;
+  abstract updateSyncRules(options: UpdateSyncRulesOptions): Promise<PersistedReplicationStream>;
 
   /**
    * Indicate that a slot was removed, and we should re-sync by creating
-   * a new sync rules instance.
+   * a new replication stream.
    *
    * This is roughly the same as deploying a new version of the current sync
-   * rules, but also accounts for cases where the current sync rules are not
-   * the latest ones.
+   * config, but also accounts for cases where the current sync config is not
+   * the latest one.
    *
    * Replication should be restarted after this.
    */
-  abstract restartReplication(sync_rules_group_id: number): Promise<void>;
+  abstract restartReplication(replicationStreamId: number): Promise<void>;
 
   /**
-   * Get the sync rules used for querying.
+   * Get the sync config and storage used for querying.
    */
-  async getActiveSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null> {
-    const content = await this.getActiveSyncRulesContent();
-    return content?.parsed(options) ?? null;
-  }
+  abstract getActiveSyncConfig(): Promise<ResolvedSyncConfig | null>;
 
   /**
-   * Get the sync rules used for querying.
+   * Get the sync config and storage that is still deploying.
    */
-  abstract getActiveSyncRulesContent(): Promise<PersistedSyncRulesContent | null>;
+  abstract getDeployingSyncConfig(): Promise<ResolvedSyncConfig | null>;
 
   /**
-   * Get the sync rules that will be active next once done with initial replicatino.
+   * Get all replication streams currently replicating.
    */
-  async getNextSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null> {
-    const content = await this.getNextSyncRulesContent();
-    return content?.parsed(options) ?? null;
-  }
+  abstract getReplicatingReplicationStreams(): Promise<PersistedReplicationStream[]>;
 
   /**
-   * Get the sync rules that will be active next once done with initial replicatino.
+   * Get all replication streams stopped but not terminated yet.
    */
-  abstract getNextSyncRulesContent(): Promise<PersistedSyncRulesContent | null>;
+  abstract getStoppedReplicationStreams(): Promise<PersistedReplicationStream[]>;
 
   /**
-   * Get all sync rules currently replicating. Typically this is the "active" and "next" sync rules.
-   */
-  abstract getReplicatingSyncRules(): Promise<PersistedSyncRulesContent[]>;
-
-  /**
-   * Get all sync rules stopped but not terminated yet.
-   */
-  abstract getStoppedSyncRules(): Promise<PersistedSyncRulesContent[]>;
-
-  /**
-   * Get the active storage instance.
-   */
-  abstract getActiveStorage(): Promise<SyncRulesBucketStorage | null>;
-
-  /**
-   * Get storage size of active sync rules.
+   * Get storage size of active replication stream.
    */
   abstract getStorageMetrics(): Promise<StorageMetrics>;
 
   /**
-   * Get the unique identifier for this instance of Powersync
+   * Get the unique identifier for this instance of Powersync.
    */
   abstract getPowerSyncInstanceId(): Promise<string>;
 
@@ -132,6 +116,12 @@ export abstract class BucketStorageFactory
 export interface BucketStorageFactoryListener {
   syncStorageCreated: (storage: SyncRulesBucketStorage) => void;
   replicationEvent: (event: ReplicationEventPayload) => void;
+}
+
+export interface ResolvedSyncConfig {
+  content: PersistedSyncConfigContent;
+  replicationStream: PersistedReplicationStream;
+  storage: SyncRulesBucketStorage;
 }
 
 export interface StorageMetrics {
@@ -163,20 +153,25 @@ export interface UpdateSyncRulesOptions {
     plan: SerializedSyncPlan | null;
 
     /**
-     * Parsed sync rules version, primarily to generate a definition mapping.
+     * Parsed sync config, primarily to generate a definition mapping.
      * Not persisted, and the defaultSchema used for parsing is not relevant.
      */
     parsed: SyncConfigWithErrors;
   };
   lock?: boolean;
   storageVersion?: number;
+
+  /**
+   * Only relevant if the result is used. This does not affect the persisted config.
+   */
+  defaultSchema?: string;
 }
 
 export interface SerializedSyncPlan {
   /**
    * The serialized plan, from {@link serializeSyncPlan}.
    */
-  plan: unknown;
+  plan: SerializedSyncPlanV1;
   compatibility: SerializedCompatibilityContext;
   /**
    * Event descriptors are not currently represented in the sync plan because they don't use the sync streams compiler
@@ -196,7 +191,7 @@ export function updateSyncRulesFromYaml(
   const config = SqlSyncRules.fromYaml(content, {
     // No schema-based validation at this point
     schema: undefined,
-    defaultSchema: 'not_applicable', // Not needed for validation
+    defaultSchema: options?.defaultSchema ?? 'not_applicable', // Not needed for validation
     throwOnError: options?.validate ?? false
   });
 

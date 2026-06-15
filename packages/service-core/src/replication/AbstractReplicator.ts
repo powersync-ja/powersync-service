@@ -32,19 +32,19 @@ export interface AbstractReplicatorOptions {
 /**
  *   A replicator manages the mechanics for replicating data from a data source to a storage bucket.
  *   This includes copying across the original data set and then keeping it in sync with the data source using Replication Jobs.
- *   It also handles any changes to the sync rules.
+ *   It also handles any changes to the sync config.
  */
 export abstract class AbstractReplicator<T extends AbstractReplicationJob = AbstractReplicationJob> {
   protected logger: winston.Logger;
   private lockAlerted: boolean = false;
   /**
-   *  Map of replication jobs by sync rule id. Usually there is only one running job, but there could be two when
-   *  transitioning to a new set of sync rules.
+   *  Map of replication jobs by replication stream job id. Usually there is only one running job, but there could be two
+   *  when transitioning to a new replication stream.
    */
-  private replicationJobs = new Map<number, T>();
+  private replicationJobs = new Map<string, T>();
 
   /**
-   * Map of sync rule ids to promises that are clearing the sync rule configuration.
+   * Map of replciation stream ids to promises that are clearing the replication stream.
    *
    * We primarily do this to keep track of what we're currently clearing, but don't currently
    * use the Promise value.
@@ -68,8 +68,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   abstract createJob(options: CreateJobOptions): T;
 
   /**
-   *  Clean up any configuration or state for the specified sync rule on the datasource.
-   *  Should be a no-op if the configuration has already been cleared
+   * Clean up any configuration or state for the specified replication stream on the datasource.
+   * Should be a no-op if the replication stream has already been cleared
    */
   abstract cleanUp(syncRuleStorage: storage.SyncRulesBucketStorage): Promise<void>;
 
@@ -100,7 +100,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   public async start(): Promise<void> {
     this.abortController = new AbortController();
     this.runLoop().catch((e) => {
-      this.logger.error('Data source fatal replication error', e);
+      this.logger.error('Fatal replication error', e);
       container.reporter.captureException(e);
       setTimeout(() => {
         process.exit(1);
@@ -135,9 +135,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
     let configuredLock: storage.ReplicationLock | undefined = undefined;
     if (syncRules != null) {
-      this.logger.info('Loaded sync rules');
+      this.logger.info('Loaded sync config');
       try {
-        // Configure new sync rules, if they have changed.
+        // Configure new sync config, if they have changed.
         // In that case, also immediately take out a lock, so that another process doesn't start replication on it.
 
         const { lock } = await this.storage.configureSyncRules(
@@ -149,11 +149,11 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       } catch (e) {
         // Log and re-raise to exit.
         // Should only reach this due to validation errors if exit_on_error is true.
-        this.logger.error(`Failed to update sync rules from configuration`, e);
+        this.logger.error(`Failed to update sync config`, e);
         throw e;
       }
     } else {
-      this.logger.info('No sync rules configured - configure via API');
+      this.logger.info('No sync streams or rules configured - configure via API');
     }
     while (!this.stopped) {
       await container.probes.touch();
@@ -188,56 +188,57 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
     let configuredLock = options?.configured_lock;
 
-    const existingJobs = new Map<number, T>(this.replicationJobs.entries());
-    const replicatingSyncRules = await this.storage.getReplicatingSyncRules();
-    const newJobs = new Map<number, T>();
+    const existingJobs = new Map<string, T>(this.replicationJobs.entries());
+    const replicatingStreams = await this.storage.getReplicatingReplicationStreams();
+    const newJobs = new Map<string, T>();
     let activeJob: T | undefined = undefined;
-    for (let syncRules of replicatingSyncRules) {
-      const existingJob = existingJobs.get(syncRules.id);
-      if (syncRules.active && activeJob == null) {
+    for (let replicationStream of replicatingStreams) {
+      const jobId = replicationStream.replicationJobId;
+      const existingJob = existingJobs.get(jobId);
+      if (replicationStream.state == storage.SyncRuleState.ACTIVE && activeJob == null) {
         activeJob = existingJob;
       }
       if (existingJob && !existingJob.isStopped) {
         // No change
-        existingJobs.delete(syncRules.id);
-        newJobs.set(syncRules.id, existingJob);
+        existingJobs.delete(jobId);
+        newJobs.set(jobId, existingJob);
       } else if (existingJob && existingJob.isStopped) {
         // Stopped (e.g. fatal error).
         // Remove from the list. Next refresh call will restart the job.
-        existingJobs.delete(syncRules.id);
+        existingJobs.delete(jobId);
       } else {
-        // New sync rules were found (or resume after restart)
+        // New sync config was found (or resume after restart)
         try {
           let lock: storage.ReplicationLock;
-          if (configuredLock?.sync_rules_id == syncRules.id) {
+          if (configuredLock?.sync_rules_id == replicationStream.replicationStreamId) {
             lock = configuredLock;
           } else {
-            lock = await syncRules.lock();
+            lock = await replicationStream.lock();
           }
-          const storage = this.storage.getInstance(syncRules);
+          const syncRuleStorage = this.storage.getInstance(replicationStream);
           const newJob = this.createJob({
             lock: lock,
-            storage: storage
+            storage: syncRuleStorage
           });
 
-          newJobs.set(syncRules.id, newJob);
+          newJobs.set(jobId, newJob);
           newJob.start();
-          if (syncRules.active) {
+          if (replicationStream.state == storage.SyncRuleState.ACTIVE) {
             activeJob = newJob;
           }
           this.lockAlerted = false;
         } catch (e) {
           if (e?.errorData?.code === ErrorCode.PSYNC_S1003) {
             if (!this.lockAlerted) {
-              this.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
+              replicationStream.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
               this.lockAlerted = true;
             }
           } else {
-            // Could be a sync rules parse error,
+            // Could be a sync config parse error,
             // for example from stricter validation that was added.
             // This will be retried every couple of seconds.
-            // When new (valid) sync rules are deployed and processed, this one be disabled.
-            this.logger.error('Failed to start replication for new sync rules', e);
+            // When new (valid) sync config is deployed and processed, this one be disabled.
+            replicationStream.logger.error('Failed to start replication for new sync config', e);
           }
         }
       }
@@ -246,7 +247,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     this.replicationJobs = newJobs;
     this.activeReplicationJob = activeJob;
 
-    // Stop any orphaned jobs that no longer have sync rules.
+    // Stop any orphaned jobs that no longer have a replication stream.
     // Termination happens below
     for (let job of existingJobs.values()) {
       // Old - stop and clean up
@@ -254,30 +255,30 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         await job.stop();
       } catch (e) {
         // This will be retried
-        this.logger.warn('Failed to stop old replication job}', e);
+        job.storage.logger.warn('Failed to stop old replication job', e);
       }
     }
 
-    // Sync rules stopped previously, including by a different process.
-    const stopped = await this.storage.getStoppedSyncRules();
-    for (let syncRules of stopped) {
-      if (this.clearingJobs.has(syncRules.id)) {
+    // Replication stream stopped previously, including by a different process.
+    const stopped = await this.storage.getStoppedReplicationStreams();
+    for (let replicationStream of stopped) {
+      if (this.clearingJobs.has(replicationStream.replicationStreamId)) {
         // Already in progress
         continue;
       }
 
       // We clear storage asynchronously.
       // It is important to be able to continue running the refresh loop, otherwise we cannot
-      // retry locked sync rules, for example.
-      const syncRuleStorage = this.storage.getInstance(syncRules, { skipLifecycleHooks: true });
+      // retry locked replication stream, for example.
+      const syncRuleStorage = this.storage.getInstance(replicationStream, { skipLifecycleHooks: true });
       const promise = this.terminateSyncRules(syncRuleStorage)
         .catch((e) => {
-          this.logger.warn(`Failed clean up replication config for sync rule: ${syncRules.id}`, e);
+          syncRuleStorage.logger.warn(`Failed clean up replication config`, e);
         })
         .finally(() => {
-          this.clearingJobs.delete(syncRules.id);
+          this.clearingJobs.delete(replicationStream.replicationStreamId);
         });
-      this.clearingJobs.set(syncRules.id, promise);
+      this.clearingJobs.set(replicationStream.replicationStreamId, promise);
     }
   }
 
@@ -286,12 +287,12 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   }
 
   protected async terminateSyncRules(syncRuleStorage: storage.SyncRulesBucketStorage) {
-    this.logger.info(`Terminating sync rules: ${syncRuleStorage.group_id}...`);
+    syncRuleStorage.logger.info(`Terminating replication stream...`);
     // This deletes postgres replication slots - should complete quickly.
     // It is safe to do before or after clearing the data in the storage.
     await this.cleanUp(syncRuleStorage);
     await syncRuleStorage.terminate({ signal: this.abortController?.signal, clearStorage: true });
-    this.logger.info(`Successfully terminated sync rules: ${syncRuleStorage.group_id}`);
+    syncRuleStorage.logger.info(`Successfully terminated replication stream`);
   }
 
   abstract testConnection(): Promise<ConnectionTestResult>;

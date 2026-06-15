@@ -44,15 +44,18 @@ export class JsonBufferWriter {
   private length = 0;
 
   constructor(capacity = JSON_BUFFER_INITIAL_CAPACITY) {
-    // allocUnsafe is fine - we always write to the buffer when updating length.
-    this.buffer = Buffer.allocUnsafe(capacity);
+    // In theory allocUnsafe could be fine. But in case there are any bugs where this.length
+    // is not updated correctly, that could lead to leaking data from memory.
+    // Buffer.alloc makes sure no data is leaked if a bug like that is hit.
+    // The same applies to ensureCapacity, and for the same reason we zero out changes in truncate().
+    this.buffer = Buffer.alloc(capacity);
   }
 
   /**
    * Resets the length, equivalent to truncate(0).
    */
   reset() {
-    this.length = 0;
+    this.truncate(0);
   }
 
   toString() {
@@ -64,6 +67,8 @@ export class JsonBufferWriter {
   }
 
   truncate(length: number) {
+    // Safely reset data
+    this.buffer.fill(0, length, this.length);
     this.length = length;
   }
 
@@ -176,9 +181,9 @@ export class JsonBufferWriter {
     }
 
     const rawLength = end - start;
+    let length = this.length;
     this.ensureCapacity(rawLength + 2);
     let buffer = this.buffer;
-    let length = this.length;
 
     buffer[length++] = BYTE_DQUOTE;
 
@@ -204,11 +209,13 @@ export class JsonBufferWriter {
 
       if (chunkStart < index) {
         const chunkLength = index - chunkStart;
+        this.length = length;
         this.ensureCapacity(chunkLength + 6);
         buffer = this.buffer;
         bytes.copy(buffer, length, chunkStart, index);
         length += chunkLength;
       } else {
+        this.length = length;
         this.ensureCapacity(6);
         buffer = this.buffer;
       }
@@ -257,11 +264,13 @@ export class JsonBufferWriter {
 
     if (chunkStart < end) {
       const chunkLength = end - chunkStart;
+      this.length = length;
       this.ensureCapacity(chunkLength + 1);
       buffer = this.buffer;
       bytes.copy(buffer, length, chunkStart, end);
       length += chunkLength;
     } else {
+      this.length = length;
       this.ensureCapacity(1);
       buffer = this.buffer;
     }
@@ -315,7 +324,7 @@ export class JsonBufferWriter {
       nextLength *= 2;
     }
 
-    const next = Buffer.allocUnsafe(nextLength);
+    const next = Buffer.alloc(nextLength);
     this.buffer.copy(next, 0, 0, this.length);
     this.buffer = next;
   }

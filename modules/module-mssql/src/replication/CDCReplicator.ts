@@ -21,7 +21,7 @@ export class CDCReplicator extends replication.AbstractReplicator<CDCReplication
 
   createJob(options: replication.CreateJobOptions): CDCReplicationJob {
     return new CDCReplicationJob({
-      id: this.createJobId(options.storage.group_id),
+      id: this.createJobId(options.storage.replicationStreamId),
       storage: options.storage,
       metrics: this.metrics,
       lock: options.lock,

@@ -4,23 +4,23 @@ import { storage as core_storage, migrations } from '@powersync/service-core';
 import * as storage from '../../../storage/storage-index.js';
 import { MongoStorageConfig } from '../../../types/types.js';
 
-interface LegacySyncRulesDocument extends storage.SyncRuleDocument {
+interface LegacySyncRulesDocument extends storage.SyncRuleDocumentV1 {
   /**
-   * True if this is the active sync rules.
+   * True if this is the active replication stream.
    * requires `snapshot_done == true` and `replicating == true`.
    */
   active?: boolean;
 
   /**
-   * True if this sync rules should be used for replication.
+   * True if this replication stream should be used for replication.
    *
-   * During reprocessing, there is one sync rules with `replicating = true, active = true`,
+   * During reprocessing, there is one replication stream with `replicating = true, active = true`,
    * and one with `replicating = true, active = false, auto_activate = true`.
    */
   replicating?: boolean;
 
   /**
-   * True if the sync rules should set `active = true` when `snapshot_done` = true.
+   * True if the replication stream should set `active = true` when `snapshot_done` = true.
    */
   auto_activate?: boolean;
 }
@@ -35,7 +35,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
   try {
     // We keep the old flags for existing deployments still shutting down.
 
-    // 1. New sync rules: `active = false, snapshot_done = false, replicating = true, auto_activate = true`
+    // 1. New replication stream: `active = false, snapshot_done = false, replicating = true, auto_activate = true`
     await db.sync_rules.updateMany(
       {
         active: { $ne: true },
@@ -66,7 +66,7 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
     const remaining = await db.sync_rules.find({ state: null as any }).toArray();
     if (remaining.length > 0) {
       const slots = remaining.map((doc) => doc.slot_name).join(', ');
-      throw new ServiceAssertionError(`Invalid state for sync rules: ${slots}`);
+      throw new ServiceAssertionError(`Invalid state for replication stream: ${slots}`);
     }
   } finally {
     await db.client.close();

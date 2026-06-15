@@ -1,5 +1,39 @@
 # @powersync/service-jpgwire
 
+## 0.21.19
+
+### Patch Changes
+
+- Updated dependencies [6e2a57e]
+- Updated dependencies [cae92ce]
+- Updated dependencies [5ac5345]
+- Updated dependencies [15cb880]
+- Updated dependencies [f2f5086]
+- Updated dependencies [5b1b215]
+- Updated dependencies [e2bf1ad]
+- Updated dependencies [92cc83b]
+- Updated dependencies [0aab0f9]
+  - @powersync/service-sync-rules@0.37.0
+
+## 0.21.18
+
+### Patch Changes
+
+- 75174c4: Improve Postgres query errors.
+- Updated dependencies [f20f318]
+- Updated dependencies [17503d1]
+- Updated dependencies [01c29c3]
+- Updated dependencies [8afe719]
+- Updated dependencies [b8f0195]
+- Updated dependencies [cdb8993]
+- Updated dependencies [824e229]
+- Updated dependencies [040fffd]
+- Updated dependencies [9e474d3]
+- Updated dependencies [423822c]
+- Updated dependencies [2b19fc3]
+  - @powersync/service-sync-rules@0.36.0
+  - @powersync/service-jsonbig@0.17.13
+
 ## 0.21.17
 
 ### Patch Changes

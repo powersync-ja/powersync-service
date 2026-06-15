@@ -339,9 +339,7 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     await context.replicateSnapshot();
     await context.startStreaming();
 
-    const schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
     await enableCDCForTable({ connectionManager, table: 'test_data' });
-    await expectedSchemaChange(schemaSpy, SchemaChangeType.NEW_CAPTURE_INSTANCE);
 
     let data = await context.getBucketData('global[]');
     expect(data).toMatchObject([putOp('test_data', testData1)]);

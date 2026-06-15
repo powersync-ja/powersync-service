@@ -2,7 +2,7 @@
   "name": "test-client",
   "repository": "https://github.com/powersync-ja/powersync-service",
   "private": true,
-  "version": "0.1.72",
+  "version": "0.1.74",
   "main": "dist/index.js",
   "bin": "dist/bin.js",
   "license": "Apache-2.0",
@@ -20,7 +20,7 @@
     "jose": "^4.15.1",
     "undici": "^7.24.5",
     "ws": "^8.18.0",
-    "yaml": "^2.5.0"
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@types/node": "^22.16.2",

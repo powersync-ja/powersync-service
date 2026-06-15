@@ -57,7 +57,6 @@ export function javaScriptExpressionEngine(compatibility: CompatibilityContext):
   });
 
   return {
-    close() {},
     prepareEvaluator({ outputs = [], filters = [], tableValuedFunctions = [] }): ScalarExpressionEvaluator {
       function compileScalar(expr: SqlExpression<number | TableValuedFunctionOutput>) {
         return compiler.compile(expr);

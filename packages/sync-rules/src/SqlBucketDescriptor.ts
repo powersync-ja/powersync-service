@@ -1,5 +1,6 @@
 import { PendingQueriers } from './BucketParameterQuerier.js';
 import {
+  BucketDataEvaluator,
   BucketDataSource,
   BucketSource,
   BucketSourceType,
@@ -8,7 +9,7 @@ import {
 } from './BucketSource.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { IdSequence } from './IdSequence.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
 import { SqlParameterQuery } from './SqlParameterQuery.js';
 import { GetQuerierOptions, SyncRulesOptions } from './SqlSyncRules.js';
@@ -164,7 +165,7 @@ export class SqlBucketDescriptor implements BucketSource {
   }
 }
 
-export class BucketDefinitionDataSource implements BucketDataSource {
+export class BucketDefinitionDataSource implements BucketDataSource, BucketDataEvaluator {
   constructor(private descriptor: SqlBucketDescriptor) {}
 
   /**
@@ -176,6 +177,10 @@ export class BucketDefinitionDataSource implements BucketDataSource {
 
   public get uniqueName(): string {
     return this.descriptor.name;
+  }
+
+  createEvaluator(): BucketDataEvaluator {
+    return this;
   }
 
   evaluateRow(options: EvaluateRowOptions) {
@@ -198,7 +203,7 @@ export class BucketDefinitionDataSource implements BucketDataSource {
     return result;
   }
 
-  tableSyncsData(table: SourceTableInterface): boolean {
+  tableSyncsData(table: SourceTableRef): boolean {
     for (let query of this.descriptor.dataQueries) {
       if (query.applies(table)) {
         return true;

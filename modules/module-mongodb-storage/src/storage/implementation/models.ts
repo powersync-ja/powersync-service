@@ -1,9 +1,8 @@
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
-import { InternalOpId, SerializedSyncPlan, storage } from '@powersync/service-core';
-import { SqliteJsonValue } from '@powersync/service-sync-rules';
+import { InternalOpId, storage } from '@powersync/service-core';
+import { ParameterIndexId, SqliteJsonValue } from '@powersync/service-sync-rules';
 import { event_types } from '@powersync/service-types';
 import * as bson from 'bson';
-import { ParameterIndexId } from './BucketDefinitionMapping.js';
 import type { CurrentDataDocument, SourceTableDocumentV1 } from './v1/models.js';
 import type { CurrentBucketV3, CurrentDataDocumentV3, RecordedLookupV3, SourceTableDocumentV3 } from './v3/models.js';
 
@@ -157,17 +156,13 @@ export interface IdSequenceDocument {
   op_id: bigint;
 }
 
-export interface SyncRuleDocument {
+/**
+ * Base for sync_rules collection.
+ */
+export interface SyncRuleDocumentBase {
   _id: number;
 
   state: storage.SyncRuleState;
-
-  /**
-   * True if initial snapshot has been replicated.
-   *
-   * Can only be false if state == PROCESSING.
-   */
-  snapshot_done: boolean;
 
   /**
    * This is now used for "resumeLsn".
@@ -181,31 +176,6 @@ export interface SyncRuleDocument {
    * More specifically, we resume replication from max(snapshot_lsn, last_checkpoint_lsn).
    */
   snapshot_lsn: string | undefined;
-
-  /**
-   * The last consistent checkpoint.
-   *
-   * There may be higher OpIds used in the database if we're in the middle of replicating a large transaction.
-   */
-  last_checkpoint: bigint | null;
-
-  /**
-   * The LSN associated with the last consistent checkpoint.
-   */
-  last_checkpoint_lsn: string | null;
-
-  /**
-   * If set, no new checkpoints may be created < this value.
-   */
-  no_checkpoint_before: string | null;
-
-  /**
-   * Goes together with no_checkpoint_before.
-   *
-   * If a keepalive is triggered that creates the checkpoint > no_checkpoint_before,
-   * then the checkpoint must be equal to this keepalive_op.
-   */
-  keepalive_op: string | null;
 
   slot_name: string | null;
 
@@ -230,29 +200,41 @@ export interface SyncRuleDocument {
 
   last_fatal_error_ts: Date | null;
 
-  content: string;
-  serialized_plan?: SerializedSyncPlan | null;
-
-  /**
-   * Required for V3+ storage.
-   */
-  rule_mapping?: {
-    /**
-     * Map of uniqueName -> id, unique per replication stream.
-     */
-    definitions: Record<string, string>;
-    /**
-     * Map of (lookupName, queryId) -> id, unique per replication stream.
-     */
-    parameter_indexes: Record<string, string>;
-  };
-
   lock?: {
     id: string;
     expires_at: Date;
   } | null;
 
   storage_version?: number;
+}
+
+export interface SyncRuleCheckpointFields<TKeepaliveOp extends string | bigint | null> {
+  /**
+   * The last consistent checkpoint.
+   *
+   * There may be higher OpIds used in the database if we're in the middle of replicating a large transaction.
+   */
+  last_checkpoint: bigint | null;
+
+  /**
+   * The LSN associated with the last consistent checkpoint.
+   */
+  last_checkpoint_lsn: string | null;
+
+  /**
+   * If set, no new checkpoints may be created < this value.
+   */
+  no_checkpoint_before: string | null;
+
+  /**
+   * Goes together with no_checkpoint_before.
+   *
+   * If a keepalive is triggered that creates the checkpoint > no_checkpoint_before,
+   * then the checkpoint must be equal to this keepalive_op.
+   *
+   * This is a string in V1, bigint in V3.
+   */
+  keepalive_op: TKeepaliveOp;
 }
 
 export interface StorageConfig extends storage.StorageVersionConfig {
@@ -288,11 +270,6 @@ export function getMongoStorageConfig(storageVersion: number): StorageConfig {
 export interface CheckpointEventDocument {
   _id: bson.ObjectId;
 }
-
-export type SyncRuleCheckpointState = Pick<
-  SyncRuleDocument,
-  'last_checkpoint' | 'last_checkpoint_lsn' | '_id' | 'state'
->;
 
 export interface CustomWriteCheckpointDocument {
   _id: bson.ObjectId;

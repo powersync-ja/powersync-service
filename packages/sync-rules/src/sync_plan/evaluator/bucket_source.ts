@@ -6,6 +6,7 @@ import {
   BucketSourceType,
   CreateSourceParams,
   HydratedBucketSource,
+  HydrationInput,
   ParameterIndexLookupCreator
 } from '../../BucketSource.js';
 import { RequestedStream } from '../../SqlSyncRules.js';
@@ -53,8 +54,10 @@ export class StreamBucketSource implements BucketSource {
     return `stream ${this.stream.stream.name}`;
   }
 
-  hydrate(params: CreateSourceParams): HydratedBucketSource {
-    const queriers = this.stream.queriers.map((q) => new PreparedQuerier(this.stream.stream, q, this.input));
+  hydrate(params: HydrationInput): HydratedBucketSource {
+    const queriers = this.stream.queriers.map(
+      (q) => new PreparedQuerier(this.stream.stream, q, this.input, params.scalarExpressions)
+    );
 
     return {
       definition: this,
@@ -99,12 +102,19 @@ class PreparedQuerier {
   constructor(
     readonly stream: plan.StreamOptions,
     querier: plan.StreamQuerier,
-    options: StreamInput
+    options: StreamInput,
+    engine: ScalarExpressionEngine
   ) {
     this.dataSource = options.preparedBuckets.get(querier.bucket)!;
-    this.matchesParameters = PreparedQuerier.prepareFilters(options.engine, querier.requestFilters);
+    this.matchesParameters = PreparedQuerier.prepareFilters(engine, querier.requestFilters);
 
-    this.lookupStages = RequestParameterEvaluators.prepare(querier.lookupStages, querier.sourceInstantiation, options);
+    this.lookupStages = RequestParameterEvaluators.prepare(
+      stream,
+      querier.lookupStages,
+      querier.sourceInstantiation,
+      options,
+      engine
+    );
   }
 
   querierForSubscription(

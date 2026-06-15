@@ -62,6 +62,11 @@ streams:
         source: `with:
       foo: SELECT id FROM users
 `
+      },
+      {
+        message: "This common table expression isn't referenced.",
+        source: 'foo',
+        isWarning: true
       }
     ]);
   });
@@ -728,6 +733,26 @@ streams:
         message:
           'This stream defines too many buckets (128, at most 100 are allowed). Try splitting queries into separate streams or move inner OR operators in filters to separate queries.'
       }
+    ]);
+  });
+
+  test('arrays where literals are expected', () => {
+    const [errors, _] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  manybuckets:
+    with:
+      foo: # should not be an array
+        - SELECT 1 as bar
+    query: # should also not be an array (unless queries is used as a key)
+      - SELECT * FROM tbl WHERE id IN foo
+`);
+
+    expect(errors).toStrictEqual([
+      { message: 'Expected a scalar value here.', source: '- SELECT 1 as bar\n' },
+      { message: 'Expected a scalar value here.', source: '- SELECT * FROM tbl WHERE id IN foo\n' }
     ]);
   });
 });

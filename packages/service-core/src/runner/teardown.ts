@@ -35,27 +35,27 @@ export async function teardown(runnerConfig: utils.RunnerConfig) {
 }
 
 async function terminateSyncRules(storageFactory: storage.BucketStorageFactory, moduleManager: modules.ModuleManager) {
-  logger.info(`Terminating sync rules...`);
+  logger.info(`Terminating replication stream...`);
   const start = Date.now();
   const locks: storage.ReplicationLock[] = [];
   while (Date.now() - start < 120_000) {
     let retry = false;
-    const replicatingSyncRules = await storageFactory.getReplicatingSyncRules();
-    // Lock all the replicating sync rules
-    for (const replicatingSyncRule of replicatingSyncRules) {
-      const lock = await replicatingSyncRule.lock();
+    const replicatingStreams = await storageFactory.getReplicatingReplicationStreams();
+    // Lock all the replicating replication streams
+    for (const replicatingStream of replicatingStreams) {
+      const lock = await replicatingStream.lock();
       locks.push(lock);
     }
 
-    const stoppedSyncRules = await storageFactory.getStoppedSyncRules();
-    const combinedSyncRules = [...replicatingSyncRules, ...stoppedSyncRules];
+    const stoppedStreams = await storageFactory.getStoppedReplicationStreams();
+    const combinedStreams = [...replicatingStreams, ...stoppedStreams];
     try {
-      // Clean up any module specific configuration for the sync rules
-      await moduleManager.tearDown({ syncRules: combinedSyncRules });
+      // Clean up any module specific configuration for the replication stream
+      await moduleManager.tearDown({ replicationStreams: combinedStreams, syncRules: combinedStreams });
 
-      // Mark the sync rules as terminated
-      for (let syncRules of combinedSyncRules) {
-        const syncRulesStorage = storageFactory.getInstance(syncRules);
+      // Mark the replication stream as terminated
+      for (let replicationStream of combinedStreams) {
+        const syncRulesStorage = storageFactory.getInstance(replicationStream);
         // The storage will be dropped at the end of the teardown, so we don't need to clear it here
         await syncRulesStorage.terminate({ clearStorage: false });
       }

@@ -1,16 +1,19 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   CheckpointChanges,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
+  maxLsn,
+  ParameterSetLimitExceededError,
   ProtocolOpId,
   storage,
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
@@ -18,14 +21,19 @@ import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
-import { CommonSourceTableDocument } from '../models.js';
 import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
-import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
-import { BucketDataDocumentV3, BucketParameterDocumentV3, loadBucketDataDocumentV3 } from './models.js';
+import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
+import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions, WriterSyncState } from '../MongoSyncBucketStorage.js';
+import {
+  BucketDataDocumentV3,
+  BucketParameterDocumentV3,
+  loadBucketDataDocumentV3,
+  ReplicationStreamDocumentV3,
+  SyncRuleConfigStateV3
+} from './models.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
@@ -40,19 +48,64 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   constructor(
     factory: MongoBucketStorage,
-    group_id: number,
-    sync_rules: MongoPersistedSyncRulesContent,
-    slot_name: string,
+    replicationStreamId: number,
+    replicationStream: MongoPersistedReplicationStream,
+    replicationStreamName: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
   ) {
-    super(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
+    super(factory, replicationStreamId, replicationStream, replicationStreamName, writeCheckpointMode, options);
+    if (replicationStream.syncConfigIds.length != 1) {
+      throw new ServiceAssertionError('Missing sync config id for storage v3');
+    }
+  }
+
+  private get syncConfigId(): bson.ObjectId {
+    return this.replicationStream.syncConfigIds[0];
+  }
+
+  private get syncRulesCollection(): mongo.Collection<ReplicationStreamDocumentV3> {
+    return this.db.sync_rules as unknown as mongo.Collection<ReplicationStreamDocumentV3>;
+  }
+
+  private syncConfigMatch(extra: mongo.Document = {}): mongo.Filter<ReplicationStreamDocumentV3> {
+    return {
+      _id: this.replicationStreamId,
+      sync_configs: {
+        $elemMatch: {
+          _id: this.syncConfigId,
+          ...extra
+        }
+      }
+    };
+  }
+
+  private syncConfigProjection(extra: mongo.Document = {}): mongo.Document {
+    return {
+      ...extra,
+      sync_configs: 1
+    };
+  }
+
+  private syncConfigArrayFilters(): mongo.UpdateOptions['arrayFilters'] {
+    return [{ 'config._id': this.syncConfigId }];
+  }
+
+  /**
+   * For now, we only support a single sync config per replication stream.
+   *
+   * In the future we'll add support for multiple.
+   */
+  private selectedSyncConfig(
+    doc: Pick<ReplicationStreamDocumentV3, 'sync_configs'> | null
+  ): SyncRuleConfigStateV3 | null {
+    return doc?.sync_configs?.[0] ?? null;
   }
 
   protected async initializeVersionStorage(): Promise<void> {
     const mapping = this.mapping;
     for (let source of mapping.allBucketDefinitionIds()) {
-      const collection = this.db.bucketDataV3(this.group_id, source).collectionName;
+      const collection = this.db.bucketDataV3(this.replicationStreamId, source).collectionName;
       await this.db.db
         .createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
         .catch((error) => {
@@ -63,7 +116,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         });
     }
     for (let indexId of mapping.allParameterIndexIds()) {
-      await this.db.parameterIndexV3(this.group_id, indexId).createIndex(
+      await this.db.parameterIndexV3(this.replicationStreamId, indexId).createIndex(
         {
           lookup: 1,
           key: 1,
@@ -77,10 +130,10 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums {
-    return new MongoChecksumsV3(this.db, this.group_id, {
+    return new MongoChecksumsV3(this.db, this.replicationStreamId, {
       ...options.checksumOptions,
       storageConfig: options?.storageConfig,
-      mapping: this.sync_rules.mapping
+      mapping: this.replicationStream.storageContent.mapping
     });
   }
 
@@ -92,52 +145,119 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     checkpoint: InternalOpId,
     options: storage.CompactOptions
   ): MongoParameterCompactor {
-    return new MongoParameterCompactorV3(this.db, this.group_id, checkpoint, options);
+    return new MongoParameterCompactorV3(this.db, this.replicationStreamId, checkpoint, options);
   }
 
   protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
     return new MongoBucketBatchV3(batchOptions);
   }
 
-  protected sourceTableBaseId(): Partial<CommonSourceTableDocument> {
-    return {};
+  protected async fetchCheckpointState(
+    session: mongo.ClientSession
+  ): Promise<{ checkpoint: bigint; lsn: string | null } | null> {
+    const doc = await this.syncRulesCollection.findOne(
+      this.syncConfigMatch({
+        state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
+      }),
+      {
+        session,
+        projection: this.syncConfigProjection()
+      }
+    );
+    const syncConfig = this.selectedSyncConfig(doc);
+    if (!syncConfig?.snapshot_done) {
+      return null;
+    }
+    return {
+      checkpoint: syncConfig.last_checkpoint ?? 0n,
+      lsn: syncConfig.last_checkpoint_lsn ?? null
+    };
   }
 
-  protected augmentCreatedSourceTableDocument(
-    createDoc: CommonSourceTableDocument,
-    options: storage.ResolveTableOptions,
-    candidateSourceTable: storage.SourceTable
-  ): void {
-    const bucketDataSourceIds = options.sync_rules.definition.bucketDataSources
-      .filter((source) => source.tableSyncsData(candidateSourceTable))
-      .map((source) => this.mapping.bucketSourceId(source));
-    const parameterLookupSourceIds = options.sync_rules.definition.bucketParameterLookupSources
-      .filter((source) => source.tableSyncsParameters(candidateSourceTable))
-      .map((source) => this.mapping.parameterLookupId(source));
-
-    Object.assign(createDoc, {
-      bucket_data_source_ids: bucketDataSourceIds,
-      parameter_lookup_source_ids: parameterLookupSourceIds
+  protected async getWriterSyncState(): Promise<WriterSyncState> {
+    const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
+      projection: this.syncConfigProjection({ snapshot_lsn: 1 })
     });
+    const syncConfig = this.selectedSyncConfig(doc);
+    const checkpointLsn = syncConfig?.last_checkpoint_lsn ?? null;
+    return {
+      lastCheckpointLsn: checkpointLsn,
+      resumeFromLsn: maxLsn(checkpointLsn, doc?.snapshot_lsn),
+      keepaliveOp: syncConfig?.keepalive_op ?? null,
+      syncConfigIds: [this.syncConfigId]
+    };
   }
 
-  protected async initializeResolvedSourceRecords(sourceTableId: bson.ObjectId): Promise<void> {
-    await this.db.initializeSourceRecordsCollection(this.group_id, sourceTableId);
+  protected async terminateSyncRuleState(): Promise<void> {
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.replicationStreamId
+      },
+      {
+        $set: {
+          state: storage.SyncRuleState.TERMINATED,
+          persisted_lsn: null,
+          sync_configs: []
+        }
+      }
+    );
+  }
+
+  protected async getStatusImpl(): Promise<storage.SyncRuleStatus> {
+    const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
+      projection: this.syncConfigProjection({ state: 1, snapshot_lsn: 1, keepalive_op: 1 })
+    });
+    const syncConfig = this.selectedSyncConfig(doc);
+    if (doc == null || syncConfig == null) {
+      throw new ServiceAssertionError('Cannot find replication stream status');
+    }
+
+    return {
+      snapshot_done: syncConfig.snapshot_done ?? false,
+      snapshot_lsn: doc.snapshot_lsn ?? null,
+      active: doc.state == storage.SyncRuleState.ACTIVE && syncConfig.state == storage.SyncRuleState.ACTIVE,
+      checkpoint_lsn: syncConfig.last_checkpoint_lsn ?? null,
+      keepalive_op: syncConfig.keepalive_op ?? null
+    };
+  }
+
+  protected async clearSyncRuleState(): Promise<void> {
+    await this.syncRulesCollection.updateOne(
+      this.syncConfigMatch(),
+      {
+        $set: {
+          persisted_lsn: null,
+          'sync_configs.$[config].snapshot_done': false,
+          'sync_configs.$[config].last_checkpoint_lsn': null,
+          'sync_configs.$[config].last_checkpoint': null,
+          'sync_configs.$[config].no_checkpoint_before': null,
+          'sync_configs.$[config].keepalive_op': null
+        },
+        $unset: {
+          snapshot_lsn: 1
+        }
+      },
+      {
+        maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
+        arrayFilters: this.syncConfigArrayFilters()
+      }
+    );
   }
 
   protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3> {
     return {
       db: this.db,
-      group_id: this.group_id,
+      group_id: this.replicationStreamId,
       mapping: this.mapping
     };
   }
 
   protected getParameterSetsImpl(
     checkpoint: MongoSyncBucketStorageCheckpoint,
-    lookups: ScopedParameterLookup[]
-  ): Promise<SqliteJsonRow[]> {
-    return getParameterSetsV3(this.versionContext, checkpoint, lookups);
+    lookups: ScopedParameterLookup[],
+    limit: number
+  ): Promise<ParameterLookupRows[]> {
+    return getParameterSetsV3(this.versionContext, checkpoint, lookups, limit);
   }
 
   protected getBucketDataBatchImpl(
@@ -149,26 +269,26 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected async clearBucketData(_signal?: AbortSignal): Promise<void> {
-    for (const collection of await this.db.listBucketDataCollectionsV3(this.group_id)) {
+    for (const collection of await this.db.listBucketDataCollectionsV3(this.replicationStreamId)) {
       await collection.drop();
     }
   }
 
   protected async clearParameterIndexes(_signal?: AbortSignal): Promise<void> {
-    for (const collection of await this.db.listParameterIndexCollectionsV3(this.group_id)) {
+    for (const collection of await this.db.listParameterIndexCollectionsV3(this.replicationStreamId)) {
       await collection.collection.drop();
     }
   }
 
   protected async clearSourceRecords(_signal?: AbortSignal): Promise<void> {
-    for (const collection of await this.db.listSourceRecordCollectionsV3(this.group_id)) {
+    for (const collection of await this.db.listSourceRecordCollectionsV3(this.replicationStreamId)) {
       await collection.drop();
     }
   }
 
   protected async clearBucketState(_signal?: AbortSignal): Promise<void> {
     await this.db
-      .bucketStateV3(this.group_id)
+      .bucketStateV3(this.replicationStreamId)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
       .catch((error) => {
         if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
@@ -180,7 +300,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   protected async clearSourceTables(_signal?: AbortSignal): Promise<void> {
     await this.db
-      .sourceTablesV3(this.group_id)
+      .sourceTablesV3(this.replicationStreamId)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
       .catch((error) => {
         if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
@@ -206,13 +326,15 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 export async function getParameterSetsV3(
   ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
   checkpoint: MongoSyncBucketStorageCheckpoint,
-  lookups: ScopedParameterLookup[]
-): Promise<SqliteJsonRow[]> {
+  lookups: ScopedParameterLookup[],
+  limit: number
+): Promise<ParameterLookupRows[]> {
   return ctx.db.client.withSession({ snapshot: true }, async (session) => {
     setSessionSnapshotTime(session, checkpoint.snapshotTime);
 
     const buildLookupPipeline = (
-      lookup: ScopedParameterLookup
+      lookup: ScopedParameterLookup,
+      index: number
     ): {
       collection: mongo.Collection<BucketParameterDocumentV3>;
       pipeline: mongo.Document[];
@@ -220,6 +342,7 @@ export async function getParameterSetsV3(
       const indexId = lookup.indexId;
       const collection = ctx.db.parameterIndexV3(ctx.group_id, indexId);
       const lookupFilter = serializeParameterLookupV3(lookup);
+
       return {
         collection,
         pipeline: [
@@ -248,7 +371,8 @@ export async function getParameterSetsV3(
           {
             $project: {
               _id: 0,
-              bucket_parameters: 1
+              bucket_parameters: 1,
+              index: { $literal: index }
             }
           }
         ]
@@ -256,26 +380,28 @@ export async function getParameterSetsV3(
     };
 
     const [firstLookup, ...remainingLookups] = lookups;
-    const firstQuery = firstLookup == null ? null : buildLookupPipeline(firstLookup);
+    const firstQuery = firstLookup == null ? null : buildLookupPipeline(firstLookup, 0);
     if (firstQuery == null) {
       return [];
     }
 
     const pipeline: mongo.Document[] = [
       ...firstQuery.pipeline,
-      ...remainingLookups.map((lookup) => {
-        const query = buildLookupPipeline(lookup);
+      ...remainingLookups.map((lookup, indexInRemaining) => {
+        const query = buildLookupPipeline(lookup, indexInRemaining + 1);
         return {
           $unionWith: {
             coll: query.collection.collectionName,
             pipeline: query.pipeline
           }
         };
-      })
+      }),
+      { $unwind: '$bucket_parameters' },
+      { $limit: limit + 1 }
     ];
 
     const rows = await firstQuery.collection
-      .aggregate<{ bucket_parameters: SqliteJsonRow[] }>(pipeline, {
+      .aggregate<{ index: number; bucket_parameters: SqliteJsonRow }>(pipeline, {
         session,
         readConcern: 'snapshot',
         maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
@@ -285,7 +411,15 @@ export async function getParameterSetsV3(
         throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
       });
 
-    return rows.flatMap((row) => row.bucket_parameters);
+    if (rows.length > limit) {
+      throw new ParameterSetLimitExceededError(limit);
+    }
+
+    const byLookup = Map.groupBy(rows, (row) => lookups[row.index]);
+
+    const results: ParameterLookupRows[] = [];
+    byLookup.forEach((value, lookup) => results.push({ lookup, rows: value.map((r) => r.bucket_parameters) }));
+    return results;
   });
 }
 

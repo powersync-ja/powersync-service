@@ -1,3 +1,5 @@
+import { SqliteParameterValue } from '../types.js';
+
 /**
  * Stable value-based hashcodes for JavaScript. The sync streams compiler uses hashmaps derived from this to efficiently
  * de-duplicate equivalent expressions and lookups.
@@ -71,6 +73,44 @@ export class StableHasher {
   };
 
   static readonly defaultListEquality = listEquality(this.defaultEquality);
+
+  static readonly parameterValueEquality: Equality<SqliteParameterValue> = (() => {
+    const buf = new DataView(new ArrayBuffer(8));
+
+    return {
+      equals: function (a: SqliteParameterValue, b: SqliteParameterValue): boolean {
+        // Allowed values are numbers, string, and bigint. All of them compare correctly with ===
+        return a === b;
+      },
+      hash: function (hasher: StableHasher, value: SqliteParameterValue): void {
+        switch (typeof value) {
+          case 'string':
+            hasher.addString(value);
+            break;
+          case 'number':
+            const normalized = value || 0; // Ensure 0 and -0 have the same hash code.
+            buf.setFloat64(0, normalized, true);
+            hasher.addHash(buf.getUint32(0, true));
+            hasher.addHash(buf.getUint32(4, true));
+            break;
+          case 'bigint':
+            // Most bigints we're dealing with fit in 64 bits. Truncating is fine, we're building hashes anyway.
+            buf.setBigInt64(0, value, true);
+            hasher.addHash(buf.getUint32(0, true));
+            hasher.addHash(buf.getUint32(4, true));
+            break;
+          case 'boolean':
+            hasher.addHash(value ? 0 : 1);
+            break;
+          case 'symbol':
+          case 'undefined':
+          case 'object':
+          case 'function':
+            throw new Error(`Not a parameter value: ${value}`);
+        }
+      }
+    };
+  })();
 }
 
 /**

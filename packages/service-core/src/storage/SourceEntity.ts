@@ -1,3 +1,5 @@
+import { SourceTableRef } from '@powersync/service-sync-rules';
+
 export interface ColumnDescriptor {
   name: string;
   /**
@@ -10,7 +12,7 @@ export interface ColumnDescriptor {
   typeId?: number;
 }
 
-export interface SourceEntityDescriptor {
+export interface SourceEntityDescriptor extends SourceTableRef {
   /**
    * The internal id of the source entity structure in the database.
    * If undefined, the schema and name are used as the identifier.
@@ -23,4 +25,10 @@ export interface SourceEntityDescriptor {
    *  The columns that are used to uniquely identify a record in the source entity.
    */
   replicaIdColumns: ColumnDescriptor[];
+  /**
+   * Whether the source always sends complete row data with each operation (e.g. Postgres REPLICA
+   * IDENTITY FULL). When true, no current_data copy is needed. Undefined means the source does not
+   * report this, in which case we default to keeping a copy.
+   */
+  sendsCompleteRows?: boolean;
 }

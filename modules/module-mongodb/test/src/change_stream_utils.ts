@@ -1,4 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
   BucketStorageFactory,
   createCoreReplicationMetrics,
@@ -8,10 +9,11 @@ import {
   OplogEntry,
   ProtocolOpId,
   ReplicationCheckpoint,
+  settledPromise,
   storage,
-  STORAGE_VERSION_CONFIG,
   SyncRulesBucketStorage,
   TestStorageOptions,
+  unsettledPromise,
   updateSyncRulesFromYaml,
   utils
 } from '@powersync/service-core';
@@ -32,9 +34,8 @@ import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
-  private streamPromise?: Promise<PromiseSettledResult<void>>;
-  private syncRulesId?: number;
-  private syncRulesContent?: storage.PersistedSyncRulesContent;
+  private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
+  private syncRulesContent?: storage.PersistedSyncConfigContent;
   public storage?: SyncRulesBucketStorage;
 
   /**
@@ -65,17 +66,9 @@ export class ChangeStreamTestContext {
     }
 
     const storageVersion = options?.storageVersion ?? LEGACY_STORAGE_VERSION;
-    const versionedBuckets = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false;
     const cosmosDbMode = options?.cosmosDbMode ?? (await detectCosmosDb(connectionManager.db));
 
-    return new ChangeStreamTestContext(
-      f,
-      connectionManager,
-      options?.streamOptions,
-      storageVersion,
-      versionedBuckets,
-      cosmosDbMode
-    );
+    return new ChangeStreamTestContext(f, connectionManager, options?.streamOptions, storageVersion, cosmosDbMode);
   }
 
   constructor(
@@ -83,8 +76,8 @@ export class ChangeStreamTestContext {
     public connectionManager: MongoManager,
     private streamOptions: Partial<ChangeStreamOptions> = {},
     private storageVersion: number = LEGACY_STORAGE_VERSION,
-    private versionedBuckets: boolean = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false,
     private cosmosDbMode: boolean = false
+
   ) {
     createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
     initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
@@ -93,13 +86,13 @@ export class ChangeStreamTestContext {
   /**
    * Abort snapshot and/or replication, without actively closing connections.
    */
-  abort() {
-    this.abortController.abort();
+  abort(cause?: Error) {
+    this.abortController.abort(cause);
   }
 
   async dispose() {
-    this.abort();
-    await this.streamPromise?.catch((e) => e);
+    this.abort(new Error('Disposing test context'));
+    await this.settledReplicationPromise;
     await this.factory[Symbol.asyncDispose]();
     await this.connectionManager.end();
   }
@@ -121,42 +114,39 @@ export class ChangeStreamTestContext {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules(
+    const replicationStream = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
     );
-    this.syncRulesId = syncRules.id;
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = replicationStream.syncConfigContent[0];
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
   async loadNextSyncRules() {
-    const syncRules = await this.factory.getNextSyncRulesContent();
-    if (syncRules == null) {
-      throw new Error(`Next sync rules not available`);
+    const syncConfig = await this.factory.getDeployingSyncConfig();
+    if (syncConfig == null) {
+      throw new Error(`Next sync config not available`);
     }
 
-    this.syncRulesId = syncRules.id;
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = syncConfig.content;
+    this.storage = syncConfig.storage;
     return this.storage!;
   }
 
   async loadActiveSyncRules() {
-    const syncRules = await this.factory.getActiveSyncRulesContent();
-    if (syncRules == null) {
-      throw new Error(`Active sync rules not found`);
+    const syncConfig = await this.factory.getActiveSyncConfig();
+    if (syncConfig == null) {
+      throw new Error(`Active sync config not found`);
     }
 
-    this.syncRulesId = syncRules.id;
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = syncConfig.content;
+    this.storage = syncConfig.storage;
     return this.storage!;
   }
 
-  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+  private getSyncConfigContent(): storage.PersistedSyncConfigContent {
     if (this.syncRulesContent == null) {
-      throw new Error('Sync rules not configured - call updateSyncRules() first');
+      throw new Error('Sync config not configured - call updateSyncRules() first');
     }
     return this.syncRulesContent;
   }
@@ -177,14 +167,25 @@ export class ChangeStreamTestContext {
       // a long time to abort the stream.
       maxAwaitTimeMS: this.streamOptions?.maxAwaitTimeMS ?? 200,
       snapshotChunkLength: this.streamOptions?.snapshotChunkLength,
-      keepaliveIntervalMs: this.streamOptions?.keepaliveIntervalMs
+      keepaliveIntervalMs: this.streamOptions?.keepaliveIntervalMs,
+      storageHooks: this.streamOptions?.storageHooks,
+      snapshotHooks: this.streamOptions?.snapshotHooks,
+      logger: this.streamOptions?.logger
     };
     this._walStream = new ChangeStream(options);
     return this._walStream!;
   }
 
   async replicateSnapshot() {
-    await this.streamer.initReplication();
+    this.settledReplicationPromise ??= settledPromise(this.streamer.replicate());
+    try {
+      await Promise.race([unsettledPromise(this.settledReplicationPromise), this.streamer.waitForInitialSnapshot()]);
+    } catch (e) {
+      if (e instanceof ReplicationAbortedError && e.cause != null) {
+        throw e.cause;
+      }
+      throw e;
+    }
   }
 
   /**
@@ -219,25 +220,14 @@ export class ChangeStreamTestContext {
   }
 
   startStreaming() {
-    this.streamPromise = this.streamer
-      .streamChanges()
-      .then(() => ({ status: 'fulfilled', value: undefined }) satisfies PromiseFulfilledResult<void>)
-      .catch((reason) => ({ status: 'rejected', reason }) satisfies PromiseRejectedResult);
-    return this.streamPromise;
+    this.settledReplicationPromise ??= settledPromise(this.streamer.replicate());
+    return this.settledReplicationPromise;
   }
 
   async getCheckpoint(options?: { timeout?: number }) {
     let checkpoint = await Promise.race([
-      getClientCheckpoint(this.client, this.db, this.factory, {
-        timeout: options?.timeout ?? 15_000,
-        cosmosDbMode: this.cosmosDbMode,
-        storage: this.storage
-      }),
-      this.streamPromise?.then((e) => {
-        if (e.status == 'rejected') {
-          throw e.reason;
-        }
-      })
+      getClientCheckpoint(this.client, this.db, this.factory, { timeout: options?.timeout ?? 15_000 }),
+      this.settledReplicationPromise == null ? undefined : unsettledPromise(this.settledReplicationPromise)
     ]);
     if (checkpoint == null) {
       // This indicates an issue with the test setup - streamingPromise completed instead
@@ -249,8 +239,8 @@ export class ChangeStreamTestContext {
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.getSyncRulesContent();
-    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
+    const syncConfigContent = this.getSyncConfigContent();
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncConfigContent, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -277,8 +267,8 @@ export class ChangeStreamTestContext {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const syncRules = this.getSyncRulesContent();
-    let map = [bucketRequest(syncRules, bucket, start)];
+    const syncConfigContent = this.getSyncConfigContent();
+    let map = [bucketRequest(syncConfigContent, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
@@ -288,15 +278,15 @@ export class ChangeStreamTestContext {
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map = [bucketRequest(syncRules, bucket, BigInt(batches[0]!.chunkData.next_after))];
+      map = [bucketRequest(syncConfigContent, bucket, BigInt(batches[0]!.chunkData.next_after))];
     }
     return data;
   }
 
   async getChecksums(buckets: string[], options?: { timeout?: number }): Promise<utils.ChecksumMap> {
     let checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.getSyncRulesContent();
-    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncRules, bucket, 0n));
+    const syncConfigContent = this.getSyncConfigContent();
+    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncConfigContent, bucket, 0n));
     const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
 
     const unversioned: utils.ChecksumMap = new Map();
@@ -337,7 +327,7 @@ export async function getClientCheckpoint(
   let lastCp: ReplicationCheckpoint | null = null;
 
   while (Date.now() - start < timeout) {
-    const storage = options?.storage ?? (await storageFactory.getActiveStorage());
+    const storage = (await storageFactory.getActiveSyncConfig())?.storage;
     const cp = await storage?.getCheckpoint();
     if (cp != null) {
       lastCp = cp;

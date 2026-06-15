@@ -20,7 +20,7 @@ import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './uti
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
   private abortController = new AbortController();
-  private syncRulesContent?: storage.PersistedSyncRulesContent;
+  private syncRulesContent?: storage.PersistedSyncConfigContent;
   public storage?: SyncRulesBucketStorage;
   private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
 
@@ -89,39 +89,39 @@ export class WalStreamTestContext implements AsyncDisposable {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules(
+    const replicationStream = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
     );
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = replicationStream.syncConfigContent[0];
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
   async loadNextSyncRules() {
-    const syncRules = await this.factory.getNextSyncRulesContent();
-    if (syncRules == null) {
-      throw new Error(`Next sync rules not available`);
+    const syncConfig = await this.factory.getDeployingSyncConfig();
+    if (syncConfig == null) {
+      throw new Error(`Next replication stream not available`);
     }
 
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = syncConfig.content;
+    this.storage = syncConfig.storage;
     return this.storage!;
   }
 
   async loadActiveSyncRules() {
-    const syncRules = await this.factory.getActiveSyncRulesContent();
-    if (syncRules == null) {
-      throw new Error(`Active sync rules not available`);
+    const syncConfig = await this.factory.getActiveSyncConfig();
+    if (syncConfig == null) {
+      throw new Error(`Active replication stream not available`);
     }
 
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = syncConfig.content;
+    this.storage = syncConfig.storage;
     return this.storage!;
   }
 
-  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+  private getSyncConfigContent(): storage.PersistedSyncConfigContent {
     if (this.syncRulesContent == null) {
-      throw new Error('Sync rules not configured - call updateSyncRules() first');
+      throw new Error('Sync config not configured - call updateSyncRules() first');
     }
     return this.syncRulesContent;
   }
@@ -186,7 +186,7 @@ export class WalStreamTestContext implements AsyncDisposable {
   }
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
-    const helpers = new StorageDataHelpers(this.storage!, this.getSyncRulesContent());
+    const helpers = new StorageDataHelpers(this.storage!, this.getSyncConfigContent());
     const checkpoint = await this.getCheckpoint(options);
     return helpers.getBucketsDataBatch(buckets, checkpoint);
   }
@@ -195,15 +195,15 @@ export class WalStreamTestContext implements AsyncDisposable {
    * This waits for a client checkpoint.
    */
   async getBucketData(bucket: string, start?: InternalOpId | string | undefined, options?: { timeout?: number }) {
-    const helpers = new StorageDataHelpers(this.storage!, this.getSyncRulesContent());
+    const helpers = new StorageDataHelpers(this.storage!, this.getSyncConfigContent());
     const checkpoint = await this.getCheckpoint(options);
     return helpers.getBucketData(bucket, checkpoint, start);
   }
 
   async getChecksums(buckets: string[], options?: { timeout?: number }) {
     const checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.getSyncRulesContent();
-    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncRules, bucket, 0n));
+    const syncConfigContent = this.getSyncConfigContent();
+    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncConfigContent, bucket, 0n));
     const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
 
     const unversioned = new Map();
@@ -227,12 +227,36 @@ export class WalStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const syncRules = this.getSyncRulesContent();
+    const syncConfigContent = this.getSyncConfigContent();
     const { checkpoint } = await this.storage!.getCheckpoint();
-    const map = [bucketRequest(syncRules, bucket, start)];
+    const map = [bucketRequest(syncConfigContent, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];
+  }
+
+  /**
+   * Get resolved tables for testing table-level configuration.
+   *
+   * There is no "list all tables" storage method, so we re-run the same resolution the WAL stream
+   * does during the initial snapshot: for every source-table pattern, read the relation (including
+   * its replica identity) from Postgres and resolve it via a writer. Resolution is idempotent, so
+   * this returns the persisted SourceTable for each table, with the computed `storeCurrentData`.
+   */
+  async getResolvedTables(): Promise<storage.SourceTable[]> {
+    if (this.storage == null) {
+      throw new Error('updateSyncRules() first');
+    }
+    const db = await this.connectionManager.snapshotConnection();
+    // Release the backend per call - the connection manager otherwise holds it until dispose.
+    await using _ = { [Symbol.asyncDispose]: () => db.end() };
+    await using writer = await this.storage.createWriter(test_utils.BATCH_OPTIONS);
+    const result: storage.SourceTable[] = [];
+    for (const tablePattern of this.walStream.sync_rules.getSourceTables()) {
+      const tables = await this.walStream.getQualifiedTableNames(writer, db, tablePattern);
+      result.push(...tables);
+    }
+    return result;
   }
 }
 

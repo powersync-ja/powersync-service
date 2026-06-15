@@ -1,5 +1,71 @@
 # @powersync/service-core
 
+## 1.22.0
+
+### Minor Changes
+
+- e2bf1ad: [Internal] rework resolveTables to handle multiple SourceTables.
+- 92cc83b: Add the experimental `unstable_sqlite_expression_engine` sync config option to evaluate Sync Streams with SQLite.
+- 15e2466: [MongoDB] Support snapshotting concurrently with streaming in storage v3+.
+- ebeaa3b: [Postgres] Skip storing a redundant copy of replicated rows in `current_data` for tables with `REPLICA IDENTITY FULL`.
+
+### Patch Changes
+
+- 17fd96b: Fix duration logs for "Processing batch"
+- 6e2a57e: Refactor HydratedSyncConfig to support multiple SyncConfigs.
+- ec6df9f: Add a custom Fastify error handler so uncaught errors honour the negotiated `Content-Encoding` (gzip/zstd) instead of returning a header that doesn't match the body.
+- 99d33d5: Normalize socket addresses to bare hostnames before IP-range validation, so direct-IP literals with any port form are recognized as IPs.
+- b116857: Resolve `!env` tags when the test client parses `powersync.yaml`, and add an optional `--env <path>` flag to load a `.env` file first.
+- Updated dependencies [6e2a57e]
+- Updated dependencies [99d33d5]
+- Updated dependencies [cae92ce]
+- Updated dependencies [5ac5345]
+- Updated dependencies [15cb880]
+- Updated dependencies [f2f5086]
+- Updated dependencies [5b1b215]
+- Updated dependencies [e2bf1ad]
+- Updated dependencies [92cc83b]
+- Updated dependencies [0aab0f9]
+- Updated dependencies [a94b6c3]
+  - @powersync/service-sync-rules@0.37.0
+  - @powersync/lib-services-framework@0.9.5
+  - @powersync/service-rsocket-router@0.2.21
+
+## 1.21.0
+
+### Minor Changes
+
+- 01c29c3: Avoid parameter results loaded from bucket storage exceeding the configured limit.
+- 6304a21: Fail early if too many parameters are requested at once.
+
+### Patch Changes
+
+- f20f318: Upgrade dependencies.
+- 9add445: Fix initSlot phase detection for snapshot failures requiring operator intervention and add WAL budget warnings to diagnostics API.
+- ad9ea06: Fix typo to allow P-521 EC curves in JWKs.
+- 8afe719: When querying parameter rows, track which lookups resulted in which rows.
+- cdb8993: Add `config.storage_version` configuration option.
+- 7c7b525: [MongoDB] Log replication timing info per batch
+- 040fffd: Improve consistency of logs and error messages
+- 2b19fc3: Update first-party uuid dependencies to v14.
+- Updated dependencies [f20f318]
+- Updated dependencies [17503d1]
+- Updated dependencies [ad9ea06]
+- Updated dependencies [01c29c3]
+- Updated dependencies [8afe719]
+- Updated dependencies [b8f0195]
+- Updated dependencies [cdb8993]
+- Updated dependencies [824e229]
+- Updated dependencies [040fffd]
+- Updated dependencies [9e474d3]
+- Updated dependencies [423822c]
+- Updated dependencies [2b19fc3]
+  - @powersync/service-sync-rules@0.36.0
+  - @powersync/lib-services-framework@0.9.4
+  - @powersync/service-types@0.15.2
+  - @powersync/service-jsonbig@0.17.13
+  - @powersync/service-rsocket-router@0.2.20
+
 ## 1.20.5
 
 ### Patch Changes

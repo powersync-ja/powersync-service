@@ -93,4 +93,24 @@ describe('scalarStatementToSql', () => {
       })
     ).toStrictEqual(`SELECT "tbl_0"."value" FROM "json_each"(?1) AS "tbl_0" WHERE "foo"("tbl_0"."key")`);
   });
+
+  test('preserves right-nested binary expression precedence', () => {
+    const stmt = scalarStatementToSql({
+      outputs: [
+        {
+          type: 'binary',
+          left: { type: 'data', source: 1 },
+          operator: '-',
+          right: {
+            type: 'binary',
+            left: { type: 'data', source: 2 },
+            operator: '-',
+            right: { type: 'data', source: 3 }
+          }
+        }
+      ]
+    });
+
+    expect(stmt).toStrictEqual('SELECT ?1 - (?2 - ?3)');
+  });
 });

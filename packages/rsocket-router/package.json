@@ -1,7 +1,7 @@
 {
   "name": "@powersync/service-rsocket-router",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.2.19",
+  "version": "0.2.21",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "license": "FSL-1.1-ALv2",
@@ -21,7 +21,7 @@
     "@powersync/lib-services-framework": "workspace:*",
     "rsocket-core": "1.0.0-alpha.3",
     "ts-codec": "^1.3.0",
-    "uuid": "^11.1.0",
+    "uuid": "catalog:",
     "ws": "^8.17.0"
   },
   "devDependencies": {

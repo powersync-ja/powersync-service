@@ -17,7 +17,7 @@ export class ChangeStreamReplicator extends replication.AbstractReplicator<Chang
 
   createJob(options: replication.CreateJobOptions): ChangeStreamReplicationJob {
     return new ChangeStreamReplicationJob({
-      id: this.createJobId(options.storage.group_id),
+      id: this.createJobId(options.storage.replicationStreamId),
       storage: options.storage,
       metrics: this.metrics,
       connectionFactory: this.connectionFactory,

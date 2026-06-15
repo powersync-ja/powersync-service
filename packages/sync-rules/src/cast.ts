@@ -101,23 +101,25 @@ export function cast(value: SqliteValue, to: string) {
 }
 
 function parseNumeric(text: string): bigint | number {
-  const match = /^\s*(\d+)(\.\d*)?(e[+\-]?\d+)?/i.exec(text);
+  const match = /^\s*([+\-]?)(?:(\d+)(\.\d*)?|\.(\d+))(e[+\-]?\d+)?/i.exec(text);
   if (!match) {
     return 0n;
   }
 
-  if (match[2] != null || match[3] != null) {
+  if (match[3] != null || match[4] != null || match[5] != null) {
     const v = parseFloat(match[0]);
     return isNaN(v) ? 0n : v;
   } else {
-    return BigInt(match[1]);
+    const sign = match[1] == '-' ? '-' : '';
+    return BigInt(`${sign}${match[2]}`);
   }
 }
 
 function parseBigInt(text: string): bigint {
-  const match = /^\s*(\d+)/.exec(text);
+  const match = /^\s*([+\-]?)(\d+)/.exec(text);
   if (!match) {
     return 0n;
   }
-  return BigInt(match[1]);
+  const sign = match[1] == '-' ? '-' : '';
+  return BigInt(`${sign}${match[2]}`);
 }

@@ -5,6 +5,7 @@ import fetch from 'node-fetch';
 import {
   AuthorizationError,
   ErrorCode,
+  hostnameFromSocketAddress,
   LookupOptions,
   makeHostnameLookupFunction,
   ServiceAssertionError,
@@ -140,7 +141,8 @@ export class RemoteJWKSCollector implements KeyCollector {
    */
   resolveAgent(): http.Agent | https.Agent {
     const lookupOptions = this.options?.lookupOptions ?? { reject_ip_ranges: [] };
-    const lookup = makeHostnameLookupFunction(this.url.hostname, lookupOptions);
+    const hostname = hostnameFromSocketAddress(this.url.hostname);
+    const lookup = makeHostnameLookupFunction(hostname, lookupOptions);
 
     const options: http.AgentOptions = {
       lookup

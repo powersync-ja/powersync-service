@@ -5,7 +5,7 @@ import { CreateSourceParams } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
 import { BucketDataSource, BucketParameterQuerierSource, GetQuerierOptions, resolvedBucket } from './index.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
 import { TablePattern } from './TablePattern.js';
@@ -171,7 +171,7 @@ export class StaticSqlParameterQuery {
     return new Set<TablePattern>();
   }
 
-  tableSyncsParameters(_table: SourceTableInterface): boolean {
+  tableSyncsParameters(_table: SourceTableRef): boolean {
     return false;
   }
 

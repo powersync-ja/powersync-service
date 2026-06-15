@@ -1,7 +1,6 @@
 import { SyncConfig } from '../../SyncConfig.js';
 import { CompatibilityContext } from '../../compatibility.js';
 import { SqlEventDescriptor } from '../../index.js';
-import { ScalarExpressionEngine } from '../engine/scalar_expression_engine.js';
 import * as plan from '../plan.js';
 import { PreparedStreamBucketDataSource } from './bucket_data_source.js';
 import { StreamBucketSource, StreamInput } from './bucket_source.js';
@@ -9,8 +8,6 @@ import { PreparedParameterIndexLookupCreator } from './parameter_index_lookup_cr
 
 export interface StreamEvaluationContext {
   defaultSchema: string;
-  engine: ScalarExpressionEngine;
-
   /**
    * Source contents that were used to compile the sync plan.
    *

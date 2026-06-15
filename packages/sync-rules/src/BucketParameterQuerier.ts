@@ -76,7 +76,18 @@ export interface PendingQueriers {
 }
 
 export interface ParameterLookupSource {
-  getParameterSets: (lookups: ScopedParameterLookup[]) => Promise<SqliteJsonRow[]>;
+  getParameterSets: (lookups: ScopedParameterLookup[], debugDefinition: string) => Promise<ParameterLookupRows[]>;
+}
+
+export interface ParameterLookupRows {
+  /**
+   * A lookup passed to {@link ParameterLookupSource.getParameterSets}.
+   */
+  lookup: ScopedParameterLookup;
+  /**
+   * Rows returned from the {@link lookup}.
+   */
+  rows: SqliteJsonRow[];
 }
 
 export interface QueryBucketDescriptorOptions extends ParameterLookupSource {

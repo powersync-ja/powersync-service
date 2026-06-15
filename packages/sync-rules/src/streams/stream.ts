@@ -1,6 +1,7 @@
 import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
 import {
+  BucketDataEvaluator,
   BucketDataSource,
   BucketParameterQuerierSource,
   BucketSource,
@@ -10,7 +11,7 @@ import {
   ParameterIndexLookupCreator
 } from '../BucketSource.js';
 import { ColumnDefinition } from '../ExpressionType.js';
-import { SourceTableInterface } from '../SourceTableInterface.js';
+import { SourceTableRef } from '../SourceTableRef.js';
 import { TablePattern } from '../TablePattern.js';
 import { EvaluateRowOptions, SourceSchema, TableRow, UnscopedEvaluationResult } from '../types.js';
 import { StreamVariant } from './variant.js';
@@ -78,7 +79,7 @@ export class SyncStream implements BucketSource {
   }
 }
 
-export class SyncStreamDataSource implements BucketDataSource {
+export class SyncStreamDataSource implements BucketDataSource, BucketDataEvaluator {
   constructor(
     private stream: SyncStream,
     private data: BaseSqlDataQuery,
@@ -100,7 +101,7 @@ export class SyncStreamDataSource implements BucketDataSource {
     return new Set<TablePattern>([this.data.sourceTable]);
   }
 
-  tableSyncsData(table: SourceTableInterface): boolean {
+  tableSyncsData(table: SourceTableRef): boolean {
     return this.data.applies(table);
   }
 
@@ -115,6 +116,10 @@ export class SyncStreamDataSource implements BucketDataSource {
     };
 
     result[this.data.table!.sqlName].push(r);
+  }
+
+  createEvaluator(): BucketDataEvaluator {
+    return this;
   }
 
   evaluateRow(options: EvaluateRowOptions): UnscopedEvaluationResult[] {

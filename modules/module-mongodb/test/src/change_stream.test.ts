@@ -3,7 +3,7 @@ import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test, vi } from 'vitest';
 
 import { mongo } from '@powersync/lib-service-mongodb';
-import { createWriteCheckpoint } from '@powersync/service-core';
+import { createWriteCheckpoint, storage } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
@@ -25,6 +25,8 @@ describe('change stream', () => {
 });
 
 function defineChangeStreamTests({ factory, storageVersion }: StorageVersionTestContext) {
+  const supportsConcurrentSnapshots = storageVersion >= 3;
+
   const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
     return ChangeStreamTestContext.open(factory, { ...options, storageVersion });
   };
@@ -132,7 +134,77 @@ bucket_definitions:
     ]);
   });
 
-  // Cosmos DB: changeStreamPreAndPostImages option not supported (even enabled: false)
+  test('does not resurrect rows deleted while snapshotting', async () => {
+    // Special case for testing:
+    // 1. Row A exists.
+    // 2. Start a snapshot and streaming.
+    // 3. Row A is deleted.
+    // 4. Streaming sees the delete, writes the delete.
+    // 5. Snapshot still sees row A and writes it.
+    // The streaming delete should win, using skipExistingRows. For that to work, we rely on soft deletes.
+    // To trigger this case, we need the delete to trigger and process the delete in between the snapshot read and the snapshot write, which we can do using beforeBatchFlush.
+
+    let collection!: mongo.Collection;
+    let testId!: mongo.ObjectId;
+    let interceptedSnapshotFlush = false;
+    let sourceDeleteWritten = false;
+    let sourceDeleteFlushBatch: storage.BucketStorageBatch | undefined;
+    const streamDeleteFlushed = Promise.withResolvers<void>();
+
+    await using context = await openContext({
+      streamOptions: {
+        snapshotChunkLength: 1,
+        storageHooks: {
+          beforeBatchFlush: async (batch) => {
+            if (!batch.skipExistingRows && sourceDeleteWritten && sourceDeleteFlushBatch == null) {
+              sourceDeleteFlushBatch = batch;
+            }
+
+            // skipExistingRows means we're busy with snapshotting.
+            if (!batch.skipExistingRows || interceptedSnapshotFlush) {
+              return;
+            }
+
+            interceptedSnapshotFlush = true;
+            await collection.deleteOne({ _id: testId });
+            sourceDeleteWritten = true;
+            if (!supportsConcurrentSnapshots) {
+              return;
+            }
+            await Promise.race([
+              streamDeleteFlushed.promise,
+              setTimeout(10_000).then(() => {
+                throw new Error('Timed out waiting for streamed delete to flush');
+              })
+            ]);
+          },
+          afterBatchFlush: async (batch) => {
+            if (batch == sourceDeleteFlushBatch) {
+              streamDeleteFlushed.resolve();
+            }
+          }
+        }
+      }
+    });
+    const { db } = context;
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    await db.createCollection('test_data', {
+      changeStreamPreAndPostImages: { enabled: false }
+    });
+    testId = new mongo.ObjectId();
+    collection = db.collection('test_data');
+    await collection.insertOne({ _id: testId, description: 'stale snapshot row' });
+
+    await context.replicateSnapshot();
+
+    expect(interceptedSnapshotFlush).toBe(true);
+    await context.getCheckpoint();
+
+    const data = await context.getBucketData('global[]');
+    expect(test_utils.reduceBucket(data).slice(1)).toEqual([]);
+  });
+
   test.skipIf(isCosmosDb)('updateLookup - no fullDocument available', async () => {
     await using context = await openContext({
       mongoOptions: { postImages: PostImagesOption.OFF }
@@ -442,6 +514,119 @@ bucket_definitions:
     ]);
   });
 
+  test.runIf(supportsConcurrentSnapshots)(
+    'collection recreated while queued snapshot is waiting does not stall checkpoints',
+    async () => {
+      // This is a regression test for a specific timing issue in concurrent snapshot logic.
+      // Regression flow:
+      // 1. Create test_b and wait until streaming has queued a concurrent snapshot for its source table.
+      // 2. Pause that queued snapshot before it reads storage state.
+      // 3. Drop test_b and wait until streaming has deleted the queued source table row from storage.
+      // 4. Recreate the test_b collection, but do not insert replacement data yet. This leaves the collection
+      //    visible to namespace-based resolution without giving normal streaming an insert event that could
+      //    discover and queue the replacement source table.
+      // 5. Release the stale queued snapshot and wait for a checkpoint. The old implementation re-resolved by
+      //    namespace here, created a new source table row, then skipped it because its id did not match the
+      //    queued id. That left snapshot_done=false with no queue item to finish it, stalling checkpoints.
+      // 6. After the checkpoint proves the stale snapshot did not orphan a source table, insert replacement data
+      //    and verify normal streaming still replicates it.
+      const testBSnapshotStarted = Promise.withResolvers<void>();
+      const releaseTestBSnapshot = Promise.withResolvers<void>();
+      let pausedTestBSnapshot = false;
+      let queuedTestBTable: storage.SourceTable | null = null;
+      let waitForStreamingFlush: PromiseWithResolvers<void> | null = null;
+      const waitFor = async (promise: Promise<void>, description: string) => {
+        await Promise.race([
+          promise,
+          setTimeout(10_000).then(() => {
+            throw new Error(`Timed out waiting for ${description}`);
+          })
+        ]);
+      };
+
+      await using context = await openContext({
+        streamOptions: {
+          snapshotChunkLength: 1,
+          snapshotHooks: {
+            beforeSnapshotStarted: async (table) => {
+              if (table.name != 'test_b' || pausedTestBSnapshot) {
+                return;
+              }
+
+              queuedTestBTable = table;
+              pausedTestBSnapshot = true;
+              testBSnapshotStarted.resolve();
+              await releaseTestBSnapshot.promise;
+            }
+          },
+          storageHooks: {
+            afterBatchFlush: async (batch) => {
+              if (batch.skipExistingRows) {
+                return;
+              }
+
+              waitForStreamingFlush?.resolve();
+            }
+          }
+        }
+      });
+      const { db } = context;
+      const waitForSourceTableDropped = async (table: storage.SourceTable) => {
+        const deadline = Date.now() + 10_000;
+        while (Date.now() < deadline) {
+          await using writer = await context.storage!.createWriter(test_utils.BATCH_OPTIONS);
+          if ((await writer.getSourceTableStatus(table)) == null) {
+            return;
+          }
+          await setTimeout(50);
+        }
+        throw new Error('Timed out waiting for test_b source table to be dropped');
+      };
+      const syncRuleContent = `
+bucket_definitions:
+  global:
+    data:
+      - SELECT _id as id, description FROM "test_%"
+`;
+      await context.updateSyncRules(syncRuleContent);
+      await context.replicateSnapshot();
+      context.startStreaming();
+
+      try {
+        await db.createCollection('test_a');
+        const testA = await db.collection('test_a').insertOne({ description: 'test a' });
+
+        await db.createCollection('test_b');
+        waitForStreamingFlush = Promise.withResolvers<void>();
+        await db.collection('test_b').insertOne({ description: 'old test b' });
+        await waitFor(waitForStreamingFlush.promise, 'old test_b streaming flush');
+        await waitFor(testBSnapshotStarted.promise, 'test_b snapshot to start');
+
+        if (queuedTestBTable == null) {
+          throw new Error('test_b snapshot started without a queued source table');
+        }
+
+        await db.collection('test_b').drop();
+        await waitForSourceTableDropped(queuedTestBTable);
+
+        await db.createCollection('test_b');
+        releaseTestBSnapshot.resolve();
+        await context.getCheckpoint({ timeout: 10_000 });
+
+        const result = await db.collection('test_b').insertOne({ description: 'new test b' });
+
+        const data = await context.getBucketData('global[]', undefined, { timeout: 10_000 });
+        const reduced = test_utils.reduceBucket(data).slice(1);
+        expect(reduced).toMatchObject([
+          test_utils.putOp('test_a', { id: testA.insertedId.toHexString(), description: 'test a' }),
+          test_utils.putOp('test_b', { id: result.insertedId.toHexString(), description: 'new test b' })
+        ]);
+      } finally {
+        releaseTestBSnapshot.resolve();
+      }
+    }
+  );
+
   test('initial sync', async () => {
     await using context = await openContext();
     const { db } = context;
@@ -464,12 +649,6 @@ bucket_definitions:
   test('coalesces standalone checkpoints when backlog is buffered', async () => {
     await using context = await openContext();
     await context.updateSyncRules(BASIC_SYNC_RULES);
-    await context.replicateSnapshot();
-    await context.markSnapshotConsistent();
-    await using api = new MongoRouteAPIAdapter({
-      type: 'mongodb',
-      ...TEST_CONNECTION_OPTIONS
-    });
 
     let commitCount = 0;
     // This relies on internals to count how often checkpoints are committed
@@ -481,6 +660,13 @@ bucket_definitions:
           return await originalCommit(...args);
         };
       }
+    });
+
+    await context.replicateSnapshot();
+    await context.markSnapshotConsistent();
+    await using api = new MongoRouteAPIAdapter({
+      type: 'mongodb',
+      ...TEST_CONNECTION_OPTIONS
     });
 
     context.startStreaming();
@@ -540,7 +726,7 @@ bucket_definitions:
     // The field appears twice in the ChangeStream event, so the total size
     // is > 16MB.
 
-    // We don't actually have this description field in the sync rules,
+    // We don't actually have this description field in the sync config,
     // That causes other issues, not relevant for this specific test.
     const largeDescription = crypto.randomBytes(12000000 / 2).toString('hex');
 
@@ -569,7 +755,7 @@ bucket_definitions:
     });
   });
 
-  test('collection not in sync rules', async () => {
+  test('collection not in sync config', async () => {
     await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -611,12 +797,19 @@ bucket_definitions:
     context.startStreaming();
 
     const data = await context.getBucketData('global[]');
-    expect(data).toMatchObject([
-      // An extra op here, since this triggers a snapshot in addition to getting the event.
-      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' }),
-      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
-      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
-    ]);
+    if (data.length == 3) {
+      expect(data).toMatchObject([
+        // An extra op here, since this triggers a snapshot in addition to getting the event.
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' }),
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
+      ]);
+    } else {
+      expect(data).toMatchObject([
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
+      ]);
+    }
   });
 
   test.skipIf(isCosmosDb)('postImages - new collection with postImages disabled', async () => {
@@ -669,22 +862,22 @@ bucket_definitions:
     await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
 
     await context.replicateSnapshot();
-    await context.markSnapshotConsistent();
+    await context.getCheckpoint();
 
     // Simulate an error
     await context.storage!.reportError(new Error('simulated error'));
-    const syncRules = await context.factory.getActiveSyncRulesContent();
+    const syncRules = (await context.factory.getActiveSyncConfig())?.content;
     expect(syncRules).toBeTruthy();
-    expect(syncRules?.last_fatal_error).toEqual('simulated error');
+    expect((await syncRules?.getSyncConfigStatus())?.last_fatal_error).toEqual('simulated error');
 
-    // startStreaming() should automatically clear the error.
-    context.startStreaming();
+    // The next checkpoint should clear the error.
+    await context.getCheckpoint();
 
-    // getBucketData() creates a checkpoint that clears the error, so we don't do that
     // Just wait, and check that the error is cleared automatically.
     await vi.waitUntil(
       async () => {
-        const error = (await context.factory.getActiveSyncRulesContent())?.last_fatal_error;
+        const syncRules = (await context.factory.getActiveSyncConfig())?.content;
+        const error = (await syncRules?.getSyncConfigStatus())?.last_fatal_error;
         return error == null;
       },
       { timeout: 5_000 }

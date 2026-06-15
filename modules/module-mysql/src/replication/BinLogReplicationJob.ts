@@ -1,4 +1,4 @@
-import { container, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { container } from '@powersync/lib-services-framework';
 import { POWERSYNC_VERSION, replication } from '@powersync/service-core';
 import { BinLogStream } from './BinLogStream.js';
 import { MySQLConnectionManagerFactory } from './MySQLConnectionManagerFactory.js';
@@ -13,12 +13,12 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
 
   constructor(options: BinLogReplicationJobOptions) {
     super(options);
-    this.logger = defaultLogger.child({ prefix: `[powersync_${this.options.storage.group_id}] ` });
+    this.logger = options.storage.logger;
     this.connectionFactory = options.connectionFactory;
   }
 
-  get slot_name() {
-    return this.options.storage.slot_name;
+  get replicationStreamName() {
+    return this.options.storage.replicationStreamName;
   }
 
   async keepAlive() {
@@ -37,7 +37,7 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
         // Report the error if relevant, before retrying
         container.reporter.captureException(e, {
           metadata: {
-            replication_slot: this.slot_name
+            replication_slot: this.replicationStreamName
           }
         });
         // This sets the retry delay

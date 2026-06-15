@@ -1,22 +1,22 @@
 import { storage } from '@powersync/service-core';
 import {
   ParameterIndexLookupCreator,
-  SourceTableInterface,
-  SqliteRow,
+  ParameterLookupDefinitionId,
+  ParameterLookupScope,
+  SourceTableRef,
   TablePattern
 } from '@powersync/service-sync-rules';
-import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 import { bucketRequest } from '../test-utils/general-utils.js';
 
 export function bucketRequestMap(
-  syncRules: storage.PersistedSyncRulesContent,
+  syncRules: storage.PersistedSyncConfigContent,
   buckets: Iterable<readonly [string, bigint]>
 ): storage.BucketDataRequest[] {
   return Array.from(buckets, ([bucketName, opId]) => bucketRequest(syncRules, bucketName, opId));
 }
 
 export function bucketRequests(
-  syncRules: storage.PersistedSyncRulesContent,
+  syncRules: storage.PersistedSyncConfigContent,
   bucketNames: string[]
 ): storage.BucketChecksumRequest[] {
   return bucketNames.map((bucketName) => {
@@ -26,20 +26,23 @@ export function bucketRequests(
 }
 
 const EMPTY_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
-  get defaultLookupScope(): ParameterLookupScope {
+  get sourceId(): ParameterLookupDefinitionId {
     return {
       lookupName: 'lookup',
-      queryId: '0',
-      source: EMPTY_LOOKUP_SOURCE
+      queryId: '0'
     };
   },
   getSourceTables(): Set<TablePattern> {
     return new Set();
   },
-  evaluateParameterRow(_sourceTable: SourceTableInterface, _row: SqliteRow) {
-    return [];
+  createEvaluator(input) {
+    return {
+      evaluateParameterRow(sourceTable, row) {
+        return [];
+      }
+    };
   },
-  tableSyncsParameters(_table: SourceTableInterface): boolean {
+  tableSyncsParameters(_table: SourceTableRef): boolean {
     return false;
   }
 };

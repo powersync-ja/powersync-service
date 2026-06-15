@@ -1,5 +1,5 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import { BucketPriority, HydratedSyncRules, ResolvedBucket, SqliteJsonValue } from '@powersync/service-sync-rules';
+import { BucketPriority, HydratedSyncConfig, ResolvedBucket, SqliteJsonValue } from '@powersync/service-sync-rules';
 
 import { AbortError } from 'ix/aborterror.js';
 
@@ -17,7 +17,7 @@ import { TokenStreamOptions, acquireSemaphoreAbortable, settledPromise, tokenStr
 export interface SyncStreamParameters {
   syncContext: SyncContext;
   bucketStorage: storage.SyncRulesBucketStorage;
-  syncRules: HydratedSyncRules;
+  syncRules: HydratedSyncConfig;
   params: util.StreamingSyncRequest;
   token: auth.JwtPayload;
   logger?: Logger;
@@ -94,7 +94,7 @@ export async function* streamResponse(
 async function* streamResponseInner(
   syncContext: SyncContext,
   bucketStorage: storage.SyncRulesBucketStorage,
-  syncRules: HydratedSyncRules,
+  syncRules: HydratedSyncConfig,
   params: util.StreamingSyncRequest,
   tokenPayload: auth.JwtPayload,
   tracker: RequestTracker,
@@ -267,7 +267,7 @@ interface BucketDataRequest {
    * This signal also fires when abort_connection fires.
    */
   abort_batch: AbortSignal;
-  /** User id for debug purposes, not for sync rules. */
+  /** User id for debug purposes, not for sync config. */
   userIdForLogs?: SqliteJsonValue;
   forPriority: BucketPriority | null;
   onRowsSent: (stats: OperationsSentStats) => void;

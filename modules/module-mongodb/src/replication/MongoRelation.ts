@@ -13,13 +13,16 @@ import {
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
 
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { CosmosDBLSN, normalizeSentinel } from '../common/CosmosDBLSN.js';
 import { MongoLSN } from '../common/MongoLSN.js';
-import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 
-export function getMongoRelation(source: mongo.ChangeStreamNameSpace): storage.SourceEntityDescriptor {
+export function getMongoRelation(
+  source: mongo.ChangeStreamNameSpace,
+  connectionTag: string
+): storage.SourceEntityDescriptor {
   return {
+    connectionTag,
     name: source.coll,
     schema: source.db,
     // Not relevant for MongoDB - we use db + coll name as the identifier
@@ -203,52 +206,70 @@ export async function createCheckpoint(
   id: mongo.ObjectId | string,
   options?: { mode?: 'lsn' | 'sentinel'; globalSentinel?: bigint }
 ): Promise<string> {
-  const mode = options?.mode ?? 'lsn';
-  const session = client.startSession();
-  try {
-    // We use an unique id per process, and clear documents on startup.
-    // This is so that we can filter events for our own process only, and ignore
-    // events from other processes.
-    const result = await db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
-      {
-        _id: id as any
-      },
-      {
-        $inc: { i: 1 },
-        ...(options?.globalSentinel != null
-          ? { $set: { globalSentinel: mongo.Long.fromBigInt(options.globalSentinel) } }
-          : {})
-      },
-      {
-        upsert: true,
-        returnDocument: 'after',
-        session
+  const TRIES = 2;
+  for (let i = 0; i < TRIES; i++) {
+    try {
+      return await createCheckpointInner(client, db, id, options);
+    } catch (e) {
+      if (i < TRIES - 1) {
+        logger.warn(`Failed to create checkpoint on attempt ${i + 1}`, e);
+      } else {
+        throw e;
       }
-    );
-
-    if (mode === 'sentinel') {
-      // Sentinel path: return a marker that the streaming loop matches by
-      // event content. NOT for storage boundaries (lexicographic comparison
-      // would fail — 'sentinel:...' > any hex LSN string).
-      const i = result?.i;
-      return `sentinel:${id}:${i}`;
     }
-
-    // LSN path: return a real LSN for storage comparison.
-    // Use operationTime when available (standard MongoDB).
-    const time = session.operationTime;
-    if (time != null) {
-      return new MongoLSN({ timestamp: time }).comparable;
-    }
-
-    // Wall clock fallback: Cosmos DB does not provide operationTime.
-    // Uses second precision with increment 0, consistent with wallTime-derived
-    // LSNs from getEventTimestamp().
-    const fallbackTimestamp = mongo.Timestamp.fromBits(0, Math.floor(Date.now() / 1000));
-    return new MongoLSN({ timestamp: fallbackTimestamp }).comparable;
-  } finally {
-    await session.endSession();
   }
+  throw new ServiceAssertionError(`Unreachable code`);
+}
+
+async function createCheckpointInner(
+  client: mongo.MongoClient,
+  db: mongo.Db,
+  id: mongo.ObjectId | string,
+  options?: { mode?: 'lsn' | 'sentinel'; globalSentinel?: bigint }
+): Promise<string> {
+  const mode = options?.mode ?? 'lsn';
+  // We use an unique id per process, and clear documents on startup.
+  // This is so that we can filter events for our own process only, and ignore
+  // events from other processes.
+
+  // We use a command instead of a regular update to avoid auto retries on writes.
+  // An auto retry on the write can trigger a weird edge case where the change stream event
+  // has the clusterTime of the first write, while the returned operation time is for the second no-op write.
+  // Instead, we do manual retries, which does not have the same write de-duplication logic.
+  // A sentinal-based approach would be better here, but that is a much bigger change.
+
+  const update: mongo.Document = { $inc: { i: 1 } };
+  if (options?.globalSentinel != null) {
+    // Cosmos DB only: embed the global standalone counter in this stream's
+    // barrier document, so the barrier event is self-describing and does not
+    // depend on the standalone event being delivered first. See the sentinel
+    // implementation in CheckpointImplementation.ts.
+    update.$set = { globalSentinel: mongo.Long.fromBigInt(options.globalSentinel) };
+  }
+
+  const response = await db.command({
+    findAndModify: '_powersync_checkpoints',
+    query: {
+      _id: id as any
+    },
+    new: true,
+    upsert: true,
+    update
+  });
+
+  if (mode === 'sentinel') {
+    // Sentinel path (Cosmos DB): the streaming loop matches this barrier by
+    // document content (id + increment), not by LSN comparison. operationTime
+    // is not available on Cosmos and is not needed here.
+    const i = response.value?.i;
+    return `sentinel:${id}:${i}`;
+  }
+
+  const time = response.operationTime as mongo.Timestamp | undefined;
+  if (time == null) {
+    throw new ServiceError(ErrorCode.PSYNC_S1004, `clusterTime not available for checkpoint`);
+  }
+  return new MongoLSN({ timestamp: time }).comparable;
 }
 
 /**
@@ -265,7 +286,7 @@ export async function createCheckpoint(
 export async function createCosmosCheckpointLsn(client: mongo.MongoClient, db: mongo.Db): Promise<string> {
   const session = client.startSession();
   try {
-    const collection = db.collection(CHECKPOINTS_COLLECTION);
+    const collection = db.collection('_powersync_checkpoints');
 
     for (let attempt = 0; attempt < 3; attempt++) {
       // Common path: increment the existing counter.

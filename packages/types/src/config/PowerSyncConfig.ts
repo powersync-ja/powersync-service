@@ -182,8 +182,8 @@ export const jwkEC = t
         description: 'Key ID, a unique identifier for the key.'
       })
       .optional(),
-    crv: t.literal('P-256').or(t.literal('P-384')).or(t.literal('P-512')).meta({
-      description: 'The cryptographic curve used with this key (P-256, P-384, or P-512).'
+    crv: t.literal('P-256').or(t.literal('P-384')).or(t.literal('P-521')).meta({
+      description: 'The cryptographic curve used with this key (P-256, P-384, or P-521).'
     }),
     x: t.string.meta({
       description: 'The x coordinate for the Elliptic Curve point, Base64 URL encoded.'
@@ -392,8 +392,8 @@ export const powerSyncConfig = t
               .meta({
                 description: dedent`
               Maximum number of buckets for each connection.
-              More buckets increase latency and memory usage. While the actual number is controlled by sync rules,
-              having a hard limit ensures that the service errors instead of crashing when a sync rule is misconfigured.
+              More buckets increase latency and memory usage. While the actual number is controlled by sync config,
+              having a hard limit ensures that the service errors instead of crashing when the sync config is misconfigured.
               Default of 1000.
             `
               })
@@ -520,7 +520,7 @@ export const powerSyncConfig = t
     parameters: t
       .record(t.number.or(t.string).or(t.boolean).or(t.Null))
       .meta({
-        description: 'Global parameters that can be referenced in sync rules and other configurations.'
+        description: 'Global parameters that can be referenced in sync config and other configurations.'
       })
       .optional()
   })

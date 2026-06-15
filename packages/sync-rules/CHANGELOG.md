@@ -1,5 +1,43 @@
 # @powersync/service-sync-rules
 
+## 0.37.0
+
+### Minor Changes
+
+- 6e2a57e: Refactor HydratedSyncConfig to support multiple SyncConfigs.
+- e2bf1ad: [Internal] rework resolveTables to handle multiple SourceTables.
+- 92cc83b: Add the experimental `unstable_sqlite_expression_engine` sync config option to evaluate Sync Streams with SQLite.
+
+### Patch Changes
+
+- cae92ce: Fix the `&&` (overlap) operator on JSON arrays so it correctly tests intersection. Also compares array elements with SQLite affinity so `&&` handles bigint/number mixes consistently.
+- 5ac5345: Validate `iif()` calls with the same three-argument arity used by the sync stream evaluator.
+- 15cb880: Fix SQLite-compatible casts from signed numeric strings in Sync Streams expressions.
+- f2f5086: Fix Sync Streams json_each object and scalar evaluation.
+- 5b1b215: Fix IN / NOT IN against a scalar JSON array so it applies SQLite type for booleans and integers above 2^53
+- 0aab0f9: Fix Sync Streams division by zero semantics
+
+## 0.36.0
+
+### Minor Changes
+
+- 01c29c3: Avoid parameter results loaded from bucket storage exceeding the configured limit.
+- 8afe719: When querying parameter rows, track which lookups resulted in which rows.
+
+### Patch Changes
+
+- f20f318: Upgrade dependencies.
+- 17503d1: Fix miscompilations and compiler crashes when CTEs are referenced multiple times.
+- b8f0195: Emit a warning for unused common table expressions.
+- cdb8993: Add `config.storage_version` configuration option.
+- 824e229: Support multiple references between the same tables as join conditions for Sync Streams (the compiler would previously crash due to an "internal circular reference error").
+- 040fffd: Improve consistency of logs and error messages
+- 9e474d3: Improve error messages when invalid YAML nodes are used where a scalar value is expected.
+- 423822c: Fix incorrect replication of parameter rows contributing multiple parameter instantiations for Sync Streams.
+- 2b19fc3: Update first-party uuid dependencies to v14.
+- Updated dependencies [040fffd]
+  - @powersync/service-jsonbig@0.17.13
+
 ## 0.35.0
 
 ### Minor Changes

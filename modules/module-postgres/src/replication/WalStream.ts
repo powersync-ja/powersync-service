@@ -23,7 +23,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import {
   applyValueContext,
   CompatibilityContext,
-  HydratedSyncRules,
+  HydratedSyncConfig,
   SqliteInputRow,
   SqliteInputValue,
   SqliteRow,
@@ -38,6 +38,7 @@ import { MissingReplicationSlotError } from './MissingReplicationSlotError.js';
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId, referencedColumnTypeIds } from './PgRelation.js';
 import { checkSourceConfiguration, checkTableRls, getReplicationIdentityColumns } from './replication-utils.js';
+import { rquery } from './rquery.js';
 import {
   ChunkedSnapshotQuery,
   IdSnapshotQuery,
@@ -116,7 +117,7 @@ export const sendKeepAlive = async (db: pgwire.PgClient) => {
 };
 
 export class WalStream {
-  sync_rules: HydratedSyncRules;
+  sync_rules: HydratedSyncConfig;
   group_id: number;
 
   connection_id = 1;
@@ -165,8 +166,8 @@ export class WalStream {
     this.storage = options.storage;
     this.metrics = options.metrics;
     this.sync_rules = options.storage.getParsedSyncRules({ defaultSchema: POSTGRES_DEFAULT_SCHEMA });
-    this.group_id = options.storage.group_id;
-    this.slot_name = options.storage.slot_name;
+    this.group_id = options.storage.replicationStreamId;
+    this.slot_name = options.storage.replicationStreamName;
     this.connections = options.connections;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
     this.onSnapshotChunkFlushed = options.onSnapshotChunkFlushed;
@@ -232,7 +233,7 @@ export class WalStream {
         query += ' AND c.relname = $2';
       }
 
-      const result = await db.query({
+      const result = await rquery(db, {
         statement: query,
         params: [
           { type: 'varchar', value: schema },
@@ -256,7 +257,7 @@ export class WalStream {
         continue;
       }
 
-      const rs = await db.query({
+      const rs = await rquery(db, {
         statement: `SELECT 1 FROM pg_publication_tables WHERE pubname = $1 AND schemaname = $2 AND tablename = $3`,
         params: [
           { type: 'varchar', value: PUBLICATION_NAME },
@@ -283,19 +284,22 @@ export class WalStream {
       const cresult = await getReplicationIdentityColumns(db, relid);
 
       const columnTypes = (JSON.parse(row.column_types) as string[]).map((e) => Number(e));
-      const table = await this.handleRelation({
+      const tables = await this.handleRelation({
         batch,
         descriptor: {
-          name,
-          schema,
+          connectionTag: this.connections.connectionTag,
+          name: name,
+          schema: schema,
           objectId: relid,
-          replicaIdColumns: cresult.replicationColumns
-        } as SourceEntityDescriptor,
+          replicaIdColumns: cresult.replicationColumns,
+          // REPLICA IDENTITY FULL is the only identity that always sends the complete row.
+          sendsCompleteRows: cresult.replicationIdentity === 'full'
+        },
         snapshot: false,
         referencedTypeIds: columnTypes
       });
 
-      result.push(table);
+      result.push(...tables);
     }
     return result;
   }
@@ -315,7 +319,7 @@ export class WalStream {
 
     // Check if replication slot exists
     const slot = pgwire.pgwireRows(
-      await this.connections.pool.query({
+      await rquery(this.connections.pool, {
         // We specifically want wal_status and invalidation_reason, but it's not available on older versions,
         // so we just query *.
         statement: 'SELECT * FROM pg_replication_slots WHERE slot_name = $1',
@@ -330,12 +334,12 @@ export class WalStream {
     // errors during streaming replication, which is a little more robust.
 
     // We can have:
-    //   1. needsInitialSync: true, lost slot -> MissingReplicationSlotError (starts new sync rules version).
+    //   1. needsInitialSync: true, lost slot -> MissingReplicationSlotError (starts new replication stream).
     //      Theoretically we could handle this the same as (2).
     //   2. needsInitialSync: true, no slot -> create new slot
     //   3. needsInitialSync: true, valid slot -> resume initial sync
-    //   4. needsInitialSync: false, lost slot -> MissingReplicationSlotError (starts new sync rules version)
-    //   5. needsInitialSync: false, no slot -> MissingReplicationSlotError (starts new sync rules version)
+    //   4. needsInitialSync: false, lost slot -> MissingReplicationSlotError (starts new replication stream)
+    //   5. needsInitialSync: false, no slot -> MissingReplicationSlotError (starts new replication stream)
     //   6. needsInitialSync: false, valid slot -> resume streaming replication
     // The main advantage of MissingReplicationSlotError are:
     // 1. If there was a complete snapshot already (cases 4/5), users can still sync from that snapshot while
@@ -353,12 +357,16 @@ export class WalStream {
         const fixGuidance =
           slot.invalidation_reason === 'idle_timeout'
             ? `Increase idle_replication_slot_timeout on the source database.`
-            : `Increase max_slot_wal_keep_size on the source database.`;
+            : `Increase max_slot_wal_keep_size on the source database and delete the existing slot to recover.`;
         throw new MissingReplicationSlotError(
           `[PSYNC_S1146] Replication slot ${slotName} was invalidated ` +
             `(reason: ${slot.invalidation_reason ?? 'unknown'}). ` +
             `${fixGuidance}`,
-          { walStatus: 'lost', phase: 'streaming', invalidationReason: slot.invalidation_reason ?? undefined }
+          {
+            walStatus: 'lost',
+            phase: snapshotDone ? 'streaming' : 'snapshot',
+            invalidationReason: slot.invalidation_reason ?? undefined
+          }
         );
       }
       // Case 3 / 6
@@ -369,7 +377,7 @@ export class WalStream {
     } else {
       if (snapshotDone) {
         // Case 5
-        // This will create a new slot, while keeping the current sync rules active
+        // This will create a new slot, while keeping the current replication stream active
         throw new MissingReplicationSlotError(`Replication slot ${slotName} is missing`, {
           walStatus: 'missing',
           phase: 'streaming'
@@ -389,7 +397,7 @@ export class WalStream {
 
     try {
       const rows = pgwire.pgwireRows(
-        await this.connections.pool.query({
+        await rquery(this.connections.pool, {
           statement: `SELECT setting, unit FROM pg_settings WHERE name = 'max_slot_wal_keep_size'`
         })
       );
@@ -467,7 +475,7 @@ export class WalStream {
     await this.queryMaxSlotWalKeepSize();
 
     const rows = pgwire.pgwireRows(
-      await this.connections.pool.query({
+      await rquery(this.connections.pool, {
         statement: 'SELECT * FROM pg_replication_slots WHERE slot_name = $1',
         params: [{ type: 'varchar', value: this.slot_name }]
       })
@@ -508,7 +516,7 @@ export class WalStream {
   }
 
   async estimatedCountNumber(db: pgwire.PgConnection, table: storage.SourceTable): Promise<number> {
-    const results = await db.query({
+    const results = await rquery(db, {
       statement: `SELECT reltuples::bigint AS estimate
 FROM   pg_class
 WHERE  oid = $1::regclass`,
@@ -539,14 +547,14 @@ WHERE  oid = $1::regclass`,
       // initial replication where we left off.
       await this.storage.clear({ signal: this.abort_signal });
 
-      await db.query({
+      await rquery(db, {
         statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
         params: [{ type: 'varchar', value: slotName }]
       });
 
       // We use the replication connection here, not a pool.
       // The replication slot must be created before we start snapshotting tables.
-      await replicationConnection.query(`CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput`);
+      await rquery(replicationConnection, `CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput`);
 
       this.logger.info(`Created replication slot ${slotName}`);
     }
@@ -595,10 +603,10 @@ WHERE  oid = $1::regclass`,
 
         // Get the current LSN for the snapshot.
         // We could also use the LSN from the last table snapshot.
-        const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+        const rs = await rquery(db, `select pg_current_wal_lsn() as lsn`);
         const noCommitBefore = rs.rows[0].decodeWithoutCustomTypes(0);
 
-        await batch.markAllSnapshotDone(noCommitBefore);
+        await batch.markSnapshotDone(noCommitBefore);
         await batch.commit(ZERO_LSN);
       }
     );
@@ -608,13 +616,13 @@ WHERE  oid = $1::regclass`,
      * If we don't explicitly check the contents of keepalive messages then a keepalive is detected
      * rather quickly after initial replication - perhaps due to other WAL events.
      * If we do explicitly check the contents of messages, we need an actual keepalive payload in order
-     * to advance the active sync rules LSN.
+     * to advance the active replication stream LSN.
      */
     await sendKeepAlive(db);
 
     const lastOp = flushResults?.flushed_op;
     if (lastOp != null) {
-      // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
+      // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
       await this.storage.populatePersistentChecksumCache({
         // No checkpoint yet, but we do have the opId.
         maxOpId: lastOp,
@@ -651,7 +659,7 @@ WHERE  oid = $1::regclass`,
     // Note: We use the default "Read Committed" isolation level here, not snapshot isolation.
     // The data may change during the transaction, but that is compensated for in the streaming
     // replication afterwards.
-    await db.query('BEGIN');
+    await rquery(db, 'BEGIN');
     try {
       await this.snapshotTable(batch, db, table, limited);
 
@@ -668,15 +676,20 @@ WHERE  oid = $1::regclass`,
       // 1. Complete the snapshot.
       // 2. Wait until logical replication has caught up with all the change between A and B.
       // Calling `markSnapshotDone(LSN B)` covers that.
-      const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+      const rs = await rquery(db, `select pg_current_wal_lsn() as lsn`);
       const tableLsnNotBefore = rs.rows[0].decodeWithoutCustomTypes(0);
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
-      await db.query('COMMIT');
+      await rquery(db, 'COMMIT');
       const [resultTable] = await batch.markTableSnapshotDone([table], tableLsnNotBefore);
       this.relationCache.update(resultTable);
       return resultTable;
     } catch (e) {
-      await db.query('ROLLBACK');
+      try {
+        await rquery(db, 'ROLLBACK');
+      } catch (e) {
+        // Ignore rollback errors after a failed transaction.
+        // If this happens, the connection is not likely recoverable anyway.
+      }
       throw e;
     }
   }
@@ -808,14 +821,11 @@ WHERE  oid = $1::regclass`,
     if (!descriptor.objectId && typeof descriptor.objectId != 'number') {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof descriptor.objectId}`);
     }
-    const result = await this.storage.resolveTable({
-      group_id: this.group_id,
+    const result = await batch.resolveTables({
       connection_id: this.connection_id,
-      connection_tag: this.connections.connectionTag,
-      entity_descriptor: descriptor,
-      sync_rules: this.sync_rules
+      source: descriptor
     });
-    this.relationCache.update(result.table);
+    this.relationCache.updateAll(descriptor.objectId as number, result.tables);
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(result.dropTables);
@@ -826,29 +836,32 @@ WHERE  oid = $1::regclass`,
     // Snapshot if:
     // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
     // 2. Snapshot is not already done, AND:
-    // 3. The table is used in sync rules.
-    const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
+    // 3. The table is used in sync config.
+    const snapshotCandidates = result.tables.filter((table) => snapshot && !table.snapshotComplete && table.syncAny);
 
-    if (shouldSnapshot) {
-      // Truncate this table, in case a previous snapshot was interrupted.
-      await batch.truncate([result.table]);
-
+    if (snapshotCandidates.length > 0) {
       // Start the snapshot inside a transaction.
       // We use a dedicated connection for this.
       const db = await this.connections.snapshotConnection();
       try {
-        const table = await this.snapshotTableInTx(batch, db, result.table);
-        // After the table snapshot, we wait for replication to catch up.
-        // To make sure there is actually something to replicate, we send a keepalive
-        // message.
+        const snapshotDoneById = new Map<storage.SourceTableId, SourceTable>();
+        for (const table of snapshotCandidates) {
+          // Truncate this table, in case a previous snapshot was interrupted.
+          await batch.truncate([table]);
+          const doneTable = await this.snapshotTableInTx(batch, db, table);
+          snapshotDoneById.set(doneTable.id, doneTable);
+        }
+        // After table snapshots, wait for replication to catch up.
         await sendKeepAlive(db);
-        return table;
+        const tables = result.tables.map((table) => snapshotDoneById.get(table.id) ?? table);
+        this.relationCache.updateAll(descriptor.objectId as number, tables);
+        return tables;
       } finally {
         await db.end();
       }
     }
 
-    return result.table;
+    return result.tables;
   }
 
   /**
@@ -887,14 +900,14 @@ WHERE  oid = $1::regclass`,
     }
   }
 
-  private getTable(relationId: number): storage.SourceTable {
-    const table = this.relationCache.get(relationId);
-    if (table == null) {
+  private getTables(relationId: number): storage.SourceTable[] {
+    const tables = this.relationCache.getAll(relationId);
+    if (tables == null) {
       // We should always receive a replication message before the relation is used.
       // If we can't find it, it's a bug.
       throw new ReplicationAssertionError(`Missing relation cache for ${relationId}`);
     }
-    return table;
+    return tables;
   }
 
   private syncRulesRecord(row: SqliteInputRow): SqliteRow;
@@ -919,55 +932,70 @@ WHERE  oid = $1::regclass`,
       return null;
     }
     if (msg.tag == 'insert' || msg.tag == 'update' || msg.tag == 'delete') {
-      const table = this.getTable(getRelId(msg.relation));
-      if (!table.syncAny) {
-        this.logger.debug(`Table ${table.qualifiedName} not used in sync rules - skipping`);
+      const tables = this.getTables(getRelId(msg.relation));
+      const tablesToReplicate = tables.filter((table) => table.syncAny);
+      if (tablesToReplicate.length == 0) {
+        this.logger.debug(`Table ${getRelId(msg.relation)} not used in sync config - skipping`);
         return null;
       }
 
       if (msg.tag == 'insert') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         const baseRecord = this.syncRulesRecord(this.connections.types.constructAfterRecord(msg));
-        return await batch.save({
-          tag: storage.SaveOperationTag.INSERT,
-          sourceTable: table,
-          before: undefined,
-          beforeReplicaId: undefined,
-          after: baseRecord,
-          afterReplicaId: getUuidReplicaIdentityBson(baseRecord, table.replicaIdColumns)
-        });
+        let flushResult: storage.FlushedResult | null = null;
+        for (const table of tablesToReplicate) {
+          flushResult =
+            (await batch.save({
+              tag: storage.SaveOperationTag.INSERT,
+              sourceTable: table,
+              before: undefined,
+              beforeReplicaId: undefined,
+              after: baseRecord,
+              afterReplicaId: getUuidReplicaIdentityBson(baseRecord, table.replicaIdColumns)
+            })) ?? flushResult;
+        }
+        return flushResult;
       } else if (msg.tag == 'update') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
         const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg));
         const after = this.toastableSyncRulesRecord(this.connections.types.constructAfterRecord(msg));
-        return await batch.save({
-          tag: storage.SaveOperationTag.UPDATE,
-          sourceTable: table,
-          before: before,
-          beforeReplicaId: before ? getUuidReplicaIdentityBson(before, table.replicaIdColumns) : undefined,
-          after: after,
-          afterReplicaId: getUuidReplicaIdentityBson(after, table.replicaIdColumns)
-        });
+        let flushResult: storage.FlushedResult | null = null;
+        for (const table of tablesToReplicate) {
+          flushResult =
+            (await batch.save({
+              tag: storage.SaveOperationTag.UPDATE,
+              sourceTable: table,
+              before: before,
+              beforeReplicaId: before ? getUuidReplicaIdentityBson(before, table.replicaIdColumns) : undefined,
+              after: after,
+              afterReplicaId: getUuidReplicaIdentityBson(after, table.replicaIdColumns)
+            })) ?? flushResult;
+        }
+        return flushResult;
       } else if (msg.tag == 'delete') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg)!);
 
-        return await batch.save({
-          tag: storage.SaveOperationTag.DELETE,
-          sourceTable: table,
-          before: before,
-          beforeReplicaId: getUuidReplicaIdentityBson(before, table.replicaIdColumns),
-          after: undefined,
-          afterReplicaId: undefined
-        });
+        let flushResult: storage.FlushedResult | null = null;
+        for (const table of tablesToReplicate) {
+          flushResult =
+            (await batch.save({
+              tag: storage.SaveOperationTag.DELETE,
+              sourceTable: table,
+              before: before,
+              beforeReplicaId: getUuidReplicaIdentityBson(before, table.replicaIdColumns),
+              after: undefined,
+              afterReplicaId: undefined
+            })) ?? flushResult;
+        }
+        return flushResult;
       }
     } else if (msg.tag == 'truncate') {
       let tables: storage.SourceTable[] = [];
       for (let relation of msg.relations) {
-        const table = this.getTable(getRelId(relation));
-        tables.push(table);
+        tables.push(...this.getTables(getRelId(relation)));
       }
       return await batch.truncate(tables);
     }
@@ -1061,7 +1089,13 @@ WHERE  oid = $1::regclass`,
 
     const markRecordUnavailable = (record: SaveUpdate) => {
       if (!IdSnapshotQuery.supports(record.sourceTable)) {
-        // If it's not supported, it's also safe to ignore
+        // We only have a targeted resnapshot implementation for tables supported by IdSnapshotQuery.
+        // For unsupported tables we cannot repair missing TOAST values here; leave the row unchanged
+        // and rely on a later full row update or a future full snapshot to correct it.
+        // FIXME: We should support resnapshot for any row.
+        this.logger.warn(
+          `Missing record for ${record.sourceTable.qualifiedName}: ${record.afterReplicaId} / ${record.after.id}`
+        );
         return;
       }
       let key: PrimaryKeyValue = {};
@@ -1122,7 +1156,7 @@ WHERE  oid = $1::regclass`,
             if (msg.tag == 'relation') {
               await this.handleRelation({
                 batch,
-                descriptor: getPgOutputRelation(msg),
+                descriptor: getPgOutputRelation(msg, this.connections.connectionTag),
                 snapshot: true,
                 referencedTypeIds: referencedColumnTypeIds(msg)
               });
