@@ -141,6 +141,7 @@ export async function retryOnMongoMaxTimeMSExpired<T>(
   }
 ): Promise<T> {
   let retryCount = 0;
+  // Retry indefinitely on MaxTimeMSExpired errors with exponential backoff.
   while (true) {
     if (options.signal?.aborted) {
       throw new ReplicationAbortedError(options.abortMessage ?? 'Aborted MongoDB operation', options.signal.reason);

@@ -66,7 +66,7 @@ async function storedRowPayload(
     data = doc?.data;
   } else {
     const db = (bucketStorage as any).db;
-    const doc = await db.sourceRecordsV3(syncRulesId, table.id).findOne({});
+    const doc = await db.sourceRecords(syncRulesId, table.id).findOne({});
     data = doc?.data;
   }
   if (data == null) {
