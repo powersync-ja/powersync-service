@@ -23,7 +23,7 @@ import { ReplicationMetric } from '@powersync/service-types';
 import { performance } from 'node:perf_hooks';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
-import { CheckpointImplementation } from './checkpoints/CheckPointImplementation.js';
+import { CheckpointImplementation } from './checkpoints/CheckpointImplementation.js';
 import { createCheckpointImplementation } from './checkpoints/create-checkpoint-implementation.js';
 import { MongoManager } from './MongoManager.js';
 import { getCacheIdentifier, getMongoRelation } from './MongoRelation.js';

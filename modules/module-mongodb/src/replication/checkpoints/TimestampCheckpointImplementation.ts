@@ -12,7 +12,7 @@ import {
   getCheckpointId,
   getEventTimestamp,
   StreamResumePosition
-} from './CheckPointImplementation.js';
+} from './CheckpointImplementation.js';
 
 /**
  * Standard MongoDB checkpoint implementation. The ordered LSN coordinate is the oplog

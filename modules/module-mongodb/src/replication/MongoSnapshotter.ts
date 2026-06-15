@@ -15,7 +15,7 @@ import { performance } from 'node:perf_hooks';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
-import { CheckpointImplementation } from './checkpoints/CheckPointImplementation.js';
+import { CheckpointImplementation } from './checkpoints/CheckpointImplementation.js';
 import { createCheckpointImplementation } from './checkpoints/create-checkpoint-implementation.js';
 import { MongoManager } from './MongoManager.js';
 import { getMongoRelation } from './MongoRelation.js';

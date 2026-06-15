@@ -1,4 +1,4 @@
-import { CheckpointImplementation, CheckpointImplementationContext } from './CheckPointImplementation.js';
+import { CheckpointImplementation, CheckpointImplementationContext } from './CheckpointImplementation.js';
 import { SentinelCheckpointImplementation } from './SentinelCheckpointImplementation.js';
 import { TimestampCheckpointImplementation } from './TimestampCheckpointImplementation.js';
 

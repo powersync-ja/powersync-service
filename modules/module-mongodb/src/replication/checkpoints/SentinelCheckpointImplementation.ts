@@ -10,7 +10,7 @@ import {
   CheckpointImplementationContext,
   getCheckpointId,
   StreamResumePosition
-} from './CheckPointImplementation.js';
+} from './CheckpointImplementation.js';
 
 /**
  * Sentinel checkpoint implementation, used for sources without a usable clusterTime
