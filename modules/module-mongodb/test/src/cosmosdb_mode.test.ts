@@ -242,6 +242,60 @@ bucket_definitions:
     expect(data).toMatchObject([test_utils.putOp('test_data', { id: insertedId, description: 'sentinel_test' })]);
   });
 
+  // Cosmos DB does not support $changeStreamSplitLargeEvent, so large change
+  // events cannot be split into fragments the way the standard MongoDB path
+  // does. This verifies that a large document still replicates end-to-end —
+  // both on insert (the event carries the full document) and on update
+  // (updateLookup fetches the full document into the event) — and that the
+  // large value is persisted through to bucket storage, not just delivered on
+  // the change stream.
+  //
+  // The payload is sized just under PowerSync's MAX_ROW_SIZE (15 MiB). Rows at
+  // or above that limit are dropped by bucket storage regardless of source DB
+  // ("Row too large ... Removing"), so the persisted value cannot approach the
+  // 16 MiB BSON document limit. 14 MiB still forces a large change event
+  // through the Cosmos stream while keeping the projected row under the limit.
+  // Assertions check the payload length rather than inlining a 14MB string.
+  test('replicates a large document near the row size limit', async () => {
+    await using context = await openContext();
+    const { db } = context;
+    await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT _id as id, marker, payload FROM "test_data"`);
+
+    await db.createCollection('test_data');
+    const collection = db.collection('test_data');
+
+    await context.replicateSnapshot();
+    context.startStreaming();
+
+    // 14 MiB payload — large enough to exercise the large-event path, but the
+    // projected row (payload + small envelope) stays under MAX_ROW_SIZE so it
+    // is not dropped by bucket storage.
+    const largePayload = 'x'.repeat(14 * 1024 * 1024);
+
+    const insertResult = await collection.insertOne({ marker: 'big_insert', payload: largePayload });
+    const id = insertResult.insertedId.toHexString();
+
+    const afterInsert = await context.getBucketData('global[]');
+    expect(afterInsert.length).toEqual(1);
+    const insertData = JSON.parse(afterInsert[0].data as string);
+    expect(insertData).toMatchObject({ id, marker: 'big_insert' });
+    expect(insertData.payload.length).toEqual(largePayload.length);
+
+    // Update a small field; the payload stays large, so the updateLookup
+    // fullDocument on the change event is still ~15MB.
+    await collection.updateOne({ _id: insertResult.insertedId }, { $set: { marker: 'big_update' } });
+
+    const afterUpdate = await context.getBucketData('global[]');
+    expect(afterUpdate.length).toEqual(2);
+    const updateData = JSON.parse(afterUpdate[1].data as string);
+    expect(updateData).toMatchObject({ id, marker: 'big_update' });
+    expect(updateData.payload.length).toEqual(largePayload.length);
+  });
+
   test('keepalive in cosmosDbMode', async () => {
     await using context = await openContext({
       streamOptions: {

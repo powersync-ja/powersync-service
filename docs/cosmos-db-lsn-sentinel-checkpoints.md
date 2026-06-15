@@ -6,17 +6,18 @@ These notes summarize findings from testing Azure Cosmos DB for MongoDB vCore ch
 
 Cosmos DB change streams currently require different checkpointing assumptions from standard MongoDB:
 
-- Change events do not expose a usable `clusterTime`.
-- The implementation falls back to `wallTime` for the timestamp portion of MongoDB LSNs.
-- `wallTime` only gives second-level precision in our LSN conversion, so it is not safe as an equality boundary.
+- Change events do not expose a usable `clusterTime`, so the oplog timestamp cannot be the LSN coordinate.
+- Instead, a shared counter document (`_standalone_checkpoint`) supplies a monotonic, comparable LSN coordinate. It is advanced by writing to it and observed back through the change stream.
 - Resume tokens are usable for `resumeAfter`, but should be treated as opaque and not relied on for ordering.
 - Sentinel checkpoint documents provide explicit stream barriers that can be matched by content instead of timestamp ordering.
 
-The practical model is:
+These two checkpointing strategies are encapsulated behind a single interface — see [Checkpoint Implementations](#checkpoint-implementations) below.
+
+The practical model for Cosmos is:
 
 ```text
-wallTime
-  approximate timestamp prefix for LSN storage
+standalone sentinel counter
+  monotonic, comparable LSN coordinate
 
 resume token
   opaque position accepted by resumeAfter
@@ -27,6 +28,41 @@ sentinel document
 storage checkpoint op id
   the sync checkpoint clients consume
 ```
+
+Historical note: an earlier design used a `wallTime`-derived timestamp as the LSN coordinate. `wallTime` only has second precision in our conversion, so it was unsafe as an equality boundary; the sentinel counter replaced it. `wallTime` is still read for the replication-lag metric, but is no longer part of the Cosmos LSN.
+
+## Checkpoint Implementations
+
+The checkpointing strategy is selected at runtime and lives behind a single interface, `CheckpointImplementation` (`CheckpointImplementation.ts`). `ChangeStream` and `MongoRouteAPIAdapter` delegate every checkpoint-specific decision to it, instead of branching on `isCosmosDb` throughout the replication loop.
+
+There are two implementations:
+
+```text
+TimestampCheckpointImplementation   standard MongoDB
+  LSN coordinate is the oplog clusterTime: unique per operation,
+  monotonic, parseable from resume tokens. Barriers and event LSNs are
+  plain comparable MongoLSN strings; startAtOperationTime is available as
+  a resume fallback.
+
+SentinelCheckpointImplementation    sources without a usable clusterTime (Cosmos DB)
+  LSN coordinate is the shared _standalone_checkpoint counter, observed
+  through the change stream and encoded as CosmosDBLSN.
+```
+
+Selection is by capability, not by vendor name: detection picks the implementation, and the sentinel strategy is in principle usable on any MongoDB. Everything that genuinely depends on the platform — post-image support, `fullDocument` mode, cluster- vs database-level watch — stays behind `isCosmosDb` in `ChangeStream`. Everything about _how checkpoints are produced and interpreted_ lives in the implementation.
+
+The interface covers the full checkpoint lifecycle:
+
+```text
+resume         parseResumePosition, seedPosition, logResume
+create         createBatchCheckpoint, createStandaloneCheckpoint,
+               createReplicationHead, keepalive
+interpret      observeCheckpointEvent, eventLsn, barrierResolved,
+               isTolerableDescendingLsn, describeEventPosition
+maintenance    zeroLsn, hasPosition, checkpointClearFilter
+```
+
+Every event-facing method takes only the raw `ProjectedChangeStreamDocument`. The one ordering contract is that `observeCheckpointEvent` must be called before `eventLsn` for a given event, so the sentinel implementation's coordinate is current.
 
 ## Standard MongoDB vs Cosmos DB
 
@@ -139,26 +175,26 @@ This is a known detection gap, not a test environment limitation. The `resuming 
 
 A possible future fix is to persist the source database name alongside the LSN and validate it on resume, raising `ChangeStreamInvalidatedError` on mismatch to force a resync.
 
-## Why the `.lte()` Dedupe Guard Is Disabled for Cosmos
+## The `.lte()` Dedupe Guard Does Not Apply to the Sentinel Path
 
-Standard MongoDB can use event timestamp comparison to skip duplicate boundary events after resume:
+After a resume, the streaming loop can skip duplicate boundary events by comparing event timestamps against the resume point:
 
 ```ts
-if (eventTimestamp.lte(startAfter)) {
+if (startAfter != null && getEventTimestamp(event).lte(startAfter)) {
   continue;
 }
 ```
 
-That works when `eventTimestamp` is based on `clusterTime`.
+This guard only runs when `startAfter` is set, which only the timestamp implementation produces (from the legacy `startAtOperationTime` resume path). The sentinel implementation's `parseResumePosition` always returns `startAfter: null` and resumes exclusively via `resumeAfter`, which the server guarantees will not redeliver boundary events. So the guard is inert for the sentinel path by construction — it is not a special-case `isCosmosDb` check.
 
-For Cosmos DB, the timestamp comes from second-precision `wallTime`. A valid new event can have the same derived timestamp as the last checkpoint:
+This is deliberate, because the guard would also be _unsafe_ if it did run with a `wallTime`-derived timestamp. `wallTime` has second precision, so a valid new event can carry the same derived timestamp as the last checkpoint:
 
 ```text
 last checkpoint: { seconds: 100, increment: 0 }
 new event:       { seconds: 100, increment: 0 }
 ```
 
-Using `.lte()` would incorrectly drop the new event. The Cosmos path therefore avoids that guard and relies on `resumeAfter` for duplicate avoidance.
+`.lte()` would incorrectly drop that new event. So even if a future change introduced a `startAfter` for the sentinel path, the guard must not be applied to it.
 
 ## Sentinel Checkpoints
 
@@ -233,9 +269,9 @@ standalone checkpoint event (immediate commit when caught up)
 
 Both event types are self-describing for the coordinate, just via different fields.
 
-### Why `latestCosmosSentinel` tracking still exists
+### Why tracked position state still exists
 
-The in-memory `latestCosmosSentinel` is not made redundant by the embedding. It is a monotonic merge point fed by three sources:
+The in-memory position (`SentinelCheckpointImplementation.position`) is not made redundant by the embedding. It is a monotonic merge point fed by three sources:
 
 ```text
 resume seed        sentinel parsed from the stored LSN at startup
@@ -243,7 +279,11 @@ standalone events  fullDocument.i
 own barrier events fullDocument.globalSentinel
 ```
 
-It exists because one LSN producer is not self-describing: the `setResumeLsn` path builds an LSN from a plain data event during long catch-up stretches (20k+ changes without a commit). Data events carry no sentinel, so the coordinate must come from tracked state. The resume seed also lets the monotonic guard absorb replayed standalone events after a restart (their `i` is below the resumed position) without treating them as ordering violations.
+It exists because one LSN producer is not self-describing: the `setResumeLsn` path builds an LSN from a plain data event during long catch-up stretches (20k+ changes without a commit — the batch barrier is a current-time write, so it sits at the end of the backlog and no commit happens until the stream reaches it). Data events carry no sentinel, so the coordinate must come from tracked state.
+
+During such a stretch the coordinate is _frozen_ — data events do not bump the "LSN" counter, so only the resume token half of the LSN advances. That is exactly what resumption needs (`setResumeLsn` writes `snapshot_lsn` unconditionally, with no comparison, and resume only uses the token). The tracked position is not advancing the coordinate here; it is carrying the current frozen coordinate forward so the resume LSN stays a well-formed, non-regressing LSN that re-seeds `position` on the next restart.
+
+The resume seed also lets the monotonic guard absorb replayed standalone events after a restart (their `i` is below the resumed position) without treating them as ordering violations.
 
 The embedding changed what the tracking means: it is no longer load-bearing for cross-document ordering, only a cache of the highest coordinate proven so far. Any single source being late or absent no longer affects correctness.
 
@@ -331,6 +371,58 @@ resume token
   opaque restart position
 ```
 
+## Idle Keepalive
+
+When a change stream batch is empty for longer than the keepalive interval, the stream persists a keepalive so that resuming later does not start from a very old token (which can cause connection timeouts). The two implementations keepalive differently, and the difference is forced by how their LSN coordinate relates to the resume token.
+
+For the timestamp implementation, the keepalive timestamp is parsed directly from the resume token (`MongoLSN.fromResumeToken`). The ordered prefix and the token advance together, so persisting the keepalive LSN is always safe and strictly increasing.
+
+For the sentinel implementation, a naive keepalive would persist `<sentinel N>|<refreshed token>` — same sentinel, new token. That is unsafe. Storage only accepts a new checkpoint when `last_checkpoint_lsn <= lsn` as a plain string comparison. With an unchanged sentinel prefix, the comparison falls entirely to the base64-encoded resume token suffix, which is **not** lexicographically meaningful:
+
+- The BSON length prefix is little-endian, so a token one byte longer changes the leading bytes in a way unrelated to recency.
+- Base64's alphabet is not ASCII-ordered.
+
+So roughly half of plain token refreshes would sort _below_ the persisted LSN and be silently rejected, leaving the persisted resume token to go stale on an idle stream — exactly when keepalive matters. (The timestamp implementation avoids this for free, because its prefix is derived from the token.)
+
+The fix is to advance the shared sentinel so the ordered prefix moves forward with every refreshed token:
+
+```text
+keepalive: $inc _standalone_checkpoint.i   (no checkpoint persisted here)
+```
+
+Two details matter:
+
+1. **Bump, do not persist.** The keepalive only advances the counter; it does not call `batch.keepalive` directly. The bump's own change event flows through the stream and is committed by the standalone-checkpoint handling (the immediate-commit path), which advances the prefix and refreshes the token using the event's own token.
+
+2. **Why not persist immediately.** Writes that landed after the empty batch was read — including a write checkpoint head — would be covered by an immediately-persisted LSN before the stream has actually processed them. That would let write checkpoints resolve before their data has replicated. Committing only when the bump's event is observed preserves the "commit only what the stream has seen" property.
+
+A consequence of bumping is that the bump's event arrives moments later carrying the _same_ sentinel as the just-committed LSN (differing only in the opaque token). That descending-by-suffix comparison is expected, not an ordering violation: `isTolerableDescendingLsn` treats an equal-sentinel comparison as tolerable, so the commit simply no-ops in storage (`checkpointBlocked`) instead of throwing and restarting replication.
+
+## Standalone Counter Persistence
+
+The `_standalone_checkpoint` counter is the ordered component of every committed Cosmos LSN, including write checkpoint heads. It must therefore never move backwards. Two cases threaten it.
+
+### Startup cleanup
+
+`ChangeStream` clears the `_powersync_checkpoints` collection on startup to keep it tidy. The sentinel implementation's `checkpointClearFilter` excludes `_standalone_checkpoint` from that delete. Without this, the counter would reset on the next upsert, and new commits would compare below the persisted `last_checkpoint_lsn` — failing the out-of-order commit guard in a restart loop, and letting new write checkpoint heads resolve against old, higher committed LSNs.
+
+### Consumer deletion and timestamp seeding
+
+The counter lives in a user-visible collection in the _source_ database, so a consumer can delete it. Dropping the whole collection is detected (the streaming loop invalidates on the collection drop event, forcing a resync). Deleting just the document is not reliably detected.
+
+To make that case safe rather than silently corrupting, `createCosmosCheckpointLsn` seeds a newly-created counter at the current epoch milliseconds instead of at `1`:
+
+```text
+counter exists:  $inc i
+counter missing: $setOnInsert i = Date.now(), then retry the $inc
+```
+
+(`$inc` and `$setOnInsert` cannot touch the same field, so this is two writes with a small retry loop; the `$setOnInsert` is a no-op under concurrent creation.)
+
+Because increments accumulate far slower than one per millisecond, a re-created counter always resumes _ahead_ of any previously issued coordinate. Deletion therefore produces a harmless forward jump in the LSN domain instead of a backwards reset — no detection logic required.
+
+Verified by `standalone counter is seeded at a timestamp value on creation` in `cosmosdb_helpers.test.ts`.
+
 ## Write Checkpoint Observation
 
 Managed write checkpoints associate a user/client write checkpoint with a replication head LSN. Later, sync resolves the write checkpoint when the current replication LSN reaches or passes that stored head.
@@ -400,3 +492,19 @@ best:   resolve from the observed sentinel / committed storage checkpoint
 better: use the standalone sentinel as the comparable Cosmos LSN head
 worst:  use the last replicated storage LSN as the write checkpoint head
 ```
+
+## Known Limitations
+
+### Initial snapshot vs. change feed retention
+
+Initial replication is currently sequential: `getSnapshotLsn` captures a resume position, the snapshot then runs to completion, and only afterwards does streaming resume from the captured position. The change stream is **not** consumed during the snapshot.
+
+Cosmos DB retains only a limited amount of change feed history (in the order of a few hundred MB). For a large or busy source, the snapshot can take long enough that the captured resume position rolls out of the retention window before streaming resumes. The `resumeAfter` then fails, and replication restarts from scratch — potentially in a loop for sources where the snapshot consistently outlasts retention.
+
+This is not specific to Cosmos in principle — standard MongoDB has the same shape — but MongoDB's oplog retention is typically time-based and far larger, so the window is rarely hit. Cosmos's smaller, size-bound retention makes it a practical concern.
+
+Buffering the change stream in memory during the snapshot is **not** an acceptable fix: the buffer is unbounded with respect to source write volume and snapshot duration, so it would risk running the replicator out of memory.
+
+The intended resolution is incremental reprocessing (see [powersync-ja/powersync-service discussion #349](https://github.com/orgs/powersync-ja/discussions/349)). A side effect of that design is that the change stream is consumed from the moment the snapshot begins, so the resume position is continuously advanced and never has the chance to age out — which addresses this limitation without an in-memory buffer.
+
+Until then, treat Cosmos initial replication as suited to datasets small enough to snapshot well within the change feed retention window.
