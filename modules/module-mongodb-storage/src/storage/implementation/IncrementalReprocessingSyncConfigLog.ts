@@ -7,7 +7,6 @@ import {
 
 export interface IncrementalDefinitionLogEntry extends IncrementalMappingDefinitionChange {
   sourceTables?: string[];
-  snapshotTables?: string[];
 }
 
 export interface IncrementalSyncConfigUpdateLog {
@@ -40,8 +39,7 @@ export function describeIncrementalSyncConfigUpdate(options: {
       const sourceTables = sourceTablesForDefinition(newSyncConfig, newMapping, definition);
       return {
         ...definition,
-        sourceTables,
-        snapshotTables: sourceTables
+        sourceTables
       };
     }),
     droppedDefinitions: activeDefinitions.filter((definition) => !newDefinitionKeys.has(definitionKey(definition)))
@@ -102,9 +100,6 @@ function formatDefinition(definition: IncrementalDefinitionLogEntry, options: { 
   const details = [`type=${definition.type}`, `id=${definition.id}`, `name=${definition.name}`];
   if (definition.sourceTables != null) {
     details.push(`tables=${formatList(definition.sourceTables)}`);
-  }
-  if (options.includeSnapshotTables && definition.snapshotTables != null) {
-    details.push(`re-snapshot=${formatList(definition.snapshotTables)}`);
   }
   return details.join(', ');
 }
