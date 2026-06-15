@@ -14,8 +14,8 @@ import {
 } from '@powersync/service-sync-rules';
 
 import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
-import { CosmosDBLSN, normalizeSentinel } from '../common/CosmosDBLSN.js';
 import { MongoLSN } from '../common/MongoLSN.js';
+import { normalizeSentinel, SentinelLSN } from '../common/SentinelLSN.js';
 
 export function getMongoRelation(
   source: mongo.ChangeStreamNameSpace,
@@ -304,7 +304,7 @@ export async function createCosmosCheckpointLsn(client: mongo.MongoClient, db: m
         }
       );
       if (result != null) {
-        return new CosmosDBLSN({ sentinel: normalizeSentinel(result.i) }).comparable;
+        return new SentinelLSN({ sentinel: normalizeSentinel(result.i) }).comparable;
       }
 
       // The counter document does not exist: first run, or a consumer deleted

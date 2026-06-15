@@ -1,11 +1,12 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 
-export type CosmosDBLSNSpecification = {
+export type SentinelLSNSpecification = {
   sentinel: bigint | number | string;
   /**
-   * Cosmos DB resume tokens are opaque. The sentinel component is the
-   * comparable position; this token is only used to resume the change stream.
+   * Resume tokens are opaque on sentinel-based sources (e.g. Cosmos DB). The
+   * sentinel component is the comparable position; this token is only used to
+   * resume the change stream.
    */
   resume_token?: mongo.ResumeToken | null;
 };
@@ -14,22 +15,27 @@ const DELIMINATOR = '|';
 const PREFIX = 'c';
 const SENTINEL_HEX_LENGTH = 32;
 
-export class CosmosDBLSN {
-  static ZERO = new CosmosDBLSN({ sentinel: 0n });
+/**
+ * LSN for sentinel-based checkpointing (sources without a usable clusterTime,
+ * e.g. Cosmos DB). The ordered coordinate is a monotonic sentinel counter; the
+ * opaque resume token is carried alongside it only for `resumeAfter`.
+ */
+export class SentinelLSN {
+  static ZERO = new SentinelLSN({ sentinel: 0n });
 
-  static fromSerialized(comparable: string): CosmosDBLSN {
+  static fromSerialized(comparable: string): SentinelLSN {
     const [sentinelString, resumeString] = comparable.split(DELIMINATOR);
     if (!sentinelString.startsWith(PREFIX)) {
-      throw new Error(`Invalid Cosmos DB LSN: ${comparable}`);
+      throw new Error(`Invalid sentinel LSN: ${comparable}`);
     }
 
-    return new CosmosDBLSN({
+    return new SentinelLSN({
       sentinel: BigInt(`0x${sentinelString.slice(PREFIX.length)}`),
       resume_token: resumeString ? storage.deserializeBson(Buffer.from(resumeString, 'base64')).resumeToken : null
     });
   }
 
-  constructor(protected options: CosmosDBLSNSpecification) {}
+  constructor(protected options: SentinelLSNSpecification) {}
 
   get sentinel() {
     return normalizeSentinel(this.options.sentinel);

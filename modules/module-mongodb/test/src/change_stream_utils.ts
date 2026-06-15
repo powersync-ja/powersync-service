@@ -19,7 +19,7 @@ import {
 } from '@powersync/service-core';
 import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
-import { CosmosDBLSN } from '@module/common/CosmosDBLSN.js';
+import { SentinelLSN } from '@module/common/SentinelLSN.js';
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
 import { MongoManager } from '@module/replication/MongoManager.js';
 import {
@@ -196,16 +196,16 @@ export class ChangeStreamTestContext {
   async markSnapshotConsistent() {
     let checkpoint: string;
     if (this.cosmosDbMode) {
-      const sentinelCheckpoint = CosmosDBLSN.fromSerialized(await createCosmosCheckpointLsn(this.client, this.db));
+      const sentinelCheckpoint = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(this.client, this.db));
       const status = await this.storage!.getStatus();
       const resumeFrom = status.checkpoint_lsn ?? status.snapshot_lsn;
-      const resumeToken = resumeFrom ? CosmosDBLSN.fromSerialized(resumeFrom).resumeToken : null;
+      const resumeToken = resumeFrom ? SentinelLSN.fromSerialized(resumeFrom).resumeToken : null;
 
       // This helper artificially marks the snapshot as consistent without
       // waiting for the stream to observe the sentinel. Keep the sentinel as the
       // comparable position, but carry forward the existing snapshot resume
       // token so later Cosmos streaming still resumes from a real token.
-      checkpoint = new CosmosDBLSN({
+      checkpoint = new SentinelLSN({
         sentinel: sentinelCheckpoint.sentinel,
         resume_token: resumeToken
       }).comparable;

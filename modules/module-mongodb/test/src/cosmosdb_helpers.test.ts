@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
-import { CosmosDBLSN } from '@module/common/CosmosDBLSN.js';
 import { MongoLSN } from '@module/common/MongoLSN.js';
+import { SentinelLSN } from '@module/common/SentinelLSN.js';
 import {
   createCheckpoint,
   createCosmosCheckpointLsn,
@@ -135,7 +135,7 @@ describe('Cosmos DB helpers', () => {
       const db = client.db(`${sharedDb.databaseName}_seed_test`);
       try {
         const before = BigInt(Date.now());
-        const first = CosmosDBLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
+        const first = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
         const after = BigInt(Date.now());
 
         // Seeded at epoch ms, not at 1.
@@ -143,13 +143,13 @@ describe('Cosmos DB helpers', () => {
         expect(first.sentinel).toBeLessThanOrEqual(after + 1n);
 
         // Subsequent calls increment normally.
-        const second = CosmosDBLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
+        const second = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
         expect(second.sentinel).toEqual(first.sentinel + 1n);
 
         // Simulate a consumer deleting the document after the counter has
         // accumulated increments: the re-created counter resumes ahead.
         await db.collection(CHECKPOINTS_COLLECTION).deleteOne({ _id: STANDALONE_CHECKPOINT_ID as any });
-        const recreated = CosmosDBLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
+        const recreated = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
         expect(recreated.sentinel).toBeGreaterThan(second.sentinel);
       } finally {
         await db.dropDatabase().catch(() => {});

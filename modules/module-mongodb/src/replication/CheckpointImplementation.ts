@@ -2,8 +2,8 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { ReplicationHeadCallback, storage } from '@powersync/service-core';
 
-import { CosmosDBLSN, normalizeSentinel } from '../common/CosmosDBLSN.js';
 import { MongoLSN } from '../common/MongoLSN.js';
+import { normalizeSentinel, SentinelLSN } from '../common/SentinelLSN.js';
 import { ChangeStreamInvalidatedError } from './ChangeStream.js';
 import { createCheckpoint, createCosmosCheckpointLsn, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
 import { ProjectedChangeStreamDocument } from './RawChangeStream.js';
@@ -324,7 +324,7 @@ export class TimestampCheckpointImplementation implements CheckpointImplementati
  * See docs/cosmos-db-lsn-sentinel-checkpoints.md for the full design.
  */
 export class SentinelCheckpointImplementation implements CheckpointImplementation {
-  readonly zeroLsn = CosmosDBLSN.ZERO.comparable;
+  readonly zeroLsn = SentinelLSN.ZERO.comparable;
   readonly barrierMarkerIsLsn = false;
 
   /**
@@ -333,21 +333,21 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
    * because data events (setResumeLsn during catch-up) carry no coordinate of
    * their own.
    */
-  private position = CosmosDBLSN.ZERO.sentinel;
+  private position = SentinelLSN.ZERO.sentinel;
 
   constructor(private context: CheckpointImplementationContext) {}
 
   parseResumePosition(lsn: string): StreamResumePosition {
-    const parsed = CosmosDBLSN.fromSerialized(lsn);
+    const parsed = SentinelLSN.fromSerialized(lsn);
     return { resumeAfter: parsed.resumeToken ?? null, startAfter: null };
   }
 
   seedPosition(lsn: string | null): void {
-    this.position = lsn == null ? CosmosDBLSN.ZERO.sentinel : CosmosDBLSN.fromSerialized(lsn).sentinel;
+    this.position = lsn == null ? SentinelLSN.ZERO.sentinel : SentinelLSN.fromSerialized(lsn).sentinel;
   }
 
   logResume(lsn: string): void {
-    const parsed = CosmosDBLSN.fromSerialized(lsn);
+    const parsed = SentinelLSN.fromSerialized(lsn);
     this.context.logger.info(`Resume streaming at sentinel ${parsed.sentinel} / ${parsed}`);
   }
 
@@ -366,7 +366,7 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     //    committed LSN does not depend on the standalone event having been
     //    delivered first, since change stream ordering across different
     //    documents is not guaranteed.
-    const globalLsn = CosmosDBLSN.fromSerialized(await createCosmosCheckpointLsn(this.context.client, this.context.db));
+    const globalLsn = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(this.context.client, this.context.db));
     return createCheckpoint(this.context.client, this.context.db, this.context.checkpointStreamId, {
       mode: 'sentinel',
       globalSentinel: globalLsn.sentinel
@@ -403,7 +403,7 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     // Pair the bare token with the current coordinate. The coordinate is
     // frozen between checkpoint events, so a per-batch resume marker only
     // advances the token; that is all resumption needs (see the design doc).
-    return new CosmosDBLSN({ sentinel: this.position, resume_token: resumeToken }).comparable;
+    return new SentinelLSN({ sentinel: this.position, resume_token: resumeToken }).comparable;
   }
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
@@ -439,14 +439,14 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
   }
 
   hasPosition(): boolean {
-    return this.position != CosmosDBLSN.ZERO.sentinel;
+    return this.position != SentinelLSN.ZERO.sentinel;
   }
 
   eventLsn(doc: ProjectedChangeStreamDocument): string {
     // A zero position is permitted here: a resume LSN persisted before any
     // checkpoint event has been observed still carries a valid resume token,
     // and a low sentinel is conservative (it only causes more replay).
-    return new CosmosDBLSN({
+    return new SentinelLSN({
       sentinel: this.position,
       resume_token: doc._id
     }).comparable;
@@ -475,7 +475,7 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     // e.g. when a restart replays an event behind an already-persisted
     // checkpoint. Not an ordering violation: the commit no-ops in storage
     // (checkpointBlocked).
-    return CosmosDBLSN.fromSerialized(lsn).sentinel === CosmosDBLSN.fromSerialized(lastCheckpointLsn).sentinel;
+    return SentinelLSN.fromSerialized(lsn).sentinel === SentinelLSN.fromSerialized(lastCheckpointLsn).sentinel;
   }
 
   describeEventPosition(_doc: ProjectedChangeStreamDocument): string {
