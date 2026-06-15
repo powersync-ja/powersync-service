@@ -551,16 +551,6 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
 }
 
 /**
- * Detect whether the connected server is Cosmos DB (Azure Cosmos DB for
- * MongoDB vCore / DocumentDB), which lacks usable clusterTime/operationTime
- * and needs the sentinel checkpoint implementation.
- */
-export async function detectCosmosDb(db: mongo.Db): Promise<boolean> {
-  const hello = await db.command({ hello: 1 });
-  return hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
-}
-
-/**
  * Select the checkpoint implementation for a source: sentinel-based for Cosmos
  * DB, clusterTime-based for standard MongoDB.
  */

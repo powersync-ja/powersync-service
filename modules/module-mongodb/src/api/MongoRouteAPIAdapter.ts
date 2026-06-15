@@ -5,14 +5,10 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
 import { logger } from '@powersync/lib-services-framework';
-import {
-  CheckpointImplementation,
-  SentinelCheckpointImplementation,
-  TimestampCheckpointImplementation
-} from '../replication/CheckpointImplementation.js';
+import { CheckpointImplementation, createCheckpointImplementation } from '../replication/CheckpointImplementation.js';
 import { MongoManager } from '../replication/MongoManager.js';
 import { constructAfterRecord } from '../replication/MongoRelation.js';
-import { CHECKPOINTS_COLLECTION } from '../replication/replication-utils.js';
+import { CHECKPOINTS_COLLECTION, detectCosmosDb } from '../replication/replication-utils.js';
 import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 
@@ -23,7 +19,6 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   connectionTag: string;
   defaultSchema: string;
 
-  private isCosmosDb: boolean | null = null;
   private checkpointImplementation: CheckpointImplementation | null = null;
 
   constructor(protected config: types.ResolvedConnectionConfig) {
@@ -205,14 +200,6 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     return undefined;
   }
 
-  private async detectCosmosDb(): Promise<boolean> {
-    if (this.isCosmosDb === null) {
-      const hello = await this.db.command({ hello: 1 });
-      this.isCosmosDb = hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
-    }
-    return this.isCosmosDb;
-  }
-
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
     const mode = await this.getCheckpointImplementation();
     return mode.createReplicationHead(callback);
@@ -220,16 +207,14 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
 
   private async getCheckpointImplementation(): Promise<CheckpointImplementation> {
     if (this.checkpointImplementation == null) {
-      const context = {
+      const isCosmosDb = await detectCosmosDb(this.db);
+      this.checkpointImplementation = createCheckpointImplementation(isCosmosDb, {
         client: this.client,
         db: this.db,
         // The adapter never streams, so it has no real barrier document.
         checkpointStreamId: new mongo.ObjectId(),
         logger
-      };
-      this.checkpointImplementation = (await this.detectCosmosDb())
-        ? new SentinelCheckpointImplementation(context)
-        : new TimestampCheckpointImplementation(context);
+      });
     }
     return this.checkpointImplementation;
   }

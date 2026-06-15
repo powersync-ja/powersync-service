@@ -27,6 +27,7 @@ import {
   createCosmosCheckpointLsn,
   STANDALONE_CHECKPOINT_ID
 } from '@module/replication/MongoRelation.js';
+import { detectCosmosDb } from '@module/replication/replication-utils.js';
 import { NormalizedMongoConnectionConfig } from '@module/types/types.js';
 
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
@@ -299,11 +300,6 @@ export class ChangeStreamTestContext {
     const checksums = await this.getChecksums([bucket], options);
     return checksums.get(bucket);
   }
-}
-
-async function detectCosmosDb(db: mongo.Db) {
-  const hello = await db.command({ hello: 1 });
-  return hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
 }
 
 export async function getClientCheckpoint(

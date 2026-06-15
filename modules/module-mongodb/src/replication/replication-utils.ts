@@ -1,3 +1,4 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import * as bson from 'bson';
 import { PostImagesOption } from '../types/types.js';
@@ -7,11 +8,29 @@ export const CHECKPOINTS_COLLECTION = '_powersync_checkpoints';
 
 const REQUIRED_CHECKPOINT_PERMISSIONS = ['find', 'insert', 'update', 'remove', 'changeStream', 'createCollection'];
 
+/**
+ * Whether a `hello` response indicates Azure Cosmos DB for MongoDB vCore /
+ * DocumentDB. Older clusters report `cosmos_versions`; newer ones report
+ * `documentdb_versions` after Microsoft's rename.
+ */
+function isCosmosDbHello(hello: mongo.Document): boolean {
+  return hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
+}
+
+/**
+ * Detect whether the connected server is Cosmos DB. Cosmos lacks usable
+ * clusterTime/operationTime and uses the sentinel checkpoint implementation.
+ */
+export async function detectCosmosDb(db: mongo.Db): Promise<boolean> {
+  const hello = await db.command({ hello: 1 });
+  return isCosmosDbHello(hello);
+}
+
 export async function checkSourceConfiguration(connectionManager: MongoManager): Promise<void> {
   const db = connectionManager.db;
 
   const hello = await db.command({ hello: 1 });
-  const isCosmosDb = hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
+  const isCosmosDb = isCosmosDbHello(hello);
 
   if (hello.msg == 'isdbgrid' && !isCosmosDb) {
     throw new ServiceError(

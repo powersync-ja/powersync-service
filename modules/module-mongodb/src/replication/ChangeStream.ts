@@ -23,11 +23,7 @@ import { ReplicationMetric } from '@powersync/service-types';
 import { performance } from 'node:perf_hooks';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
-import {
-  CheckpointImplementation,
-  createCheckpointImplementation,
-  detectCosmosDb
-} from './CheckpointImplementation.js';
+import { CheckpointImplementation, createCheckpointImplementation } from './CheckpointImplementation.js';
 import { MongoManager } from './MongoManager.js';
 import { getCacheIdentifier, getMongoRelation } from './MongoRelation.js';
 import { MongoSnapshotter, MongoSnapshotterHooks } from './MongoSnapshotter.js';
@@ -37,7 +33,7 @@ import {
   ProjectedChangeStreamDocument,
   rawChangeStream
 } from './RawChangeStream.js';
-import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
+import { CHECKPOINTS_COLLECTION, detectCosmosDb, timestampToDate } from './replication-utils.js';
 import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
 export interface ChangeStreamOptions {
   connections: MongoManager;
