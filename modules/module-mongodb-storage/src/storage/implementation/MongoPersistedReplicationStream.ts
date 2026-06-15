@@ -78,14 +78,6 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
     return this.#storageIds;
   }
 
-  get storageContent(): MongoPersistedSyncConfigContentBase {
-    const [content] = this.syncConfigContent;
-    if (content == null) {
-      throw new ServiceAssertionError(`Cannot create storage without sync config content`);
-    }
-    return content;
-  }
-
   /**
    * Parse the sync configs for this replication stream.
    *
@@ -96,7 +88,7 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
   parsed(options: storage.ParseSyncConfigOptions): MongoParsedSyncConfigSet {
     const storageConfig = this.getStorageConfig();
     if (!storageConfig.incrementalReprocessing) {
-      return this.storageContent.parsed(options);
+      return this.syncConfigContent[0].parsed(options);
     }
 
     const syncConfigs = this.configs.map((config) => {
