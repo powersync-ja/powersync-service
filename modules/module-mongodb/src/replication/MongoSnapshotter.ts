@@ -121,7 +121,10 @@ export class MongoSnapshotter {
   /** The active checkpoint strategy. Only valid after ensureDetected(). */
   private get checkpointImplementation(): CheckpointImplementation {
     if (this._checkpointImplementation == null) {
-      throw new ServiceError(ErrorCode.PSYNC_S1301, 'Checkpoint implementation not initialized - call ensureDetected() first');
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1301,
+        'Checkpoint implementation not initialized - call ensureDetected() first'
+      );
     }
     return this._checkpointImplementation;
   }
@@ -175,7 +178,11 @@ export class MongoSnapshotter {
         // Cosmos DB does not support changeStreamPreAndPostImages.
         ...(this.isCosmosDb ? {} : { changeStreamPreAndPostImages: { enabled: true } })
       });
-    } else if (!this.isCosmosDb && this.usePostImages && collection.options?.changeStreamPreAndPostImages?.enabled != true) {
+    } else if (
+      !this.isCosmosDb &&
+      this.usePostImages &&
+      collection.options?.changeStreamPreAndPostImages?.enabled != true
+    ) {
       // Drop + create requires less permissions than collMod,
       // and we don't care about the data in this collection.
       await this.defaultDb.dropCollection(CHECKPOINTS_COLLECTION);

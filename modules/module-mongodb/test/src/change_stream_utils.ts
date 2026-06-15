@@ -77,7 +77,6 @@ export class ChangeStreamTestContext {
     private streamOptions: Partial<ChangeStreamOptions> = {},
     private storageVersion: number = LEGACY_STORAGE_VERSION,
     private cosmosDbMode: boolean = false
-
   ) {
     createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
     initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
