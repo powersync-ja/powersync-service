@@ -133,47 +133,34 @@ export class MongoStoppedSyncConfigCleanup {
     if (unusedParameterIndexIds.length > 0) {
       update.parameter_lookup_source_ids = { $in: unusedParameterIndexIds };
     }
-    if (Object.keys(update).length == 0) {
-      return;
-    }
-
-    const filter = this.sourceTableMembershipFilter(unusedBucketDefinitionIds, unusedParameterIndexIds);
-    const sourceTables = await this.db
-      .sourceTables(this.replicationStreamId)
-      .find(filter, { projection: { _id: 1 } })
-      .toArray();
-    if (sourceTables.length == 0) {
-      return;
-    }
-    const sourceTableIds = sourceTables.map((table) => table._id);
-    const liveSyncConfigs = this.parseSyncConfigs(liveConfigDocs);
 
     // Keep obsolete membership ids as the durable cleanup marker until each source table is
     // either deleted or retained. If interrupted after dropping a source_records collection,
     // the next run can still rediscover the source table from these obsolete ids and retry.
-    const sourceTablesAfterCleanup = await this.db
+    const filter = this.sourceTableMembershipFilter(unusedBucketDefinitionIds, unusedParameterIndexIds);
+    const candidateSourceTables = await this.db
       .sourceTables(this.replicationStreamId)
-      .find(
-        {
-          _id: { $in: sourceTableIds }
-        },
-        {
-          projection: {
-            _id: 1,
-            bucket_data_source_ids: 1,
-            parameter_lookup_source_ids: 1,
-            schema_name: 1,
-            table_name: 1
-          }
+      .find(filter, {
+        projection: {
+          _id: 1,
+          bucket_data_source_ids: 1,
+          parameter_lookup_source_ids: 1,
+          schema_name: 1,
+          table_name: 1
         }
-      )
+      })
       .toArray();
-    const deletableSourceTables = sourceTablesAfterCleanup.filter(
+    if (candidateSourceTables.length == 0) {
+      return;
+    }
+    const liveSyncConfigs = this.parseSyncConfigs(liveConfigDocs);
+
+    const deletableSourceTables = candidateSourceTables.filter(
       (sourceTable) =>
         this.membershipsBecomeEmpty(sourceTable, unusedBucketDefinitionIds, unusedParameterIndexIds) &&
         !this.triggersLiveEvent(sourceTable, liveSyncConfigs)
     );
-    const retainedSourceTableIds = sourceTablesAfterCleanup
+    const retainedSourceTableIds = candidateSourceTables
       .filter((sourceTable) => !deletableSourceTables.some((deletable) => deletable._id.equals(sourceTable._id)))
       .map((sourceTable) => sourceTable._id);
 
