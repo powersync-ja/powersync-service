@@ -36,6 +36,7 @@ import {
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
+import { MongoStoppedSyncConfigCleanup } from './MongoStoppedSyncConfigCleanup.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export interface MongoSyncBucketStorageContextV3 {
@@ -399,6 +400,19 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         }
         throw error;
       });
+  }
+
+  async cleanupStoppedSyncConfigs(
+    options: storage.CleanupStoppedSyncConfigsOptions
+  ): Promise<storage.CleanupStoppedSyncConfigsResult> {
+    return new MongoStoppedSyncConfigCleanup({
+      db: this.db,
+      replicationStreamId: this.replicationStreamId,
+      signal: options.signal,
+      logger: options.logger ?? this.logger,
+      defaultSchema: options.defaultSchema,
+      sourceConnectionTag: options.sourceConnectionTag
+    }).run();
   }
 
   protected getDataBucketChangesImpl(
