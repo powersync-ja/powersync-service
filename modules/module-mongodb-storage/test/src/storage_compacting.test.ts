@@ -2184,10 +2184,7 @@ bucket_definitions:
 
       // Checksum preserved
       const expectedChecksum = [10, 30].reduce((sum, id) => addChecksums(sum, id * 7), 0);
-      const checksumAfter = docsAfter.reduce(
-        (s: number, d: any) => addChecksums(s, Number(d.checksum)),
-        0
-      );
+      const checksumAfter = docsAfter.reduce((s: number, d: any) => addChecksums(s, Number(d.checksum)), 0);
       expect(checksumAfter).toBe(expectedChecksum);
     });
   });

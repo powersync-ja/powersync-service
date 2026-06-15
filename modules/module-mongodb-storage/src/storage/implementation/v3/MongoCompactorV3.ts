@@ -373,7 +373,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       totalOpCount += surviving.filter((op) => op.o <= this.maxOpId).length;
 
       // --- Advance to next batch ---
-      upperBound = rawBatch[batchCutIndex - 1]._id as typeof upperBound;
+      upperBound = (newDocs.length > 0 ? newDocs[0]._id : rawBatch[batchCutIndex - 1]._id) as typeof upperBound;
 
       if (batchCutIndex < rawBatch.length) {
         // We cut the batch short due to byte limit — don't advance past cut point
