@@ -81,13 +81,12 @@ describe('S3 read path (Phase 2c red tests)', () => {
     );
   });
 
-  test('2. Missing S3 object is handled gracefully', async () => {
+  test('2. Missing S3 object is a hard error', async () => {
     const { memoryStorage, factory: factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
 
-    // Write two real ops through S3 writer (these ops live in S3)
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
     await writer.markAllSnapshotDone('1/1');
@@ -108,8 +107,6 @@ describe('S3 read path (Phase 2c red tests)', () => {
     const flushResult = await writer.flush();
     const checkpoint = flushResult!.flushed_op;
 
-    // Directly insert a document with a storage_ref pointing to a
-    // non-existent path (no ops). This simulates a corrupt or missing S3 object.
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
@@ -126,27 +123,14 @@ describe('S3 read path (Phase 2c red tests)', () => {
         path: 'nonexistent/missing-object/path',
         compressed_size: 100
       }
-      // Intentionally no ops[] — the S3 object at this path does not exist
     } as any);
 
-    // Attempt to read. The read path should eventually fetch the real S3 ops
-    // successfully and skip the document with the missing S3 object gracefully.
-    // Currently, NEITHER set of ops is returned because the S3 fetch is not
-    // implemented. This test MUST FAIL.
-    const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules as any, 'global[]', 0n)])
-    );
-    const data = test_utils.getBatchData(batch);
-
-    // When the read path is implemented: real S3-backed ops are present,
-    // fake doc is skipped. Currently: zero ops because nothing fetches from S3.
-    expect(data.length).toBe(2);
-    expect(data).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ op: 'PUT', object_id: 'real1' }),
-        expect.objectContaining({ op: 'PUT', object_id: 'real2' })
-      ])
-    );
+    // A missing S3 object should be a hard error, not silently skipped.
+    await expect(
+      test_utils.fromAsync(
+        bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules as any, 'global[]', 0n)])
+      )
+    ).rejects.toThrow('nonexistent/missing-object/path');
   });
 
   test('3. Read with mixed inline + S3 docs', async () => {

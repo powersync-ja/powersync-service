@@ -1,4 +1,3 @@
-import * as zstd from '@mongodb-js/zstd';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
@@ -22,6 +21,7 @@ import {
   SourceTableDocumentV3,
   taggedBucketParameterDocumentToTagged
 } from './models.js';
+import { BucketDataObjectStorage } from './object-storage/BucketDataObjectStorage.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
@@ -226,7 +226,8 @@ export class PersistedBatchV3 extends PersistedBatch {
           }
         }
       } else {
-        // S3 path: upload ops to S3, store metadata shells in MongoDB
+        const store = new BucketDataObjectStorage(this.objectStorage);
+
         for (const [bucket, ops] of operationsByBucket.entries()) {
           const chunks = chunkBucketData(ops);
           for (const chunk of chunks) {
@@ -254,20 +255,9 @@ export class PersistedBatchV3 extends PersistedBatch {
               };
             });
 
-            // BSON serialize { ops: bucketOps }
-            const bsonBuffer = Buffer.from(bson.serialize({ ops: bucketOps }));
-
-            // Zstd compress (returns Uint8Array, wrap in Buffer for ObjectStorage)
-            const compressedUint8 = await zstd.compress(bsonBuffer);
-            const compressed = Buffer.from(compressedUint8);
-
-            // _id.o is maxOp (clustered index key, unique per bucket).
             const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}`;
+            const { compressedSize } = await store.store(path, bucketOps);
 
-            // Upload to S3
-            await this.objectStorage.put(path, compressed);
-
-            // Insert metadata shell (with storage_ref, without ops)
             inserts.push({
               insertOne: {
                 document: {
@@ -279,7 +269,7 @@ export class PersistedBatchV3 extends PersistedBatch {
                   target_op: maxTargetOp,
                   storage_ref: {
                     path,
-                    compressed_size: compressed.byteLength
+                    compressed_size: compressedSize
                   }
                 }
               }

@@ -1,8 +1,6 @@
-import * as zstd from '@mongodb-js/zstd';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { addChecksums, storage, utils } from '@powersync/service-core';
-import * as bson from 'bson';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketDataDocumentGeneric, SingleBucketStore } from '../common/SingleBucketStore.js';
@@ -14,6 +12,7 @@ import { chunkBucketData } from './chunking.js';
 import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
+import { BucketDataObjectStorage } from './object-storage/BucketDataObjectStorage.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
@@ -131,6 +130,9 @@ export class MongoCompactorV3 extends MongoCompactor {
     const collection = this.db.bucketData(this.group_id, resolvedDefinitionId);
     const context = { replicationStreamId: this.group_id, definitionId: resolvedDefinitionId };
 
+    // Retry any S3 deletes left from a previous crash before starting this compaction run
+    await this.retryPendingS3Deletes();
+
     const lowerBound = bucketContext.minId;
     let upperBound = bucketContext.maxId;
 
@@ -195,10 +197,7 @@ export class MongoCompactorV3 extends MongoCompactor {
         const doc = rawBatch[i] as any;
         let docSize = Number(doc.bsonSize);
         if (doc.storage_ref) {
-          // compressed_size * 3: rough decompressed estimate to keep batch memory bounded.
-          // Without a multiplier, the byte limiter sees metadata shells (~200 bytes) and
-          // packs thousands per batch, then Promise.all decompresses all at once.
-          docSize += (doc.storage_ref.compressed_size ?? 0) * 3;
+          docSize += doc.size ?? 0;
         }
         cumulativeBytes += docSize;
         if (cumulativeBytes > this.moveBatchByteLimit && i > 0) {
@@ -213,19 +212,12 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       // Pre-fetch S3 objects for all S3-backed docs in this batch
       if (this.storage.objectStorage) {
+        const store = new BucketDataObjectStorage(this.storage.objectStorage);
         const s3Docs = batchDocs.filter((d: BucketDataDocumentV3) => d.storage_ref);
         if (s3Docs.length > 0) {
           await Promise.all(
             s3Docs.map(async (doc: any) => {
-              try {
-                const buffer = await this.storage.objectStorage!.get(doc.storage_ref.path);
-                const decompressed = await zstd.decompress(buffer);
-                const wrapper = bson.deserialize(decompressed, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS);
-                doc.ops = wrapper.ops;
-              } catch (err) {
-                this.logger.warn(`Compaction: failed to fetch/decompress S3 object ${doc.storage_ref?.path}: ${err}`);
-                doc.ops = [];
-              }
+              doc.ops = await store.retrieve(doc.storage_ref.path);
             })
           );
         }
@@ -341,14 +333,13 @@ export class MongoCompactorV3 extends MongoCompactor {
         .filter((d: BucketDataDocumentV3) => d.storage_ref)
         .map((d: BucketDataDocumentV3) => d.storage_ref!.path);
 
-      let newDocs: BucketDataDocumentV3[] = [];
       const newStoragePaths = new Set<string>();
+      let newDocs: BucketDataDocumentV3[] = [];
 
       if (!this.storage.objectStorage) {
         newDocs = chunks.map((chunk) => serializeBucketData(bucket, chunk));
-      } else if (this.storage.objectStorage) {
-        // If object storage is configured, upload before transaction
-        newDocs = [];
+      } else {
+        const store = new BucketDataObjectStorage(this.storage.objectStorage);
         for (const chunk of chunks) {
           const minOp = chunk[0].o;
           const maxOp = chunk[chunk.length - 1].o;
@@ -374,11 +365,8 @@ export class MongoCompactorV3 extends MongoCompactor {
             };
           });
 
-          const bsonBuffer = Buffer.from(bson.serialize({ ops: bucketOps }));
-          const compressedUint8 = await zstd.compress(bsonBuffer);
-          const compressed = Buffer.from(compressedUint8);
           const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${minOp}-${maxOp}`;
-          await this.storage.objectStorage.put(path, compressed);
+          const { compressedSize } = await store.store(path, bucketOps);
           newStoragePaths.add(path);
 
           newDocs.push({
@@ -390,7 +378,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             target_op: maxTargetOp,
             storage_ref: {
               path,
-              compressed_size: compressed.byteLength
+              compressed_size: compressedSize
             }
           });
         }
@@ -450,15 +438,14 @@ export class MongoCompactorV3 extends MongoCompactor {
         await session.endSession();
       }
 
-      // After commit: delete old S3 objects (best-effort), skip paths reused by new docs
+      // After commit: clean up old S3 objects via the pending delete queue.
+      // Persist pending deletes inside the transaction (so a crash after commit
+      // but before S3 delete cannot orphan objects). Then delete from S3 and
+      // remove from the queue outside the transaction.
       if (this.storage.objectStorage && oldStorageRefs.length > 0) {
         const toDelete = oldStorageRefs.filter((p) => !newStoragePaths.has(p));
         if (toDelete.length > 0) {
-          try {
-            await this.storage.objectStorage.delete(toDelete);
-          } catch (err) {
-            this.logger.warn(`Failed to delete old S3 objects for bucket ${bucket}: ${err}`);
-          }
+          await this.deleteWithRetryQueue(bucketContext.collection, toDelete);
         }
       }
 
@@ -676,36 +663,21 @@ export class MongoCompactorV3 extends MongoCompactor {
           ? chunkBucketData(boundarySurvivors).map((chunk) => serializeBucketData(bucket, chunk))
           : [];
     } else {
-      // S3 path: upload to object storage
+      const store = new BucketDataObjectStorage(this.storage.objectStorage!);
+
       // --- CLEAR doc: upload to S3, build metadata shell ---
       {
-        const clearOp: BucketDataDoc = {
-          bucketKey: { ...context, bucket },
-          o: lastNotPut,
-          op: 'CLEAR',
-          checksum: BigInt(combinedChecksum),
-          data: null,
-          target_op: maxTargetOp
-        };
-
-        const bucketOps = [
+        const clearOpData = [
           {
-            o: clearOp.o,
-            op: clearOp.op,
-            source_table: clearOp.source_table,
-            source_key: clearOp.source_key,
-            table: clearOp.table,
-            row_id: clearOp.row_id,
-            checksum: clearOp.checksum,
-            data: clearOp.data
+            o: lastNotPut,
+            op: 'CLEAR' as const,
+            checksum: BigInt(combinedChecksum),
+            data: null
           }
         ];
 
-        const bsonBuffer = Buffer.from(bson.serialize({ ops: bucketOps }));
-        const compressedUint8 = await zstd.compress(bsonBuffer);
-        const compressed = Buffer.from(compressedUint8);
         const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${lastNotPut}-${lastNotPut}`;
-        await this.storage.objectStorage.put(path, compressed);
+        const { compressedSize } = await store.store(path, clearOpData);
         newStoragePaths.add(path);
 
         clearDoc = {
@@ -717,7 +689,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           target_op: maxTargetOp,
           storage_ref: {
             path,
-            compressed_size: compressed.byteLength
+            compressed_size: compressedSize
           }
         };
       }
@@ -751,11 +723,8 @@ export class MongoCompactorV3 extends MongoCompactor {
             };
           });
 
-          const bsonBuffer = Buffer.from(bson.serialize({ ops: bucketOps }));
-          const compressedUint8 = await zstd.compress(bsonBuffer);
-          const compressed = Buffer.from(compressedUint8);
           const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${minOp}-${maxOp}`;
-          await this.storage.objectStorage.put(path, compressed);
+          const { compressedSize } = await store.store(path, bucketOps);
           newStoragePaths.add(path);
 
           boundaryDocShells.push({
@@ -767,7 +736,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             target_op: chunkMaxTargetOp,
             storage_ref: {
               path,
-              compressed_size: compressed.byteLength
+              compressed_size: compressedSize
             }
           });
         }
@@ -823,18 +792,64 @@ export class MongoCompactorV3 extends MongoCompactor {
       await session.endSession();
     }
 
-    // After commit: delete old S3 objects (best-effort)
+    // After commit: clean up old S3 objects via the pending delete queue
     if (this.storage.objectStorage && oldRefs.length > 0) {
       const toDelete = oldRefs.filter((p) => !newStoragePaths.has(p));
       if (toDelete.length > 0) {
-        try {
-          await this.storage.objectStorage.delete(toDelete);
-        } catch (err) {
-          this.logger.warn(`Failed to delete old S3 objects during CLEAR for bucket ${bucket}: ${err}`);
-        }
+        await this.deleteWithRetryQueue(collection, toDelete);
       }
     }
 
     return clearedOpCount;
+  }
+
+  /**
+   * Safe S3 delete with a MongoDB-persisted retry queue. Writes pending
+   * delete entries so a crash after commit but before S3 deletion cannot
+   * orphan objects. The next compaction run retries any leftover pending deletes.
+   */
+  private async deleteWithRetryQueue(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    _collection: mongo.Collection<any>,
+    paths: string[]
+  ): Promise<void> {
+    const pendingCollection = this.db.pendingS3Deletes(this.storage.replicationStreamId);
+    const entries = paths.map((p) => ({ _id: p }));
+
+    // Use ordered: false so a duplicate path (leftover from previous crash)
+    // doesn't abort the batch.
+    await pendingCollection.insertMany(entries, { ordered: false }).catch(() => {
+      // Duplicate _id expected from retry runs; ignore silently
+    });
+
+    try {
+      await this.storage.objectStorage!.delete(paths);
+      await pendingCollection.deleteMany({ _id: { $in: paths } });
+    } catch (err) {
+      logger.warn(`Failed to delete S3 objects; will retry on next compaction: ${err}`);
+    }
+  }
+
+  /**
+   * Retry any S3 deletes left from a previous compaction run that crashed
+   * between the transaction commit and the S3 delete.
+   */
+  private async retryPendingS3Deletes(): Promise<void> {
+    if (!this.storage.objectStorage) {
+      return;
+    }
+    const pendingCollection = this.db.pendingS3Deletes(this.storage.replicationStreamId);
+    const pending = await pendingCollection.find({}).toArray();
+    if (pending.length == 0) {
+      return;
+    }
+    const paths = pending.map((p) => p._id);
+    logger.info(`Retrying ${paths.length} pending S3 deletes from previous compaction run`);
+    try {
+      await this.storage.objectStorage.delete(paths);
+      await pendingCollection.deleteMany({ _id: { $in: paths } });
+    } catch (err) {
+      logger.warn(`Failed to retry pending S3 deletes; will retry on next compaction: ${err}`);
+    }
   }
 }

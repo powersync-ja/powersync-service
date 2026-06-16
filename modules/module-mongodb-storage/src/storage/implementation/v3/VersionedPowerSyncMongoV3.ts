@@ -64,6 +64,10 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
     return this.db.collection<BucketDataDocumentV3>(`bucket_data_${replicationStreamId}_${definitionId}`);
   }
 
+  pendingS3Deletes(replicationStreamId: number): mongo.Collection<{ _id: string }> {
+    return this.db.collection<{ _id: string }>(`pending_s3_deletes_${replicationStreamId}`);
+  }
+
   listBucketDataCollections(replicationStreamId: number) {
     return this.listCollectionsByPrefix(`bucket_data_${replicationStreamId}_`);
   }

@@ -1,4 +1,3 @@
-import * as zstd from '@mongodb-js/zstd';
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
@@ -39,6 +38,7 @@ import {
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
+import { BucketDataObjectStorage } from './object-storage/BucketDataObjectStorage.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 function* walkDocumentOps(
@@ -481,38 +481,25 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
       // Pre-fetch S3 objects for all S3-backed docs in this batch
       if (this.objectStorage) {
+        const store = new BucketDataObjectStorage(this.objectStorage);
         const s3Docs = docs.filter((d) => d.storage_ref);
         if (s3Docs.length > 0) {
           await Promise.all(
             s3Docs.map(async (doc) => {
-              try {
-                const buffer = await this.objectStorage!.get(doc.storage_ref.path);
-                const decompressed = await zstd.decompress(buffer);
-                const wrapper = bson.deserialize(decompressed, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS);
-                doc.ops = wrapper.ops;
-              } catch (err) {
-                this.logger.warn(`Failed to fetch/decompress S3 object ${doc.storage_ref?.path}: ${err}`);
-                doc.ops = [];
-              }
+              doc.ops = await store.retrieve(doc.storage_ref.path);
             })
           );
         }
       }
 
-      // Track sizes: for S3 docs multiply compressed_size by 3 as a rough
-      // decompressed estimate to keep chunk byte tracking bounded. Without a
-      // multiplier, metadata shells (~200 bytes) would let thousands of
-      // S3-backed docs pack into a single chunk before splitting.
+      // Track sizes: use doc.size (the total decompressed data size stored at write
+      // time) for S3-backed docs; fall back to raw byteLength for inline docs.
       const docSizes: number[] = rawData.map((raw, i) => {
         const doc = docs[i];
-        return doc.storage_ref ? doc.storage_ref.compressed_size * 3 : raw.byteLength;
+        return doc.storage_ref ? doc.size : raw.byteLength;
       });
 
       for (const [i, doc] of docs.entries()) {
-        if (doc.ops && !doc.ops.length) {
-          // Skip documents that failed S3 fetch (empty ops set by catch block)
-          continue;
-        }
         const {
           rows,
           remainingLimit,
