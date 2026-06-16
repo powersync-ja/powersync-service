@@ -529,31 +529,6 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         data.push(...rows);
         documentOpCounts.push(rows.length);
         documentSizes.push(docSizes[i]);
-        chunkSizeBytes += docSizes[i];
-        const {
-          rows,
-          remainingLimit,
-          limitReached: docLimitReached
-        } = extractRowsFromDocument(doc, context, bucketMap, end, sharedRemainingLimit);
-        if (rows.length == 0) {
-          // The document straddles the requested (start, end] window: it matched the
-          // query, but none of its ops are in range. Since its _id.o (max op) must be
-          // > end (any op <= end would have been > start, and thus in range), and
-          // document ranges per bucket are disjoint, no later document for this bucket
-          // can match either. The bucket is complete through the checkpoint.
-          completeEmptyBuckets.add(doc._id.b);
-        }
-        data.push(...rows);
-        documentOpCounts.push(rows.length);
-<<<<<<< HEAD
-        documentSizes.push(raw.byteLength);
-||||||| parent of c6109e62 (feat: implement S3 read path in getBucketDataBatch, add Phase 2d red test)
-        documentSizes.push(raw.byteLength);
-        chunkSizeBytes += raw.byteLength;
-=======
-        documentSizes.push(docSizes[i]);
-        chunkSizeBytes += docSizes[i];
->>>>>>> c6109e62 (feat: implement S3 read path in getBucketDataBatch, add Phase 2d red test)
         sharedRemainingLimit = remainingLimit;
         if (docLimitReached) {
           limitReached = true;

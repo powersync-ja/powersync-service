@@ -53,7 +53,7 @@ describe('V3 Compaction with object storage', () => {
     await writer.commit('1/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules, 'global[]', 0n);
+    const request = bucketRequest(syncRules as any, 'global[]', 0n);
     const bucket = request.bucket;
 
     const batchBefore = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
@@ -111,7 +111,7 @@ describe('V3 Compaction with object storage', () => {
     await writer.commit('1/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules, 'global[]', 0n);
+    const request = bucketRequest(syncRules as any, 'global[]', 0n);
 
     await bucketStorage.compact({
       maxOpId: checkpoint,
@@ -153,7 +153,7 @@ describe('V3 Compaction with object storage', () => {
     await writer.commit('1/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules, 'global[]', 0n);
+    const request = bucketRequest(syncRules as any, 'global[]', 0n);
 
     const batchBefore = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataBefore = test_utils.getBatchData(batchBefore);
@@ -206,7 +206,7 @@ describe('V3 Compaction with object storage', () => {
     await writer.commit('1/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules, 'global[]', 0n);
+    const request = bucketRequest(syncRules as any, 'global[]', 0n);
 
     await bucketStorage.compact({
       maxOpId: checkpoint,
@@ -261,7 +261,7 @@ describe('V3 Compaction with object storage', () => {
     await writer.commit('1/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules, 'global[]', 0n);
+    const request = bucketRequest(syncRules as any, 'global[]', 0n);
 
     await bucketStorage.compact({
       maxOpId: checkpoint,

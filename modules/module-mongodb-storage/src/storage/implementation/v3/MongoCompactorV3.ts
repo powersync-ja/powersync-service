@@ -341,7 +341,7 @@ export class MongoCompactorV3 extends MongoCompactor {
         .filter((d: BucketDataDocumentV3) => d.storage_ref)
         .map((d: BucketDataDocumentV3) => d.storage_ref!.path);
 
-      let newDocs: BucketDataDocumentV3[];
+      let newDocs: BucketDataDocumentV3[] = [];
       const newStoragePaths = new Set<string>();
 
       if (!this.storage.objectStorage) {
@@ -665,7 +665,7 @@ export class MongoCompactorV3 extends MongoCompactor {
         bucketKey: { ...context, bucket },
         o: lastNotPut,
         op: 'CLEAR' as const,
-        checksum: combinedChecksum,
+        checksum: BigInt(combinedChecksum),
         data: null,
         target_op: maxTargetOp
       } satisfies BucketDataDoc;
@@ -683,7 +683,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           bucketKey: { ...context, bucket },
           o: lastNotPut,
           op: 'CLEAR',
-          checksum: combinedChecksum,
+          checksum: BigInt(combinedChecksum),
           data: null,
           target_op: maxTargetOp
         };
@@ -704,14 +704,14 @@ export class MongoCompactorV3 extends MongoCompactor {
         const bsonBuffer = Buffer.from(bson.serialize({ ops: bucketOps }));
         const compressedUint8 = await zstd.compress(bsonBuffer);
         const compressed = Buffer.from(compressedUint8);
-        const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${lastNotPut}-${lastNotPut}`;
+        const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${lastNotPut}-${lastNotPut}`;
         await this.storage.objectStorage.put(path, compressed);
         newStoragePaths.add(path);
 
         clearDoc = {
           _id: { b: bucket, o: lastNotPut },
           min_op: lastNotPut,
-          checksum: combinedChecksum,
+          checksum: BigInt(combinedChecksum),
           count: 1,
           size: 0,
           target_op: maxTargetOp,
@@ -754,7 +754,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           const bsonBuffer = Buffer.from(bson.serialize({ ops: bucketOps }));
           const compressedUint8 = await zstd.compress(bsonBuffer);
           const compressed = Buffer.from(compressedUint8);
-          const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${minOp}-${maxOp}`;
+          const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${minOp}-${maxOp}`;
           await this.storage.objectStorage.put(path, compressed);
           newStoragePaths.add(path);
 

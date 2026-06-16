@@ -40,7 +40,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       logger: this.logger,
       objectStorage: this.options.objectStorage
     });
-    });
   }
 
   protected get sourceRecordStore(): SourceRecordStore {

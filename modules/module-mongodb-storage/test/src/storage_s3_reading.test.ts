@@ -67,7 +67,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
     // when storage_ref is present. loadBucketDataDocument() sees no ops[] and
     // returns empty, so the batch contains zero data entries.
     const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules, 'global[]', 0n)])
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules as any, 'global[]', 0n)])
     );
     const data = test_utils.getBatchData(batch);
 
@@ -112,8 +112,8 @@ describe('S3 read path (Phase 2c red tests)', () => {
     // non-existent path (no ops). This simulates a corrupt or missing S3 object.
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData(bucketStorage.group_id, definitionId);
-    const actualBucket = bucketRequest(syncRules, 'global[]', 0n).bucket;
+    const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
+    const actualBucket = bucketRequest(syncRules as any, 'global[]', 0n).bucket;
 
     await collection.insertOne({
       _id: { b: actualBucket, o: 50n },
@@ -134,7 +134,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
     // Currently, NEITHER set of ops is returned because the S3 fetch is not
     // implemented. This test MUST FAIL.
     const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules, 'global[]', 0n)])
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules as any, 'global[]', 0n)])
     );
     const data = test_utils.getBatchData(batch);
 
@@ -190,8 +190,8 @@ describe('S3 read path (Phase 2c red tests)', () => {
     // into the same bucket_data collection.
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData(bucketStorage.group_id, definitionId);
-    const actualBucket = bucketRequest(syncRules, 'global[]', 0n).bucket;
+    const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
+    const actualBucket = bucketRequest(syncRules as any, 'global[]', 0n).bucket;
 
     await collection.insertOne({
       _id: { b: actualBucket, o: 100n },
@@ -219,7 +219,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
     // document. Currently, only the inline document's ops are returned because
     // the S3 fetch is not implemented. This test MUST FAIL.
     const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules, 'global[]', 0n)])
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules as any, 'global[]', 0n)])
     );
     const data = test_utils.getBatchData(batch);
 
