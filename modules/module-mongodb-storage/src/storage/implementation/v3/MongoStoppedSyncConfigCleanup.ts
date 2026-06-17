@@ -1,9 +1,8 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { Logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
-import { storage } from '@powersync/service-core';
+import { SingleSyncConfigBucketDefinitionMapping, storage } from '@powersync/service-core';
 import { BucketDefinitionId, ParameterIndexId, SyncConfig } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { SingleSyncConfigBucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { ReplicationStreamDocumentV3, SourceTableDocumentV3, SyncConfigDefinition } from './models.js';
 
@@ -113,7 +112,9 @@ export class MongoStoppedSyncConfigCleanup {
   }
 
   private storageIdsFor(configs: Pick<SyncConfigDefinition, 'rule_mapping'>[]) {
-    const mappings = configs.map((config) => SingleSyncConfigBucketDefinitionMapping.fromSyncConfig(config));
+    const mappings = configs.map((config) =>
+      SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(config.rule_mapping)
+    );
     return {
       bucketDefinitionIds: [...new Set(mappings.flatMap((mapping) => mapping.allBucketDefinitionIds()))],
       parameterIndexIds: [...new Set(mappings.flatMap((mapping) => mapping.allParameterIndexIds()))]
