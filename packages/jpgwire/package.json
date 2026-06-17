@@ -7,6 +7,11 @@
   },
   "version": "0.21.19",
   "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "default": "./dist/index.js"
+    }
+  },
   "license": "FSL-1.1-ALv2",
   "files": [
     "dist/**/*",

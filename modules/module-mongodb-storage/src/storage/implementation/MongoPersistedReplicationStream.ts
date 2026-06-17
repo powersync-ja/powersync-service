@@ -1,7 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { SingleSyncConfigBucketDefinitionMapping, storage } from '@powersync/service-core';
-import { ReplicationStreamStorageIds } from '@powersync/service-core/src/storage/implementation/ReplicationStreamStorageIds.js';
+import { ReplicationStreamStorageIds, SingleSyncConfigBucketDefinitionMapping, storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { ReplicationStreamDocumentV3, SyncConfigDefinition } from '../storage-index.js';
 import { PowerSyncMongo } from './db.js';

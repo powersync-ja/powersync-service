@@ -3,6 +3,11 @@
   "version": "0.15.2",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "default": "./dist/index.js"
+    }
+  },
   "license": "FSL-1.1-ALv2",
   "publishConfig": {
     "access": "public"

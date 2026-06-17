@@ -17,11 +17,11 @@ import {
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
   ReplicationCheckpoint,
+  ReplicationStreamStorageIds,
   storage,
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
-import { ReplicationStreamStorageIds } from '@powersync/service-core/src/storage/implementation/ReplicationStreamStorageIds.js';
 import { HydratedSyncConfig, ParameterLookupRows, ScopedParameterLookup } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
