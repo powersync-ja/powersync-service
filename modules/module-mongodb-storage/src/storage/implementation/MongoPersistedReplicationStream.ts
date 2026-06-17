@@ -1,9 +1,11 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { storage } from '@powersync/service-core';
+import { SingleSyncConfigBucketDefinitionMapping, storage } from '@powersync/service-core';
+import { ReplicationStreamStorageIds } from '@powersync/service-core/src/storage/implementation/ReplicationStreamStorageIds.js';
 import * as bson from 'bson';
 import { ReplicationStreamDocumentV3, SyncConfigDefinition } from '../storage-index.js';
-import { SingleSyncConfigBucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { PowerSyncMongo } from './db.js';
+import { getMongoStorageConfig } from './models.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import {
   MongoPersistedSyncConfigContentBase,
@@ -11,9 +13,6 @@ import {
   MongoPersistedSyncConfigContentV3
 } from './MongoPersistedSyncConfigContent.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
-import { ReplicationStreamStorageIds } from './ReplicationStreamStorageIds.js';
-import { PowerSyncMongo } from './db.js';
-import { getMongoStorageConfig } from './models.js';
 import { SyncRuleDocumentV1 } from './v1/models.js';
 
 export class MongoPersistedReplicationStream extends storage.PersistedReplicationStream {
@@ -100,7 +99,7 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
           storageVersion: this.storageVersion,
           parseOptions: options
         }),
-        mapping: SingleSyncConfigBucketDefinitionMapping.fromSyncConfig(config)
+        mapping: SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(config.rule_mapping)
       };
     });
 

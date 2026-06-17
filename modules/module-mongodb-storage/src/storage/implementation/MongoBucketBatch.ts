@@ -12,6 +12,7 @@ import {
   ServiceError
 } from '@powersync/lib-services-framework';
 import {
+  BucketDefinitionMapping,
   BucketStorageMarkRecordUnavailable,
   deserializeBson,
   InternalOpId,
@@ -23,7 +24,6 @@ import {
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../utils/util.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PersistedBatch } from './common/PersistedBatch.js';
 import { LoadedSourceRecord, SourceRecordStore } from './common/SourceRecordStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';

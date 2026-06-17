@@ -1,5 +1,5 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { storage } from '@powersync/service-core';
+import { SingleSyncConfigBucketDefinitionMapping, storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import {
   ReplicationStreamDocumentV3,
@@ -7,7 +7,6 @@ import {
   SyncRuleConfigStateV3,
   SyncRuleDocumentV1
 } from '../storage-index.js';
-import { SingleSyncConfigBucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PowerSyncMongo } from './db.js';
 import { getMongoStorageConfig } from './models.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
@@ -98,7 +97,7 @@ export class MongoPersistedSyncConfigContentV3 extends MongoPersistedSyncConfigC
 
       replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
       storageVersion: doc.storage_version,
-      mapping: SingleSyncConfigBucketDefinitionMapping.fromSyncConfig(config),
+      mapping: SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(config.rule_mapping),
       syncConfigId: config._id
     });
   }

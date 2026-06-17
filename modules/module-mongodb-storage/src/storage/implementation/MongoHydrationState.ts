@@ -1,4 +1,5 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import { SyncConfigWithRequiredMapping } from '@powersync/service-core';
 import {
   BucketDataScope,
   BucketDataSource,
@@ -6,7 +7,6 @@ import {
   ParameterIndexLookupCreator,
   ParameterLookupScope
 } from '@powersync/service-sync-rules';
-import { SyncConfigWithRequiredMapping } from './BucketDefinitionMapping.js';
 
 export class MongoHydrationState implements HydrationState {
   private bucketDataSourceSyncConfig = new WeakMap<BucketDataSource, SyncConfigWithRequiredMapping>();

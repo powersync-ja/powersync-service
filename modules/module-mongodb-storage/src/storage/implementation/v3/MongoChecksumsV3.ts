@@ -6,9 +6,9 @@ import {
   InternalOpId,
   isPartialChecksum,
   PartialChecksumMap,
-  PartialOrFullChecksum
+  PartialOrFullChecksum,
+  SingleSyncConfigBucketDefinitionMapping
 } from '@powersync/service-core';
-import { SingleSyncConfigBucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import {
   checksumFromAggregate,
   emptyChecksumForRequest,

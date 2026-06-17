@@ -21,6 +21,7 @@ import {
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
+import { ReplicationStreamStorageIds } from '@powersync/service-core/src/storage/implementation/ReplicationStreamStorageIds.js';
 import { HydratedSyncConfig, ParameterLookupRows, ScopedParameterLookup } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
@@ -36,7 +37,6 @@ import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import { MongoPersistedReplicationStream } from './MongoPersistedReplicationStream.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
-import { ReplicationStreamStorageIds } from './ReplicationStreamStorageIds.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;

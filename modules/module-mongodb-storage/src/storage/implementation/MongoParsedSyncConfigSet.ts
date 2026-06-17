@@ -1,7 +1,14 @@
 import * as sqlite from 'node:sqlite';
 
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { storage } from '@powersync/service-core';
+import {
+  BucketDefinitionMapping,
+  MultiSyncConfigBucketDefinitionMapping,
+  SingleSyncConfigBucketDefinitionMapping,
+  storage,
+  SyncConfigWithMapping,
+  SyncConfigWithRequiredMapping
+} from '@powersync/service-core';
 import {
   CompatibilityOption,
   DEFAULT_HYDRATION_STATE,
@@ -11,13 +18,6 @@ import {
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
-import {
-  BucketDefinitionMapping,
-  MultiSyncConfigBucketDefinitionMapping,
-  SingleSyncConfigBucketDefinitionMapping,
-  SyncConfigWithMapping,
-  SyncConfigWithRequiredMapping
-} from './BucketDefinitionMapping.js';
 import { StorageConfig } from './models.js';
 import { MongoHydrationState } from './MongoHydrationState.js';
 

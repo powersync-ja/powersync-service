@@ -1,4 +1,9 @@
-import { GetIntanceOptions, LEGACY_STORAGE_VERSION, storage } from '@powersync/service-core';
+import {
+  GetIntanceOptions,
+  LEGACY_STORAGE_VERSION,
+  SingleSyncConfigBucketDefinitionMapping,
+  storage
+} from '@powersync/service-core';
 
 import { DO_NOT_LOG, ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
@@ -6,17 +11,16 @@ import { v4 as uuid } from 'uuid';
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 
-import { CompatibilityContext } from '@powersync/service-sync-rules';
+import {
+  describeIncrementalSyncConfigUpdate,
+  formatIncrementalSyncConfigUpdateLog,
+  isCompatible
+} from '@powersync/service-core';
 import { ObjectId } from 'bson';
 import { generateReplicationStreamName } from '../utils/util.js';
-import { SingleSyncConfigBucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { PowerSyncMongo } from './implementation/db.js';
-import {
-  describeIncrementalSyncConfigUpdate,
-  formatIncrementalSyncConfigUpdateLog
-} from './implementation/IncrementalReprocessingSyncConfigLog.js';
 import { getMongoStorageConfig, StorageConfig, SyncRuleDocumentBase } from './implementation/models.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 import { MongoPersistedReplicationStream } from './implementation/MongoPersistedReplicationStream.js';
@@ -167,42 +171,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     }
   }
 
-  private isCompatible(
-    existingConfig: SyncConfigDefinition[],
-    config: storage.UpdateSyncRulesOptions['config']
-  ): boolean {
-    if (config.plan == null) {
-      // Only support sync streams with serialized plans
-      logger.info(`Not using current sync streams - incremental reprocessing not supported`);
-      return false;
-    }
-
-    // We don't check the storage version here - that is checked upstream.
-    if (existingConfig.length == 0) {
-      // Could technically be compatible, but there is no reason to re-use this stream.
-      return false;
-    }
-
-    if (existingConfig.some((config) => config.serialized_plan == null)) {
-      // Only support sync streams with serialized plans
-      logger.info(
-        `Existing replication stream not using current sync streams - incremental reprocessing not supported`
-      );
-      return false;
-    }
-
-    // Technically we can compare the serialized compatibility versions? But this does not add much overhead.
-    const first = existingConfig[0];
-    const streamCompatibility = CompatibilityContext.deserialize(first.serialized_plan!.compatibility);
-    if (!streamCompatibility.equals(config.parsed.config.compatibility)) {
-      // Compatibility options must match
-      logger.info(`Compatibility options changed - incremental reprocessing not supported`);
-      return false;
-    }
-
-    return true;
-  }
-
   private async updateSyncRulesV3(
     options: storage.UpdateSyncRulesOptions,
     storageVersion: number,
@@ -224,7 +192,14 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       if (active != null) {
         const existingConfigDocs = await this.loadSyncConfigDefinitions(versioned, active, session);
 
-        if (this.options.supportsMultipleSyncConfigs && this.isCompatible(existingConfigDocs, options.config)) {
+        if (
+          this.options.supportsMultipleSyncConfigs &&
+          isCompatible(
+            existingConfigDocs.map((d) => d.serialized_plan ?? null),
+            options.config,
+            logger
+          )
+        ) {
           logger.info(`Using incremental reprocessing`);
           await this.db.sync_rules.updateMany(
             {
@@ -416,11 +391,11 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const { versioned, existing, existingConfigDocs, options: updateOptions, storageVersion, session } = options;
     const compatibleConfigs = existingConfigDocs.map((doc) => ({
       plan: doc.serialized_plan!.plan,
-      mapping: SingleSyncConfigBucketDefinitionMapping.fromSyncConfig(doc)
+      mapping: SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(doc.rule_mapping)
     }));
     const historicalRuleMappings = await this.loadHistoricalSyncConfigRuleMappings(versioned, existing._id, session);
     const reservedMappings = historicalRuleMappings.map((doc) =>
-      SingleSyncConfigBucketDefinitionMapping.fromSyncConfig(doc)
+      SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(doc.rule_mapping)
     );
     const mappingResult = SingleSyncConfigBucketDefinitionMapping.constructIncrementalMappingWithChanges(
       compatibleConfigs,
@@ -430,7 +405,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const mapping = mappingResult.mapping;
     this.logIncrementalDefinitionChanges(
       describeIncrementalSyncConfigUpdate({
-        activeMappings: existingConfigDocs.map((doc) => SingleSyncConfigBucketDefinitionMapping.fromSyncConfig(doc)),
+        activeMappings: existingConfigDocs.map((doc) =>
+          SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(doc.rule_mapping)
+        ),
         newMapping: mapping,
         newSyncConfig: updateOptions.config.parsed,
         mappingChanges: mappingResult.changes

@@ -1,5 +1,5 @@
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { ColumnDescriptor, storage } from '@powersync/service-core';
+import { BucketDefinitionMapping, ColumnDescriptor, storage } from '@powersync/service-core';
 import {
   BucketDataSource,
   BucketDefinitionId,
@@ -10,7 +10,6 @@ import {
   SourceTableRef
 } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { ReplicaIdColumn, SourceTableDocumentV3 } from './models.js';
 
 export interface SourceTableIdentity {

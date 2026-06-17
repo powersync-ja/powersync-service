@@ -1,11 +1,16 @@
 import { MongoSyncBucketStorageV3 } from '@module/storage/implementation/v3/MongoSyncBucketStorageV3.js';
-import { deserializeParameterLookup, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
+import {
+  deserializeParameterLookup,
+  JwtPayload,
+  SingleSyncConfigBucketDefinitionMapping,
+  storage,
+  updateSyncRulesFromYaml
+} from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { RequestParameters, ScopedParameterLookup, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
-import { SingleSyncConfigBucketDefinitionMapping } from '../../src/storage/implementation/BucketDefinitionMapping.js';
 import { MongoParsedSyncConfigSet } from '../../src/storage/implementation/MongoParsedSyncConfigSet.js';
 import { MongoPersistedSyncConfigContentV3 } from '../../src/storage/implementation/MongoPersistedSyncConfigContent.js';
 import { BucketDataDoc, BucketKey } from '../../src/storage/implementation/common/BucketDataDoc.js';

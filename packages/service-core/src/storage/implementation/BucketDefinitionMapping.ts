@@ -14,9 +14,6 @@ import {
   SourceTableRef,
   SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
-import { SyncConfigDefinition } from '../storage-index.js';
-
-export type { BucketDefinitionId, ParameterIndexId };
 
 export interface SerializedSyncConfigWithMapping {
   plan: SerializedSyncPlanV1;
@@ -50,6 +47,17 @@ export interface SyncConfigWithRequiredMapping {
   syncConfigId: string;
   syncConfig: SyncConfigWithErrors;
   mapping: SingleSyncConfigBucketDefinitionMapping;
+}
+
+export interface PersistedDefinitionMapping {
+  /**
+   * Map of uniqueName -> id, unique per replication stream.
+   */
+  definitions: Record<string, string>;
+  /**
+   * Map of (lookupName, queryId) -> id, unique per replication stream.
+   */
+  parameter_indexes: Record<string, string>;
 }
 
 /**
@@ -91,11 +99,8 @@ export interface BucketDefinitionMapping {
  * the same replication stream, where names are not unique.
  */
 export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinitionMapping {
-  static fromSyncConfig(doc: Pick<SyncConfigDefinition, 'rule_mapping'>): SingleSyncConfigBucketDefinitionMapping {
-    return new SingleSyncConfigBucketDefinitionMapping(
-      doc.rule_mapping?.definitions ?? {},
-      doc.rule_mapping?.parameter_indexes ?? {}
-    );
+  static fromPersistedMapping(mapping: PersistedDefinitionMapping): SingleSyncConfigBucketDefinitionMapping {
+    return new SingleSyncConfigBucketDefinitionMapping(mapping.definitions ?? {}, mapping.parameter_indexes ?? {});
   }
 
   static fromParsedSyncConfig(syncConfig: SyncConfigWithErrors): SingleSyncConfigBucketDefinitionMapping {
@@ -281,7 +286,7 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
     return defId;
   }
 
-  serialize(): SyncConfigDefinition['rule_mapping'] {
+  serialize(): PersistedDefinitionMapping {
     return {
       definitions: { ...this.definitions },
       parameter_indexes: { ...this.parameterLookupMapping }

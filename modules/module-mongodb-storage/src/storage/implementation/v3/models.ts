@@ -1,12 +1,17 @@
 import {
   InternalOpId,
+  PersistedDefinitionMapping,
   SerializedSyncPlan,
   SyncRuleState,
   deserializeParameterLookup as deserializeParameterLookupCore
 } from '@powersync/service-core';
-import { ScopedParameterLookup, SqliteJsonValue } from '@powersync/service-sync-rules';
+import {
+  BucketDefinitionId,
+  ParameterIndexId,
+  ScopedParameterLookup,
+  SqliteJsonValue
+} from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
 import {
   BucketDataKey,
   BucketParameterDocumentBase,
@@ -100,16 +105,7 @@ export interface SyncConfigDefinition {
   content: string;
   serialized_plan?: SerializedSyncPlan | null;
 
-  rule_mapping: {
-    /**
-     * Map of uniqueName -> id, unique per replication stream.
-     */
-    definitions: Record<string, string>;
-    /**
-     * Map of (lookupName, queryId) -> id, unique per replication stream.
-     */
-    parameter_indexes: Record<string, string>;
-  };
+  rule_mapping: PersistedDefinitionMapping;
 }
 
 export interface CurrentBucketV3 extends CurrentBucket {

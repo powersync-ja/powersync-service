@@ -1,7 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { addChecksums, storage, utils } from '@powersync/service-core';
-import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
+import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketDataDocumentGeneric, SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';

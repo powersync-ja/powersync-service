@@ -8,6 +8,7 @@ import {
   internalToExternalOpId,
   ParameterSetLimitExceededError,
   ProtocolOpId,
+  SingleSyncConfigBucketDefinitionMapping,
   storage,
   utils
 } from '@powersync/service-core';
@@ -16,7 +17,6 @@ import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powe
 import * as bson from 'bson';
 import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
-import { SingleSyncConfigBucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageCheckpoint.js';
 import { MongoChecksums } from '../MongoChecksums.js';
