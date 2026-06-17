@@ -344,6 +344,8 @@ export interface CleanupStoppedSyncConfigsResult {
   stoppedSyncConfigsRemoved: number;
   bucketDataCollectionsDropped: number;
   parameterIndexCollectionsDropped: number;
+  /** Best-effort number, not accurate if the operation takes longer than the timeout. */
+  bucketStateDocumentsDeleted: number;
   sourceRecordCollectionsDropped: number;
   sourceTablesUpdated: number;
   sourceTablesDeleted: number;

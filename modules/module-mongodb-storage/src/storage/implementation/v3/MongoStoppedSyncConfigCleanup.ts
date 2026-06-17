@@ -3,8 +3,14 @@ import { Logger, ReplicationAbortedError } from '@powersync/lib-services-framewo
 import { SingleSyncConfigBucketDefinitionMapping, storage } from '@powersync/service-core';
 import { BucketDefinitionId, ParameterIndexId, SyncConfig } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
+import { idPrefixFilter, retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-import { ReplicationStreamDocumentV3, SourceTableDocumentV3, SyncConfigDefinition } from './models.js';
+import {
+  BucketStateDocumentV3,
+  ReplicationStreamDocumentV3,
+  SourceTableDocumentV3,
+  SyncConfigDefinition
+} from './models.js';
 
 type SyncConfigState = ReplicationStreamDocumentV3['sync_configs'][number];
 
@@ -18,6 +24,7 @@ const EMPTY_RESULT: storage.CleanupStoppedSyncConfigsResult = {
   stoppedSyncConfigsRemoved: 0,
   bucketDataCollectionsDropped: 0,
   parameterIndexCollectionsDropped: 0,
+  bucketStateDocumentsDeleted: 0,
   sourceRecordCollectionsDropped: 0,
   sourceTablesUpdated: 0,
   sourceTablesDeleted: 0
@@ -89,6 +96,7 @@ export class MongoStoppedSyncConfigCleanup {
         result
       );
       result.bucketDataCollectionsDropped = await this.dropBucketDataCollections(unusedBucketDefinitionIds);
+      result.bucketStateDocumentsDeleted = await this.deleteBucketStateDocuments(unusedBucketDefinitionIds);
       result.parameterIndexCollectionsDropped = await this.dropParameterIndexCollections(unusedParameterIndexIds);
     }
 
@@ -292,6 +300,45 @@ export class MongoStoppedSyncConfigCleanup {
       await this.dropCollection(this.db.bucketData(this.replicationStreamId, definitionId));
     }
     return definitionIds.length;
+  }
+
+  /**
+   * Delete bucket_state documents for the unused bucket definitions.
+   *
+   * The bucket_state collection is shared across all bucket definitions of the
+   * stream (keyed by `_id`, an ordered `{ d, b }` compound), so we delete the individual documents.
+   *
+   * There can be hundreds of millions of buckets, so we delete per definition using a range filter
+   * on `_id` (which uses the `_id` index) rather than a slow `_id.d` field scan, and retry on
+   * MaxTimeMSExpired so each call makes progress in batches.
+   */
+  private async deleteBucketStateDocuments(definitionIds: BucketDefinitionId[]): Promise<number> {
+    const collection = this.db.bucketState(this.replicationStreamId);
+    let deletedCount = 0;
+    for (const definitionId of definitionIds) {
+      this.throwIfAborted();
+      const result = await retryOnMongoMaxTimeMSExpired(
+        () =>
+          collection.deleteMany(
+            {
+              _id: idPrefixFilter<BucketStateDocumentV3['_id']>({ d: definitionId }, ['b'])
+            },
+            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+          ),
+        {
+          signal: this.signal,
+          abortMessage: 'Aborted stopped sync config cleanup',
+          retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5,
+          onRetry: () => {
+            this.logger.info(
+              `Cleared batch of bucket state in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
+            );
+          }
+        }
+      );
+      deletedCount += result.deletedCount;
+    }
+    return deletedCount;
   }
 
   private async dropParameterIndexCollections(indexIds: ParameterIndexId[]): Promise<number> {

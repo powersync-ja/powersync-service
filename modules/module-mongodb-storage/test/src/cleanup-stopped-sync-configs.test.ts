@@ -157,6 +157,7 @@ streams:
       stoppedSyncConfigsRemoved: 1,
       bucketDataCollectionsDropped: 1,
       parameterIndexCollectionsDropped: 1,
+      bucketStateDocumentsDeleted: 1,
       sourceRecordCollectionsDropped: 2,
       sourceTablesUpdated: 0,
       sourceTablesDeleted: 2
@@ -255,6 +256,7 @@ streams:
       stoppedSyncConfigsRemoved: 1,
       bucketDataCollectionsDropped: 1,
       parameterIndexCollectionsDropped: 0,
+      bucketStateDocumentsDeleted: 1,
       sourceRecordCollectionsDropped: 0,
       sourceTablesUpdated: 1,
       sourceTablesDeleted: 0
