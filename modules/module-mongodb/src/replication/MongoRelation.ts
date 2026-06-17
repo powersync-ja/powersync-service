@@ -178,21 +178,24 @@ export const STANDALONE_CHECKPOINT_ID = '_standalone_checkpoint';
  * Create a checkpoint by upserting a document in _powersync_checkpoints.
  *
  * Returns either:
- * - A standard LSN string (from operationTime or wall clock) for storage
- *   boundaries like no_checkpoint_before, where lexicographic comparison is used.
+ * - A standard LSN string (from operationTime) for storage boundaries like
+ *   no_checkpoint_before, where lexicographic comparison is used.
  * - A sentinel string ('sentinel:<id>:<i>') for the streaming loop's
  *   waitForCheckpointLsn, where the loop matches by document content instead
  *   of comparing LSNs.
  *
- * Cosmos DB is detected automatically: when session.operationTime is null
- * (Cosmos DB does not provide it), the function falls back to wall clock
- * timestamps or sentinel format depending on the mode.
+ * This function does NOT support Cosmos DB in 'lsn' mode: it requires
+ * session.operationTime, which Cosmos DB does not provide, and throws
+ * (PSYNC_S1004) when it is missing. The Cosmos path builds LSNs via
+ * createCosmosCheckpointLsn (sentinel-based) and only uses this function in
+ * 'sentinel' mode, which does not read operationTime. Do not call the default
+ * 'lsn' mode on a Cosmos connection.
  *
  * @param mode
- *   'lsn' (default) — return a real LSN string. Uses operationTime when
- *     available (standard MongoDB), falls back to wall clock (Cosmos DB).
+ *   'lsn' (default) — return a real LSN string from operationTime
+ *     (standard MongoDB only).
  *   'sentinel' — return a sentinel marker for event-based matching in the
- *     streaming loop.
+ *     streaming loop (used by the Cosmos sentinel implementation).
  * @param globalSentinel
  *   Cosmos DB only: the current standalone checkpoint counter value, embedded
  *   in the barrier document. This lets the stream read the global LSN
@@ -262,6 +265,14 @@ async function createCheckpointInner(
     // document content (id + increment), not by LSN comparison. operationTime
     // is not available on Cosmos and is not needed here.
     const i = response.value?.i;
+    if (i == null) {
+      // Would produce a 'sentinel:<id>:undefined' marker that the streaming
+      // loop can never match, stalling the batch barrier indefinitely.
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1004,
+        `Sentinel checkpoint response is missing the incremented counter: ${JSON.stringify(response.value)}`
+      );
+    }
     return `sentinel:${id}:${i}`;
   }
 

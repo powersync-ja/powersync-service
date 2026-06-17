@@ -1,6 +1,6 @@
 # Cosmos DB LSN, Sentinel Checkpoint, and Write Checkpoint Notes
 
-These notes summarize findings from testing Azure Cosmos DB for MongoDB vCore change streams on the Cosmos DB support branch.
+These notes summarize findings from testing Azure Cosmos DB for MongoDB vCore change streams on the Cosmos DB support branch. These are internal implementation notes; for user-affecting limitations see [cosmos-db-limitations.md](./cosmos-db-limitations.md).
 
 ## Summary
 
@@ -243,7 +243,7 @@ write 1: $inc _standalone_checkpoint.i        -> global coordinate N
 write 2: $inc <checkpointStreamId>.i          -> this stream's barrier
 ```
 
-The committed LSN pairs the global coordinate from write 1 with the resume token of write 2's change event. An earlier design relied on the change stream delivering write 1's event before write 2's event. That holds when both documents live on the same node, but change streams only guarantee ordering per document — delivery order across different documents is not guaranteed (relevant if `_powersync_checkpoints` is ever sharded, or under any feed reordering).
+The committed LSN pairs the global coordinate from write 1 with the resume token of write 2's change event. An earlier design relied on the change stream delivering write 1's event before write 2's event. That ordering is not guaranteed on Cosmos: Microsoft documents change order only _per shard key_ (RU API), and the vCore change-stream docs make no ordering guarantee at all. Since write 1 and write 2 are different documents (different shard-key values), their relative delivery order is unspecified. The implementation therefore conservatively assumes no cross-document order. See [cosmos-db-outstanding-items.md](./cosmos-db-outstanding-items.md) for the sourced ordering analysis.
 
 To remove that dependency, write 2 embeds the global value in the barrier document:
 
@@ -485,13 +485,9 @@ There are two related concerns:
 - source-head correctness: the stored write checkpoint head should not be an already-replicated storage head unless resolution is separately tied to the sentinel
 - LSN ordering: the standalone sentinel prefix is sortable, but the resume-token suffix is opaque and should not be used as a documented ordering signal
 
-The safer model is to resolve Cosmos write checkpoints based on sentinel observation or the storage checkpoint/op id produced after committing the sentinel. In order of preference:
+The standalone sentinel head, tied to a source-side write the change stream can actually observe, is the best resolution model achievable on Cosmos. There is no stronger option: anything that would guarantee the caller's data write is replicated _before_ the checkpoint resolves requires a cross-document/global change order, which Cosmos does not provide (it guarantees order only per shard key). Resolving from the committed storage checkpoint/op id is **not** a stronger alternative — that op id is produced by the sentinel's own commit, so it carries no information about data writes that have not yet been delivered.
 
-```text
-best:   resolve from the observed sentinel / committed storage checkpoint
-better: use the standalone sentinel as the comparable Cosmos LSN head
-worst:  use the last replicated storage LSN as the write checkpoint head
-```
+This leaves an inherent read-your-writes gap: a write checkpoint can resolve a moment before its data is replicated. It is tracked, with the ordering analysis, in [cosmos-db-outstanding-items.md](./cosmos-db-outstanding-items.md).
 
 ## Known Limitations
 

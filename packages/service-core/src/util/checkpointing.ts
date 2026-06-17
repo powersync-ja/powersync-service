@@ -17,10 +17,6 @@ export async function createWriteCheckpoint(options: CreateWriteCheckpointOption
   }
 
   const { writeCheckpoint, currentCheckpoint } = await options.api.createReplicationHead(async (currentCheckpoint) => {
-    if (currentCheckpoint == null) {
-      throw new ServiceError(ErrorCode.PSYNC_S2302, 'Cannot create write checkpoint: no replication head available');
-    }
-
     const writeCheckpoint = await syncBucketStorage.createManagedWriteCheckpoint({
       user_id: full_user_id,
       heads: { '1': currentCheckpoint }

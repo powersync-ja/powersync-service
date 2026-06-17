@@ -6,8 +6,6 @@ import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { env } from './env.js';
 import { describeWithStorage, StorageVersionTestContext } from './util.js';
 
-const isCosmosDb = process.env.COSMOS_DB_TEST === 'true';
-
 describe('mongodb resuming replication', () => {
   describeWithStorage({}, defineResumeTest);
 });

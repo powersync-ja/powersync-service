@@ -10,12 +10,16 @@ These instructions cover running the `module-mongodb` test suite against an Azur
 
 ## Environment Variables
 
-| Variable              | Required | Description                                                                                                                      |
-| --------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `COSMOS_DB_TEST`      | Yes      | Set to `true` to enable Cosmos DB integration tests. Without this, all tests in `cosmosdb_mode.test.ts` are skipped.             |
-| `MONGO_TEST_DATA_URL` | Yes      | Cosmos DB connection URI. Must include a database name in the path (see below).                                                  |
-| `PG_STORAGE_TEST_URL` | No       | PostgreSQL connection for PowerSync storage. Defaults to `postgres://postgres:postgres@localhost:5432/powersync_storage_test`.   |
-| `TEST_MONGO_STORAGE`  | No       | Set to `false` to skip MongoDB storage tests. Recommended when testing against Cosmos DB to avoid using it as a storage backend. |
+Cosmos DB is detected automatically from the server: the test suite runs
+`detectCosmosDb()` once at startup (see `DatabaseType.ts`) and gates the
+Cosmos-specific tests on the result. There is no separate enable flag — pointing
+`MONGO_TEST_DATA_URL` at a Cosmos cluster is what activates the Cosmos tests.
+
+| Variable              | Required | Description                                                                                                                                 |
+| --------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MONGO_TEST_DATA_URL` | Yes      | Cosmos DB connection URI. Must include a database name in the path (see below). Pointing this at a Cosmos cluster enables the Cosmos tests. |
+| `PG_STORAGE_TEST_URL` | No       | PostgreSQL connection for PowerSync storage. Defaults to `postgres://postgres:postgres@localhost:5432/powersync_storage_test`.              |
+| `TEST_MONGO_STORAGE`  | No       | Set to `false` to skip MongoDB storage tests. Recommended when testing against Cosmos DB to avoid using it as a storage backend.            |
 
 ### Connection URI format
 
@@ -37,13 +41,11 @@ All commands run from the module directory: `modules/module-mongodb/`
 
 ```bash
 # Run all Cosmos DB tests (integration + unit helpers):
-COSMOS_DB_TEST=true \
 MONGO_TEST_DATA_URL="mongodb+srv://user:pass@cluster.mongocluster.cosmos.azure.com/powersync_test?tls=true" \
 TEST_MONGO_STORAGE=false \
 npx vitest run cosmosdb --reporter=verbose
 
 # Run only integration tests:
-COSMOS_DB_TEST=true \
 MONGO_TEST_DATA_URL="<uri>" \
 TEST_MONGO_STORAGE=false \
 npx vitest run cosmosdb_mode --reporter=verbose
@@ -52,7 +54,6 @@ npx vitest run cosmosdb_mode --reporter=verbose
 npx vitest run cosmosdb_helpers --reporter=verbose
 
 # Run a specific test by name:
-COSMOS_DB_TEST=true \
 MONGO_TEST_DATA_URL="<uri>" \
 TEST_MONGO_STORAGE=false \
 npx vitest run cosmosdb_mode -t "resume after restart" --reporter=verbose
@@ -62,7 +63,6 @@ If you have the URI in an environment variable (e.g., `$COSMOSDB_URI`), you can 
 
 ```bash
 COSMOS_TEST_URL=$(echo "$COSMOSDB_URI" | sed 's|\?|powersync_test?|')
-COSMOS_DB_TEST=true \
 MONGO_TEST_DATA_URL="$COSMOS_TEST_URL" \
 TEST_MONGO_STORAGE=false \
 npx vitest run cosmosdb --reporter=verbose
@@ -70,10 +70,10 @@ npx vitest run cosmosdb --reporter=verbose
 
 ## Test Files
 
-| File                       | Requires Cosmos DB        | Description                                                                                                                       |
-| -------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `cosmosdb_mode.test.ts`    | Yes                       | Integration tests: replication, sentinel checkpoints, write checkpoints, keepalive, resume. Skipped unless `COSMOS_DB_TEST=true`. |
-| `cosmosdb_helpers.test.ts` | No (1 test needs MongoDB) | Unit tests: `getEventTimestamp`, sentinel parsing/matching, detection logic. Runs against any MongoDB or standalone.              |
+| File                       | Requires Cosmos DB        | Description                                                                                                                                                                |
+| -------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cosmosdb_mode.test.ts`    | Yes                       | Integration tests: replication, sentinel checkpoints, write checkpoints, keepalive, resume. Skipped automatically unless `MONGO_TEST_DATA_URL` points at a Cosmos cluster. |
+| `cosmosdb_helpers.test.ts` | No (1 test needs MongoDB) | Unit tests: `getEventTimestamp`, sentinel parsing/matching, detection logic. Runs against any MongoDB or standalone.                                                       |
 
 ## What the Integration Tests Cover
 

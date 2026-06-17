@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
-import { MongoLSN } from '@module/common/MongoLSN.js';
 import { SentinelLSN } from '@module/common/SentinelLSN.js';
+import { getEventTimestamp } from '@module/replication/checkpoints/CheckpointImplementation.js';
 import {
   createCheckpoint,
   createCosmosCheckpointLsn,
@@ -12,54 +12,28 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { connectMongoData } from './util.js';
 
 describe('Cosmos DB helpers', () => {
-  describe('getEventTimestamp behavior', () => {
-    // getEventTimestamp is a utility in CheckpointImplementation.ts. These tests document the
-    // expected behavior, tested indirectly. The integration tests in cosmosdb_mode.test.ts
-    // exercise the actual code path. Here we test the underlying logic that the method
-    // should implement.
+  describe('getEventTimestamp', () => {
+    // getEventTimestamp is used by the timestamp checkpoint implementation (standard
+    // MongoDB): it prefers clusterTime and falls back to second-precision wallTime.
+    // The Cosmos sentinel implementation does not use it — Cosmos LSNs are
+    // sentinel-counter based, not timestamp based.
 
-    test('with clusterTime present — returns clusterTime', () => {
-      // When isCosmosDb is false and clusterTime is present, getEventTimestamp should return clusterTime.
-      // We simulate this by checking that clusterTime is directly usable as a Timestamp.
+    test('returns clusterTime when present', () => {
       const clusterTime = mongo.Timestamp.fromBits(1, 1700000000);
-      const event = { clusterTime, wallTime: new Date('2024-01-01T00:00:00Z') };
-      // Standard MongoDB path: clusterTime takes priority
-      expect(event.clusterTime).toEqual(clusterTime);
+      const event = { clusterTime, wallTime: new Date('2024-01-01T00:00:00Z') } as any;
+      expect(getEventTimestamp(event)).toEqual(clusterTime);
     });
 
-    test('with only wallTime present — returns Timestamp with seconds, increment 0', () => {
-      // On Cosmos DB, clusterTime is absent. getEventTimestamp should create a Timestamp
-      // from wallTime: seconds from epoch in high bits, 0 in low bits (increment).
-      const wallTime = new Date('2024-06-15T12:00:00Z');
-      const expectedSeconds = Math.floor(wallTime.getTime() / 1000);
-      const timestamp = mongo.Timestamp.fromBits(0, expectedSeconds);
-      expect(timestamp.getHighBitsUnsigned()).toEqual(expectedSeconds);
-      expect(timestamp.getLowBitsUnsigned()).toEqual(0);
+    test('falls back to second-precision wallTime when clusterTime is absent', () => {
+      const wallTime = new Date('2024-06-15T12:00:00.789Z');
+      const result = getEventTimestamp({ wallTime } as any);
+      expect(result.getHighBitsUnsigned()).toEqual(Math.floor(wallTime.getTime() / 1000));
+      // Increment is always 0 — wallTime only has second resolution in this conversion.
+      expect(result.getLowBitsUnsigned()).toEqual(0);
     });
 
-    test('with neither clusterTime nor wallTime — should throw', () => {
-      // getEventTimestamp should throw when neither timestamp source is available.
-      const event = {} as any;
-      // Verify the event has neither field
-      expect(event.clusterTime).toBeUndefined();
-      expect(event.wallTime).toBeUndefined();
-      // The actual throw is tested via integration tests — the method is private.
-      // This documents the expected contract.
-    });
-
-    test('with both + isCosmosDb=true — skips clusterTime, uses wallTime', () => {
-      // On Cosmos DB, even if clusterTime were present,
-      // getEventTimestamp should prefer wallTime to exercise the Cosmos DB code path.
-      const wallTime = new Date('2024-06-15T12:00:00Z');
-      const expectedSeconds = Math.floor(wallTime.getTime() / 1000);
-      const clusterTime = mongo.Timestamp.fromBits(42, 1700000000);
-
-      // On Cosmos DB, the result should use wallTime, not clusterTime
-      const expectedTimestamp = mongo.Timestamp.fromBits(0, expectedSeconds);
-      expect(expectedTimestamp.getHighBitsUnsigned()).toEqual(expectedSeconds);
-      expect(expectedTimestamp.getLowBitsUnsigned()).toEqual(0);
-      // The clusterTime would have different values
-      expect(clusterTime.getHighBitsUnsigned()).not.toEqual(expectedSeconds);
+    test('throws when neither clusterTime nor wallTime is present', () => {
+      expect(() => getEventTimestamp({} as any)).toThrow();
     });
   });
 
@@ -175,59 +149,9 @@ describe('Cosmos DB helpers', () => {
     });
   });
 
-  describe('sentinel matching', () => {
-    test('sentinel:X:42 matches event with documentKey._id X and fullDocument.i 42', () => {
-      const sentinel = 'sentinel:X:42';
-      const [, sentinelId, sentinelI] = sentinel.split(':');
-
-      const changeDocument = {
-        documentKey: { _id: 'X' },
-        fullDocument: { i: 42 }
-      };
-
-      const docId = String(changeDocument.documentKey._id);
-      const docI = String(changeDocument.fullDocument?.i);
-      expect(docId).toEqual(sentinelId);
-      expect(docI).toEqual(sentinelI);
-    });
-
-    test('sentinel non-match — different i value does not match', () => {
-      const sentinel = 'sentinel:X:42';
-      const [, sentinelId, sentinelI] = sentinel.split(':');
-
-      const changeDocument = {
-        documentKey: { _id: 'X' },
-        fullDocument: { i: 99 }
-      };
-
-      const docId = String(changeDocument.documentKey._id);
-      const docI = String(changeDocument.fullDocument?.i);
-      expect(docId).toEqual(sentinelId);
-      expect(docI).not.toEqual(sentinelI);
-    });
-
-    test('standard LSN comparison unaffected — hex LSN does not enter sentinel branch', () => {
-      // A standard hex LSN should not be treated as a sentinel
-      const lsn = '6683b8a000000001';
-      expect(lsn.startsWith('sentinel:')).toBe(false);
-    });
-  });
-
-  describe('keepalive LSN with Date.now()', () => {
-    test('timestamp is within a few seconds of current time', () => {
-      // On Cosmos DB, keepalive uses Date.now() instead of parseResumeTokenTimestamp.
-      // Verify that a MongoLSN created from Date.now() produces a comparable timestamp
-      // close to the current time.
-      const nowSeconds = Math.floor(Date.now() / 1000);
-      const timestamp = mongo.Timestamp.fromBits(0, nowSeconds);
-      const lsn = new MongoLSN({ timestamp });
-
-      // Parse the LSN back and verify the timestamp
-      const parsed = MongoLSN.fromSerialized(lsn.comparable);
-      const parsedSeconds = parsed.timestamp.getHighBitsUnsigned();
-
-      // Should be within 5 seconds of now
-      expect(Math.abs(parsedSeconds - nowSeconds)).toBeLessThanOrEqual(5);
-    });
-  });
+  // Note: the Cosmos keepalive does not build an LSN from Date.now() — it bumps
+  // the shared sentinel via createCosmosCheckpointLsn and commits when the bump's
+  // own event is observed. The only Date.now()-derived value is the standalone
+  // counter seed, which is covered by the 'standalone counter is seeded at a
+  // timestamp value on creation' test above.
 });

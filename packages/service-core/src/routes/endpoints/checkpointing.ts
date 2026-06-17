@@ -25,9 +25,6 @@ export const writeCheckpoint = routeDefinition({
     const start = Date.now();
 
     const head = await apiHandler.createReplicationHead(async (head) => head);
-    if (head == null) {
-      throw new Error('Replication head not available for v1 write checkpoint');
-    }
 
     const timeout = 50_000;
 

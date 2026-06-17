@@ -9,9 +9,8 @@ import { test_utils } from '@powersync/service-core-tests';
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
 import { PostImagesOption } from '@module/types/types.js';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
+import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
 import { describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
-
-const isCosmosDb = process.env.COSMOS_DB_TEST === 'true';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -30,7 +29,8 @@ function defineChangeStreamTests({ factory, storageVersion }: StorageVersionTest
   const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
     return ChangeStreamTestContext.open(factory, { ...options, storageVersion });
   };
-  test.skipIf(isCosmosDb)('replicating basic values', async () => {
+  // Cosmos DB does not support changeStreamPreAndPostImages, which this test requires via postImages: READ_ONLY.
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('replicating basic values', async () => {
     await using context = await openContext({
       mongoOptions: { postImages: PostImagesOption.READ_ONLY }
     });
@@ -66,40 +66,7 @@ bucket_definitions:
     ]);
   });
 
-  // Cosmos DB equivalent of 'replicating basic values' above — without post-images,
-  // replaceOne, or bigint (unsupported features). Covers the core insert/update/delete
-  // flow through the change stream using updateLookup instead of stored post-images.
-  test.skipIf(!isCosmosDb)('replicating basic values (Cosmos DB - no postImages)', async () => {
-    await using context = await openContext();
-    const { db } = context;
-    await context.updateSyncRules(`
-bucket_definitions:
-  global:
-    data:
-      - SELECT _id as id, description FROM "test_data"`);
-
-    await db.createCollection('test_data');
-    const collection = db.collection('test_data');
-
-    await context.replicateSnapshot();
-    context.startStreaming();
-
-    const result = await collection.insertOne({ description: 'test1' });
-    const test_id = result.insertedId;
-    await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
-    await collection.deleteOne({ _id: test_id });
-
-    const data = await context.getBucketData('global[]');
-
-    expect(data).toMatchObject([
-      test_utils.putOp('test_data', { id: test_id.toHexString(), description: 'test1' }),
-      test_utils.putOp('test_data', { id: test_id.toHexString(), description: 'test2' }),
-      test_utils.removeOp('test_data', test_id.toHexString())
-    ]);
-  });
-
-  // Cosmos DB: changeStreamPreAndPostImages option not supported (even enabled: false)
-  test.skipIf(isCosmosDb)('replicating wildcard', async () => {
+  test('replicating wildcard', async () => {
     await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(`
@@ -112,7 +79,7 @@ bucket_definitions:
       // Cosmos DB does not support changeStreamPreAndPostImages, even when
       // explicitly disabled. This test only needs a collection to exercise
       // fatal error recovery, so omit the option in Cosmos mode.
-      ...(!isCosmosDb ? { changeStreamPreAndPostImages: { enabled: false } } : {})
+      ...(DATABASE_TYPE == DatabaseType.MONGODB ? { changeStreamPreAndPostImages: { enabled: false } } : {})
     });
     const collection = db.collection('test_data');
 
@@ -190,7 +157,7 @@ bucket_definitions:
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
     await db.createCollection('test_data', {
-      changeStreamPreAndPostImages: { enabled: false }
+      changeStreamPreAndPostImages: DATABASE_TYPE == DatabaseType.MONGODB ? { enabled: false } : undefined
     });
     testId = new mongo.ObjectId();
     collection = db.collection('test_data');
@@ -205,7 +172,9 @@ bucket_definitions:
     expect(test_utils.reduceBucket(data).slice(1)).toEqual([]);
   });
 
-  test.skipIf(isCosmosDb)('updateLookup - no fullDocument available', async () => {
+  // Cosmos DB always materializes a write-time post-image for updateLookup, so the 'fullDocument unavailable'
+  // case this test exercises (update treated as a remove) cannot occur there.
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('updateLookup - no fullDocument available', async () => {
     await using context = await openContext({
       mongoOptions: { postImages: PostImagesOption.OFF }
     });
@@ -220,7 +189,7 @@ bucket_definitions:
       // Cosmos DB does not support changeStreamPreAndPostImages, even when
       // explicitly disabled. This test only needs a collection to exercise
       // fatal error recovery, so omit the option in Cosmos mode.
-      ...(!isCosmosDb ? { changeStreamPreAndPostImages: { enabled: false } } : {})
+      changeStreamPreAndPostImages: { enabled: false }
     });
     const collection = db.collection('test_data');
 
@@ -252,7 +221,8 @@ bucket_definitions:
     ]);
   });
 
-  test.skipIf(isCosmosDb)('postImages - autoConfigure', async () => {
+  // Cosmos DB does not support changeStreamPreAndPostImages (post-images).
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('postImages - autoConfigure', async () => {
     // Similar to the above test, but with postImages enabled.
     // This resolves the consistency issue.
     await using context = await openContext({
@@ -300,7 +270,8 @@ bucket_definitions:
     ]);
   });
 
-  test.skipIf(isCosmosDb)('postImages - on', async () => {
+  // Cosmos DB does not support changeStreamPreAndPostImages (post-images).
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('postImages - on', async () => {
     // Similar to postImages - autoConfigure, but does not auto-configure.
     // changeStreamPreAndPostImages must be manually configured.
     await using context = await openContext({
@@ -449,8 +420,9 @@ bucket_definitions:
     ]);
   });
 
-  // Cosmos DB: drop/invalidate events may not be emitted by change streams
-  test.skipIf(isCosmosDb)('replicating dropCollection', async () => {
+  // Collection drop events are not currently replicated on Cosmos DB: they are not delivered through the
+  // cluster-level change stream the way standard MongoDB delivers them, so the drop is not applied as a remove.
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('replicating dropCollection', async () => {
     await using context = await openContext();
     const { db } = context;
     const syncRuleContent = `
@@ -482,8 +454,9 @@ bucket_definitions:
     ]);
   });
 
-  // Cosmos DB: rename events may not be emitted by change streams
-  test.skipIf(isCosmosDb)('replicating renameCollection', async () => {
+  // Collection rename events are not currently replicated on Cosmos DB: they are not delivered through the
+  // cluster-level change stream the way standard MongoDB delivers them.
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('replicating renameCollection', async () => {
     await using context = await openContext();
     const { db } = context;
     const syncRuleContent = `
@@ -514,7 +487,9 @@ bucket_definitions:
     ]);
   });
 
-  test.runIf(supportsConcurrentSnapshots)(
+  // Concurrent-snapshot regression test driven by collection drop/recreate DDL events, which Cosmos DB does
+  // not deliver through the cluster-level change stream the way standard MongoDB does.
+  test.runIf(supportsConcurrentSnapshots && DATABASE_TYPE != DatabaseType.COSMOSDB)(
     'collection recreated while queued snapshot is waiting does not stall checkpoints',
     async () => {
       // This is a regression test for a specific timing issue in concurrent snapshot logic.
@@ -700,7 +675,9 @@ bucket_definitions:
     expect(commitCount).toBeLessThan(checkpointCount + 1);
   });
 
-  test.skipIf(isCosmosDb)('large record', async () => {
+  test
+    // CosmosDB does not support changeStreamSplitLargeEvent
+    .skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('large record', async () => {
     // Test a large update.
 
     // Without $changeStreamSplitLargeEvent, we get this error:
@@ -772,75 +749,83 @@ bucket_definitions:
     expect(data).toMatchObject([]);
   });
 
-  test.skipIf(isCosmosDb)('postImages - new collection with postImages enabled', async () => {
-    await using context = await openContext({
-      mongoOptions: { postImages: PostImagesOption.AUTO_CONFIGURE }
-    });
-    const { db } = context;
-    await context.updateSyncRules(`
+  // Cosmos DB does not support changeStreamPreAndPostImages (post-images).
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)(
+    'postImages - new collection with postImages enabled',
+    async () => {
+      await using context = await openContext({
+        mongoOptions: { postImages: PostImagesOption.AUTO_CONFIGURE }
+      });
+      const { db } = context;
+      await context.updateSyncRules(`
 bucket_definitions:
   global:
     data:
       - SELECT _id as id, description FROM "test_%"`);
 
-    await context.replicateSnapshot();
+      await context.replicateSnapshot();
 
-    await db.createCollection('test_data', {
-      // enabled: true here - everything should work
-      changeStreamPreAndPostImages: { enabled: true }
-    });
-    const collection = db.collection('test_data');
-    const result = await collection.insertOne({ description: 'test1' });
-    const test_id = result.insertedId;
-    await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
+      await db.createCollection('test_data', {
+        // enabled: true here - everything should work
+        changeStreamPreAndPostImages: { enabled: true }
+      });
+      const collection = db.collection('test_data');
+      const result = await collection.insertOne({ description: 'test1' });
+      const test_id = result.insertedId;
+      await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
 
-    context.startStreaming();
+      context.startStreaming();
 
-    const data = await context.getBucketData('global[]');
-    if (data.length == 3) {
-      expect(data).toMatchObject([
-        // An extra op here, since this triggers a snapshot in addition to getting the event.
-        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' }),
-        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
-        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
-      ]);
-    } else {
-      expect(data).toMatchObject([
-        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
-        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
-      ]);
+      const data = await context.getBucketData('global[]');
+      if (data.length == 3) {
+        expect(data).toMatchObject([
+          // An extra op here, since this triggers a snapshot in addition to getting the event.
+          test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' }),
+          test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
+          test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
+        ]);
+      } else {
+        expect(data).toMatchObject([
+          test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
+          test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
+        ]);
+      }
     }
-  });
+  );
 
-  test.skipIf(isCosmosDb)('postImages - new collection with postImages disabled', async () => {
-    await using context = await openContext({
-      mongoOptions: { postImages: PostImagesOption.AUTO_CONFIGURE }
-    });
-    const { db } = context;
-    await context.updateSyncRules(`
+  // Cosmos DB does not support changeStreamPreAndPostImages (post-images).
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)(
+    'postImages - new collection with postImages disabled',
+    async () => {
+      await using context = await openContext({
+        mongoOptions: { postImages: PostImagesOption.AUTO_CONFIGURE }
+      });
+      const { db } = context;
+      await context.updateSyncRules(`
 bucket_definitions:
   global:
     data:
       - SELECT _id as id, description FROM "test_data%"`);
 
-    await context.replicateSnapshot();
+      await context.replicateSnapshot();
 
-    await db.createCollection('test_data', {
-      // enabled: false here, but autoConfigure will enable it.
-      // Unfortunately, that is too late, and replication must be restarted.
-      changeStreamPreAndPostImages: { enabled: false }
-    });
-    const collection = db.collection('test_data');
-    const result = await collection.insertOne({ description: 'test1' });
-    const test_id = result.insertedId;
-    await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
+      await db.createCollection('test_data', {
+        // enabled: false here, but autoConfigure will enable it.
+        // Unfortunately, that is too late, and replication must be restarted.
+        changeStreamPreAndPostImages: { enabled: false }
+      });
+      const collection = db.collection('test_data');
+      const result = await collection.insertOne({ description: 'test1' });
+      const test_id = result.insertedId;
+      await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
 
-    context.startStreaming();
+      context.startStreaming();
 
-    await expect(() => context.getBucketData('global[]')).rejects.toMatchObject({
-      message: expect.stringContaining('stream was configured to require a post-image for all update events')
-    });
-  });
+      await expect(() => context.getBucketData('global[]')).rejects.toMatchObject({
+        message: expect.stringContaining('stream was configured to require a post-image for all update events')
+      });
+    }
+  );
 
   test('recover from error', async () => {
     await using context = await openContext();
@@ -855,7 +840,7 @@ bucket_definitions:
       // Cosmos DB does not support changeStreamPreAndPostImages, even when
       // explicitly disabled. This test only needs a collection to exercise
       // fatal error recovery, so omit the option in Cosmos mode.
-      ...(!isCosmosDb ? { changeStreamPreAndPostImages: { enabled: false } } : {})
+      changeStreamPreAndPostImages: DATABASE_TYPE == DatabaseType.MONGODB ? { enabled: false } : undefined
     });
 
     const collection = db.collection('test_data');

@@ -97,4 +97,4 @@ export interface RouteAPI {
   getParseSyncRulesOptions(): ParseSyncConfigOptions;
 }
 
-export type ReplicationHeadCallback<T> = (head: string | null) => Promise<T>;
+export type ReplicationHeadCallback<T> = (head: string) => Promise<T>;

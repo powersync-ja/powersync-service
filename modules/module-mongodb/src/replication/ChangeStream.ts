@@ -242,7 +242,15 @@ export class ChangeStream {
     // For details, see:
     // https://github.com/powersync-ja/powersync-service/pull/417
     // https://jira.mongodb.org/browse/SERVER-114532
-    const nsFilter = multipleDatabases
+    //
+    // Cosmos DB always opens a cluster-level change stream (admin +
+    // allChangesForCluster), even in single-database mode. A coll-only filter
+    // would then match same-named collections (including _powersync_checkpoints)
+    // in other databases of the cluster, letting a foreign standalone-checkpoint
+    // event advance/resolve checkpoints against the wrong source database. So we
+    // must filter on the full namespace whenever the stream is cluster-scoped.
+    const useFullNamespaceFilter = this.isCosmosDb || multipleDatabases;
+    const nsFilter = useFullNamespaceFilter
       ? // cluster-level: filter on the entire namespace
         { ns: { $in: $inFilters } }
       : // collection-level: filter on coll only
@@ -828,9 +836,11 @@ export class ChangeStream {
               const tablesToReplicate = tables.filter((table) => table.syncAny);
               if (tablesToReplicate.length > 0) {
                 this.replicationLag.trackUncommittedChange(
-                  // Cosmos DB has no clusterTime; fall back to wallTime for the lag metric.
-                  (changeDocument as any).wallTime ??
-                    (changeDocument.clusterTime == null ? null : timestampToDate(changeDocument.clusterTime))
+                  // Standard MongoDB uses clusterTime, unchanged. Cosmos DB has no
+                  // clusterTime, so fall back to wallTime there for the lag metric.
+                  changeDocument.clusterTime != null
+                    ? timestampToDate(changeDocument.clusterTime)
+                    : ((changeDocument as any).wallTime ?? null)
                 );
 
                 const transactionKeyValue = transactionKey(changeDocument);

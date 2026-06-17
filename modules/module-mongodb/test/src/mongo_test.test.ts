@@ -12,14 +12,13 @@ import { parseDocumentId } from '@module/replication/bufferToSqlite.js';
 import { ChangeStreamBatch, parseChangeDocument, rawChangeStream } from '@module/replication/RawChangeStream.js';
 import { DirectSourceRowConverter } from '@module/replication/SourceRowConverter.js';
 import { PostImagesOption } from '@module/types/types.js';
+import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
 import { clearTestDb, connectMongoData, TEST_CONNECTION_OPTIONS } from './util.js';
 
 // Cosmos DB does not support the (deprecated) mapReduce command, which
 // insertUndefined() relies on to produce BSON `undefined` values. It also does
 // not support database-level change streams (production always uses
 // cluster-level streams on Cosmos). Tests depending on either are skipped.
-const isCosmosDb = process.env.COSMOS_DB_TEST === 'true';
-
 describe('mongo data types', () => {
   // These test the full data cycle by writing to mongodb, then checking the change stream and direct collection queries.
   // More direct tests directly on the BSON values are in buffer_to_sqlite.test.ts.
@@ -251,7 +250,7 @@ describe('mongo data types', () => {
   }
 
   // Cosmos DB: requires mapReduce (insertUndefined)
-  test.skipIf(isCosmosDb)('test direct queries', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('test direct queries', async () => {
     const { db, client } = await connectMongoData();
 
     const collection = db.collection('test_data');
@@ -273,7 +272,7 @@ describe('mongo data types', () => {
   });
 
   // Cosmos DB: requires mapReduce (insertUndefined)
-  test.skipIf(isCosmosDb)('test direct queries - arrays', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('test direct queries - arrays', async () => {
     const { db, client } = await connectMongoData();
     const collection = db.collection('test_data_arrays');
     try {
@@ -295,7 +294,7 @@ describe('mongo data types', () => {
   });
 
   // Cosmos DB: requires a database-level change stream and mapReduce
-  test.skipIf(isCosmosDb)('test replication', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('test replication', async () => {
     // With MongoDB, replication uses the exact same document format
     // as normal queries. We test it anyway.
     const { db, client } = await connectMongoData();
@@ -321,7 +320,7 @@ describe('mongo data types', () => {
   });
 
   // Cosmos DB: requires a database-level change stream and mapReduce
-  test.skipIf(isCosmosDb)('test replication - arrays', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('test replication - arrays', async () => {
     const { db, client } = await connectMongoData();
     const collection = db.collection('test_data');
     try {
@@ -345,7 +344,7 @@ describe('mongo data types', () => {
   });
 
   // Cosmos DB: requires mapReduce (insertUndefined)
-  test.skipIf(isCosmosDb)('connection schema', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('connection schema', async () => {
     await using adapter = new MongoRouteAPIAdapter({
       type: 'mongodb',
       ...TEST_CONNECTION_OPTIONS

@@ -8,6 +8,7 @@ import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
 import { CHECKPOINTS_COLLECTION } from '@module/replication/replication-utils.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
+import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
 import { connectMongoData, describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
 
 const BASIC_SYNC_RULES = `
@@ -26,8 +27,7 @@ bucket_definitions:
 // mixed with standard MongoDB's operationTime-based checkpoints. A test flag that
 // partially simulates Cosmos DB creates more problems than it solves — see the
 // commit history on the cosmos branch for the full investigation.
-const isCosmosDb = process.env.COSMOS_DB_TEST === 'true';
-describe.skipIf(!isCosmosDb)('cosmosDbMode', () => {
+describe.skipIf(DATABASE_TYPE != DatabaseType.COSMOSDB)('cosmosDbMode', () => {
   test('prints hello response and detects Cosmos DB', async () => {
     const { client, db } = await connectMongoData();
     try {
@@ -81,7 +81,6 @@ describe.skipIf(!isCosmosDb)('cosmosDbMode', () => {
       // increments until the first event comes through — the same approach the
       // production retry loop uses during initial LSN acquisition.
       let resumeToken: unknown;
-      console.log('[prime] opening change stream');
       const before = client.watch(pipeline, { fullDocument: 'updateLookup', maxAwaitTimeMS: 500 });
       try {
         const deadline = Date.now() + 60_000;
@@ -94,11 +93,9 @@ describe.skipIf(!isCosmosDb)('cosmosDbMode', () => {
             { upsert: true, returnDocument: 'after' }
           );
           lastPrimedI = result!.i;
-          console.log(`[prime] wrote i=${lastPrimedI}, polling stream`);
           const event = await before.tryNext();
           if (event != null && 'fullDocument' in event) {
             drainedTo = event.fullDocument?.i ?? -1;
-            console.log(`[prime] stream is live, first event has i=${drainedTo}`);
           }
         }
         expect(drainedTo, 'change stream never delivered the priming events').toBeGreaterThan(0);
@@ -109,13 +106,11 @@ describe.skipIf(!isCosmosDb)('cosmosDbMode', () => {
           const event = await before.tryNext();
           if (event != null && 'fullDocument' in event) {
             drainedTo = event.fullDocument?.i ?? drainedTo;
-            console.log(`[prime] drained event i=${drainedTo}`);
           }
         }
         expect(drainedTo, 'timed out draining priming events').toEqual(lastPrimedI);
 
         resumeToken = before.resumeToken;
-        console.log(`[prime] resume token captured: ${JSON.stringify(resumeToken)}`);
         expect(resumeToken).toBeTruthy();
       } finally {
         await before.close();
@@ -133,11 +128,9 @@ describe.skipIf(!isCosmosDb)('cosmosDbMode', () => {
         );
         expected.push(result!.i);
       }
-      console.log(`[burst] wrote increments: ${expected.join(', ')}`);
 
       // Replay the burst and record the value each event carries.
       const seen: number[] = [];
-      console.log('[replay] opening change stream from captured resume token');
       const after = client.watch(pipeline, {
         fullDocument: 'updateLookup',
         maxAwaitTimeMS: 500,
@@ -150,19 +143,11 @@ describe.skipIf(!isCosmosDb)('cosmosDbMode', () => {
           const event = await after.tryNext();
           if (event != null && 'fullDocument' in event) {
             seen.push(event.fullDocument?.i);
-            console.log(
-              `[replay] event ${seen.length}/${expected.length}: i=${event.fullDocument?.i} (+${Date.now() - start}ms)`
-            );
           }
-        }
-        if (seen.length < expected.length) {
-          console.log(`[replay] timed out with ${seen.length}/${expected.length} events`);
         }
       } finally {
         await after.close();
       }
-
-      console.dir({ fullDocumentSemantics: { expected, seen } }, { depth: null });
 
       expect(seen).toEqual(expected);
     } finally {
@@ -256,45 +241,55 @@ bucket_definitions:
   // 16 MiB BSON document limit. 14 MiB still forces a large change event
   // through the Cosmos stream while keeping the projected row under the limit.
   // Assertions check the payload length rather than inlining a 14MB string.
-  test('replicates a large document near the row size limit', async () => {
-    await using context = await openContext();
-    const { db } = context;
-    await context.updateSyncRules(`
+  // Note: Cosmos DB delivers large change events very slowly (observed ~18s to fetch a
+  // single ~14 MiB event), so this test allows generous checkpoint timeouts. See
+  // docs/cosmos-db-limitations.md.
+  test(
+    'replicates a large document near the row size limit',
+    // Fetching the large row takes very long in CosmosDB cloud
+    { timeout: 120_000 },
+    async () => {
+      await using context = await openContext();
+      const { db } = context;
+      await context.updateSyncRules(`
 bucket_definitions:
   global:
     data:
       - SELECT _id as id, marker, payload FROM "test_data"`);
 
-    await db.createCollection('test_data');
-    const collection = db.collection('test_data');
+      await db.createCollection('test_data');
+      const collection = db.collection('test_data');
 
-    await context.replicateSnapshot();
-    context.startStreaming();
+      await context.replicateSnapshot();
+      context.startStreaming();
 
-    // 14 MiB payload — large enough to exercise the large-event path, but the
-    // projected row (payload + small envelope) stays under MAX_ROW_SIZE so it
-    // is not dropped by bucket storage.
-    const largePayload = 'x'.repeat(14 * 1024 * 1024);
+      // 14 MiB payload — large enough to exercise the large-event path, but the
+      // projected row (payload + small envelope) stays under MAX_ROW_SIZE so it
+      // is not dropped by bucket storage.
+      const largePayload = 'x'.repeat(14 * 1024 * 1024);
 
-    const insertResult = await collection.insertOne({ marker: 'big_insert', payload: largePayload });
-    const id = insertResult.insertedId.toHexString();
+      const insertResult = await collection.insertOne({ marker: 'big_insert', payload: largePayload });
+      const id = insertResult.insertedId.toHexString();
 
-    const afterInsert = await context.getBucketData('global[]');
-    expect(afterInsert.length).toEqual(1);
-    const insertData = JSON.parse(afterInsert[0].data as string);
-    expect(insertData).toMatchObject({ id, marker: 'big_insert' });
-    expect(insertData.payload.length).toEqual(largePayload.length);
+      // Large events are slow to fetch on Cosmos, so allow well beyond the 15s default.
+      const afterInsert = await context.getBucketData('global[]', undefined, { timeout: 50_000 });
+      expect(afterInsert.length).toEqual(1);
+      const insertData = JSON.parse(afterInsert[0].data as string);
+      expect(insertData).toMatchObject({ id, marker: 'big_insert' });
+      expect(insertData.payload.length).toEqual(largePayload.length);
 
-    // Update a small field; the payload stays large, so the updateLookup
-    // fullDocument on the change event is still ~15MB.
-    await collection.updateOne({ _id: insertResult.insertedId }, { $set: { marker: 'big_update' } });
+      // Update a small field; the payload stays large, so the updateLookup
+      // fullDocument on the change event is still ~15MB.
+      await collection.updateOne({ _id: insertResult.insertedId }, { $set: { marker: 'big_update' } });
 
-    const afterUpdate = await context.getBucketData('global[]');
-    expect(afterUpdate.length).toEqual(2);
-    const updateData = JSON.parse(afterUpdate[1].data as string);
-    expect(updateData).toMatchObject({ id, marker: 'big_update' });
-    expect(updateData.payload.length).toEqual(largePayload.length);
-  });
+      // Fetching the large row takes very long in CosmosDB cloud
+      const afterUpdate = await context.getBucketData('global[]', undefined, { timeout: 50_000 });
+      expect(afterUpdate.length).toEqual(2);
+      const updateData = JSON.parse(afterUpdate[1].data as string);
+      expect(updateData).toMatchObject({ id, marker: 'big_update' });
+      expect(updateData.payload.length).toEqual(largePayload.length);
+    }
+  );
 
   test('keepalive in cosmosDbMode', async () => {
     await using context = await openContext({
@@ -328,7 +323,7 @@ bucket_definitions:
     expect(JSON.parse(lastOp.data as string)).toMatchObject({ description: 'after_keepalive' });
   });
 
-  test.skipIf(storageVersion !== 1)('respects maxAwaitTimeMS for idle getMore calls in cosmosDbMode', async () => {
+  test('respects maxAwaitTimeMS for idle getMore calls in cosmosDbMode', async () => {
     const maxAwaitTimeMS = 2_000;
 
     await using context = await openContext({

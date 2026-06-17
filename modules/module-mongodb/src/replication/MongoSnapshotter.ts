@@ -202,6 +202,10 @@ export class MongoSnapshotter {
 
   async queueSnapshotTables(snapshotLsn: string | null) {
     await this.client.connect();
+    // Ensure isCosmosDb is set before any getSourceNamespaceFilters() call below
+    // (notably the validateSnapshotLsn resume path, which does not go through
+    // getSnapshotLsn). Idempotent.
+    await this.ensureDetected();
     await using writer = await this.storage.createWriter({
       zeroLSN: MongoLSN.ZERO.comparable,
       defaultSchema: this.defaultDb.databaseName,
@@ -704,7 +708,12 @@ export class MongoSnapshotter {
       }
     }
 
-    const nsFilter = multipleDatabases
+    // Cosmos DB always opens a cluster-level change stream, even in single-database
+    // mode, so a coll-only filter would match same-named collections in other
+    // databases of the cluster. Filter on the full namespace whenever the stream
+    // is cluster-scoped. See ChangeStream.getSourceNamespaceFilters for details.
+    const useFullNamespaceFilter = this.isCosmosDb || multipleDatabases;
+    const nsFilter = useFullNamespaceFilter
       ? { ns: { $in: inFilters } }
       : { 'ns.coll': { $in: inFilters.map((ns) => ns.coll) } };
     if (regexFilters.length > 0) {

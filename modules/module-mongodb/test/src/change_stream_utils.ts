@@ -318,7 +318,13 @@ export async function getClientCheckpoint(
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 
   const timeout = options?.timeout ?? 50_000;
-  let lastCosmosCheckpointCreated = Date.now();
+  // Cosmos DB: the streaming loop skips standalone checkpoint events while a
+  // batch barrier is pending (see ChangeStream.ts), so a single sentinel bump
+  // can be missed on an idle stream with no later event to advance the
+  // checkpoint. Periodically re-bump the sentinel so a standalone event
+  // eventually commits past `lsn`, mirroring getSnapshotLsn's retry loop.
+  const NUDGE_INTERVAL_MS = 1000;
+  let lastNudge = Date.now();
   let lastCp: ReplicationCheckpoint | null = null;
 
   while (Date.now() - start < timeout) {
@@ -331,14 +337,9 @@ export async function getClientCheckpoint(
       }
     }
 
-    if (cosmosDbMode && Date.now() - lastCosmosCheckpointCreated >= 1_000) {
-      // Cosmos streams can open from "now" when the stored LSN has no resume
-      // token. If the first standalone checkpoint was written before the
-      // cursor was actually established, nudge the stream with another
-      // sentinel. Keep waiting for the original target LSN: any later sentinel
-      // commit will compare greater than it.
+    if (cosmosDbMode && Date.now() - lastNudge >= NUDGE_INTERVAL_MS) {
       await createCosmosCheckpointLsn(client, db);
-      lastCosmosCheckpointCreated = Date.now();
+      lastNudge = Date.now();
     }
 
     await new Promise((resolve) => setTimeout(resolve, 30));

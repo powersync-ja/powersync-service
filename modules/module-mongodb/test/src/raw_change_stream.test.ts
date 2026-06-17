@@ -4,6 +4,7 @@ import { ChangeStreamBatch, namespaceCollection, rawChangeStream } from '@module
 import { getCursorBatchBytes } from '@module/replication/replication-index.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { bson } from '@powersync/service-core';
+import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
 import { clearTestDb, connectMongoData, requireFailCommand } from './util.js';
 
 // Cosmos DB only supports cluster-level change streams — collection- and
@@ -13,19 +14,17 @@ import { clearTestDb, connectMongoData, requireFailCommand } from './util.js';
 // assertions (exact batch counts, immediate event delivery per readAll pass)
 // are racy against a remote Cosmos cluster with multi-second event latency.
 // Byte tracking on Cosmos is exercised indirectly by cosmosdb_mode.test.ts.
-const isCosmosDb = process.env.COSMOS_DB_TEST === 'true';
-
 describe('internal mongodb utils', () => {
   // The implementation relies on internal APIs, so we verify this works as expected for various types of change streams.
-  test.skipIf(isCosmosDb)('collection change stream size tracking', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('collection change stream size tracking', async () => {
     await testChangeStreamBsonBytes('collection');
   });
 
-  test.skipIf(isCosmosDb)('db change stream size tracking', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('db change stream size tracking', async () => {
     await testChangeStreamBsonBytes('db');
   });
 
-  test.skipIf(isCosmosDb)('cluster change stream size tracking', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('cluster change stream size tracking', async () => {
     await testChangeStreamBsonBytes('cluster');
   });
 
@@ -53,50 +52,54 @@ describe('internal mongodb utils', () => {
     expect(totalBytes).toBeLessThan(1200);
   });
 
-  test('uses separate aggregate and getMore command options', async () => {
-    const { db, client } = await connectMongoData({ monitorCommands: true });
-    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
-    await clearTestDb(db);
-    const collection = db.collection('test_data');
+  // Cosmos DB does not support database-level change streams (rawChangeStream on a db); only cluster-level.
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)(
+    'uses separate aggregate and getMore command options',
+    async () => {
+      const { db, client } = await connectMongoData({ monitorCommands: true });
+      await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+      await clearTestDb(db);
+      const collection = db.collection('test_data');
 
-    const started: any[] = [];
-    client.on('commandStarted', (event) => {
-      if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
-        started.push(event);
-      }
-    });
-
-    const stream = rawChangeStream(
-      db,
-      [
-        {
-          $changeStream: {
-            fullDocument: 'updateLookup'
-          }
+      const started: any[] = [];
+      client.on('commandStarted', (event) => {
+        if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
+          started.push(event);
         }
-      ],
-      {
-        batchSize: 10,
-        maxAwaitTimeMS: 50,
-        maxTimeMS: 1_000
-      }
-    );
+      });
 
-    await stream.next();
-    await collection.insertOne({ test: 1 });
-    const nextBatch = await readUntilNonEmptyBatch(stream);
-    await stream.return?.();
+      const stream = rawChangeStream(
+        db,
+        [
+          {
+            $changeStream: {
+              fullDocument: 'updateLookup'
+            }
+          }
+        ],
+        {
+          batchSize: 10,
+          maxAwaitTimeMS: 50,
+          maxTimeMS: 1_000
+        }
+      );
 
-    expect(nextBatch.events).toHaveLength(1);
+      await stream.next();
+      await collection.insertOne({ test: 1 });
+      const nextBatch = await readUntilNonEmptyBatch(stream);
+      await stream.return?.();
 
-    const aggregate = started.find((event) => event.commandName == 'aggregate');
-    const getMore = started.find((event) => event.commandName == 'getMore');
+      expect(nextBatch.events).toHaveLength(1);
 
-    expect(aggregate?.command.cursor?.batchSize).toEqual(1);
-    expect(aggregate?.command.maxTimeMS).toEqual(1_000);
-    expect(getMore?.command.batchSize).toEqual(10);
-    expect(getMore?.command.maxTimeMS).toEqual(50);
-  });
+      const aggregate = started.find((event) => event.commandName == 'aggregate');
+      const getMore = started.find((event) => event.commandName == 'getMore');
+
+      expect(aggregate?.command.cursor?.batchSize).toEqual(1);
+      expect(aggregate?.command.maxTimeMS).toEqual(1_000);
+      expect(getMore?.command.batchSize).toEqual(10);
+      expect(getMore?.command.maxTimeMS).toEqual(50);
+    }
+  );
 
   test('should resume on MaxTimeMSExpired from getMore', async (ctx) => {
     const { db, client } = await connectMongoData({ monitorCommands: true });
@@ -270,7 +273,7 @@ describe('internal mongodb utils', () => {
   }
 
   // Cosmos DB: database-level change streams and $currentOp are not supported
-  test.skipIf(isCosmosDb)('should resume on missing cursor (1)', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('should resume on missing cursor (1)', async () => {
     // Many resumable errors are difficult to simulate, but CursorNotFound is easy.
 
     const { db, client } = await connectMongoData();
@@ -324,7 +327,7 @@ describe('internal mongodb utils', () => {
   });
 
   // Cosmos DB: database-level change streams and $currentOp are not supported
-  test.skipIf(isCosmosDb)('should resume on missing cursor (2)', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('should resume on missing cursor (2)', async () => {
     const { db, client } = await connectMongoData();
     await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
     await clearTestDb(db);
@@ -399,7 +402,7 @@ describe('internal mongodb utils', () => {
   });
 
   // Cosmos DB: database-level change streams are not supported
-  test.skipIf(isCosmosDb)('should cleanly abort a stream between events', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('should cleanly abort a stream between events', async () => {
     const { db, client } = await connectMongoData();
     const abortController = new AbortController();
     await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
@@ -450,7 +453,7 @@ describe('internal mongodb utils', () => {
   });
 
   // Cosmos DB: database-level change streams are not supported
-  test.skipIf(isCosmosDb)('should cleanly abort a stream in an event', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.COSMOSDB)('should cleanly abort a stream in an event', async () => {
     const { db, client } = await connectMongoData();
     const abortController = new AbortController();
     await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
