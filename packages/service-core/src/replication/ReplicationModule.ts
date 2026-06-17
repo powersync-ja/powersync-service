@@ -1,4 +1,3 @@
-import { DataSourceConfig } from '@powersync/service-types/dist/config/PowerSyncConfig.js';
 import * as t from 'ts-codec';
 
 import { schema } from '@powersync/lib-services-framework';
@@ -18,7 +17,7 @@ export interface ConnectionTestResult {
 /**
  *  Provides a common interface for testing the connection to a DataSource.
  */
-export interface ConnectionTester<TConfig extends DataSourceConfig> {
+export interface ConnectionTester<TConfig extends types.configFile.DataSourceConfig> {
   /**
    *  Confirm if a connection can be established to the datasource for the provided datasource configuration
    *  @param config
@@ -35,7 +34,7 @@ export interface ReplicationModuleOptions extends modules.AbstractModuleOptions 
  *  A replication module describes all the functionality that PowerSync requires to
  *  replicate data from a DataSource. Whenever a new data source is added to powersync this class should be extended.
  */
-export abstract class ReplicationModule<TConfig extends DataSourceConfig>
+export abstract class ReplicationModule<TConfig extends types.configFile.DataSourceConfig>
   extends modules.AbstractModule
   implements ConnectionTester<TConfig>
 {

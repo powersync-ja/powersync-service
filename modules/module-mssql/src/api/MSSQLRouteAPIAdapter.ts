@@ -7,7 +7,6 @@ import {
 } from '@powersync/service-core';
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
-import { ExecuteSqlResponse } from '@powersync/service-types/dist/routes.js';
 import sql from 'mssql';
 import { toExpressionTypeFromMSSQLType } from '../common/mssqls-to-sqlite.js';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
@@ -38,7 +37,7 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
     return result;
   }
 
-  async executeQuery(query: string, params: any[]): Promise<ExecuteSqlResponse> {
+  async executeQuery(query: string, params: any[]): Promise<service_types.internal_routes.ExecuteSqlResponse> {
     return service_types.internal_routes.ExecuteSqlResponse.encode({
       results: {
         columns: [],
