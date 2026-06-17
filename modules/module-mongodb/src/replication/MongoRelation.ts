@@ -285,8 +285,11 @@ async function createCheckpointInner(
 
 /**
  * Create a Cosmos DB comparable LSN by advancing the shared standalone
- * checkpoint document. The returned LSN uses the checkpoint increment as its
- * ordered component instead of a wallTime-derived MongoDB timestamp.
+ * checkpoint document. The returned LSN encodes the checkpoint counter in the
+ * same 16-hex shape as a MongoDB timestamp LSN (see {@link SentinelLSN}), so the
+ * two formats are directly comparable. The counter is seeded in the epoch-seconds
+ * range (see below), so a sentinel LSN always sorts above any real-timestamp LSN
+ * issued in the past.
  *
  * This counter is intentionally global to the source database. It is used for
  * storage/client checkpoint comparisons and write checkpoint heads, so it must
@@ -315,17 +318,23 @@ export async function createCosmosCheckpointLsn(client: mongo.MongoClient, db: m
         }
       );
       if (result != null) {
-        return new SentinelLSN({ sentinel: BigInt(result.i) }).comparable;
+        // The seed exceeds 2^53, so the driver returns `i` as a Long (not a
+        // promoted number); normalize to bigint either way.
+        return new SentinelLSN({ sentinel: longToBigInt(result.i) }).comparable;
       }
 
       // The counter document does not exist: first run, or a consumer deleted
-      // it in their source database. Seed the counter at the current epoch
-      // milliseconds instead of starting at 1. Counter increments accumulate
-      // far slower than one per millisecond, so a re-created counter always
-      // resumes ahead of any previously issued coordinate — keeping the LSN
-      // domain monotonic even across deletion, instead of silently moving it
-      // backwards (which would let new write checkpoint heads resolve against
-      // old, higher committed LSNs).
+      // it in their source database. Seed the counter in the epoch-SECONDS range
+      // (seconds in the high 32 bits, mirroring a MongoDB timestamp) rather than
+      // starting at 1. Two properties follow:
+      //
+      // - A sentinel LSN sorts above any real-timestamp LSN issued in the past,
+      //   because its high 32 bits are the current epoch seconds.
+      // - A re-created counter jumps forward instead of backward across deletion:
+      //   the seed advances by 2^32 each wall-clock second, while checkpoints add
+      //   1 each, so any later re-seed exceeds the previously issued coordinate
+      //   (keeping the LSN domain monotonic; otherwise new write checkpoint heads
+      //   could resolve against old, higher committed LSNs).
       //
       // $setOnInsert cannot be combined with $inc on the same field, so this
       // is a separate upsert; the loop then retries the increment. The
@@ -336,7 +345,7 @@ export async function createCosmosCheckpointLsn(client: mongo.MongoClient, db: m
           _id: STANDALONE_CHECKPOINT_ID as any
         },
         {
-          $setOnInsert: { i: mongo.Long.fromBigInt(BigInt(Date.now())) }
+          $setOnInsert: { i: mongo.Long.fromBigInt(BigInt(Math.floor(Date.now() / 1000)) << 32n) }
         },
         {
           upsert: true,
@@ -352,6 +361,21 @@ export async function createCosmosCheckpointLsn(client: mongo.MongoClient, db: m
   } finally {
     await session.endSession();
   }
+}
+
+/**
+ * Normalize a numeric BSON value to bigint. The standalone counter is a 64-bit
+ * Long; the driver may return it as a Long, a promoted number (values <= 2^53),
+ * or a bigint (with useBigInt64).
+ */
+function longToBigInt(value: number | bigint | mongo.Long): bigint {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return BigInt(value);
+  }
+  return value.toBigInt();
 }
 
 const mongoTimeOptions: DateTimeSourceOptions = {

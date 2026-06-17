@@ -47,14 +47,6 @@ On standard MongoDB, repointing a connection at a different source database inva
 
 If you change the source database for an existing connection, trigger a resync manually.
 
-## Write checkpoints may resolve slightly early
-
-On standard MongoDB, write-checkpoint resolution is ordered by `clusterTime`, which guarantees the caller's write is replicated before the checkpoint resolves. Cosmos has no usable `clusterTime`, so the implementation uses a sentinel write (the `_standalone_checkpoint` counter) as the replication head and resolves the write checkpoint once the change stream commits at or beyond that sentinel.
-
-Cosmos only guarantees change ordering _per document_, not across documents. The sentinel write lives in a different document from the caller's data write, so the sentinel's change event can be delivered ahead of the data write's event. In that window a write checkpoint can resolve a moment before the corresponding data is actually visible to clients — a client may briefly not see its own just-written data even after the write checkpoint is acknowledged.
-
-This is inherent to Cosmos's ordering guarantees and is part of why Cosmos support is experimental. If read-your-writes consistency is critical for your workload, validate it against your cluster.
-
 ## Throughput and latency
 
 Cosmos DB's change stream historically delivered events more slowly than standard MongoDB (one operation per poll, with idle polls returning immediately). Microsoft has since added long-polling (`maxAwaitTime`) and event batching. Throughput and latency for high-write workloads should be validated against your target cluster, as these capabilities depend on the Cosmos DB version in use.

@@ -31,6 +31,12 @@ storage checkpoint op id
 
 Historical note: an earlier design used a `wallTime`-derived timestamp as the LSN coordinate. `wallTime` only has second precision in our conversion, so it was unsafe as an equality boundary; the sentinel counter replaced it. `wallTime` is still read for the replication-lag metric, but is no longer part of the Cosmos LSN.
 
+## Change ordering
+
+The Azure Cosmos DB team has confirmed that vCore change streams deliver **all committed operations as change events in commit order** — a single cross-document order, the same property standard MongoDB provides via `clusterTime`. (The "per shard key" ordering documented for the separate RU-based API does not apply to vCore.)
+
+The sentinel checkpoint and write-checkpoint designs below rely on this. A checkpoint sentinel is written to a different document from the data being replicated, but because changes arrive in commit order, the sentinel's change event is delivered only after the data writes that preceded it. So committing at the sentinel is a consistent cut, and a write-checkpoint head is reached only after its data has been replicated — the same correctness argument as the standard MongoDB path, with the sentinel counter standing in for `clusterTime`.
+
 ## Checkpoint Implementations
 
 The checkpointing strategy is selected at runtime and lives behind a single interface, `CheckpointImplementation` (`CheckpointImplementation.ts`). `ChangeStream` and `MongoRouteAPIAdapter` delegate every checkpoint-specific decision to it, instead of branching on `isCosmosDb` throughout the replication loop.
@@ -244,9 +250,9 @@ write 1: $inc _standalone_checkpoint.i        -> global coordinate N
 write 2: $inc <checkpointStreamId>.i          -> this stream's barrier
 ```
 
-The committed LSN pairs the global coordinate from write 1 with the resume token of write 2's change event. An earlier design relied on the change stream delivering write 1's event before write 2's event. That ordering is not guaranteed on Cosmos: Microsoft documents change order only _per shard key_ (RU API), and the vCore change-stream docs make no ordering guarantee at all. Since write 1 and write 2 are different documents (different shard-key values), their relative delivery order is unspecified. The implementation therefore conservatively assumes no cross-document order. See [cosmos-db-outstanding-items.md](./cosmos-db-outstanding-items.md) for the sourced ordering analysis.
+The committed LSN pairs the global coordinate from write 1 with the resume token of write 2's change event. An earlier design relied on the change stream delivering write 1's event before write 2's event. Cross-document changes do arrive in commit order (see [Change ordering](#change-ordering)), so this would hold — but rather than depend on the relative delivery order of two different documents at all, write 2 embeds the global value from write 1 directly, making the barrier event self-describing.
 
-To remove that dependency, write 2 embeds the global value in the barrier document:
+So write 2 embeds the global value in the barrier document:
 
 ```text
 { $inc: { i: 1 }, $set: { globalSentinel: N } }
@@ -411,16 +417,16 @@ The `_standalone_checkpoint` counter is the ordered component of every committed
 
 The counter lives in a user-visible collection in the _source_ database, so a consumer can delete it. Dropping the whole collection is detected (the streaming loop invalidates on the collection drop event, forcing a resync). Deleting just the document is not reliably detected.
 
-To make that case safe rather than silently corrupting, `createCosmosCheckpointLsn` seeds a newly-created counter at the current epoch milliseconds instead of at `1`:
+To make that case safe rather than silently corrupting, `createCosmosCheckpointLsn` seeds a newly-created counter at the current epoch **seconds shifted into the high 32 bits** (`seconds << 32`, the same shape as a MongoDB timestamp) instead of at `1`:
 
 ```text
 counter exists:  $inc i
-counter missing: $setOnInsert i = Date.now(), then retry the $inc
+counter missing: $setOnInsert i = (epoch_seconds << 32), then retry the $inc
 ```
 
 (`$inc` and `$setOnInsert` cannot touch the same field, so this is two writes with a small retry loop; the `$setOnInsert` is a no-op under concurrent creation.)
 
-Because increments accumulate far slower than one per millisecond, a re-created counter always resumes _ahead_ of any previously issued coordinate. Deletion therefore produces a harmless forward jump in the LSN domain instead of a backwards reset — no detection logic required.
+Seeding in the `seconds << 32` range gives two properties: a sentinel LSN sorts above any real-timestamp LSN issued in the past (its high bits are the current epoch seconds), and the seed advances by `2^32` every wall-clock second while checkpoints add `1` each — so a re-created counter always resumes _ahead_ of any previously issued coordinate, a harmless forward jump rather than a backwards reset, with no detection logic required. (The forward jump needs ≥1 second to have elapsed since the original seed; the document lives from initial sync onward, so re-creation always lands in a later second.)
 
 Verified by `standalone counter is seeded at a timestamp value on creation` in `cosmosdb_helpers.test.ts`.
 
@@ -486,9 +492,7 @@ There are two related concerns:
 - source-head correctness: the stored write checkpoint head should not be an already-replicated storage head unless resolution is separately tied to the sentinel
 - LSN ordering: the standalone sentinel prefix is sortable, but the resume-token suffix is opaque and should not be used as a documented ordering signal
 
-The standalone sentinel head, tied to a source-side write the change stream can actually observe, is the best resolution model achievable on Cosmos. There is no stronger option: anything that would guarantee the caller's data write is replicated _before_ the checkpoint resolves requires a cross-document/global change order, which Cosmos does not provide (it guarantees order only per shard key). Resolving from the committed storage checkpoint/op id is **not** a stronger alternative — that op id is produced by the sentinel's own commit, so it carries no information about data writes that have not yet been delivered.
-
-This leaves an inherent read-your-writes gap: a write checkpoint can resolve a moment before its data is replicated. It is tracked, with the ordering analysis, in [cosmos-db-outstanding-items.md](./cosmos-db-outstanding-items.md).
+The standalone sentinel head is tied to a source-side write the change stream actually observes. This is correct because vCore delivers changes in commit order (see [Change ordering](#change-ordering)): the caller's data write precedes the sentinel write, so it is delivered — and replicated — before the sentinel event that resolves the write checkpoint. The sentinel counter plays the same role `clusterTime` plays on standard MongoDB.
 
 ## Known Limitations
 

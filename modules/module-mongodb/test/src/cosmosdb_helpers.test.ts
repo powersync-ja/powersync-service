@@ -99,29 +99,34 @@ describe('Cosmos DB helpers', () => {
     test('standalone counter is seeded at a timestamp value on creation', { timeout: 30_000 }, async () => {
       // If a consumer deletes the standalone checkpoint document in their
       // source database, the re-created counter must not restart below
-      // already-committed LSNs. createCosmosCheckpointLsn seeds new counters
-      // at the current epoch milliseconds, so the coordinate jumps forward
-      // instead of resetting.
+      // already-committed LSNs. createCosmosCheckpointLsn seeds new counters at
+      // the current epoch seconds shifted into the high 32 bits (resembling a
+      // MongoDB timestamp), so the coordinate jumps forward instead of resetting.
       const { client, db: sharedDb } = await connectMongoData();
       // Use an isolated database: other test files run in parallel against the
       // shared test database and both bump and clear the standalone checkpoint
       // document, which would make these exact assertions racy.
       const db = client.db(`${sharedDb.databaseName}_seed_test`);
+      const seed = (epochMs: number) => (BigInt(Math.floor(epochMs / 1000)) << 32n) + 1n;
       try {
-        const before = BigInt(Date.now());
+        const before = Date.now();
         const first = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
-        const after = BigInt(Date.now());
+        const after = Date.now();
 
-        // Seeded at epoch ms, not at 1.
-        expect(first.sentinel).toBeGreaterThanOrEqual(before);
-        expect(first.sentinel).toBeLessThanOrEqual(after + 1n);
+        // Seeded at (epoch_seconds << 32) + 1, not at 1.
+        expect(first.sentinel).toBeGreaterThanOrEqual(seed(before));
+        expect(first.sentinel).toBeLessThanOrEqual(seed(after));
 
         // Subsequent calls increment normally.
         const second = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
         expect(second.sentinel).toEqual(first.sentinel + 1n);
 
         // Simulate a consumer deleting the document after the counter has
-        // accumulated increments: the re-created counter resumes ahead.
+        // accumulated increments: the re-created counter resumes ahead. The seed
+        // has second granularity, and in production the document lives from
+        // initial sync onward, so re-creation always lands in a later second;
+        // wait for the clock to advance to reproduce that here.
+        await new Promise((resolve) => setTimeout(resolve, 1_100));
         await db.collection(CHECKPOINTS_COLLECTION).deleteOne({ _id: STANDALONE_CHECKPOINT_ID as any });
         const recreated = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
         expect(recreated.sentinel).toBeGreaterThan(second.sentinel);
