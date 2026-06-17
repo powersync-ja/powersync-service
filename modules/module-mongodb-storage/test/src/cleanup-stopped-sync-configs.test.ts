@@ -298,6 +298,124 @@ streams:
     expect(sourceRecord?.buckets.map((bucket) => bucket.def)).toEqual([secondDefinitionId]);
   });
 
+  test('cleans up event-only source tables no longer triggered by a live sync config', async () => {
+    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+
+    // The first config syncs `todos` and additionally fires events for `audit_log`. The
+    // `audit_log` table is referenced only by the event trigger, so its source table carries
+    // empty membership arrays (an event-only table).
+    const first = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+
+event_definitions:
+  audit:
+    payloads:
+      - SELECT id FROM audit_log
+`,
+        { storageVersion: 3 }
+      )
+    );
+    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorageV3;
+    const db = firstStorage.db as VersionedPowerSyncMongoV3;
+    await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+
+    const todosTable = (
+      await firstWriter.resolveTables({
+        connection_id: 1,
+        source: sourceDescriptor('todos', { objectId: 'todos-relation' }),
+        idGenerator: objectIdGenerator('6544e3899293153fa7b38360')
+      })
+    ).tables[0];
+    const auditTable = (
+      await firstWriter.resolveTables({
+        connection_id: 1,
+        source: sourceDescriptor('audit_log', { objectId: 'audit-log-relation' }),
+        idGenerator: objectIdGenerator('6544e3899293153fa7b38361')
+      })
+    ).tables[0];
+    await firstWriter.save({
+      sourceTable: todosTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'todo-1',
+        owner_id: 'user-1'
+      },
+      afterReplicaId: test_utils.rid('todo-1')
+    });
+    await firstWriter.save({
+      sourceTable: auditTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'audit-1'
+      },
+      afterReplicaId: test_utils.rid('audit-1')
+    });
+    await firstWriter.markAllSnapshotDone('1/1');
+    await firstWriter.commit('1/1');
+
+    const todosTableId = todosTable.id as bson.ObjectId;
+    const auditTableId = auditTable.id as bson.ObjectId;
+    // The event-only table is persisted with empty membership arrays, so the membership filter
+    // never selects it.
+    const auditSourceTable = await db.sourceTables(first.replicationStreamId).findOne({ _id: auditTableId });
+    expect(auditSourceTable?.bucket_data_source_ids).toEqual([]);
+    expect(auditSourceTable?.parameter_lookup_source_ids).toEqual([]);
+    const auditRecordsCollection = db.sourceRecords(first.replicationStreamId, auditTableId).collectionName;
+
+    // The second (active) config keeps the same `by_owner` stream but drops the audit event.
+    // The shared bucket definition stays in use, so no bucket/parameter ids become unused and
+    // the membership-cleanup block is skipped entirely.
+    const second = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+        { storageVersion: 3 }
+      )
+    );
+    expect(second.replicationStreamId).toBe(first.replicationStreamId);
+
+    const replicatingStreams = await factory.getReplicatingReplicationStreams();
+    const secondStorage = factory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorageV3;
+    await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await secondWriter.markAllSnapshotDone('2/1');
+    await secondWriter.commit('2/1');
+
+    const result = await cleanupStoppedSyncConfigs(
+      (await factory.getActiveSyncConfig())!.storage as MongoSyncBucketStorageV3
+    );
+
+    expect(result).toEqual({
+      stoppedSyncConfigsRemoved: 1,
+      bucketDataCollectionsDropped: 0,
+      parameterIndexCollectionsDropped: 0,
+      bucketStateDocumentsDeleted: 0,
+      sourceRecordCollectionsDropped: 1,
+      sourceTablesUpdated: 0,
+      sourceTablesDeleted: 1
+    });
+    // The orphaned event-only table and its source records are removed...
+    expect(await db.sourceTables(first.replicationStreamId).countDocuments({ _id: auditTableId })).toBe(0);
+    expect(await collectionExists(db, auditRecordsCollection)).toBe(false);
+    // ...while the data table still used by the live config is retained.
+    expect(await db.sourceTables(first.replicationStreamId).countDocuments({ _id: todosTableId })).toBe(1);
+
+    const streamDoc = (await db.sync_rules.findOne({ _id: first.replicationStreamId })) as ReplicationStreamDocumentV3;
+    expect(streamDoc.sync_configs.map((config) => config.state)).toEqual([storage.SyncRuleState.ACTIVE]);
+  });
+
   test('does not recreate dropped parameter indexes from stale source record lookups', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
 

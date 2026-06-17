@@ -100,6 +100,11 @@ export class MongoStoppedSyncConfigCleanup {
       result.parameterIndexCollectionsDropped = await this.dropParameterIndexCollections(unusedParameterIndexIds);
     }
 
+    // Event-only source tables carry empty membership arrays, so they are never selected by the
+    // membership filter above. Clean them up separately, regardless of whether any bucket or
+    // parameter ids became unused (a stopped config may have contributed only an event trigger).
+    await this.cleanupEventOnlySourceTables(liveConfigDocs, result);
+
     result.stoppedSyncConfigsRemoved = await this.pruneStoppedSyncConfigStates(stoppedStates);
 
     if (result.stoppedSyncConfigsRemoved > 0) {
@@ -173,46 +178,11 @@ export class MongoStoppedSyncConfigCleanup {
       .filter((sourceTable) => !deletableSourceTables.some((deletable) => deletable._id.equals(sourceTable._id)))
       .map((sourceTable) => sourceTable._id);
 
-    // Re-fetch rows before deleting, so we don't delete a source table that became live
-    // through another writer after the planning read above.
-    const deletableSourceTableIds = deletableSourceTables.map((table) => table._id);
-    const sourceTablesToDelete =
-      deletableSourceTableIds.length == 0
-        ? []
-        : await this.db
-            .sourceTables(this.replicationStreamId)
-            .find(
-              this.deletableSourceTableFilter(
-                deletableSourceTableIds,
-                unusedBucketDefinitionIds,
-                unusedParameterIndexIds
-              ),
-              {
-                projection: { _id: 1 }
-              }
-            )
-            .toArray();
-
-    // Drop sourceRecords collections before the related sourceTables entries, so that we
-    // can recover after interruptions.
-    for (const sourceTable of sourceTablesToDelete) {
-      this.throwIfAborted();
-      await this.dropCollection(this.db.sourceRecords(this.replicationStreamId, sourceTable._id));
-      result.sourceRecordCollectionsDropped += 1;
-    }
-
-    if (sourceTablesToDelete.length > 0) {
-      this.throwIfAborted();
-      const deleteResult = await this.db.sourceTables(this.replicationStreamId).deleteMany(
-        this.deletableSourceTableFilter(
-          sourceTablesToDelete.map((table) => table._id),
-          unusedBucketDefinitionIds,
-          unusedParameterIndexIds
-        ),
-        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-      );
-      result.sourceTablesDeleted += deleteResult.deletedCount;
-    }
+    await this.deleteSourceTables(
+      deletableSourceTables.map((table) => table._id),
+      (ids) => this.deletableSourceTableFilter(ids, unusedBucketDefinitionIds, unusedParameterIndexIds),
+      result
+    );
 
     if (retainedSourceTableIds.length > 0) {
       this.throwIfAborted();
@@ -224,6 +194,80 @@ export class MongoStoppedSyncConfigCleanup {
         { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
       );
       result.sourceTablesUpdated += updateResult.modifiedCount;
+    }
+  }
+
+  /**
+   * Clean up event-only source tables that no live sync config still triggers events for.
+   *
+   * Event-only source tables carry empty membership arrays (see source-table-utils:
+   * "Empty memberships indicate an event-only table"), so the membership filter never selects
+   * them. Without this, the source_tables row and its source_records collection leak when the
+   * config that contributed the event trigger is stopped.
+   */
+  private async cleanupEventOnlySourceTables(
+    liveConfigDocs: SyncConfigDefinition[],
+    result: storage.CleanupStoppedSyncConfigsResult
+  ) {
+    const candidateSourceTables = await this.db
+      .sourceTables(this.replicationStreamId)
+      .find(this.eventOnlySourceTableFilter(), {
+        projection: {
+          _id: 1,
+          bucket_data_source_ids: 1,
+          parameter_lookup_source_ids: 1,
+          schema_name: 1,
+          table_name: 1
+        }
+      })
+      .toArray();
+    if (candidateSourceTables.length == 0) {
+      return;
+    }
+
+    const liveSyncConfigs = this.parseSyncConfigs(liveConfigDocs);
+    const deletableSourceTableIds = candidateSourceTables
+      .filter((sourceTable) => !this.triggersLiveEvent(sourceTable, liveSyncConfigs))
+      .map((sourceTable) => sourceTable._id);
+
+    await this.deleteSourceTables(deletableSourceTableIds, (ids) => this.eventOnlyDeletableFilter(ids), result);
+  }
+
+  /**
+   * Drop the given source tables and their source_records collections.
+   *
+   * `refetchFilter` re-applies the deletability predicate against the latest persisted state, so
+   * a source table that became live through another writer after planning is not deleted. The
+   * sourceRecords collection is dropped before the related sourceTables row, so an interruption
+   * can be recovered on the next run.
+   */
+  private async deleteSourceTables(
+    deletableSourceTableIds: bson.ObjectId[],
+    refetchFilter: (ids: bson.ObjectId[]) => Record<string, unknown>,
+    result: storage.CleanupStoppedSyncConfigsResult
+  ) {
+    if (deletableSourceTableIds.length == 0) {
+      return;
+    }
+    const sourceTablesToDelete = await this.db
+      .sourceTables(this.replicationStreamId)
+      .find(refetchFilter(deletableSourceTableIds), { projection: { _id: 1 } })
+      .toArray();
+
+    for (const sourceTable of sourceTablesToDelete) {
+      this.throwIfAborted();
+      await this.dropCollection(this.db.sourceRecords(this.replicationStreamId, sourceTable._id));
+      result.sourceRecordCollectionsDropped += 1;
+    }
+
+    if (sourceTablesToDelete.length > 0) {
+      this.throwIfAborted();
+      const deleteResult = await this.db
+        .sourceTables(this.replicationStreamId)
+        .deleteMany(refetchFilter(sourceTablesToDelete.map((table) => table._id)), {
+          maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS
+        });
+      result.sourceTablesDeleted += deleteResult.deletedCount;
     }
   }
 
@@ -249,6 +293,20 @@ export class MongoStoppedSyncConfigCleanup {
       _id: { $in: ids },
       bucket_data_source_ids: { $not: { $elemMatch: { $nin: unusedBucketDefinitionIds } } },
       parameter_lookup_source_ids: { $not: { $elemMatch: { $nin: unusedParameterIndexIds } } }
+    };
+  }
+
+  private eventOnlySourceTableFilter(): Record<string, unknown> {
+    return {
+      bucket_data_source_ids: { $size: 0 },
+      parameter_lookup_source_ids: { $size: 0 }
+    };
+  }
+
+  private eventOnlyDeletableFilter(ids: bson.ObjectId[]): Record<string, unknown> {
+    return {
+      _id: { $in: ids },
+      ...this.eventOnlySourceTableFilter()
     };
   }
 
