@@ -242,7 +242,8 @@ class SourceTableReconciliationPlanner {
       connectionTag,
       syncConfig,
       mapping,
-      matchingSourcesFor(desired, memberships)
+      matchingSourcesFor(desired, memberships),
+      memberships
     );
     table.storeCurrentData = storeCurrentData;
     return table;
@@ -307,7 +308,8 @@ export function createNewSourceTable(
     connectionTag,
     syncConfig,
     mapping,
-    matchingSourcesFor(desired, memberships)
+    matchingSourcesFor(desired, memberships),
+    memberships
   );
   table.storeCurrentData = storeCurrentData;
 
@@ -348,9 +350,16 @@ export function sourceTableFromDocument(
   connectionTag: string,
   syncConfig: HydratedSyncConfig,
   mapping: BucketDefinitionMapping,
-  memberships?: MatchingSources
+  memberships?: MatchingSources,
+  membershipIds?: SourceTableMembershipIds
 ): storage.SourceTable {
   const resolvedMemberships = memberships ?? sourceTableMembershipsFromDocument(doc, syncConfig, mapping);
+  const resolvedMembershipIds = membershipIds ?? {
+    bucketDataSourceIds: resolvedMemberships.bucketDataSources.map((source) => mapping.bucketSourceId(source)),
+    parameterLookupSourceIds: resolvedMemberships.parameterLookupSources.map((source) =>
+      mapping.parameterLookupId(source)
+    )
+  };
   const table = new storage.SourceTable({
     id: doc._id,
     ref: {
@@ -364,7 +373,9 @@ export function sourceTableFromDocument(
     ),
     snapshotComplete: doc.snapshot_done,
     bucketDataSources: resolvedMemberships.bucketDataSources,
-    parameterLookupSources: resolvedMemberships.parameterLookupSources
+    parameterLookupSources: resolvedMemberships.parameterLookupSources,
+    bucketDataSourceIds: new Set(resolvedMembershipIds.bucketDataSourceIds),
+    parameterLookupSourceIds: new Set(resolvedMembershipIds.parameterLookupSourceIds)
   });
   table.syncData = table.bucketDataSources.length > 0;
   table.syncParameters = table.parameterLookupSources.length > 0;

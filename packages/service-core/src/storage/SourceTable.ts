@@ -1,6 +1,8 @@
 import {
   BucketDataSource,
+  BucketDefinitionId,
   DEFAULT_TAG,
+  ParameterIndexId,
   ParameterIndexLookupCreator,
   SourceTableRef
 } from '@powersync/service-sync-rules';
@@ -21,6 +23,8 @@ export interface SourceTableOptions {
   snapshotComplete: boolean;
   bucketDataSources: BucketDataSource[];
   parameterLookupSources: ParameterIndexLookupCreator[];
+  bucketDataSourceIds?: Set<BucketDefinitionId>;
+  parameterLookupSourceIds?: Set<ParameterIndexId>;
 }
 
 export interface TableSnapshotStatus {
@@ -124,6 +128,14 @@ export class SourceTable {
     return this.options.parameterLookupSources;
   }
 
+  get bucketDataSourceIds() {
+    return this.options.bucketDataSourceIds;
+  }
+
+  get parameterLookupSourceIds() {
+    return this.options.parameterLookupSourceIds;
+  }
+
   /**
    * Sanitized name of the entity in the format of "{schema}.{entity name}".
    * Suitable for safe use in Postgres queries.
@@ -147,7 +159,10 @@ export class SourceTable {
       replicaIdColumns: this.replicaIdColumns,
       snapshotComplete: this.snapshotComplete,
       bucketDataSources: this.bucketDataSources,
-      parameterLookupSources: this.parameterLookupSources
+      parameterLookupSources: this.parameterLookupSources,
+      bucketDataSourceIds: this.bucketDataSourceIds == null ? undefined : new Set(this.bucketDataSourceIds),
+      parameterLookupSourceIds:
+        this.parameterLookupSourceIds == null ? undefined : new Set(this.parameterLookupSourceIds)
     });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;
