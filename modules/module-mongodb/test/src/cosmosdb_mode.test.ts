@@ -5,6 +5,8 @@ import { createWriteCheckpoint } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
+import { SentinelLSN } from '@module/common/SentinelLSN.js';
+import { createCosmosCheckpointLsn, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '@module/replication/replication-utils.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
@@ -150,6 +152,312 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.COSMOSDB)('cosmosDbMode', () => {
       }
 
       expect(seen).toEqual(expected);
+    } finally {
+      await client.close();
+    }
+  });
+
+  // Empirically probe whether Cosmos delivers change events for *different*
+  // documents in the order they were written.
+  //
+  // Cosmos only guarantees change order per shard key (RU docs) / nothing
+  // documented (vCore) — not globally. The sentinel write-checkpoint design
+  // assumes no cross-document order: a write checkpoint head is the
+  // `_standalone_checkpoint` sentinel, and the caller's data write lives in a
+  // different document. If the sentinel event can be delivered *before* the
+  // data write that preceded it, a write checkpoint can resolve before its data
+  // has replicated (see docs/cosmos-db-outstanding-items.md).
+  //
+  // This reproduces that exact scenario using the real checkpointing write path
+  // (createCosmosCheckpointLsn): each round writes a data document, then bumps
+  // the standalone sentinel, and we record the delivery order off a single
+  // cluster-level change stream.
+  //
+  // We do NOT assert on cross-document order (delivery order is not contractual
+  // — a single-shard cluster may happen to preserve it); the finding is logged
+  // so we can document the cluster's observed behaviour. We DO assert that
+  // same-document order is preserved, since sentinel `i` matching relies on it.
+  test('change stream delivery order across documents', { timeout: 180_000 }, async () => {
+    const { client, db } = await connectMongoData();
+    const ROUNDS = 20;
+    const dataColl = 'order_probe_data';
+    const dataId = '_order_probe_doc';
+    try {
+      const data = db.collection<{ _id: string; seq: number }>(dataColl);
+      await data.deleteMany({});
+
+      // Watch the whole database; classify events by documentKey in code.
+      const pipeline = [
+        {
+          $match: {
+            operationType: { $in: ['insert', 'update', 'replace'] },
+            'ns.db': db.databaseName
+          }
+        }
+      ];
+
+      const cursor = client.watch(pipeline, { fullDocument: 'updateLookup', maxAwaitTimeMS: 500 });
+      try {
+        // Prime the cursor (Cosmos has no startAtOperationTime, and the driver
+        // opens the cursor lazily) by writing the data doc with descending
+        // negative seqs until an event comes through, then drain the backlog.
+        const primeDeadline = Date.now() + 60_000;
+        let primed = false;
+        let primeSeq = 0;
+        while (!primed && Date.now() < primeDeadline) {
+          primeSeq -= 1;
+          await data.updateOne({ _id: dataId }, { $set: { seq: primeSeq } }, { upsert: true });
+          if ((await cursor.tryNext()) != null) {
+            primed = true;
+          }
+        }
+        expect(primed, 'change stream cursor never went live').toBe(true);
+        while ((await cursor.tryNext()) != null) {
+          // drain remaining priming events
+        }
+
+        // Issue interleaved writes: data(round) then sentinel bump, per round.
+        type Issued = { label: string; kind: 'data' | 'sentinel'; round: number; sentinel?: bigint };
+        const issued: Issued[] = [];
+        const sentinelValueToRound = new Map<string, number>();
+        for (let round = 1; round <= ROUNDS; round++) {
+          await data.updateOne({ _id: dataId }, { $set: { seq: round } });
+          issued.push({ label: `D${round}`, kind: 'data', round });
+
+          const sentinel = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(client, db)).sentinel;
+          issued.push({ label: `S${round}`, kind: 'sentinel', round, sentinel });
+          sentinelValueToRound.set(sentinel.toString(), round);
+        }
+
+        // Collect the delivered events in arrival order.
+        const arrivals: { label: string; kind: 'data' | 'sentinel'; value: number | bigint }[] = [];
+        const collectDeadline = Date.now() + 90_000;
+        while (arrivals.length < issued.length && Date.now() < collectDeadline) {
+          const ev = await cursor.tryNext();
+          if (ev == null || !('documentKey' in ev) || !('fullDocument' in ev) || ev.fullDocument == null) {
+            continue;
+          }
+          const id = String(ev.documentKey._id);
+          if (id === dataId) {
+            const seq = (ev.fullDocument as any).seq as number;
+            if (seq >= 1) {
+              arrivals.push({ label: `D${seq}`, kind: 'data', value: seq });
+            }
+          } else if (id === STANDALONE_CHECKPOINT_ID) {
+            const value = BigInt((ev.fullDocument as any).i);
+            const round = sentinelValueToRound.get(value.toString());
+            if (round != null) {
+              arrivals.push({ label: `S${round}`, kind: 'sentinel', value });
+            }
+          }
+        }
+
+        // --- Analysis ---
+        const dataArrivals = arrivals.filter((a) => a.kind === 'data').map((a) => a.value as number);
+        const sentinelArrivals = arrivals.filter((a) => a.kind === 'sentinel').map((a) => a.value as bigint);
+        const dataOrderPreserved = dataArrivals.every((v, i) => i === 0 || v > dataArrivals[i - 1]);
+        const sentinelOrderPreserved = sentinelArrivals.every((v, i) => i === 0 || v > sentinelArrivals[i - 1]);
+
+        // General cross-document inversions: any event delivered out of global issue order.
+        const issueIndex = new Map(issued.map((it, i) => [it.label, i] as const));
+        const crossDocumentInversions: { afterDelivering: string; received: string }[] = [];
+        for (let i = 1; i < arrivals.length; i++) {
+          if (issueIndex.get(arrivals[i].label)! < issueIndex.get(arrivals[i - 1].label)!) {
+            crossDocumentInversions.push({ afterDelivering: arrivals[i - 1].label, received: arrivals[i].label });
+          }
+        }
+
+        // Bug-specific signal: a sentinel bump overtaking the data write that
+        // preceded it in the same round (write checkpoint resolves too early).
+        const sentinelOvertakingItsDataWrite: number[] = [];
+        for (let round = 1; round <= ROUNDS; round++) {
+          const dIdx = arrivals.findIndex((a) => a.label === `D${round}`);
+          const sIdx = arrivals.findIndex((a) => a.label === `S${round}`);
+          if (dIdx >= 0 && sIdx >= 0 && sIdx < dIdx) {
+            sentinelOvertakingItsDataWrite.push(round);
+          }
+        }
+
+        console.dir(
+          {
+            crossDocumentOrderingProbe: {
+              rounds: ROUNDS,
+              issued: issued.length,
+              arrived: arrivals.length,
+              deliveryOrder: arrivals.map((a) => a.label),
+              dataOrderPreserved,
+              sentinelOrderPreserved,
+              crossDocumentInversions,
+              sentinelOvertakingItsDataWrite
+            }
+          },
+          { depth: null }
+        );
+
+        // We expect to receive every issued event within the deadline.
+        expect(arrivals.length, 'did not receive all issued events before the deadline').toBe(issued.length);
+        // Per-document ordering is the one guarantee Cosmos documents — assert it.
+        expect(dataOrderPreserved, 'data-document events arrived out of order').toBe(true);
+        expect(sentinelOrderPreserved, 'sentinel-document events arrived out of order').toBe(true);
+        // Cross-document order is intentionally NOT asserted; inversions (if any)
+        // are logged above as the finding.
+      } finally {
+        await cursor.close();
+      }
+      await data.deleteMany({});
+    } finally {
+      await client.close();
+    }
+  });
+
+  // Follow-up to the probe above. The sequential probe preserves order on a
+  // single-shard cluster, where there is effectively one ordered feed. This
+  // variant adds a concurrent write storm across many other documents and a much
+  // higher round count, to test whether a single-shard cluster has *internal*
+  // sub-partitions whose feeds can interleave out of order under load.
+  //
+  // The measured D→S pairs are still issued strictly sequentially (so they keep a
+  // well-defined happens-before order to violate); the background writers only
+  // generate feed pressure. Same reporting; cross-document order is logged, not
+  // asserted.
+  test('change stream delivery order across documents — under concurrent load', { timeout: 240_000 }, async () => {
+    const { client, db } = await connectMongoData();
+    const ROUNDS = 100;
+    const BACKGROUND_WRITERS = 6;
+    const dataColl = 'order_probe_data';
+    const dataId = '_order_probe_doc';
+    const backgroundCollections = Array.from({ length: BACKGROUND_WRITERS }, (_, w) => `order_probe_bg_${w}`);
+    try {
+      const data = db.collection<{ _id: string; seq: number }>(dataColl);
+      await data.deleteMany({});
+
+      // Only deliver the two measured namespaces, so background churn does not
+      // flood the cursor we are measuring.
+      const pipeline = [
+        {
+          $match: {
+            operationType: { $in: ['insert', 'update', 'replace'] },
+            'ns.db': db.databaseName,
+            'ns.coll': { $in: [dataColl, CHECKPOINTS_COLLECTION] }
+          }
+        }
+      ];
+      const cursor = client.watch(pipeline, { fullDocument: 'updateLookup', maxAwaitTimeMS: 500 });
+
+      // Start the background write storm: 6 loops, each with one write in flight,
+      // churning 100 rotating documents per collection.
+      let stopBackground = false;
+      const background = backgroundCollections.map((name) =>
+        (async () => {
+          const coll = db.collection<{ _id: string; n: number }>(name);
+          let n = 0;
+          while (!stopBackground) {
+            n += 1;
+            await coll.updateOne({ _id: `bg_${n % 100}` }, { $set: { n } }, { upsert: true }).catch(() => {});
+          }
+        })()
+      );
+
+      try {
+        // Prime the cursor.
+        const primeDeadline = Date.now() + 60_000;
+        let primed = false;
+        let primeSeq = 0;
+        while (!primed && Date.now() < primeDeadline) {
+          primeSeq -= 1;
+          await data.updateOne({ _id: dataId }, { $set: { seq: primeSeq } }, { upsert: true });
+          if ((await cursor.tryNext()) != null) {
+            primed = true;
+          }
+        }
+        expect(primed, 'change stream cursor never went live').toBe(true);
+        while ((await cursor.tryNext()) != null) {
+          // drain priming events
+        }
+
+        // Measured sequential D→S pairs.
+        const issued: { label: string; round: number }[] = [];
+        const sentinelValueToRound = new Map<string, number>();
+        for (let round = 1; round <= ROUNDS; round++) {
+          await data.updateOne({ _id: dataId }, { $set: { seq: round } });
+          issued.push({ label: `D${round}`, round });
+          const sentinel = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(client, db)).sentinel;
+          issued.push({ label: `S${round}`, round });
+          sentinelValueToRound.set(sentinel.toString(), round);
+        }
+
+        // Collect.
+        const arrivals: string[] = [];
+        const expectedLabels = new Set(issued.map((i) => i.label));
+        const collectDeadline = Date.now() + 120_000;
+        while (arrivals.length < issued.length && Date.now() < collectDeadline) {
+          const ev = await cursor.tryNext();
+          if (ev == null || !('documentKey' in ev) || !('fullDocument' in ev) || ev.fullDocument == null) {
+            continue;
+          }
+          const id = String(ev.documentKey._id);
+          let label: string | null = null;
+          if (id === dataId) {
+            const seq = (ev.fullDocument as any).seq as number;
+            if (seq >= 1) {
+              label = `D${seq}`;
+            }
+          } else if (id === STANDALONE_CHECKPOINT_ID) {
+            const round = sentinelValueToRound.get(BigInt((ev.fullDocument as any).i).toString());
+            if (round != null) {
+              label = `S${round}`;
+            }
+          }
+          if (label != null && expectedLabels.has(label)) {
+            arrivals.push(label);
+          }
+        }
+
+        // Analysis (same as the sequential probe).
+        const issueIndex = new Map(issued.map((it, i) => [it.label, i] as const));
+        const crossDocumentInversions: { afterDelivering: string; received: string }[] = [];
+        for (let i = 1; i < arrivals.length; i++) {
+          if (issueIndex.get(arrivals[i])! < issueIndex.get(arrivals[i - 1])!) {
+            crossDocumentInversions.push({ afterDelivering: arrivals[i - 1], received: arrivals[i] });
+          }
+        }
+        const sentinelOvertakingItsDataWrite: number[] = [];
+        for (let round = 1; round <= ROUNDS; round++) {
+          const dIdx = arrivals.indexOf(`D${round}`);
+          const sIdx = arrivals.indexOf(`S${round}`);
+          if (dIdx >= 0 && sIdx >= 0 && sIdx < dIdx) {
+            sentinelOvertakingItsDataWrite.push(round);
+          }
+        }
+
+        console.dir(
+          {
+            crossDocumentOrderingUnderLoad: {
+              rounds: ROUNDS,
+              backgroundWriters: BACKGROUND_WRITERS,
+              issued: issued.length,
+              arrived: arrivals.length,
+              crossDocumentInversions,
+              sentinelOvertakingItsDataWrite
+            }
+          },
+          { depth: null }
+        );
+
+        expect(arrivals.length, 'did not receive all issued events before the deadline').toBe(issued.length);
+      } finally {
+        stopBackground = true;
+        await Promise.allSettled(background);
+        await cursor.close();
+      }
+
+      await data.deleteMany({});
+      for (const name of backgroundCollections) {
+        await db
+          .collection(name)
+          .drop()
+          .catch(() => {});
+      }
     } finally {
       await client.close();
     }

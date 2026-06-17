@@ -10,11 +10,11 @@
 
 ## Summary
 
-| #   | Item                                                                      | Kind                           | Severity | Fixable?                                    |
-| --- | ------------------------------------------------------------------------- | ------------------------------ | -------- | ------------------------------------------- |
-| 1   | Write checkpoints can resolve before the corresponding data is replicated | Correctness (read-your-writes) | High     | No — inherent to Cosmos ordering            |
-| 2   | Changing the source database is not detected                              | Detection gap                  | Medium   | Yes (future work)                           |
-| 3   | Large initial snapshot can age out of the change-feed retention window    | Operational                    | Medium   | Yes (future work: incremental reprocessing) |
+| #   | Item                                                                                        | Kind                                         | Severity    | Fixable?                                            |
+| --- | ------------------------------------------------------------------------------------------- | -------------------------------------------- | ----------- | --------------------------------------------------- |
+| 1   | Cross-document ordering unguaranteed — affects checkpoint consistency and write checkpoints | Correctness (consistency + read-your-writes) | High — OPEN | Blocked on a source ordering guarantee (see routes) |
+| 2   | Changing the source database is not detected                                                | Detection gap                                | Medium      | Yes (future work)                                   |
+| 3   | Large initial snapshot can age out of the change-feed retention window                      | Operational                                  | Medium      | Yes (future work: incremental reprocessing)         |
 
 ---
 
@@ -68,12 +68,12 @@ flowchart TB
     merge --> bad["Delivery 2: bump N → write A<br/>checkpoint resolves, A not yet replicated"]
 ```
 
-| Granularity                                       | Ordered? | Consequence                                          |
-| ------------------------------------------------- | -------- | ---------------------------------------------------- |
-| Same document (same `_id` ⇒ same shard-key value) | ✅ yes   | `fullDocument.i` sentinel matching is safe           |
-| Same shard-key value (one lane)                   | ✅ yes   | —                                                    |
-| **Different shard-key values (different lanes)**  | ❌ no    | cross-document write-checkpoint resolution is unsafe |
-| Global (whole stream)                             | ❌ no    | the guarantee MongoDB has and Cosmos lacks           |
+| Granularity                                       | Ordered? | Consequence                                                  |
+| ------------------------------------------------- | -------- | ------------------------------------------------------------ |
+| Same document (same `_id` ⇒ same shard-key value) | ✅ yes   | `fullDocument.i` sentinel matching is safe                   |
+| Same shard-key value (one lane)                   | ✅ yes   | —                                                            |
+| **Different shard-key values (different lanes)**  | ❌ no    | cross-document checkpoint & write-checkpoint logic is unsafe |
+| Global (whole stream)                             | ❌ no    | the guarantee MongoDB has and Cosmos lacks                   |
 
 "Per-document" safety is just the special case of the per-shard-key guarantee where two
 events share an `_id`. Reasoning about a single document never leaves one lane; reasoning
@@ -81,52 +81,105 @@ across two documents does.
 
 ---
 
-## 1. Write checkpoints can resolve before the data is replicated
+## 1. Cross-document change ordering is unguaranteed
 
-**Severity: High (read-your-writes consistency). Not data loss.**
+**Status: OPEN — blocked on a concrete cross-document ordering guarantee.**
 
-### What happens
+Checkpoints are driven by sentinel writes to dedicated `_powersync_checkpoints` documents,
+which are separate documents from the data being replicated. Because the source guarantees
+change order only per shard key — not across documents — a checkpoint sentinel can be delivered
+ahead of data writes that preceded it. This puts two correctness properties at risk.
 
-A managed write checkpoint stores a replication head and resolves once the replicated
-checkpoint reaches it. On Cosmos the head is the `_standalone_checkpoint` sentinel `N`,
-and resolution fires when the stream commits at or beyond `N`.
+### The invariants (non-negotiable)
 
-The user's data write lives in one document (lane α); the sentinel bump lives in
-`_standalone_checkpoint` (lane σ). These are different shard-key values, so the merge can
-deliver the sentinel event **before** the data-write event ("Delivery 2" above). When that
-happens the stream commits the checkpoint at `N` and the write checkpoint resolves while
-the caller's data is still undelivered — the client is told its write is durable/visible
-before it is queryable in synced data.
+> **Checkpoint consistency.** A committed checkpoint must be a consistent cut: it must include
+> every change that logically precedes it. A client must never observe a checkpoint that is
+> missing an earlier change.
 
-The data is **not lost**: the data-write event is still delivered and replicated later. The
-defect is purely _ordering/timing_ of write-checkpoint resolution, and the skew is bounded
-only by inter-lane delivery timing, which Cosmos does not bound.
+> **Write-checkpoint resolution.** A managed write checkpoint must never resolve before the
+> corresponding source changes have been replicated into storage (read-your-writes).
 
-### Why it cannot be fixed storage-side
+Both are correctness requirements, not tunables. Resolving or committing even momentarily early
+is unacceptable.
 
-The first instinct is "resolve from the storage checkpoint / op*id produced \_after* the
-sentinel is observed." This does **not** work: that op*id is produced \_by* the very commit
-the stream performs when it observes the sentinel event. It encodes only the events buffered
-_up to_ the sentinel — if the data write hasn't crossed the lane merge yet, it isn't in that
-batch and the op_id cannot know it's missing. There is no second, independent signal.
+### Why the current Cosmos path cannot prove them
 
-The only thing that would close the gap is a cross-document "you have received everything up
-to position X" high-water mark — i.e. a resume token with global-completeness semantics —
-which only exists if there is a global order. Cosmos does not provide one. On a single-shard
-cluster it _might_ behave that way in practice, but that is undocumented and the design
-deliberately does not rely on it.
+A batch/standalone checkpoint advances a sentinel counter in a `_powersync_checkpoints` document
+and commits at the LSN of that sentinel's change event. A write checkpoint stores that sentinel
+as its head and resolves once the replicated checkpoint reaches it.
 
-**Conclusion:** this is an inherent limitation of Cosmos change streams, not an implementation
-bug. The current sentinel approach (the standalone-sentinel head) is the ceiling achievable
-without a global order.
+The sentinel document and the data documents have different shard-key values — different ordering
+lanes. The source guarantees order only within a lane (per shard key on the RU API; nothing
+documented on vCore), not across the merge. So the sentinel's change event can be delivered before
+data writes that were applied earlier. When that happens:
 
-### Possible (partial) mitigations — none are guarantees
+- **Checkpoint consistency:** the stream commits the checkpoint without having seen those earlier
+  data writes, so the checkpoint is not a consistent cut — it omits changes that precede it, and a
+  write that spans multiple documents can be split across two checkpoints.
+- **Write-checkpoint resolution:** the head is reached and the write checkpoint resolves while the
+  caller's data is still undelivered.
 
-- Empirically bound and document the worst-case inter-lane skew on target clusters, and gate
-  write-checkpoint resolution behind a delay ≥ that skew. Heuristic, not a guarantee.
-- Investigate whether single-shard vCore resume tokens carry usable completeness semantics.
-  If Microsoft ever commits to global order on single-shard, resolution could wait for the
-  token to pass the sentinel. Currently undocumented — do not rely on it.
+The data is not lost — it arrives later — but the checkpoint/resolution is premature.
+
+This **cannot be fixed storage-side.** Deriving the boundary from the storage checkpoint / op id
+produced _after_ the sentinel is observed does not help: that op id is produced _by_ the very
+commit the stream performs when it observes the sentinel event, and it encodes only events buffered
+_up to_ the sentinel. If an earlier data write hasn't crossed the lane merge yet, it isn't in that
+batch and the op id cannot know it's missing. Closing the gap requires a cross-document "you have
+received everything up to position X" high-water mark — which only exists if the source provides
+cross-document ordering or completeness. **That is the unanswered question.**
+
+### Empirical testing
+
+Probe tests in the test suite exercise this scenario and record the change stream's delivery
+order. On single-shard vCore, available testing has not observed cross-document reordering — the
+sentinel has not been seen to overtake the data write that preceded it, including under concurrent
+write load. This is consistent with single-shard behaving as one totally-ordered feed.
+
+It is **evidence, not a guarantee**: testing covers a limited set of clusters and engine versions,
+and it cannot manufacture a genuine multi-partition split on single-shard. An invariant cannot
+rest on "not reproduced."
+
+### Required guarantee
+
+Satisfying the invariant requires a concrete, documented guarantee from the source database about
+cross-document change ordering. The open questions, independent of any particular implementation:
+
+1. Does the change stream deliver changes across different documents and collections in (or
+   consistent with) their commit order — i.e. is there a cross-document / global ordering, rather
+   than only a per-shard-key ordering?
+2. Is there a monotonic, cross-document position (a timestamp, LSN, or continuation token) such
+   that, once observed, every earlier change across all documents is guaranteed to have already
+   been delivered — a completeness high-water mark?
+3. How do these guarantees depend on cluster topology (single- vs multi-shard) and engine version?
+
+Until one of these is answered affirmatively and in writing, cross-document ordering cannot be
+assumed.
+
+### Routes, keyed to the answer
+
+- **If a usable cross-document ordering or completeness guarantee exists:** commit checkpoints and
+  resolve write checkpoints only once the replicated position provably passes the boundary using
+  that guaranteed signal. Both invariants are satisfied; the limitation is lifted on the guaranteed
+  topologies.
+- **If only per-shard-key ordering is guaranteed (no cross-document completeness):** the sentinel
+  approach cannot prove either invariant. Two distinct consequences:
+  - _Write-checkpoint resolution_ can be fixed by withdrawal: disable managed write checkpoints on
+    Cosmos (fail closed, with a clear error). This removes only that feature.
+  - _Checkpoint consistency_ cannot be withdrawn — it underpins ordinary replication for every
+    client. Without a cross-document guarantee there is no sentinel placement that makes a checkpoint
+    a provable consistent cut, so this becomes a core consistency limitation, not a feature toggle.
+    It must be resolved (e.g. by a different consistency mechanism that does not depend on
+    cross-document ordering) or accepted and documented as a limitation.
+- **If no guarantee is available:** treat as the worst case above.
+
+### Interim posture (until answered)
+
+Because premature commit/resolution is unacceptable and no guarantee is available, the safe default
+is: do not rely on Cosmos managed write checkpoints for read-your-writes (fail closed, or keep
+behind the experimental flag with the invariant flagged as unverified); and treat checkpoint
+consistency on Cosmos as **unverified** — surfaced honestly to users — rather than asserted, until
+the cross-document ordering question is answered.
 
 ---
 
