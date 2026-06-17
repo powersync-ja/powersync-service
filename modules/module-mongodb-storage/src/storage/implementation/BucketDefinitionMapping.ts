@@ -8,6 +8,8 @@ import {
 } from '@powersync/service-sync-rules';
 import { SyncConfigDefinition } from '../storage-index.js';
 
+export type { BucketDefinitionId, ParameterIndexId };
+
 export interface SyncConfigWithMapping {
   syncConfigId?: string;
   syncConfig: SyncConfigWithErrors;

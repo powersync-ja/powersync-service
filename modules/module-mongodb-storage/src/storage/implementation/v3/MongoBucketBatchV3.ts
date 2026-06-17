@@ -19,7 +19,7 @@ function sameStringArray(left: string[], right: string[]) {
 }
 
 export class MongoBucketBatchV3 extends MongoBucketBatch {
-  declare public readonly db: VersionedPowerSyncMongoV3;
+  declare readonly db: VersionedPowerSyncMongoV3;
 
   private readonly store: SourceRecordStore;
   private readonly syncConfigId: bson.ObjectId;
@@ -48,7 +48,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   protected async cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]) {
     for (const table of sourceTables) {
       await this.db
-        .sourceRecordsV3(this.replicationStreamId, mongoTableId(table.id))
+        .sourceRecords(this.replicationStreamId, mongoTableId(table.id))
         .drop()
         .catch((error) => {
           if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
@@ -517,7 +517,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
     await this.withTransaction(async () => {
       // Protect against race conditions
-      const count = await this.db.sourceTablesV3(this.replicationStreamId).countDocuments(
+      const count = await this.db.sourceTables(this.replicationStreamId).countDocuments(
         {
           snapshot_done: false
         },

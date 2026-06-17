@@ -10,7 +10,11 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
     register.registerDataStorageParameterTests({ ...POSTGRES_STORAGE_FACTORY, storageVersion }));
 
   describe(`Postgres Sync Bucket Storage - Data - v${storageVersion}`, () =>
-    register.registerDataStorageDataTests({ ...POSTGRES_STORAGE_FACTORY, storageVersion }));
+    register.registerDataStorageDataTests({
+      ...POSTGRES_STORAGE_FACTORY,
+      storageVersion,
+      compressedBucketStorage: false
+    }));
 
   describe(`Postgres Sync Bucket Storage - Checkpoints - v${storageVersion}`, () =>
     register.registerDataStorageCheckpointTests({ ...POSTGRES_STORAGE_FACTORY, storageVersion }));
