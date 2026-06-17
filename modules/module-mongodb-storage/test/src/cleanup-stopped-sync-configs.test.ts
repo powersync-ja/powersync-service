@@ -298,6 +298,111 @@ streams:
     expect(sourceRecord?.buckets.map((bucket) => bucket.def)).toEqual([secondDefinitionId]);
   });
 
+  test('drops current_data when a table becomes event-only but is kept by a live event', async () => {
+    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+
+    // The first config syncs `todos` data and also fires events for it.
+    const first = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+
+event_definitions:
+  audit:
+    payloads:
+      - SELECT id, owner_id FROM todos
+`,
+        { storageVersion: 3 }
+      )
+    );
+    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorageV3;
+    const db = firstStorage.db as VersionedPowerSyncMongoV3;
+    await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const resolved = await firstWriter.resolveTables({
+      connection_id: 1,
+      source: sourceDescriptor('todos', { objectId: 'todos-relation' }),
+      idGenerator: objectIdGenerator('6544e3899293153fa7b38370')
+    });
+    await firstWriter.save({
+      sourceTable: resolved.tables[0],
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'todo-1',
+        owner_id: 'user-1'
+      },
+      afterReplicaId: test_utils.rid('todo-1')
+    });
+    await firstWriter.markAllSnapshotDone('1/1');
+    await firstWriter.commit('1/1');
+
+    const sourceTableId = resolved.tables[0].id as bson.ObjectId;
+    const sourceRecordsCollection = db.sourceRecords(first.replicationStreamId, sourceTableId).collectionName;
+    const ownerDefinitionId = first.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
+    expect(
+      (await db.sourceTables(first.replicationStreamId).findOne({ _id: sourceTableId }))?.bucket_data_source_ids
+    ).toEqual([ownerDefinitionId]);
+    // The prior snapshot is persisted in current_data.
+    expect(await collectionExists(db, sourceRecordsCollection)).toBe(true);
+
+    // The second (active) config drops the `todos` data stream but keeps the audit event, so the
+    // `todos` source table becomes event-only while staying alive for the live event.
+    const second = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_id:
+    query: SELECT * FROM other WHERE id = subscription.parameter('id')
+
+event_definitions:
+  audit:
+    payloads:
+      - SELECT id, owner_id FROM todos
+`,
+        { storageVersion: 3 }
+      )
+    );
+    expect(second.replicationStreamId).toBe(first.replicationStreamId);
+
+    const replicatingStreams = await factory.getReplicatingReplicationStreams();
+    const secondStorage = factory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorageV3;
+    await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await secondWriter.markAllSnapshotDone('2/1');
+    await secondWriter.commit('2/1');
+
+    const result = await cleanupStoppedSyncConfigs(
+      (await factory.getActiveSyncConfig())!.storage as MongoSyncBucketStorageV3
+    );
+
+    expect(result).toEqual({
+      stoppedSyncConfigsRemoved: 1,
+      bucketDataCollectionsDropped: 1,
+      parameterIndexCollectionsDropped: 0,
+      bucketStateDocumentsDeleted: 1,
+      sourceRecordCollectionsDropped: 1,
+      sourceTablesUpdated: 1,
+      sourceTablesDeleted: 0
+    });
+
+    // The source table row survives (the live event still needs it), narrowed to empty
+    // memberships, but its now-unused current_data collection is dropped.
+    const sourceTable = await db.sourceTables(first.replicationStreamId).findOne({ _id: sourceTableId });
+    expect(sourceTable).not.toBeNull();
+    expect(sourceTable?.bucket_data_source_ids).toEqual([]);
+    expect(sourceTable?.parameter_lookup_source_ids).toEqual([]);
+    expect(await collectionExists(db, sourceRecordsCollection)).toBe(false);
+
+    const streamDoc = (await db.sync_rules.findOne({ _id: first.replicationStreamId })) as ReplicationStreamDocumentV3;
+    expect(streamDoc.sync_configs.map((config) => config.state)).toEqual([storage.SyncRuleState.ACTIVE]);
+  });
+
   test('cleans up event-only source tables no longer triggered by a live sync config', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
 

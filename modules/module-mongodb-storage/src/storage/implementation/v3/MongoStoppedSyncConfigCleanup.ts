@@ -174,15 +174,33 @@ export class MongoStoppedSyncConfigCleanup {
         this.membershipsBecomeEmpty(sourceTable, unusedBucketDefinitionIds, unusedParameterIndexIds) &&
         !this.triggersLiveEvent(sourceTable, liveSyncConfigs)
     );
-    const retainedSourceTableIds = candidateSourceTables
-      .filter((sourceTable) => !deletableSourceTables.some((deletable) => deletable._id.equals(sourceTable._id)))
-      .map((sourceTable) => sourceTable._id);
+    const retainedSourceTables = candidateSourceTables.filter(
+      (sourceTable) => !deletableSourceTables.some((deletable) => deletable._id.equals(sourceTable._id))
+    );
+    const retainedSourceTableIds = retainedSourceTables.map((sourceTable) => sourceTable._id);
 
     await this.deleteSourceTables(
       deletableSourceTables.map((table) => table._id),
       (ids) => this.deletableSourceTableFilter(ids, unusedBucketDefinitionIds, unusedParameterIndexIds),
       result
     );
+
+    // A retained source table whose memberships become empty is kept alive only by a live event
+    // (otherwise it would be deletable). It becomes event-only, and event-only save() never reads
+    // or writes current_data, so its source_records collection is now dead weight. Drop it before
+    // the $pull below, so the obsolete membership ids remain as a recovery marker if interrupted.
+    // Existing source-table docs only ever shrink their memberships, so this table cannot resume
+    // data sync on the same doc and need current_data again.
+    const becomingEventOnlySourceTableIds = retainedSourceTables
+      .filter((sourceTable) =>
+        this.membershipsBecomeEmpty(sourceTable, unusedBucketDefinitionIds, unusedParameterIndexIds)
+      )
+      .map((sourceTable) => sourceTable._id);
+    for (const sourceTableId of becomingEventOnlySourceTableIds) {
+      this.throwIfAborted();
+      await this.dropCollection(this.db.sourceRecords(this.replicationStreamId, sourceTableId));
+      result.sourceRecordCollectionsDropped += 1;
+    }
 
     if (retainedSourceTableIds.length > 0) {
       this.throwIfAborted();
