@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { Logger } from '@powersync/lib-services-framework';
+import { Logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { ReplicationHeadCallback, storage } from '@powersync/service-core';
 
 import { ProjectedChangeStreamDocument } from '../RawChangeStream.js';
@@ -31,6 +31,40 @@ export interface CheckpointImplementationContext {
 }
 
 /**
+ * Event-interpretation surface of a {@link CheckpointImplementation}. Every method
+ * operates on a single raw change event.
+ *
+ * Ordering contract: {@link observe} must be called before {@link lsn} for a given
+ * event, so the sentinel implementation's coordinate is current.
+ */
+export interface CheckpointEventApi {
+  /**
+   * Classify a checkpoint-collection event and absorb any coordinate it
+   * carries (sentinel implementation). Must be called for every checkpoint event, in
+   * stream order.
+   */
+  observe(doc: ProjectedChangeStreamDocument): CheckpointEventKind;
+
+  /**
+   * Comparable LSN for committing/resuming at this event.
+   *
+   * Note this is not purely a function of `doc`. The timestamp implementation
+   * derives the whole LSN from the event (its coordinate is the event's
+   * clusterTime). The sentinel implementation pairs the *tracked* coordinate
+   * (updated by {@link observe}) with the event's resume token, because data
+   * events carry no coordinate of their own — hence the observe-before-lsn
+   * contract.
+   */
+  lsn(doc: ProjectedChangeStreamDocument): string;
+
+  /** Whether a barrier marker from {@link CheckpointImplementation.createBatchCheckpoint} is resolved by this event. */
+  resolvesBarrier(marker: string, doc: ProjectedChangeStreamDocument): boolean;
+
+  /** Human-readable event position for error messages. */
+  describe(doc: ProjectedChangeStreamDocument): string;
+}
+
+/**
  * Strategy for producing and interpreting replication checkpoints.
  *
  * Two implementations exist:
@@ -50,13 +84,6 @@ export interface CheckpointImplementationContext {
 export interface CheckpointImplementation {
   /** LSN representing "before any data". */
   readonly zeroLsn: string;
-
-  /**
-   * Whether markers returned by {@link createBatchCheckpoint} are comparable
-   * LSNs that can also seed a change stream position (timestamp implementation), as
-   * opposed to opaque content-matched markers (sentinel implementation).
-   */
-  readonly barrierMarkerIsLsn: boolean;
 
   /**
    * Whether the implementation has a usable coordinate for building LSNs. The sentinel
@@ -82,9 +109,20 @@ export interface CheckpointImplementation {
 
   /**
    * Create a batch barrier for this stream. Returns a marker that is resolved
-   * by a later change stream event via {@link barrierResolved}.
+   * by a later change stream event via {@link CheckpointEventApi.resolvesBarrier}.
    */
   createBatchCheckpoint(): Promise<string>;
+
+  /**
+   * Create the first batch barrier for snapshot-LSN acquisition and return the
+   * LSN to open the change stream from, or null to open from "now".
+   *
+   * The timestamp implementation's barrier marker is itself a comparable LSN, so
+   * the stream resumes from it. The sentinel implementation's marker is opaque
+   * (content-matched) and carries no resume position, so it returns null and the
+   * stream opens from the current point.
+   */
+  createFirstBarrier(): Promise<string | null>;
 
   /**
    * Idle keepalive for an empty change stream batch. May persist a checkpoint
@@ -94,13 +132,13 @@ export interface CheckpointImplementation {
   keepalive(batch: storage.BucketStorageBatch, resumeToken: mongo.ResumeToken): Promise<void>;
 
   /**
-   * Build a comparable resume LSN from a bare batch-level resume token (no
-   * change event). Used for the per-batch `setResumeLsn` progress marker.
+   * Build a comparable LSN from a bare batch-level resume token (no change
+   * event). Used for the per-batch `setResumeLsn` progress marker.
    *
    * The timestamp implementation parses the timestamp embedded in the token.
    * The sentinel implementation pairs the token with the current coordinate.
    */
-  resumeLsnFromToken(resumeToken: mongo.ResumeToken): string;
+  lsnFromResumeToken(resumeToken: mongo.ResumeToken): string;
 
   /**
    * Source-side replication head for write checkpoints. The LSN passed to the
@@ -109,32 +147,47 @@ export interface CheckpointImplementation {
    */
   createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T>;
 
-  /**
-   * Classify a checkpoint-collection event and absorb any coordinate it
-   * carries (sentinel implementation). Must be called for every checkpoint event, in
-   * stream order.
-   */
-  observeCheckpointEvent(doc: ProjectedChangeStreamDocument): CheckpointEventKind;
-
-  /** Comparable LSN for committing/resuming at this event. */
-  eventLsn(doc: ProjectedChangeStreamDocument): string;
-
-  /** Whether a barrier marker from {@link createBatchCheckpoint} is resolved by this event. */
-  barrierResolved(marker: string, doc: ProjectedChangeStreamDocument): boolean;
+  /** Event-interpretation methods, all operating on a single raw change event. */
+  readonly event: CheckpointEventApi;
 
   /**
-   * Called when an event LSN compares below the last committed LSN. Returns
-   * true when this is tolerable (sentinel implementation: equal coordinate, opaque
-   * token suffix tie — the commit no-ops in storage) instead of a fatal
-   * ordering violation.
+   * Guard against an event LSN that compares below the last committed LSN.
+   *
+   * Returns normally when the LSN is in order, or when the descent is tolerable
+   * (sentinel implementation: equal coordinate, opaque resume-token suffix tie —
+   * e.g. a restart replaying an event behind an already-persisted checkpoint, in
+   * which case the commit no-ops in storage / checkpointBlocked). Throws
+   * {@link ReplicationAssertionError} on a real ordering violation, stopping
+   * replication so a restart can recover.
+   *
+   * `lastCheckpointLsn` may be null (nothing committed yet), in which case there
+   * is nothing to compare against.
    */
-  isTolerableDescendingLsn(lsn: string, lastCheckpointLsn: string): boolean;
-
-  /** Human-readable event position for error messages. */
-  describeEventPosition(doc: ProjectedChangeStreamDocument): string;
+  checkDescendingLsn(lsn: string, lastCheckpointLsn: string | null, doc: ProjectedChangeStreamDocument): void;
 
   /** Filter for clearing the checkpoints collection on startup. */
-  checkpointClearFilter(): mongo.Filter<mongo.Document>;
+  readonly checkpointClearFilter: mongo.Filter<mongo.Document>;
+}
+
+/**
+ * The fatal "checkpoint out of order" error raised by
+ * {@link CheckpointImplementation.checkDescendingLsn}. Shared by both
+ * implementations so the message and rationale live in one place.
+ *
+ * This should never happen with MongoDB. If it does, we stop replication and
+ * restart, which recovers — and because the caller uses `lastCheckpointLsn` as
+ * the next `resumeAfter`, this does not loop. Originally a workaround for
+ * https://jira.mongodb.org/browse/NODE-7042 (since fixed in the driver, kept as
+ * a safety check).
+ */
+export function descendingLsnError(
+  impl: CheckpointImplementation,
+  lastCheckpointLsn: string,
+  doc: ProjectedChangeStreamDocument
+): ReplicationAssertionError {
+  return new ReplicationAssertionError(
+    `Change resumeToken ${(doc._id as any)._data} (${impl.event.describe(doc)}) is less than last checkpoint LSN ${lastCheckpointLsn}. Restarting replication.`
+  );
 }
 
 /**

@@ -757,7 +757,7 @@ export class ChangeStream {
               // It may be useful to also throttle commits due to standalone checkpoints in the future.
               // However, these typically have a much lower rate than batch checkpoints, so we don't do that for now.
 
-              const kind = this.checkpointImplementation.observeCheckpointEvent(changeDocument);
+              const kind = this.checkpointImplementation.event.observe(changeDocument);
 
               if (kind == 'foreign') {
                 // Another stream's barrier - ignore.
@@ -783,27 +783,16 @@ export class ChangeStream {
               }
               // kind == 'own-barrier' falls through to commit.
 
-              const lsn = this.checkpointImplementation.eventLsn(changeDocument);
-              if (batch.lastCheckpointLsn != null && lsn < batch.lastCheckpointLsn) {
-                // The implementation may tolerate this (sentinel: same coordinate, opaque
-                // resume token suffix tie — e.g. a restart replaying an event behind an
-                // already-persisted checkpoint). In that case the commit below no-ops in
-                // storage (checkpointBlocked) while still resolving a pending barrier.
-                if (!this.checkpointImplementation.isTolerableDescendingLsn(lsn, batch.lastCheckpointLsn)) {
-                  // Checkpoint out of order - should never happen with MongoDB.
-                  // If it does happen, we throw an error to stop the replication - restarting should recover.
-                  // Since we use batch.lastCheckpointLsn for the next resumeAfter, this should not result in an infinite loop.
-                  // Originally a workaround for https://jira.mongodb.org/browse/NODE-7042.
-                  // This has been fixed in the driver in the meantime, but we still keep this as a safety-check.
-                  throw new ReplicationAssertionError(
-                    `Change resumeToken ${(changeDocument._id as any)._data} (${this.checkpointImplementation.describeEventPosition(changeDocument)}) is less than last checkpoint LSN ${batch.lastCheckpointLsn}. Restarting replication.`
-                  );
-                }
-              }
+              const lsn = this.checkpointImplementation.event.lsn(changeDocument);
+              // Guard against an event LSN that regresses below the last committed LSN.
+              // Tolerable in the sentinel implementation (equal coordinate, opaque token
+              // tie — the commit below no-ops in storage while still resolving a pending
+              // barrier); a fatal ordering violation otherwise.
+              this.checkpointImplementation.checkDescendingLsn(lsn, batch.lastCheckpointLsn, changeDocument);
 
               if (
                 waitForCheckpointLsn != null &&
-                this.checkpointImplementation.barrierResolved(waitForCheckpointLsn, changeDocument)
+                this.checkpointImplementation.event.resolvesBarrier(waitForCheckpointLsn, changeDocument)
               ) {
                 waitForCheckpointLsn = null;
               }
@@ -895,7 +884,7 @@ export class ChangeStream {
             // Batches are generally large (64MB or 6000 events, whichever comes first),
             // so this is a good natural point to flush and mark progress.
             // We avoid this when splitDocument is set, since we cannot resume in the middle of a split event.
-            const lsn = this.checkpointImplementation.resumeLsnFromToken(resumeToken);
+            const lsn = this.checkpointImplementation.lsnFromResumeToken(resumeToken);
             await batch.flush({ oldestUncommittedChange: this.replicationLag.oldestUncommittedChange });
             // TODO: We should consider making this standard behavior of flush().
             await batch.setResumeLsn(lsn);

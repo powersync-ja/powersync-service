@@ -54,15 +54,16 @@ Selection is by capability, not by vendor name: detection picks the implementati
 The interface covers the full checkpoint lifecycle:
 
 ```text
-resume         parseResumePosition, seedPosition, logResume
-create         createBatchCheckpoint, createStandaloneCheckpoint,
-               createReplicationHead, keepalive
-interpret      observeCheckpointEvent, eventLsn, barrierResolved,
-               isTolerableDescendingLsn, describeEventPosition
+resume         parseResumePosition, seedPosition, logResume,
+               lsnFromResumeToken
+create         createBatchCheckpoint, createFirstBarrier,
+               createStandaloneCheckpoint, createReplicationHead, keepalive
+interpret      event.observe, event.lsn, event.resolvesBarrier,
+               event.describe, checkDescendingLsn
 maintenance    zeroLsn, hasPosition, checkpointClearFilter
 ```
 
-Every event-facing method takes only the raw `ProjectedChangeStreamDocument`. The one ordering contract is that `observeCheckpointEvent` must be called before `eventLsn` for a given event, so the sentinel implementation's coordinate is current.
+The per-event interpretation methods are grouped under the `event` sub-API (`CheckpointEventApi`); each takes only the raw `ProjectedChangeStreamDocument`. The one ordering contract is that `event.observe` must be called before `event.lsn` for a given event, so the sentinel implementation's coordinate is current.
 
 ## Standard MongoDB vs Cosmos DB
 
@@ -396,7 +397,7 @@ Two details matter:
 
 2. **Why not persist immediately.** Writes that landed after the empty batch was read — including a write checkpoint head — would be covered by an immediately-persisted LSN before the stream has actually processed them. That would let write checkpoints resolve before their data has replicated. Committing only when the bump's event is observed preserves the "commit only what the stream has seen" property.
 
-A consequence of bumping is that the bump's event arrives moments later carrying the _same_ sentinel as the just-committed LSN (differing only in the opaque token). That descending-by-suffix comparison is expected, not an ordering violation: `isTolerableDescendingLsn` treats an equal-sentinel comparison as tolerable, so the commit simply no-ops in storage (`checkpointBlocked`) instead of throwing and restarting replication.
+A consequence of bumping is that the bump's event arrives moments later carrying the _same_ sentinel as the just-committed LSN (differing only in the opaque token). That descending-by-suffix comparison is expected, not an ordering violation: `checkDescendingLsn` treats an equal-sentinel descent as tolerable and returns without throwing, so the commit simply no-ops in storage (`checkpointBlocked`) instead of restarting replication.
 
 ## Standalone Counter Persistence
 

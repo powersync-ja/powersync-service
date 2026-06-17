@@ -5,9 +5,10 @@ import { ChangeStreamInvalidatedError } from '../ChangeStream.js';
 import { createCheckpoint, createCosmosCheckpointLsn, STANDALONE_CHECKPOINT_ID } from '../MongoRelation.js';
 import { ProjectedChangeStreamDocument } from '../RawChangeStream.js';
 import {
-  CheckpointEventKind,
+  CheckpointEventApi,
   CheckpointImplementation,
   CheckpointImplementationContext,
+  descendingLsnError,
   getCheckpointId,
   StreamResumePosition
 } from './CheckpointImplementation.js';
@@ -29,7 +30,6 @@ import {
  */
 export class SentinelCheckpointImplementation implements CheckpointImplementation {
   readonly zeroLsn = SentinelLSN.ZERO.comparable;
-  readonly barrierMarkerIsLsn = false;
 
   /**
    * The highest global sentinel value proven so far, merged monotonically from
@@ -77,6 +77,15 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     });
   }
 
+  async createFirstBarrier(): Promise<string | null> {
+    // The barrier marker is an opaque content-matched marker, not a resume
+    // position, so there is no LSN to open the stream from: a fresh Cosmos
+    // stream opens from "now" and the snapshot loop re-creates barriers until
+    // one is observed.
+    await this.createBatchCheckpoint();
+    return null;
+  }
+
   async keepalive(_batch: storage.BucketStorageBatch, _resumeToken: mongo.ResumeToken): Promise<void> {
     // Advance the shared sentinel, but do not persist a checkpoint here. The
     // bump's own change event will flow through the stream and be committed by
@@ -103,7 +112,7 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     );
   }
 
-  resumeLsnFromToken(resumeToken: mongo.ResumeToken): string {
+  lsnFromResumeToken(resumeToken: mongo.ResumeToken): string {
     // Pair the bare token with the current coordinate. The coordinate is
     // frozen between checkpoint events, so a per-batch resume marker only
     // advances the token; that is all resumption needs (see the design doc).
@@ -120,92 +129,112 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     return result;
   }
 
-  observeCheckpointEvent(doc: ProjectedChangeStreamDocument): CheckpointEventKind {
-    const checkpointId = getCheckpointId(doc);
-    if (checkpointId == null) {
-      return 'foreign';
+  readonly event: CheckpointEventApi = {
+    observe: (doc) => {
+      const checkpointId = getCheckpointId(doc);
+      if (checkpointId == null) {
+        return 'foreign';
+      }
+      if (checkpointId == STANDALONE_CHECKPOINT_ID) {
+        // The standalone document's own `i` is the global coordinate.
+        this.mergePosition(this.readStandaloneSentinel(doc));
+        return 'standalone';
+      }
+      if (!this.context.checkpointStreamId.equals(checkpointId)) {
+        return 'foreign';
+      }
+      // Our own barrier event embeds the global sentinel advanced just before
+      // the barrier write.
+      const embedded = this.readEmbeddedGlobalSentinel(doc);
+      if (embedded != null) {
+        this.mergePosition(embedded);
+      }
+      return 'own-barrier';
+    },
+
+    lsn: (doc) => {
+      // Build the commit LSN by pairing the current tracked coordinate
+      // (this.position, kept up to date by event.observe) with THIS event's
+      // resume token. The event itself carries no sentinel value — only its
+      // resume token — so unlike the timestamp implementation the coordinate
+      // cannot come from the doc. This is what lets a plain data event (which
+      // has no coordinate of its own) be committed at the latest known
+      // position during catch-up.
+      //
+      // A zero position is permitted: a resume LSN persisted before any
+      // checkpoint event has been observed still carries a valid resume token,
+      // and a low sentinel is conservative (it only causes more replay).
+      return new SentinelLSN({
+        sentinel: this.position,
+        resume_token: doc._id
+      }).comparable;
+    },
+
+    resolvesBarrier: (marker, doc) => {
+      // Barriers are matched by content: same document and same increment.
+      // The `i` value matters because the barrier document is reused — it
+      // identifies a specific sentinel write.
+      const [prefix, sentinelId, sentinelI] = marker.split(':');
+      if (prefix !== 'sentinel') {
+        throw new Error(`Invalid sentinel barrier marker: ${marker}`);
+      }
+      const fullDoc = deserializeFullDocument(doc);
+      if (fullDoc == null) {
+        this.context.logger.warn('Checkpoint event missing fullDocument — cannot match sentinel barrier');
+        return false;
+      }
+      const docId = 'documentKey' in doc ? String(doc.documentKey._id) : null;
+      return docId === sentinelId && String(fullDoc.i) === sentinelI;
+    },
+
+    describe: (_doc) => {
+      // The event is intentionally unused: the meaningful position is the
+      // tracked coordinate, not something an arbitrary event carries (data
+      // events — which trigger the descending-LSN error path this feeds — have
+      // no coordinate of their own). The caller logs the event's resume token
+      // separately, so the coordinate is the useful part for error messages.
+      return `sentinel ${this.position}`;
     }
-    if (checkpointId == STANDALONE_CHECKPOINT_ID) {
-      // The standalone document's own `i` is the global coordinate.
-      this.mergePosition(this.readStandaloneSentinel(doc));
-      return 'standalone';
-    }
-    if (!this.context.checkpointStreamId.equals(checkpointId)) {
-      return 'foreign';
-    }
-    // Our own barrier event embeds the global sentinel advanced just before
-    // the barrier write.
-    const embedded = this.readEmbeddedGlobalSentinel(doc);
-    if (embedded != null) {
-      this.mergePosition(embedded);
-    }
-    return 'own-barrier';
-  }
+  };
 
   hasPosition(): boolean {
     return this.position != SentinelLSN.ZERO.sentinel;
   }
 
-  eventLsn(doc: ProjectedChangeStreamDocument): string {
-    // A zero position is permitted here: a resume LSN persisted before any
-    // checkpoint event has been observed still carries a valid resume token,
-    // and a low sentinel is conservative (it only causes more replay).
-    return new SentinelLSN({
-      sentinel: this.position,
-      resume_token: doc._id
-    }).comparable;
-  }
-
-  barrierResolved(marker: string, doc: ProjectedChangeStreamDocument): boolean {
-    // Barriers are matched by content: same document and same increment.
-    // The `i` value matters because the barrier document is reused — it
-    // identifies a specific sentinel write.
-    const [prefix, sentinelId, sentinelI] = marker.split(':');
-    if (prefix !== 'sentinel') {
-      throw new Error(`Invalid sentinel barrier marker: ${marker}`);
+  checkDescendingLsn(lsn: string, lastCheckpointLsn: string | null, doc: ProjectedChangeStreamDocument): void {
+    if (lastCheckpointLsn == null || lsn >= lastCheckpointLsn) {
+      return;
     }
-    const fullDoc = deserializeFullDocument(doc);
-    if (fullDoc == null) {
-      this.context.logger.warn('Checkpoint event missing fullDocument — cannot match sentinel barrier');
-      return false;
-    }
-    const docId = 'documentKey' in doc ? String(doc.documentKey._id) : null;
-    return docId === sentinelId && String(fullDoc.i) === sentinelI;
-  }
-
-  isTolerableDescendingLsn(lsn: string, lastCheckpointLsn: string): boolean {
     // An LSN with the same sentinel as the last committed LSN differs only in
     // the opaque resume token suffix, which carries no ordering meaning —
     // e.g. when a restart replays an event behind an already-persisted
-    // checkpoint. Not an ordering violation: the commit no-ops in storage
-    // (checkpointBlocked).
-    return SentinelLSN.fromSerialized(lsn).sentinel === SentinelLSN.fromSerialized(lastCheckpointLsn).sentinel;
+    // checkpoint. That descent is tolerable: the commit no-ops in storage
+    // (checkpointBlocked). Only a true coordinate regression is fatal.
+    const sameCoordinate =
+      SentinelLSN.fromSerialized(lsn).sentinel === SentinelLSN.fromSerialized(lastCheckpointLsn).sentinel;
+    if (!sameCoordinate) {
+      throw descendingLsnError(this, lastCheckpointLsn, doc);
+    }
   }
 
-  describeEventPosition(_doc: ProjectedChangeStreamDocument): string {
-    return `sentinel ${this.position}`;
-  }
-
-  checkpointClearFilter(): mongo.Filter<mongo.Document> {
-    // The standalone checkpoint document must survive restarts. Its counter is
-    // the globally-ordered component of every committed LSN, including write
-    // checkpoint heads. Deleting it would reset the counter to 1 on the next
-    // upsert, moving the LSN coordinate system backwards: new commits would
-    // compare below the persisted last_checkpoint_lsn (failing the
-    // out-of-order commit guard in a restart loop), and new write checkpoint
-    // heads would resolve against old, higher committed LSNs before their
-    // data has actually replicated.
-    //
-    // Note: this only protects against our own startup cleanup. The global
-    // LSN coordinate still lives in a user-visible collection, so a consumer
-    // can delete it in their source database. Dropping the whole checkpoints
-    // collection is detected (the streaming loop invalidates the stream on the
-    // collection drop event). Deleting just this document is mitigated by
-    // createCosmosCheckpointLsn seeding re-created counters at the current
-    // epoch milliseconds, so the coordinate jumps forward instead of resetting
-    // below already-committed LSNs.
-    return { _id: { $ne: STANDALONE_CHECKPOINT_ID } as any };
-  }
+  // The standalone checkpoint document must survive restarts. Its counter is
+  // the globally-ordered component of every committed LSN, including write
+  // checkpoint heads. Deleting it would reset the counter to 1 on the next
+  // upsert, moving the LSN coordinate system backwards: new commits would
+  // compare below the persisted last_checkpoint_lsn (failing the
+  // out-of-order commit guard in a restart loop), and new write checkpoint
+  // heads would resolve against old, higher committed LSNs before their
+  // data has actually replicated.
+  //
+  // Note: this only protects against our own startup cleanup. The global
+  // LSN coordinate still lives in a user-visible collection, so a consumer
+  // can delete it in their source database. Dropping the whole checkpoints
+  // collection is detected (the streaming loop invalidates the stream on the
+  // collection drop event). Deleting just this document is mitigated by
+  // createCosmosCheckpointLsn seeding re-created counters at the current
+  // epoch milliseconds, so the coordinate jumps forward instead of resetting
+  // below already-committed LSNs.
+  readonly checkpointClearFilter: mongo.Filter<mongo.Document> = { _id: { $ne: STANDALONE_CHECKPOINT_ID } as any };
 
   /** Never move the position backwards — replayed or reordered events must not regress the coordinate. */
   private mergePosition(observed: bigint) {

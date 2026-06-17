@@ -196,7 +196,7 @@ export class MongoSnapshotter {
       // globally-ordered component of every committed Cosmos LSN.
       await this.defaultDb
         .collection(CHECKPOINTS_COLLECTION)
-        .deleteMany(this.checkpointImplementation.checkpointClearFilter());
+        .deleteMany(this.checkpointImplementation.checkpointClearFilter);
     }
   }
 
@@ -611,8 +611,7 @@ export class MongoSnapshotter {
     const LSN_CREATE_INTERVAL_SECONDS = 1;
 
     this.checkpointImplementation.seedPosition(null);
-    const firstBarrier = await this.checkpointImplementation.createBatchCheckpoint();
-    const startStreamFromLsn = this.checkpointImplementation.barrierMarkerIsLsn ? firstBarrier : null;
+    const startStreamFromLsn = await this.checkpointImplementation.createFirstBarrier();
     const filters = this.getSourceNamespaceFilters();
     const iter = this.rawChangeStreamBatches({
       lsn: startStreamFromLsn,
@@ -640,17 +639,17 @@ export class MongoSnapshotter {
         const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
 
         if (ns?.coll == CHECKPOINTS_COLLECTION && 'documentKey' in changeDocument) {
-          const kind = this.checkpointImplementation.observeCheckpointEvent(changeDocument);
+          const kind = this.checkpointImplementation.event.observe(changeDocument);
           if (kind != 'own-barrier') {
             // Standalone events still feed the implementation's coordinate via
-            // observeCheckpointEvent above; we only resolve on our own barrier.
+            // event.observe above; we only resolve on our own barrier.
             continue;
           }
           if (!this.checkpointImplementation.hasPosition()) {
             // Sentinel implementation: wait until a coordinate has been observed.
             continue;
           }
-          return this.checkpointImplementation.eventLsn(changeDocument);
+          return this.checkpointImplementation.event.lsn(changeDocument);
         }
 
         eventsSeen += 1;

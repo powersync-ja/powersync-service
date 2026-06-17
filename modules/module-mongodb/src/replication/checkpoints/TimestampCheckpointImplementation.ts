@@ -6,9 +6,10 @@ import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '../MongoRelation.js'
 import { ProjectedChangeStreamDocument } from '../RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from '../replication-utils.js';
 import {
-  CheckpointEventKind,
+  CheckpointEventApi,
   CheckpointImplementation,
   CheckpointImplementationContext,
+  descendingLsnError,
   getCheckpointId,
   getEventTimestamp,
   StreamResumePosition
@@ -21,7 +22,6 @@ import {
  */
 export class TimestampCheckpointImplementation implements CheckpointImplementation {
   readonly zeroLsn = MongoLSN.ZERO.comparable;
-  readonly barrierMarkerIsLsn = true;
 
   constructor(private context: CheckpointImplementationContext) {}
 
@@ -56,6 +56,11 @@ export class TimestampCheckpointImplementation implements CheckpointImplementati
     return createCheckpoint(this.context.client, this.context.db, this.context.checkpointStreamId);
   }
 
+  async createFirstBarrier(): Promise<string | null> {
+    // The barrier marker is a comparable LSN; resume the snapshot stream from it.
+    return this.createBatchCheckpoint();
+  }
+
   async keepalive(batch: storage.BucketStorageBatch, resumeToken: mongo.ResumeToken): Promise<void> {
     // Parse the timestamp from the resume token. The ordered LSN prefix
     // advances together with the token, so persisting is always safe.
@@ -68,7 +73,7 @@ export class TimestampCheckpointImplementation implements CheckpointImplementati
     );
   }
 
-  resumeLsnFromToken(resumeToken: mongo.ResumeToken): string {
+  lsnFromResumeToken(resumeToken: mongo.ResumeToken): string {
     // The timestamp is embedded in the resume token.
     return MongoLSN.fromResumeToken(resumeToken).comparable;
   }
@@ -112,39 +117,43 @@ export class TimestampCheckpointImplementation implements CheckpointImplementati
     }
   }
 
-  observeCheckpointEvent(doc: ProjectedChangeStreamDocument): CheckpointEventKind {
-    const checkpointId = getCheckpointId(doc);
-    if (checkpointId == null) {
-      return 'foreign';
+  readonly event: CheckpointEventApi = {
+    observe: (doc) => {
+      const checkpointId = getCheckpointId(doc);
+      if (checkpointId == null) {
+        return 'foreign';
+      }
+      if (checkpointId == STANDALONE_CHECKPOINT_ID) {
+        return 'standalone';
+      }
+      return this.context.checkpointStreamId.equals(checkpointId) ? 'own-barrier' : 'foreign';
+    },
+
+    lsn: (doc) => {
+      return new MongoLSN({
+        timestamp: getEventTimestamp(doc),
+        resume_token: doc._id
+      }).comparable;
+    },
+
+    resolvesBarrier: (marker, doc) => {
+      // Barrier markers are comparable LSNs in this implementation.
+      return this.event.lsn(doc) >= marker;
+    },
+
+    describe: (doc) => {
+      return timestampToDate(getEventTimestamp(doc)).toISOString();
     }
-    if (checkpointId == STANDALONE_CHECKPOINT_ID) {
-      return 'standalone';
+  };
+
+  checkDescendingLsn(lsn: string, lastCheckpointLsn: string | null, doc: ProjectedChangeStreamDocument): void {
+    // clusterTime is globally ordered, so any descent below the last committed
+    // LSN is a real ordering violation.
+    if (lastCheckpointLsn != null && lsn < lastCheckpointLsn) {
+      throw descendingLsnError(this, lastCheckpointLsn, doc);
     }
-    return this.context.checkpointStreamId.equals(checkpointId) ? 'own-barrier' : 'foreign';
   }
 
-  eventLsn(doc: ProjectedChangeStreamDocument): string {
-    return new MongoLSN({
-      timestamp: getEventTimestamp(doc),
-      resume_token: doc._id
-    }).comparable;
-  }
-
-  barrierResolved(marker: string, doc: ProjectedChangeStreamDocument): boolean {
-    // Barrier markers are comparable LSNs in this implementation.
-    return this.eventLsn(doc) >= marker;
-  }
-
-  isTolerableDescendingLsn(_lsn: string, _lastCheckpointLsn: string): boolean {
-    return false;
-  }
-
-  describeEventPosition(doc: ProjectedChangeStreamDocument): string {
-    return timestampToDate(getEventTimestamp(doc)).toISOString();
-  }
-
-  checkpointClearFilter(): mongo.Filter<mongo.Document> {
-    // It's safe to clear the entire _powersync_checkpoints collection in this mode.
-    return {};
-  }
+  // It's safe to clear the entire _powersync_checkpoints collection in this mode.
+  readonly checkpointClearFilter: mongo.Filter<mongo.Document> = {};
 }
