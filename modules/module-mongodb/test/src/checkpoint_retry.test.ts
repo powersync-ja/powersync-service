@@ -20,7 +20,7 @@ describe('checkpoint retryable writes', () => {
     // It is quite difficult to simulate this, even with failCommand. We currently rely on triggering a socket timeout for the first command,
     // with another write happening right after that.
 
-    const TIMEOUT = 100;
+    const TIMEOUT = 200;
     const INSERT_COUNT = 5;
 
     const { db, client } = await connectMongoData({
