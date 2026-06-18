@@ -8,6 +8,12 @@ These instructions cover running the `module-mongodb` test suite against an Azur
 - Local PostgreSQL for PowerSync's internal storage (not the source database)
 - The connection URI for the DocumentDB cluster
 
+> **The open-source `documentdb-local` Docker image cannot be used for these tests.** The
+> open-source DocumentDB engine does not implement change streams (`$changeStream is not
+supported yet in native pipeline`), does not report the `documentdb_versions` `hello` field
+> the suite uses for detection, and presents as `msg: isdbgrid`. An Azure-managed DocumentDB
+> (vCore) cluster is required.
+
 ## Environment Variables
 
 DocumentDB is detected automatically from the server: the test suite runs

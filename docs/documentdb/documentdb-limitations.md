@@ -19,6 +19,10 @@ Internal implementation details (how checkpoints and LSNs work on DocumentDB) ar
 
 The **RU-based** model is a different engine with a different change-stream implementation ([RU change streams](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/change-streams) — for example, delete events and `operationType` are not exposed, and change order is documented only per shard key) and is **not supported**. If you are on the RU-based model, Microsoft provides a first-party [migration to Azure DocumentDB](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/how-to-migrate-documentdb) ([GA](https://devblogs.microsoft.com/cosmosdb/mongoru-to-documentdb/)), which is also the path to making the source usable with PowerSync.
 
+### The open-source DocumentDB engine is not supported
+
+The [DocumentDB](https://documentdb.io) engine that powers Azure DocumentDB is also open-source (Linux Foundation), with a self-hostable `documentdb-local` Docker image. **PowerSync supports only the Azure-managed service, not the self-hosted open-source engine.** Change streams — which PowerSync replication fundamentally depends on — are a capability of the managed service, not the open-source engine: against `documentdb-local`, opening a change stream fails outright (`$changeStream is not supported yet in native pipeline`). The self-hosted image also does not report the `documentdb_versions` `hello` field used for detection, and presents as a sharded cluster (`msg: isdbgrid`), which is rejected. So the OSS engine cannot be used for replication, nor for running this connector's test suite.
+
 Everything below describes the supported vCore / Azure DocumentDB engine.
 
 ## Post-images are not supported
