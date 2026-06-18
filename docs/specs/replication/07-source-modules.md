@@ -25,7 +25,7 @@ Primary files:
 
 Postgres uses logical replication slots and WAL LSNs. The replication slot preserves WAL history for the stream, so `setResumeLsn()` is generally not needed for streaming progress.
 
-Initial replication snapshots selected tables and records boundaries that streaming must pass before checkpoints become valid. The deeper design history is in [postgres-initial-replication.md](../../postgres-initial-replication.md).
+Initial replication snapshots selected tables and records boundaries that streaming must pass before checkpoints become valid. The deeper design history is in [initial-replication.md](../../modules/postgres/initial-replication.md).
 
 The route adapter creates managed write checkpoint heads by reading `pg_current_wal_lsn()` and then sending a logical keepalive message.
 
@@ -84,6 +84,6 @@ Convex uses Streaming Export APIs. Initial replication pins or reuses a global s
 
 Convex tables use `_id` as the replication identity and deltas contain full document state. Convex-specific edge cases are documented in:
 
-- [snapshot-consistency.md](../../convex/snapshot-consistency.md)
-- [schema-change-handling.md](../../convex/schema-change-handling.md)
-- [convex-write-checkpoints.md](../../convex/convex-write-checkpoints.md)
+- [snapshot-consistency.md](../../modules/convex/snapshot-consistency.md)
+- [schema-change-handling.md](../../modules/convex/schema-change-handling.md)
+- [convex-write-checkpoints.md](../../modules/convex/convex-write-checkpoints.md)

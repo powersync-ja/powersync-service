@@ -277,7 +277,7 @@ Use this prompt shape when asking an AI coding agent to implement a new source m
 ```text
 Add a new PowerSync replication module for <source>.
 
-Follow docs/spec/replication/08-ai-agent-plans.md. Start with Plan <n> only.
+Follow docs/specs/replication/08-ai-agent-plans.md. Start with Plan <n> only.
 
 Use <existing module> as the closest reference because <reason>.
 

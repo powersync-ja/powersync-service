@@ -70,7 +70,7 @@ export class PostgresCompactor {
   /**
    * Compact buckets by converting operations into MOVE and/or CLEAR operations.
    *
-   * See /docs/compacting-operations.md for details.
+   * See /docs/storage/compacting-operations.md for details.
    */
   async compact() {
     if (this.buckets) {

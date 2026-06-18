@@ -6,12 +6,17 @@ For documentation on using PowerSync, see [docs.powersync.com](https://docs.powe
 
 ## Specs
 
-- [Replication protocol specs](./spec/replication/README.md): internal source replication, storage writer, checkpoint, and source-module contracts.
+- [Replication protocol specs](./specs/replication/README.md): internal source replication, storage writer, checkpoint, and source-module contracts.
+- [Sync protocol](./specs/sync-protocol.md): client-facing sync stream messages.
 
-## Existing Notes
+## Storage
 
-- [Sync protocol](./sync-protocol.md): client-facing sync stream messages.
-- [Storage v3](./storage-v3.md): storage version 3 data structure notes.
-- [Bucket properties](./bucket-properties.md): formal bucket operation properties.
-- [Parameter lookups](./parameters-lookups.md): dynamic parameter lookup implementation.
-- [Resolve tables flow](./resolve-tables-flow.md): source table discovery and snapshot lifecycle.
+- [Storage docs](./storage/README.md): bucket storage data structures, bucket invariants, compaction, and parameter lookups.
+
+## Replication Notes
+
+- [Replication notes](./replication/README.md): supporting notes for source discovery and snapshot lifecycle.
+
+## Module Notes
+
+- [Module docs](./modules/README.md): module-specific design notes for source connectors.

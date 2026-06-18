@@ -2,11 +2,11 @@
 
 This directory describes the internal PowerSync replication protocol: how a source database connector, the shared `service-core` replication loop, and a bucket storage implementation cooperate to produce the checkpoints, bucket data, and parameter data consumed by the sync API.
 
-This is not the client wire protocol itself. For the client-facing stream messages, start with [sync-protocol.md](../../sync-protocol.md). For bucket invariants and operation semantics, see [bucket-properties.md](../../bucket-properties.md) and [compacting-operations.md](../../compacting-operations.md).
+This is not the client wire protocol itself. For the client-facing stream messages, start with [sync-protocol.md](../sync-protocol.md). For bucket invariants and operation semantics, see [bucket-properties.md](../../storage/bucket-properties.md) and [compacting-operations.md](../../storage/compacting-operations.md).
 
 ## Outside-In Overview
 
-PowerSync clients sync from the service using checkpoint, checkpoint diff, bucket data, and checkpoint-complete messages described in [sync-protocol.md](../../sync-protocol.md). Those messages are generated from bucket storage. Replication is the process that keeps bucket storage up to date with a configured source database.
+PowerSync clients sync from the service using checkpoint, checkpoint diff, bucket data, and checkpoint-complete messages described in [sync-protocol.md](../sync-protocol.md). Those messages are generated from bucket storage. Replication is the process that keeps bucket storage up to date with a configured source database.
 
 Automatic source schema change detection is source-specific and optional. A replication module can support schema metadata changes in its streaming loop, or it can require operators to deploy a new sync config after changing source schemas. That deployment creates new replication processing work and, in most cases, performs initial replication for the affected tables or collections.
 
@@ -116,9 +116,9 @@ The `flush()` call may persist partial work inside a large source transaction, b
 
 ## Existing Deep Dives
 
-- [storage-v3.md](../../storage-v3.md): storage version 3 data model.
-- [resolve-tables-flow.md](../../resolve-tables-flow.md): `resolveTables` lifecycle and table metadata state.
-- [parameters-lookups.md](../../parameters-lookups.md): parameter lookup storage and compaction.
-- [postgres-initial-replication.md](../../postgres-initial-replication.md): historical and current Postgres initial replication design.
-- [convex-write-checkpoints.md](../../convex/convex-write-checkpoints.md): marker collection rationale for managed write checkpoints and idle sources.
-- [convex/](../../convex/): Convex-specific snapshot, schema-change, and write-checkpoint notes.
+- [storage-v3.md](../../storage/storage-v3.md): storage version 3 data model.
+- [resolve-tables-flow.md](../../replication/resolve-tables-flow.md): `resolveTables` lifecycle and table metadata state.
+- [parameter-lookups.md](../../storage/parameter-lookups.md): parameter lookup storage and compaction.
+- [initial-replication.md](../../modules/postgres/initial-replication.md): historical and current Postgres initial replication design.
+- [convex-write-checkpoints.md](../../modules/convex/convex-write-checkpoints.md): marker collection rationale for managed write checkpoints and idle sources.
+- [convex](../../modules/convex/README.md): Convex-specific snapshot, schema-change, and write-checkpoint notes.
