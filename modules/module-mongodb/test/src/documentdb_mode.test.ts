@@ -463,6 +463,109 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.DOCUMENTDB)('documentDbMode', () =
     }
   });
 
+  // Characterize whether DocumentDB's change stream reports collection `drop` and
+  // `rename` DDL events. PowerSync does not currently replicate these on
+  // DocumentDB (see docs/documentdb/documentdb-limitations.md, "Collection drop
+  // and rename are not replicated") — they are delivered differently, or not at
+  // all, through the cluster-level change stream.
+  //
+  // After the DDL, a normal insert (the "marker") is written and we wait for its
+  // event to arrive. That proves the stream is live and has caught up past the
+  // DDL, so the absence of `drop`/`rename` events is genuine, not just
+  // not-waited-long-enough. The test then asserts those events are NOT delivered,
+  // documenting the current limitation. If a future DocumentDB engine starts
+  // delivering them, this test fails — a signal to add real drop/rename support.
+  test('does not report collection drop and rename events', { timeout: 120_000 }, async () => {
+    const { client, db } = await connectMongoData();
+    const dropColl = 'ddl_probe_drop';
+    const renameSrc = 'ddl_probe_rename_src';
+    const renameDst = 'ddl_probe_rename_dst';
+    const markerColl = 'ddl_probe_marker';
+    const markerId = 'ddl_probe_marker_doc';
+    const cleanup = async () => {
+      for (const c of [dropColl, renameSrc, renameDst, markerColl]) {
+        await db
+          .collection(c)
+          .drop()
+          .catch(() => {});
+      }
+    };
+    try {
+      await cleanup();
+
+      // Cluster-level stream (DocumentDB only supports cluster-level), watching
+      // the whole database so DDL events on any collection are visible.
+      const pipeline = [{ $match: { 'ns.db': db.databaseName } }];
+      const cursor = client.watch(pipeline, { fullDocument: 'updateLookup', maxAwaitTimeMS: 500 });
+      try {
+        // Prime the cursor so it is live before the DDL operations.
+        const primeDeadline = Date.now() + 60_000;
+        let primed = false;
+        let n = 0;
+        while (!primed && Date.now() < primeDeadline) {
+          n += 1;
+          await db.collection(renameSrc).updateOne({ _id: 'prime' as any }, { $set: { n } }, { upsert: true });
+          if ((await cursor.tryNext()) != null) {
+            primed = true;
+          }
+        }
+        expect(primed, 'change stream cursor never went live').toBe(true);
+        while ((await cursor.tryNext()) != null) {
+          // drain priming events
+        }
+
+        // Perform the DDL: drop one collection, rename another.
+        await db.collection(dropColl).insertOne({ x: 1 });
+        await db.collection(dropColl).drop();
+        await client.db('admin').command({
+          renameCollection: `${db.databaseName}.${renameSrc}`,
+          to: `${db.databaseName}.${renameDst}`
+        });
+
+        // Marker: a normal insert issued *after* the DDL. When its event is
+        // delivered, the stream has provably caught up past the DDL operations.
+        await db.collection(markerColl).insertOne({ _id: markerId as any });
+
+        // Collect events until the marker event arrives (the "caught up" signal).
+        const seen: string[] = [];
+        let markerSeen = false;
+        const deadline = Date.now() + 30_000;
+        while (!markerSeen && Date.now() < deadline) {
+          const ev = await cursor.tryNext();
+          if (ev == null) {
+            continue;
+          }
+          if (ev.operationType === 'insert' && 'documentKey' in ev && String(ev.documentKey._id) === markerId) {
+            markerSeen = true;
+            break;
+          }
+          seen.push(ev.operationType);
+        }
+        // Drain anything already buffered after the marker, in case a DDL event
+        // was delivered slightly out of order behind it.
+        let trailing: Awaited<ReturnType<typeof cursor.tryNext>>;
+        while ((trailing = await cursor.tryNext()) != null) {
+          seen.push(trailing.operationType);
+        }
+
+        console.dir({ ddlEventProbe: { observedOperationTypes: [...new Set(seen)], markerSeen } }, { depth: null });
+
+        // The marker proves the stream is live and has reached past the DDL, so
+        // the absence of DDL events below is meaningful.
+        expect(markerSeen, 'post-DDL marker event was never delivered — the change stream stalled').toBe(true);
+        // Documents the current limitation. If either fails, DocumentDB has
+        // started delivering DDL events — add drop/rename support and flip these.
+        expect(seen, '`drop` event was delivered — DocumentDB may now support DDL events').not.toContain('drop');
+        expect(seen, '`rename` event was delivered — DocumentDB may now support DDL events').not.toContain('rename');
+      } finally {
+        await cursor.close();
+      }
+    } finally {
+      await cleanup();
+      await client.close();
+    }
+  });
+
   // 120s timeout — remote DocumentDB clusters can have 10-30s latency spikes
   // for change stream delivery. Tests that poll for data need headroom.
   describeWithStorage({ timeout: 120_000 }, defineDocumentDBDbModeTests);

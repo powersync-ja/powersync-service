@@ -10,6 +10,7 @@ import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
 import { PostImagesOption } from '@module/types/types.js';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
+import { testTimeout } from './test-timeouts.js';
 import { describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
 
 const BASIC_SYNC_RULES = `
@@ -20,7 +21,7 @@ bucket_definitions:
 `;
 
 describe('change stream', () => {
-  describeWithStorage({ timeout: 40_000 }, defineChangeStreamTests);
+  describeWithStorage({ timeout: testTimeout(20_000, { cloudOverride: 40_000 }) }, defineChangeStreamTests);
 });
 
 function defineChangeStreamTests({ factory, storageVersion }: StorageVersionTestContext) {
@@ -865,7 +866,7 @@ bucket_definitions:
         const error = (await syncRules?.getSyncConfigStatus())?.last_fatal_error;
         return error == null;
       },
-      { timeout: 5_000 }
+      { timeout: testTimeout(2_000, { cloudOverride: 5_000 }) }
     );
   });
 }

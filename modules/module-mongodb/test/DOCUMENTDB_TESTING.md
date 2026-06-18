@@ -21,11 +21,12 @@ DocumentDB is detected automatically from the server: the test suite runs
 DocumentDB-specific tests on the result. There is no separate enable flag — pointing
 `MONGO_TEST_DATA_URL` at a DocumentDB cluster is what activates the DocumentDB tests.
 
-| Variable              | Required | Description                                                                                                                                          |
-| --------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MONGO_TEST_DATA_URL` | Yes      | DocumentDB connection URI. Must include a database name in the path (see below). Pointing this at a DocumentDB cluster enables the DocumentDB tests. |
-| `PG_STORAGE_TEST_URL` | No       | PostgreSQL connection for PowerSync storage. Defaults to `postgres://postgres:postgres@localhost:5432/powersync_storage_test`.                       |
-| `TEST_MONGO_STORAGE`  | No       | Set to `false` to skip MongoDB storage tests. Recommended when testing against DocumentDB to avoid using it as a storage backend.                    |
+| Variable                  | Required | Description                                                                                                                                                              |
+| ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `MONGO_TEST_DATA_URL`     | Yes      | DocumentDB connection URI. Must include a database name in the path (see below). Pointing this at a DocumentDB cluster enables the DocumentDB tests.                     |
+| `PG_STORAGE_TEST_URL`     | No       | PostgreSQL connection for PowerSync storage. Defaults to `postgres://postgres:postgres@localhost:5432/powersync_storage_test`.                                           |
+| `TEST_MONGO_STORAGE`      | No       | Set to `false` to skip MongoDB storage tests. Recommended when testing against DocumentDB to avoid using it as a storage backend.                                        |
+| `TEST_TIMEOUT_MULTIPLIER` | No       | Scale factor `testTimeout()` applies to a default timeout on DocumentDB when no explicit cloud override is given. Defaults to **6**. Increase for a slow/remote cluster. |
 
 ### Connection URI format
 
@@ -93,6 +94,12 @@ Each integration test runs against 3 storage versions (v1, v2, v3) = 15 integrat
 | write checkpoint        | Full `createReplicationHead` → sentinel → polling flow for client write consistency             |
 | data events not dropped | Verifies `.lte()` dedup guard is skipped — events in the same wall-clock second are not lost    |
 | resume after restart    | Stop streaming, create new context, resume from stored token                                    |
+
+There is also a **characterization test**, `does not report collection drop and rename events`,
+that documents the current limitation: it writes DDL plus a post-DDL marker, waits for the marker
+(proving the stream caught up), then asserts no `drop` / `rename` events were delivered. It passes
+today and **fails if a future DocumentDB engine starts delivering DDL events** — a signal to add
+real drop/rename replication support.
 
 ## Known Issues
 
