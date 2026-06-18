@@ -1,4 +1,4 @@
-import { mongo } from '@powersync/lib-service-mongodb';
+import { isMongoServerError, mongo } from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId, ParameterIndexId } from '@powersync/service-sync-rules';
 import { BaseVersionedPowerSyncMongo } from '../common/VersionedPowerSyncMongoBase.js';
 import { CommonSourceTableDocument } from '../models.js';
@@ -10,6 +10,8 @@ import {
   SourceTableDocumentV3,
   SyncConfigDefinition
 } from './models.js';
+
+export const BUCKET_DATA_BUCKET_OP_INDEX = 'bucket_op';
 
 export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
   get syncConfigDefinitions() {
@@ -95,6 +97,30 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
 
   bucketDataV3(replicationStreamId: number, definitionId: BucketDefinitionId) {
     return this.db.collection<BucketDataDocumentV3>(`bucket_data_${replicationStreamId}_${definitionId}`);
+  }
+
+  async initializeBucketDataCollection(replicationStreamId: number, definitionId: BucketDefinitionId) {
+    const collection = this.bucketDataV3(replicationStreamId, definitionId);
+    await this.db
+      .createCollection(collection.collectionName, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
+      .catch((error) => {
+        if (isMongoServerError(error) && error.codeName === 'NamespaceExists') {
+          return;
+        }
+        throw error;
+      });
+
+    await collection.createIndex(
+      {
+        '_id.b': 1,
+        '_id.o': 1,
+        checksum: 1,
+        op: 1
+      },
+      {
+        name: BUCKET_DATA_BUCKET_OP_INDEX
+      }
+    );
   }
 
   listBucketDataCollectionsV3(replicationStreamId: number) {

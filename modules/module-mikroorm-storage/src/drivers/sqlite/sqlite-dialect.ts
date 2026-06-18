@@ -46,22 +46,33 @@ export const sqliteMikroOrmStorageDialect: MikroOrmStorageDialect = {
     // the query so single-process unified mode remains cooperative.
     await new Promise<void>((resolve) => setImmediate(resolve));
 
-    const filters = options.dataBuckets.map((request) => ({
-      bucketName: request.bucket,
-      opId: { $gt: request.start, $lte: options.checkpoint }
-    }));
     const sqlEntityManager = options.em as SqlEntityManager;
-    const queryBuilder = sqlEntityManager
-      .createQueryBuilder(BucketData, 'bucket_data')
-      .select('*')
-      .where({
-        groupId: options.groupId,
-        $or: filters
-      })
-      .orderBy({ bucketName: 'ASC', opId: 'ASC' })
-      .limit(options.limit);
+    const sortedBuckets = [...options.dataBuckets].sort((a, b) => a.bucket.localeCompare(b.bucket));
+    let remainingLimit = options.limit;
 
-    yield* streamQueryBuilder(queryBuilder.stream());
+    for (const request of sortedBuckets) {
+      if (remainingLimit <= 0) {
+        break;
+      }
+
+      // Query each bucket as its own indexed range scan. In SQLite this was faster than joining a VALUES table for
+      // many buckets because it avoids cross-bucket planning and temporary sorting work.
+      const queryBuilder = sqlEntityManager
+        .createQueryBuilder(BucketData, 'bucket_data')
+        .select('*')
+        .where({
+          groupId: options.groupId,
+          bucketName: request.bucket,
+          opId: { $gt: request.start, $lte: options.checkpoint }
+        })
+        .orderBy({ opId: 'ASC' })
+        .limit(remainingLimit);
+
+      for await (const row of streamQueryBuilder(queryBuilder.stream())) {
+        yield row;
+        remainingLimit--;
+      }
+    }
   },
   createCheckpointWatcher: () => new InProcessMikroOrmCheckpointWatcher()
 };

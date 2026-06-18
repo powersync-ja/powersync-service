@@ -1,3 +1,4 @@
+export * from '../benchmarks/register-storage-benchmarks.js';
 export * from './register-bucket-validation-tests.js';
 export * from './register-compacting-tests.js';
 export * from './register-data-storage-checkpoint-tests.js';

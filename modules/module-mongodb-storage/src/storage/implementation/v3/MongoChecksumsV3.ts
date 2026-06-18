@@ -13,7 +13,7 @@ import {
   MongoChecksumOptions,
   MongoChecksums
 } from '../MongoChecksums.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+import { BUCKET_DATA_BUCKET_OP_INDEX, VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoChecksumsV3 extends MongoChecksums {
   declare protected readonly db: VersionedPowerSyncMongoV3;
@@ -47,7 +47,11 @@ export class MongoChecksumsV3 extends MongoChecksums {
       const groupResults = await this.computePartialChecksumsForCollection(
         requests,
         this.db.bucketDataV3(this.group_id, definitionId),
-        createV3BucketFilter
+        createV3BucketFilter,
+        {
+          sort: { '_id.b': 1, '_id.o': 1 },
+          hint: BUCKET_DATA_BUCKET_OP_INDEX
+        }
       );
       for (const checksum of groupResults.values()) {
         results.set(checksum.bucket, checksum);
@@ -106,15 +110,10 @@ export class MongoChecksumsV3 extends MongoChecksums {
 
 function createV3BucketFilter(request: Pick<FetchPartialBucketChecksumV3, 'bucket' | 'start' | 'end'>) {
   return {
-    _id: {
-      $gt: {
-        b: request.bucket,
-        o: request.start ?? new bson.MinKey()
-      },
-      $lte: {
-        b: request.bucket,
-        o: request.end
-      }
+    '_id.b': request.bucket,
+    '_id.o': {
+      $gt: request.start ?? new bson.MinKey(),
+      $lte: request.end
     }
   };
 }

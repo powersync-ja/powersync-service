@@ -39,7 +39,7 @@ import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
 import { MongoParameterCompactorV3 } from './MongoParameterCompactorV3.js';
 import { deserializeParameterLookupV3, serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+import { BUCKET_DATA_BUCKET_OP_INDEX, VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   // Declare types to be more specific
@@ -105,15 +105,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   protected async initializeVersionStorage(): Promise<void> {
     const mapping = this.mapping;
     for (let source of mapping.allBucketDefinitionIds()) {
-      const collection = this.db.bucketDataV3(this.replicationStreamId, source).collectionName;
-      await this.db.db
-        .createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
-        .catch((error) => {
-          if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceExists') {
-            return;
-          }
-          throw error;
-        });
+      await this.db.initializeBucketDataCollection(this.replicationStreamId, source);
     }
     for (let indexId of mapping.allParameterIndexIds()) {
       await this.db.parameterIndexV3(this.replicationStreamId, indexId).createIndex(
@@ -456,15 +448,10 @@ export async function* getBucketDataBatchV3(
     const hasLaterDefinitionGroups = groupIndex < definitionGroups.length - 1;
     const bucketMap = new Map(requests.map((request) => [request.bucket, request.start]));
     const filters: mongo.Filter<BucketDataDocumentV3>[] = Array.from(bucketMap.entries()).map(([bucket, start]) => ({
-      _id: {
-        $gt: {
-          b: bucket,
-          o: start
-        },
-        $lte: {
-          b: bucket,
-          o: end as any
-        }
+      '_id.b': bucket,
+      '_id.o': {
+        $gt: start,
+        $lte: end
       }
     }));
 
@@ -474,7 +461,8 @@ export async function* getBucketDataBatchV3(
       },
       {
         session: undefined,
-        sort: { _id: 1 },
+        sort: { '_id.b': 1, '_id.o': 1 },
+        hint: BUCKET_DATA_BUCKET_OP_INDEX,
         limit: remainingLimit,
         batchSize: remainingLimit + 1,
         raw: true,

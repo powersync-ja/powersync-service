@@ -185,7 +185,11 @@ export abstract class MongoChecksums {
   >(
     batch: TRequest[],
     collection: lib_mongo.mongo.Collection<TBucketDataDocument>,
-    createFilter: (request: TRequest) => any
+    createFilter: (request: TRequest) => any,
+    options: {
+      sort?: Record<string, 1 | -1>;
+      hint?: string;
+    } = {}
   ): Promise<PartialChecksumMap> {
     const batchLimit = this.options?.operationBatchLimit ?? DEFAULT_OPERATION_BATCH_LIMIT;
 
@@ -223,7 +227,7 @@ export abstract class MongoChecksums {
               }
             },
             // sort and limit _before_ grouping
-            { $sort: { _id: 1 } },
+            { $sort: options.sort ?? { _id: 1 } },
             { $limit: batchLimit },
             {
               $group: {
@@ -242,7 +246,12 @@ export abstract class MongoChecksums {
             // This is important to identify which buckets we have partial data for.
             { $sort: { _id: 1 } }
           ],
-          { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
+          {
+            session: undefined,
+            readConcern: 'snapshot',
+            maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS,
+            ...(options.hint != null ? { hint: options.hint } : {})
+          }
         )
         .toArray()
         .catch((e) => {

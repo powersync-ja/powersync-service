@@ -1,4 +1,3 @@
-import type { SqlEntityManager } from '@mikro-orm/sql';
 import {
   BucketData,
   BucketDataSchema,
@@ -17,6 +16,7 @@ import {
 } from '../../entities/entities-index.js';
 import { InProcessMikroOrmCheckpointWatcher, MikroOrmStorageDialect } from '../../storage/MikroOrmStorageDialect.js';
 import { MIKRO_ORM_MYSQL_STORAGE_TYPE } from '../../types/types.js';
+import { streamBucketDataRowsFromSql } from '../sql/bucket-data-read.js';
 
 export const mysqlMikroOrmStorageDialect: MikroOrmStorageDialect = {
   type: MIKRO_ORM_MYSQL_STORAGE_TYPE,
@@ -41,37 +41,27 @@ export const mysqlMikroOrmStorageDialect: MikroOrmStorageDialect = {
       return;
     }
 
-    const filters = options.dataBuckets.map((request) => ({
-      bucketName: request.bucket,
-      opId: { $gt: request.start, $lte: options.checkpoint }
-    }));
-    const sqlEntityManager = options.em as SqlEntityManager;
-    const queryBuilder = sqlEntityManager
-      .createQueryBuilder(BucketData, 'bucket_data')
-      .select('*')
-      .where({
-        groupId: options.groupId,
-        $or: filters
-      })
-      .orderBy({ bucketName: 'ASC', opId: 'ASC' })
-      .limit(options.limit);
+    yield* streamBucketDataRowsFromSql(options, (queryOptions) => {
+      const requestedRows = queryOptions.dataBuckets
+        .map((_, index) => `${index == 0 ? 'SELECT' : 'UNION ALL SELECT'} ? AS bucket_name, ? AS start_op_id`)
+        .join(' ');
+      const params = queryOptions.dataBuckets.flatMap((request) => [request.bucket, request.start]);
 
-    yield* streamQueryBuilder(queryBuilder.stream());
+      return {
+        sql: `
+          SELECT bucket_data.*
+          FROM (${requestedRows}) AS requested
+          JOIN bucket_data FORCE INDEX (bucket_data_bucket_op_index)
+            ON bucket_data.group_id = ?
+           AND bucket_data.bucket_name = requested.bucket_name
+           AND bucket_data.op_id > requested.start_op_id
+           AND bucket_data.op_id <= ?
+          ORDER BY bucket_data.bucket_name ASC, bucket_data.op_id ASC
+          LIMIT ?
+        `,
+        params: [...params, queryOptions.groupId, queryOptions.checkpoint, queryOptions.limit]
+      };
+    });
   },
   createCheckpointWatcher: () => new InProcessMikroOrmCheckpointWatcher()
 };
-
-async function* streamQueryBuilder<T>(stream: AsyncIterableIterator<T>): AsyncIterable<T> {
-  const iterator = stream[Symbol.asyncIterator]();
-  try {
-    while (true) {
-      const result = await iterator.next();
-      if (result.done) {
-        return;
-      }
-      yield result.value;
-    }
-  } finally {
-    await iterator.return?.();
-  }
-}
