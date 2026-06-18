@@ -106,6 +106,9 @@ export abstract class MongoCompactor {
     this.moveBatchQueryLimit = options.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
     this.moveBatchByteLimit = options.moveBatchByteLimit ?? DEFAULT_MOVE_BATCH_BYTE_LIMIT;
     this.clearBatchLimit = options.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
+    if (this.clearBatchLimit < 2) {
+      throw new ReplicationAssertionError('clearBatchLimit must be >= 2');
+    }
     this.minBucketChanges = options.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
     this.minChangeRatio = options.minChangeRatio ?? DEFAULT_MIN_CHANGE_RATIO;
     this.maxOpId = options.maxOpId ?? 0n;

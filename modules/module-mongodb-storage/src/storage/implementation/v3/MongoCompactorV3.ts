@@ -529,6 +529,7 @@ export class MongoCompactorV3 extends MongoCompactor {
         let clearedOpCount = 0;
         let maxTargetOp: bigint | null = null;
         let lastDocId: BucketDataKey | null = null;
+        let clearOpCount = 0;
         let gotNonClearOp = false;
 
         for await (const doc of query.stream()) {
@@ -549,7 +550,12 @@ export class MongoCompactorV3 extends MongoCompactor {
               throw new ReplicationAssertionError(`Unexpected PUT at op ${op.o} in CLEAR region for bucket ${bucket}`);
             }
 
-            if (op.op != 'CLEAR') {
+            if (op.op == 'CLEAR') {
+              clearOpCount++;
+              if (clearOpCount > 1) {
+                throw new ReplicationAssertionError(`Unexpected multiple CLEAR operations in bucket ${bucket}`);
+              }
+            } else {
               gotNonClearOp = true;
             }
             combinedChecksum = addChecksums(combinedChecksum, Number(op.checksum));
