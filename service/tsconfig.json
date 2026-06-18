@@ -2,10 +2,7 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib",
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "sourceMap": true
+    "outDir": "lib"
   },
   "include": ["src"],
   "references": [

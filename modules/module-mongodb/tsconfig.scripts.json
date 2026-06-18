@@ -6,8 +6,7 @@
     "target": "esnext",
     "noEmit": true,
     "composite": false,
-    "types": ["node"],
-    "skipLibCheck": true
+    "types": ["node"]
   },
   "include": ["scripts/**/*.mts"]
 }

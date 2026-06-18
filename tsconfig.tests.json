@@ -1,9 +1,6 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "sourceMap": true
+    "noEmit": true
   }
 }

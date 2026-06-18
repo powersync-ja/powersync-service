@@ -2,10 +2,6 @@
   "extends": "../../../tsconfig.tests.json",
   "compilerOptions": {
     "rootDir": "..",
-    "noEmit": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "sourceMap": true,
     "paths": {
       "@/*": ["../../../packages/service-core/src/*"],
       "@module/*": ["../src/*"],
