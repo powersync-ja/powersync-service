@@ -144,6 +144,13 @@ streams:
         source: 'orgs.*'
       }
     ]);
+
+    expect(compilationErrorsForSingleStream('SELECT u.*, orgs.* FROM "users_%" u, orgs')).toStrictEqual([
+      {
+        message: "Sync streams can only select from a single table, and this one already selects from 'users_%'.",
+        source: 'orgs.*'
+      }
+    ]);
   });
 
   test('subexpressions from different rows', () => {

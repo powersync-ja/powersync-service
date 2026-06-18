@@ -553,6 +553,48 @@ streams:
     expect(buckets.map((b) => b.bucket)).toStrictEqual(['stream|0["issue"]']);
   });
 
+  syncTest('wildcard table in parameter query', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  
+streams:
+  stream:
+    auto_subscribe: true
+    query: SELECT * FROM comments WHERE list IN (SELECT id FROM "li%" AS lists)
+`);
+
+    const list0 = new TestSourceTable('lists0');
+    const list1 = new TestSourceTable('lists1');
+
+    expect(desc.tableSyncsParameters(list0)).toBeTruthy();
+    expect(desc.tableSyncsParameters(list1)).toBeTruthy();
+    expect(desc.tableSyncsParameters(COMMENTS)).toBeFalsy();
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user' }),
+      hasDefaultStreams: true,
+      streams: {}
+    });
+    expect(errors).toStrictEqual([]);
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      getParameterSets: async function (
+        lookups: ScopedParameterLookup[],
+        debugDefinition: string
+      ): Promise<ParameterLookupRows[]> {
+        expect(debugDefinition).toContain('evaluating parameter on li%');
+        expect(lookups).toHaveLength(1);
+        return [
+          {
+            lookup: lookups[0],
+            rows: [{ '0': 'list' }]
+          }
+        ];
+      }
+    });
+    expect(buckets.map((b) => b.bucket)).toStrictEqual(['stream|0["list"]']);
+  });
+
   syncTest('preserves correlation across lookup output columns', async ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:

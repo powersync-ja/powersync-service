@@ -424,7 +424,7 @@ export class StreamQueryParser {
           this.primaryResultSet = source;
         } else if (this.primaryResultSet !== source) {
           this.errors.report(
-            `Sync streams can only select from a single table, and this one already selects from '${this.primaryResultSet.tablePattern.name}'.`,
+            `Sync streams can only select from a single table, and this one already selects from '${this.primaryResultSet.tablePattern.tablePattern}'.`,
             node
           );
           return false;
