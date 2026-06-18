@@ -152,7 +152,7 @@ export interface SyncRulesBucketStorage
    * Optional storage-provider cleanup for sync configs that have been stopped
    * inside this replication stream.
    */
-  cleanupStoppedSyncConfigs?(options?: CleanupStoppedSyncConfigsOptions): Promise<CleanupStoppedSyncConfigsResult>;
+  cleanupStoppedSyncConfigs?(options: CleanupStoppedSyncConfigsOptions): Promise<CleanupStoppedSyncConfigsResult>;
 }
 
 export interface SyncRulesBucketStorageListener {
