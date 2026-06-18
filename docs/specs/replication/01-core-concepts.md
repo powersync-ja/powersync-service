@@ -16,6 +16,8 @@ A stream has:
 
 The current public sync API reads from the active replication stream. Replicators may also process a deploying stream while an older stream remains active for clients.
 
+"Sync config" is the current term for the replication configuration. Some legacy code, APIs, and config files still use "sync rules" for the same concept, including `SyncRulesBucketStorage`, `configureSyncRules()`, `terminateSyncRules()`, and `sync-rules.yaml`. Treat the two terms as equivalent when reading the code.
+
 Incremental reprocessing is expected to allow multiple sync configs to be processed by one replication stream, instead of always creating a fully separate stream per sync config version. See [powersync-ja/powersync-service#670](https://github.com/powersync-ja/powersync-service/pull/670).
 
 ## Replication Module

@@ -57,6 +57,5 @@ After loading the relevant spec context, inspect the closest existing implementa
 
 - Prefer integration tests with real bucket storage implementations for snapshot, streaming, checkpoint, and write-checkpoint behavior.
 - Import real test storage factories from storage modules, such as `@powersync/service-module-mongodb-storage` and `@powersync/service-module-postgres-storage`, and use `describeWithStorage`-style coverage where practical.
-- Prefer Vitest spies such as `vi.spyOn()` when the test only needs to observe calls or arguments.
-- Use mocks only for focused unit behavior or when a real dependency is impractical.
 - Add a stream test context for new modules, following existing examples such as `WalStreamTestContext`, `ChangeStreamTestContext`, `BinlogStreamTestContext`, `CDCStreamTestContext`, or `ConvexStreamTestContext`.
+- For when to use spies versus mocks, follow the General Workflow testing guidance above.

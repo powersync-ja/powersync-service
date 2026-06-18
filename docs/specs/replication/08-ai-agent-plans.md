@@ -8,7 +8,7 @@ Integration tests should move with the implementation phases. Do not defer the f
 
 Most replication modules use a stream test context to make those integration tests manageable. Existing examples include `WalStreamTestContext`, `ChangeStreamTestContext`, `BinlogStreamTestContext`, `CDCStreamTestContext`, and `ConvexStreamTestContext`. A new module should add the equivalent helper early, before later snapshot, streaming, and write-checkpoint tests depend on it.
 
-Replication integration tests should prefer real bucket storage implementations for real-world verification. Existing modules import test storage factories from storage modules, such as `@powersync/service-module-mongodb-storage` and `@powersync/service-module-postgres-storage`, and run the same source tests through `describeWithStorage` where practical. If a test only needs to observe a call or argument, prefer Vitest spies such as `vi.spyOn()` before introducing mocks. Use mocks only for focused unit behavior or when a real dependency is impractical.
+Replication integration tests should prefer real bucket storage implementations for real-world verification. Existing modules import test storage factories from storage modules, such as `@powersync/service-module-mongodb-storage` and `@powersync/service-module-postgres-storage`, and run the same source tests through `describeWithStorage` where practical. For when to use spies versus mocks, follow the General Workflow testing guidance in [`AGENTS.md`](../../../AGENTS.md).
 
 Use these plans together with:
 
