@@ -9,7 +9,7 @@ import { CheckpointImplementation } from '../replication/checkpoints/CheckpointI
 import { createCheckpointImplementation } from '../replication/checkpoints/create-checkpoint-implementation.js';
 import { MongoManager } from '../replication/MongoManager.js';
 import { constructAfterRecord } from '../replication/MongoRelation.js';
-import { CHECKPOINTS_COLLECTION, detectCosmosDb } from '../replication/replication-utils.js';
+import { CHECKPOINTS_COLLECTION, detectDocumentDb } from '../replication/replication-utils.js';
 import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 
@@ -208,8 +208,8 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
 
   private async getCheckpointImplementation(): Promise<CheckpointImplementation> {
     if (this.checkpointImplementation == null) {
-      const isCosmosDb = await detectCosmosDb(this.db);
-      this.checkpointImplementation = createCheckpointImplementation(isCosmosDb, {
+      const isDocumentDb = await detectDocumentDb(this.db);
+      this.checkpointImplementation = createCheckpointImplementation(isDocumentDb, {
         client: this.client,
         db: this.db,
         // The adapter never streams, so it has no real barrier document.

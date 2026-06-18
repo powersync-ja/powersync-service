@@ -21,7 +21,7 @@ import { MongoManager } from './MongoManager.js';
 import { getMongoRelation } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { ChangeStreamBatch, parseChangeDocument, rawChangeStream } from './RawChangeStream.js';
-import { CHECKPOINTS_COLLECTION, detectCosmosDb } from './replication-utils.js';
+import { CHECKPOINTS_COLLECTION, detectDocumentDb } from './replication-utils.js';
 import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
 
 export interface MongoSnapshotterOptions {
@@ -76,7 +76,7 @@ export class MongoSnapshotter {
   private lastSnapshotOpId: InternalOpId | null = null;
   private lastTouchedAt = performance.now();
 
-  private isCosmosDb = false;
+  private isDocumentDb = false;
   private _checkpointImplementation: CheckpointImplementation | null = null;
 
   constructor(options: MongoSnapshotterOptions) {
@@ -127,15 +127,15 @@ export class MongoSnapshotter {
   }
 
   /**
-   * Detect Cosmos DB and select the checkpoint implementation. Idempotent.
+   * Detect DocumentDB and select the checkpoint implementation. Idempotent.
    * Also validates server topology (sharded/standalone) for standard MongoDB.
    */
   private async ensureDetected(): Promise<void> {
     if (this._checkpointImplementation != null) {
       return;
     }
-    this.isCosmosDb = await detectCosmosDb(this.defaultDb);
-    if (!this.isCosmosDb) {
+    this.isDocumentDb = await detectDocumentDb(this.defaultDb);
+    if (!this.isDocumentDb) {
       const hello = await this.defaultDb.command({ hello: 1 });
       if (hello.msg == 'isdbgrid') {
         throw new ServiceError(
@@ -149,7 +149,7 @@ export class MongoSnapshotter {
         );
       }
     }
-    this._checkpointImplementation = createCheckpointImplementation(this.isCosmosDb, {
+    this._checkpointImplementation = createCheckpointImplementation(this.isDocumentDb, {
       client: this.client,
       db: this.defaultDb,
       checkpointStreamId: this.checkpointStreamId,
@@ -172,11 +172,11 @@ export class MongoSnapshotter {
     const collection = await this.getCollectionInfo(this.defaultDb.databaseName, CHECKPOINTS_COLLECTION);
     if (collection == null) {
       await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
-        // Cosmos DB does not support changeStreamPreAndPostImages.
-        ...(this.isCosmosDb ? {} : { changeStreamPreAndPostImages: { enabled: true } })
+        // DocumentDB does not support changeStreamPreAndPostImages.
+        ...(this.isDocumentDb ? {} : { changeStreamPreAndPostImages: { enabled: true } })
       });
     } else if (
-      !this.isCosmosDb &&
+      !this.isDocumentDb &&
       this.usePostImages &&
       collection.options?.changeStreamPreAndPostImages?.enabled != true
     ) {
@@ -193,7 +193,7 @@ export class MongoSnapshotter {
       //
       // The implementation supplies the filter: the sentinel implementation must
       // preserve the standalone checkpoint document, since its counter is the
-      // globally-ordered component of every committed Cosmos LSN.
+      // globally-ordered component of every committed DocumentDB LSN.
       await this.defaultDb
         .collection(CHECKPOINTS_COLLECTION)
         .deleteMany(this.checkpointImplementation.checkpointClearFilter);
@@ -202,7 +202,7 @@ export class MongoSnapshotter {
 
   async queueSnapshotTables(snapshotLsn: string | null) {
     await this.client.connect();
-    // Ensure isCosmosDb is set before any getSourceNamespaceFilters() call below
+    // Ensure isDocumentDb is set before any getSourceNamespaceFilters() call below
     // (notably the validateSnapshotLsn resume path, which does not go through
     // getSnapshotLsn). Idempotent.
     await this.ensureDetected();
@@ -603,7 +603,7 @@ export class MongoSnapshotter {
     // To avoid potential race conditions with the checkpoint creation, we create a new checkpoint document
     // periodically until the timeout is reached.
     //
-    // For the sentinel implementation (Cosmos DB) there is no
+    // For the sentinel implementation (DocumentDB) there is no
     // startAtOperationTime: the stream opens from "now" (lsn null) and the
     // retry loop below re-creates checkpoints until one is observed.
 
@@ -707,11 +707,11 @@ export class MongoSnapshotter {
       }
     }
 
-    // Cosmos DB always opens a cluster-level change stream, even in single-database
+    // DocumentDB always opens a cluster-level change stream, even in single-database
     // mode, so a coll-only filter would match same-named collections in other
     // databases of the cluster. Filter on the full namespace whenever the stream
     // is cluster-scoped. See ChangeStream.getSourceNamespaceFilters for details.
-    const useFullNamespaceFilter = this.isCosmosDb || multipleDatabases;
+    const useFullNamespaceFilter = this.isDocumentDb || multipleDatabases;
     const nsFilter = useFullNamespaceFilter
       ? { ns: { $in: inFilters } }
       : { 'ns.coll': { $in: inFilters.map((ns) => ns.coll) } };
@@ -734,8 +734,8 @@ export class MongoSnapshotter {
     const resumeAfter = position?.resumeAfter ?? undefined;
 
     let fullDocument: 'required' | 'updateLookup';
-    if (this.isCosmosDb) {
-      // Cosmos DB does not support changeStreamPreAndPostImages, so 'required' won't work.
+    if (this.isDocumentDb) {
+      // DocumentDB does not support changeStreamPreAndPostImages, so 'required' won't work.
       fullDocument = 'updateLookup';
     } else if (this.usePostImages) {
       // 'read_only' or 'auto_configure'
@@ -748,13 +748,13 @@ export class MongoSnapshotter {
     const streamOptions: mongo.ChangeStreamOptions & mongo.Document = {
       fullDocument
     };
-    if (!this.isCosmosDb) {
-      // Cosmos DB does not support showExpandedEvents.
+    if (!this.isDocumentDb) {
+      // DocumentDB does not support showExpandedEvents.
       streamOptions.showExpandedEvents = true;
     }
     const pipeline: mongo.Document[] = [{ $changeStream: streamOptions }, { $match: options.filters.$match }];
-    if (!this.isCosmosDb) {
-      // Cosmos DB does not support $changeStreamSplitLargeEvent.
+    if (!this.isDocumentDb) {
+      // DocumentDB does not support $changeStreamSplitLargeEvent.
       pipeline.push({ $changeStreamSplitLargeEvent: {} });
     }
 
@@ -764,13 +764,13 @@ export class MongoSnapshotter {
     } else if (startAfter != null) {
       // Legacy: We don't persist lsns without resumeTokens anymore, but we do still handle the
       // case if we have an old one. The sentinel implementation never produces a startAfter,
-      // and a fresh Cosmos stream opens from "now" with neither option set.
+      // and a fresh DocumentDB stream opens from "now" with neither option set.
       streamOptions.startAtOperationTime = startAfter;
     }
 
     let watchDb: mongo.Db;
-    if (this.isCosmosDb || options.filters.multipleDatabases) {
-      // Cosmos DB only supports cluster-level change streams.
+    if (this.isDocumentDb || options.filters.multipleDatabases) {
+      // DocumentDB only supports cluster-level change streams.
       // Requires readAnyDatabase@admin on Atlas.
       watchDb = this.client.db('admin');
       streamOptions.allChangesForCluster = true;

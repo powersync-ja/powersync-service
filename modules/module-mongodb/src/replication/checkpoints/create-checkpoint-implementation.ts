@@ -3,12 +3,12 @@ import { SentinelCheckpointImplementation } from './SentinelCheckpointImplementa
 import { TimestampCheckpointImplementation } from './TimestampCheckpointImplementation.js';
 
 /**
- * Select the checkpoint implementation for a source: sentinel-based for Cosmos
+ * Select the checkpoint implementation for a source: sentinel-based for DocumentDB
  * DB, clusterTime-based for standard MongoDB.
  */
 export function createCheckpointImplementation(
-  isCosmosDb: boolean,
+  isDocumentDb: boolean,
   context: CheckpointImplementationContext
 ): CheckpointImplementation {
-  return isCosmosDb ? new SentinelCheckpointImplementation(context) : new TimestampCheckpointImplementation(context);
+  return isDocumentDb ? new SentinelCheckpointImplementation(context) : new TimestampCheckpointImplementation(context);
 }

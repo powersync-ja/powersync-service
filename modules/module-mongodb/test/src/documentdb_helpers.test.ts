@@ -4,18 +4,18 @@ import { SentinelLSN } from '@module/common/SentinelLSN.js';
 import { getEventTimestamp } from '@module/replication/checkpoints/CheckpointImplementation.js';
 import {
   createCheckpoint,
-  createCosmosCheckpointLsn,
+  createDocumentDbCheckpointLsn,
   STANDALONE_CHECKPOINT_ID
 } from '@module/replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '@module/replication/replication-utils.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { connectMongoData } from './util.js';
 
-describe('Cosmos DB helpers', () => {
+describe('DocumentDB helpers', () => {
   describe('getEventTimestamp', () => {
     // getEventTimestamp is used by the timestamp checkpoint implementation (standard
     // MongoDB): it prefers clusterTime and falls back to second-precision wallTime.
-    // The Cosmos sentinel implementation does not use it — Cosmos LSNs are
+    // The DocumentDB sentinel implementation does not use it — DocumentDB LSNs are
     // sentinel-counter based, not timestamp based.
 
     test('returns clusterTime when present', () => {
@@ -37,13 +37,13 @@ describe('Cosmos DB helpers', () => {
     });
   });
 
-  describe('Cosmos DB detection', () => {
+  describe('DocumentDB detection', () => {
     // Detection logic: hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null
     // Older clusters use cosmos_versions, newer ones use documentdb_versions after Microsoft's rename.
-    const isCosmosDb = (hello: any) =>
+    const isDocumentDb = (hello: any) =>
       hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
 
-    test('hello with cosmos_versions — detected as Cosmos DB', () => {
+    test('hello with cosmos_versions — detected as DocumentDB', () => {
       const hello = {
         isWritablePrimary: true,
         msg: 'isdbgrid',
@@ -52,10 +52,10 @@ describe('Cosmos DB helpers', () => {
           cosmos_versions: ['1.104-1', '1.105.0', '12.1-1']
         }
       };
-      expect(isCosmosDb(hello)).toBe(true);
+      expect(isDocumentDb(hello)).toBe(true);
     });
 
-    test('hello with documentdb_versions — detected as Cosmos DB', () => {
+    test('hello with documentdb_versions — detected as DocumentDB', () => {
       const hello = {
         isWritablePrimary: true,
         msg: 'isdbgrid',
@@ -63,16 +63,16 @@ describe('Cosmos DB helpers', () => {
           documentdb_versions: ['1.111-0', '1.112.0', '12.1-1']
         }
       };
-      expect(isCosmosDb(hello)).toBe(true);
+      expect(isDocumentDb(hello)).toBe(true);
     });
 
-    test('standard hello response — not Cosmos DB', () => {
+    test('standard hello response — not DocumentDB', () => {
       const hello = {
         isWritablePrimary: true,
         setName: 'rs0',
         hosts: ['localhost:27017']
       };
-      expect(isCosmosDb(hello)).toBe(false);
+      expect(isDocumentDb(hello)).toBe(false);
     });
   });
 
@@ -99,7 +99,7 @@ describe('Cosmos DB helpers', () => {
     test('standalone counter is seeded at a timestamp value on creation', { timeout: 30_000 }, async () => {
       // If a consumer deletes the standalone checkpoint document in their
       // source database, the re-created counter must not restart below
-      // already-committed LSNs. createCosmosCheckpointLsn seeds new counters at
+      // already-committed LSNs. createDocumentDbCheckpointLsn seeds new counters at
       // the current epoch seconds shifted into the high 32 bits (resembling a
       // MongoDB timestamp), so the coordinate jumps forward instead of resetting.
       const { client, db: sharedDb } = await connectMongoData();
@@ -110,7 +110,7 @@ describe('Cosmos DB helpers', () => {
       const seed = (epochMs: number) => (BigInt(Math.floor(epochMs / 1000)) << 32n) + 1n;
       try {
         const before = Date.now();
-        const first = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
+        const first = SentinelLSN.fromSerialized(await createDocumentDbCheckpointLsn(client, db));
         const after = Date.now();
 
         // Seeded at (epoch_seconds << 32) + 1, not at 1.
@@ -118,7 +118,7 @@ describe('Cosmos DB helpers', () => {
         expect(first.sentinel).toBeLessThanOrEqual(seed(after));
 
         // Subsequent calls increment normally.
-        const second = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
+        const second = SentinelLSN.fromSerialized(await createDocumentDbCheckpointLsn(client, db));
         expect(second.sentinel).toEqual(first.sentinel + 1n);
 
         // Simulate a consumer deleting the document after the counter has
@@ -128,7 +128,7 @@ describe('Cosmos DB helpers', () => {
         // wait for the clock to advance to reproduce that here.
         await new Promise((resolve) => setTimeout(resolve, 1_100));
         await db.collection(CHECKPOINTS_COLLECTION).deleteOne({ _id: STANDALONE_CHECKPOINT_ID as any });
-        const recreated = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(client, db));
+        const recreated = SentinelLSN.fromSerialized(await createDocumentDbCheckpointLsn(client, db));
         expect(recreated.sentinel).toBeGreaterThan(second.sentinel);
       } finally {
         await db.dropDatabase().catch(() => {});
@@ -154,8 +154,8 @@ describe('Cosmos DB helpers', () => {
     });
   });
 
-  // Note: the Cosmos keepalive does not build an LSN from Date.now() — it bumps
-  // the shared sentinel via createCosmosCheckpointLsn and commits when the bump's
+  // Note: the DocumentDB keepalive does not build an LSN from Date.now() — it bumps
+  // the shared sentinel via createDocumentDbCheckpointLsn and commits when the bump's
   // own event is observed. The only Date.now()-derived value is the standalone
   // counter seed, which is covered by the 'standalone counter is seeded at a
   // timestamp value on creation' test above.

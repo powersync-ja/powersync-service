@@ -1,10 +1,10 @@
-# Cosmos DB LSN, Sentinel Checkpoint, and Write Checkpoint Notes
+# DocumentDB LSN, Sentinel Checkpoint, and Write Checkpoint Notes
 
-These notes summarize findings from testing Azure Cosmos DB for MongoDB vCore change streams on the Cosmos DB support branch. These are internal implementation notes; for user-affecting limitations see [cosmos-db-limitations.md](./cosmos-db-limitations.md).
+These notes summarize findings from testing Azure DocumentDB for MongoDB vCore change streams on the DocumentDB support branch. These are internal implementation notes; for user-affecting limitations see [documentdb-limitations.md](./documentdb-limitations.md).
 
 ## Summary
 
-Cosmos DB change streams currently require different checkpointing assumptions from standard MongoDB:
+DocumentDB change streams currently require different checkpointing assumptions from standard MongoDB:
 
 - Change events do not expose a usable `clusterTime`, so the oplog timestamp cannot be the LSN coordinate.
 - Instead, a shared counter document (`_standalone_checkpoint`) supplies a monotonic, comparable LSN coordinate. It is advanced by writing to it and observed back through the change stream.
@@ -13,7 +13,7 @@ Cosmos DB change streams currently require different checkpointing assumptions f
 
 These two checkpointing strategies are encapsulated behind a single interface — see [Checkpoint Implementations](#checkpoint-implementations) below.
 
-The practical model for Cosmos is:
+The practical model for DocumentDB is:
 
 ```text
 standalone sentinel counter
@@ -29,17 +29,17 @@ storage checkpoint op id
   the sync checkpoint clients consume
 ```
 
-Historical note: an earlier design used a `wallTime`-derived timestamp as the LSN coordinate. `wallTime` only has second precision in our conversion, so it was unsafe as an equality boundary; the sentinel counter replaced it. `wallTime` is still read for the replication-lag metric, but is no longer part of the Cosmos LSN.
+Historical note: an earlier design used a `wallTime`-derived timestamp as the LSN coordinate. `wallTime` only has second precision in our conversion, so it was unsafe as an equality boundary; the sentinel counter replaced it. `wallTime` is still read for the replication-lag metric, but is no longer part of the DocumentDB LSN.
 
 ## Change ordering
 
-The Azure Cosmos DB team has confirmed that vCore change streams deliver **all committed operations as change events in commit order** — a single cross-document order, the same property standard MongoDB provides via `clusterTime`. (The "per shard key" ordering documented for the separate RU-based API does not apply to vCore.)
+The Azure DocumentDB team has confirmed that vCore change streams deliver **all committed operations as change events in commit order** — a single cross-document order, the same property standard MongoDB provides via `clusterTime`. (The "per shard key" ordering documented for the separate RU-based API does not apply to vCore.)
 
 The sentinel checkpoint and write-checkpoint designs below rely on this. A checkpoint sentinel is written to a different document from the data being replicated, but because changes arrive in commit order, the sentinel's change event is delivered only after the data writes that preceded it. So committing at the sentinel is a consistent cut, and a write-checkpoint head is reached only after its data has been replicated — the same correctness argument as the standard MongoDB path, with the sentinel counter standing in for `clusterTime`.
 
 ## Checkpoint Implementations
 
-The checkpointing strategy is selected at runtime and lives behind a single interface, `CheckpointImplementation` (`CheckpointImplementation.ts`). `ChangeStream` and `MongoRouteAPIAdapter` delegate every checkpoint-specific decision to it, instead of branching on `isCosmosDb` throughout the replication loop.
+The checkpointing strategy is selected at runtime and lives behind a single interface, `CheckpointImplementation` (`CheckpointImplementation.ts`). `ChangeStream` and `MongoRouteAPIAdapter` delegate every checkpoint-specific decision to it, instead of branching on `isDocumentDb` throughout the replication loop.
 
 There are two implementations:
 
@@ -50,12 +50,12 @@ TimestampCheckpointImplementation   standard MongoDB
   plain comparable MongoLSN strings; startAtOperationTime is available as
   a resume fallback.
 
-SentinelCheckpointImplementation    sources without a usable clusterTime (Cosmos DB)
+SentinelCheckpointImplementation    sources without a usable clusterTime (DocumentDB)
   LSN coordinate is the shared _standalone_checkpoint counter, observed
-  through the change stream and encoded as CosmosDBLSN.
+  through the change stream and encoded as a SentinelLSN.
 ```
 
-Selection is by capability, not by vendor name: detection picks the implementation, and the sentinel strategy is in principle usable on any MongoDB. Everything that genuinely depends on the platform — post-image support, `fullDocument` mode, cluster- vs database-level watch — stays behind `isCosmosDb` in `ChangeStream`. Everything about _how checkpoints are produced and interpreted_ lives in the implementation.
+Selection is by capability, not by vendor name: detection picks the implementation, and the sentinel strategy is in principle usable on any MongoDB. Everything that genuinely depends on the platform — post-image support, `fullDocument` mode, cluster- vs database-level watch — stays behind `isDocumentDb` in `ChangeStream`. Everything about _how checkpoints are produced and interpreted_ lives in the implementation.
 
 The interface covers the full checkpoint lifecycle:
 
@@ -71,7 +71,7 @@ maintenance    zeroLsn, hasPosition, checkpointClearFilter
 
 The per-event interpretation methods are grouped under the `event` sub-API (`CheckpointEventApi`); each takes only the raw `ProjectedChangeStreamDocument`. The one ordering contract is that `event.observe` must be called before `event.lsn` for a given event, so the sentinel implementation's coordinate is current.
 
-## Standard MongoDB vs Cosmos DB
+## Standard MongoDB vs DocumentDB
 
 In standard MongoDB change streams, event `clusterTime` is a logical database timestamp. It is a BSON `Timestamp` with seconds and an increment. Multiple operations in the same second can still have different increments:
 
@@ -83,13 +83,13 @@ In standard MongoDB change streams, event `clusterTime` is a logical database ti
 
 That makes it suitable as the timestamp part of an LSN and as a boundary for duplicate filtering.
 
-Cosmos DB does not expose a usable `clusterTime` on the tested change events. The branch therefore derives the event timestamp from `wallTime`:
+DocumentDB does not expose a usable `clusterTime` on the tested change events. The only time-like field is `wallTime`, which can be converted to a Timestamp:
 
 ```ts
 mongo.Timestamp.fromBits(0, Math.floor(wallTime.getTime() / 1000));
 ```
 
-An observed Cosmos checkpoint update event had this shape:
+An observed DocumentDB checkpoint update event had this shape:
 
 ```json
 {
@@ -118,11 +118,11 @@ That gives every event in the same second the same timestamp:
 { seconds: 100, increment: 0 }
 ```
 
-This is acceptable as a coarse timestamp prefix, but not as a precise stream position.
+This is acceptable as a coarse timestamp but not as a precise stream position — every event in the same second collides. That is why the DocumentDB LSN coordinate is the sentinel counter (above), **not** a `wallTime`-derived timestamp. `wallTime` is still read, but only for the replication-lag metric; it is no longer part of the LSN.
 
 ## Resume Tokens
 
-The original reported issue was that Cosmos DB returned different token shapes for event-level and batch-level resume tokens:
+The original reported issue was that DocumentDB returned different token shapes for event-level and batch-level resume tokens:
 
 ```text
 changeDocument._id       {_data: ...}
@@ -151,7 +151,7 @@ true
 
 This means event-backed checkpoints can persist `changeDocument._id`, matching the standard MongoDB path. Empty-batch keepalive checkpoints still use `postBatchResumeToken`, because there is no change event document in an empty batch.
 
-Decoded Cosmos `_data` tokens appear to contain structured internal fields, for example:
+Decoded DocumentDB `_data` tokens appear to contain structured internal fields, for example:
 
 ```text
 3:0:35299946376:0:35299946376:1:0:
@@ -161,24 +161,24 @@ This is useful for debugging, but the token remains opaque. We should not parse 
 
 ## Cluster-Scoped Streams and the Source Database Change Gap
 
-Cosmos DB only supports cluster-level change streams. Collection- and database-level streams are rejected with `NamespaceNotFound` ("Collection not found"). The implementation therefore always opens the stream through `client.db('admin')` with `allChangesForCluster: true` and filters namespaces in the pipeline.
+DocumentDB only supports cluster-level change streams. Collection- and database-level streams are rejected with `NamespaceNotFound` ("Collection not found"). The implementation therefore always opens the stream through `client.db('admin')` with `allChangesForCluster: true` and filters namespaces in the pipeline.
 
-This has a side effect on resume safety. Cosmos resume tokens are cluster-scoped, so they stay valid regardless of which database the pipeline filters target:
+This has a side effect on resume safety. DocumentDB resume tokens are cluster-scoped, so they stay valid regardless of which database the pipeline filters target:
 
 ```text
 standard MongoDB
   database-scoped stream — resuming against a different source database
   invalidates the token and raises ChangeStreamInvalidatedError
 
-Cosmos DB
+DocumentDB
   cluster-scoped stream — the token stays valid when only the database
   name changes; the stream silently continues, filtered to the new
   (typically empty) database
 ```
 
-On standard MongoDB this acts as a safeguard: repointing a connection at a different source database without resyncing fails loudly and triggers a resync. On Cosmos that safeguard never fires — replication continues from the old token as if nothing changed, scoped to the new database.
+On standard MongoDB this acts as a safeguard: repointing a connection at a different source database without resyncing fails loudly and triggers a resync. On DocumentDB that safeguard never fires — replication continues from the old token as if nothing changed, scoped to the new database.
 
-This is a known detection gap, not a test environment limitation. The `resuming with a different source database` test in `resume.test.ts` is skipped on Cosmos for this reason.
+This is a known detection gap, not a test environment limitation. The `resuming with a different source database` test in `resume.test.ts` is skipped on DocumentDB for this reason.
 
 A possible future fix is to persist the source database name alongside the LSN and validate it on resume, raising `ChangeStreamInvalidatedError` on mismatch to force a resync.
 
@@ -192,7 +192,7 @@ if (startAfter != null && getEventTimestamp(event).lte(startAfter)) {
 }
 ```
 
-This guard only runs when `startAfter` is set, which only the timestamp implementation produces (from the legacy `startAtOperationTime` resume path). The sentinel implementation's `parseResumePosition` always returns `startAfter: null` and resumes exclusively via `resumeAfter`, which the server guarantees will not redeliver boundary events. So the guard is inert for the sentinel path by construction — it is not a special-case `isCosmosDb` check.
+This guard only runs when `startAfter` is set, which only the timestamp implementation produces (from the legacy `startAtOperationTime` resume path). The sentinel implementation's `parseResumePosition` always returns `startAfter: null` and resumes exclusively via `resumeAfter`, which the server guarantees will not redeliver boundary events. So the guard is inert for the sentinel path by construction — it is not a special-case `isDocumentDb` check.
 
 This is deliberate, because the guard would also be _unsafe_ if it did run with a `wallTime`-derived timestamp. `wallTime` has second precision, so a valid new event can carry the same derived timestamp as the last checkpoint:
 
@@ -205,7 +205,7 @@ new event:       { seconds: 100, increment: 0 }
 
 ## Sentinel Checkpoints
 
-Because `wallTime` is not a reliable boundary, Cosmos uses sentinel checkpoint documents.
+Because `wallTime` is not a reliable boundary, DocumentDB uses sentinel checkpoint documents.
 
 `createCheckpoint` writes to `_powersync_checkpoints` using the supplied document id and increments that document's `i` field. There are two important ids:
 
@@ -243,7 +243,7 @@ The `i` value matters because each checkpoint document is reused. It identifies 
 
 ## Embedded Global Sentinel in Barrier Documents
 
-Each Cosmos batch checkpoint (`createBatchCheckpoint`) performs two writes, to two different documents:
+Each DocumentDB batch checkpoint (`createBatchCheckpoint`) performs two writes, to two different documents:
 
 ```text
 write 1: $inc _standalone_checkpoint.i        -> global coordinate N
@@ -311,7 +311,7 @@ read-time lookup (standard MongoDB updateLookup semantics)
 
 Read-time semantics would be unsafe for the sentinel design. A backlogged stream reading an old standalone checkpoint event could observe a future counter value, commit an LSN ahead of data events it has not processed yet, and allow a write checkpoint to resolve before the caller's write has replicated.
 
-Cosmos DB does not expose `updateDescription` on update events, so the oplog-style event-time delta is not available as an alternative. The implementation must rely on `fullDocument`.
+DocumentDB does not expose `updateDescription` on update events, so the oplog-style event-time delta is not available as an alternative. The implementation must rely on `fullDocument`.
 
 Testing against a Microsoft dev cluster confirmed write-time semantics. With a change stream position captured, five rapid `$inc` writes were issued with no cursor reading, and the events were replayed afterwards:
 
@@ -320,23 +320,25 @@ writes:         i = 4, 5, 6, 7, 8
 replayed events i = 4, 5, 6, 7, 8
 ```
 
-All writes completed before the replay cursor was opened, so read-time lookup would have reported `i = 8` on every event. Each event instead carried its own value. This also confirms Cosmos does not coalesce rapid updates to the same document — five increments produced five discrete events — which sentinel barrier matching by exact `i` depends on.
+All writes completed before the replay cursor was opened, so read-time lookup would have reported `i = 8` on every event. Each event instead carried its own value. This also confirms DocumentDB does not coalesce rapid updates to the same document — five increments produced five discrete events — which sentinel barrier matching by exact `i` depends on.
 
-Despite the driver option being named `updateLookup` (Cosmos rejects `required` since it does not support `changeStreamPreAndPostImages`), the engine materializes the post-image into the change entry at write time.
+Despite the driver option being named `updateLookup` (DocumentDB rejects `required` since it does not support `changeStreamPreAndPostImages`), the engine materializes the post-image into the change entry at write time.
 
-This assumption is verified automatically by the `fullDocument on update events is the write-time post-image` test in `cosmosdb_mode.test.ts`. If a future Cosmos change moves to read-time lookups or starts coalescing updates, that test fails.
+This assumption is verified automatically by the `fullDocument on update events is the write-time post-image` test in `documentdb_mode.test.ts`. If a future DocumentDB change moves to read-time lookups or starts coalescing updates, that test fails.
 
-Note: the sample update event earlier in this document shows no `fullDocument` field — that capture was taken without the `fullDocument` option enabled, not because Cosmos cannot return it.
+Note: the sample update event earlier in this document shows no `fullDocument` field — that capture was taken without the `fullDocument` option enabled, not because DocumentDB cannot return it.
 
-## Cosmos LSN Ordering
+## DocumentDB LSN Ordering
 
-The committed Cosmos LSN now uses this shape:
+The committed DocumentDB LSN now uses this shape:
 
 ```text
 <standalone sentinel>|<resume token>
 ```
 
 The standalone sentinel is the comparable coordinate. The resume token is retained for `resumeAfter`, but remains opaque.
+
+**Encoding.** The standalone sentinel is serialized as a **16-hex-char value with the same shape as a MongoDB timestamp LSN** ({@link SentinelLSN} vs {@link MongoLSN}): the high 32 bits resemble epoch seconds, the low 32 an increment. This is deliberate — it makes a sentinel LSN string-comparable with a timestamp LSN, and because the counter is seeded in the `seconds << 32` range (see [Standalone Counter Persistence](#standalone-counter-persistence)), a fresh sentinel LSN always sorts **above** any real-timestamp LSN issued in the past. It only _resembles_ a timestamp — the value is a synthetic monotonic counter and is never used as one (the sentinel implementation resumes purely via the resume token, never `startAtOperationTime`). The `i` examples below (`100`, `101`, …) are illustrative; real values are large timestamp-shaped numbers.
 
 The standalone sentinel must be global/shared, not stream-local. A stream-local sentinel starts its own `i` sequence for each `ChangeStream` instance:
 
@@ -407,7 +409,7 @@ A consequence of bumping is that the bump's event arrives moments later carrying
 
 ## Standalone Counter Persistence
 
-The `_standalone_checkpoint` counter is the ordered component of every committed Cosmos LSN, including write checkpoint heads. It must therefore never move backwards. Two cases threaten it.
+The `_standalone_checkpoint` counter is the ordered component of every committed DocumentDB LSN, including write checkpoint heads. It must therefore never move backwards. Two cases threaten it.
 
 ### Startup cleanup
 
@@ -417,7 +419,7 @@ The `_standalone_checkpoint` counter is the ordered component of every committed
 
 The counter lives in a user-visible collection in the _source_ database, so a consumer can delete it. Dropping the whole collection is detected (the streaming loop invalidates on the collection drop event, forcing a resync). Deleting just the document is not reliably detected.
 
-To make that case safe rather than silently corrupting, `createCosmosCheckpointLsn` seeds a newly-created counter at the current epoch **seconds shifted into the high 32 bits** (`seconds << 32`, the same shape as a MongoDB timestamp) instead of at `1`:
+To make that case safe rather than silently corrupting, `createDocumentDbCheckpointLsn` seeds a newly-created counter at the current epoch **seconds shifted into the high 32 bits** (`seconds << 32`, the same shape as a MongoDB timestamp) instead of at `1`:
 
 ```text
 counter exists:  $inc i
@@ -428,7 +430,7 @@ counter missing: $setOnInsert i = (epoch_seconds << 32), then retry the $inc
 
 Seeding in the `seconds << 32` range gives two properties: a sentinel LSN sorts above any real-timestamp LSN issued in the past (its high bits are the current epoch seconds), and the seed advances by `2^32` every wall-clock second while checkpoints add `1` each — so a re-created counter always resumes _ahead_ of any previously issued coordinate, a harmless forward jump rather than a backwards reset, with no detection logic required. (The forward jump needs ≥1 second to have elapsed since the original seed; the document lives from initial sync onward, so re-creation always lands in a later second.)
 
-Verified by `standalone counter is seeded at a timestamp value on creation` in `cosmosdb_helpers.test.ts`.
+Verified by `standalone counter is seeded at a timestamp value on creation` in `documentdb_helpers.test.ts`.
 
 ## Write Checkpoint Observation
 
@@ -436,7 +438,7 @@ Managed write checkpoints associate a user/client write checkpoint with a replic
 
 For standard MongoDB, the replication head is based on `clusterTime` / `operationTime`, which is an ordered logical timestamp.
 
-For Cosmos DB, `createReplicationHead` cannot directly capture a precise `clusterTime`. An earlier fallback used the current storage checkpoint LSN as the head. That is conceptually suspect.
+For DocumentDB, `createReplicationHead` cannot directly capture a precise `clusterTime`. An earlier fallback used the current storage checkpoint LSN as the head. That is conceptually suspect.
 
 A write checkpoint head should represent the source database replication head at the time the checkpoint is requested:
 
@@ -452,7 +454,7 @@ latest source LSN already replicated into PowerSync storage
 
 Those two positions can be separated by replication lag. If a write checkpoint stores the current storage LSN, it may point behind the sentinel barrier and behind the caller's source write. In that case the write checkpoint can resolve too early, because sync may already be at or beyond the stored storage LSN before the sentinel has actually been observed.
 
-The intended Cosmos ordering is:
+The intended DocumentDB ordering is:
 
 ```text
 caller source write <= sentinel write <= future committed checkpoint
@@ -460,13 +462,13 @@ caller source write <= sentinel write <= future committed checkpoint
 
 The sentinel should force forward progress even on an idle stream, but the write checkpoint must be tied to observing that sentinel. Using the replicated storage LSN as a stand-in for the source replication head does not encode that dependency by itself.
 
-The current branch now uses the standalone checkpoint sentinel as the Cosmos write checkpoint head. `createReplicationHead` increments `_standalone_checkpoint`, converts that `i` value into a Cosmos LSN, and gives that LSN to the write checkpoint callback:
+The current branch now uses the standalone checkpoint sentinel as the DocumentDB write checkpoint head. `createReplicationHead` increments `_standalone_checkpoint`, converts that `i` value into a DocumentDB LSN, and gives that LSN to the write checkpoint callback:
 
 ```text
 caller source write <= standalone sentinel N <= future committed checkpoint at or beyond N
 ```
 
-Committed Cosmos replication checkpoints use a `CosmosDBLSN` shape:
+Committed DocumentDB replication checkpoints use a `SentinelLSN` shape:
 
 ```text
 <standalone sentinel>|<resume token>
@@ -500,12 +502,12 @@ The standalone sentinel head is tied to a source-side write the change stream ac
 
 Initial replication is currently sequential: `getSnapshotLsn` captures a resume position, the snapshot then runs to completion, and only afterwards does streaming resume from the captured position. The change stream is **not** consumed during the snapshot.
 
-Cosmos DB retains only a limited amount of change feed history (in the order of a few hundred MB). For a large or busy source, the snapshot can take long enough that the captured resume position rolls out of the retention window before streaming resumes. The `resumeAfter` then fails, and replication restarts from scratch — potentially in a loop for sources where the snapshot consistently outlasts retention.
+DocumentDB retains only a limited amount of change feed history (in the order of a few hundred MB). For a large or busy source, the snapshot can take long enough that the captured resume position rolls out of the retention window before streaming resumes. The `resumeAfter` then fails, and replication restarts from scratch — potentially in a loop for sources where the snapshot consistently outlasts retention.
 
-This is not specific to Cosmos in principle — standard MongoDB has the same shape — but MongoDB's oplog retention is typically time-based and far larger, so the window is rarely hit. Cosmos's smaller, size-bound retention makes it a practical concern.
+This is not specific to DocumentDB in principle — standard MongoDB has the same shape — but MongoDB's oplog retention is typically time-based and far larger, so the window is rarely hit. DocumentDB's smaller, size-bound retention makes it a practical concern.
 
 Buffering the change stream in memory during the snapshot is **not** an acceptable fix: the buffer is unbounded with respect to source write volume and snapshot duration, so it would risk running the replicator out of memory.
 
 The intended resolution is incremental reprocessing (see [powersync-ja/powersync-service discussion #349](https://github.com/orgs/powersync-ja/discussions/349)). A side effect of that design is that the change stream is consumed from the moment the snapshot begins, so the resume position is continuously advanced and never has the chance to age out — which addresses this limitation without an in-memory buffer.
 
-Until then, treat Cosmos initial replication as suited to datasets small enough to snapshot well within the change feed retention window.
+Until then, treat DocumentDB initial replication as suited to datasets small enough to snapshot well within the change feed retention window.

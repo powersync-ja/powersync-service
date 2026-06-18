@@ -24,10 +24,10 @@ import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStr
 import { MongoManager } from '@module/replication/MongoManager.js';
 import {
   createCheckpoint,
-  createCosmosCheckpointLsn,
+  createDocumentDbCheckpointLsn,
   STANDALONE_CHECKPOINT_ID
 } from '@module/replication/MongoRelation.js';
-import { detectCosmosDb } from '@module/replication/replication-utils.js';
+import { detectDocumentDb } from '@module/replication/replication-utils.js';
 import { NormalizedMongoConnectionConfig } from '@module/types/types.js';
 
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
@@ -54,9 +54,9 @@ export class ChangeStreamTestContext {
       streamOptions?: Partial<ChangeStreamOptions>;
       /**
        * Optional override for tests that need to force a mode. By default the
-       * test context detects Cosmos DB from the hello response.
+       * test context detects DocumentDB from the hello response.
        */
-      cosmosDbMode?: boolean;
+      documentDbMode?: boolean;
     }
   ) {
     const f = await factory({ doNotClear: options?.doNotClear });
@@ -67,9 +67,9 @@ export class ChangeStreamTestContext {
     }
 
     const storageVersion = options?.storageVersion ?? LEGACY_STORAGE_VERSION;
-    const cosmosDbMode = options?.cosmosDbMode ?? (await detectCosmosDb(connectionManager.db));
+    const documentDbMode = options?.documentDbMode ?? (await detectDocumentDb(connectionManager.db));
 
-    return new ChangeStreamTestContext(f, connectionManager, options?.streamOptions, storageVersion, cosmosDbMode);
+    return new ChangeStreamTestContext(f, connectionManager, options?.streamOptions, storageVersion, documentDbMode);
   }
 
   constructor(
@@ -77,7 +77,7 @@ export class ChangeStreamTestContext {
     public connectionManager: MongoManager,
     private streamOptions: Partial<ChangeStreamOptions> = {},
     private storageVersion: number = LEGACY_STORAGE_VERSION,
-    private cosmosDbMode: boolean = false
+    private documentDbMode: boolean = false
   ) {
     createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
     initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
@@ -196,8 +196,8 @@ export class ChangeStreamTestContext {
    */
   async markSnapshotConsistent() {
     let checkpoint: string;
-    if (this.cosmosDbMode) {
-      const sentinelCheckpoint = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(this.client, this.db));
+    if (this.documentDbMode) {
+      const sentinelCheckpoint = SentinelLSN.fromSerialized(await createDocumentDbCheckpointLsn(this.client, this.db));
       const status = await this.storage!.getStatus();
       const resumeFrom = status.checkpoint_lsn ?? status.snapshot_lsn;
       const resumeToken = resumeFrom ? SentinelLSN.fromSerialized(resumeFrom).resumeToken : null;
@@ -205,7 +205,7 @@ export class ChangeStreamTestContext {
       // This helper artificially marks the snapshot as consistent without
       // waiting for the stream to observe the sentinel. Keep the sentinel as the
       // comparable position, but carry forward the existing snapshot resume
-      // token so later Cosmos streaming still resumes from a real token.
+      // token so later DocumentDB streaming still resumes from a real token.
       checkpoint = new SentinelLSN({
         sentinel: sentinelCheckpoint.sentinel,
         resume_token: resumeToken
@@ -306,19 +306,19 @@ export async function getClientCheckpoint(
   client: mongo.MongoClient,
   db: mongo.Db,
   storageFactory: BucketStorageFactory,
-  options?: { timeout?: number; cosmosDbMode?: boolean; storage?: SyncRulesBucketStorage }
+  options?: { timeout?: number; documentDbMode?: boolean; storage?: SyncRulesBucketStorage }
 ): Promise<InternalOpId> {
   const start = Date.now();
-  const cosmosDbMode = options?.cosmosDbMode ?? (await detectCosmosDb(db));
+  const documentDbMode = options?.documentDbMode ?? (await detectDocumentDb(db));
 
-  const lsn = cosmosDbMode
-    ? await createCosmosCheckpointLsn(client, db)
+  const lsn = documentDbMode
+    ? await createDocumentDbCheckpointLsn(client, db)
     : await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID);
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 
   const timeout = options?.timeout ?? 50_000;
-  // Cosmos DB: the streaming loop skips standalone checkpoint events while a
+  // DocumentDB: the streaming loop skips standalone checkpoint events while a
   // batch barrier is pending (see ChangeStream.ts), so a single sentinel bump
   // can be missed on an idle stream with no later event to advance the
   // checkpoint. Periodically re-bump the sentinel so a standalone event
@@ -337,8 +337,8 @@ export async function getClientCheckpoint(
       }
     }
 
-    if (cosmosDbMode && Date.now() - lastNudge >= NUDGE_INTERVAL_MS) {
-      await createCosmosCheckpointLsn(client, db);
+    if (documentDbMode && Date.now() - lastNudge >= NUDGE_INTERVAL_MS) {
+      await createDocumentDbCheckpointLsn(client, db);
       lastNudge = Date.now();
     }
 

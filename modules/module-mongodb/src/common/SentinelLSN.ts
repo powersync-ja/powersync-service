@@ -4,7 +4,7 @@ import { storage } from '@powersync/service-core';
 export type SentinelLSNSpecification = {
   sentinel: bigint;
   /**
-   * Resume tokens are opaque on sentinel-based sources (e.g. Cosmos DB). The
+   * Resume tokens are opaque on sentinel-based sources (e.g. DocumentDB). The
    * sentinel component is the comparable position; this token is only used to
    * resume the change stream.
    */
@@ -22,14 +22,14 @@ const SENTINEL_HEX_LENGTH = 16;
 
 /**
  * LSN for sentinel-based checkpointing (sources without a usable clusterTime,
- * e.g. Cosmos DB). The ordered coordinate is a monotonic sentinel counter; the
+ * e.g. DocumentDB). The ordered coordinate is a monotonic sentinel counter; the
  * opaque resume token is carried alongside it only for `resumeAfter`.
  *
  * The coordinate is serialized as a 16-hex-char value with the **same shape as
  * a MongoDB timestamp LSN** ({@link MongoLSN}): the high 32 bits resemble epoch
  * seconds and the low 32 bits an increment. This is deliberate — it makes
  * sentinel LSNs directly string-comparable with timestamp LSNs, so a sentinel
- * coordinate (seeded at the current epoch seconds; see createCosmosCheckpointLsn)
+ * coordinate (seeded at the current epoch seconds; see createDocumentDbCheckpointLsn)
  * always sorts **above** any real-timestamp LSN issued in the past.
  *
  * It only *resembles* a timestamp. The value is a synthetic monotonic counter,

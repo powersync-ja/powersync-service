@@ -9,8 +9,8 @@ import {
   CheckpointEventApi,
   CheckpointImplementation,
   CheckpointImplementationContext,
+  classifyCheckpointEvent,
   descendingLsnError,
-  getCheckpointId,
   getEventTimestamp,
   StreamResumePosition
 } from './CheckpointImplementation.js';
@@ -118,16 +118,7 @@ export class TimestampCheckpointImplementation implements CheckpointImplementati
   }
 
   readonly event: CheckpointEventApi = {
-    observe: (doc) => {
-      const checkpointId = getCheckpointId(doc);
-      if (checkpointId == null) {
-        return 'foreign';
-      }
-      if (checkpointId == STANDALONE_CHECKPOINT_ID) {
-        return 'standalone';
-      }
-      return this.context.checkpointStreamId.equals(checkpointId) ? 'own-barrier' : 'foreign';
-    },
+    observe: (doc) => classifyCheckpointEvent(doc, this.context.checkpointStreamId),
 
     lsn: (doc) => {
       return new MongoLSN({

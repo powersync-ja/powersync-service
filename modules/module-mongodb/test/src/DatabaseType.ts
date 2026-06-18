@@ -1,9 +1,9 @@
-import { detectCosmosDb } from '@module/replication/replication-utils.js';
+import { detectDocumentDb } from '@module/replication/replication-utils.js';
 import { logger } from '@powersync/lib-services-framework';
 import { connectMongoData } from './util.js';
 
 export enum DatabaseType {
-  COSMOSDB = 'COSMOSDB',
+  DOCUMENTDB = 'DOCUMENTDB',
   MONGODB = 'MONGODB'
 }
 
@@ -15,7 +15,7 @@ let _databaseType: DatabaseType = DatabaseType.MONGODB;
 // in Vitest.
 const { client, db } = await connectMongoData();
 try {
-  _databaseType = (await detectCosmosDb(db)) ? DatabaseType.COSMOSDB : DatabaseType.MONGODB;
+  _databaseType = (await detectDocumentDb(db)) ? DatabaseType.DOCUMENTDB : DatabaseType.MONGODB;
 } catch (ex) {
   logger.warn(`Could not determine MongoDB database type`, ex);
 } finally {

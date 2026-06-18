@@ -111,7 +111,7 @@ describe('mongo lsn', () => {
   });
 });
 
-describe('cosmos db lsn', () => {
+describe('documentdb lsn', () => {
   test('uses sentinel as the comparable prefix', () => {
     expect(new SentinelLSN({ sentinel: 9n }).comparable < new SentinelLSN({ sentinel: 10n }).comparable).toBe(true);
     expect(new SentinelLSN({ sentinel: 10n }).comparable > new SentinelLSN({ sentinel: 9n }).comparable).toBe(true);

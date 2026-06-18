@@ -2,6 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { ReplicationHeadCallback, storage } from '@powersync/service-core';
 
+import { STANDALONE_CHECKPOINT_ID } from '../MongoRelation.js';
 import { ProjectedChangeStreamDocument } from '../RawChangeStream.js';
 
 /**
@@ -73,7 +74,7 @@ export interface CheckpointEventApi {
  *   coordinate is the oplog clusterTime, which is unique per operation and
  *   parseable from resume tokens.
  * - {@link SentinelCheckpointImplementation}: for sources without a usable clusterTime
- *   (Cosmos DB, and technically usable on any MongoDB). The ordered coordinate
+ *   (DocumentDB, and technically usable on any MongoDB). The ordered coordinate
  *   is a shared monotonic counter document, observed through the change
  *   stream itself.
  *
@@ -210,4 +211,24 @@ export function getCheckpointId(doc: ProjectedChangeStreamDocument): string | mo
     return null;
   }
   return doc.documentKey._id as string | mongo.ObjectId;
+}
+
+/**
+ * Classify a checkpoint-collection event by its document id — shared by both
+ * implementations. The sentinel implementation additionally absorbs the
+ * coordinate the event carries (keyed off the returned kind); the timestamp
+ * implementation uses this result directly.
+ */
+export function classifyCheckpointEvent(
+  doc: ProjectedChangeStreamDocument,
+  checkpointStreamId: mongo.ObjectId
+): CheckpointEventKind {
+  const checkpointId = getCheckpointId(doc);
+  if (checkpointId == null) {
+    return 'foreign';
+  }
+  if (checkpointId == STANDALONE_CHECKPOINT_ID) {
+    return 'standalone';
+  }
+  return checkpointStreamId.equals(checkpointId) ? 'own-barrier' : 'foreign';
 }

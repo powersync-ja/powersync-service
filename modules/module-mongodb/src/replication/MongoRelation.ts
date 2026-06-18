@@ -184,24 +184,25 @@ export const STANDALONE_CHECKPOINT_ID = '_standalone_checkpoint';
  *   waitForCheckpointLsn, where the loop matches by document content instead
  *   of comparing LSNs.
  *
- * This function does NOT support Cosmos DB in 'lsn' mode: it requires
- * session.operationTime, which Cosmos DB does not provide, and throws
- * (PSYNC_S1004) when it is missing. The Cosmos path builds LSNs via
- * createCosmosCheckpointLsn (sentinel-based) and only uses this function in
+ * This function does NOT support DocumentDB in 'lsn' mode: it requires
+ * session.operationTime, which DocumentDB does not provide, and throws
+ * (PSYNC_S1004) when it is missing. The DocumentDB path builds LSNs via
+ * createDocumentDbCheckpointLsn (sentinel-based) and only uses this function in
  * 'sentinel' mode, which does not read operationTime. Do not call the default
- * 'lsn' mode on a Cosmos connection.
+ * 'lsn' mode on a DocumentDB connection.
  *
  * @param mode
  *   'lsn' (default) — return a real LSN string from operationTime
  *     (standard MongoDB only).
  *   'sentinel' — return a sentinel marker for event-based matching in the
- *     streaming loop (used by the Cosmos sentinel implementation).
+ *     streaming loop (used by the DocumentDB sentinel implementation).
  * @param globalSentinel
- *   Cosmos DB only: the current standalone checkpoint counter value, embedded
+ *   DocumentDB only: the current standalone checkpoint counter value, embedded
  *   in the barrier document. This lets the stream read the global LSN
- *   coordinate from its own barrier event, without depending on the standalone
- *   checkpoint event having been delivered first — change stream ordering
- *   across different documents is not guaranteed.
+ *   coordinate straight from its own barrier event, rather than depending on
+ *   the standalone checkpoint event having been delivered first. (vCore does
+ *   deliver changes in commit order, but embedding the value removes the
+ *   dependency on cross-document delivery order entirely.)
  */
 export async function createCheckpoint(
   client: mongo.MongoClient,
@@ -243,7 +244,7 @@ async function createCheckpointInner(
 
   const update: mongo.Document = { $inc: { i: 1 } };
   if (options?.globalSentinel != null) {
-    // Cosmos DB only: embed the global standalone counter in this stream's
+    // DocumentDB only: embed the global standalone counter in this stream's
     // barrier document, so the barrier event is self-describing and does not
     // depend on the standalone event being delivered first. See the sentinel
     // implementation in CheckpointImplementation.ts.
@@ -261,9 +262,9 @@ async function createCheckpointInner(
   });
 
   if (mode === 'sentinel') {
-    // Sentinel path (Cosmos DB): the streaming loop matches this barrier by
+    // Sentinel path (DocumentDB): the streaming loop matches this barrier by
     // document content (id + increment), not by LSN comparison. operationTime
-    // is not available on Cosmos and is not needed here.
+    // is not available on DocumentDB and is not needed here.
     const i = response.value?.i;
     if (i == null) {
       // Would produce a 'sentinel:<id>:undefined' marker that the streaming
@@ -284,7 +285,7 @@ async function createCheckpointInner(
 }
 
 /**
- * Create a Cosmos DB comparable LSN by advancing the shared standalone
+ * Create a DocumentDB comparable LSN by advancing the shared standalone
  * checkpoint document. The returned LSN encodes the checkpoint counter in the
  * same 16-hex shape as a MongoDB timestamp LSN (see {@link SentinelLSN}), so the
  * two formats are directly comparable. The counter is seeded in the epoch-seconds
@@ -297,7 +298,7 @@ async function createCheckpointInner(
  * local sentinel ids are still useful as private commit barriers, but their
  * counters are not safe as client-visible LSN coordinates.
  */
-export async function createCosmosCheckpointLsn(client: mongo.MongoClient, db: mongo.Db): Promise<string> {
+export async function createDocumentDbCheckpointLsn(client: mongo.MongoClient, db: mongo.Db): Promise<string> {
   const session = client.startSession();
   try {
     const collection = db.collection('_powersync_checkpoints');

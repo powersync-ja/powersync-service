@@ -6,7 +6,7 @@ import { test_utils } from '@powersync/service-core-tests';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
 import { SentinelLSN } from '@module/common/SentinelLSN.js';
-import { createCosmosCheckpointLsn, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
+import { createDocumentDbCheckpointLsn, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '@module/replication/replication-utils.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
@@ -20,17 +20,17 @@ bucket_definitions:
       - SELECT _id as id, description FROM "test_data"
 `;
 
-// These tests require a real Cosmos DB cluster. See test/COSMOS_DB_TESTING.md for setup.
+// These tests require a real DocumentDB cluster. See test/DOCUMENTDB_TESTING.md for setup.
 //
-// Why these can't run against standard MongoDB: the Cosmos DB workarounds involve
+// Why these can't run against standard MongoDB: the DocumentDB workarounds involve
 // different change stream initialization ordering (lazy ChangeStream + no
 // startAtOperationTime) and wall-clock LSN precision (increment 0 instead of
 // operationTime's real increments). These produce LSN comparison failures when
 // mixed with standard MongoDB's operationTime-based checkpoints. A test flag that
-// partially simulates Cosmos DB creates more problems than it solves — see the
+// partially simulates DocumentDB creates more problems than it solves — see the
 // commit history on the cosmos branch for the full investigation.
-describe.skipIf(DATABASE_TYPE != DatabaseType.COSMOSDB)('cosmosDbMode', () => {
-  test('prints hello response and detects Cosmos DB', async () => {
+describe.skipIf(DATABASE_TYPE != DatabaseType.DOCUMENTDB)('documentDbMode', () => {
+  test('prints hello response and detects DocumentDB', async () => {
     const { client, db } = await connectMongoData();
     try {
       const hello = await db.command({ hello: 1 });
@@ -41,7 +41,7 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.COSMOSDB)('cosmosDbMode', () => {
     }
   });
 
-  // Verifies a core assumption of the Cosmos sentinel LSN design: that
+  // Verifies a core assumption of the DocumentDB sentinel LSN design: that
   // `fullDocument` on update events is the write-time post-image, not a
   // read-time lookup of the document's current state.
   //
@@ -55,7 +55,7 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.COSMOSDB)('cosmosDbMode', () => {
   // The test bursts increments while no cursor is reading, then replays the
   // events. Write-time semantics yield one event per increment, each carrying
   // its own value. Read-time semantics yield events all reporting the final
-  // value. Collapsed/missing events would indicate Cosmos coalesces rapid
+  // value. Collapsed/missing events would indicate DocumentDB coalesces rapid
   // same-document updates, which would be its own significant finding.
   test('fullDocument on update events is the write-time post-image', { timeout: 120_000 }, async () => {
     const { client, db } = await connectMongoData();
@@ -78,7 +78,7 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.COSMOSDB)('cosmosDbMode', () => {
       // below starts cleanly before the burst.
       //
       // The stream only delivers events written after the cursor is
-      // established (Cosmos has no startAtOperationTime), and the driver opens
+      // established (DocumentDB has no startAtOperationTime), and the driver opens
       // the cursor lazily on the first read. So keep writing priming
       // increments until the first event comes through — the same approach the
       // production retry loop uses during initial LSN acquisition.
@@ -157,19 +157,19 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.COSMOSDB)('cosmosDbMode', () => {
     }
   });
 
-  // Empirically probe whether Cosmos delivers change events for *different*
+  // Empirically probe whether DocumentDB delivers change events for *different*
   // documents in the order they were written.
   //
-  // Cosmos only guarantees change order per shard key (RU docs) / nothing
+  // DocumentDB only guarantees change order per shard key (RU docs) / nothing
   // documented (vCore) — not globally. The sentinel write-checkpoint design
   // assumes no cross-document order: a write checkpoint head is the
   // `_standalone_checkpoint` sentinel, and the caller's data write lives in a
   // different document. If the sentinel event can be delivered *before* the
   // data write that preceded it, a write checkpoint can resolve before its data
-  // has replicated (see docs/cosmos-db-outstanding-items.md).
+  // has replicated (see docs/documentdb/documentdb-outstanding-items.md).
   //
   // This reproduces that exact scenario using the real checkpointing write path
-  // (createCosmosCheckpointLsn): each round writes a data document, then bumps
+  // (createDocumentDbCheckpointLsn): each round writes a data document, then bumps
   // the standalone sentinel, and we record the delivery order off a single
   // cluster-level change stream.
   //
@@ -198,7 +198,7 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.COSMOSDB)('cosmosDbMode', () => {
 
       const cursor = client.watch(pipeline, { fullDocument: 'updateLookup', maxAwaitTimeMS: 500 });
       try {
-        // Prime the cursor (Cosmos has no startAtOperationTime, and the driver
+        // Prime the cursor (DocumentDB has no startAtOperationTime, and the driver
         // opens the cursor lazily) by writing the data doc with descending
         // negative seqs until an event comes through, then drain the backlog.
         const primeDeadline = Date.now() + 60_000;
@@ -224,7 +224,7 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.COSMOSDB)('cosmosDbMode', () => {
           await data.updateOne({ _id: dataId }, { $set: { seq: round } });
           issued.push({ label: `D${round}`, kind: 'data', round });
 
-          const sentinel = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(client, db)).sentinel;
+          const sentinel = SentinelLSN.fromSerialized(await createDocumentDbCheckpointLsn(client, db)).sentinel;
           issued.push({ label: `S${round}`, kind: 'sentinel', round, sentinel });
           sentinelValueToRound.set(sentinel.toString(), round);
         }
@@ -296,7 +296,7 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.COSMOSDB)('cosmosDbMode', () => {
 
         // We expect to receive every issued event within the deadline.
         expect(arrivals.length, 'did not receive all issued events before the deadline').toBe(issued.length);
-        // Per-document ordering is the one guarantee Cosmos documents — assert it.
+        // Per-document ordering is the one guarantee DocumentDB documents — assert it.
         expect(dataOrderPreserved, 'data-document events arrived out of order').toBe(true);
         expect(sentinelOrderPreserved, 'sentinel-document events arrived out of order').toBe(true);
         // Cross-document order is intentionally NOT asserted; inversions (if any)
@@ -381,7 +381,7 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.COSMOSDB)('cosmosDbMode', () => {
         for (let round = 1; round <= ROUNDS; round++) {
           await data.updateOne({ _id: dataId }, { $set: { seq: round } });
           issued.push({ label: `D${round}`, round });
-          const sentinel = SentinelLSN.fromSerialized(await createCosmosCheckpointLsn(client, db)).sentinel;
+          const sentinel = SentinelLSN.fromSerialized(await createDocumentDbCheckpointLsn(client, db)).sentinel;
           issued.push({ label: `S${round}`, round });
           sentinelValueToRound.set(sentinel.toString(), round);
         }
@@ -463,12 +463,12 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.COSMOSDB)('cosmosDbMode', () => {
     }
   });
 
-  // 120s timeout — remote Cosmos DB clusters can have 10-30s latency spikes
+  // 120s timeout — remote DocumentDB clusters can have 10-30s latency spikes
   // for change stream delivery. Tests that poll for data need headroom.
-  describeWithStorage({ timeout: 120_000 }, defineCosmosDbModeTests);
+  describeWithStorage({ timeout: 120_000 }, defineDocumentDBDbModeTests);
 });
 
-function defineCosmosDbModeTests({ factory, storageVersion }: StorageVersionTestContext) {
+function defineDocumentDBDbModeTests({ factory, storageVersion }: StorageVersionTestContext) {
   const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
     return ChangeStreamTestContext.open(factory, {
       ...options,
@@ -479,7 +479,7 @@ function defineCosmosDbModeTests({ factory, storageVersion }: StorageVersionTest
     });
   };
 
-  test('basic replication in cosmosDbMode', async () => {
+  test('basic replication in documentDbMode', async () => {
     await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(`
@@ -527,7 +527,7 @@ bucket_definitions:
     const insertedId = insertResult.insertedId.toHexString();
 
     // getCheckpoint() internally calls createCheckpoint, which should return a sentinel
-    // format on Cosmos DB. The streaming loop must resolve it by matching the sentinel event.
+    // format on DocumentDB. The streaming loop must resolve it by matching the sentinel event.
     const checkpoint = await context.getCheckpoint();
     expect(checkpoint).toBeTruthy();
 
@@ -535,7 +535,7 @@ bucket_definitions:
     expect(data).toMatchObject([test_utils.putOp('test_data', { id: insertedId, description: 'sentinel_test' })]);
   });
 
-  // Cosmos DB does not support $changeStreamSplitLargeEvent, so large change
+  // DocumentDB does not support $changeStreamSplitLargeEvent, so large change
   // events cannot be split into fragments the way the standard MongoDB path
   // does. This verifies that a large document still replicates end-to-end —
   // both on insert (the event carries the full document) and on update
@@ -547,14 +547,14 @@ bucket_definitions:
   // or above that limit are dropped by bucket storage regardless of source DB
   // ("Row too large ... Removing"), so the persisted value cannot approach the
   // 16 MiB BSON document limit. 14 MiB still forces a large change event
-  // through the Cosmos stream while keeping the projected row under the limit.
+  // through the DocumentDB stream while keeping the projected row under the limit.
   // Assertions check the payload length rather than inlining a 14MB string.
-  // Note: Cosmos DB delivers large change events very slowly (observed ~18s to fetch a
+  // Note: DocumentDB delivers large change events very slowly (observed ~18s to fetch a
   // single ~14 MiB event), so this test allows generous checkpoint timeouts. See
-  // docs/cosmos-db-limitations.md.
+  // docs/documentdb/documentdb-limitations.md.
   test(
     'replicates a large document near the row size limit',
-    // Fetching the large row takes very long in CosmosDB cloud
+    // Fetching the large row takes very long in DocumentDBDB cloud
     { timeout: 120_000 },
     async () => {
       await using context = await openContext();
@@ -579,7 +579,7 @@ bucket_definitions:
       const insertResult = await collection.insertOne({ marker: 'big_insert', payload: largePayload });
       const id = insertResult.insertedId.toHexString();
 
-      // Large events are slow to fetch on Cosmos, so allow well beyond the 15s default.
+      // Large events are slow to fetch on DocumentDB, so allow well beyond the 15s default.
       const afterInsert = await context.getBucketData('global[]', undefined, { timeout: 50_000 });
       expect(afterInsert.length).toEqual(1);
       const insertData = JSON.parse(afterInsert[0].data as string);
@@ -590,7 +590,7 @@ bucket_definitions:
       // fullDocument on the change event is still ~15MB.
       await collection.updateOne({ _id: insertResult.insertedId }, { $set: { marker: 'big_update' } });
 
-      // Fetching the large row takes very long in CosmosDB cloud
+      // Fetching the large row takes very long in DocumentDBDB cloud
       const afterUpdate = await context.getBucketData('global[]', undefined, { timeout: 50_000 });
       expect(afterUpdate.length).toEqual(2);
       const updateData = JSON.parse(afterUpdate[1].data as string);
@@ -599,7 +599,7 @@ bucket_definitions:
     }
   );
 
-  test('keepalive in cosmosDbMode', async () => {
+  test('keepalive in documentDbMode', async () => {
     await using context = await openContext({
       streamOptions: {
         keepaliveIntervalMs: 2000
@@ -617,8 +617,8 @@ bucket_definitions:
     await context.getCheckpoint({ timeout: 50_000 });
 
     // Wait past the keepalive interval so the idle keepalive path fires.
-    // On Cosmos DB, this must NOT crash from parseResumeTokenTimestamp
-    // (Cosmos DB resume tokens are base64, not hex).
+    // On DocumentDB, this must NOT crash from parseResumeTokenTimestamp
+    // (DocumentDB resume tokens are base64, not hex).
     await setTimeout(3000);
 
     // Insert data after the keepalive interval to verify the stream is still alive
@@ -631,7 +631,7 @@ bucket_definitions:
     expect(JSON.parse(lastOp.data as string)).toMatchObject({ description: 'after_keepalive' });
   });
 
-  test('respects maxAwaitTimeMS for idle getMore calls in cosmosDbMode', async () => {
+  test('respects maxAwaitTimeMS for idle getMore calls in documentDbMode', async () => {
     const maxAwaitTimeMS = 2_000;
 
     await using context = await openContext({
@@ -640,7 +640,7 @@ bucket_definitions:
       }
     });
 
-    // Cosmos DB uses a cluster-level change stream through client.db('admin'), so
+    // DocumentDB uses a cluster-level change stream through client.db('admin'), so
     // spying on only context.db.command would miss the getMore calls. Spying on
     // the Db prototype captures command calls from both the test DB and admin DB
     // while still delegating to the real MongoDB driver implementation.
@@ -724,7 +724,7 @@ bucket_definitions:
     }
   });
 
-  test('write checkpoint flow in cosmosDbMode', async () => {
+  test('write checkpoint flow in documentDbMode', async () => {
     await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -748,7 +748,7 @@ bucket_definitions:
     // Insert data so the stream has something to process
     await collection.insertOne({ description: 'write_cp_test' });
 
-    // Exercise the write checkpoint flow. On Cosmos DB, createReplicationHead
+    // Exercise the write checkpoint flow. On DocumentDB, createReplicationHead
     // advances the standalone checkpoint sentinel and uses the resulting
     // sentinel-based LSN as the source-side head. The sentinel write also
     // nudges replication forward on an idle stream.
@@ -767,8 +767,8 @@ bucket_definitions:
 
   test('data events not dropped after restart (lte guard)', async () => {
     // Verifies that the .lte() dedup guard in streamChangesInternal does NOT
-    // drop data events on Cosmos DB after restart. On Cosmos DB, wallTime has
-    // second precision (increment 0). Without the isCosmosDb guard, events
+    // drop data events on DocumentDB after restart. On DocumentDB, wallTime has
+    // second precision (increment 0). Without the isDocumentDb guard, events
     // within the same wall-clock second as the last checkpoint would be silently
     // dropped — causing data loss.
     //
@@ -816,7 +816,7 @@ bucket_definitions:
     // We bypass the flaky getClientCheckpoint timing by polling until the data appears
     // or the timeout expires. If the .lte() guard drops same-second events, the data
     // will never appear — deterministic failure.
-    // 50s timeout — remote Cosmos DB clusters can have 10-30s latency spikes.
+    // 50s timeout — remote DocumentDB clusters can have 10-30s latency spikes.
     const deadline = Date.now() + 50_000;
     let found = false;
     while (Date.now() < deadline) {
@@ -841,7 +841,7 @@ bucket_definitions:
     ).toBe(true);
   });
 
-  test('resume after restart in cosmosDbMode', async () => {
+  test('resume after restart in documentDbMode', async () => {
     // Phase 1: replicate some data, then stop
     await using context = await openContext();
     const { db } = context;
@@ -888,10 +888,10 @@ bucket_definitions:
     const result2 = await collection2.insertOne({ description: 'after_restart' });
     const id2 = result2.insertedId;
 
-    // On Cosmos DB, wall-clock LSNs have second precision and stored LSNs may
+    // On DocumentDB, wall-clock LSNs have second precision and stored LSNs may
     // include resume-token suffixes. Avoid creating a fresh sentinel checkpoint
     // on every poll; read at the latest persisted checkpoint instead.
-    // 50s timeout — remote Cosmos DB clusters can have 10-30s latency spikes.
+    // 50s timeout — remote DocumentDB clusters can have 10-30s latency spikes.
     const deadline = Date.now() + 50_000;
     let found = false;
     while (Date.now() < deadline) {

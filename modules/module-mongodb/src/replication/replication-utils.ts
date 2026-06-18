@@ -9,35 +9,35 @@ export const CHECKPOINTS_COLLECTION = '_powersync_checkpoints';
 const REQUIRED_CHECKPOINT_PERMISSIONS = ['find', 'insert', 'update', 'remove', 'changeStream', 'createCollection'];
 
 /**
- * Whether a `hello` response indicates Azure Cosmos DB for MongoDB vCore /
- * DocumentDB. Older clusters report `cosmos_versions`; newer ones report
- * `documentdb_versions` after Microsoft's rename.
+ * Whether a `hello` response indicates Azure DocumentDB (formerly Azure Cosmos
+ * DB for MongoDB vCore). Older clusters report `cosmos_versions`; newer ones
+ * report `documentdb_versions` after Microsoft's rename.
  */
-function isCosmosDbHello(hello: mongo.Document): boolean {
+function isDocumentDbHello(hello: mongo.Document): boolean {
   return hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
 }
 
 /**
- * Detect whether the connected server is Cosmos DB. Cosmos lacks usable
+ * Detect whether the connected server is DocumentDB. DocumentDB lacks usable
  * clusterTime/operationTime and uses the sentinel checkpoint implementation.
  */
-export async function detectCosmosDb(db: mongo.Db): Promise<boolean> {
+export async function detectDocumentDb(db: mongo.Db): Promise<boolean> {
   const hello = await db.command({ hello: 1 });
-  return isCosmosDbHello(hello);
+  return isDocumentDbHello(hello);
 }
 
 export async function checkSourceConfiguration(connectionManager: MongoManager): Promise<void> {
   const db = connectionManager.db;
 
   const hello = await db.command({ hello: 1 });
-  const isCosmosDb = isCosmosDbHello(hello);
+  const isDocumentDb = isDocumentDbHello(hello);
 
-  if (hello.msg == 'isdbgrid' && !isCosmosDb) {
+  if (hello.msg == 'isdbgrid' && !isDocumentDb) {
     throw new ServiceError(
       ErrorCode.PSYNC_S1341,
       'Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).'
     );
-  } else if (hello.setName == null && !isCosmosDb) {
+  } else if (hello.setName == null && !isDocumentDb) {
     throw new ServiceError(ErrorCode.PSYNC_S1342, 'Standalone MongoDB instances are not supported - use a replicaset.');
   }
 

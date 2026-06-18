@@ -2,4 +2,4 @@
 '@powersync/service-module-mongodb': minor
 ---
 
-Add experimental Cosmos DB MongoDB vCore support.
+Add experimental Azure DocumentDB (formerly Cosmos DB for MongoDB vCore) support.

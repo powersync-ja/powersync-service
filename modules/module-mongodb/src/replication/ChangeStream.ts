@@ -34,7 +34,7 @@ import {
   ProjectedChangeStreamDocument,
   rawChangeStream
 } from './RawChangeStream.js';
-import { CHECKPOINTS_COLLECTION, detectCosmosDb, timestampToDate } from './replication-utils.js';
+import { CHECKPOINTS_COLLECTION, detectDocumentDb, timestampToDate } from './replication-utils.js';
 import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -121,7 +121,7 @@ export class ChangeStream {
 
   private keepaliveIntervalMs: number;
 
-  private isCosmosDb = false;
+  private isDocumentDb = false;
   private _checkpointImplementation: CheckpointImplementation | null = null;
 
   constructor(options: ChangeStreamOptions) {
@@ -185,7 +185,7 @@ export class ChangeStream {
   }
 
   /**
-   * Detect Cosmos DB and select the checkpoint implementation for the streaming
+   * Detect DocumentDB and select the checkpoint implementation for the streaming
    * loop. Idempotent. The snapshotter detects independently; the two coordinate
    * through stored LSNs, not shared in-memory state.
    */
@@ -193,8 +193,8 @@ export class ChangeStream {
     if (this._checkpointImplementation != null) {
       return;
     }
-    this.isCosmosDb = await detectCosmosDb(this.defaultDb);
-    this._checkpointImplementation = createCheckpointImplementation(this.isCosmosDb, {
+    this.isDocumentDb = await detectDocumentDb(this.defaultDb);
+    this._checkpointImplementation = createCheckpointImplementation(this.isDocumentDb, {
       client: this.client,
       db: this.defaultDb,
       checkpointStreamId: this.checkpointStreamId,
@@ -243,13 +243,13 @@ export class ChangeStream {
     // https://github.com/powersync-ja/powersync-service/pull/417
     // https://jira.mongodb.org/browse/SERVER-114532
     //
-    // Cosmos DB always opens a cluster-level change stream (admin +
+    // DocumentDB always opens a cluster-level change stream (admin +
     // allChangesForCluster), even in single-database mode. A coll-only filter
     // would then match same-named collections (including _powersync_checkpoints)
     // in other databases of the cluster, letting a foreign standalone-checkpoint
     // event advance/resolve checkpoints against the wrong source database. So we
     // must filter on the full namespace whenever the stream is cluster-scoped.
-    const useFullNamespaceFilter = this.isCosmosDb || multipleDatabases;
+    const useFullNamespaceFilter = this.isDocumentDb || multipleDatabases;
     const nsFilter = useFullNamespaceFilter
       ? // cluster-level: filter on the entire namespace
         { ns: { $in: $inFilters } }
@@ -499,8 +499,8 @@ export class ChangeStream {
 
     let fullDocument: 'required' | 'updateLookup';
 
-    if (this.isCosmosDb) {
-      // Cosmos DB does not support changeStreamPreAndPostImages, so 'required' won't work.
+    if (this.isDocumentDb) {
+      // DocumentDB does not support changeStreamPreAndPostImages, so 'required' won't work.
       fullDocument = 'updateLookup';
     } else if (this.usePostImages) {
       // 'read_only' or 'auto_configure'
@@ -513,8 +513,8 @@ export class ChangeStream {
     const streamOptions: mongo.ChangeStreamOptions & mongo.Document = {
       fullDocument: fullDocument
     };
-    if (!this.isCosmosDb) {
-      // Cosmos DB does not support showExpandedEvents.
+    if (!this.isDocumentDb) {
+      // DocumentDB does not support showExpandedEvents.
       streamOptions.showExpandedEvents = true;
     }
     const pipeline: mongo.Document[] = [
@@ -525,8 +525,8 @@ export class ChangeStream {
         $match: filters.$match
       }
     ];
-    if (!this.isCosmosDb) {
-      // Cosmos DB does not support $changeStreamSplitLargeEvent.
+    if (!this.isDocumentDb) {
+      // DocumentDB does not support $changeStreamSplitLargeEvent.
       pipeline.push({ $changeStreamSplitLargeEvent: {} });
     }
 
@@ -539,14 +539,14 @@ export class ChangeStream {
       // Legacy: We don't persist lsns without resumeTokens anymore, but we do still handle the
       // case if we have an old one.
       // This is also relevant for getSnapshotLSN().
-      // The sentinel implementation never produces a startAfter, and a fresh Cosmos stream
+      // The sentinel implementation never produces a startAfter, and a fresh DocumentDB stream
       // opens from "now" with neither option set.
       streamOptions.startAtOperationTime = startAfter;
     }
 
     let watchDb: mongo.Db;
-    if (this.isCosmosDb || filters.multipleDatabases) {
-      // Cosmos DB only supports cluster-level change streams.
+    if (this.isDocumentDb || filters.multipleDatabases) {
+      // DocumentDB only supports cluster-level change streams.
       watchDb = this.client.db('admin');
       streamOptions.allChangesForCluster = true;
     } else {
@@ -825,7 +825,7 @@ export class ChangeStream {
               const tablesToReplicate = tables.filter((table) => table.syncAny);
               if (tablesToReplicate.length > 0) {
                 this.replicationLag.trackUncommittedChange(
-                  // Standard MongoDB uses clusterTime, unchanged. Cosmos DB has no
+                  // Standard MongoDB uses clusterTime, unchanged. DocumentDB has no
                   // clusterTime, so fall back to wallTime there for the lag metric.
                   changeDocument.clusterTime != null
                     ? timestampToDate(changeDocument.clusterTime)
