@@ -146,14 +146,12 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     const storageIds = this.storageIds;
     for (const source of storageIds.bucketDefinitionIds) {
       const collection = this.db.bucketData(this.replicationStreamId, source).collectionName;
-      await this.db.db
-        .createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
-        .catch((error) => {
-          if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceExists') {
-            return;
-          }
-          throw error;
-        });
+      await this.db.db.createCollection(collection, {}).catch((error) => {
+        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceExists') {
+          return;
+        }
+        throw error;
+      });
     }
     for (const indexId of storageIds.parameterIndexIds) {
       await this.db.parameterIndex(this.replicationStreamId, indexId).createIndex(
