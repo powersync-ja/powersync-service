@@ -9,6 +9,8 @@
 '@powersync/service-module-mssql': minor
 '@powersync/service-module-mysql': minor
 '@powersync/lib-service-postgres': minor
+'@powersync/service-types': minor
+'@powersync/service-errors': patch
 ---
 
-[Experimental] Enable incremental reprocessing for MongoDB source + MongoDB storage
+[Experimental] Enable incremental reprocessing for MongoDB source + MongoDB storage. This includes significant changes to the v3 storage format.
