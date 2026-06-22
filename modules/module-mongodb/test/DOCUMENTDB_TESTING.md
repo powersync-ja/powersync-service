@@ -100,7 +100,3 @@ that documents the current limitation: it writes DDL plus a post-DDL marker, wai
 (proving the stream caught up), then asserts no `drop` / `rename` events were delivered. It passes
 today and **fails if a future DocumentDB engine starts delivering DDL events** — a signal to add
 real drop/rename replication support.
-
-## Known Issues
-
-- **Propagation delay**: DocumentDB has a variable delay between accepting a write and making it visible on the change stream cursor (internal propagation, not network latency). Against remote clusters this can take 10-30s during spikes. Tests use 50s poll deadlines and 120s test timeouts to handle this. Co-located deployments would be much faster.
