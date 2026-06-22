@@ -104,4 +104,3 @@ real drop/rename replication support.
 ## Known Issues
 
 - **Propagation delay**: DocumentDB has a variable delay between accepting a write and making it visible on the change stream cursor (internal propagation, not network latency). Against remote clusters this can take 10-30s during spikes. Tests use 50s poll deadlines and 120s test timeouts to handle this. Co-located deployments would be much faster.
-- **DocumentDB cluster availability**: The tests require a reachable DocumentDB cluster. If the cluster is down or unreachable (TLS timeout), all integration tests will fail with connection errors.
