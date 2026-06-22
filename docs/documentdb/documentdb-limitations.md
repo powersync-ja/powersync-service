@@ -66,10 +66,6 @@ On standard MongoDB, repointing a connection at a different source database inva
 
 If you change the source database for an existing connection, trigger a resync manually.
 
-## Throughput and latency
-
-DocumentDB's change stream historically delivered events more slowly than standard MongoDB (one operation per poll, with idle polls returning immediately). Microsoft has since added long-polling (`maxAwaitTime`) and event batching. Throughput and latency for high-write workloads should be validated against your target cluster, as these capabilities depend on the DocumentDB version in use.
-
 ## Operational note: the internal checkpoints collection
 
-PowerSync maintains a `_powersync_checkpoints` collection in the source database for replication bookkeeping. Do not drop it or delete its documents: doing so disrupts replication (dropping the collection forces a resync; the implementation defends against the standalone counter document being deleted, but deleting it should still be avoided).
+PowerSync maintains a `_powersync_checkpoints` collection in the source database for replication bookkeeping. Do not drop it or delete its documents: doing so disrupts replication (dropping the collection forces a resync; the implementation defends against the sentinel counter document being deleted, but deleting it should still be avoided).
