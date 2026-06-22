@@ -6,6 +6,8 @@ export interface S3ObjectStorageOptions {
   region: string;
   prefix?: string;
   endpoint?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
 }
 
 export class S3ObjectStorage implements ObjectStorage {
@@ -19,7 +21,11 @@ export class S3ObjectStorage implements ObjectStorage {
     this.client = new S3Client({
       region: options.region,
       endpoint: options.endpoint,
-      forcePathStyle: !!options.endpoint
+      forcePathStyle: !!options.endpoint,
+      credentials:
+        options.accessKeyId && options.secretAccessKey
+          ? { accessKeyId: options.accessKeyId, secretAccessKey: options.secretAccessKey }
+          : undefined
     });
   }
 
