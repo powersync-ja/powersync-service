@@ -57,9 +57,11 @@ export class SourceTable {
   public syncParameters = true;
 
   /**
-   * True if the table is used in sync config for events.
+   * True if this table should fire events for row changes.
    *
-   * This value is resolved externally, and cached here.
+   * This value is resolved externally, and cached here. When multiple SourceTables exist
+   * for the same SourceTableRef (v3 storage), resolveTables designates exactly one of them
+   * as the event carrier, so that a row change saved once per table fires each event once.
    *
    * Defaults to true for tests.
    */

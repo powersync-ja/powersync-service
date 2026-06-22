@@ -8,7 +8,9 @@
 '@powersync/service-core': minor
 '@powersync/service-module-mssql': minor
 '@powersync/service-module-mysql': minor
+'@powersync/lib-service-postgres': minor
+'@powersync/service-types': minor
 '@powersync/service-errors': patch
 ---
 
-[Internal] Restructure storage models to support multiple sync configs per replication stream.
+[Experimental] Enable incremental reprocessing for MongoDB source + MongoDB storage. This includes significant changes to the v3 storage format.

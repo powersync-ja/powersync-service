@@ -6,9 +6,9 @@ import {
   InternalOpId,
   isPartialChecksum,
   PartialChecksumMap,
-  PartialOrFullChecksum
+  PartialOrFullChecksum,
+  SingleSyncConfigBucketDefinitionMapping
 } from '@powersync/service-core';
-import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import {
   checksumFromAggregate,
   emptyChecksumForRequest,
@@ -20,14 +20,35 @@ import {
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { BucketDataDocumentV3 } from './models.js';
 
-export class MongoChecksumsV3 extends MongoChecksums {
-  private readonly mapping: BucketDefinitionMapping;
+/**
+ * Checksum operations addressed by persisted definition id.
+ *
+ * Safe on any storage instance, including multi-config replication-side instances - no
+ * source resolution is involved. This is the only checksum surface the compactor may use.
+ */
+export interface DefinitionChecksumOperations {
+  computePartialChecksumsDirectByDefinition(
+    batch: FetchPartialBucketChecksumByDefinition[]
+  ): Promise<PartialChecksumMap>;
+}
 
+export interface MongoChecksumOptionsV3 extends MongoChecksumOptions {
+  /**
+   * The persisted mapping of the single sync config that reads are served from.
+   *
+   * A thunk rather than a plain value: checksums are constructed eagerly with the storage
+   * instance, but the single-config requirement may only be asserted when a read happens.
+   */
+  syncConfigMapping: () => SingleSyncConfigBucketDefinitionMapping;
+}
+
+export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecksumOperations {
   declare protected readonly db: VersionedPowerSyncMongoV3;
+  private readonly syncConfigMapping: () => SingleSyncConfigBucketDefinitionMapping;
 
-  constructor(db: VersionedPowerSyncMongoV3, group_id: number, options: MongoChecksumOptions) {
+  constructor(db: VersionedPowerSyncMongoV3, group_id: number, options: MongoChecksumOptionsV3) {
     super(db, group_id, options);
-    this.mapping = options.mapping!;
+    this.syncConfigMapping = options.syncConfigMapping;
   }
 
   async computePartialChecksumsDirectByDefinition(
@@ -62,7 +83,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
   ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>> {
     const normalizedBatch = batch.map((request) => ({
       bucket: request.bucket,
-      definitionId: this.mapping.bucketSourceId(request.source),
+      definitionId: this.syncConfigMapping().bucketSourceId(request.source),
       start: request.start,
       end: request.end
     }));
@@ -107,7 +128,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
   protected async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
     const normalized = batch.map((request) => ({
       bucket: request.bucket,
-      definitionId: this.mapping.bucketSourceId(request.source),
+      definitionId: this.syncConfigMapping().bucketSourceId(request.source),
       start: request.start,
       end: request.end
     }));

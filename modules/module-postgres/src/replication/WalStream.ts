@@ -311,7 +311,7 @@ export class WalStream {
     const slotName = this.slot_name;
 
     const status = await this.storage.getStatus();
-    const snapshotDone = status.snapshot_done && status.checkpoint_lsn != null;
+    const snapshotDone = status.snapshotDone;
     if (snapshotDone) {
       // Snapshot is done, but we still need to check the replication slot status
       this.logger.info(`Initial replication already done`);

@@ -1,7 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { addChecksums, storage, utils } from '@powersync/service-core';
-import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
+import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketDataDocumentGeneric, SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
@@ -10,7 +10,7 @@ import { cacheKey } from '../OperationBatch.js';
 import { loadBucketDataDocument, serializeBucketData } from './bucket-format.js';
 import { chunkBucketData } from './chunking.js';
 import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
-import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
+import { DefinitionChecksumOperations, MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
@@ -57,10 +57,18 @@ export class MongoCompactorV3 extends MongoCompactor {
       });
   }
 
+  /**
+   * The compactor operates on persisted definition ids only - never on parsed sources.
+   * This narrowed view makes the source-resolving checksum methods unreachable here.
+   */
+  private get definitionChecksums(): DefinitionChecksumOperations {
+    return this.storage.checksums as MongoChecksumsV3;
+  }
+
   protected async computeChecksumsForBuckets(
     buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
   ): Promise<storage.PartialChecksumMap> {
-    return (this.storage.checksums as MongoChecksumsV3).computePartialChecksumsDirectByDefinition(
+    return this.definitionChecksums.computePartialChecksumsDirectByDefinition(
       buckets.map(({ bucket, definitionId }) => {
         if (definitionId == null) {
           throw new ServiceAssertionError(`Missing definitionId for bucket checksum update on bucket ${bucket}`);
@@ -96,7 +104,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     let resolvedDefinitionId = definitionId;
 
     if (resolvedDefinitionId == null) {
-      const allDefinitionIds = this.storage.mapping.allBucketDefinitionIds();
+      const allDefinitionIds = this.storage.storageIds.bucketDefinitionIds;
       if (allDefinitionIds.length > 0) {
         const potentialIds = allDefinitionIds.map((id) => ({ d: id, b: bucket }));
         const bucketState = await this.db.bucketState(this.group_id).findOne({

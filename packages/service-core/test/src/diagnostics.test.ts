@@ -58,9 +58,8 @@ function makeSystemStorage() {
   return {
     async getStatus() {
       return {
-        snapshot_done: true,
-        checkpoint_lsn: 'some_lsn',
-        active: true
+        snapshotDone: true,
+        resumeLsn: 'some_lsn'
       };
     }
   } as storage.SyncRulesBucketStorage;
@@ -96,7 +95,8 @@ function makeRouteAPI(walBudget?: SlotWalBudgetInfo | undefined): RouteAPI {
 const OPTIONS: DiagnosticsOptions = {
   live_status: true,
   check_connection: true,
-  include_content: false
+  include_content: false,
+  active: true
 };
 
 describe('getSyncRulesStatus WAL budget warnings', () => {

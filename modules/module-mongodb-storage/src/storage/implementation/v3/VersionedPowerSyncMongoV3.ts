@@ -32,20 +32,25 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
     return this.listCollectionsByPrefix<CurrentDataDocumentV3>(`source_records_${replicationStreamId}_`);
   }
 
-  async initializeSourceRecordsCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
+  async initializeSourceRecordsCollection(
+    replicationStreamId: number,
+    sourceTableId: mongo.ObjectId,
+    session?: mongo.ClientSession
+  ) {
     await this.sourceRecords(replicationStreamId, sourceTableId).createIndex(
       {
         pending_delete: 1
       },
       {
         partialFilterExpression: { pending_delete: { $exists: true } },
-        name: 'pending_delete'
+        name: 'pending_delete',
+        session
       }
     );
   }
 
   commonSourceTables(replicationStreamId: number): mongo.Collection<CommonSourceTableDocument> {
-    return this.sourceTables(replicationStreamId) as mongo.Collection<CommonSourceTableDocument>;
+    return this.sourceTables(replicationStreamId) as any as mongo.Collection<CommonSourceTableDocument>;
   }
 
   bucketState(replicationStreamId: number): mongo.Collection<BucketStateDocumentV3> {

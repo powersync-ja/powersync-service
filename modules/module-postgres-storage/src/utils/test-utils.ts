@@ -73,7 +73,7 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
 
     await using storageFactory = new PostgresBucketStorageFactory({
       config: TEST_CONNECTION_OPTIONS,
-      slot_name_prefix: 'test_'
+      replicationStreamNamePrefix: 'test_'
     });
     await truncateTables(storageFactory.db);
   };
@@ -102,7 +102,7 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
 
         return new PostgresBucketStorageFactory({
           config: TEST_CONNECTION_OPTIONS,
-          slot_name_prefix: 'test_'
+          replicationStreamNamePrefix: 'test_'
         });
       } catch (ex) {
         // Vitest does not display these errors nicely when using the `await using` syntx
