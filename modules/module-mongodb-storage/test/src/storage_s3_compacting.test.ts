@@ -19,7 +19,7 @@ function s3Factory() {
   const factory = mongoTestStorageFactoryGenerator({
     url: env.MONGO_TEST_URL,
     isCI: env.CI,
-    internalOptions: { objectStorage: memoryStorage }
+    internalOptions: { objectStorage: memoryStorage, inlineThresholdBytes: 0 }
   });
   return { memoryStorage, factory };
 }
