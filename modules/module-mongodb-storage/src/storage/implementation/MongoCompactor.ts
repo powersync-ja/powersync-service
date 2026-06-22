@@ -363,11 +363,7 @@ export abstract class MongoCompactor {
             _id: {
               $gte: lowerBound,
               $lt: upperBound
-            },
-            // Workaround for a clustered collection bug where the $lt operator may include upperBound.
-            // Technically only needed for storage V3.
-            // https://jira.mongodb.org/browse/SERVER-121822
-            '_id.o': { $lt: upperBound.o }
+            }
           }
         },
         { $sort: { _id: -1 } },

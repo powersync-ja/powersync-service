@@ -36,6 +36,7 @@ import {
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
+import { MongoStoppedSyncConfigCleanup } from './MongoStoppedSyncConfigCleanup.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export interface MongoSyncBucketStorageContextV3 {
@@ -146,14 +147,12 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     const storageIds = this.storageIds;
     for (const source of storageIds.bucketDefinitionIds) {
       const collection = this.db.bucketData(this.replicationStreamId, source).collectionName;
-      await this.db.db
-        .createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
-        .catch((error) => {
-          if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceExists') {
-            return;
-          }
-          throw error;
-        });
+      await this.db.db.createCollection(collection, {}).catch((error) => {
+        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceExists') {
+          return;
+        }
+        throw error;
+      });
     }
     for (const indexId of storageIds.parameterIndexIds) {
       await this.db.parameterIndex(this.replicationStreamId, indexId).createIndex(
@@ -399,6 +398,19 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         }
         throw error;
       });
+  }
+
+  async cleanupStoppedSyncConfigs(
+    options: storage.CleanupStoppedSyncConfigsOptions
+  ): Promise<storage.CleanupStoppedSyncConfigsResult> {
+    return new MongoStoppedSyncConfigCleanup({
+      db: this.db,
+      replicationStreamId: this.replicationStreamId,
+      signal: options.signal,
+      logger: options.logger ?? this.logger,
+      defaultSchema: options.defaultSchema,
+      sourceConnectionTag: options.sourceConnectionTag
+    }).run();
   }
 
   protected getDataBucketChangesImpl(

@@ -162,8 +162,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             _id: {
               $gte: lowerBound,
               $lt: upperBound
-            },
-            '_id.o': { $lt: upperBound.o }
+            }
           }
         },
         { $sort: { _id: -1 } },
