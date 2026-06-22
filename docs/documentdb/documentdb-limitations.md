@@ -40,11 +40,11 @@ Dropping or renaming a replicated collection on the source is **not** propagated
 
 These DDL events are delivered differently (or not at all) through DocumentDB's cluster-level change stream. To recover, redeploy sync rules / trigger a resync. Regular document inserts, updates, and deletes are unaffected.
 
-## Large initial snapshots may not complete
+## Large initial snapshots may not complete on legacy storage
 
-DocumentDB retains only a limited amount of change-feed history (on the order of a few hundred MB). Initial replication takes a snapshot and then resumes streaming from a position captured before the snapshot. For a large or busy source, the snapshot can take long enough that this position ages out of the retention window before streaming resumes — replication then restarts from scratch and can loop.
+DocumentDB retains only a limited amount of change-feed history (on the order of a few hundred MB). On storage v1/v2, initial replication takes a snapshot and then resumes streaming from a position captured before the snapshot. For a large or busy source, the snapshot can take long enough that this position ages out of the retention window before streaming resumes — replication then restarts from scratch and can loop.
 
-In practice, DocumentDB initial replication is currently suited to datasets small enough to snapshot well within the change-feed retention window. (The planned fix is incremental reprocessing, which consumes the change stream from the moment the snapshot begins.)
+Storage v3+ addresses this by consuming the change stream while the initial snapshot is still running and persisting resume progress as batches are processed. For large or busy DocumentDB initial snapshots, use storage v3+ rather than legacy storage.
 
 ## Rows of 15 MiB or larger are not synced
 

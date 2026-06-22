@@ -167,7 +167,7 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.DOCUMENTDB)('documentDbMode', () =
   // `_sentinel_checkpoint` counter, and the caller's data write lives in a
   // different document. If the sentinel event can be delivered *before* the
   // data write that preceded it, a write checkpoint can resolve before its data
-  // has replicated (see docs/documentdb/documentdb-outstanding-items.md).
+  // has replicated (see docs/documentdb/documentdb-lsn-sentinel-checkpoints.md#change-ordering).
   //
   // This reproduces that exact scenario using the real checkpointing write path
   // (createSentinelCheckpointLsn): each round writes a data document, then bumps

@@ -444,14 +444,10 @@ The sentinel head is tied to a source-side write the change stream actually obse
 
 ### Initial snapshot vs. change feed retention
 
-Initial replication is currently sequential: `getSnapshotLsn` captures a resume position, the snapshot then runs to completion, and only afterwards does streaming resume from the captured position. The change stream is **not** consumed during the snapshot.
+On storage v3+, initial replication is no longer sequential: `getSnapshotLsn` captures a resume position, the snapshotter queues the table snapshots, and streaming starts from that captured position while the snapshots are still running. Each consumed stream batch persists a new resume LSN, so the resume position advances during the snapshot instead of waiting for the snapshot to finish.
 
-DocumentDB retains only a limited amount of change feed history (in the order of a few hundred MB). For a large or busy source, the snapshot can take long enough that the captured resume position rolls out of the retention window before streaming resumes. The `resumeAfter` then fails, and replication restarts from scratch — potentially in a loop for sources where the snapshot consistently outlasts retention.
+DocumentDB retains only a limited amount of change feed history (in the order of a few hundred MB). With storage v3+, the captured resume position does not sit idle for the full snapshot duration, so a large initial snapshot no longer fails solely because the pre-snapshot resume token ages out before streaming begins.
 
-This is not specific to DocumentDB in principle — standard MongoDB has the same shape — but MongoDB's oplog retention is typically time-based and far larger, so the window is rarely hit. DocumentDB's smaller, size-bound retention makes it a practical concern.
+This is not an in-memory buffer: streamed changes are flushed to storage and the stream-level resume position is advanced as batches are processed.
 
-Buffering the change stream in memory during the snapshot is **not** an acceptable fix: the buffer is unbounded with respect to source write volume and snapshot duration, so it would risk running the replicator out of memory.
-
-The intended resolution is incremental reprocessing (see [powersync-ja/powersync-service discussion #349](https://github.com/orgs/powersync-ja/discussions/349)). A side effect of that design is that the change stream is consumed from the moment the snapshot begins, so the resume position is continuously advanced and never has the chance to age out — which addresses this limitation without an in-memory buffer.
-
-Until then, treat DocumentDB initial replication as suited to datasets small enough to snapshot well within the change feed retention window.
+Legacy storage v1/v2 still uses the old sequential behavior: snapshot first, then stream from the pre-snapshot position. On those storage versions, DocumentDB initial replication should still be limited to datasets small enough to snapshot well within the change feed retention window.
