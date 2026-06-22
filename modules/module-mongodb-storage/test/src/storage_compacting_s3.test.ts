@@ -360,4 +360,61 @@ describe('V3 Compaction with object storage', () => {
     expect(dataAfter.some((d: any) => d.object_id === 'B')).toBe(true);
     expect(dataAfter.some((d: any) => d.object_id === 'A')).toBe(true);
   });
+
+  test('scoped delete preserves ops above maxOpId horizon', async () => {
+    const { factoryGen } = s3Factory();
+    await using factory = await factoryGen.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
+    await writer.markAllSnapshotDone('1/1');
+
+    // 12 ops with large data to fill 2+ S3 documents. Ops 1-6 are below
+    // the compaction horizon, ops 7-12 above. Each pair shares a row_id
+    // so the below-horizon ones get superseded into MOVEs.
+    for (let i = 1; i <= 12; i++) {
+      const letter = String.fromCharCode(64 + i); // A..L
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: letter, description: `val${i}`.repeat(50) },
+        afterReplicaId: test_utils.rid(letter)
+      });
+    }
+    await writer.commit('1/1');
+    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+
+    // Compact with maxOpId=6. Ops 1-6 get deduped (no duplicates here,
+    // but the compactor still processes them). Ops 7-12 survive untouched.
+    await bucketStorage.compact({
+      maxOpId: 6n,
+      compactBuckets: [request.bucket],
+      clearBatchLimit: 200,
+      moveBatchLimit: 10,
+      moveBatchQueryLimit: 10,
+      moveBatchByteLimit: 1024,
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      signal: null as any
+    });
+
+    // Read back full checkpoint — all ops should be present
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const data = test_utils.getBatchData(batch);
+
+    // Ops 7-12 (above horizon) must survive as PUTs with their original data
+    for (let i = 7; i <= 12; i++) {
+      const letter = String.fromCharCode(64 + i);
+      const op = data.find((d: any) => d.object_id === letter);
+      expect(op).toBeDefined();
+      expect(op!.op).toBe('PUT');
+    }
+
+    // Ops 1-6 (below horizon) should also still be reachable
+    // (they survive as PUT since there are no duplicates, or as MOVEs)
+    expect(data.length).toBeGreaterThanOrEqual(12);
+  });
 });
