@@ -34,10 +34,10 @@ The `MONGO_TEST_DATA_URL` must include a database name in the path. DocumentDB U
 
 ```
 # Original URI (no database):
-mongodb+srv://user:pass@cluster.mongocluster.cosmos.azure.com/?tls=true
+mongodb+srv://user:pass@cluster.mongocluster.cosmos.azure.com/
 
 # With database added:
-mongodb+srv://user:pass@cluster.mongocluster.cosmos.azure.com/powersync_test?tls=true
+mongodb+srv://user:pass@cluster.mongocluster.cosmos.azure.com/powersync_test
 ```
 
 If your password contains special characters (`=`, `@`, `+`, `/`), they must be URL-encoded in the URI (e.g., `=` becomes `%3D`). DocumentDB auto-generated passwords often contain `=` (base64).
@@ -48,7 +48,7 @@ All commands run from the module directory: `modules/module-mongodb/`
 
 ```bash
 # Run all DocumentDB tests (integration + unit helpers):
-MONGO_TEST_DATA_URL="mongodb+srv://user:pass@cluster.mongocluster.cosmos.azure.com/powersync_test?tls=true" \
+MONGO_TEST_DATA_URL="mongodb+srv://user:pass@cluster.mongocluster.cosmos.azure.com/powersync_test" \
 TEST_MONGO_STORAGE=false \
 npx vitest run documentdb --reporter=verbose
 
