@@ -134,6 +134,11 @@ export interface BucketOperation {
   data: string | null;
 }
 
+export interface StorageRef {
+  path: string;
+  compressed_size: number;
+}
+
 export interface BucketDataDocumentV3 {
   _id: BucketDataKey;
   min_op: bigint;
@@ -141,7 +146,9 @@ export interface BucketDataDocumentV3 {
   count: number;
   size: number;
   target_op?: bigint | null;
-  ops: BucketOperation[];
+  ops?: BucketOperation[];
+  storage_ref?: StorageRef;
+  has_clear_op?: boolean;
 }
 
 export function serializeParameterLookup(lookup: ScopedParameterLookup): bson.Binary {

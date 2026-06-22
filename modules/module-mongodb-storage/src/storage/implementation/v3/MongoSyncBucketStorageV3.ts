@@ -38,6 +38,7 @@ import {
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
+import { BucketDataObjectStorage } from './object-storage/BucketDataObjectStorage.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 function* walkDocumentOps(
@@ -147,11 +148,16 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums {
-    return new MongoChecksumsV3(this.db, this.replicationStreamId, {
-      ...options.checksumOptions,
-      storageConfig: options?.storageConfig,
-      mapping: this.replicationStream.storageContent.mapping
-    });
+    return new MongoChecksumsV3(
+      this.db,
+      this.replicationStreamId,
+      {
+        ...options.checksumOptions,
+        storageConfig: options?.storageConfig,
+        mapping: this.replicationStream.storageContent.mapping
+      },
+      this.objectStorage
+    );
   }
 
   protected createMongoParameterCompactor(
@@ -475,8 +481,30 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       // Buckets whose matched document contributed no rows after filtering.
       const completeEmptyBuckets = new Set<string>();
 
-      for (const raw of rawData) {
-        const doc = bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3;
+      // Deserialize all docs once
+      const docs: any[] = rawData.map((raw) => bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS));
+
+      // Pre-fetch S3 objects for all S3-backed docs in this batch
+      if (this.objectStorage) {
+        const store = new BucketDataObjectStorage(this.objectStorage);
+        const s3Docs = docs.filter((d) => d.storage_ref);
+        if (s3Docs.length > 0) {
+          await Promise.all(
+            s3Docs.map(async (doc) => {
+              doc.ops = await store.retrieve(doc.storage_ref.path);
+            })
+          );
+        }
+      }
+
+      // Track sizes: use doc.size (the total decompressed data size stored at write
+      // time) for S3-backed docs; fall back to raw byteLength for inline docs.
+      const docSizes: number[] = rawData.map((raw, i) => {
+        const doc = docs[i];
+        return doc.storage_ref ? doc.size : raw.byteLength;
+      });
+
+      for (const [i, doc] of docs.entries()) {
         const {
           rows,
           remainingLimit,
@@ -492,7 +520,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         }
         data.push(...rows);
         documentOpCounts.push(rows.length);
-        documentSizes.push(raw.byteLength);
+        documentSizes.push(docSizes[i]);
         sharedRemainingLimit = remainingLimit;
         if (docLimitReached) {
           limitReached = true;

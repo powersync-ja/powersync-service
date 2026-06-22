@@ -1,16 +1,17 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import {
+  addChecksums,
   bson,
   BucketChecksum,
   FetchPartialBucketChecksum,
   InternalOpId,
   isPartialChecksum,
+  PartialChecksum,
   PartialChecksumMap,
   PartialOrFullChecksum
 } from '@powersync/service-core';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import {
-  checksumFromAggregate,
   emptyChecksumForRequest,
   FetchPartialBucketChecksumByBucket,
   FetchPartialBucketChecksumByDefinition,
@@ -19,15 +20,24 @@ import {
 } from '../MongoChecksums.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { BucketDataDocumentV3 } from './models.js';
+import { BucketDataObjectStorage } from './object-storage/BucketDataObjectStorage.js';
+import { ObjectStorage } from './object-storage/ObjectStorage.js';
 
 export class MongoChecksumsV3 extends MongoChecksums {
   private readonly mapping: BucketDefinitionMapping;
+  private readonly objectStorage?: ObjectStorage;
 
   declare protected readonly db: VersionedPowerSyncMongoV3;
 
-  constructor(db: VersionedPowerSyncMongoV3, group_id: number, options: MongoChecksumOptions) {
+  constructor(
+    db: VersionedPowerSyncMongoV3,
+    group_id: number,
+    options: MongoChecksumOptions,
+    objectStorage?: ObjectStorage
+  ) {
     super(db, group_id, options);
     this.mapping = options.mapping!;
+    this.objectStorage = objectStorage;
   }
 
   async computePartialChecksumsDirectByDefinition(
@@ -157,7 +167,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
         throw lib_mongo.mapQueryError(e, 'while reading checksums');
       });
 
-    return this.normalizePartialChecksumResults(batch, aggregate);
+    return await this.normalizePartialChecksumResults(batch, aggregate);
   }
 
   private buildPartialChecksumPipeline(requests: Map<string, FetchPartialBucketChecksumByBucket>): bson.Document[] {
@@ -202,6 +212,8 @@ export class MongoChecksumsV3 extends MongoChecksums {
           ops: 1,
           bucket_start: 1,
           bucket_end: 1,
+          storage_ref: 1,
+          has_clear_op: 1,
           is_fully_included: {
             $and: [{ $gt: ['$min_op', '$bucket_start'] }, { $lte: ['$_id.o', '$bucket_end'] }]
           }
@@ -211,6 +223,10 @@ export class MongoChecksumsV3 extends MongoChecksums {
       {
         $project: {
           _id: 1,
+          bucket_start: 1,
+          bucket_end: 1,
+          is_fully_included: 1,
+          storage_ref_path: '$storage_ref.path',
           checksum_total: {
             $cond: {
               if: '$is_fully_included',
@@ -220,7 +236,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
                   $map: {
                     input: {
                       $filter: {
-                        input: '$ops',
+                        input: { $ifNull: ['$ops', []] },
                         cond: {
                           $and: [{ $gt: ['$$this.o', '$bucket_start'] }, { $lte: ['$$this.o', '$bucket_end'] }]
                         }
@@ -239,7 +255,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
               else: {
                 $size: {
                   $filter: {
-                    input: '$ops',
+                    input: { $ifNull: ['$ops', []] },
                     cond: {
                       $and: [{ $gt: ['$$this.o', '$bucket_start'] }, { $lte: ['$$this.o', '$bucket_end'] }]
                     }
@@ -249,46 +265,104 @@ export class MongoChecksumsV3 extends MongoChecksums {
             }
           },
           has_clear_op: {
-            $max: {
-              $map: {
-                input: {
-                  $filter: {
-                    input: '$ops',
-                    cond: {
-                      $and: [{ $gt: ['$$this.o', '$bucket_start'] }, { $lte: ['$$this.o', '$bucket_end'] }]
-                    }
+            $ifNull: [
+              '$has_clear_op',
+              {
+                $max: {
+                  $map: {
+                    input: {
+                      $filter: {
+                        input: { $ifNull: ['$ops', []] },
+                        cond: {
+                          $and: [{ $gt: ['$$this.o', '$bucket_start'] }, { $lte: ['$$this.o', '$bucket_end'] }]
+                        }
+                      }
+                    },
+                    in: { $cond: [{ $eq: ['$$this.op', 'CLEAR'] }, 1, 0] }
                   }
-                },
-                in: { $cond: [{ $eq: ['$$this.op', 'CLEAR'] }, 1, 0] }
+                }
               }
-            }
+            ]
           },
           last_op: { $max: '$_id.o' }
         }
-      },
-      // Group by bucket
-      {
-        $group: {
-          _id: '$_id.b',
-          checksum_total: { $sum: '$checksum_total' },
-          count: { $sum: '$count_total' },
-          has_clear_op: { $max: '$has_clear_op' },
-          last_op: { $max: '$last_op' }
-        }
-      },
-      // $sort results
-      { $sort: { _id: 1 } }
+      }
     ];
   }
 
-  private normalizePartialChecksumResults(
+  private async normalizePartialChecksumResults(
     batch: FetchPartialBucketChecksumByBucket[],
     aggregate: bson.Document[]
-  ): PartialChecksumMap {
+  ): Promise<PartialChecksumMap> {
+    const store = this.objectStorage ? new BucketDataObjectStorage(this.objectStorage) : undefined;
+
+    // Per-bucket accumulators for JS-based grouping
+    const bucketAcc = new Map<
+      string,
+      { checksumTotal: number; countTotal: number; hasClearOp: number; lastOp: bigint }
+    >();
+
+    for (const doc of aggregate) {
+      const bucket = doc._id.b as string;
+      let checksumTotal = Number(doc.checksum_total);
+      let countTotal = Number(doc.count_total ?? 0);
+      let hasClearOp = Number(doc.has_clear_op ?? 0);
+
+      // Fixup S3-backed docs that straddle the range boundary.
+      // The pipeline gives zero for these docs because ops are stored on S3,
+      // not embedded. Fetch ops from S3 and filter in JS.
+      const isFullyIncluded = doc.is_fully_included as boolean;
+      const storageRefPath = doc.storage_ref_path as string | undefined;
+      if (!isFullyIncluded && storageRefPath && store) {
+        try {
+          const ops = await store.retrieve(storageRefPath);
+          // Handle MinKey bucket_start (no compacted_state) as 0n
+          const start = typeof doc.bucket_start === 'bigint' ? doc.bucket_start : 0n;
+          const end = doc.bucket_end as bigint;
+          const filtered = ops.filter((op) => op.o > start && op.o <= end);
+
+          checksumTotal = filtered.reduce((sum, op) => addChecksums(sum, Number(op.checksum)), 0);
+          countTotal = filtered.length;
+          hasClearOp = filtered.some((op) => op.op === 'CLEAR') ? 1 : 0;
+        } catch (err) {
+          // If S3 fetch fails, use the pipeline result (which is zero).
+          // The checksum will be wrong, but we don't want to crash checksum
+          // computation due to a single missing S3 object.
+        }
+      }
+
+      let acc = bucketAcc.get(bucket);
+      if (!acc) {
+        acc = { checksumTotal: 0, countTotal: 0, hasClearOp: 0, lastOp: 0n };
+        bucketAcc.set(bucket, acc);
+      }
+      acc.checksumTotal = addChecksums(acc.checksumTotal, checksumTotal);
+      acc.countTotal += countTotal;
+      if (hasClearOp) {
+        acc.hasClearOp = 1;
+      }
+      const lastOp = doc.last_op as bigint;
+      if (lastOp > acc.lastOp) {
+        acc.lastOp = lastOp;
+      }
+    }
+
     const partialChecksums = new Map<string, PartialOrFullChecksum>();
-    for (let doc of aggregate) {
-      const bucket = doc._id;
-      partialChecksums.set(bucket, checksumFromAggregate(doc));
+    for (const [bucket, acc] of bucketAcc) {
+      const partialChecksum = acc.checksumTotal;
+      if (acc.hasClearOp) {
+        partialChecksums.set(bucket, {
+          bucket,
+          checksum: partialChecksum,
+          count: acc.countTotal
+        } satisfies BucketChecksum);
+      } else {
+        partialChecksums.set(bucket, {
+          bucket,
+          partialCount: acc.countTotal,
+          partialChecksum
+        } satisfies PartialChecksum);
+      }
     }
 
     return new Map<string, PartialOrFullChecksum>(
