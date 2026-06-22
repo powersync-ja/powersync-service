@@ -8,6 +8,7 @@ import { MongoSyncBucketStorage } from '../../src/storage/implementation/createM
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
+import { createS3TestStorageSuite } from './helpers/s3TestFactory.js';
 
 const SYNC_RULES_YAML = `
 bucket_definitions:
@@ -16,18 +17,9 @@ bucket_definitions:
       - SELECT id, description FROM items
 `;
 
-/**
- * Creates a factory with MemoryObjectStorage wired in, plus a
- * reference to the memoryStorage for assertions.
- */
 function s3Factory() {
-  const memoryStorage = new MemoryObjectStorage();
-  const factory = mongoTestStorageFactoryGenerator({
-    url: env.MONGO_TEST_URL,
-    isCI: env.CI,
-    internalOptions: { objectStorage: memoryStorage, inlineThresholdBytes: 0 }
-  });
-  return { memoryStorage, factory };
+  const { objectStorage, factoryGen } = createS3TestStorageSuite({ url: env.MONGO_TEST_URL, isCI: env.CI });
+  return { memoryStorage: objectStorage, factory: factoryGen };
 }
 
 describe('S3 write path (Phase 2b red tests)', () => {

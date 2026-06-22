@@ -1,10 +1,10 @@
-import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
+import { createS3TestStorageSuite } from './helpers/s3TestFactory.js';
 
 const SYNC_RULES_YAML = `
 bucket_definitions:
@@ -14,13 +14,8 @@ bucket_definitions:
 `;
 
 function s3Factory() {
-  const memoryStorage = new MemoryObjectStorage();
-  const factoryGen = mongoTestStorageFactoryGenerator({
-    url: env.MONGO_TEST_URL,
-    isCI: env.CI,
-    internalOptions: { objectStorage: memoryStorage, inlineThresholdBytes: 0 }
-  });
-  return { memoryStorage, factoryGen };
+  const { objectStorage, factoryGen } = createS3TestStorageSuite({ url: env.MONGO_TEST_URL, isCI: env.CI });
+  return { memoryStorage: objectStorage, factoryGen };
 }
 
 /**
