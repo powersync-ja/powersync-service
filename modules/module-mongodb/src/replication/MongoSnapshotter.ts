@@ -635,10 +635,8 @@ export class MongoSnapshotter {
             // event.observe above; we only resolve on our own barrier.
             continue;
           }
-          if (!this.checkpointImplementation.hasPosition()) {
-            // Sentinel implementation: wait until a coordinate has been observed.
-            continue;
-          }
+          // Observing our own barrier has set the coordinate (the barrier event
+          // carries the sentinel counter directly), so the LSN is ready.
           return this.checkpointImplementation.event.lsn(changeDocument);
         }
 

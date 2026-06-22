@@ -82,13 +82,6 @@ export interface CheckpointImplementation {
   /** LSN representing "before any data". */
   readonly zeroLsn: string;
 
-  /**
-   * Whether the implementation has a usable coordinate for building LSNs. The sentinel
-   * mode has no position until it has observed a checkpoint event or was
-   * seeded from a stored LSN.
-   */
-  hasPosition(): boolean;
-
   /** Parse a stored LSN into change stream resume options. Pure. */
   parseResumePosition(lsn: string): StreamResumePosition;
 

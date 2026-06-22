@@ -23,10 +23,6 @@ export class TimestampCheckpointImplementation implements CheckpointImplementati
 
   constructor(private context: CheckpointImplementationContext) {}
 
-  hasPosition(): boolean {
-    return true;
-  }
-
   parseResumePosition(lsn: string): StreamResumePosition {
     const parsed = MongoLSN.fromSerialized(lsn);
     return { resumeAfter: parsed.resumeToken ?? null, startAfter: parsed.timestamp };

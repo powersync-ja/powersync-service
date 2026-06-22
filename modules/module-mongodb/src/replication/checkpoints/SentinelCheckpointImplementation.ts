@@ -37,8 +37,8 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
   /**
    * The highest global sentinel value proven so far, merged monotonically from
    * the resume seed, standalone events and embedded barrier values. Needed
-   * because data events (setResumeLsn during catch-up) carry no coordinate of
-   * their own.
+   * for lsnFromResumeToken: per-batch resume markers carry only a resume token,
+   * so they need the latest observed coordinate paired in.
    */
   private position = SentinelLSN.ZERO.sentinel;
 
@@ -167,19 +167,20 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     },
 
     lsn: (doc) => {
-      // Build the commit LSN by pairing the current tracked coordinate
-      // (this.position, kept up to date by event.observe) with THIS event's
-      // resume token. The event itself carries no sentinel value — only its
-      // resume token — so unlike the timestamp implementation the coordinate
-      // cannot come from the doc. This is what lets a plain data event (which
-      // has no coordinate of its own) be committed at the latest known
-      // position during catch-up.
-      //
-      // A zero position is permitted: a resume LSN persisted before any
-      // checkpoint event has been observed still carries a valid resume token,
-      // and a low sentinel is conservative (it only causes more replay).
+      const fullDoc = deserializeFullDocument(doc);
+      if (fullDoc == null) {
+        throw new ChangeStreamInvalidatedError(
+          'Sentinel checkpoint event has no fullDocument — cannot read the sentinel',
+          new Error(`Unexpected ${doc.operationType} event on the sentinel checkpoint document`)
+        );
+      }
+
+      // Checkpoint events carry the global coordinate in `i`; pair that exact
+      // coordinate with this event's resume token. Plain data-batch resume
+      // markers use lsnFromResumeToken, which pairs the token with the tracked
+      // position instead.
       return new SentinelLSN({
-        sentinel: this.position,
+        sentinel: this.readSentinel(fullDoc),
         resume_token: doc._id
       }).comparable;
     },
@@ -194,10 +195,6 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
       return this.context.checkpointStreamId.equals(fullDoc.stream_id) && fullDoc.i >= parsed.sentinel;
     }
   };
-
-  hasPosition(): boolean {
-    return this.position != SentinelLSN.ZERO.sentinel;
-  }
 
   // The sentinel checkpoint document must survive restarts (hence the $ne
   // below — the startup cleanup deletes every other checkpoint document). Its
@@ -243,7 +240,7 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
         new Error(`Sentinel checkpoint document: ${JSONBig.stringify(fullDoc)}`)
       );
     }
-    return BigInt(fullDoc.i);
+    return fullDoc.i;
   }
 }
 

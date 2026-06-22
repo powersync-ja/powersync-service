@@ -60,12 +60,6 @@ DocumentDB delivers large change events much more slowly than standard MongoDB. 
 
 If your workload includes large documents (especially frequently-updated ones), validate replication latency against your cluster.
 
-## Changing the source database is not detected
-
-Changing the source database for an existing connection is not reliably detected. On DocumentDB the change stream is cluster-scoped, so the stored replication position stays valid when only the database name changes — replication silently continues against the new (typically empty) database instead of failing.
-
-If you change the source database for an existing connection, trigger a resync manually.
-
 ## Operational note: the internal checkpoints collection
 
 PowerSync maintains a `_powersync_checkpoints` collection in the source database for replication bookkeeping. Do not drop it or delete its documents: doing so disrupts replication (dropping the collection forces a resync; the implementation defends against the sentinel counter document being deleted, but deleting it should still be avoided).

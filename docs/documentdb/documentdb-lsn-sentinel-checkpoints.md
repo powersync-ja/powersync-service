@@ -66,7 +66,7 @@ resume         parseResumePosition, seedPosition, logResume,
 create         createBatchCheckpoint, createFirstBarrier,
                createStandaloneCheckpoint, createReplicationHead, keepalive
 interpret      event.observe, event.lsn, event.resolvesBarrier
-maintenance    zeroLsn, hasPosition, checkpointClearFilter
+maintenance    zeroLsn, checkpointClearFilter
 ```
 
 The per-event interpretation methods are grouped under the `event` sub-API (`CheckpointEventApi`); each takes only the raw `ProjectedChangeStreamDocument`. The one ordering contract is that `event.observe` must be called before `event.lsn` for a given event, so the sentinel implementation's coordinate is current.
@@ -159,17 +159,9 @@ Decoded DocumentDB `_data` tokens appear to contain structured internal fields, 
 
 This is useful for debugging, but the token remains opaque. We should not parse it or assume it is lexicographically sortable unless Microsoft documents that guarantee.
 
-## Cluster-Scoped Streams and the Source Database Change Gap
+## Cluster-Scoped Streams
 
 DocumentDB only supports cluster-level change streams. Collection- and database-level streams are rejected with `NamespaceNotFound` ("Collection not found"). The implementation therefore always opens the stream through `client.db('admin')` with `allChangesForCluster: true` and filters namespaces in the pipeline.
-
-This has a side effect on resume safety: a change in source database name is not reliably detected. DocumentDB resume tokens are cluster-scoped, so they stay valid regardless of which database the pipeline filters target — the token stays valid when only the database name changes, and the stream silently continues against the new (typically empty) database.
-
-Note this is not unique to DocumentDB. Standard MongoDB previously raised `ChangeStreamInvalidatedError` when resuming against a different source database, but that behavior was never reliable — it depended on which resume token type happened to be used — and [#609](https://github.com/powersync-ja/powersync-service/pull/609) (raw change streams, `flush()` + `setResumeToken()` per batch) changed the token handling that it relied on. So source-database-change detection should not be assumed on either source.
-
-The `resuming with a different source database` test in `resume.test.ts` is skipped on DocumentDB for this reason.
-
-A possible future fix is to persist the source database name alongside the LSN and validate it on resume, raising `ChangeStreamInvalidatedError` on mismatch to force a resync — a mechanism that would cover both sources rather than relying on token-invalidation behavior.
 
 ## The `.lte()` Dedupe Guard Does Not Apply to the Sentinel Path
 

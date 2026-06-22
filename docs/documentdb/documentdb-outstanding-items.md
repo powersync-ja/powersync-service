@@ -10,40 +10,13 @@
 
 ## Summary
 
-| #   | Item                                                                   | Kind          | Severity | Fixable?                                    |
-| --- | ---------------------------------------------------------------------- | ------------- | -------- | ------------------------------------------- |
-| 1   | Changing the source database is not detected                           | Detection gap | Medium   | Yes (future work)                           |
-| 2   | Large initial snapshot can age out of the change-feed retention window | Operational   | Medium   | Yes (future work: incremental reprocessing) |
+| #   | Item                                                                   | Kind        | Severity | Fixable?                                    |
+| --- | ---------------------------------------------------------------------- | ----------- | -------- | ------------------------------------------- |
+| 1   | Large initial snapshot can age out of the change-feed retention window | Operational | Medium   | Yes (future work: incremental reprocessing) |
 
 ---
 
-## 1. Changing the source database is not detected
-
-**Severity: Medium (detection gap).**
-
-DocumentDB only supports cluster-level change streams, so the stream always opens on `admin`
-with `allChangesForCluster` and filters namespaces in the pipeline. DocumentDB resume tokens are
-cluster-scoped, so they stay valid when only the database name changes.
-
-Replication silently continues from the old token, now filtered to the new (typically empty)
-database. This is not unique to DocumentDB: standard MongoDB previously raised
-`ChangeStreamInvalidatedError` when resuming against a different source database, but that was
-never reliable (it depended on which resume token type was used), and
-[#609](https://github.com/powersync-ja/powersync-service/pull/609) (raw change streams,
-`flush()` + `setResumeToken()` per batch) changed the token handling it relied on. So
-source-database-change detection should not be assumed on either source.
-
-This is documented for users in [documentdb-limitations.md](./documentdb-limitations.md)
-("Changing the source database is not detected"), and the `resuming with a different source
-database` test is skipped on DocumentDB for this reason.
-
-**Possible future fix:** persist the source database name alongside the LSN and validate it on
-resume, raising `ChangeStreamInvalidatedError` on mismatch to force a resync — a mechanism that
-would cover both sources rather than relying on token-invalidation behavior.
-
----
-
-## 2. Large initial snapshot vs. change-feed retention
+## 1. Large initial snapshot vs. change-feed retention
 
 **Severity: Medium (operational).**
 
