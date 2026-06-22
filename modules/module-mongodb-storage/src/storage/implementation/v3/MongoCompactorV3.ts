@@ -375,7 +375,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           if (bsonSize <= this.storage.inlineThresholdBytes) {
             newDocs.push(serializeBucketData(bucket, chunk));
           } else {
-            const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${minOp}-${maxOp}`;
+            const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${minOp}-${maxOp}.bson.zstd`;
             const { compressedSize } = await store.store(path, bucketOps);
             newStoragePaths.add(path);
 
@@ -715,7 +715,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           } satisfies BucketDataDoc;
           clearDoc = serializeBucketData(bucket, [clearOp]);
         } else {
-          const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${lastNotPut}-${lastNotPut}`;
+          const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${lastNotPut}-${lastNotPut}.bson.zstd`;
           const { compressedSize } = await store.store(path, clearOpData);
           newStoragePaths.add(path);
 
@@ -773,7 +773,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           if (bsonSize <= this.storage.inlineThresholdBytes) {
             boundaryDocShells.push(serializeBucketData(bucket, chunk));
           } else {
-            const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${minOp}-${maxOp}`;
+            const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${minOp}-${maxOp}.bson.zstd`;
             const { compressedSize } = await store.store(path, bucketOps);
             newStoragePaths.add(path);
 

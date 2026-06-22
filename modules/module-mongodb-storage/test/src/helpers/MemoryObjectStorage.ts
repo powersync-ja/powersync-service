@@ -3,7 +3,7 @@ import { ObjectStorage } from '@module/storage/implementation/v3/object-storage/
 export class MemoryObjectStorage implements ObjectStorage {
   private store = new Map<string, Buffer>();
 
-  async put(path: string, data: Buffer): Promise<void> {
+  async put(path: string, data: Buffer, _metadata?: any): Promise<void> {
     this.store.set(path, data);
   }
 

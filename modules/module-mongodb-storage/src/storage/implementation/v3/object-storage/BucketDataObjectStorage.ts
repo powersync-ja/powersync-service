@@ -11,7 +11,7 @@ export class BucketDataObjectStorage {
     const bsonBuffer = Buffer.from(bson.serialize({ ops }));
     const compressedUint8 = await zstd.compress(bsonBuffer);
     const compressed = Buffer.from(compressedUint8);
-    await this.storage.put(path, compressed);
+    await this.storage.put(path, compressed, { contentType: 'application/bson', contentEncoding: 'zstd' });
     return { compressedSize: compressed.byteLength };
   }
 

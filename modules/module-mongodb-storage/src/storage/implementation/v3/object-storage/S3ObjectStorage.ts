@@ -1,5 +1,5 @@
 import { DeleteObjectsCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import type { ObjectStorage } from './ObjectStorage.js';
+import type { ObjectStorage, ObjectStoragePutMetadata } from './ObjectStorage.js';
 
 export interface S3ObjectStorageOptions {
   bucket: string;
@@ -23,13 +23,15 @@ export class S3ObjectStorage implements ObjectStorage {
     });
   }
 
-  async put(path: string, data: Buffer): Promise<void> {
+  async put(path: string, data: Buffer, metadata?: ObjectStoragePutMetadata): Promise<void> {
     const fullPath = this.prefix ? `${this.prefix}/${path}` : path;
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,
         Key: fullPath,
-        Body: data
+        Body: data,
+        ContentType: metadata?.contentType,
+        ContentEncoding: metadata?.contentEncoding
       })
     );
   }
