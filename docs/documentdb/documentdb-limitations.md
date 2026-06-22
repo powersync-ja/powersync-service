@@ -15,7 +15,7 @@ Internal implementation details (how checkpoints and LSNs work on DocumentDB) ar
   - **vCore-based**: dedicated instances with higher MongoDB compatibility.
 - The **vCore** model was [renamed **Azure DocumentDB**](https://devblogs.microsoft.com/cosmosdb/azure-documentdb-is-now-generally-available/) (GA, November 2025), aligning it with the open-source [DocumentDB](https://documentdb.io) engine — now governed by the Linux Foundation — that powers it. Per the announcement, _"the former vCore-based Azure Cosmos DB for MongoDB offering is now Azure DocumentDB"_ and _"existing clusters automatically adopt the new name"_. So older clusters may still surface as "Cosmos DB for MongoDB vCore" and newer ones as "Azure DocumentDB", but they are the same offering and the same engine (see also the [Azure DocumentDB FAQ](https://learn.microsoft.com/en-us/azure/documentdb/faq)).
 
-**PowerSync supports the vCore / Azure DocumentDB engine only — not the RU-based model.** The implementation detects it from the `hello` response (`internal.cosmos_versions` on older clusters, `internal.documentdb_versions` after the rename) and switches to the sentinel-checkpoint replication path described in the design notes. A source that reports neither is treated as standard MongoDB (Atlas / self-hosted / replica set), which is unaffected by anything in this document.
+**PowerSync supports the vCore / Azure DocumentDB engine only — not the RU-based model.** The implementation detects it from the `hello` response (`internal.documentdb_versions`) and switches to the sentinel-checkpoint replication path described in the design notes. A source that does not report it is treated as standard MongoDB (Atlas / self-hosted / replica set), which is unaffected by anything in this document.
 
 The **RU-based** model is a different engine with a different change-stream implementation ([RU change streams](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/change-streams) — for example, delete events and `operationType` are not exposed, and change order is documented only per shard key) and is **not supported**. If you are on the RU-based model, Microsoft provides a first-party [migration to Azure DocumentDB](https://learn.microsoft.com/en-us/azure/cosmos-db/mongodb/how-to-migrate-documentdb) ([GA](https://devblogs.microsoft.com/cosmosdb/mongoru-to-documentdb/)), which is also the path to making the source usable with PowerSync.
 
@@ -62,7 +62,7 @@ If your workload includes large documents (especially frequently-updated ones), 
 
 ## Changing the source database is not detected
 
-On standard MongoDB, repointing a connection at a different source database invalidates the stored replication position and forces a resync. On DocumentDB the change stream is cluster-scoped, so the stored position stays valid when only the database name changes — replication silently continues against the new (typically empty) database instead of failing.
+Changing the source database for an existing connection is not reliably detected. On DocumentDB the change stream is cluster-scoped, so the stored replication position stays valid when only the database name changes — replication silently continues against the new (typically empty) database instead of failing.
 
 If you change the source database for an existing connection, trigger a resync manually.
 

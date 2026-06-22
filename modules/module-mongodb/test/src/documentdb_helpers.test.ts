@@ -2,11 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import { SentinelLSN } from '@module/common/SentinelLSN.js';
 import { getEventTimestamp } from '@module/replication/checkpoints/CheckpointImplementation.js';
-import {
-  createSentinelCheckpointLsn,
-  SENTINEL_CHECKPOINT_ID,
-  STANDALONE_CHECKPOINT_ID
-} from '@module/replication/MongoRelation.js';
+import { createSentinelCheckpointLsn, SENTINEL_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '@module/replication/replication-utils.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { connectMongoData } from './util.js';
@@ -63,15 +59,15 @@ describe('DocumentDB helpers', () => {
   });
 
   describe('sentinel checkpoint format', () => {
-    test('standalone counter is seeded at a timestamp value on creation', { timeout: 30_000 }, async () => {
-      // If a consumer deletes the standalone checkpoint document in their
+    test('sentinel counter is seeded at a timestamp value on creation', { timeout: 30_000 }, async () => {
+      // If a consumer deletes the sentinel checkpoint document in their
       // source database, the re-created counter must not restart below
-      // already-committed LSNs. createDocumentDbCheckpointLsn seeds new counters at
+      // already-committed LSNs. createSentinelCheckpointLsn seeds new counters at
       // the current epoch seconds shifted into the high 32 bits (resembling a
       // MongoDB timestamp), so the coordinate jumps forward instead of resetting.
       const { client, db: sharedDb } = await connectMongoData();
       // Use an isolated database: other test files run in parallel against the
-      // shared test database and both bump and clear the standalone checkpoint
+      // shared test database and both bump and clear the sentinel checkpoint
       // document, which would make these exact assertions racy.
       const db = client.db(`${sharedDb.databaseName}_seed_test`);
       const seed = (epochMs: number) => (BigInt(Math.floor(epochMs / 1000)) << 32n) + 1n;
@@ -94,7 +90,7 @@ describe('DocumentDB helpers', () => {
         // initial sync onward, so re-creation always lands in a later second;
         // wait for the clock to advance to reproduce that here.
         await new Promise((resolve) => setTimeout(resolve, 1_100));
-        await db.collection(CHECKPOINTS_COLLECTION).deleteOne({ _id: STANDALONE_CHECKPOINT_ID as any });
+        await db.collection(CHECKPOINTS_COLLECTION).deleteOne({ _id: SENTINEL_CHECKPOINT_ID as any });
         const recreated = SentinelLSN.fromSerialized(await createSentinelCheckpointLsn(client, db));
         expect(recreated.sentinel).toBeGreaterThan(second.sentinel);
       } finally {
@@ -103,10 +99,10 @@ describe('DocumentDB helpers', () => {
       }
     });
 
-    test('createCheckpoint embeds globalSentinel in the barrier document', async () => {
-      // createBatchCheckpoint() passes the standalone counter value so the
-      // stream can read the global LSN coordinate from its own barrier event,
-      // without depending on cross-document change stream ordering.
+    test('createSentinelCheckpointLsn stamps stream_id on the sentinel document', async () => {
+      // A batch barrier passes the stream's checkpointStreamId, which is stamped
+      // on the shared sentinel document so the stream can recognise its own
+      // barriers (and ignore other streams') by content.
       const { client, db } = await connectMongoData();
       try {
         const barrierId = new mongo.ObjectId();
@@ -121,8 +117,8 @@ describe('DocumentDB helpers', () => {
   });
 
   // Note: the DocumentDB keepalive does not build an LSN from Date.now() — it bumps
-  // the shared sentinel via createDocumentDbCheckpointLsn and commits when the bump's
-  // own event is observed. The only Date.now()-derived value is the standalone
-  // counter seed, which is covered by the 'standalone counter is seeded at a
+  // the shared sentinel via createSentinelCheckpointLsn and commits when the bump's
+  // own event is observed. The only Date.now()-derived value is the sentinel
+  // counter seed, which is covered by the 'sentinel counter is seeded at a
   // timestamp value on creation' test above.
 });

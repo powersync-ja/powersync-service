@@ -47,7 +47,7 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.DOCUMENTDB)('documentDbMode', () =
   // read-time lookup of the document's current state.
   //
   // SentinelCheckpointImplementation tracks its position from `fullDocument.i` on
-  // updates to the standalone checkpoint document, and commits LSNs based on
+  // updates to the sentinel checkpoint document, and commits LSNs based on
   // that value. With read-time (updateLookup) semantics, a backlogged stream
   // reading an old event would see a *future* counter value, letting the
   // committed LSN run ahead of unprocessed data events — which would allow
@@ -164,14 +164,14 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.DOCUMENTDB)('documentDbMode', () =
   // DocumentDB only guarantees change order per shard key (RU docs) / nothing
   // documented (vCore) — not globally. The sentinel write-checkpoint design
   // assumes no cross-document order: a write checkpoint head is the
-  // `_standalone_checkpoint` sentinel, and the caller's data write lives in a
+  // `_sentinel_checkpoint` counter, and the caller's data write lives in a
   // different document. If the sentinel event can be delivered *before* the
   // data write that preceded it, a write checkpoint can resolve before its data
   // has replicated (see docs/documentdb/documentdb-outstanding-items.md).
   //
   // This reproduces that exact scenario using the real checkpointing write path
-  // (createDocumentDbCheckpointLsn): each round writes a data document, then bumps
-  // the standalone sentinel, and we record the delivery order off a single
+  // (createSentinelCheckpointLsn): each round writes a data document, then bumps
+  // the sentinel counter, and we record the delivery order off a single
   // cluster-level change stream.
   //
   // We do NOT assert on cross-document order (delivery order is not contractual
@@ -857,9 +857,9 @@ bucket_definitions:
     await collection.insertOne({ description: 'write_cp_test' });
 
     // Exercise the write checkpoint flow. On DocumentDB, createReplicationHead
-    // advances the standalone checkpoint sentinel and uses the resulting
-    // sentinel-based LSN as the source-side head. The sentinel write also
-    // nudges replication forward on an idle stream.
+    // advances the sentinel counter with a standalone (null stream_id) bump and
+    // uses the resulting sentinel-based LSN as the source-side head. The sentinel
+    // write also nudges replication forward on an idle stream.
     const result = await createWriteCheckpoint({
       userId: 'test_user',
       clientId: 'test_client',

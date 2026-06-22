@@ -192,7 +192,7 @@ export class MongoSnapshotter {
       // We only use this to get data into the oplog/changestream.
       //
       // The implementation supplies the filter: the sentinel implementation must
-      // preserve the standalone checkpoint document, since its counter is the
+      // preserve the sentinel checkpoint document, since its counter is the
       // globally-ordered component of every committed DocumentDB LSN.
       await this.defaultDb
         .collection(CHECKPOINTS_COLLECTION)

@@ -164,24 +164,13 @@ This is useful for debugging, but the token remains opaque. We should not parse 
 
 DocumentDB only supports cluster-level change streams. Collection- and database-level streams are rejected with `NamespaceNotFound` ("Collection not found"). The implementation therefore always opens the stream through `client.db('admin')` with `allChangesForCluster: true` and filters namespaces in the pipeline.
 
-This has a side effect on resume safety. DocumentDB resume tokens are cluster-scoped, so they stay valid regardless of which database the pipeline filters target:
+This has a side effect on resume safety: a change in source database name is not reliably detected. DocumentDB resume tokens are cluster-scoped, so they stay valid regardless of which database the pipeline filters target — the token stays valid when only the database name changes, and the stream silently continues against the new (typically empty) database.
 
-```text
-standard MongoDB
-  database-scoped stream — resuming against a different source database
-  invalidates the token and raises ChangeStreamInvalidatedError
+Note this is not unique to DocumentDB. Standard MongoDB previously raised `ChangeStreamInvalidatedError` when resuming against a different source database, but that behavior was never reliable — it depended on which resume token type happened to be used — and [#609](https://github.com/powersync-ja/powersync-service/pull/609) (raw change streams, `flush()` + `setResumeToken()` per batch) changed the token handling that it relied on. So source-database-change detection should not be assumed on either source.
 
-DocumentDB
-  cluster-scoped stream — the token stays valid when only the database
-  name changes; the stream silently continues, filtered to the new
-  (typically empty) database
-```
+The `resuming with a different source database` test in `resume.test.ts` is skipped on DocumentDB for this reason.
 
-On standard MongoDB this acts as a safeguard: repointing a connection at a different source database without resyncing fails loudly and triggers a resync. On DocumentDB that safeguard never fires — replication continues from the old token as if nothing changed, scoped to the new database.
-
-This is a known detection gap, not a test environment limitation. The `resuming with a different source database` test in `resume.test.ts` is skipped on DocumentDB for this reason.
-
-A possible future fix is to persist the source database name alongside the LSN and validate it on resume, raising `ChangeStreamInvalidatedError` on mismatch to force a resync.
+A possible future fix is to persist the source database name alongside the LSN and validate it on resume, raising `ChangeStreamInvalidatedError` on mismatch to force a resync — a mechanism that would cover both sources rather than relying on token-invalidation behavior.
 
 ## The `.lte()` Dedupe Guard Does Not Apply to the Sentinel Path
 
@@ -414,7 +403,7 @@ counter missing: $setOnInsert i = (epoch_seconds << 32), then retry the $inc
 
 Seeding in the `seconds << 32` range gives two properties: a sentinel LSN sorts above any real-timestamp LSN issued in the past (its high bits are the current epoch seconds), and the seed advances by `2^32` every wall-clock second while checkpoints add `1` each — so a re-created counter always resumes _ahead_ of any previously issued coordinate, a harmless forward jump rather than a backwards reset, with no detection logic required. (The forward jump needs ≥1 second to have elapsed since the original seed; the document lives from initial sync onward, so re-creation always lands in a later second.)
 
-Verified by `standalone counter is seeded at a timestamp value on creation` in `documentdb_helpers.test.ts`.
+Verified by `sentinel counter is seeded at a timestamp value on creation` in `documentdb_helpers.test.ts`.
 
 ## Write Checkpoint Observation
 
