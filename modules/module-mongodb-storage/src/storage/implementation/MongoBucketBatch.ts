@@ -64,6 +64,7 @@ export interface MongoBucketBatchOptions {
   listSourceRecordCollections?: (groupId: number) => Promise<mongo.Collection<any>[]>;
 
   objectStorage?: ObjectStorage;
+  inlineThresholdBytes?: number;
 }
 
 export abstract class MongoBucketBatch

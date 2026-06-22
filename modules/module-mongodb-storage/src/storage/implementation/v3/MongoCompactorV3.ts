@@ -1,6 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { addChecksums, storage, utils } from '@powersync/service-core';
+import * as bson from 'bson';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketDataDocumentGeneric, SingleBucketStore } from '../common/SingleBucketStore.js';
@@ -369,23 +370,29 @@ export class MongoCompactorV3 extends MongoCompactor {
             };
           });
 
-          const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${minOp}-${maxOp}`;
-          const { compressedSize } = await store.store(path, bucketOps);
-          newStoragePaths.add(path);
+          const bsonSize = Buffer.from(bson.serialize({ ops: bucketOps })).byteLength;
 
-          newDocs.push({
-            _id: { b: bucket, o: maxOp },
-            min_op: minOp,
-            checksum: totalChecksum,
-            count: chunk.length,
-            size: totalSize,
-            target_op: maxTargetOp,
-            has_clear_op: hasClearOp || undefined,
-            storage_ref: {
-              path,
-              compressed_size: compressedSize
-            }
-          });
+          if (bsonSize <= this.storage.inlineThresholdBytes) {
+            newDocs.push(serializeBucketData(bucket, chunk));
+          } else {
+            const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${minOp}-${maxOp}`;
+            const { compressedSize } = await store.store(path, bucketOps);
+            newStoragePaths.add(path);
+
+            newDocs.push({
+              _id: { b: bucket, o: maxOp },
+              min_op: minOp,
+              checksum: totalChecksum,
+              count: chunk.length,
+              size: totalSize,
+              target_op: maxTargetOp,
+              has_clear_op: hasClearOp || undefined,
+              storage_ref: {
+                path,
+                compressed_size: compressedSize
+              }
+            });
+          }
         }
       }
       // --- Commit: scoped delete + insert in transaction ---
@@ -684,7 +691,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     } else {
       const store = new BucketDataObjectStorage(this.storage.objectStorage!);
 
-      // --- CLEAR doc: upload to S3, build metadata shell ---
+      // --- CLEAR doc ---
       {
         const clearOpData = [
           {
@@ -695,23 +702,37 @@ export class MongoCompactorV3 extends MongoCompactor {
           }
         ];
 
-        const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${lastNotPut}-${lastNotPut}`;
-        const { compressedSize } = await store.store(path, clearOpData);
-        newStoragePaths.add(path);
+        const bsonSize = Buffer.from(bson.serialize({ ops: clearOpData })).byteLength;
 
-        clearDoc = {
-          _id: { b: bucket, o: lastNotPut },
-          min_op: lastNotPut,
-          checksum: BigInt(combinedChecksum),
-          count: 1,
-          size: 0,
-          target_op: maxTargetOp,
-          has_clear_op: true,
-          storage_ref: {
-            path,
-            compressed_size: compressedSize
-          }
-        };
+        if (bsonSize <= this.storage.inlineThresholdBytes) {
+          const clearOp = {
+            bucketKey: { ...context, bucket },
+            o: lastNotPut,
+            op: 'CLEAR' as const,
+            checksum: BigInt(combinedChecksum),
+            data: null,
+            target_op: maxTargetOp
+          } satisfies BucketDataDoc;
+          clearDoc = serializeBucketData(bucket, [clearOp]);
+        } else {
+          const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${lastNotPut}-${lastNotPut}`;
+          const { compressedSize } = await store.store(path, clearOpData);
+          newStoragePaths.add(path);
+
+          clearDoc = {
+            _id: { b: bucket, o: lastNotPut },
+            min_op: lastNotPut,
+            checksum: BigInt(combinedChecksum),
+            count: 1,
+            size: 0,
+            target_op: maxTargetOp,
+            has_clear_op: true,
+            storage_ref: {
+              path,
+              compressed_size: compressedSize
+            }
+          };
+        }
       }
 
       // --- Boundary survivors: upload to S3, build metadata shells ---
@@ -747,23 +768,29 @@ export class MongoCompactorV3 extends MongoCompactor {
             };
           });
 
-          const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${minOp}-${maxOp}`;
-          const { compressedSize } = await store.store(path, bucketOps);
-          newStoragePaths.add(path);
+          const bsonSize = Buffer.from(bson.serialize({ ops: bucketOps })).byteLength;
 
-          boundaryDocShells.push({
-            _id: { b: bucket, o: maxOp },
-            min_op: minOp,
-            checksum: totalChecksum,
-            count: chunk.length,
-            size: totalSize,
-            target_op: chunkMaxTargetOp,
-            has_clear_op: hasClearOp || undefined,
-            storage_ref: {
-              path,
-              compressed_size: compressedSize
-            }
-          });
+          if (bsonSize <= this.storage.inlineThresholdBytes) {
+            boundaryDocShells.push(serializeBucketData(bucket, chunk));
+          } else {
+            const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${minOp}-${maxOp}`;
+            const { compressedSize } = await store.store(path, bucketOps);
+            newStoragePaths.add(path);
+
+            boundaryDocShells.push({
+              _id: { b: bucket, o: maxOp },
+              min_op: minOp,
+              checksum: totalChecksum,
+              count: chunk.length,
+              size: totalSize,
+              target_op: chunkMaxTargetOp,
+              has_clear_op: hasClearOp || undefined,
+              storage_ref: {
+                path,
+                compressed_size: compressedSize
+              }
+            });
+          }
         }
       }
     }

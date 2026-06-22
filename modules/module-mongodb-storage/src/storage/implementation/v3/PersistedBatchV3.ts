@@ -259,26 +259,37 @@ export class PersistedBatchV3 extends PersistedBatch {
               };
             });
 
-            const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}`;
-            const { compressedSize } = await store.store(path, bucketOps);
+            const bsonSize = Buffer.from(bson.serialize({ ops: bucketOps })).byteLength;
 
-            inserts.push({
-              insertOne: {
-                document: {
-                  _id: { b: bucket, o: maxOp },
-                  min_op: minOp,
-                  checksum: totalChecksum,
-                  count: chunk.length,
-                  size: totalSize,
-                  target_op: maxTargetOp,
-                  has_clear_op: hasClearOp || undefined,
-                  storage_ref: {
-                    path,
-                    compressed_size: compressedSize
+            if (bsonSize <= this.inlineThresholdBytes) {
+              // Small enough to store inline
+              inserts.push({
+                insertOne: {
+                  document: serializeBucketData(bucket, chunk)
+                }
+              });
+            } else {
+              const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}`;
+              const { compressedSize } = await store.store(path, bucketOps);
+
+              inserts.push({
+                insertOne: {
+                  document: {
+                    _id: { b: bucket, o: maxOp },
+                    min_op: minOp,
+                    checksum: totalChecksum,
+                    count: chunk.length,
+                    size: totalSize,
+                    target_op: maxTargetOp,
+                    has_clear_op: hasClearOp || undefined,
+                    storage_ref: {
+                      path,
+                      compressed_size: compressedSize
+                    }
                   }
                 }
-              }
-            });
+              });
+            }
           }
         }
       }

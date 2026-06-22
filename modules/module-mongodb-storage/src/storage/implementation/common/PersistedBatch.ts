@@ -63,6 +63,7 @@ export interface UpsertCurrentDataOptions {
 export interface PersistedBatchOptions {
   logger?: Logger;
   objectStorage?: ObjectStorage;
+  inlineThresholdBytes?: number;
 }
 
 /**
@@ -78,6 +79,7 @@ export abstract class PersistedBatch {
   bucketStates: Map<string, BucketStateUpdate> = new Map();
 
   protected readonly objectStorage?: ObjectStorage;
+  protected readonly inlineThresholdBytes: number = 256;
 
   /**
    * For debug logging only.
@@ -99,6 +101,9 @@ export abstract class PersistedBatch {
     this.currentSize = writtenSize;
     this.logger = options?.logger ?? defaultLogger;
     this.objectStorage = options?.objectStorage;
+    if (options?.inlineThresholdBytes != null) {
+      this.inlineThresholdBytes = options.inlineThresholdBytes;
+    }
   }
 
   saveBucketData(options: SaveBucketDataOptions) {

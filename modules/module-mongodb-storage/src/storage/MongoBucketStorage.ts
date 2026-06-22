@@ -24,6 +24,7 @@ import { ReplicationStreamDocumentV3, SyncConfigDefinition } from './storage-ind
 export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
   objectStorage?: ObjectStorage;
+  inlineThresholdBytes?: number;
 }
 
 export class MongoBucketStorage extends storage.BucketStorageFactory {

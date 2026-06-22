@@ -58,7 +58,8 @@ export class MongoStorageProvider implements storage.StorageProvider {
         slot_name_prefix: resolvedConfig.slot_name_prefix
       },
       {
-        objectStorage
+        objectStorage,
+        inlineThresholdBytes: decodedConfig.object_storage?.inline_threshold_bytes
       }
     );
 

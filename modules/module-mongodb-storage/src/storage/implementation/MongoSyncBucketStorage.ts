@@ -43,6 +43,7 @@ export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
   storageConfig: StorageConfig;
   objectStorage?: ObjectStorage;
+  inlineThresholdBytes?: number;
 }
 
 interface InternalCheckpointChanges extends CheckpointChanges {
@@ -79,6 +80,7 @@ export abstract class MongoSyncBucketStorage
   readonly checksums: MongoChecksums;
 
   readonly objectStorage?: ObjectStorage;
+  readonly inlineThresholdBytes: number;
 
   private parsedSyncConfigCache: { parsed: HydratedSyncConfig; options: storage.ParseSyncConfigOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
@@ -97,6 +99,10 @@ export abstract class MongoSyncBucketStorage
     super();
     this.storageConfig = options.storageConfig;
     this.objectStorage = options.objectStorage;
+    // Keep chunks below 256 BSON bytes inline in MongoDB rather than
+    // offloading to S3. Covers single CLEAR ops (~50 bytes) and tiny
+    // write batches. Configurable via object_storage.inline_threshold_bytes.
+    this.inlineThresholdBytes = options.inlineThresholdBytes ?? 256;
     this.db = factory.db.versioned(this.storageConfig);
     this.checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
@@ -222,7 +228,8 @@ export abstract class MongoSyncBucketStorage
       hooks: options.hooks,
       syncConfigIds: state.syncConfigIds,
       tracer: options.tracer,
-      objectStorage: this.objectStorage
+      objectStorage: this.objectStorage,
+      inlineThresholdBytes: this.inlineThresholdBytes
     };
     const writer = this.createWriterImpl(batchOptions);
     this.iterateListeners((cb) => cb.batchStarted?.(writer));
