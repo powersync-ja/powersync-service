@@ -56,19 +56,17 @@ describe('V3 checksums with S3 object storage', () => {
 
     // Set compacted_state.op_id = 3 to create a partial range starting after op 3.
     // The doc has min_op=1, _id.o=6 so is_fully_included=false for the range (3, 6].
-    await db
-      .bucketState(bucketStorage.replicationStreamId)
-      .updateOne(
-        { _id: { d: definitionId, b: bucket } },
-        {
-          $set: {
-            last_op: 3n,
-            compacted_state: { op_id: 3n, count: 0, checksum: 0n, bytes: null },
-            estimate_since_compact: { count: 3, bytes: 100 }
-          }
-        },
-        { upsert: true }
-      );
+    await db.bucketState(bucketStorage.replicationStreamId).updateOne(
+      { _id: { d: definitionId, b: bucket } },
+      {
+        $set: {
+          last_op: 3n,
+          compacted_state: { op_id: 3n, count: 0, checksum: 0n, bytes: null },
+          estimate_since_compact: { count: 3, bytes: 100 }
+        }
+      },
+      { upsert: true }
+    );
 
     const partial = (await bucketStorage.getChecksums(checkpoint, [request])).get(bucket)!;
     expect(partial.checksum).toBe(full.checksum);
@@ -121,18 +119,18 @@ describe('V3 checksums with S3 object storage', () => {
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
     await writer.markAllSnapshotDone('1/1');
 
-    // A@1, A@2 get superseded by A@4. B@3 is independent.
+    // A@1, A@2 get superseded by A@4 (same replica_id for dedup). B@3 independent.
     await writer.save({
       sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: { id: 'A', description: 'v1' },
-      afterReplicaId: test_utils.rid('A-v1')
+      afterReplicaId: test_utils.rid('A')
     });
     await writer.save({
       sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: { id: 'A', description: 'v2' },
-      afterReplicaId: test_utils.rid('A-v2')
+      afterReplicaId: test_utils.rid('A')
     });
     await writer.save({
       sourceTable,
@@ -144,7 +142,7 @@ describe('V3 checksums with S3 object storage', () => {
       sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: { id: 'A', description: 'v4' },
-      afterReplicaId: test_utils.rid('A-v4')
+      afterReplicaId: test_utils.rid('A')
     });
     await writer.commit('1/1');
     const { checkpoint } = await bucketStorage.getCheckpoint();

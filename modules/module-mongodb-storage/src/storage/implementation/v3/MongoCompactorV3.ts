@@ -560,7 +560,8 @@ export class MongoCompactorV3 extends MongoCompactor {
             checksum: 1,
             count: 1,
             target_op: 1,
-            ops: 1
+            ops: 1,
+            storage_ref: 1
           }
         }
       ];
@@ -569,6 +570,19 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       if (rawBatch.length == 0) {
         break;
+      }
+
+      // Pre-fetch S3 objects for S3-backed docs
+      if (this.storage.objectStorage) {
+        const store = new BucketDataObjectStorage(this.storage.objectStorage);
+        const s3Docs = rawBatch.filter((d: any) => d.storage_ref?.path);
+        if (s3Docs.length > 0) {
+          await Promise.all(
+            s3Docs.map(async (doc: any) => {
+              doc.ops = await store.retrieve(doc.storage_ref.path);
+            })
+          );
+        }
       }
 
       let boundaryFound = false;
