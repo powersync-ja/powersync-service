@@ -10,11 +10,11 @@ const REQUIRED_CHECKPOINT_PERMISSIONS = ['find', 'insert', 'update', 'remove', '
 
 /**
  * Whether a `hello` response indicates Azure DocumentDB (formerly Azure Cosmos
- * DB for MongoDB vCore). Older clusters report `cosmos_versions`; newer ones
- * report `documentdb_versions` after Microsoft's rename.
+ * DB for MongoDB vCore), which reports `documentdb_versions` in the `internal`
+ * section.
  */
 function isDocumentDbHello(hello: mongo.Document): boolean {
-  return hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
+  return hello.internal?.documentdb_versions != null;
 }
 
 /**

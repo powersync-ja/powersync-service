@@ -38,22 +38,8 @@ describe('DocumentDB helpers', () => {
   });
 
   describe('DocumentDB detection', () => {
-    // Detection logic: hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null
-    // Older clusters use cosmos_versions, newer ones use documentdb_versions after Microsoft's rename.
-    const isDocumentDb = (hello: any) =>
-      hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
-
-    test('hello with cosmos_versions — detected as DocumentDB', () => {
-      const hello = {
-        isWritablePrimary: true,
-        msg: 'isdbgrid',
-        setName: 'globaldb',
-        internal: {
-          cosmos_versions: ['1.104-1', '1.105.0', '12.1-1']
-        }
-      };
-      expect(isDocumentDb(hello)).toBe(true);
-    });
+    // Detection logic: hello.internal?.documentdb_versions != null
+    const isDocumentDb = (hello: any) => hello.internal?.documentdb_versions != null;
 
     test('hello with documentdb_versions — detected as DocumentDB', () => {
       const hello = {

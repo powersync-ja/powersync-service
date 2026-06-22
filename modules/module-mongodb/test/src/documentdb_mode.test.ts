@@ -36,7 +36,7 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.DOCUMENTDB)('documentDbMode', () =
     try {
       const hello = await db.command({ hello: 1 });
       console.dir({ hello }, { depth: null });
-      expect(hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null).toBe(true);
+      expect(hello.internal?.documentdb_versions != null).toBe(true);
     } finally {
       await client.close();
     }
