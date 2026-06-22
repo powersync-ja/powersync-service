@@ -4,7 +4,6 @@ import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { env } from './env.js';
-import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 import { createS3TestStorageSuite } from './helpers/s3TestFactory.js';
 
 const SYNC_RULES_YAML = `

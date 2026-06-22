@@ -1,6 +1,6 @@
-import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { ObjectStorage } from '@module/storage/implementation/v3/object-storage/ObjectStorage.js';
 import { S3ObjectStorage } from '@module/storage/implementation/v3/object-storage/S3ObjectStorage.js';
+import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { MemoryObjectStorage } from './MemoryObjectStorage.js';
 
 export interface S3TestFactoryOptions {
