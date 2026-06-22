@@ -344,14 +344,6 @@ describe('V3 Compaction with object storage', () => {
 
     const pathsAfter = new Set(store.keys());
 
-    // Old S3 paths that are not reused by new compaction output must be gone.
-    // Some paths may be reused if chunk boundaries match exactly, so only
-    // assert on paths explicitly different from before.
-    for (const p of pathsBefore) {
-      if (!pathsAfter.has(p)) {
-        // This path was deleted — correct.
-      }
-    }
     expect(pathsAfter.size).toBeGreaterThan(0);
 
     // Verify the surviving ops: B and latest A (A-v4)
