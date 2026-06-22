@@ -98,19 +98,19 @@ A `SourceTable` tracks:
 - Per-table snapshot completion and progress.
 - The bucket data sources and parameter lookup sources that use it.
 
-For a fuller walkthrough, see [resolve-tables-flow.md](../../replication/resolve-tables-flow.md).
+For a fuller walkthrough, see [09-resolve-tables-flow.md](./09-resolve-tables-flow.md).
 
 ## Bucket Data
 
 Bucket data is the operation history exposed to clients. Replication evaluates source rows against sync config data queries and writes `PUT`, `REMOVE`, `MOVE`, or `CLEAR` operations into bucket storage.
 
-The client-facing behavior is defined in [sync-protocol.md](../sync-protocol.md), while formal bucket invariants are described in [bucket-properties.md](../../storage/bucket-properties.md).
+The client-facing behavior is defined in [sync-protocol.md](../specs/sync-protocol.md), while formal bucket invariants are described in [bucket-properties.md](../storage/bucket-properties.md).
 
 ## Parameter Lookup Data
 
 Parameter lookup data is an index used to evaluate dynamic bucket parameters at a checkpoint. Replication evaluates source rows that participate in parameter queries and stores lookup entries keyed by source table, source row identity, and lookup values.
 
-This lets the sync API ask, at a given checkpoint, which dynamic buckets a client should receive. See [parameter-lookups.md](../../storage/parameter-lookups.md) for the storage model and compaction concerns.
+This lets the sync API ask, at a given checkpoint, which dynamic buckets a client should receive. See [parameter-lookups.md](../storage/parameter-lookups.md) for the storage model and compaction concerns.
 
 ## Checkpoint
 

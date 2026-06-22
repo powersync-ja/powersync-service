@@ -46,7 +46,7 @@ Storage compares the discovered `SourceEntityDescriptor` with persisted source t
 
 The source connector should apply `drop(result.dropTables)` when necessary, and snapshot returned tables that are relevant but not snapshot-complete.
 
-See [resolve-tables-flow.md](../../replication/resolve-tables-flow.md) for the detailed lifecycle.
+See [09-resolve-tables-flow.md](./09-resolve-tables-flow.md) for the detailed lifecycle.
 
 ## Saving Row Changes
 

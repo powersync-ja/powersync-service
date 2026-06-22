@@ -18,14 +18,14 @@ Schema change handling is also source-specific. A module may automatically react
 
 Primary files:
 
-- [`WalStreamReplicator`](../../../modules/module-postgres/src/replication/WalStreamReplicator.ts)
-- [`WalStreamReplicationJob`](../../../modules/module-postgres/src/replication/WalStreamReplicationJob.ts)
-- [`WalStream`](../../../modules/module-postgres/src/replication/WalStream.ts)
-- [`PostgresRouteAPIAdapter`](../../../modules/module-postgres/src/api/PostgresRouteAPIAdapter.ts)
+- [`WalStreamReplicator`](../../modules/module-postgres/src/replication/WalStreamReplicator.ts)
+- [`WalStreamReplicationJob`](../../modules/module-postgres/src/replication/WalStreamReplicationJob.ts)
+- [`WalStream`](../../modules/module-postgres/src/replication/WalStream.ts)
+- [`PostgresRouteAPIAdapter`](../../modules/module-postgres/src/api/PostgresRouteAPIAdapter.ts)
 
 Postgres uses logical replication slots and WAL LSNs. The replication slot preserves WAL history for the stream, so `setResumeLsn()` is generally not needed for streaming progress.
 
-Initial replication snapshots selected tables and records boundaries that streaming must pass before checkpoints become valid. The deeper design history is in [initial-replication.md](../../modules/postgres/initial-replication.md).
+Initial replication snapshots selected tables and records boundaries that streaming must pass before checkpoints become valid. The deeper design history is in [initial-replication.md](../modules/postgres/initial-replication.md).
 
 The route adapter creates managed write checkpoint heads by reading `pg_current_wal_lsn()` and then sending a logical keepalive message.
 
@@ -33,11 +33,11 @@ The route adapter creates managed write checkpoint heads by reading `pg_current_
 
 Primary files:
 
-- [`ChangeStreamReplicator`](../../../modules/module-mongodb/src/replication/ChangeStreamReplicator.ts)
-- [`ChangeStreamReplicationJob`](../../../modules/module-mongodb/src/replication/ChangeStreamReplicationJob.ts)
-- [`ChangeStream`](../../../modules/module-mongodb/src/replication/ChangeStream.ts)
-- [`MongoSnapshotter`](../../../modules/module-mongodb/src/replication/MongoSnapshotter.ts)
-- [`MongoRouteAPIAdapter`](../../../modules/module-mongodb/src/api/MongoRouteAPIAdapter.ts)
+- [`ChangeStreamReplicator`](../../modules/module-mongodb/src/replication/ChangeStreamReplicator.ts)
+- [`ChangeStreamReplicationJob`](../../modules/module-mongodb/src/replication/ChangeStreamReplicationJob.ts)
+- [`ChangeStream`](../../modules/module-mongodb/src/replication/ChangeStream.ts)
+- [`MongoSnapshotter`](../../modules/module-mongodb/src/replication/MongoSnapshotter.ts)
+- [`MongoRouteAPIAdapter`](../../modules/module-mongodb/src/api/MongoRouteAPIAdapter.ts)
 
 MongoDB uses change streams and stores resume state in bucket storage. Initial snapshots and streaming can overlap depending on snapshotter support.
 
@@ -49,10 +49,10 @@ If the change stream is invalidated or the resume token is no longer available, 
 
 Primary files:
 
-- [`BinLogReplicator`](../../../modules/module-mysql/src/replication/BinLogReplicator.ts)
-- [`BinLogReplicationJob`](../../../modules/module-mysql/src/replication/BinLogReplicationJob.ts)
-- [`BinLogStream`](../../../modules/module-mysql/src/replication/BinLogStream.ts)
-- [`MySQLRouteAPIAdapter`](../../../modules/module-mysql/src/api/MySQLRouteAPIAdapter.ts)
+- [`BinLogReplicator`](../../modules/module-mysql/src/replication/BinLogReplicator.ts)
+- [`BinLogReplicationJob`](../../modules/module-mysql/src/replication/BinLogReplicationJob.ts)
+- [`BinLogStream`](../../modules/module-mysql/src/replication/BinLogStream.ts)
+- [`MySQLRouteAPIAdapter`](../../modules/module-mysql/src/api/MySQLRouteAPIAdapter.ts)
 
 MySQL uses GTID/binlog positions. It persists resume state in bucket storage and checks whether required binlog files are still available when resuming.
 
@@ -62,10 +62,10 @@ Keepalives are handled by the binlog heartbeat mechanism. The route adapter curr
 
 Primary files:
 
-- [`CDCReplicator`](../../../modules/module-mssql/src/replication/CDCReplicator.ts)
-- [`CDCReplicationJob`](../../../modules/module-mssql/src/replication/CDCReplicationJob.ts)
-- [`CDCStream`](../../../modules/module-mssql/src/replication/CDCStream.ts)
-- [`MSSQLRouteAPIAdapter`](../../../modules/module-mssql/src/api/MSSQLRouteAPIAdapter.ts)
+- [`CDCReplicator`](../../modules/module-mssql/src/replication/CDCReplicator.ts)
+- [`CDCReplicationJob`](../../modules/module-mssql/src/replication/CDCReplicationJob.ts)
+- [`CDCStream`](../../modules/module-mssql/src/replication/CDCStream.ts)
+- [`MSSQLRouteAPIAdapter`](../../modules/module-mssql/src/api/MSSQLRouteAPIAdapter.ts)
 
 SQL Server uses CDC LSNs and polling. The stream stores a snapshot LSN, snapshots selected tables, and then polls CDC changes from the persisted resume position.
 
@@ -75,15 +75,15 @@ The route adapter reads the latest LSN and writes to the PowerSync checkpoints t
 
 Primary files:
 
-- [`ConvexReplicator`](../../../modules/module-convex/src/replication/ConvexReplicator.ts)
-- [`ConvexReplicationJob`](../../../modules/module-convex/src/replication/ConvexReplicationJob.ts)
-- [`ConvexStream`](../../../modules/module-convex/src/replication/ConvexStream.ts)
-- [`ConvexRouteAPIAdapter`](../../../modules/module-convex/src/api/ConvexRouteAPIAdapter.ts)
+- [`ConvexReplicator`](../../modules/module-convex/src/replication/ConvexReplicator.ts)
+- [`ConvexReplicationJob`](../../modules/module-convex/src/replication/ConvexReplicationJob.ts)
+- [`ConvexStream`](../../modules/module-convex/src/replication/ConvexStream.ts)
+- [`ConvexRouteAPIAdapter`](../../modules/module-convex/src/api/ConvexRouteAPIAdapter.ts)
 
 Convex uses Streaming Export APIs. Initial replication pins or reuses a global snapshot cursor and paginates table snapshots. Streaming then consumes document deltas.
 
 Convex tables use `_id` as the replication identity and deltas contain full document state. Convex-specific edge cases are documented in:
 
-- [snapshot-consistency.md](../../modules/convex/snapshot-consistency.md)
-- [schema-change-handling.md](../../modules/convex/schema-change-handling.md)
-- [convex-write-checkpoints.md](../../modules/convex/convex-write-checkpoints.md)
+- [snapshot-consistency.md](../modules/convex/snapshot-consistency.md)
+- [schema-change-handling.md](../modules/convex/schema-change-handling.md)
+- [convex-write-checkpoints.md](../modules/convex/convex-write-checkpoints.md)

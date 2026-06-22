@@ -55,7 +55,7 @@ For a checkpoint, the sync API computes bucket checksums with `getChecksums(chec
 
 Clients fetch bucket data only for buckets whose checksums changed or whose previous download was interrupted.
 
-The semantics of bucket operations and checksums are described in [sync-protocol.md](../sync-protocol.md) and [bucket-properties.md](../../storage/bucket-properties.md).
+The semantics of bucket operations and checksums are described in [sync-protocol.md](../specs/sync-protocol.md) and [bucket-properties.md](../storage/bucket-properties.md).
 
 ## Parameter Lookups
 
@@ -63,7 +63,7 @@ Dynamic buckets require parameter queries to be evaluated at the same checkpoint
 
 The sync API uses `ReplicationCheckpoint.getParameterSets()` to resolve lookup rows for dynamic bucket evaluation. Storage must return parameter data valid at that checkpoint and enforce configured result limits.
 
-Parameter lookup storage and compaction are covered in [parameter-lookups.md](../../storage/parameter-lookups.md).
+Parameter lookup storage and compaction are covered in [parameter-lookups.md](../storage/parameter-lookups.md).
 
 ## Checkpoint Complete
 
@@ -107,7 +107,7 @@ Do not add a marker table solely because PowerSync needs to replicate marker row
 
 The stored managed write checkpoint head is usually the position read before the marker is written. The marker's role is to create a later observable stream position at or beyond that stored head. Writing the marker before the callback stores the mapping can recreate the same idle-source race because replication may process the marker before the sync API knows about the write checkpoint.
 
-See [convex-write-checkpoints.md](../../modules/convex/convex-write-checkpoints.md) for a detailed example of why Convex uses a `powersync_checkpoints` collection, and why the collection is about observable stream progress rather than syncing marker documents to clients.
+See [convex-write-checkpoints.md](../modules/convex/convex-write-checkpoints.md) for a detailed example of why Convex uses a `powersync_checkpoints` collection, and why the collection is about observable stream progress rather than syncing marker documents to clients.
 
 ## Custom Write Checkpoints
 
