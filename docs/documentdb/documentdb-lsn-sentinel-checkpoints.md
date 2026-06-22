@@ -65,8 +65,7 @@ resume         parseResumePosition, seedPosition, logResume,
                lsnFromResumeToken
 create         createBatchCheckpoint, createFirstBarrier,
                createStandaloneCheckpoint, createReplicationHead, keepalive
-interpret      event.observe, event.lsn, event.resolvesBarrier,
-               event.describe, checkDescendingLsn
+interpret      event.observe, event.lsn, event.resolvesBarrier
 maintenance    zeroLsn, hasPosition, checkpointClearFilter
 ```
 
@@ -266,9 +265,9 @@ own barrier events fullDocument.i
 
 It exists because one LSN producer is not self-describing: the `setResumeLsn` path builds an LSN from a plain data event during long catch-up stretches (20k+ changes without a commit — the batch barrier is a current-time write, so it sits at the end of the backlog and no commit happens until the stream reaches it). Data events carry no sentinel, so the coordinate must come from tracked state.
 
-During such a stretch the coordinate is _frozen_ — data events do not bump the "LSN" counter, so only the resume token half of the LSN advances. That is exactly what resumption needs (`setResumeLsn` writes `snapshot_lsn` unconditionally, with no comparison, and resume only uses the token). The tracked position is not advancing the coordinate here; it is carrying the current frozen coordinate forward so the resume LSN stays a well-formed, non-regressing LSN that re-seeds `position` on the next restart.
+During such a stretch the coordinate is _frozen_ — data events do not bump the "LSN" counter, so only the resume token half of the LSN advances. That is exactly what resumption needs (`setResumeLsn` writes `resume_lsn` unconditionally, with no comparison, and resume only uses the token). The tracked position is not advancing the coordinate here; it is carrying the current frozen coordinate forward so the resume LSN stays a well-formed, non-regressing LSN that re-seeds `position` on the next restart.
 
-The resume seed also lets the monotonic guard absorb replayed standalone events after a restart (their `i` is below the resumed position) without treating them as ordering violations.
+The position is monotonic by construction: `mergePosition` only ever moves it forward, so an event carrying a lower `i` than the current position (a reordered or cross-stream delivery) is simply ignored rather than regressing the coordinate. There is no ordering-violation check involved.
 
 Because every barrier and standalone bump now carries the global coordinate in its own `i`, the tracked position is not load-bearing for cross-document ordering — it is only a cache of the highest coordinate proven so far, advancing the data-event (`setResumeLsn`) path between checkpoint events. Any single event being late or absent does not affect correctness.
 
@@ -376,9 +375,9 @@ Two details matter:
 
 1. **Bump, do not persist.** The keepalive only advances the counter; it does not call `batch.keepalive` directly. The bump's own change event flows through the stream and is committed by the standalone-checkpoint handling (the immediate-commit path), which advances the prefix and refreshes the token using the event's own token.
 
-2. **Why not persist immediately.** Writes that landed after the empty batch was read — including a write checkpoint head — would be covered by an immediately-persisted LSN before the stream has actually processed them. That would let write checkpoints resolve before their data has replicated. Committing only when the bump's event is observed preserves the "commit only what the stream has seen" property.
+2. **Commit on observation, not in memory.** The bump advances the source-database counter (`_sentinel_checkpoint.i`) to `N+1`, but we must not treat `N+1` as committed until the bump's own event comes back through the stream. In commit order that event sits _after_ any writes that landed since the stream last read an empty batch — including a write checkpoint head. Marking `N+1` committed in memory ahead of observing it would claim replication progress past those still-unprocessed writes, letting their write checkpoints resolve before the data has replicated. (Committing the _current_ sentinel `N` instead would not have that problem — but `<N>|<new token>` is exactly the rejected naive case above, which is why we bump rather than re-commit `N`.) Waiting for the bump's event preserves the "commit only what the stream has seen" property.
 
-A consequence of bumping is that the bump's event arrives moments later carrying the _same_ sentinel as the just-committed LSN (differing only in the opaque token). That descending-by-suffix comparison is expected, not an ordering violation: `checkDescendingLsn` treats an equal-sentinel descent as tolerable and returns without throwing, so the commit simply no-ops in storage (`checkpointBlocked`) instead of restarting replication.
+When the bump's event is observed it commits at the new, higher sentinel (`N+1`), so the keepalive checkpoint is strictly increasing — exactly the forward movement the bump exists to produce.
 
 ## Sentinel Counter Persistence
 
@@ -386,7 +385,7 @@ The `_sentinel_checkpoint` counter is the ordered component of every committed D
 
 ### Startup cleanup
 
-`ChangeStream` clears the `_powersync_checkpoints` collection on startup to keep it tidy. The sentinel implementation's `checkpointClearFilter` excludes `_sentinel_checkpoint` from that delete (`{ _id: { $ne: SENTINEL_CHECKPOINT_ID } }`). Without this, the counter would be deleted and re-seeded on the next upsert, and new commits could compare below the persisted `last_checkpoint_lsn` — failing the out-of-order commit guard in a restart loop, and letting new write checkpoint heads resolve against old, higher committed LSNs.
+`ChangeStream` clears the `_powersync_checkpoints` collection on startup to keep it tidy. The sentinel implementation's `checkpointClearFilter` excludes `_sentinel_checkpoint` from that delete (`{ _id: { $ne: SENTINEL_CHECKPOINT_ID } }`). Without this, the counter would be deleted and re-seeded on the next upsert, and new commits could compare below the persisted `last_checkpoint_lsn` — so storage would reject them (`checkpointBlocked`) and the checkpoint would stall, and new write checkpoint heads could resolve against old, higher committed LSNs.
 
 ### Consumer deletion and timestamp seeding
 

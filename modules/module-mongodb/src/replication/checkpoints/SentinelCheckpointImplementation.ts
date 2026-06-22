@@ -10,7 +10,6 @@ import {
   CheckpointEventKind,
   CheckpointImplementation,
   CheckpointImplementationContext,
-  descendingLsnError,
   getCheckpointId,
   StreamResumePosition
 } from './CheckpointImplementation.js';
@@ -192,15 +191,6 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
       }
       const parsed = SentinelLSN.fromSerialized(marker);
       return this.context.checkpointStreamId.equals(fullDoc.stream_id) && fullDoc.i >= parsed.sentinel;
-    },
-
-    describe: (_doc) => {
-      // The event is intentionally unused: the meaningful position is the
-      // tracked coordinate, not something an arbitrary event carries (data
-      // events — which trigger the descending-LSN error path this feeds — have
-      // no coordinate of their own). The caller logs the event's resume token
-      // separately, so the coordinate is the useful part for error messages.
-      return `sentinel ${this.position}`;
     }
   };
 
@@ -208,31 +198,15 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     return this.position != SentinelLSN.ZERO.sentinel;
   }
 
-  checkDescendingLsn(lsn: string, lastCheckpointLsn: string | null, doc: ProjectedChangeStreamDocument): void {
-    if (lastCheckpointLsn == null || lsn >= lastCheckpointLsn) {
-      return;
-    }
-    // An LSN with the same sentinel as the last committed LSN differs only in
-    // the opaque resume token suffix, which carries no ordering meaning —
-    // e.g. when a restart replays an event behind an already-persisted
-    // checkpoint. That descent is tolerable: the commit no-ops in storage
-    // (checkpointBlocked). Only a true coordinate regression is fatal.
-    const sameCoordinate =
-      SentinelLSN.fromSerialized(lsn).sentinel === SentinelLSN.fromSerialized(lastCheckpointLsn).sentinel;
-    if (!sameCoordinate) {
-      throw descendingLsnError(this, lastCheckpointLsn, doc);
-    }
-  }
-
   // The sentinel checkpoint document must survive restarts (hence the $ne
   // below — the startup cleanup deletes every other checkpoint document). Its
   // counter is the globally-ordered component of every committed LSN, including
   // write checkpoint heads. Deleting it would re-seed the counter on the next
   // upsert, risking moving the LSN coordinate system backwards: new commits
-  // could compare below the persisted last_checkpoint_lsn (failing the
-  // out-of-order commit guard in a restart loop), and new write checkpoint
-  // heads could resolve against old, higher committed LSNs before their
-  // data has actually replicated.
+  // could compare below the persisted last_checkpoint_lsn (so storage rejects
+  // them via checkpointBlocked and the checkpoint stalls), and new write
+  // checkpoint heads could resolve against old, higher committed LSNs before
+  // their data has actually replicated.
   //
   // Note: this only protects against our own startup cleanup. The global
   // LSN coordinate still lives in a user-visible collection, so a consumer

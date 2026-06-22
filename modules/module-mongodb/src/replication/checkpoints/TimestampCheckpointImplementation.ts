@@ -3,13 +3,11 @@ import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { ReplicationHeadCallback, storage } from '@powersync/service-core';
 import { MongoLSN } from '../../common/MongoLSN.js';
 import { createCheckpoint, SENTINEL_CHECKPOINT_ID, STANDALONE_CHECKPOINT_ID } from '../MongoRelation.js';
-import { ProjectedChangeStreamDocument } from '../RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from '../replication-utils.js';
 import {
   CheckpointEventApi,
   CheckpointImplementation,
   CheckpointImplementationContext,
-  descendingLsnError,
   getCheckpointId,
   getEventTimestamp,
   StreamResumePosition
@@ -140,20 +138,8 @@ export class TimestampCheckpointImplementation implements CheckpointImplementati
     resolvesBarrier: (marker, doc) => {
       // Barrier markers are comparable LSNs in this implementation.
       return this.event.lsn(doc) >= marker;
-    },
-
-    describe: (doc) => {
-      return timestampToDate(getEventTimestamp(doc)).toISOString();
     }
   };
-
-  checkDescendingLsn(lsn: string, lastCheckpointLsn: string | null, doc: ProjectedChangeStreamDocument): void {
-    // clusterTime is globally ordered, so any descent below the last committed
-    // LSN is a real ordering violation.
-    if (lastCheckpointLsn != null && lsn < lastCheckpointLsn) {
-      throw descendingLsnError(this, lastCheckpointLsn, doc);
-    }
-  }
 
   // It's safe to clear the entire _powersync_checkpoints collection in this mode.
   readonly checkpointClearFilter: mongo.Filter<mongo.Document> = {};

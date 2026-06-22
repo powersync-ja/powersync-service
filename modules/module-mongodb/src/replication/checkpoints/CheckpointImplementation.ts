@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { Logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
+import { Logger } from '@powersync/lib-services-framework';
 import { ReplicationHeadCallback, storage } from '@powersync/service-core';
 
 import { ProjectedChangeStreamDocument } from '../RawChangeStream.js';
@@ -59,9 +59,6 @@ export interface CheckpointEventApi {
 
   /** Whether a barrier marker from {@link CheckpointImplementation.createBatchCheckpoint} is resolved by this event. */
   resolvesBarrier(marker: string, doc: ProjectedChangeStreamDocument): boolean;
-
-  /** Human-readable event position for error messages. */
-  describe(doc: ProjectedChangeStreamDocument): string;
 }
 
 /**
@@ -150,44 +147,8 @@ export interface CheckpointImplementation {
   /** Event-interpretation methods, all operating on a single raw change event. */
   readonly event: CheckpointEventApi;
 
-  /**
-   * Guard against an event LSN that compares below the last committed LSN.
-   *
-   * Returns normally when the LSN is in order, or when the descent is tolerable
-   * (sentinel implementation: equal coordinate, opaque resume-token suffix tie —
-   * e.g. a restart replaying an event behind an already-persisted checkpoint, in
-   * which case the commit no-ops in storage / checkpointBlocked). Throws
-   * {@link ReplicationAssertionError} on a real ordering violation, stopping
-   * replication so a restart can recover.
-   *
-   * `lastCheckpointLsn` may be null (nothing committed yet), in which case there
-   * is nothing to compare against.
-   */
-  checkDescendingLsn(lsn: string, lastCheckpointLsn: string | null, doc: ProjectedChangeStreamDocument): void;
-
   /** Filter for clearing the checkpoints collection on startup. */
   readonly checkpointClearFilter: mongo.Filter<mongo.Document>;
-}
-
-/**
- * The fatal "checkpoint out of order" error raised by
- * {@link CheckpointImplementation.checkDescendingLsn}. Shared by both
- * implementations so the message and rationale live in one place.
- *
- * This should never happen with MongoDB. If it does, we stop replication and
- * restart, which recovers — and because the caller uses `lastCheckpointLsn` as
- * the next `resumeAfter`, this does not loop. Originally a workaround for
- * https://jira.mongodb.org/browse/NODE-7042 (since fixed in the driver, kept as
- * a safety check).
- */
-export function descendingLsnError(
-  impl: CheckpointImplementation,
-  lastCheckpointLsn: string,
-  doc: ProjectedChangeStreamDocument
-): ReplicationAssertionError {
-  return new ReplicationAssertionError(
-    `Change resumeToken ${(doc._id as any)._data} (${impl.event.describe(doc)}) is less than last checkpoint LSN ${lastCheckpointLsn}. Restarting replication.`
-  );
 }
 
 /**

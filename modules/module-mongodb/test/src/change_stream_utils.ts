@@ -199,7 +199,7 @@ export class ChangeStreamTestContext {
     if (this.documentDbMode) {
       const sentinelCheckpoint = SentinelLSN.fromSerialized(await createSentinelCheckpointLsn(this.client, this.db));
       const status = await this.storage!.getStatus();
-      const resumeFrom = status.checkpoint_lsn ?? status.snapshot_lsn;
+      const resumeFrom = status.resumeLsn;
       const resumeToken = resumeFrom ? SentinelLSN.fromSerialized(resumeFrom).resumeToken : null;
 
       // This helper artificially marks the snapshot as consistent without
