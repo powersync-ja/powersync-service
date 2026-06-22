@@ -89,18 +89,24 @@ describe('V3 checksums with S3 object storage', () => {
 
     // Set compacted_state.op_id = 3n to create a partial range starting after op 3.
     // The checksum pipeline must $filter ops in the S3-backed doc to only sum ops > 3.
+    // Use updateOne with upsert — the writer may have already created bucket_state.
     const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
-    await bucketStateCollection.insertOne({
-      _id: { d: definitionId, b: bucket },
-      last_op: 3n,
-      compacted_state: {
-        op_id: 3n,
-        count: 3,
-        checksum: BigInt(compactedChecksum),
-        bytes: null
+    await bucketStateCollection.updateOne(
+      { _id: { d: definitionId, b: bucket } },
+      {
+        $set: {
+          last_op: 3n,
+          compacted_state: {
+            op_id: 3n,
+            count: 3,
+            checksum: BigInt(compactedChecksum),
+            bytes: null
+          },
+          estimate_since_compact: { count: 3, bytes: 100 }
+        }
       },
-      estimate_since_compact: { count: 3, bytes: 100 }
-    });
+      { upsert: true }
+    );
 
     const result = await bucketStorage.getChecksums(checkpoint, [request]);
     const checksumResult = result.get(bucket)!;
@@ -156,8 +162,10 @@ describe('V3 checksums with S3 object storage', () => {
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
 
     const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
@@ -193,11 +201,8 @@ describe('V3 checksums with S3 object storage', () => {
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
 
-    // Snapshot checksum before compaction
-    const before = await bucketStorage.getChecksums(checkpoint, [request]);
-    const beforeChecksum = before.get(request.bucket)!;
-
-    // Compact
+    // Compact the bucket. The compactor produces a CLEAR doc (collapsing A@1, A@2
+    // MOVEs) and surviving PUTs (B@3, A@4). compacted_state is set to the total.
     await bucketStorage.compact({
       maxOpId: checkpoint,
       compactBuckets: [request.bucket],
@@ -210,13 +215,34 @@ describe('V3 checksums with S3 object storage', () => {
       signal: null as any
     });
 
-    // Checksum should be preserved across compaction
-    const after = await bucketStorage.getChecksums(checkpoint, [request]);
-    const afterChecksum = after.get(request.bucket)!;
-    expect(afterChecksum.checksum).toBe(beforeChecksum.checksum);
+    // Manually shift compacted_state.op_id back to before the CLEAR doc so that
+    // getChecksums will query the pipeline (not just read from compacted_state).
+    // The pipeline must then process the CLEAR doc and detect has_clear_op = 1.
+    const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
+    await bucketStateCollection.updateOne(
+      { _id: { d: definitionId, b: request.bucket } },
+      { $set: { 'compacted_state.op_id': 0n } }
+    );
+
+    // Compute ground-truth checksum by summing doc-level checksum fields.
+    const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
+    const docs = await collection
+      .find({ '_id.b': request.bucket })
+      .project({ checksum: 1 })
+      .toArray();
+    const groundTruth = docs.reduce((sum: number, d: any) => addChecksums(sum, Number(d.checksum)), 0);
+
+    // getChecksums must return the same total. The CLEAR doc in the pipeline
+    // should be treated as a full/replacing checksum (has_clear_op detected),
+    // not added on top of compacted_state as a partial checksum.
+    const result = await bucketStorage.getChecksums(checkpoint, [request]);
+    const checksum = result.get(request.bucket)!;
+    expect(checksum.checksum).toBe(groundTruth);
 
     // Surviving data: 2 PUT ops (B@3 and A@4)
-    const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const batchAfter = await test_utils.fromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, [request])
+    );
     const dataAfter = test_utils.getBatchData(batchAfter);
     expect(dataAfter.length).toBeGreaterThanOrEqual(2);
     expect(dataAfter.some((d: any) => d.object_id === 'B')).toBe(true);
