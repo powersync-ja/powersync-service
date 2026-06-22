@@ -84,12 +84,8 @@ describe('V3 checksums with S3 object storage', () => {
 
     // Compute expected checksums
     const fullChecksum = ops.reduce((sum, op) => addChecksums(sum, Number(op)), 0);
-    const partialChecksum = ops
-      .filter((o) => o > 3n)
-      .reduce((sum, op) => addChecksums(sum, Number(op)), 0);
-    const compactedChecksum = ops
-      .filter((o) => o <= 3n)
-      .reduce((sum, op) => addChecksums(sum, Number(op)), 0);
+    const partialChecksum = ops.filter((o) => o > 3n).reduce((sum, op) => addChecksums(sum, Number(op)), 0);
+    const compactedChecksum = ops.filter((o) => o <= 3n).reduce((sum, op) => addChecksums(sum, Number(op)), 0);
 
     // Set compacted_state.op_id = 3n to create a partial range starting after op 3.
     // The checksum pipeline must $filter ops in the S3-backed doc to only sum ops > 3.
@@ -153,5 +149,77 @@ describe('V3 checksums with S3 object storage', () => {
     // checksum must be non-zero and less than full checksum (ops 8-20 excluded).
     expect(partial.count).toBeGreaterThan(0);
     expect(partial.count).toBeLessThan(full.count);
+  });
+
+  test('checksum preserved after CLEAR-producing S3 compaction', async () => {
+    const { factoryGen } = s3Factory();
+    await using factory = await factoryGen.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+
+    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
+    await writer.markAllSnapshotDone('1/1');
+
+    // A@1, A@2 get superseded by A@4 (same row_id='A'). B@3 is independent.
+    // Compaction will turn A@1, A@2 into MOVE tombstones, then CLEAR collapses them.
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'A', description: 'v1' },
+      afterReplicaId: test_utils.rid('A-v1')
+    });
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'A', description: 'v2' },
+      afterReplicaId: test_utils.rid('A-v2')
+    });
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'B', description: 'beta' },
+      afterReplicaId: test_utils.rid('B')
+    });
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'A', description: 'v4' },
+      afterReplicaId: test_utils.rid('A-v4')
+    });
+    await writer.commit('1/1');
+
+    const { checkpoint } = await bucketStorage.getCheckpoint();
+
+    // Snapshot checksum before compaction
+    const before = await bucketStorage.getChecksums(checkpoint, [request]);
+    const beforeChecksum = before.get(request.bucket)!;
+
+    // Compact
+    await bucketStorage.compact({
+      maxOpId: checkpoint,
+      compactBuckets: [request.bucket],
+      clearBatchLimit: 200,
+      moveBatchLimit: 10,
+      moveBatchQueryLimit: 10,
+      moveBatchByteLimit: 1024,
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      signal: null as any
+    });
+
+    // Checksum should be preserved across compaction
+    const after = await bucketStorage.getChecksums(checkpoint, [request]);
+    const afterChecksum = after.get(request.bucket)!;
+    expect(afterChecksum.checksum).toBe(beforeChecksum.checksum);
+
+    // Surviving data: 2 PUT ops (B@3 and A@4)
+    const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const dataAfter = test_utils.getBatchData(batchAfter);
+    expect(dataAfter.length).toBeGreaterThanOrEqual(2);
+    expect(dataAfter.some((d: any) => d.object_id === 'B')).toBe(true);
+    expect(dataAfter.some((d: any) => d.object_id === 'A')).toBe(true);
   });
 });
