@@ -3,8 +3,8 @@ import { describe, expect, test } from 'vitest';
 import { SentinelLSN } from '@module/common/SentinelLSN.js';
 import { getEventTimestamp } from '@module/replication/checkpoints/CheckpointImplementation.js';
 import {
-  createCheckpoint,
-  createDocumentDbCheckpointLsn,
+  createSentinelCheckpointLsn,
+  SENTINEL_CHECKPOINT_ID,
   STANDALONE_CHECKPOINT_ID
 } from '@module/replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '@module/replication/replication-utils.js';
@@ -77,25 +77,6 @@ describe('DocumentDB helpers', () => {
   });
 
   describe('sentinel checkpoint format', () => {
-    test('createCheckpoint returns sentinel format when mode is sentinel', async () => {
-      // When mode is 'sentinel', createCheckpoint returns a sentinel string
-      // like 'sentinel:<id>:<i>' for event-based matching in the streaming loop.
-      const { client, db } = await connectMongoData();
-      try {
-        const checkpoint = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID, { mode: 'sentinel' });
-        // The sentinel format should be 'sentinel:<id>:<i>'
-        expect(checkpoint).toMatch(/^sentinel:/);
-        const parts = checkpoint.split(':');
-        expect(parts).toHaveLength(3);
-        expect(parts[0]).toEqual('sentinel');
-        expect(parts[1]).toEqual(STANDALONE_CHECKPOINT_ID);
-        // i should be a number (the incrementing counter)
-        expect(Number.isInteger(Number(parts[2]))).toBe(true);
-      } finally {
-        await client.close();
-      }
-    });
-
     test('standalone counter is seeded at a timestamp value on creation', { timeout: 30_000 }, async () => {
       // If a consumer deletes the standalone checkpoint document in their
       // source database, the re-created counter must not restart below
@@ -110,7 +91,7 @@ describe('DocumentDB helpers', () => {
       const seed = (epochMs: number) => (BigInt(Math.floor(epochMs / 1000)) << 32n) + 1n;
       try {
         const before = Date.now();
-        const first = SentinelLSN.fromSerialized(await createDocumentDbCheckpointLsn(client, db));
+        const first = SentinelLSN.fromSerialized(await createSentinelCheckpointLsn(client, db));
         const after = Date.now();
 
         // Seeded at (epoch_seconds << 32) + 1, not at 1.
@@ -118,7 +99,7 @@ describe('DocumentDB helpers', () => {
         expect(first.sentinel).toBeLessThanOrEqual(seed(after));
 
         // Subsequent calls increment normally.
-        const second = SentinelLSN.fromSerialized(await createDocumentDbCheckpointLsn(client, db));
+        const second = SentinelLSN.fromSerialized(await createSentinelCheckpointLsn(client, db));
         expect(second.sentinel).toEqual(first.sentinel + 1n);
 
         // Simulate a consumer deleting the document after the counter has
@@ -128,7 +109,7 @@ describe('DocumentDB helpers', () => {
         // wait for the clock to advance to reproduce that here.
         await new Promise((resolve) => setTimeout(resolve, 1_100));
         await db.collection(CHECKPOINTS_COLLECTION).deleteOne({ _id: STANDALONE_CHECKPOINT_ID as any });
-        const recreated = SentinelLSN.fromSerialized(await createDocumentDbCheckpointLsn(client, db));
+        const recreated = SentinelLSN.fromSerialized(await createSentinelCheckpointLsn(client, db));
         expect(recreated.sentinel).toBeGreaterThan(second.sentinel);
       } finally {
         await db.dropDatabase().catch(() => {});
@@ -143,11 +124,10 @@ describe('DocumentDB helpers', () => {
       const { client, db } = await connectMongoData();
       try {
         const barrierId = new mongo.ObjectId();
-        await createCheckpoint(client, db, barrierId, { mode: 'sentinel', globalSentinel: 42n });
+        await createSentinelCheckpointLsn(client, db, barrierId);
 
-        const doc = await db.collection(CHECKPOINTS_COLLECTION).findOne({ _id: barrierId as any });
-        expect(doc?.i).toEqual(1);
-        expect(BigInt(doc!.globalSentinel)).toEqual(42n);
+        const doc = await db.collection(CHECKPOINTS_COLLECTION).findOne({ _id: SENTINEL_CHECKPOINT_ID as any });
+        expect(barrierId.equals(doc!.stream_id)).true;
       } finally {
         await client.close();
       }

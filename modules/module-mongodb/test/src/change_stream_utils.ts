@@ -24,7 +24,7 @@ import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStr
 import { MongoManager } from '@module/replication/MongoManager.js';
 import {
   createCheckpoint,
-  createDocumentDbCheckpointLsn,
+  createSentinelCheckpointLsn,
   STANDALONE_CHECKPOINT_ID
 } from '@module/replication/MongoRelation.js';
 import { detectDocumentDb } from '@module/replication/replication-utils.js';
@@ -197,7 +197,7 @@ export class ChangeStreamTestContext {
   async markSnapshotConsistent() {
     let checkpoint: string;
     if (this.documentDbMode) {
-      const sentinelCheckpoint = SentinelLSN.fromSerialized(await createDocumentDbCheckpointLsn(this.client, this.db));
+      const sentinelCheckpoint = SentinelLSN.fromSerialized(await createSentinelCheckpointLsn(this.client, this.db));
       const status = await this.storage!.getStatus();
       const resumeFrom = status.checkpoint_lsn ?? status.snapshot_lsn;
       const resumeToken = resumeFrom ? SentinelLSN.fromSerialized(resumeFrom).resumeToken : null;
@@ -211,7 +211,7 @@ export class ChangeStreamTestContext {
         resume_token: resumeToken
       }).comparable;
     } else {
-      checkpoint = await createCheckpoint(this.client, this.db, STANDALONE_CHECKPOINT_ID);
+      checkpoint = await createCheckpoint(this.db, STANDALONE_CHECKPOINT_ID);
     }
 
     await using writer = await this.storage!.createWriter(test_utils.BATCH_OPTIONS);
@@ -312,8 +312,8 @@ export async function getClientCheckpoint(
   const documentDbMode = options?.documentDbMode ?? (await detectDocumentDb(db));
 
   const lsn = documentDbMode
-    ? await createDocumentDbCheckpointLsn(client, db)
-    : await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID);
+    ? await createSentinelCheckpointLsn(client, db)
+    : await createCheckpoint(db, STANDALONE_CHECKPOINT_ID);
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 
@@ -338,7 +338,7 @@ export async function getClientCheckpoint(
     }
 
     if (documentDbMode && Date.now() - lastNudge >= NUDGE_INTERVAL_MS) {
-      await createDocumentDbCheckpointLsn(client, db);
+      await createSentinelCheckpointLsn(client, db);
       lastNudge = Date.now();
     }
 

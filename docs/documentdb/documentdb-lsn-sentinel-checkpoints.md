@@ -7,29 +7,30 @@ These notes summarize findings from testing Azure DocumentDB for MongoDB vCore c
 DocumentDB change streams currently require different checkpointing assumptions from standard MongoDB:
 
 - Change events do not expose a usable `clusterTime`, so the oplog timestamp cannot be the LSN coordinate.
-- Instead, a shared counter document (`_standalone_checkpoint`) supplies a monotonic, comparable LSN coordinate. It is advanced by writing to it and observed back through the change stream.
+- Instead, a single shared counter document (`_sentinel_checkpoint`) supplies a monotonic, comparable LSN coordinate. It is advanced by writing to it and observed back through the change stream.
 - Resume tokens are usable for `resumeAfter`, but should be treated as opaque and not relied on for ordering.
-- Sentinel checkpoint documents provide explicit stream barriers that can be matched by content instead of timestamp ordering.
+- The same document doubles as an explicit stream barrier: each write stamps a `stream_id` field, so a stream can recognise its own writes by content instead of timestamp ordering.
 
 These two checkpointing strategies are encapsulated behind a single interface — see [Checkpoint Implementations](#checkpoint-implementations) below.
 
 The practical model for DocumentDB is:
 
 ```text
-standalone sentinel counter
-  monotonic, comparable LSN coordinate
+sentinel counter (_sentinel_checkpoint.i)
+  monotonic, comparable LSN coordinate, shared across all streams
 
 resume token
   opaque position accepted by resumeAfter
 
-sentinel document
-  explicit barrier proving the change stream observed a specific write
+stream_id stamp (_sentinel_checkpoint.stream_id)
+  marks a write as a given stream's private barrier, or null for a
+  shared standalone checkpoint observed by every stream
 
 storage checkpoint op id
   the sync checkpoint clients consume
 ```
 
-Historical note: an earlier design used a `wallTime`-derived timestamp as the LSN coordinate. `wallTime` only has second precision in our conversion, so it was unsafe as an equality boundary; the sentinel counter replaced it. `wallTime` is still read for the replication-lag metric, but is no longer part of the DocumentDB LSN.
+Note: `wallTime` only has second precision in our conversion, so it is unsafe as an LSN equality boundary — which is why the sentinel counter is the coordinate. `wallTime` is read only for the replication-lag metric, not as part of the DocumentDB LSN.
 
 ## Change ordering
 
@@ -51,11 +52,11 @@ TimestampCheckpointImplementation   standard MongoDB
   a resume fallback.
 
 SentinelCheckpointImplementation    sources without a usable clusterTime (DocumentDB)
-  LSN coordinate is the shared _standalone_checkpoint counter, observed
+  LSN coordinate is the shared _sentinel_checkpoint counter, observed
   through the change stream and encoded as a SentinelLSN.
 ```
 
-Selection is by capability, not by vendor name: detection picks the implementation, and the sentinel strategy is in principle usable on any MongoDB. Everything that genuinely depends on the platform — post-image support, `fullDocument` mode, cluster- vs database-level watch — stays behind `isDocumentDb` in `ChangeStream`. Everything about _how checkpoints are produced and interpreted_ lives in the implementation.
+Selection is currently by `isDocumentDb`: DocumentDB uses the sentinel implementation, standard MongoDB uses the timestamp one (`createCheckpointImplementation`). The sentinel strategy does not persist anything across restarts and is in principle usable on any MongoDB, but we do not select it there — standard MongoDB has a usable `clusterTime`, so the timestamp implementation is preferred. Everything else that genuinely depends on the platform — post-image support, `fullDocument` mode, cluster- vs database-level watch — also stays behind `isDocumentDb` in `ChangeStream`. What lives behind the interface is _how checkpoints are produced and interpreted_, so the replication loop does not branch on `isDocumentDb` throughout.
 
 The interface covers the full checkpoint lifecycle:
 
@@ -118,7 +119,7 @@ That gives every event in the same second the same timestamp:
 { seconds: 100, increment: 0 }
 ```
 
-This is acceptable as a coarse timestamp but not as a precise stream position — every event in the same second collides. That is why the DocumentDB LSN coordinate is the sentinel counter (above), **not** a `wallTime`-derived timestamp. `wallTime` is still read, but only for the replication-lag metric; it is no longer part of the LSN.
+This is acceptable as a coarse timestamp but not as a precise stream position — every event in the same second collides. That is why the DocumentDB LSN coordinate is the sentinel counter (above), **not** a `wallTime`-derived timestamp. `wallTime` is read only for the replication-lag metric, not as part of the LSN.
 
 ## Resume Tokens
 
@@ -205,85 +206,73 @@ new event:       { seconds: 100, increment: 0 }
 
 ## Sentinel Checkpoints
 
-Because `wallTime` is not a reliable boundary, DocumentDB uses sentinel checkpoint documents.
+Because `wallTime` is not a reliable boundary, DocumentDB uses a single sentinel checkpoint document.
 
-`createCheckpoint` writes to `_powersync_checkpoints` using the supplied document id and increments that document's `i` field. There are two important ids:
+`createSentinelCheckpointLsn` advances the `i` field of one shared document (`SENTINEL_CHECKPOINT_ID` = `_sentinel_checkpoint`) and stamps a `stream_id` field on each write:
 
 ```text
-_standalone_checkpoint
-  fixed shared id used for standalone checkpoints, especially write checkpoints
+_sentinel_checkpoint.i
+  global monotonic counter — the LSN coordinate, shared across all
+  streams and write checkpoints
 
-checkpointStreamId
-  per-ChangeStream ObjectId used for that stream's internal batch barriers
+_sentinel_checkpoint.stream_id
+  the calling ChangeStream's checkpointStreamId for a private batch /
+  keepalive barrier, or null for a standalone checkpoint (write
+  checkpoint heads, snapshot markers)
 ```
 
-`STANDALONE_CHECKPOINT_ID` is intentionally shared. A write checkpoint is not owned by one specific stream-local checkpoint id; it is a source-side marker that any active replication stream should be able to observe and use to advance write checkpoint resolution.
+`i` is intentionally shared and global. Write checkpoints and client-visible storage checkpoints must compare in one coordinate system that survives new `ChangeStream` instances and new sync rules; a per-stream counter would reset or become incomparable when a new stream starts.
 
-`checkpointStreamId` is intentionally private to a `ChangeStream` instance. It lets the stream create internal checkpoint barriers while ignoring internal checkpoint documents written by other streams or processes. This avoids one stream treating another stream's batching marker as its own commit boundary.
+`stream_id` makes a single counter double as a private barrier. A stream stamps its own id on its batch barriers so it can recognise them and ignore barriers written by other streams or processes, without one stream treating another's batching marker as its own commit boundary. Standalone bumps clear it to null, and every stream observes those as the global coordinate.
 
-The sentinel flow is:
+The sentinel flow for a batch barrier is:
 
-1. Write a known document in `_powersync_checkpoints`, incrementing an `i` field.
-2. Return a marker like `sentinel:<checkpointStreamId>:<i>`.
+1. `$inc i, $set stream_id = <checkpointStreamId>` on `_sentinel_checkpoint` (a **single** write).
+2. Return the resulting counter as the barrier marker (a `SentinelLSN` comparable — counter only, no resume token).
 3. Keep processing change stream events.
-4. When the stream observes the matching checkpoint document and matching `i`, clear the pending barrier.
-5. Commit at the sentinel event's LSN.
+4. When the stream observes an event on `_sentinel_checkpoint` whose `stream_id` is its own and whose `i` is `>=` the marker, clear the pending barrier.
+5. Commit at that event's LSN.
 6. The next data event creates the next sentinel barrier.
 
-The important match is both document identity and increment:
+The barrier match is by content — stream ownership and counter:
 
 ```text
-documentKey._id == expected checkpoint id
-fullDocument.i == expectedI
+fullDocument.stream_id == this stream's checkpointStreamId
+fullDocument.i         >= marker counter
 ```
 
-For stream-local barriers, the expected checkpoint id is the current stream's `checkpointStreamId`. For standalone/write checkpoints, the expected checkpoint id is `STANDALONE_CHECKPOINT_ID`.
+The barrier write's own event resolves the barrier (its `i` equals the marker). The `>=` makes resolution robust to a later own write also satisfying an earlier marker; because `i` is monotonic, no earlier event can match.
 
-The `i` value matters because each checkpoint document is reused. It identifies a specific sentinel write, not just the checkpoint collection document in general.
+### Single write per barrier
 
-## Embedded Global Sentinel in Barrier Documents
+A batch barrier is one write. The global coordinate and the private barrier are the same `$inc` on the same document, distinguished only by the `stream_id` stamp — there is no separate barrier document and no embedded copy of the coordinate, while the global incrementing sequence is still preserved.
 
-Each DocumentDB batch checkpoint (`createBatchCheckpoint`) performs two writes, to two different documents:
-
-```text
-write 1: $inc _standalone_checkpoint.i        -> global coordinate N
-write 2: $inc <checkpointStreamId>.i          -> this stream's barrier
-```
-
-The committed LSN pairs the global coordinate from write 1 with the resume token of write 2's change event. An earlier design relied on the change stream delivering write 1's event before write 2's event. Cross-document changes do arrive in commit order (see [Change ordering](#change-ordering)), so this would hold — but rather than depend on the relative delivery order of two different documents at all, write 2 embeds the global value from write 1 directly, making the barrier event self-describing.
-
-So write 2 embeds the global value in the barrier document:
-
-```text
-{ $inc: { i: 1 }, $set: { globalSentinel: N } }
-```
-
-The barrier event is then self-describing: when the stream observes its own barrier, it reads `fullDocument.globalSentinel` directly. The committed LSN no longer depends on the standalone event having been delivered first.
+This matters for latency: a barrier is created for every individual replicated write that is not already part of a batch, so an extra write per barrier would add per-write latency (negligible for large batches, but significant for many small writes).
 
 ### Commit triggers
 
-Commits are not exclusively driven by barrier events. There are two triggers, and both matter:
+Commits are not exclusively driven by a stream's own barrier events. There are two triggers, and both matter:
 
 ```text
-own barrier event
-  normal batch flow; coordinate from the embedded globalSentinel
+own barrier event (stream_id == ours)
+  normal batch flow; coordinate from the event's own i
 
-standalone checkpoint event (immediate commit when caught up)
+standalone checkpoint event (stream_id == null; immediate commit when caught up)
   required for write checkpoint latency on an idle stream, and for the
   keepalive design (the keepalive bump is committed via this path);
-  coordinate from the event's own i, which is the global counter itself
+  coordinate from the event's own i
 ```
 
-Both event types are self-describing for the coordinate, just via different fields.
+Both event types are self-describing for the coordinate: it is `fullDocument.i` in both cases, because the two share the one global counter.
 
 ### Why tracked position state still exists
 
-The in-memory position (`SentinelCheckpointImplementation.position`) is not made redundant by the embedding. It is a monotonic merge point fed by three sources:
+The in-memory position (`SentinelCheckpointImplementation.position`) is a monotonic merge point fed by three sources:
 
 ```text
 resume seed        sentinel parsed from the stored LSN at startup
 standalone events  fullDocument.i
-own barrier events fullDocument.globalSentinel
+own barrier events fullDocument.i
 ```
 
 It exists because one LSN producer is not self-describing: the `setResumeLsn` path builds an LSN from a plain data event during long catch-up stretches (20k+ changes without a commit — the batch barrier is a current-time write, so it sits at the end of the backlog and no commit happens until the stream reaches it). Data events carry no sentinel, so the coordinate must come from tracked state.
@@ -292,7 +281,7 @@ During such a stretch the coordinate is _frozen_ — data events do not bump the
 
 The resume seed also lets the monotonic guard absorb replayed standalone events after a restart (their `i` is below the resumed position) without treating them as ordering violations.
 
-The embedding changed what the tracking means: it is no longer load-bearing for cross-document ordering, only a cache of the highest coordinate proven so far. Any single source being late or absent no longer affects correctness.
+Because every barrier and standalone bump now carries the global coordinate in its own `i`, the tracked position is not load-bearing for cross-document ordering — it is only a cache of the highest coordinate proven so far, advancing the data-event (`setResumeLsn`) path between checkpoint events. Any single event being late or absent does not affect correctness.
 
 ## `fullDocument` Is the Write-Time Post-Image
 
@@ -330,54 +319,49 @@ Note: the sample update event earlier in this document shows no `fullDocument` f
 
 ## DocumentDB LSN Ordering
 
-The committed DocumentDB LSN now uses this shape:
+The committed DocumentDB LSN uses this shape:
 
 ```text
-<standalone sentinel>|<resume token>
+<sentinel counter>|<resume token>
 ```
 
-The standalone sentinel is the comparable coordinate. The resume token is retained for `resumeAfter`, but remains opaque.
+The sentinel counter is the comparable coordinate. The resume token is retained for `resumeAfter`, but remains opaque.
 
-**Encoding.** The standalone sentinel is serialized as a **16-hex-char value with the same shape as a MongoDB timestamp LSN** ({@link SentinelLSN} vs {@link MongoLSN}): the high 32 bits resemble epoch seconds, the low 32 an increment. This is deliberate — it makes a sentinel LSN string-comparable with a timestamp LSN, and because the counter is seeded in the `seconds << 32` range (see [Standalone Counter Persistence](#standalone-counter-persistence)), a fresh sentinel LSN always sorts **above** any real-timestamp LSN issued in the past. It only _resembles_ a timestamp — the value is a synthetic monotonic counter and is never used as one (the sentinel implementation resumes purely via the resume token, never `startAtOperationTime`). The `i` examples below (`100`, `101`, …) are illustrative; real values are large timestamp-shaped numbers.
+**Encoding.** The sentinel counter is serialized as a **16-hex-char value with the same shape as a MongoDB timestamp LSN** ({@link SentinelLSN} vs {@link MongoLSN}): the high 32 bits resemble epoch seconds, the low 32 an increment. This is deliberate — it makes a sentinel LSN string-comparable with a timestamp LSN, and because the counter is seeded in the `seconds << 32` range (see [Sentinel Counter Persistence](#sentinel-counter-persistence)), a fresh sentinel LSN always sorts **above** any real-timestamp LSN issued in the past. It only _resembles_ a timestamp — the value is a synthetic monotonic counter and is never used as one (the sentinel implementation resumes purely via the resume token, never `startAtOperationTime`). The `i` examples below (`100`, `101`, …) are illustrative; real values are large timestamp-shaped numbers.
 
-The standalone sentinel must be global/shared, not stream-local. A stream-local sentinel starts its own `i` sequence for each `ChangeStream` instance:
+The counter must be global/shared, not stream-local. If each `ChangeStream` instance kept its own `i` sequence:
 
 ```text
-stream A checkpointStreamId: i = 25
-stream B checkpointStreamId: i = 1
+stream A: i = 25
+stream B: i = 1
 ```
 
-If that stream-local value were used as the LSN coordinate, a new stream or new sync rules deployment could appear to move replication backwards from `25` to `1`, or at least into a different coordinate system. That would be unsafe for clients, storage checkpoints, snapshot gates, and write checkpoint comparisons.
+then using that stream-local value as the LSN coordinate would let a new stream or new sync rules deployment appear to move replication backwards from `25` to `1`, or at least into a different coordinate system — unsafe for clients, storage checkpoints, snapshot gates, and write checkpoint comparisons.
 
-The standalone checkpoint document avoids that reset:
+The single shared `_sentinel_checkpoint.i` avoids that reset:
 
 ```text
-_standalone_checkpoint.i = 100
-_standalone_checkpoint.i = 101
-_standalone_checkpoint.i = 102
+_sentinel_checkpoint.i = 100  (stream_id = A)   stream A's barrier
+_sentinel_checkpoint.i = 101  (stream_id = null) standalone / write checkpoint
+_sentinel_checkpoint.i = 102  (stream_id = B)   stream B's barrier
 ```
 
-Because every stream and every write checkpoint uses the same standalone document, the sentinel prefix stays in one shared, monotonic comparison domain.
+Because every stream and every write checkpoint advances the same counter, the sentinel prefix stays in one shared, monotonic comparison domain — regardless of which stream stamped any given write.
 
-The stream-local sentinel still matters, but only as a private commit barrier. It answers:
+The `stream_id` stamp still matters, but only as a private commit barrier. It answers:
 
 ```text
 Has this specific ChangeStream observed its own batching marker?
 ```
 
-It should not become the LSN value exposed to storage, clients, or write checkpoint resolution.
+It does not affect the LSN value exposed to storage, clients, or write checkpoint resolution — that is always the shared `i`.
 
-This gives us three separate concepts:
+This gives us three separate concepts, all carried by one document plus the token:
 
 ```text
-standalone sentinel
-  shared sortable progress coordinate
-
-stream-local sentinel
-  private per-stream commit barrier
-
-resume token
-  opaque restart position
+sentinel counter (i)        shared sortable progress coordinate
+stream_id stamp             private per-stream commit barrier
+resume token                opaque restart position
 ```
 
 ## Idle Keepalive
@@ -396,7 +380,7 @@ So roughly half of plain token refreshes would sort _below_ the persisted LSN an
 The fix is to advance the shared sentinel so the ordered prefix moves forward with every refreshed token:
 
 ```text
-keepalive: $inc _standalone_checkpoint.i   (no checkpoint persisted here)
+keepalive: $inc _sentinel_checkpoint.i   (no checkpoint persisted here)
 ```
 
 Two details matter:
@@ -407,19 +391,19 @@ Two details matter:
 
 A consequence of bumping is that the bump's event arrives moments later carrying the _same_ sentinel as the just-committed LSN (differing only in the opaque token). That descending-by-suffix comparison is expected, not an ordering violation: `checkDescendingLsn` treats an equal-sentinel descent as tolerable and returns without throwing, so the commit simply no-ops in storage (`checkpointBlocked`) instead of restarting replication.
 
-## Standalone Counter Persistence
+## Sentinel Counter Persistence
 
-The `_standalone_checkpoint` counter is the ordered component of every committed DocumentDB LSN, including write checkpoint heads. It must therefore never move backwards. Two cases threaten it.
+The `_sentinel_checkpoint` counter is the ordered component of every committed DocumentDB LSN, including write checkpoint heads. It must therefore never move backwards. Two cases threaten it.
 
 ### Startup cleanup
 
-`ChangeStream` clears the `_powersync_checkpoints` collection on startup to keep it tidy. The sentinel implementation's `checkpointClearFilter` excludes `_standalone_checkpoint` from that delete. Without this, the counter would reset on the next upsert, and new commits would compare below the persisted `last_checkpoint_lsn` — failing the out-of-order commit guard in a restart loop, and letting new write checkpoint heads resolve against old, higher committed LSNs.
+`ChangeStream` clears the `_powersync_checkpoints` collection on startup to keep it tidy. The sentinel implementation's `checkpointClearFilter` excludes `_sentinel_checkpoint` from that delete (`{ _id: { $ne: SENTINEL_CHECKPOINT_ID } }`). Without this, the counter would be deleted and re-seeded on the next upsert, and new commits could compare below the persisted `last_checkpoint_lsn` — failing the out-of-order commit guard in a restart loop, and letting new write checkpoint heads resolve against old, higher committed LSNs.
 
 ### Consumer deletion and timestamp seeding
 
 The counter lives in a user-visible collection in the _source_ database, so a consumer can delete it. Dropping the whole collection is detected (the streaming loop invalidates on the collection drop event, forcing a resync). Deleting just the document is not reliably detected.
 
-To make that case safe rather than silently corrupting, `createDocumentDbCheckpointLsn` seeds a newly-created counter at the current epoch **seconds shifted into the high 32 bits** (`seconds << 32`, the same shape as a MongoDB timestamp) instead of at `1`:
+To make that case safe rather than silently corrupting, `createSentinelCheckpointLsn` seeds a newly-created counter at the current epoch **seconds shifted into the high 32 bits** (`seconds << 32`, the same shape as a MongoDB timestamp) instead of at `1`:
 
 ```text
 counter exists:  $inc i
@@ -438,21 +422,7 @@ Managed write checkpoints associate a user/client write checkpoint with a replic
 
 For standard MongoDB, the replication head is based on `clusterTime` / `operationTime`, which is an ordered logical timestamp.
 
-For DocumentDB, `createReplicationHead` cannot directly capture a precise `clusterTime`. An earlier fallback used the current storage checkpoint LSN as the head. That is conceptually suspect.
-
-A write checkpoint head should represent the source database replication head at the time the checkpoint is requested:
-
-```text
-source database head after the caller's write
-```
-
-The storage checkpoint LSN represents something different:
-
-```text
-latest source LSN already replicated into PowerSync storage
-```
-
-Those two positions can be separated by replication lag. If a write checkpoint stores the current storage LSN, it may point behind the sentinel barrier and behind the caller's source write. In that case the write checkpoint can resolve too early, because sync may already be at or beyond the stored storage LSN before the sentinel has actually been observed.
+For DocumentDB, `createReplicationHead` cannot directly capture a precise `clusterTime`, so it uses the shared sentinel counter as the head. A write checkpoint head must represent the source database replication head at the time the checkpoint is requested — the source head _after_ the caller's write — not the latest source LSN already replicated into PowerSync storage. Those two positions can be separated by replication lag, and a head that points behind the caller's source write could let the write checkpoint resolve too early.
 
 The intended DocumentDB ordering is:
 
@@ -460,41 +430,35 @@ The intended DocumentDB ordering is:
 caller source write <= sentinel write <= future committed checkpoint
 ```
 
-The sentinel should force forward progress even on an idle stream, but the write checkpoint must be tied to observing that sentinel. Using the replicated storage LSN as a stand-in for the source replication head does not encode that dependency by itself.
-
-The current branch now uses the standalone checkpoint sentinel as the DocumentDB write checkpoint head. `createReplicationHead` increments `_standalone_checkpoint`, converts that `i` value into a DocumentDB LSN, and gives that LSN to the write checkpoint callback:
+`createReplicationHead` increments `_sentinel_checkpoint` with a **null `stream_id`** (a standalone bump, observed by every stream), converts that `i` value into a DocumentDB LSN, and gives that LSN to the write checkpoint callback:
 
 ```text
-caller source write <= standalone sentinel N <= future committed checkpoint at or beyond N
+caller source write <= sentinel counter N <= future committed checkpoint at or beyond N
 ```
 
 Committed DocumentDB replication checkpoints use a `SentinelLSN` shape:
 
 ```text
-<standalone sentinel>|<resume token>
+<sentinel counter>|<resume token>
 ```
 
-The standalone sentinel is the comparable coordinate. The resume token is retained for `resumeAfter`, but should still be treated as opaque. A write checkpoint head can use only the sentinel portion because write checkpoints are never used to resume replication; they only need to compare against the current replicated position.
+The sentinel counter is the comparable coordinate. The resume token is retained for `resumeAfter`, but should still be treated as opaque. A write checkpoint head can use only the counter portion because write checkpoints are never used to resume replication; they only need to compare against the current replicated position.
 
-This is also why write checkpoints use `_standalone_checkpoint` rather than the current stream's `checkpointStreamId`. Write checkpoints and client-visible storage checkpoints must compare in a stable coordinate system that survives new streams and new sync rules. A per-stream sentinel would reset or become incomparable when a new `ChangeStream` instance starts.
+The head is a standalone (null `stream_id`) bump rather than one of the current stream's own barriers because write checkpoints and client-visible storage checkpoints must compare in a stable coordinate system that survives new streams and new sync rules, and every stream observes standalone bumps as the global coordinate. A per-stream barrier would only be tracked by its own stream.
 
-This is better than using either the last replicated storage LSN or `hello.operationTime`, because the write checkpoint head is now tied to a source-side sentinel write that the change stream can actually observe.
-
-The sentinel write response itself does not include `operationTime`. An observed `_powersync_checkpoints` write response was:
+The sentinel write response does not include `operationTime`; an observed `_powersync_checkpoints` write response was:
 
 ```json
 {
-  "_id": "_standalone_checkpoint",
-  "i": 4
+  "_id": "_sentinel_checkpoint",
+  "i": 4,
+  "stream_id": null
 }
 ```
 
-There are two related concerns:
+So the head is the counter `i`, not a timestamp. The sentinel counter prefix is sortable; the resume-token suffix is opaque and is not used as an ordering signal.
 
-- source-head correctness: the stored write checkpoint head should not be an already-replicated storage head unless resolution is separately tied to the sentinel
-- LSN ordering: the standalone sentinel prefix is sortable, but the resume-token suffix is opaque and should not be used as a documented ordering signal
-
-The standalone sentinel head is tied to a source-side write the change stream actually observes. This is correct because vCore delivers changes in commit order (see [Change ordering](#change-ordering)): the caller's data write precedes the sentinel write, so it is delivered — and replicated — before the sentinel event that resolves the write checkpoint. The sentinel counter plays the same role `clusterTime` plays on standard MongoDB.
+The sentinel head is tied to a source-side write the change stream actually observes. This is correct because vCore delivers changes in commit order (see [Change ordering](#change-ordering)): the caller's data write precedes the sentinel write, so it is delivered — and replicated — before the sentinel event that resolves the write checkpoint. The sentinel counter plays the same role `clusterTime` plays on standard MongoDB.
 
 ## Known Limitations
 

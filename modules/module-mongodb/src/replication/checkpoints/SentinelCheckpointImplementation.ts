@@ -1,27 +1,31 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationHeadCallback, storage } from '@powersync/service-core';
+import { JSONBig } from '@powersync/service-jsonbig';
 import { SentinelLSN } from '../../common/SentinelLSN.js';
 import { ChangeStreamInvalidatedError } from '../ChangeStream.js';
-import { createCheckpoint, createDocumentDbCheckpointLsn, STANDALONE_CHECKPOINT_ID } from '../MongoRelation.js';
+import { createSentinelCheckpointLsn, SENTINEL_CHECKPOINT_ID } from '../MongoRelation.js';
 import { ProjectedChangeStreamDocument } from '../RawChangeStream.js';
 import {
   CheckpointEventApi,
+  CheckpointEventKind,
   CheckpointImplementation,
   CheckpointImplementationContext,
-  classifyCheckpointEvent,
   descendingLsnError,
+  getCheckpointId,
   StreamResumePosition
 } from './CheckpointImplementation.js';
 
 /**
  * Sentinel checkpoint implementation, used for sources without a usable clusterTime
- * (DocumentDB). The ordered LSN coordinate is the shared standalone checkpoint
- * counter, observed through the change stream:
+ * (DocumentDB). The ordered LSN coordinate is a single shared sentinel checkpoint
+ * counter ({@link SENTINEL_CHECKPOINT_ID}), observed through the change stream:
  *
- * - Batch checkpoints advance the global counter and embed its value in this
- *   stream's barrier document, so barrier events are self-describing and do
- *   not depend on cross-document event ordering.
- * - Standalone events carry the coordinate as their own `i` value.
+ * - Batch checkpoints advance the global counter and stamp it with this stream's
+ *   id, so the stream recognises its own private barriers by content (stream_id
+ *   + counter) rather than by cross-document event ordering.
+ * - Standalone bumps (write checkpoint heads, snapshot markers) advance the same
+ *   counter with a null stream_id; every stream observes these as the global
+ *   coordinate.
  * - Keepalives advance the counter without persisting; the bump's own event
  *   flows through the stream and commits via the standalone handling,
  *   preserving the "commit only what the stream has seen" barrier property.
@@ -56,29 +60,17 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
   }
 
   async createStandaloneCheckpoint(): Promise<string> {
-    return createDocumentDbCheckpointLsn(this.context.client, this.context.db);
+    return createSentinelCheckpointLsn(this.context.client, this.context.db);
   }
 
   async createBatchCheckpoint(): Promise<string> {
-    // Two sentinel writes for one batch checkpoint:
-    //
-    // 1. Advance the shared standalone checkpoint — the global source-database
-    //    coordinate. It must be shared so the LSN domain survives new
-    //    ChangeStream instances and new sync rules.
-    // 2. Advance this stream's private barrier document, embedding the global
-    //    value from write 1. The barrier event is then self-describing — the
-    //    committed LSN is read straight from the barrier event and does not
-    //    depend on the standalone event having been delivered first. vCore does
-    //    deliver changes in commit order (so write 1's event precedes write 2's),
-    //    but embedding the value removes the dependency on cross-document
-    //    delivery order entirely.
-    const globalLsn = SentinelLSN.fromSerialized(
-      await createDocumentDbCheckpointLsn(this.context.client, this.context.db)
-    );
-    return createCheckpoint(this.context.client, this.context.db, this.context.checkpointStreamId, {
-      mode: 'sentinel',
-      globalSentinel: globalLsn.sentinel
-    });
+    // Advance the shared sentinel checkpoint — the global source-database
+    // coordinate. It must be shared so the LSN domain survives new
+    // ChangeStream instances and new sync rules.
+    // This advance is associated with the change stream in order to track stream
+    // barriers. The returned LSN (counter only, no resume token) is the barrier
+    // marker matched by resolvesBarrier.
+    return createSentinelCheckpointLsn(this.context.client, this.context.db, this.context.checkpointStreamId);
   }
 
   async createFirstBarrier(): Promise<string | null> {
@@ -110,7 +102,7 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     // checkpoints to resolve before the corresponding data is replicated.
     // Committing only when the bump's event is observed preserves the
     // "commit only what the stream has seen" barrier property.
-    await createDocumentDbCheckpointLsn(this.context.client, this.context.db);
+    await createSentinelCheckpointLsn(this.context.client, this.context.db, this.context.checkpointStreamId);
     this.context.logger.info(
       `Idle change stream (sentinel implementation). Bumped sentinel to advance the checkpoint.`
     );
@@ -124,29 +116,53 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
   }
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
-    const head = await createDocumentDbCheckpointLsn(this.context.client, this.context.db);
+    const head = await createSentinelCheckpointLsn(this.context.client, this.context.db);
     const result = await callback(head);
     // Create another bump to ensure movement after the reported head. This
     // covers the race where the head's own event is committed before the
     // write checkpoint document is stored.
-    await createDocumentDbCheckpointLsn(this.context.client, this.context.db);
+    // Note that this checkpoint should not be associated with a change stream Id.
+    await createSentinelCheckpointLsn(this.context.client, this.context.db);
     return result;
   }
 
   readonly event: CheckpointEventApi = {
     observe: (doc) => {
-      const kind = classifyCheckpointEvent(doc, this.context.checkpointStreamId);
-      if (kind === 'standalone') {
-        // The standalone document's own `i` is the global coordinate.
-        this.mergePosition(this.readStandaloneSentinel(doc));
-      } else if (kind === 'own-barrier') {
-        // Our own barrier event embeds the global sentinel advanced just before
-        // the barrier write.
-        const embedded = this.readEmbeddedGlobalSentinel(doc);
-        if (embedded != null) {
-          this.mergePosition(embedded);
-        }
+      const checkpointId = getCheckpointId(doc);
+      if (checkpointId != SENTINEL_CHECKPOINT_ID) {
+        // The sentinel implementation only uses the SENTINEL_CHECKPOINT_ID
+        // document; anything else (including the timestamp impl's standalone
+        // document) is foreign.
+        return 'foreign';
       }
+      const fullDoc = deserializeFullDocument(doc);
+      if (fullDoc == null) {
+        // An insert/update/replace on our sentinel document must carry a
+        // post-image. A missing fullDocument means the document was deleted or
+        // replaced out from under us, which destroys the coordinate; invalidate
+        // so replication restarts clean instead of stalling.
+        throw new ChangeStreamInvalidatedError(
+          'Sentinel checkpoint event has no fullDocument — cannot read the sentinel',
+          new Error(`Unexpected ${doc.operationType} event on the sentinel checkpoint document`)
+        );
+      }
+      const streamId = fullDoc.stream_id;
+
+      let kind: CheckpointEventKind;
+      if (streamId == null) {
+        // No stream_id: a standalone bump (write checkpoint head, snapshot
+        // marker). Every stream tracks these as the global coordinate.
+        kind = 'standalone';
+      } else if (this.context.checkpointStreamId.equals(streamId)) {
+        // Stamped with our id: one of our own private batch/keepalive barriers.
+        kind = 'own-barrier';
+      } else {
+        // Another stream's private barrier — ignore.
+        return 'foreign';
+      }
+
+      // Both kinds carry the global coordinate in `i`; keep our position current.
+      this.mergePosition(this.readSentinel(fullDoc));
       return kind;
     },
 
@@ -169,20 +185,13 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     },
 
     resolvesBarrier: (marker, doc) => {
-      // Barriers are matched by content: same document and same increment.
-      // The `i` value matters because the barrier document is reused — it
-      // identifies a specific sentinel write.
-      const [prefix, sentinelId, sentinelI] = marker.split(':');
-      if (prefix !== 'sentinel') {
-        throw new Error(`Invalid sentinel barrier marker: ${marker}`);
-      }
       const fullDoc = deserializeFullDocument(doc);
       if (fullDoc == null) {
         this.context.logger.warn('Checkpoint event missing fullDocument — cannot match sentinel barrier');
         return false;
       }
-      const docId = 'documentKey' in doc ? String(doc.documentKey._id) : null;
-      return docId === sentinelId && String(fullDoc.i) === sentinelI;
+      const parsed = SentinelLSN.fromSerialized(marker);
+      return this.context.checkpointStreamId.equals(fullDoc.stream_id) && fullDoc.i >= parsed.sentinel;
     },
 
     describe: (_doc) => {
@@ -215,13 +224,14 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     }
   }
 
-  // The standalone checkpoint document must survive restarts. Its counter is
-  // the globally-ordered component of every committed LSN, including write
-  // checkpoint heads. Deleting it would reset the counter to 1 on the next
-  // upsert, moving the LSN coordinate system backwards: new commits would
-  // compare below the persisted last_checkpoint_lsn (failing the
+  // The sentinel checkpoint document must survive restarts (hence the $ne
+  // below — the startup cleanup deletes every other checkpoint document). Its
+  // counter is the globally-ordered component of every committed LSN, including
+  // write checkpoint heads. Deleting it would re-seed the counter on the next
+  // upsert, risking moving the LSN coordinate system backwards: new commits
+  // could compare below the persisted last_checkpoint_lsn (failing the
   // out-of-order commit guard in a restart loop), and new write checkpoint
-  // heads would resolve against old, higher committed LSNs before their
+  // heads could resolve against old, higher committed LSNs before their
   // data has actually replicated.
   //
   // Note: this only protects against our own startup cleanup. The global
@@ -229,10 +239,10 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
   // can delete it in their source database. Dropping the whole checkpoints
   // collection is detected (the streaming loop invalidates the stream on the
   // collection drop event). Deleting just this document is mitigated by
-  // createDocumentDbCheckpointLsn seeding re-created counters at the current
-  // epoch milliseconds, so the coordinate jumps forward instead of resetting
+  // createSentinelCheckpointLsn seeding re-created counters at the current
+  // epoch seconds, so the coordinate jumps forward instead of resetting
   // below already-committed LSNs.
-  readonly checkpointClearFilter: mongo.Filter<mongo.Document> = { _id: { $ne: STANDALONE_CHECKPOINT_ID } as any };
+  readonly checkpointClearFilter: mongo.Filter<mongo.Document> = { _id: { $ne: SENTINEL_CHECKPOINT_ID } as any };
 
   /** Never move the position backwards — replayed or reordered events must not regress the coordinate. */
   private mergePosition(observed: bigint) {
@@ -242,42 +252,23 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
   }
 
   /**
-   * Read the sentinel counter from a standalone checkpoint change event.
+   * Read the sentinel counter from a sentinel checkpoint post-image.
    *
-   * `fullDocument` and its `i` field are required: the source materializes the
-   * write-time post-image on insert/update/replace events, and every sentinel
-   * write `$inc`s the `i` field. If either is missing, the event cannot be a
-   * sentinel write we created — most likely the document was deleted or
-   * replaced externally, which destroys the LSN coordinate system (a
-   * re-created counter restarts below already-committed LSNs). Invalidate the
-   * stream so replication restarts from scratch instead of stalling against a
-   * broken coordinate.
+   * The `i` field is required: every sentinel write `$inc`s it. If it is
+   * missing, the document was replaced externally, which destroys the LSN
+   * coordinate system (a re-created counter restarts below already-committed
+   * LSNs). Invalidate the stream so replication restarts from scratch instead
+   * of stalling against a broken coordinate.
    */
-  private readStandaloneSentinel(doc: ProjectedChangeStreamDocument): bigint {
-    const fullDoc = deserializeFullDocument(doc);
-    if (fullDoc == null) {
-      throw new ChangeStreamInvalidatedError(
-        'Standalone checkpoint event has no fullDocument — cannot read the sentinel',
-        new Error(`Unexpected ${doc.operationType} event on the standalone checkpoint document`)
-      );
-    }
+  private readSentinel(fullDoc: mongo.Document): bigint {
     if (fullDoc.i == null) {
       throw new ChangeStreamInvalidatedError(
-        'Standalone checkpoint document has no `i` field — cannot read the sentinel',
-        new Error(`Standalone checkpoint document: ${JSON.stringify(fullDoc)}`)
+        'Sentinel checkpoint document has no `i` field — cannot read the sentinel',
+        // JSONBig.stringify, since the post-image is deserialized with useBigInt64.
+        new Error(`Sentinel checkpoint document: ${JSONBig.stringify(fullDoc)}`)
       );
     }
     return BigInt(fullDoc.i);
-  }
-
-  /**
-   * Read the embedded global sentinel from one of this stream's own barrier
-   * events. Returns null when absent; the standalone-event path still provides
-   * the coordinate in that case.
-   */
-  private readEmbeddedGlobalSentinel(doc: ProjectedChangeStreamDocument): bigint | null {
-    const fullDoc = deserializeFullDocument(doc);
-    return fullDoc?.globalSentinel == null ? null : BigInt(fullDoc.globalSentinel);
   }
 }
 

@@ -2,15 +2,15 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { ReplicationHeadCallback, storage } from '@powersync/service-core';
 import { MongoLSN } from '../../common/MongoLSN.js';
-import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '../MongoRelation.js';
+import { createCheckpoint, SENTINEL_CHECKPOINT_ID, STANDALONE_CHECKPOINT_ID } from '../MongoRelation.js';
 import { ProjectedChangeStreamDocument } from '../RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from '../replication-utils.js';
 import {
   CheckpointEventApi,
   CheckpointImplementation,
   CheckpointImplementationContext,
-  classifyCheckpointEvent,
   descendingLsnError,
+  getCheckpointId,
   getEventTimestamp,
   StreamResumePosition
 } from './CheckpointImplementation.js';
@@ -49,11 +49,11 @@ export class TimestampCheckpointImplementation implements CheckpointImplementati
   }
 
   async createStandaloneCheckpoint(): Promise<string> {
-    return createCheckpoint(this.context.client, this.context.db, STANDALONE_CHECKPOINT_ID);
+    return createCheckpoint(this.context.db, STANDALONE_CHECKPOINT_ID);
   }
 
   async createBatchCheckpoint(): Promise<string> {
-    return createCheckpoint(this.context.client, this.context.db, this.context.checkpointStreamId);
+    return createCheckpoint(this.context.db, this.context.checkpointStreamId);
   }
 
   async createFirstBarrier(): Promise<string | null> {
@@ -118,7 +118,17 @@ export class TimestampCheckpointImplementation implements CheckpointImplementati
   }
 
   readonly event: CheckpointEventApi = {
-    observe: (doc) => classifyCheckpointEvent(doc, this.context.checkpointStreamId),
+    observe: (doc) => {
+      const checkpointId = getCheckpointId(doc);
+      if (checkpointId == null || checkpointId == SENTINEL_CHECKPOINT_ID) {
+        return 'foreign';
+      }
+      // The STANDALONE_CHECKPOINT_ID is only used for the TimestampCheckpointImplementation
+      if (checkpointId == STANDALONE_CHECKPOINT_ID) {
+        return 'standalone';
+      }
+      return this.context.checkpointStreamId.equals(checkpointId) ? 'own-barrier' : 'foreign';
+    },
 
     lsn: (doc) => {
       return new MongoLSN({

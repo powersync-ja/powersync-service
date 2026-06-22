@@ -6,11 +6,12 @@ import { test_utils } from '@powersync/service-core-tests';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
 import { SentinelLSN } from '@module/common/SentinelLSN.js';
-import { createDocumentDbCheckpointLsn, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
+import { createSentinelCheckpointLsn, SENTINEL_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '@module/replication/replication-utils.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
+import { env } from './env.js';
 import { connectMongoData, describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
 
 const BASIC_SYNC_RULES = `
@@ -177,7 +178,7 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.DOCUMENTDB)('documentDbMode', () =
   // — a single-shard cluster may happen to preserve it); the finding is logged
   // so we can document the cluster's observed behaviour. We DO assert that
   // same-document order is preserved, since sentinel `i` matching relies on it.
-  test('change stream delivery order across documents', { timeout: 180_000 }, async () => {
+  test.skipIf(!env.SLOW_TESTS)('change stream delivery order across documents', { timeout: 30_000 }, async () => {
     const { client, db } = await connectMongoData();
     const ROUNDS = 20;
     const dataColl = 'order_probe_data';
@@ -224,7 +225,7 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.DOCUMENTDB)('documentDbMode', () =
           await data.updateOne({ _id: dataId }, { $set: { seq: round } });
           issued.push({ label: `D${round}`, kind: 'data', round });
 
-          const sentinel = SentinelLSN.fromSerialized(await createDocumentDbCheckpointLsn(client, db)).sentinel;
+          const sentinel = SentinelLSN.fromSerialized(await createSentinelCheckpointLsn(client, db)).sentinel;
           issued.push({ label: `S${round}`, kind: 'sentinel', round, sentinel });
           sentinelValueToRound.set(sentinel.toString(), round);
         }
@@ -243,7 +244,7 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.DOCUMENTDB)('documentDbMode', () =
             if (seq >= 1) {
               arrivals.push({ label: `D${seq}`, kind: 'data', value: seq });
             }
-          } else if (id === STANDALONE_CHECKPOINT_ID) {
+          } else if (id === SENTINEL_CHECKPOINT_ID) {
             const value = BigInt((ev.fullDocument as any).i);
             const round = sentinelValueToRound.get(value.toString());
             if (round != null) {
@@ -320,148 +321,152 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.DOCUMENTDB)('documentDbMode', () =
   // well-defined happens-before order to violate); the background writers only
   // generate feed pressure. Same reporting; cross-document order is logged, not
   // asserted.
-  test('change stream delivery order across documents — under concurrent load', { timeout: 240_000 }, async () => {
-    const { client, db } = await connectMongoData();
-    const ROUNDS = 100;
-    const BACKGROUND_WRITERS = 6;
-    const dataColl = 'order_probe_data';
-    const dataId = '_order_probe_doc';
-    const backgroundCollections = Array.from({ length: BACKGROUND_WRITERS }, (_, w) => `order_probe_bg_${w}`);
-    try {
-      const data = db.collection<{ _id: string; seq: number }>(dataColl);
-      await data.deleteMany({});
-
-      // Only deliver the two measured namespaces, so background churn does not
-      // flood the cursor we are measuring.
-      const pipeline = [
-        {
-          $match: {
-            operationType: { $in: ['insert', 'update', 'replace'] },
-            'ns.db': db.databaseName,
-            'ns.coll': { $in: [dataColl, CHECKPOINTS_COLLECTION] }
-          }
-        }
-      ];
-      const cursor = client.watch(pipeline, { fullDocument: 'updateLookup', maxAwaitTimeMS: 500 });
-
-      // Start the background write storm: 6 loops, each with one write in flight,
-      // churning 100 rotating documents per collection.
-      let stopBackground = false;
-      const background = backgroundCollections.map((name) =>
-        (async () => {
-          const coll = db.collection<{ _id: string; n: number }>(name);
-          let n = 0;
-          while (!stopBackground) {
-            n += 1;
-            await coll.updateOne({ _id: `bg_${n % 100}` }, { $set: { n } }, { upsert: true }).catch(() => {});
-          }
-        })()
-      );
-
+  test.skipIf(!env.SLOW_TESTS)(
+    'change stream delivery order across documents — under concurrent load',
+    { timeout: 240_000 },
+    async () => {
+      const { client, db } = await connectMongoData();
+      const ROUNDS = 100;
+      const BACKGROUND_WRITERS = 6;
+      const dataColl = 'order_probe_data';
+      const dataId = '_order_probe_doc';
+      const backgroundCollections = Array.from({ length: BACKGROUND_WRITERS }, (_, w) => `order_probe_bg_${w}`);
       try {
-        // Prime the cursor.
-        const primeDeadline = Date.now() + 60_000;
-        let primed = false;
-        let primeSeq = 0;
-        while (!primed && Date.now() < primeDeadline) {
-          primeSeq -= 1;
-          await data.updateOne({ _id: dataId }, { $set: { seq: primeSeq } }, { upsert: true });
-          if ((await cursor.tryNext()) != null) {
-            primed = true;
-          }
-        }
-        expect(primed, 'change stream cursor never went live').toBe(true);
-        while ((await cursor.tryNext()) != null) {
-          // drain priming events
-        }
+        const data = db.collection<{ _id: string; seq: number }>(dataColl);
+        await data.deleteMany({});
 
-        // Measured sequential D→S pairs.
-        const issued: { label: string; round: number }[] = [];
-        const sentinelValueToRound = new Map<string, number>();
-        for (let round = 1; round <= ROUNDS; round++) {
-          await data.updateOne({ _id: dataId }, { $set: { seq: round } });
-          issued.push({ label: `D${round}`, round });
-          const sentinel = SentinelLSN.fromSerialized(await createDocumentDbCheckpointLsn(client, db)).sentinel;
-          issued.push({ label: `S${round}`, round });
-          sentinelValueToRound.set(sentinel.toString(), round);
-        }
-
-        // Collect.
-        const arrivals: string[] = [];
-        const expectedLabels = new Set(issued.map((i) => i.label));
-        const collectDeadline = Date.now() + 120_000;
-        while (arrivals.length < issued.length && Date.now() < collectDeadline) {
-          const ev = await cursor.tryNext();
-          if (ev == null || !('documentKey' in ev) || !('fullDocument' in ev) || ev.fullDocument == null) {
-            continue;
-          }
-          const id = String(ev.documentKey._id);
-          let label: string | null = null;
-          if (id === dataId) {
-            const seq = (ev.fullDocument as any).seq as number;
-            if (seq >= 1) {
-              label = `D${seq}`;
-            }
-          } else if (id === STANDALONE_CHECKPOINT_ID) {
-            const round = sentinelValueToRound.get(BigInt((ev.fullDocument as any).i).toString());
-            if (round != null) {
-              label = `S${round}`;
-            }
-          }
-          if (label != null && expectedLabels.has(label)) {
-            arrivals.push(label);
-          }
-        }
-
-        // Analysis (same as the sequential probe).
-        const issueIndex = new Map(issued.map((it, i) => [it.label, i] as const));
-        const crossDocumentInversions: { afterDelivering: string; received: string }[] = [];
-        for (let i = 1; i < arrivals.length; i++) {
-          if (issueIndex.get(arrivals[i])! < issueIndex.get(arrivals[i - 1])!) {
-            crossDocumentInversions.push({ afterDelivering: arrivals[i - 1], received: arrivals[i] });
-          }
-        }
-        const sentinelOvertakingItsDataWrite: number[] = [];
-        for (let round = 1; round <= ROUNDS; round++) {
-          const dIdx = arrivals.indexOf(`D${round}`);
-          const sIdx = arrivals.indexOf(`S${round}`);
-          if (dIdx >= 0 && sIdx >= 0 && sIdx < dIdx) {
-            sentinelOvertakingItsDataWrite.push(round);
-          }
-        }
-
-        console.dir(
+        // Only deliver the two measured namespaces, so background churn does not
+        // flood the cursor we are measuring.
+        const pipeline = [
           {
-            crossDocumentOrderingUnderLoad: {
-              rounds: ROUNDS,
-              backgroundWriters: BACKGROUND_WRITERS,
-              issued: issued.length,
-              arrived: arrivals.length,
-              crossDocumentInversions,
-              sentinelOvertakingItsDataWrite
+            $match: {
+              operationType: { $in: ['insert', 'update', 'replace'] },
+              'ns.db': db.databaseName,
+              'ns.coll': { $in: [dataColl, CHECKPOINTS_COLLECTION] }
             }
-          },
-          { depth: null }
+          }
+        ];
+        const cursor = client.watch(pipeline, { fullDocument: 'updateLookup', maxAwaitTimeMS: 500 });
+
+        // Start the background write storm: 6 loops, each with one write in flight,
+        // churning 100 rotating documents per collection.
+        let stopBackground = false;
+        const background = backgroundCollections.map((name) =>
+          (async () => {
+            const coll = db.collection<{ _id: string; n: number }>(name);
+            let n = 0;
+            while (!stopBackground) {
+              n += 1;
+              await coll.updateOne({ _id: `bg_${n % 100}` }, { $set: { n } }, { upsert: true }).catch(() => {});
+            }
+          })()
         );
 
-        expect(arrivals.length, 'did not receive all issued events before the deadline').toBe(issued.length);
-      } finally {
-        stopBackground = true;
-        await Promise.allSettled(background);
-        await cursor.close();
-      }
+        try {
+          // Prime the cursor.
+          const primeDeadline = Date.now() + 60_000;
+          let primed = false;
+          let primeSeq = 0;
+          while (!primed && Date.now() < primeDeadline) {
+            primeSeq -= 1;
+            await data.updateOne({ _id: dataId }, { $set: { seq: primeSeq } }, { upsert: true });
+            if ((await cursor.tryNext()) != null) {
+              primed = true;
+            }
+          }
+          expect(primed, 'change stream cursor never went live').toBe(true);
+          while ((await cursor.tryNext()) != null) {
+            // drain priming events
+          }
 
-      await data.deleteMany({});
-      for (const name of backgroundCollections) {
-        await db
-          .collection(name)
-          .drop()
-          .catch(() => {});
+          // Measured sequential D→S pairs.
+          const issued: { label: string; round: number }[] = [];
+          const sentinelValueToRound = new Map<string, number>();
+          for (let round = 1; round <= ROUNDS; round++) {
+            await data.updateOne({ _id: dataId }, { $set: { seq: round } });
+            issued.push({ label: `D${round}`, round });
+            const sentinel = SentinelLSN.fromSerialized(await createSentinelCheckpointLsn(client, db)).sentinel;
+            issued.push({ label: `S${round}`, round });
+            sentinelValueToRound.set(sentinel.toString(), round);
+          }
+
+          // Collect.
+          const arrivals: string[] = [];
+          const expectedLabels = new Set(issued.map((i) => i.label));
+          const collectDeadline = Date.now() + 120_000;
+          while (arrivals.length < issued.length && Date.now() < collectDeadline) {
+            const ev = await cursor.tryNext();
+            if (ev == null || !('documentKey' in ev) || !('fullDocument' in ev) || ev.fullDocument == null) {
+              continue;
+            }
+            const id = String(ev.documentKey._id);
+            let label: string | null = null;
+            if (id === dataId) {
+              const seq = (ev.fullDocument as any).seq as number;
+              if (seq >= 1) {
+                label = `D${seq}`;
+              }
+            } else if (id === SENTINEL_CHECKPOINT_ID) {
+              const round = sentinelValueToRound.get(BigInt((ev.fullDocument as any).i).toString());
+              if (round != null) {
+                label = `S${round}`;
+              }
+            }
+            if (label != null && expectedLabels.has(label)) {
+              arrivals.push(label);
+            }
+          }
+
+          // Analysis (same as the sequential probe).
+          const issueIndex = new Map(issued.map((it, i) => [it.label, i] as const));
+          const crossDocumentInversions: { afterDelivering: string; received: string }[] = [];
+          for (let i = 1; i < arrivals.length; i++) {
+            if (issueIndex.get(arrivals[i])! < issueIndex.get(arrivals[i - 1])!) {
+              crossDocumentInversions.push({ afterDelivering: arrivals[i - 1], received: arrivals[i] });
+            }
+          }
+          const sentinelOvertakingItsDataWrite: number[] = [];
+          for (let round = 1; round <= ROUNDS; round++) {
+            const dIdx = arrivals.indexOf(`D${round}`);
+            const sIdx = arrivals.indexOf(`S${round}`);
+            if (dIdx >= 0 && sIdx >= 0 && sIdx < dIdx) {
+              sentinelOvertakingItsDataWrite.push(round);
+            }
+          }
+
+          console.dir(
+            {
+              crossDocumentOrderingUnderLoad: {
+                rounds: ROUNDS,
+                backgroundWriters: BACKGROUND_WRITERS,
+                issued: issued.length,
+                arrived: arrivals.length,
+                crossDocumentInversions,
+                sentinelOvertakingItsDataWrite
+              }
+            },
+            { depth: null }
+          );
+
+          expect(arrivals.length, 'did not receive all issued events before the deadline').toBe(issued.length);
+        } finally {
+          stopBackground = true;
+          await Promise.allSettled(background);
+          await cursor.close();
+        }
+
+        await data.deleteMany({});
+        for (const name of backgroundCollections) {
+          await db
+            .collection(name)
+            .drop()
+            .catch(() => {});
+        }
+      } finally {
+        await client.close();
       }
-    } finally {
-      await client.close();
     }
-  });
+  );
 
   // Characterize whether DocumentDB's change stream reports collection `drop` and
   // `rename` DDL events. PowerSync does not currently replicate these on

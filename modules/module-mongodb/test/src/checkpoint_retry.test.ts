@@ -75,7 +75,7 @@ describe('checkpoint retryable writes', () => {
         blockTimeMS: TIMEOUT
       }
     });
-    const returnedLsnPromise = createCheckpoint(client, db, checkpointId);
+    const returnedLsnPromise = createCheckpoint(db, checkpointId);
 
     for (let i = 0; i < INSERT_COUNT; i++) {
       await advanceClusterTime.insertOne({ at: new Date() });

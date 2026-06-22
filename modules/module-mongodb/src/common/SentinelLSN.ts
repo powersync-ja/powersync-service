@@ -29,7 +29,7 @@ const SENTINEL_HEX_LENGTH = 16;
  * a MongoDB timestamp LSN** ({@link MongoLSN}): the high 32 bits resemble epoch
  * seconds and the low 32 bits an increment. This is deliberate — it makes
  * sentinel LSNs directly string-comparable with timestamp LSNs, so a sentinel
- * coordinate (seeded at the current epoch seconds; see createDocumentDbCheckpointLsn)
+ * coordinate (seeded at the current epoch seconds; see createSentinelCheckpointLsn)
  * always sorts **above** any real-timestamp LSN issued in the past.
  *
  * It only *resembles* a timestamp. The value is a synthetic monotonic counter,
