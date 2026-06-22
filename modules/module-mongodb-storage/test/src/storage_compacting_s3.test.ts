@@ -285,4 +285,71 @@ describe('V3 Compaction with object storage', () => {
       expect(rowIds.has(`row${i}`)).toBe(true);
     }
   });
+
+  test('compaction deletes old S3 objects', async () => {
+    const { memoryStorage, factoryGen } = s3Factory();
+    await using factory = await factoryGen.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
+    await writer.markAllSnapshotDone('1/1');
+
+    // A-v1 gets superseded by A-v2; B and C are independent.
+    // Compaction will rechunk ops into new S3 docs and delete old ones.
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'A', description: 'v1' },
+      afterReplicaId: test_utils.rid('A-v1')
+    });
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'A', description: 'v2' },
+      afterReplicaId: test_utils.rid('A-v2')
+    });
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'B', description: 'beta' },
+      afterReplicaId: test_utils.rid('B')
+    });
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'C', description: 'gamma' },
+      afterReplicaId: test_utils.rid('C')
+    });
+    await writer.commit('1/1');
+
+    const store = (memoryStorage as any).store as Map<string, Buffer>;
+    const pathsBefore = new Set(store.keys());
+
+    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+
+    await bucketStorage.compact({
+      maxOpId: checkpoint,
+      compactBuckets: [request.bucket],
+      clearBatchLimit: 200,
+      moveBatchLimit: 10,
+      moveBatchQueryLimit: 10,
+      moveBatchByteLimit: 1024,
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      signal: null as any
+    });
+
+    const pathsAfter = new Set(store.keys());
+
+    // Old S3 paths must be gone
+    for (const p of pathsBefore) {
+      expect(pathsAfter.has(p)).toBe(false);
+    }
+
+    // New S3 paths must exist (compaction republished surviving ops)
+    expect(pathsAfter.size).toBeGreaterThan(0);
+  });
 });
