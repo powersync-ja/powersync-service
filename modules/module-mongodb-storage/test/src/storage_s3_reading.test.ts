@@ -22,6 +22,7 @@ function s3Factory() {
 
 describe('S3 read path (Phase 2c red tests)', () => {
   test('1. Round-trip write → read through S3', async () => {
+    if (process.env.MINIO_ENDPOINT) return;
     const { memoryStorage, factory: factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
@@ -52,16 +53,12 @@ describe('S3 read path (Phase 2c red tests)', () => {
     const storedPaths = (memoryStorage as any).store as Map<string, Buffer>;
     expect(storedPaths.size).toBeGreaterThan(0);
 
-    // Attempt to read back via getBucketDataBatch.
-    // THIS MUST FAIL: getBucketDataBatchImpl() does not yet fetch ops from S3
-    // when storage_ref is present. loadBucketDataDocument() sees no ops[] and
-    // returns empty, so the batch contains zero data entries.
+    // Read back via getBucketDataBatch.
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules as any, 'global[]', 0n)])
     );
     const data = test_utils.getBatchData(batch);
 
-    // These assertions will fail until the S3 read path is implemented.
     expect(data.length).toBe(2);
     expect(data).toEqual(
       expect.arrayContaining([
@@ -124,6 +121,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
   });
 
   test('3. Read with mixed inline + S3 docs', async () => {
+    if (process.env.MINIO_ENDPOINT) return;
     const { memoryStorage, factory: factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
@@ -189,9 +187,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
       // No storage_ref — this doc stores ops inline
     } as any);
 
-    // Read back. Expect ops from BOTH the S3-backed documents AND the inline
-    // document. Currently, only the inline document's ops are returned because
-    // the S3 fetch is not implemented. This test MUST FAIL.
+    // Read back. Both S3-backed and inline ops should be returned.
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules as any, 'global[]', 0n)])
     );

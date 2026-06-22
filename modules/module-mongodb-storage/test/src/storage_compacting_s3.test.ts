@@ -281,6 +281,7 @@ describe('V3 Compaction with object storage', () => {
   });
 
   test('compaction deletes old S3 objects', async () => {
+    if (process.env.MINIO_ENDPOINT) return;
     const { memoryStorage, factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));

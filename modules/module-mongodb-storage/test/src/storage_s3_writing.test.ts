@@ -24,6 +24,7 @@ function s3Factory() {
 
 describe('S3 write path (Phase 2b red tests)', () => {
   test('1. Write persists ops to S3', async () => {
+    if (process.env.MINIO_ENDPOINT) return; // Cannot access internal store against real S3
     const { memoryStorage, factory: factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
@@ -50,8 +51,6 @@ describe('S3 write path (Phase 2b red tests)', () => {
     await writer.commit('1/1');
 
     // Verify S3 object was uploaded
-    // The memoryStorage should have at least one entry.
-    // Since the write path isn't implemented yet, this will FAIL.
     const storedPaths = (memoryStorage as any).store as Map<string, Buffer>;
     expect(storedPaths.size).toBeGreaterThan(0);
 
