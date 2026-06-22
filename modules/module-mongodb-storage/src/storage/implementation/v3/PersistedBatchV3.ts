@@ -237,11 +237,15 @@ export class PersistedBatchV3 extends PersistedBatch {
             let totalChecksum = 0n;
             let totalSize = 0;
             let maxTargetOp: bigint | null = null;
+            let hasClearOp = false;
             const bucketOps = chunk.map((op) => {
               totalChecksum += op.checksum;
               totalSize += op.data?.length ?? 0;
               if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
                 maxTargetOp = op.target_op;
+              }
+              if (op.op === 'CLEAR') {
+                hasClearOp = true;
               }
               return {
                 o: op.o,
@@ -267,6 +271,7 @@ export class PersistedBatchV3 extends PersistedBatch {
                   count: chunk.length,
                   size: totalSize,
                   target_op: maxTargetOp,
+                  has_clear_op: hasClearOp || undefined,
                   storage_ref: {
                     path,
                     compressed_size: compressedSize

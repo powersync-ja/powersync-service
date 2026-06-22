@@ -8,6 +8,7 @@ export function serializeBucketData(bucket: string, operations: BucketDataDoc[])
   let totalChecksum = 0n;
   let totalSize = 0;
   let maxTargetOp: bigint | null = null;
+  let hasClearOp = false;
 
   const ops: BucketOperation[] = operations.map((op) => {
     totalChecksum += op.checksum;
@@ -15,6 +16,9 @@ export function serializeBucketData(bucket: string, operations: BucketDataDoc[])
 
     if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
       maxTargetOp = op.target_op;
+    }
+    if (op.op === 'CLEAR') {
+      hasClearOp = true;
     }
 
     return {
@@ -39,6 +43,7 @@ export function serializeBucketData(bucket: string, operations: BucketDataDoc[])
     count: operations.length,
     size: totalSize,
     target_op: maxTargetOp,
+    has_clear_op: hasClearOp || undefined,
     ops
   };
 }

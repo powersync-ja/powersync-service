@@ -347,11 +347,15 @@ export class MongoCompactorV3 extends MongoCompactor {
           let totalChecksum = 0n;
           let totalSize = 0;
           let maxTargetOp: bigint | null = null;
+          let hasClearOp = false;
           const bucketOps = chunk.map((op) => {
             totalChecksum += op.checksum;
             totalSize += op.data?.length ?? 0;
             if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
               maxTargetOp = op.target_op;
+            }
+            if (op.op === 'CLEAR') {
+              hasClearOp = true;
             }
             return {
               o: op.o,
@@ -376,6 +380,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             count: chunk.length,
             size: totalSize,
             target_op: maxTargetOp,
+            has_clear_op: hasClearOp || undefined,
             storage_ref: {
               path,
               compressed_size: compressedSize
@@ -687,6 +692,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           count: 1,
           size: 0,
           target_op: maxTargetOp,
+          has_clear_op: true,
           storage_ref: {
             path,
             compressed_size: compressedSize
@@ -705,11 +711,15 @@ export class MongoCompactorV3 extends MongoCompactor {
           let totalChecksum = 0n;
           let totalSize = 0;
           let chunkMaxTargetOp: bigint | null = null;
+          let hasClearOp = false;
           const bucketOps = chunk.map((op) => {
             totalChecksum += op.checksum;
             totalSize += op.data?.length ?? 0;
             if (op.target_op != null && (chunkMaxTargetOp == null || op.target_op > chunkMaxTargetOp)) {
               chunkMaxTargetOp = op.target_op;
+            }
+            if (op.op === 'CLEAR') {
+              hasClearOp = true;
             }
             return {
               o: op.o,
@@ -734,6 +744,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             count: chunk.length,
             size: totalSize,
             target_op: chunkMaxTargetOp,
+            has_clear_op: hasClearOp || undefined,
             storage_ref: {
               path,
               compressed_size: compressedSize

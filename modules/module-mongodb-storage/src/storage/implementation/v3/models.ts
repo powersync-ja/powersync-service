@@ -148,6 +148,7 @@ export interface BucketDataDocumentV3 {
   target_op?: bigint | null;
   ops?: BucketOperation[];
   storage_ref?: StorageRef;
+  has_clear_op?: boolean;
 }
 
 export function serializeParameterLookup(lookup: ScopedParameterLookup): bson.Binary {
