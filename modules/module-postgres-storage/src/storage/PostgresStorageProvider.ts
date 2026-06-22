@@ -27,7 +27,7 @@ export class PostgresStorageProvider implements storage.StorageProvider {
     const normalizedConfig = normalizePostgresStorageConfig(decodedConfig);
     const storageFactory = new PostgresBucketStorageFactory({
       config: normalizedConfig,
-      slot_name_prefix: options.resolvedConfig.slot_name_prefix
+      replicationStreamNamePrefix: options.resolvedConfig.slot_name_prefix
     });
 
     const reportStorageFactory = new PostgresReportStorage({

@@ -1,6 +1,5 @@
 export * as test_utils from '../utils/test-utils.js';
 export * from '../utils/util.js';
-export * from './implementation/BucketDefinitionMapping.js';
 export * from './implementation/common/PersistedBatch.js';
 export * from './implementation/createMongoSyncBucketStorage.js';
 export * from './implementation/db.js';

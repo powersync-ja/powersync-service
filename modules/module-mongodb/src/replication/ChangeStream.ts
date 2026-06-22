@@ -144,11 +144,16 @@ export class ChangeStream {
     // so we use 90% of the socket timeout value.
     this.changeStreamTimeout = Math.ceil(this.client.options.socketTimeoutMS * 0.9);
 
-    this.logger = options.logger ?? this.storage.logger;
+    const baseLogger = options.logger ?? this.storage.logger;
+    // Unfortunately the Winston APIs don't have a nice way to append to the prefix,
+    // so we replace it here.
+    this.logger = baseLogger.child({ prefix: `[${this.storage.replicationStreamName}] [stream] ` });
+    const snapshotLogger = baseLogger.child({ prefix: `[${this.storage.replicationStreamName}] [snapshot] ` });
+
     this.snapshotter = new MongoSnapshotter({
       ...options,
       abortSignal: this.abortSignal,
-      logger: this.logger,
+      logger: snapshotLogger,
       checkpointStreamId: this.checkpointStreamId
     });
 
@@ -784,11 +789,6 @@ export class ChangeStream {
               // kind == 'own-barrier' falls through to commit.
 
               const lsn = this.checkpointImplementation.event.lsn(changeDocument);
-              // Guard against an event LSN that regresses below the last committed LSN.
-              // Tolerable in the sentinel implementation (equal coordinate, opaque token
-              // tie — the commit below no-ops in storage while still resolving a pending
-              // barrier); a fatal ordering violation otherwise.
-              this.checkpointImplementation.checkDescendingLsn(lsn, batch.lastCheckpointLsn, changeDocument);
 
               if (
                 waitForCheckpointLsn != null &&
@@ -796,11 +796,11 @@ export class ChangeStream {
               ) {
                 waitForCheckpointLsn = null;
               }
-              const { checkpointBlocked } = await batch.commit(lsn, {
+              const { checkpointBlocked, checkpointCreated } = await batch.commit(lsn, {
                 oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
               });
 
-              if (!checkpointBlocked) {
+              if (!checkpointBlocked || checkpointCreated) {
                 this.replicationLag.markCommitted();
               }
             } else if (

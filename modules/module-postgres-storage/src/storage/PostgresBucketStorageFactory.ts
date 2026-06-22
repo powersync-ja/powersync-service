@@ -14,13 +14,13 @@ import { PostgresPersistedReplicationStream } from './sync-rules/PostgresPersist
 
 export type PostgresBucketStorageOptions = {
   config: NormalizedPostgresStorageConfig;
-  slot_name_prefix: string;
+  replicationStreamNamePrefix: string;
 };
 
 export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   [framework.DO_NOT_LOG] = true;
   readonly db: lib_postgres.DatabaseClient;
-  public readonly slot_name_prefix: string;
+  public readonly replicationStreamNamePrefix: string;
 
   private activeStorageCache: storage.SyncRulesBucketStorage | undefined;
 
@@ -32,7 +32,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       notificationChannels: [NOTIFICATION_CHANNEL],
       applicationName: getStorageApplicationName()
     });
-    this.slot_name_prefix = options.slot_name_prefix;
+    this.replicationStreamNamePrefix = options.replicationStreamNamePrefix;
 
     this.db.registerListener({
       connectionCreated: async (connection) => this.prepareStatements(connection)
@@ -200,7 +200,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
             ${{ type: 'json', value: options.config.plan }},
             ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }},
             CONCAT(
-              ${{ type: 'varchar', value: this.slot_name_prefix }},
+              ${{ type: 'varchar', value: this.replicationStreamNamePrefix }},
               (
                 SELECT
                   id

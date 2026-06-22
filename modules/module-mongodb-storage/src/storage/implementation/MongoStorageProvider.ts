@@ -39,8 +39,11 @@ export class MongoStorageProvider implements storage.StorageProvider {
 
     const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
     const syncStorageFactory = new MongoBucketStorage(database, {
-      // TODO currently need the entire resolved config due to this
-      slot_name_prefix: resolvedConfig.slot_name_prefix
+      replicationStreamNamePrefix: resolvedConfig.slot_name_prefix,
+      // Right now, only MongoDB source databases supports incremental reprocessing.
+      // Remove this filter when we support it for other source databases.
+      // This assumes a single source connection - revisit if we ever support multiple connections.
+      supportsMultipleSyncConfigs: resolvedConfig.connections?.[0]?.type == lib_mongo.MONGO_CONNECTION_TYPE
     });
 
     // Storage factory for reports

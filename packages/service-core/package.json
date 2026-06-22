@@ -1,14 +1,13 @@
 {
   "name": "@powersync/service-core",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "types": "dist/index.d.ts",
   "publishConfig": {
     "access": "public"
   },
   "version": "1.22.0",
-  "main": "dist/index.js",
   "license": "FSL-1.1-ALv2",
   "type": "module",
+  "exports": "./dist/index.js",
   "scripts": {
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
