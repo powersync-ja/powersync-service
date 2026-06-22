@@ -194,7 +194,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       let batchCutIndex = rawBatch.length;
 
       for (let i = 0; i < rawBatch.length; i++) {
-        const doc = rawBatch[i] as any;
+        const doc = rawBatch[i];
         let docSize = Number(doc.bsonSize);
         if (doc.storage_ref) {
           docSize += doc.size ?? 0;
