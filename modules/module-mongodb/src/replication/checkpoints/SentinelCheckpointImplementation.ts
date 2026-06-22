@@ -83,9 +83,10 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
 
   async keepalive(_batch: storage.BucketStorageBatch, _resumeToken: mongo.ResumeToken): Promise<void> {
     // Advance the shared sentinel, but do not persist a checkpoint here. The
-    // bump's own change event will flow through the stream and be committed by
-    // the standalone checkpoint handling, which advances the ordered LSN
-    // prefix and refreshes the resume token (using the event's own token).
+    // bump is stamped with this stream's id, so its own change event flows
+    // through the stream as an own-barrier event and is committed by the
+    // own-barrier handling, which advances the ordered LSN prefix and refreshes
+    // the resume token (using the event's own token).
     //
     // Why bump at all: with an unchanged sentinel, LSN comparison against the
     // previously persisted LSN falls to the opaque base64 token suffix, which
@@ -246,11 +247,24 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
   }
 }
 
+/**
+ * A change event with the decoded `fullDocument` post-image memoized on it, so
+ * a consumer that reads it more than once — e.g. observe() then resolvesBarrier()
+ * for the same event — decodes the buffer only once. `undefined` until first
+ * decoded; `null` when there is no fullDocument.
+ */
+type MemoizedChangeStreamDocument = ProjectedChangeStreamDocument & {
+  parsedFullDocument?: mongo.Document | null;
+};
+
 function deserializeFullDocument(doc: ProjectedChangeStreamDocument): mongo.Document | null {
-  const fullDocument = 'fullDocument' in doc ? doc.fullDocument : null;
-  if (!fullDocument) {
-    return null;
+  const memo = doc as MemoizedChangeStreamDocument;
+  if (memo.parsedFullDocument !== undefined) {
+    return memo.parsedFullDocument;
   }
+  const fullDocument = 'fullDocument' in doc ? doc.fullDocument : null;
   // fullDocument is a raw BSON Buffer from parseChangeDocument.
-  return mongo.BSON.deserialize(fullDocument as Buffer, { useBigInt64: true });
+  const parsed = fullDocument ? mongo.BSON.deserialize(fullDocument as Buffer, { useBigInt64: true }) : null;
+  memo.parsedFullDocument = parsed;
+  return parsed;
 }

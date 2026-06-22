@@ -212,7 +212,12 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
       this.checkpointImplementation = createCheckpointImplementation(isDocumentDb, {
         client: this.client,
         db: this.db,
-        // The adapter never streams, so it has no real barrier document.
+        // The adapter never streams, so it has no real barrier document. This
+        // random id is only safe because the adapter only ever calls
+        // createReplicationHead, which produces a standalone (stream_id = null)
+        // head that every real ChangeStream observes. It must NOT be used for a
+        // batch barrier (createBatchCheckpoint stamps this id), or the head would
+        // become an own-barrier of a phantom stream that nothing resolves.
         checkpointStreamId: new mongo.ObjectId(),
         logger
       });
