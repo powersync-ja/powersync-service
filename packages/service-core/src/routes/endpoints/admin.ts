@@ -267,4 +267,62 @@ export const validate = routeDefinition({
   }
 });
 
-export const ADMIN_ROUTES = [executeSql, diagnostics, getSchema, reprocess, validate];
+/**
+ * Per-bucket report of total operations vs total live rows in storage, for the active sync config.
+ *
+ * Answers the recurring "why is my Data Synced so high" question instance-wide (not per-user like the
+ * diagnostics client): a high `operations / rows` ratio indicates fragmented buckets that a compact or
+ * defragment can reclaim.
+ */
+export const bucketReport = routeDefinition({
+  path: '/api/admin/v1/bucket-report',
+  method: router.HTTPMethod.POST,
+  authorize: authApi,
+  validator: schema.createTsCodecValidator(internal_routes.BucketReportRequest, { allowAdditional: true }),
+  handler: async (payload) => {
+    const {
+      context: { service_context }
+    } = payload;
+    const {
+      storageEngine: { activeBucketStorage }
+    } = service_context;
+
+    const active = await activeBucketStorage.getActiveSyncConfig();
+    if (active == null) {
+      throw new errors.ServiceError({
+        status: 422,
+        code: ErrorCode.PSYNC_S4104,
+        description: 'No active sync config'
+      });
+    }
+
+    if (active.storage.getBucketReport == null) {
+      throw new errors.ServiceError({
+        status: 422,
+        code: ErrorCode.PSYNC_S2001,
+        description: 'The configured storage provider does not support bucket reporting'
+      });
+    }
+
+    const report = await active.storage.getBucketReport({ limit: payload.params.limit });
+
+    return internal_routes.BucketReportResponse.encode({
+      buckets: report.buckets.map((bucket) => ({
+        bucket: bucket.bucket,
+        operations: bucket.operations,
+        rows: bucket.rows,
+        operation_bytes: bucket.operationBytes,
+        fragmentation: bucket.fragmentation
+      })),
+      totals: {
+        bucket_count: report.totals.bucketCount,
+        operations: report.totals.operations,
+        rows: report.totals.rows,
+        operation_bytes: report.totals.operationBytes
+      },
+      truncated: report.truncated
+    });
+  }
+});
+
+export const ADMIN_ROUTES = [executeSql, diagnostics, getSchema, reprocess, validate, bucketReport];
