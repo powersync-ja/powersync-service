@@ -25,7 +25,7 @@ At a high level:
 
 ## End-To-End Sequence
 
-The usual mutation-to-client path looks like this. The source-specific stream may be Postgres WAL, MongoDB change streams, MySQL binlog, SQL Server CDC, Convex document deltas, or a future connector with the same storage contract.
+The usual mutation-to-client path looks like this. The source-specific stream may be Postgres WAL, MongoDB change streams, MySQL binlog, SQL Server CDC, Convex document deltas, or a future connector using the same storage writer workflow.
 
 ```mermaid
 sequenceDiagram
@@ -97,8 +97,8 @@ The `flush()` call may persist partial work inside a large source transaction, b
 
 1. [Core concepts](./01-core-concepts.md): common vocabulary used by the replication code and storage implementations.
 2. [Replication lifecycle](./02-replication-lifecycle.md): how `ReplicationEngine`, `AbstractReplicator`, and `AbstractReplicationJob` manage work.
-3. [Source connector contract](./03-source-connector-contract.md): what Postgres, MongoDB, MySQL, SQL Server, Convex, and future source modules provide.
-4. [Storage writer contract](./04-storage-writer-contract.md): how source streams write source changes into bucket storage.
+3. [Source connector overview](./03-source-connector-overview.md): what Postgres, MongoDB, MySQL, SQL Server, Convex, and future source modules provide.
+4. [Storage writer overview](./04-storage-writer-overview.md): how source streams write source changes into bucket storage.
 5. [Snapshots and streaming](./05-snapshots-and-streaming.md): the consistency model for initial replication and ongoing change streams.
 6. [Checkpoints](./06-checkpoints.md): how storage checkpoints, write checkpoints, bucket checksums, and parameter lookups fit together.
 7. [Source modules](./07-source-modules.md): current source-specific implementations and differences.

@@ -13,8 +13,8 @@ Keep this file concise. Use it to route agents to the right docs and nearby impl
 
 ## Development Commands
 
-- This workspace uses Node from [`.nvmrc`](.nvmrc) and pnpm from the root [`packageManager`](package.json). If the shell does not automatically load nvm or Corepack, run Node/pnpm commands through `source ~/.nvm/nvm.sh && nvm use && corepack pnpm ...`.
-- Install dependencies with `corepack pnpm install`. CI enables Corepack before installing dependencies; match that locally when possible.
+- Use Node from [`.nvmrc`](.nvmrc) and pnpm from the root [`packageManager`](package.json). Plain `pnpm ...` commands are fine when the shell already activates those versions. If a non-interactive shell picks the wrong versions, run commands through `source ~/.nvm/nvm.sh && nvm use && corepack pnpm ...`.
+- Install dependencies with `pnpm install` or, when Corepack is not already active, `corepack pnpm install`. CI enables Corepack before installing dependencies; match that locally when needed.
 - This is a pnpm workspace. Use `corepack pnpm --filter <package-or-path> <script>` for focused package commands.
 - Confirm package names in each package's `package.json`; do not use the top-level package name for package-specific filters. Path filters such as `--filter './modules/module-postgres'` are often the clearest option.
 - Build the full workspace with `corepack pnpm build`. For a focused package, use `corepack pnpm --filter './modules/module-postgres' build`.
@@ -26,7 +26,7 @@ Keep this file concise. Use it to route agents to the right docs and nearby impl
 
 ## Replication Work
 
-Use this section when working on source replication modules, replication streams, source connector contracts, bucket storage writers, checkpoints, write checkpoints, initial snapshots, sync config deployment, or replication tests.
+Use this section when working on source replication modules, replication streams, source connector behavior, bucket storage writers, checkpoints, write checkpoints, initial snapshots, sync config deployment, or replication tests.
 
 ### Load Spec Context Selectively
 
@@ -35,8 +35,8 @@ Do not load every replication spec page by default. Start with the entry point, 
 - Always start with [`docs/replication/README.md`](docs/replication/README.md) for the outside-in map and code anchors.
 - Use [`01-core-concepts.md`](docs/replication/01-core-concepts.md) when terminology is unclear, especially replication streams, modules, source positions, `SourceTable`, checkpoints, and write checkpoints.
 - Use [`02-replication-lifecycle.md`](docs/replication/02-replication-lifecycle.md) for `ReplicationEngine`, `AbstractReplicator`, job lifecycle, locks, cleanup, and stream states.
-- Use [`03-source-connector-contract.md`](docs/replication/03-source-connector-contract.md) for source config, `RouteAPI`, schema metadata, source stream requirements, keepalive responsibilities, and table discovery.
-- Use [`04-storage-writer-contract.md`](docs/replication/04-storage-writer-contract.md) for `SyncRulesBucketStorage`, `BucketStorageBatch`, `resolveTables()`, `save()`, `flush()`, `commit()`, `keepalive()`, `setResumeLsn()`, and snapshot state.
+- Use [`03-source-connector-overview.md`](docs/replication/03-source-connector-overview.md) for source config, `RouteAPI`, schema metadata, source stream requirements, keepalive responsibilities, and table discovery.
+- Use [`04-storage-writer-overview.md`](docs/replication/04-storage-writer-overview.md) for the storage writer workflow: source table resolution, source changes, checkpoint boundaries, resume positions, and snapshot state. Use interface JSDoc for method-level details.
 - Use [`05-snapshots-and-streaming.md`](docs/replication/05-snapshots-and-streaming.md) for initial replication, resumable snapshots, source consistency boundaries, ongoing streaming, schema changes, and history loss.
 - Use [`06-checkpoints.md`](docs/replication/06-checkpoints.md) for storage checkpoints, bucket checksums, parameter lookups, managed write checkpoints, custom write checkpoints, and source-side marker tables.
 - Use [`07-source-modules.md`](docs/replication/07-source-modules.md) to compare existing Postgres, MongoDB, MySQL, SQL Server, and Convex implementations.
@@ -44,10 +44,10 @@ Do not load every replication spec page by default. Start with the entry point, 
 
 ### Branch By Task
 
-- New replication module: read [`README.md`](docs/replication/README.md), [`01-core-concepts.md`](docs/replication/01-core-concepts.md), [`03-source-connector-contract.md`](docs/replication/03-source-connector-contract.md), [`07-source-modules.md`](docs/replication/07-source-modules.md), and [`08-ai-agent-plans.md`](docs/replication/08-ai-agent-plans.md). Start with Plan 1 in [`08-ai-agent-plans.md`](docs/replication/08-ai-agent-plans.md), then load the later plan sections only as the implementation reaches them.
-- Existing replication module change: read [`README.md`](docs/replication/README.md), the relevant source section in [`07-source-modules.md`](docs/replication/07-source-modules.md), and only the contract page that matches the change. For example, use [`03-source-connector-contract.md`](docs/replication/03-source-connector-contract.md) for route/config/schema work, [`05-snapshots-and-streaming.md`](docs/replication/05-snapshots-and-streaming.md) for snapshot or streaming behavior, and [`06-checkpoints.md`](docs/replication/06-checkpoints.md) for write checkpoints.
-- Storage writer or bucket storage change: read [`README.md`](docs/replication/README.md), [`04-storage-writer-contract.md`](docs/replication/04-storage-writer-contract.md), and [`06-checkpoints.md`](docs/replication/06-checkpoints.md). Add [`05-snapshots-and-streaming.md`](docs/replication/05-snapshots-and-streaming.md) only if snapshot consistency, history loss, or streaming boundaries are involved.
-- Checkpoint or write-checkpoint change: read [`README.md`](docs/replication/README.md) and [`06-checkpoints.md`](docs/replication/06-checkpoints.md). Add [`03-source-connector-contract.md`](docs/replication/03-source-connector-contract.md) when `RouteAPI.createReplicationHead()` or source-side marker behavior is involved.
+- New replication module: read [`README.md`](docs/replication/README.md), [`01-core-concepts.md`](docs/replication/01-core-concepts.md), [`03-source-connector-overview.md`](docs/replication/03-source-connector-overview.md), [`07-source-modules.md`](docs/replication/07-source-modules.md), and [`08-ai-agent-plans.md`](docs/replication/08-ai-agent-plans.md). Start with Plan 1 in [`08-ai-agent-plans.md`](docs/replication/08-ai-agent-plans.md), then load the later plan sections only as the implementation reaches them.
+- Existing replication module change: read [`README.md`](docs/replication/README.md), the relevant source section in [`07-source-modules.md`](docs/replication/07-source-modules.md), and only the overview page that matches the change. For example, use [`03-source-connector-overview.md`](docs/replication/03-source-connector-overview.md) for route/config/schema work, [`05-snapshots-and-streaming.md`](docs/replication/05-snapshots-and-streaming.md) for snapshot or streaming behavior, and [`06-checkpoints.md`](docs/replication/06-checkpoints.md) for write checkpoints.
+- Storage writer or bucket storage change: read [`README.md`](docs/replication/README.md), [`04-storage-writer-overview.md`](docs/replication/04-storage-writer-overview.md), and [`06-checkpoints.md`](docs/replication/06-checkpoints.md). Add [`05-snapshots-and-streaming.md`](docs/replication/05-snapshots-and-streaming.md) only if snapshot consistency, history loss, or streaming boundaries are involved.
+- Checkpoint or write-checkpoint change: read [`README.md`](docs/replication/README.md) and [`06-checkpoints.md`](docs/replication/06-checkpoints.md). Add [`03-source-connector-overview.md`](docs/replication/03-source-connector-overview.md) when `RouteAPI.createReplicationHead()` or source-side marker behavior is involved.
 - Replication lifecycle, locks, cleanup, or job orchestration: read [`README.md`](docs/replication/README.md) and [`02-replication-lifecycle.md`](docs/replication/02-replication-lifecycle.md). Add [`07-source-modules.md`](docs/replication/07-source-modules.md) when comparing current module behavior.
 - Tests only: load the spec page for the behavior being tested, plus the testing sections in [`08-ai-agent-plans.md`](docs/replication/08-ai-agent-plans.md) when creating or changing a source-module test context.
 

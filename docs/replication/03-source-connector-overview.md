@@ -1,18 +1,10 @@
-# Source Connector Contract
+# Source Connector Overview
 
-This page describes the contract a replication module must satisfy for a source database or source API.
+This page describes the high-level responsibilities a replication module must satisfy for a source database or source API.
 
 ## Module Registration
 
-A replication module extends `ReplicationModule<TConfig>`.
-
-It must provide:
-
-- A data source `type` and config codec.
-- `createRouteAPIAdapter()`, used by API endpoints and admin/debug routes.
-- `createReplicator(context)`, used by `ReplicationEngine`.
-- `testConnection(config)`, used by connection checks.
-- `onInitialized(context)`, for source-specific setup after registration.
+A replication module extends `ReplicationModule<TConfig>`. It provides the source `type`, config codec, route API adapter, replicator factory, connection checks, and any source-specific setup needed after registration.
 
 Only the first configured connection of a given source type is currently used.
 
@@ -88,11 +80,7 @@ Current source examples:
 - Convex reads the head cursor and writes a checkpoint marker.
 - MySQL currently reads the executed GTID and calls the callback; the adapter notes a TODO for forcing a later replicated message.
 
-The adapter also exposes source schema or source metadata information in service-friendly formats:
-
-- `getConnectionSchema()` extracts the connected database schema as `DatabaseSchema[]` when the source has strict schema. Admin and sync-rules endpoints use this to validate sync config against actual source tables, collections, columns, and types.
-- `getDebugTablesInfo()` expands table patterns from sync config into concrete source table information and per-table warnings or errors. This is used by validation and diagnostics paths to explain what will be replicated.
-- `getParseSyncRulesOptions()` provides source defaults, such as the default schema or database used when sync config references an unqualified table name.
+The adapter also exposes source schema or source metadata information in service-friendly formats. Admin, validation, diagnostics, and schema-generation paths use that metadata to understand which source tables or collections exist, which columns or fields are available, and what source defaults apply when sync config references an unqualified table name.
 
 Schemaless or partially schema-aware sources may not be able to provide strict column and type information. In that case, the adapter should return the best available table or collection metadata, expose useful warnings, and document which validation or client-schema-generation features are limited.
 
@@ -114,31 +102,19 @@ The stream position does not need to be a database-native LSN. It can be a WAL L
 
 If the source stream is filtered, the connector must account for changes that can advance the source head without appearing in the stream. A managed write checkpoint stored at such a head can stall forever unless the connector can force a later event that is guaranteed to appear in the replication stream.
 
-Resume state ownership must be explicit. Some sources keep the restart cursor in source-side state, such as a logical replication slot, and reconnecting to that source-side state resumes the stream. Other sources require PowerSync to persist a resume token with `BucketStorageBatch.setResumeLsn(lsn)` and later read it from `resumeFromLsn`. That persisted resume token is a restart cursor; it is not a visible checkpoint unless the stream also advances the committed source position with `commit(lsn)` or `keepalive(lsn)`.
+Resume state ownership must be explicit. Some sources keep the restart cursor in source-side state, such as a logical replication slot, and reconnecting to that source-side state resumes the stream. Other sources require PowerSync to persist a resume token in bucket storage and later read it back on restart. That persisted resume token is a restart cursor; it is not a visible checkpoint unless the stream also advances the committed source position at a valid checkpoint or keepalive boundary.
 
 When a source has no suitable positional stream, it is not a good fit for a normal replication module. It may need a custom source-side marker table, an operation-log export, a polling table with monotonic positions, or a source API feature before it can meet the replication contract.
 
 ## Replicator
 
-A replication module provides an `AbstractReplicator` subclass.
-
-It must implement:
-
-- `createJob(options)`: constructs the source-specific replication job for a locked storage stream.
-- `cleanUp(syncRuleStorage)`: removes source-side state for a stopped replication stream.
-- `testConnection()`: checks source connectivity using the decoded source config.
+A replication module provides an `AbstractReplicator` subclass. The replicator owns the source-specific lifecycle around storage streams: starting per-stream jobs, cleaning up source-side state for stopped streams, and reporting connection health.
 
 The replicator should not apply source changes directly. It delegates per-stream replication to jobs.
 
 ## Replication Job
 
-A replication module provides an `AbstractReplicationJob` subclass.
-
-It must implement:
-
-- `replicate()`: create and run the source-specific stream for this job attempt.
-- `keepAlive()`: keep source replication state advancing or connections healthy when needed.
-- `getReplicationLagMillis()`: report time lag for metrics, or `undefined` when unavailable.
+A replication module provides an `AbstractReplicationJob` subclass. Each job owns one locked storage stream attempt: copying initial source data when needed, running ongoing streaming, keeping source-side state or connections healthy when required, and reporting replication lag for metrics when the source can measure it.
 
 Jobs should treat `abortController.signal` as authoritative. When stopped, they should exit promptly and let the base class release the replication lock.
 
@@ -158,13 +134,13 @@ The helper owns the source replication workflow for a job attempt. It generally 
 - Transition from initial replication to ongoing streaming.
 - Source change parsing.
 - Relation/table metadata discovery when the source module supports it during streaming.
-- Calls into `SyncRulesBucketStorage.createWriter()`.
-- Calls to `resolveTables()`, `save()`, `truncate()`, `drop()`, `commit()`, and `keepalive()`.
+- Writes source changes and source table metadata through the storage writer.
+- Advances checkpoint and resume positions at source-safe boundaries.
 - Source-specific replication lag calculation.
 
 ## Source History Loss
 
-If the source can no longer resume from the persisted position, the connector must restart replication by calling `storage.factory.restartReplication(replicationStreamId)`.
+If the source can no longer resume from the persisted position, the connector must restart replication by requesting a fresh replication stream.
 
 Examples:
 
@@ -183,13 +159,13 @@ Keepalive behavior is source-specific:
 - Some sources have protocol-level heartbeats.
 - Some sources poll continuously and do not need a dedicated job keepalive.
 
-When a keepalive creates no user data, the stream should use `BucketStorageBatch.keepalive(lsn)` to advance the stored source position without writing bucket operations.
+When a keepalive creates no user data, the stream should advance the stored source position without writing bucket operations.
 
 ## Table Discovery And Source Metadata
 
 Source connectors must produce `SourceEntityDescriptor` values for discovered tables or collections. The descriptor should include stable source identity, replica identity columns, and whether updates contain complete row images.
 
-Connectors should call `resolveTables()` whenever a source entity is discovered during snapshot or streaming. Storage then decides which `SourceTable` records should receive replicated data and which old records must be dropped.
+Connectors should run source table resolution whenever a source entity is discovered during snapshot or streaming. Storage then decides which `SourceTable` records should receive replicated data and which old records must be dropped.
 
 Automatic schema change detection during streaming is optional. Some sources can observe relation, table, collection, or replica identity changes in the same stream as row changes. Other sources may only refresh schema metadata during initial replication or explicit sync config deployment.
 

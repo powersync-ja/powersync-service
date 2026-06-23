@@ -11,7 +11,7 @@ The system only exposes a checkpoint to clients when storage can prove that buck
 
 A new replication stream usually starts in `PROCESSING`. If the stream has no completed snapshot, the source connector must snapshot all source tables or collections selected by the sync config.
 
-Initial snapshot work happens through a storage writer returned by `SyncRulesBucketStorage`, either from `createWriter()` or the older `startBatch()` helper. The source-specific stream passes that `BucketStorageBatch` through its snapshot helpers, so row copies, table progress, snapshot completion markers, and the final checkpoint commit are persisted through the same storage write contract.
+Initial snapshot work happens through a storage writer returned by `SyncRulesBucketStorage`, either from `createWriter()` or the older `startBatch()` helper. The source-specific stream passes that `BucketStorageBatch` through its snapshot helpers, so row copies, table progress, snapshot completion markers, and the final checkpoint commit are persisted through the same storage writer workflow.
 
 The common flow is:
 

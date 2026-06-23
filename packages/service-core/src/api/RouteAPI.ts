@@ -25,7 +25,8 @@ export interface SlotWalBudgetOptions {
 }
 
 /**
- *  Describes all the methods currently required to service the sync API endpoints.
+ * Source-specific capabilities used by admin routes, sync config validation,
+ * checkpointing, diagnostics, and the sync API.
  */
 export interface RouteAPI {
   /**
@@ -40,16 +41,17 @@ export interface RouteAPI {
   getConnectionStatus(): Promise<types.ConnectionStatusV2>;
 
   /**
-   * Generates replication table information from a given pattern of tables.
+   * Expand sync config table patterns into table metadata from the source connection.
+   *
+   * This is used by validation and diagnostics paths to explain what will be
+   * replicated for the current sync config.
    *
    * @param tablePatterns A set of table patterns which typically come from
    *          the tables listed in sync config definitions.
    *
    * @param sqlSyncRules
-   * @returns A result of all the tables and columns which should be replicated
-   *           based off the input patterns. Certain tests are executed on the
-   *           tables to ensure syncing should function according to the input
-   *           pattern. Debug errors and warnings are reported per table.
+   * @returns Matching tables or collections, their columns or fields where available,
+   *          and per-table warnings or errors for the requested table patterns.
    */
   getDebugTablesInfo(tablePatterns: TablePattern[], sqlSyncRules: SyncConfig): Promise<PatternResult[]>;
 
@@ -69,14 +71,21 @@ export interface RouteAPI {
   /**
    * Get the current LSN or equivalent replication HEAD position identifier.
    *
-   * The position is provided to the callback. After the callback returns,
-   * the replication head or a greater one will be streamed on the replication stream.
+   * The position is provided to the callback so the caller can persist its
+   * write-checkpoint mapping before the source adapter forces any required
+   * source-side marker or keepalive. After the callback returns, the adapter
+   * must ensure that the replication stream will observe this position or a
+   * greater one, even when the source is otherwise idle.
    */
   createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T>;
 
   /**
-   * @returns The schema for tables inside the connected database. This is typically
-   *          used to validate sync config.
+   * @returns The connected source schema in service-friendly table and column
+   *          formats. Strict-schema sources should include actual tables,
+   *          collections, columns, and types. Schemaless sources should return
+   *          the best metadata available and document validation limitations in
+   *          their adapter behavior. This is typically used to validate sync
+   *          config and generate client schemas.
    */
   getConnectionSchema(): Promise<types.DatabaseSchema[]>;
 
@@ -92,7 +101,12 @@ export interface RouteAPI {
   shutdown(): Promise<void>;
 
   /**
-   * Get the default schema (or database) when only a table name is specified in sync config.
+   * Get source-specific sync config parsing defaults, such as the default
+   * schema or database to use when sync config references an unqualified table
+   * name.
+   *
+   * This is used wherever sync config is parsed for this source, including
+   * validation, diagnostics, and sync routing.
    */
   getParseSyncRulesOptions(): ParseSyncConfigOptions;
 }

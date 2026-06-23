@@ -4,9 +4,11 @@ This folder contains technical documentation regarding the implementation of Pow
 
 For documentation on using PowerSync, see [docs.powersync.com](https://docs.powersync.com/).
 
+These docs are a work in progress. When changing behavior covered by a doc page, update the relevant section in the same change so the docs stay useful as implementation notes rather than historical notes.
+
 ## Replication
 
-- [Replication protocol specs](./replication/README.md): internal source replication, storage writer, checkpoint, and source-module contracts.
+- [Replication protocol specs](./replication/README.md): internal source replication, storage writer, checkpoint, and source-module behavior.
 
 ## Specs
 

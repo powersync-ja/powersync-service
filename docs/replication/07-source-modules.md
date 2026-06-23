@@ -1,6 +1,6 @@
 # Source Modules
 
-This page compares the current replication modules. Each module provides the replication implementation and jobs for one source type, implements the shared contracts described in [source-connector-contract.md](./03-source-connector-contract.md), and writes through the storage contract described in [storage-writer-contract.md](./04-storage-writer-contract.md).
+This page compares the current replication modules. Each module provides the replication implementation and jobs for one source type, implements the shared concepts described in [source-connector-overview.md](./03-source-connector-overview.md), and writes through the storage workflow described in [storage-writer-overview.md](./04-storage-writer-overview.md).
 
 ## Comparison
 
@@ -16,28 +16,13 @@ Schema change handling is also source-specific. A module may automatically react
 
 ## Postgres
 
-Primary files:
-
-- [`WalStreamReplicator`](../../modules/module-postgres/src/replication/WalStreamReplicator.ts)
-- [`WalStreamReplicationJob`](../../modules/module-postgres/src/replication/WalStreamReplicationJob.ts)
-- [`WalStream`](../../modules/module-postgres/src/replication/WalStream.ts)
-- [`PostgresRouteAPIAdapter`](../../modules/module-postgres/src/api/PostgresRouteAPIAdapter.ts)
-
-Postgres uses logical replication slots and WAL LSNs. The replication slot preserves WAL history for the stream, so `setResumeLsn()` is generally not needed for streaming progress.
+Postgres uses logical replication slots and WAL LSNs. The replication slot preserves WAL history for the stream, so PowerSync does not generally need to store a separate resume position for streaming progress.
 
 Initial replication snapshots selected tables and records boundaries that streaming must pass before checkpoints become valid. The deeper design history is in [initial-replication.md](../modules/postgres/initial-replication.md).
 
 The route adapter creates managed write checkpoint heads by reading `pg_current_wal_lsn()` and then sending a logical keepalive message.
 
 ## MongoDB
-
-Primary files:
-
-- [`ChangeStreamReplicator`](../../modules/module-mongodb/src/replication/ChangeStreamReplicator.ts)
-- [`ChangeStreamReplicationJob`](../../modules/module-mongodb/src/replication/ChangeStreamReplicationJob.ts)
-- [`ChangeStream`](../../modules/module-mongodb/src/replication/ChangeStream.ts)
-- [`MongoSnapshotter`](../../modules/module-mongodb/src/replication/MongoSnapshotter.ts)
-- [`MongoRouteAPIAdapter`](../../modules/module-mongodb/src/api/MongoRouteAPIAdapter.ts)
 
 MongoDB uses change streams and stores resume state in bucket storage. Initial snapshots and streaming can overlap depending on snapshotter support.
 
@@ -47,38 +32,17 @@ If the change stream is invalidated or the resume token is no longer available, 
 
 ## MySQL
 
-Primary files:
-
-- [`BinLogReplicator`](../../modules/module-mysql/src/replication/BinLogReplicator.ts)
-- [`BinLogReplicationJob`](../../modules/module-mysql/src/replication/BinLogReplicationJob.ts)
-- [`BinLogStream`](../../modules/module-mysql/src/replication/BinLogStream.ts)
-- [`MySQLRouteAPIAdapter`](../../modules/module-mysql/src/api/MySQLRouteAPIAdapter.ts)
-
 MySQL uses GTID/binlog positions. It persists resume state in bucket storage and checks whether required binlog files are still available when resuming.
 
 Keepalives are handled by the binlog heartbeat mechanism. The route adapter currently reads the executed GTID for write checkpoints and contains a TODO to ensure another message is replicated.
 
 ## SQL Server
 
-Primary files:
-
-- [`CDCReplicator`](../../modules/module-mssql/src/replication/CDCReplicator.ts)
-- [`CDCReplicationJob`](../../modules/module-mssql/src/replication/CDCReplicationJob.ts)
-- [`CDCStream`](../../modules/module-mssql/src/replication/CDCStream.ts)
-- [`MSSQLRouteAPIAdapter`](../../modules/module-mssql/src/api/MSSQLRouteAPIAdapter.ts)
-
 SQL Server uses CDC LSNs and polling. The stream stores a snapshot LSN, snapshots selected tables, and then polls CDC changes from the persisted resume position.
 
 The route adapter reads the latest LSN and writes to the PowerSync checkpoints table so CDC captures a later marker. If CDC history has expired, the module restarts replication.
 
 ## Convex
-
-Primary files:
-
-- [`ConvexReplicator`](../../modules/module-convex/src/replication/ConvexReplicator.ts)
-- [`ConvexReplicationJob`](../../modules/module-convex/src/replication/ConvexReplicationJob.ts)
-- [`ConvexStream`](../../modules/module-convex/src/replication/ConvexStream.ts)
-- [`ConvexRouteAPIAdapter`](../../modules/module-convex/src/api/ConvexRouteAPIAdapter.ts)
 
 Convex uses Streaming Export APIs. Initial replication pins or reuses a global snapshot cursor and paginates table snapshots. Streaming then consumes document deltas.
 
