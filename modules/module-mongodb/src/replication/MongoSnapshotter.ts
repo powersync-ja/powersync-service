@@ -1,7 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { container, ErrorCode, Logger, ReplicationAbortedError, ServiceError } from '@powersync/lib-services-framework';
 import {
-  InternalOpId,
   MetricsEngine,
   PerformanceTracer,
   SaveOperationTag,
@@ -71,7 +70,6 @@ export class MongoSnapshotter {
   private readonly queue = new Set<SnapshotQueueItem>();
   private initialSnapshotDone = Promise.withResolvers<void>();
   private nextItemQueued: PromiseWithResolvers<void> | null = null;
-  private lastSnapshotOpId: InternalOpId | null = null;
   private lastTouchedAt = performance.now();
 
   constructor(options: MongoSnapshotterOptions) {
@@ -112,12 +110,12 @@ export class MongoSnapshotter {
 
   async checkSlot(): Promise<InitResult> {
     const status = await this.storage.getStatus();
-    if (status.snapshot_done && status.checkpoint_lsn) {
+    if (status.snapshotDone) {
       this.logger.info(`Initial replication already done`);
       return { needsInitialSync: false, snapshotLsn: null };
     }
 
-    return { needsInitialSync: true, snapshotLsn: status.snapshot_lsn };
+    return { needsInitialSync: true, snapshotLsn: status.resumeLsn };
   }
 
   async setupCheckpointsCollection() {
@@ -277,20 +275,16 @@ export class MongoSnapshotter {
     }
 
     const status = await this.storage.getStatus();
-    if (status.snapshot_done) {
+    if (status.snapshotDone) {
       return;
     }
 
-    const lastOp = this.lastSnapshotOpId ?? status.keepalive_op;
-    if (lastOp != null) {
-      // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
-      // Keeping snapshot_done false until this completes makes this resumable after interruption.
-      await this.storage.populatePersistentChecksumCache({
-        // No checkpoint yet, but we do have the opId.
-        maxOpId: lastOp,
-        signal: this.abortSignal
-      });
-    }
+    // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
+    // Keeping snapshot_done false until this completes makes this resumable after interruption.
+    // No checkpoint exists yet - storage defaults to its highest persisted op id.
+    await this.storage.populatePersistentChecksumCache({
+      signal: this.abortSignal
+    });
 
     if (this.queue.size != 0) {
       return;
@@ -345,13 +339,10 @@ export class MongoSnapshotter {
     const noCheckpointBefore = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
     await writer.markTableSnapshotDone([table], noCheckpointBefore);
 
-    // This commit ensures we set keepalive_op.
+    // This commit durably records the persisted ops, so a later checkpoint covers them.
     const resumeLsn = writer.resumeFromLsn ?? MongoLSN.ZERO.comparable;
     await writer.commit(resumeLsn);
 
-    if (writer.last_flushed_op != null) {
-      this.lastSnapshotOpId = writer.last_flushed_op;
-    }
     this.logger.info(`Flushed snapshot at ${writer.last_flushed_op}`);
   }
 
@@ -445,10 +436,7 @@ export class MongoSnapshotter {
       }
 
       // Important: flush before marking progress
-      const result = await batch.flush();
-      if (result?.flushed_op != null) {
-        this.lastSnapshotOpId = result.flushed_op;
-      }
+      await batch.flush();
       at += docBatch.length;
       rowsReplicatedMetric.add(docBatch.length);
 
@@ -481,10 +469,12 @@ export class MongoSnapshotter {
       // Ignore the postImages check in this case.
     }
 
+    // Note: resolveTables uses the batch's own parsed sync config set. Passing
+    // this.syncRules here would pair sources from one parse with the batch's mapping
+    // from another parse.
     const result = await batch.resolveTables({
       connection_id: this.connectionId,
-      source: descriptor,
-      syncRules: this.syncRules
+      source: descriptor
     });
 
     // Drop conflicting collections.

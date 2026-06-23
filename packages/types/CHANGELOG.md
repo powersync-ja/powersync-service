@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.16.0
+
+### Minor Changes
+
+- a91a08f: [Experimental] Enable incremental reprocessing for MongoDB source + MongoDB storage. This includes significant changes to the v3 storage format.
+
 ## 0.15.2
 
 ### Patch Changes

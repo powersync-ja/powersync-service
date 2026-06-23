@@ -18,3 +18,8 @@ export * from './StorageProvider.js';
 export * from './StorageVersionConfig.js';
 export * from './SyncRulesBucketStorage.js';
 export * from './WriteCheckpointAPI.js';
+
+export * from './implementation/BucketDefinitionMapping.js';
+export * from './implementation/IncrementalReprocessingCompatibility.js';
+export * from './implementation/IncrementalReprocessingSyncConfigLog.js';
+export * from './implementation/ReplicationStreamStorageIds.js';

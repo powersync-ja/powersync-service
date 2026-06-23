@@ -63,7 +63,7 @@ export interface MongoCompactOptions extends storage.CompactOptions {}
 const DEFAULT_CLEAR_BATCH_LIMIT = 5000;
 const DEFAULT_MOVE_BATCH_LIMIT = 2000;
 const DEFAULT_MOVE_BATCH_QUERY_LIMIT = 10_000;
-const DEFAULT_MOVE_BATCH_BYTE_LIMIT = 64 * 1024 * 1024;
+const DEFAULT_MOVE_BATCH_BYTE_LIMIT = 16 * 1024 * 1024;
 const DEFAULT_MIN_BUCKET_CHANGES = 10;
 const DEFAULT_MIN_CHANGE_RATIO = 0.1;
 const DIRTY_BUCKET_SCAN_BATCH_SIZE = 2_000;
@@ -106,6 +106,9 @@ export abstract class MongoCompactor {
     this.moveBatchQueryLimit = options.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
     this.moveBatchByteLimit = options.moveBatchByteLimit ?? DEFAULT_MOVE_BATCH_BYTE_LIMIT;
     this.clearBatchLimit = options.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
+    if (this.clearBatchLimit < 2) {
+      throw new ReplicationAssertionError('clearBatchLimit must be >= 2');
+    }
     this.minBucketChanges = options.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
     this.minChangeRatio = options.minChangeRatio ?? DEFAULT_MIN_CHANGE_RATIO;
     this.maxOpId = options.maxOpId ?? 0n;
@@ -360,11 +363,7 @@ export abstract class MongoCompactor {
             _id: {
               $gte: lowerBound,
               $lt: upperBound
-            },
-            // Workaround for a clustered collection bug where the $lt operator may include upperBound.
-            // Technically only needed for storage V3.
-            // https://jira.mongodb.org/browse/SERVER-121822
-            '_id.o': { $lt: upperBound.o }
+            }
           }
         },
         { $sort: { _id: -1 } },

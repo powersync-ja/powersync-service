@@ -55,8 +55,17 @@ export interface SyncRulesBucketStorage
   ): Promise<FlushedResult | null>;
 
   /**
-   * @returns The hydrated sync config for this replication stream, using
-   *          source-specific parse defaults from the route API.
+   * Get the canonical parsed sync config set for the given parse options.
+   *
+   * Repeated calls with the same options return the same instance for the lifetime of
+   * this storage instance. This is the identity boundary for parsed sync config state:
+   * all operations against this storage instance must use parsed objects from sets
+   * returned here, never from an independent parse of the same content.
+   */
+  getParsedSyncConfigSet(options: ParseSyncConfigOptions): ParsedSyncConfigSet;
+
+  /**
+   * Shortcut for `getParsedSyncConfigSet(options).hydratedSyncConfig`.
    */
   getParsedSyncRules(options: ParseSyncConfigOptions): HydratedSyncConfig;
 
@@ -69,7 +78,7 @@ export interface SyncRulesBucketStorage
    */
   terminate(options?: TerminateOptions): Promise<void>;
 
-  getStatus(): Promise<SyncRuleStatus>;
+  getStatus(): Promise<ReplicationStreamStatus>;
 
   /**
    * Clear the storage, without changing state.
@@ -147,6 +156,12 @@ export interface SyncRulesBucketStorage
    * Clear checksum cache. Primarily intended for tests.
    */
   clearChecksumCache(): void;
+
+  /**
+   * Optional storage-provider cleanup for sync configs that have been stopped
+   * inside this replication stream.
+   */
+  cleanupStoppedSyncConfigs?(options: CleanupStoppedSyncConfigsOptions): Promise<CleanupStoppedSyncConfigsResult>;
 }
 
 export interface SyncRulesBucketStorageListener {
@@ -163,15 +178,15 @@ export interface BucketChecksumRequest {
   source: BucketDataSource;
 }
 
-export interface SyncRuleStatus {
-  checkpoint_lsn: string | null;
-  active: boolean;
-  snapshot_done: boolean;
-  snapshot_lsn: string | null;
+export interface ReplicationStreamStatus {
   /**
-   * Last persisted operation that must be included in the next checkpoint once checkpointing is unblocked.
+   * Source position to resume replication from.
    */
-  keepalive_op: util.InternalOpId | null;
+  resumeLsn: string | null;
+  /**
+   * True if _every_ active/processing sync config has a client-visible checkpoint.
+   */
+  snapshotDone: boolean;
 }
 export interface ResolveTablesOptions {
   connection_id: number;
@@ -184,9 +199,9 @@ export interface ResolveTablesOptions {
    */
   idGenerator?: () => string | bson.ObjectId;
   /**
-   * For tests only - override the sync rules used.
+   * For tests only - override the parsed sync config set used.
    */
-  syncRules?: HydratedSyncConfig;
+  parsedSyncConfig?: ParsedSyncConfigSet;
 }
 
 export interface ResolveTablesResult {
@@ -291,7 +306,7 @@ export interface CompactOptions {
   /** Minimum of 1 */
   moveBatchQueryLimit?: number;
 
-  /** Byte cap per read batch for streaming compaction. Default 64MB. */
+  /** Byte cap per read batch for streaming compaction. Default 16MB. */
   moveBatchByteLimit?: number;
 
   /**
@@ -319,7 +334,14 @@ export interface CompactOptions {
 }
 
 export interface PopulateChecksumCacheOptions {
-  maxOpId: util.InternalOpId;
+  /**
+   * Compute checksums up to this op id.
+   *
+   * Defaults to the highest persisted op id for the replication stream, which covers
+   * the common case of populating the cache right after initial replication, before
+   * the first checkpoint exists.
+   */
+  maxOpId?: util.InternalOpId;
   minBucketChanges?: number;
   signal?: AbortSignal;
 }
@@ -333,6 +355,24 @@ export interface PopulateChecksumCacheResults {
 
 export interface ClearStorageOptions {
   signal?: AbortSignal;
+}
+
+export interface CleanupStoppedSyncConfigsOptions {
+  signal?: AbortSignal;
+  logger?: Logger;
+  defaultSchema: string;
+  sourceConnectionTag: string;
+}
+
+export interface CleanupStoppedSyncConfigsResult {
+  stoppedSyncConfigsRemoved: number;
+  bucketDataCollectionsDropped: number;
+  parameterIndexCollectionsDropped: number;
+  /** Best-effort number, not accurate if the operation takes longer than the timeout. */
+  bucketStateDocumentsDeleted: number;
+  sourceRecordCollectionsDropped: number;
+  sourceTablesUpdated: number;
+  sourceTablesDeleted: number;
 }
 
 export interface TerminateOptions extends ClearStorageOptions {

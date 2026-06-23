@@ -66,10 +66,14 @@ export class PostgresSyncRulesStorage
   protected writeCheckpointAPI: PostgresWriteCheckpointAPI;
   private readonly currentDataStore: PostgresCurrentDataStore;
 
-  //   TODO we might be able to share this in an abstract class
-  private parsedSyncRulesCache:
-    | { parsed: sync_rules.HydratedSyncConfig; options: storage.ParseSyncConfigOptions }
-    | undefined;
+  /**
+   * Canonical parsed sync config sets, keyed by defaultSchema. Entries are never evicted,
+   * so each parse options value maps to exactly one parsed set for the lifetime of this
+   * storage instance.
+   *
+   * TODO we might be able to share this in an abstract class
+   */
+  private readonly parsedSyncConfigSets = new Map<string, storage.ParsedSyncConfigSet>();
   private _checksumCache: storage.ChecksumCache | undefined;
 
   constructor(protected options: PostgresSyncRulesStorageOptions) {
@@ -108,18 +112,17 @@ export class PostgresSyncRulesStorage
     return this.writeCheckpointAPI.writeCheckpointMode;
   }
 
-  //   TODO we might be able to share this in an abstract class
-  getParsedSyncRules(options: storage.ParseSyncConfigOptions): sync_rules.HydratedSyncConfig {
-    const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
-    /**
-     * Check if the cached sync config, if present, had the same options.
-     * Parse sync config if the options are different or if there is no cached value.
-     */
-    if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.replicationStream.parsed(options).hydratedSyncConfig(), options };
+  getParsedSyncConfigSet(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
+    let parsed = this.parsedSyncConfigSets.get(options.defaultSchema);
+    if (parsed == null) {
+      parsed = this.replicationStream.parsed(options);
+      this.parsedSyncConfigSets.set(options.defaultSchema, parsed);
     }
+    return parsed;
+  }
 
-    return this.parsedSyncRulesCache!.parsed;
+  getParsedSyncRules(options: storage.ParseSyncConfigOptions): sync_rules.HydratedSyncConfig {
+    return this.getParsedSyncConfigSet(options).hydratedSyncConfig;
   }
 
   async reportError(e: any): Promise<void> {
@@ -208,7 +211,7 @@ export class PostgresSyncRulesStorage
     const writer = new PostgresBucketBatch({
       logger: options.logger ?? this.logger,
       db: this.db,
-      sync_rules: this.sync_rules.parsed(options).hydratedSyncConfig(),
+      sync_rules: this.getParsedSyncRules(options),
       replicationStreamId: this.replicationStreamId,
       replicationStreamName: this.replicationStreamName,
       last_checkpoint_lsn: checkpoint_lsn,
@@ -503,22 +506,19 @@ export class PostgresSyncRulesStorage
     `.execute();
   }
 
-  async getStatus(): Promise<storage.SyncRuleStatus> {
+  async getStatus(): Promise<storage.ReplicationStreamStatus> {
     const syncRulesRow = await this.db.sql`
       SELECT
         snapshot_done,
         snapshot_lsn,
         last_checkpoint_lsn,
-        state,
-        keepalive_op
+        state
       FROM
         sync_rules
       WHERE
         id = ${{ type: 'int4', value: this.replicationStreamId }}
     `
-      .decoded(
-        pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'state', 'snapshot_lsn', 'keepalive_op'])
-      )
+      .decoded(pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'snapshot_lsn']))
       .first();
 
     if (syncRulesRow == null) {
@@ -526,11 +526,8 @@ export class PostgresSyncRulesStorage
     }
 
     return {
-      snapshot_done: syncRulesRow.snapshot_done,
-      active: syncRulesRow.state == storage.SyncRuleState.ACTIVE,
-      checkpoint_lsn: syncRulesRow.last_checkpoint_lsn ?? null,
-      snapshot_lsn: syncRulesRow.snapshot_lsn ?? null,
-      keepalive_op: syncRulesRow.keepalive_op ?? null
+      snapshotDone: syncRulesRow.snapshot_done && syncRulesRow.last_checkpoint_lsn != null,
+      resumeLsn: maxLsn(syncRulesRow.snapshot_lsn, syncRulesRow.last_checkpoint_lsn)
     };
   }
 

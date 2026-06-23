@@ -1,10 +1,8 @@
 {
   "name": "@powersync/service-module-mysql",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "types": "dist/index.d.ts",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "license": "FSL-1.1-ALv2",
-  "main": "dist/index.js",
   "type": "module",
   "publishConfig": {
     "access": "public"
@@ -16,16 +14,8 @@
     "test": "vitest"
   },
   "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "require": "./dist/index.js",
-      "default": "./dist/index.js"
-    },
-    "./types": {
-      "import": "./dist/types/types.js",
-      "require": "./dist/types/types.js",
-      "default": "./dist/types/types.js"
-    }
+    ".": "./dist/index.js",
+    "./types": "./dist/types/types.js"
   },
   "dependencies": {
     "@powersync/lib-services-framework": "workspace:*",

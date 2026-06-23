@@ -1,9 +1,7 @@
 {
   "name": "@powersync/service-module-postgres-storage",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "types": "dist/@types/index.d.ts",
-  "version": "0.15.0",
-  "main": "dist/index.js",
+  "version": "0.16.0",
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "publishConfig": {
@@ -16,18 +14,8 @@
     "test": "vitest"
   },
   "exports": {
-    ".": {
-      "types": "./dist/@types/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.js",
-      "default": "./dist/index.js"
-    },
-    "./types": {
-      "types": "./dist/@types/index.d.ts",
-      "import": "./dist/types/types.js",
-      "require": "./dist/types/types.js",
-      "default": "./dist/types/types.js"
-    }
+    ".": "./dist/index.js",
+    "./types": "./dist/types/types.js"
   },
   "dependencies": {
     "@powersync/lib-service-postgres": "workspace:*",

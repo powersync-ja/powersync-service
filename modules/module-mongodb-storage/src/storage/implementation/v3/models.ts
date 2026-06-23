@@ -1,12 +1,17 @@
 import {
   InternalOpId,
+  PersistedDefinitionMapping,
   SerializedSyncPlan,
   SyncRuleState,
   deserializeParameterLookup as deserializeParameterLookupCore
 } from '@powersync/service-core';
-import { ScopedParameterLookup, SqliteJsonValue } from '@powersync/service-sync-rules';
+import {
+  BucketDefinitionId,
+  ParameterIndexId,
+  ScopedParameterLookup,
+  SqliteJsonValue
+} from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
 import {
   BucketDataKey,
   BucketParameterDocumentBase,
@@ -14,7 +19,7 @@ import {
   CurrentBucket,
   OpType,
   ReplicaId,
-  SourceTableDocument,
+  SourceTableDocumentSnapshotStatus,
   SourceTableKey,
   SyncRuleCheckpointFields,
   SyncRuleDocumentBase,
@@ -24,7 +29,7 @@ import {
 /**
  * Embedded in sync_rules.sync_configs.
  */
-export interface SyncRuleConfigStateV3 extends SyncRuleCheckpointFields<bigint | null> {
+export interface SyncRuleConfigStateV3 extends SyncRuleCheckpointFields {
   _id: bson.ObjectId;
 
   /**
@@ -52,6 +57,31 @@ export interface ReplicationStreamDocumentV3 extends SyncRuleDocumentBase {
    * but the model allows multiple configs in any state.
    */
   sync_configs: SyncRuleConfigStateV3[];
+
+  /**
+   * The monotonic head of the stream's op sequence: the highest op id persisted to bucket data,
+   * whether or not yet covered by a checkpoint.
+   *
+   * This is shared across all sync configs of the stream (they share the global op sequence).
+   * It is never cleared, only `$max`-advanced. A newly-appended config that replicates nothing
+   * adopts this value as its checkpoint rather than starting at 0.
+   *
+   * Stored as a mongo Long, nullable.
+   */
+  last_persisted_op?: bigint | null;
+
+  /**
+   * The stream's replication position: all source changes up to this LSN have been processed,
+   * and the resulting ops persisted. Replication resumes from here.
+   *
+   * Like {@link last_persisted_op}, this is shared across all sync configs of the stream -
+   * per-config last_checkpoint_lsn values are consistency markers, not replication positions.
+   *
+   * Set via setResumeLsn() (snapshot start, and per-batch progress during streaming), and
+   * advanced on every commit/keepalive - including checkpoint-blocked ones, since commit
+   * flushes first and blocking only delays consistency markers, not data persistence.
+   */
+  resume_lsn?: string | null;
 }
 
 /**
@@ -75,16 +105,7 @@ export interface SyncConfigDefinition {
   content: string;
   serialized_plan?: SerializedSyncPlan | null;
 
-  rule_mapping: {
-    /**
-     * Map of uniqueName -> id, unique per replication stream.
-     */
-    definitions: Record<string, string>;
-    /**
-     * Map of (lookupName, queryId) -> id, unique per replication stream.
-     */
-    parameter_indexes: Record<string, string>;
-  };
+  rule_mapping: PersistedDefinitionMapping;
 }
 
 export interface CurrentBucketV3 extends CurrentBucket {
@@ -111,7 +132,28 @@ export interface CurrentDataDocumentV3 {
 
 export interface BucketParameterDocumentV3 extends BucketParameterDocumentBase<SourceTableKey> {}
 
-export interface SourceTableDocumentV3 extends SourceTableDocument {
+export type BucketDataKeyV3 = BucketDataKey;
+
+export function taggedBucketParameterDocumentToV3(document: TaggedBucketParameterDocument): BucketParameterDocumentV3 {
+  const { index: _index, ...rest } = document;
+  return rest as BucketParameterDocumentV3;
+}
+
+export interface ReplicaIdColumn {
+  name: string;
+  type_oid?: number;
+  type?: string;
+}
+
+export interface SourceTableDocumentV3 {
+  _id: bson.ObjectId;
+  connection_id: number;
+  relation_id: number | string | undefined;
+  schema_name: string;
+  table_name: string;
+  replica_id_columns: ReplicaIdColumn[];
+  snapshot_done: boolean;
+  snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
   latest_pending_delete?: InternalOpId | undefined;

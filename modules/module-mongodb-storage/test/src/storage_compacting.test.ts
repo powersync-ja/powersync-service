@@ -311,7 +311,8 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const mapping = syncRules.syncConfigContent[0].mapping;
+    const definitionId = mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();
@@ -774,7 +775,8 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const mapping = syncRules.syncConfigContent[0].mapping;
+    const definitionId = mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();
@@ -948,7 +950,8 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const mapping = syncRules.syncConfigContent[0].mapping;
+    const definitionId = mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();
@@ -1216,7 +1219,8 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const mapping = syncRules.syncConfigContent[0].mapping;
+    const definitionId = mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();
@@ -1429,7 +1433,7 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const definitionId = bucketStorage.storageIds.bucketDefinitionIds[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();

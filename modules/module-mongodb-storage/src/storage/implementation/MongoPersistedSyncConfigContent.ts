@@ -1,5 +1,5 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { storage } from '@powersync/service-core';
+import { SingleSyncConfigBucketDefinitionMapping, storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import {
   ReplicationStreamDocumentV3,
@@ -7,19 +7,18 @@ import {
   SyncRuleConfigStateV3,
   SyncRuleDocumentV1
 } from '../storage-index.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PowerSyncMongo } from './db.js';
 import { getMongoStorageConfig } from './models.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 
 export abstract class MongoPersistedSyncConfigContentBase extends storage.PersistedSyncConfigContent {
-  public readonly mapping: BucketDefinitionMapping;
+  public readonly mapping: SingleSyncConfigBucketDefinitionMapping;
   public readonly syncConfigObjectId: bson.ObjectId | null;
 
   protected constructor(
     protected readonly db: PowerSyncMongo,
     options: Omit<storage.PersistedSyncConfigContentData, 'syncConfigId'> & {
-      mapping: BucketDefinitionMapping;
+      mapping: SingleSyncConfigBucketDefinitionMapping;
       syncConfigId: bson.ObjectId | null;
     }
   ) {
@@ -36,7 +35,7 @@ export abstract class MongoPersistedSyncConfigContentBase extends storage.Persis
     return getMongoStorageConfig(this.storageVersion);
   }
 
-  parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
+  parsed(options: storage.ParseSyncConfigOptions): MongoParsedSyncConfigSet {
     const parsed = super.parsed(options);
     const storageConfig = this.getStorageConfig();
     const [syncConfig] = parsed.syncConfigs;
@@ -69,7 +68,7 @@ export class MongoPersistedSyncConfigContentV1 extends MongoPersistedSyncConfigC
       // Handle legacy values
       replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
       storageVersion: doc.storage_version ?? storage.LEGACY_STORAGE_VERSION,
-      mapping: new BucketDefinitionMapping(),
+      mapping: new SingleSyncConfigBucketDefinitionMapping(),
       syncConfigId: null
     });
   }
@@ -98,7 +97,7 @@ export class MongoPersistedSyncConfigContentV3 extends MongoPersistedSyncConfigC
 
       replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
       storageVersion: doc.storage_version,
-      mapping: BucketDefinitionMapping.fromSyncConfig(config),
+      mapping: SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(config.rule_mapping),
       syncConfigId: config._id
     });
   }

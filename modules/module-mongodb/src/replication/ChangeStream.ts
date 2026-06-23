@@ -132,11 +132,16 @@ export class ChangeStream {
     // so we use 90% of the socket timeout value.
     this.changeStreamTimeout = Math.ceil(this.client.options.socketTimeoutMS * 0.9);
 
-    this.logger = options.logger ?? this.storage.logger;
+    const baseLogger = options.logger ?? this.storage.logger;
+    // Unfortunately the Winston APIs don't have a nice way to append to the prefix,
+    // so we replace it here.
+    this.logger = baseLogger.child({ prefix: `[${this.storage.replicationStreamName}] [stream] ` });
+    const snapshotLogger = baseLogger.child({ prefix: `[${this.storage.replicationStreamName}] [snapshot] ` });
+
     this.snapshotter = new MongoSnapshotter({
       ...options,
       abortSignal: this.abortSignal,
-      logger: this.logger,
+      logger: snapshotLogger,
       checkpointStreamId: this.checkpointStreamId
     });
 
@@ -366,6 +371,7 @@ export class ChangeStream {
   async replicate() {
     let streamPromise: Promise<void> | null = null;
     let loopPromise: Promise<void> | null = null;
+    let cleanupPromise: Promise<void> | null = null;
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
@@ -383,6 +389,11 @@ export class ChangeStream {
       if (!this.snapshotter.supportsConcurrentSnapshots) {
         await Promise.race([this.snapshotter.waitForInitialSnapshot(), loopPromise]);
       }
+      // Unlike the other two, this resolves on completion, not an indefinite loop.
+      cleanupPromise = this.cleanupStoppedSyncConfigs().catch((e) => {
+        this.abortController.abort(e);
+        throw e;
+      });
       streamPromise = this.streamChanges()
         .then(() => {
           throw new ReplicationAssertionError(`Replication stream exited unexpectedly`);
@@ -392,7 +403,7 @@ export class ChangeStream {
           throw e;
         });
 
-      const results = await Promise.allSettled([loopPromise, streamPromise]);
+      const results = await Promise.allSettled([loopPromise, streamPromise, cleanupPromise]);
       throw replicationLoopError(results);
     } catch (e) {
       await this.storage.reportError(e);
@@ -420,6 +431,15 @@ export class ChangeStream {
       }
       await this.snapshotter.queueSnapshotTables(result.snapshotLsn);
     }
+  }
+
+  private async cleanupStoppedSyncConfigs() {
+    await this.storage.cleanupStoppedSyncConfigs?.({
+      signal: this.abortSignal,
+      logger: this.logger,
+      defaultSchema: this.defaultDb.databaseName,
+      sourceConnectionTag: this.connections.connectionTag
+    });
   }
 
   private async streamChanges() {
@@ -733,25 +753,15 @@ export class ChangeStream {
                 timestamp: changeDocument.clusterTime!,
                 resume_token: changeDocument._id
               });
-              if (batch.lastCheckpointLsn != null && lsn < batch.lastCheckpointLsn) {
-                // Checkpoint out of order - should never happen with MongoDB.
-                // If it does happen, we throw an error to stop the replication - restarting should recover.
-                // Since we use batch.lastCheckpointLsn for the next resumeAfter, this should not result in an infinite loop.
-                // Originally a workaround for https://jira.mongodb.org/browse/NODE-7042.
-                // This has been fixed in the driver in the meantime, but we still keep this as a safety-check.
-                throw new ReplicationAssertionError(
-                  `Change resumeToken ${(changeDocument._id as any)._data} (${timestampToDate(changeDocument.clusterTime!).toISOString()}) is less than last checkpoint LSN ${batch.lastCheckpointLsn}. Restarting replication.`
-                );
-              }
 
               if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
                 waitForCheckpointLsn = null;
               }
-              const { checkpointBlocked } = await batch.commit(lsn, {
+              const { checkpointBlocked, checkpointCreated } = await batch.commit(lsn, {
                 oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
               });
 
-              if (!checkpointBlocked) {
+              if (!checkpointBlocked || checkpointCreated) {
                 this.replicationLag.markCommitted();
               }
             } else if (

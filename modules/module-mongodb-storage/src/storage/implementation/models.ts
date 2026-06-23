@@ -4,7 +4,7 @@ import { ParameterIndexId, SqliteJsonValue } from '@powersync/service-sync-rules
 import { event_types } from '@powersync/service-types';
 import * as bson from 'bson';
 import type { CurrentDataDocument, SourceTableDocumentV1 } from './v1/models.js';
-import type { CurrentDataDocumentV3, RecordedLookupV3, SourceTableDocumentV3 } from './v3/models.js';
+import type { CurrentDataDocumentV3, RecordedLookupV3 } from './v3/models.js';
 
 /**
  * Replica id uniquely identifying a row on the source database.
@@ -208,7 +208,7 @@ export interface SyncRuleDocumentBase {
   storage_version?: number;
 }
 
-export interface SyncRuleCheckpointFields<TKeepaliveOp extends string | bigint | null> {
+export interface SyncRuleCheckpointFields {
   /**
    * The last consistent checkpoint.
    *
@@ -225,16 +225,6 @@ export interface SyncRuleCheckpointFields<TKeepaliveOp extends string | bigint |
    * If set, no new checkpoints may be created < this value.
    */
   no_checkpoint_before: string | null;
-
-  /**
-   * Goes together with no_checkpoint_before.
-   *
-   * If a keepalive is triggered that creates the checkpoint > no_checkpoint_before,
-   * then the checkpoint must be equal to this keepalive_op.
-   *
-   * This is a string in V1, bigint in V3.
-   */
-  keepalive_op: TKeepaliveOp;
 }
 
 export interface StorageConfig extends storage.StorageVersionConfig {
@@ -308,4 +298,4 @@ export interface ClientConnectionDocument extends event_types.ClientConnection {
 export type CurrentDataDocumentId = CurrentDataDocument['_id'] | CurrentDataDocumentV3['_id'];
 export type CommonCurrentBucket = CurrentBucket;
 export type CommonCurrentLookup = bson.Binary | RecordedLookupV3;
-export type CommonSourceTableDocument = SourceTableDocumentV1 | SourceTableDocumentV3;
+export type CommonSourceTableDocument = Pick<SourceTableDocumentV1, '_id' | 'snapshot_status'>;
