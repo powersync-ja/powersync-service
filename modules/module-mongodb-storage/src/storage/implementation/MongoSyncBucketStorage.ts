@@ -29,7 +29,7 @@ import * as timers from 'timers/promises';
 import { retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import type { VersionedPowerSyncMongo } from './db.js';
-import { StorageConfig } from './models.js';
+import { BucketStateDocumentBase, StorageConfig } from './models.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
@@ -359,6 +359,94 @@ export abstract class MongoSyncBucketStorage
     if (maxOpId != null && options?.compactParameterData) {
       await this.createMongoParameterCompactor(maxOpId, options).compact();
     }
+  }
+
+  async getBucketReport(options?: storage.GetBucketReportOptions): Promise<storage.BucketReport> {
+    const [operationStats, rowCounts] = await Promise.all([
+      this.collectBucketOperationStats(),
+      this.collectBucketLiveRowCounts()
+    ]);
+    return storage.buildBucketReport(operationStats, rowCounts, options);
+  }
+
+  /**
+   * Operation count and operation-history bytes per bucket, read from the pre-aggregated bucket state
+   * (compacted_state + estimate_since_compact). Cheap: one document per bucket, no scan of bucket data.
+   *
+   * Implementations supply their version-specific bucket state collection(s) to {@link aggregateBucketOperationStats}.
+   */
+  protected abstract collectBucketOperationStats(): Promise<Map<string, storage.BucketOperationStat>>;
+
+  /**
+   * Distinct live rows per bucket, derived from the current stored rows and their bucket memberships.
+   *
+   * Implementations supply their version-specific current-row collection(s) to {@link aggregateBucketLiveRowCounts}.
+   */
+  protected abstract collectBucketLiveRowCounts(): Promise<Map<string, number>>;
+
+  /**
+   * Aggregate operation count and operation-history bytes per bucket from a bucket state collection.
+   *
+   * Operations are pre-aggregated in bucket state, so this reads a single document per bucket rather than
+   * scanning bucket data. Shared by the storage versions, which differ only in which collection (and filter)
+   * holds their bucket state.
+   */
+  protected async aggregateBucketOperationStats<T extends BucketStateDocumentBase>(
+    collection: mongo.Collection<T>,
+    match?: mongo.Filter<T>
+  ): Promise<Map<string, storage.BucketOperationStat>> {
+    const pipeline: mongo.Document[] = [];
+    if (match != null) {
+      pipeline.push({ $match: match });
+    }
+    pipeline.push({
+      $project: {
+        _id: 1,
+        operations: {
+          $add: [{ $ifNull: ['$compacted_state.count', 0] }, { $ifNull: ['$estimate_since_compact.count', 0] }]
+        },
+        operationBytes: {
+          $add: [
+            { $toDouble: { $ifNull: ['$compacted_state.bytes', 0] } },
+            { $toDouble: { $ifNull: ['$estimate_since_compact.bytes', 0] } }
+          ]
+        }
+      }
+    });
+
+    const result = new Map<string, storage.BucketOperationStat>();
+    const cursor = collection.aggregate<{ _id: { b: string }; operations: number; operationBytes: number }>(pipeline);
+    for await (const doc of cursor.stream()) {
+      result.set(doc._id.b, { operations: doc.operations, operationBytes: doc.operationBytes });
+    }
+    return result;
+  }
+
+  /**
+   * Aggregate distinct live rows per bucket across one or more current-row collections.
+   *
+   * Each stored row records its bucket memberships, so unwinding those memberships and grouping by bucket gives
+   * the distinct live row count. Counts are summed across collections, since a bucket may contain rows from
+   * multiple source tables (each in its own collection).
+   */
+  protected async aggregateBucketLiveRowCounts<T extends mongo.Document>(
+    collections: mongo.Collection<T>[],
+    match?: mongo.Filter<T>
+  ): Promise<Map<string, number>> {
+    const pipeline: mongo.Document[] = [];
+    if (match != null) {
+      pipeline.push({ $match: match });
+    }
+    pipeline.push({ $unwind: '$buckets' }, { $group: { _id: '$buckets.bucket', count: { $sum: 1 } } });
+
+    const result = new Map<string, number>();
+    for (const collection of collections) {
+      const cursor = collection.aggregate<{ _id: string; count: number }>(pipeline, { allowDiskUse: true });
+      for await (const doc of cursor.stream()) {
+        result.set(doc._id, (result.get(doc._id) ?? 0) + doc.count);
+      }
+    }
+    return result;
   }
 
   /**

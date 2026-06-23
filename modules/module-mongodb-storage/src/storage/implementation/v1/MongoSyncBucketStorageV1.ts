@@ -180,6 +180,15 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     return new MongoCompactorV1(this, this.db, options);
   }
 
+  // For storage v1/v2, bucket state and current rows are shared collections scoped by group (replication stream).
+  protected collectBucketOperationStats(): Promise<Map<string, storage.BucketOperationStat>> {
+    return this.aggregateBucketOperationStats(this.db.bucketStateV1, { '_id.g': this.replicationStreamId });
+  }
+
+  protected collectBucketLiveRowCounts(): Promise<Map<string, number>> {
+    return this.aggregateBucketLiveRowCounts([this.db.sourceRecordsV1], { '_id.g': this.replicationStreamId });
+  }
+
   protected createMongoParameterCompactor(
     checkpoint: InternalOpId,
     options: storage.CompactOptions

@@ -180,6 +180,16 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return new MongoCompactorV3(this, this.db, options);
   }
 
+  // For storage v3, bucket state is a per-stream collection and current rows are split into per-table collections.
+  protected collectBucketOperationStats(): Promise<Map<string, storage.BucketOperationStat>> {
+    return this.aggregateBucketOperationStats(this.db.bucketState(this.replicationStreamId));
+  }
+
+  protected async collectBucketLiveRowCounts(): Promise<Map<string, number>> {
+    const collections = await this.db.listSourceRecordCollections(this.replicationStreamId);
+    return this.aggregateBucketLiveRowCounts(collections);
+  }
+
   protected createMongoParameterCompactor(
     checkpoint: InternalOpId,
     options: storage.CompactOptions
