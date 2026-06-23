@@ -392,17 +392,24 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
     await this.withTransaction(async () => {
       // Protect against race conditions
-      const count = await this.db.sourceTablesV1(this.replicationStreamId).countDocuments(
-        {
-          group_id: this.replicationStreamId,
-          snapshot_done: false
-        },
-        { session: this.session }
-      );
-      if (count > 0) {
+      const blockingTables = await this.db
+        .sourceTablesV1(this.replicationStreamId)
+        .find(
+          {
+            group_id: this.replicationStreamId,
+            snapshot_done: false
+          },
+          {
+            session: this.session,
+            projection: { schema_name: 1, table_name: 1 }
+          }
+        )
+        .toArray();
+
+      if (blockingTables.length > 0) {
         if (options?.throwOnConflict ?? true) {
           throw new ReplicationAssertionError(
-            `Cannot mark snapshot done while ${count} source table${count == 1 ? '' : 's'} still require snapshotting`
+            `Cannot mark snapshot done while source tables still require snapshotting. Tables: ${blockingTables.map((t) => `${t.schema_name}.${t.table_name}`).join(', ')}`
           );
         } else {
           return;
