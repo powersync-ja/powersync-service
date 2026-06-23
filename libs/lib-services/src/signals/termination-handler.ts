@@ -13,7 +13,7 @@ type TerminationHandlerParams = {
   /**
    * A list of process signals to listen for.
    *
-   * @default ['SIGTERM', 'SIGINT', 'SIGUSR2']
+   * @default ['SIGTERM', 'SIGINT']
    */
   signals?: Signal[];
 
@@ -28,7 +28,7 @@ type TerminationHandlerParams = {
  * Calls an async handler and then kills the application.
  */
 export const createTerminationHandler = (params?: TerminationHandlerParams) => {
-  const { signals = Object.values(Signal), timeout_ms = 30000 } = params || {};
+  const { signals = [Signal.SIGTERM, Signal.SIGINT], timeout_ms = 30000 } = params || {};
 
   const handlers: Handler[] = [];
 

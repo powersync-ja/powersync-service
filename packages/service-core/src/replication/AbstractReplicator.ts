@@ -60,6 +60,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   private lastPing = hrtime.bigint();
 
   private abortController: AbortController | undefined;
+  private drainingNewReplicationJobs = false;
 
   protected constructor(private options: AbstractReplicatorOptions) {
     this.logger = logger.child({ name: `Replicator:${options.id}` });
@@ -130,6 +131,14 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     await Promise.all(promises);
   }
 
+  public stopAcceptingReplicationJobs(): void {
+    if (this.drainingNewReplicationJobs) {
+      return;
+    }
+
+    this.drainingNewReplicationJobs = true;
+  }
+
   private async runLoop() {
     const syncRules = await this.syncRuleProvider.get();
 
@@ -181,7 +190,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     }
   }
 
-  private async refresh(options?: { configured_lock?: storage.ReplicationLock }) {
+  protected async refresh(options?: { configured_lock?: storage.ReplicationLock }) {
     if (this.stopped) {
       return;
     }
@@ -209,6 +218,14 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       } else {
         // New sync config was found (or resume after restart)
         try {
+          if (this.drainingNewReplicationJobs) {
+            if (configuredLock?.sync_rules_id == replicationStream.replicationStreamId) {
+              await configuredLock.release();
+              configuredLock = undefined;
+            }
+            continue;
+          }
+
           let lock: storage.ReplicationLock;
           if (configuredLock?.sync_rules_id == replicationStream.replicationStreamId) {
             lock = configuredLock;

@@ -2,9 +2,17 @@ import { container, logger } from '@powersync/lib-services-framework';
 import { AbstractReplicator } from './AbstractReplicator.js';
 import { ConnectionTestResult } from './ReplicationModule.js';
 
+export const REPLICATION_HANDOVER_SIGNAL: NodeJS.Signals = 'SIGUSR2';
+
 export class ReplicationEngine {
   private readonly replicators: Map<string, AbstractReplicator> = new Map();
   private probeInterval: NodeJS.Timeout | null = null;
+  private signalHandlerRegistered = false;
+
+  private readonly handoverSignalHandler = () => {
+    logger.info(`Received ${REPLICATION_HANDOVER_SIGNAL}; stopped accepting new replication jobs`);
+    this.stopStartingReplicationJobs();
+  };
 
   /**
    *  Register a Replicator with the engine
@@ -24,6 +32,10 @@ export class ReplicationEngine {
    */
   public start(): void {
     logger.info('Starting Replication Engine...');
+    if (!this.signalHandlerRegistered) {
+      process.on(REPLICATION_HANDOVER_SIGNAL, this.handoverSignalHandler);
+      this.signalHandlerRegistered = true;
+    }
     for (const replicator of this.replicators.values()) {
       logger.info(`Starting Replicator: ${replicator.id}`);
       replicator.start();
@@ -47,6 +59,10 @@ export class ReplicationEngine {
    */
   public async shutDown(): Promise<void> {
     logger.info('Shutting down Replication Engine...');
+    if (this.signalHandlerRegistered) {
+      process.off(REPLICATION_HANDOVER_SIGNAL, this.handoverSignalHandler);
+      this.signalHandlerRegistered = false;
+    }
     for (const replicator of this.replicators.values()) {
       logger.info(`Stopping Replicator: ${replicator.id}`);
       await replicator.stop();
@@ -59,5 +75,11 @@ export class ReplicationEngine {
 
   public async testConnection(): Promise<ConnectionTestResult[]> {
     return await Promise.all([...this.replicators.values()].map((replicator) => replicator.testConnection()));
+  }
+
+  public stopStartingReplicationJobs(): void {
+    for (const replicator of this.replicators.values()) {
+      replicator.stopAcceptingReplicationJobs();
+    }
   }
 }
