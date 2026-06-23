@@ -60,7 +60,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   private lastPing = hrtime.bigint();
 
   private abortController: AbortController | undefined;
-  private drainingNewReplicationJobs = false;
+  private acceptingReplicationJobs = true;
+  private completedResolver = Promise.withResolvers<void>();
+  public completed: Promise<void> = this.completedResolver.promise;
 
   protected constructor(private options: AbstractReplicatorOptions) {
     this.logger = logger.child({ name: `Replicator:${options.id}` });
@@ -98,15 +100,22 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     return this.abortController?.signal.aborted;
   }
 
-  public async start(): Promise<void> {
+  public start(): void {
     this.abortController = new AbortController();
-    this.runLoop().catch((e) => {
-      this.logger.error('Fatal replication error', e);
-      container.reporter.captureException(e);
-      setTimeout(() => {
-        process.exit(1);
-      }, 1000);
-    });
+    this.completedResolver = Promise.withResolvers<void>();
+    this.completed = this.completedResolver.promise;
+    this.runLoop()
+      .then(() => {
+        this.completedResolver.resolve();
+      })
+      .catch((e) => {
+        this.logger.error('Fatal replication error', e);
+        container.reporter.captureException(e);
+        this.completedResolver.reject(e);
+        setTimeout(() => {
+          process.exit(1);
+        }, 1000);
+      });
     this.metrics.getObservableGauge(ReplicationMetric.REPLICATION_LAG_SECONDS).setValueProvider(async () => {
       try {
         const lag = this.getReplicationLagMillis();
@@ -132,11 +141,11 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   }
 
   public stopAcceptingReplicationJobs(): void {
-    if (this.drainingNewReplicationJobs) {
+    if (!this.acceptingReplicationJobs) {
       return;
     }
 
-    this.drainingNewReplicationJobs = true;
+    this.acceptingReplicationJobs = false;
   }
 
   private async runLoop() {
@@ -218,7 +227,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       } else {
         // New sync config was found (or resume after restart)
         try {
-          if (this.drainingNewReplicationJobs) {
+          if (!this.acceptingReplicationJobs) {
             if (configuredLock?.sync_rules_id == replicationStream.replicationStreamId) {
               await configuredLock.release();
               configuredLock = undefined;
@@ -274,6 +283,12 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         // This will be retried
         job.storage.logger.warn('Failed to stop old replication job', e);
       }
+    }
+
+    if (!this.acceptingReplicationJobs && this.replicationJobs.size == 0) {
+      this.logger.info('No replication jobs remain; stopping replicator');
+      this.abortController?.abort();
+      return;
     }
 
     // Replication stream stopped previously, including by a different process.

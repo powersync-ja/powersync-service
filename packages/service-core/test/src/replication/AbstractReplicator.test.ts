@@ -98,6 +98,7 @@ class TestReplicator extends replication.AbstractReplicator<TestReplicationJob> 
         reportError: () => {}
       }
     });
+    (this as any).abortController = new AbortController();
   }
 
   createJob(options: replication.CreateJobOptions): TestReplicationJob {
@@ -121,10 +122,14 @@ class TestReplicator extends replication.AbstractReplicator<TestReplicationJob> 
   async refreshOnce(options?: { configured_lock?: storage.ReplicationLock }): Promise<void> {
     await this.refresh(options);
   }
+
+  get stoppedForTest() {
+    return this.stopped;
+  }
 }
 
-describe('AbstractReplicator drain mode', () => {
-  test('does not start new replication jobs after draining starts', async () => {
+describe('AbstractReplicator handover mode', () => {
+  test('does not start new replication jobs after accepting jobs stops', async () => {
     const factory = new TestBucketStorageFactory();
     const stream = new TestReplicationStream({ streamId: 1, jobId: '1:a' });
     factory.streams = [stream];
@@ -136,9 +141,10 @@ describe('AbstractReplicator drain mode', () => {
     expect(stream.lockCount).toBe(0);
     expect(factory.getInstance).not.toHaveBeenCalled();
     expect(replicator.jobs).toHaveLength(0);
+    expect(replicator.stoppedForTest).toBe(true);
   });
 
-  test('keeps existing matching replication jobs after draining starts', async () => {
+  test('keeps existing matching replication jobs after accepting jobs stops', async () => {
     const factory = new TestBucketStorageFactory();
     const lock = new TestLock(1);
     const stream = new TestReplicationStream({ streamId: 1, jobId: '1:a' }, lock);
@@ -153,6 +159,7 @@ describe('AbstractReplicator drain mode', () => {
     expect(factory.getInstance).toHaveBeenCalledTimes(1);
     expect(replicator.jobs).toHaveLength(1);
     expect(lock.releaseCount).toBe(0);
+    expect(replicator.stoppedForTest).toBe(false);
 
     await replicator.stop();
   });
@@ -175,9 +182,10 @@ describe('AbstractReplicator drain mode', () => {
     expect(newStream.lockCount).toBe(0);
     expect(factory.getInstance).toHaveBeenCalledTimes(1);
     expect(replicator.jobs).toHaveLength(1);
+    expect(replicator.stoppedForTest).toBe(true);
   });
 
-  test('releases a configured lock when draining skips the first refresh', async () => {
+  test('releases a configured lock when accepting jobs stops before the first refresh', async () => {
     const factory = new TestBucketStorageFactory();
     const stream = new TestReplicationStream({ streamId: 1, jobId: '1:a' });
     const configuredLock = new TestLock(1);
@@ -190,5 +198,6 @@ describe('AbstractReplicator drain mode', () => {
     expect(configuredLock.releaseCount).toBe(1);
     expect(stream.lockCount).toBe(0);
     expect(replicator.jobs).toHaveLength(0);
+    expect(replicator.stoppedForTest).toBe(true);
   });
 });

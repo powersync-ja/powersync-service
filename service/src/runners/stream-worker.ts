@@ -9,12 +9,18 @@ import { logBooting } from '../util/version.js';
 export const registerReplicationServices = (serviceContext: core.system.ServiceContextContainer) => {
   // Needs to be executed after shared registrations
   const replication = new core.replication.ReplicationEngine();
+  const lifecycle: core.framework.PartialLifecycle<core.replication.ReplicationEngine> = {
+    start: (replication) => replication.start(),
+    stop: (replication) => replication.shutDown(),
+    stopAccepting: (replication) => replication.stopAcceptingReplicationJobs()
+  };
+
+  if (serviceContext.serviceMode == core.system.ServiceContextMode.SYNC) {
+    lifecycle.completed = (replication) => replication.completed;
+  }
 
   serviceContext.register(core.replication.ReplicationEngine, replication);
-  serviceContext.lifeCycleEngine.withLifecycle(replication, {
-    start: (replication) => replication.start(),
-    stop: (replication) => replication.shutDown()
-  });
+  serviceContext.lifeCycleEngine.withLifecycle(replication, lifecycle);
 };
 
 export const startStreamRunner = async (runnerConfig: core.utils.RunnerConfig) => {
