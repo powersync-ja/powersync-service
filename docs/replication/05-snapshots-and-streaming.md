@@ -98,7 +98,7 @@ For relational sources, new or changed table metadata often triggers:
 
 For Convex, deltas contain complete documents and table schema behavior differs, so newly discovered tables can be handled differently.
 
-It is also acceptable for a source module not to detect new tables, column changes, replica identity changes, or other schema metadata changes in the streaming loop. In that case, operators must deploy a new sync config after making source schema changes that affect replication. The deployment re-runs source metadata discovery and, in most cases, initial replication for the affected tables or collections. Storage may represent that work as a separate deploying stream or as a processing config embedded in the active stream.
+It is also acceptable for a source module not to detect new tables, column changes, replica identity changes, or other schema metadata changes in the streaming loop. In that case, operators must deploy a new sync config after making source schema changes that affect replication. The new processing work causes the source connector to rediscover configured source entities and snapshot any source-table mappings that are incomplete for the new config. Non-incremental storage usually represents this as a separate processing stream; incremental storage can instead append a processing config to the active stream and snapshot only the new or changed memberships.
 
 ## Restarting From Missing Source History
 

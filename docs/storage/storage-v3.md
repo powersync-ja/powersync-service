@@ -4,7 +4,9 @@ Storage v3 separates source replication stream state from immutable sync config 
 
 ## Replication stream
 
-A replication stream represents one conceptual source replication job: one ordered stream of source changes, one stream-level operation sequence, and one stream-level resume position.
+A replication stream represents one conceptual source replication job. For example, that may correspond to one Postgres logical replication stream, one MongoDB change stream, or generally one source-side process advancing checkpoints from an ordered stream of changes.
+
+This does not refer to concurrency: a future implementation may use multiple underlying database streams while still presenting one replication stream to storage. In storage v3, the replication stream owns one stream-level operation sequence and one stream-level resume position.
 
 The stream state lives in the `sync_rules` collection. Unlike v1 storage, the static sync config content is not stored directly on this document. Instead, `sync_rules.sync_configs` embeds per-config state for one or more sync config definitions.
 
@@ -122,10 +124,11 @@ Bucket state documents for a definition id are removed when stopped config clean
 
 ## Cleanup of stopped sync configs
 
-Incremental streams can contain stopped sync config state while the stream continues serving a live config. Cleanup compares stopped configs with live configs using their persisted mappings:
+Incremental streams can contain stopped sync config state while the stream continues serving live config state. Cleanup compares stopped configs with live configs using their persisted mappings. Live means `ACTIVE`, `PROCESSING`, or `ERRORED`.
 
 1. Bucket data collections, parameter index collections, and bucket state are removed only for ids no live config still uses.
-2. Source table memberships for unused ids are removed.
-3. Source tables with no remaining data, parameter, or live event use are deleted with their source records collections.
-4. Event-only source tables are deleted when no live sync config still triggers events for them.
-5. The stopped sync config entries are pruned from `sync_rules.sync_configs`.
+2. Source table memberships for unused ids are removed from retained source tables.
+3. Source tables whose data and parameter memberships become empty are deleted with their source records collections unless a live config still triggers events for that table.
+4. Source tables kept only for live events become event-only; their source records collections are dropped.
+5. Event-only source tables are deleted with their source records collections when no live config still triggers events for them.
+6. The stopped sync config entries are pruned from `sync_rules.sync_configs`.

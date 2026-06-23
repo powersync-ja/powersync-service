@@ -20,14 +20,6 @@ The public sync API reads from the active sync config of the active replication 
 
 Incremental reprocessing currently requires storage and source support. MongoDB source replication with MongoDB storage v3 can append a compatible sync config to the active stream. Incompatible updates, storage-version changes, or sources that only support a single sync config per stream still use a separate processing stream.
 
-## Parsed Sync Config Set And Definition Mapping
-
-A parsed sync config set is the identity boundary for parsed replication state. It includes the parsed sync config definitions for a stream, the hydration state, the hydrated sync config, and the mapping from parsed bucket or parameter sources to persisted storage ids.
-
-Writer paths must keep these values together. In incremental streams, the same bucket source name can appear in more than one sync config, so resolving through an unrelated parse can point a row write at the wrong persisted definition. Read paths are narrower: they serve one active sync config and resolve through that config's persisted mapping.
-
-Definition mappings assign stable ids to bucket data definitions and parameter indexes. Compatible incremental updates reuse ids for definitions that have the same serialized plan shape and allocate new ids for added definitions. Those ids are stored on bucket data collections, parameter index collections, bucket state, and `SourceTable` membership.
-
 ## Replication Module
 
 A replication module is the source-specific service module that provides PowerSync's replication implementation for one source type.
