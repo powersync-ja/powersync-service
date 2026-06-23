@@ -4,7 +4,7 @@ PowerSync can replicate from Azure DocumentDB (formerly Azure Cosmos DB for Mong
 
 Internal implementation details (how checkpoints and LSNs work on DocumentDB) are documented separately in [documentdb-lsn-sentinel-checkpoints.md](./documentdb-lsn-sentinel-checkpoints.md).
 
-> **DocumentDB support is experimental.** Validate it against your own workload before relying on it in production.
+> **DocumentDB support is experimental.** APIs and behavior may change. We also can't yet guarantee continued support or long-term stability. This release is intended for early testing and to invite feedback. Your feedback will directly influence whether, and how, this integration evolve.
 
 ## Which Azure offering this supports
 
