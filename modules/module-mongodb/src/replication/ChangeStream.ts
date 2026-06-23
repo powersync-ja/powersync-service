@@ -417,6 +417,7 @@ export class ChangeStream {
   async replicate() {
     let streamPromise: Promise<void> | null = null;
     let loopPromise: Promise<void> | null = null;
+    let cleanupPromise: Promise<void> | null = null;
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
@@ -434,6 +435,11 @@ export class ChangeStream {
       if (!this.snapshotter.supportsConcurrentSnapshots) {
         await Promise.race([this.snapshotter.waitForInitialSnapshot(), loopPromise]);
       }
+      // Unlike the other two, this resolves on completion, not an indefinite loop.
+      cleanupPromise = this.cleanupStoppedSyncConfigs().catch((e) => {
+        this.abortController.abort(e);
+        throw e;
+      });
       streamPromise = this.streamChanges()
         .then(() => {
           throw new ReplicationAssertionError(`Replication stream exited unexpectedly`);
@@ -443,7 +449,7 @@ export class ChangeStream {
           throw e;
         });
 
-      const results = await Promise.allSettled([loopPromise, streamPromise]);
+      const results = await Promise.allSettled([loopPromise, streamPromise, cleanupPromise]);
       throw replicationLoopError(results);
     } catch (e) {
       await this.storage.reportError(e);
@@ -471,6 +477,15 @@ export class ChangeStream {
       }
       await this.snapshotter.queueSnapshotTables(result.snapshotLsn);
     }
+  }
+
+  private async cleanupStoppedSyncConfigs() {
+    await this.storage.cleanupStoppedSyncConfigs?.({
+      signal: this.abortSignal,
+      logger: this.logger,
+      defaultSchema: this.defaultDb.databaseName,
+      sourceConnectionTag: this.connections.connectionTag
+    });
   }
 
   private async streamChanges() {

@@ -147,6 +147,12 @@ export interface SyncRulesBucketStorage
    * Clear checksum cache. Primarily intended for tests.
    */
   clearChecksumCache(): void;
+
+  /**
+   * Optional storage-provider cleanup for sync configs that have been stopped
+   * inside this replication stream.
+   */
+  cleanupStoppedSyncConfigs?(options: CleanupStoppedSyncConfigsOptions): Promise<CleanupStoppedSyncConfigsResult>;
 }
 
 export interface SyncRulesBucketStorageListener {
@@ -276,7 +282,7 @@ export interface CompactOptions {
   /** Minimum of 1 */
   moveBatchQueryLimit?: number;
 
-  /** Byte cap per read batch for streaming compaction. Default 64MB. */
+  /** Byte cap per read batch for streaming compaction. Default 16MB. */
   moveBatchByteLimit?: number;
 
   /**
@@ -325,6 +331,24 @@ export interface PopulateChecksumCacheResults {
 
 export interface ClearStorageOptions {
   signal?: AbortSignal;
+}
+
+export interface CleanupStoppedSyncConfigsOptions {
+  signal?: AbortSignal;
+  logger?: Logger;
+  defaultSchema: string;
+  sourceConnectionTag: string;
+}
+
+export interface CleanupStoppedSyncConfigsResult {
+  stoppedSyncConfigsRemoved: number;
+  bucketDataCollectionsDropped: number;
+  parameterIndexCollectionsDropped: number;
+  /** Best-effort number, not accurate if the operation takes longer than the timeout. */
+  bucketStateDocumentsDeleted: number;
+  sourceRecordCollectionsDropped: number;
+  sourceTablesUpdated: number;
+  sourceTablesDeleted: number;
 }
 
 export interface TerminateOptions extends ClearStorageOptions {

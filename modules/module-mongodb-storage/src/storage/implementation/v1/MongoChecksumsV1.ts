@@ -94,7 +94,11 @@ export class MongoChecksumsV1 extends MongoChecksums {
             // This is important to identify which buckets we have partial data for.
             { $sort: { _id: 1 } }
           ],
-          { session: undefined, readConcern: 'snapshot', maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
+          {
+            session: undefined,
+            readConcern: 'snapshot',
+            maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS
+          }
         )
         .toArray()
         .catch((e) => {
