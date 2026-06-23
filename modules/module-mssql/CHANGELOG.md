@@ -1,5 +1,23 @@
 # @powersync/service-module-mssql
 
+## 0.8.0
+
+### Minor Changes
+
+- a91a08f: [Experimental] Enable incremental reprocessing for MongoDB source + MongoDB storage. This includes significant changes to the v3 storage format.
+
+### Patch Changes
+
+- Updated dependencies [a91a08f]
+- Updated dependencies [184c39f]
+- Updated dependencies [c3f75df]
+- Updated dependencies [4bd35ea]
+  - @powersync/service-core@1.23.0
+  - @powersync/service-types@0.16.0
+  - @powersync/service-errors@0.4.4
+  - @powersync/service-sync-rules@0.38.0
+  - @powersync/lib-services-framework@0.9.6
+
 ## 0.7.0
 
 ### Minor Changes
