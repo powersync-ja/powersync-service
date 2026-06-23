@@ -10,6 +10,7 @@ import { PerformanceTracer } from '../tracing/PerformanceTracer.js';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
+import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { ParseSyncConfigOptions } from './PersistedSyncConfigContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
@@ -112,7 +113,7 @@ export interface SyncRulesBucketStorage
    *
    * This is a best-effort optimization:
    * 1. This may include more changes than what actually occurred.
-   * 2. This may return invalidateDataBuckets or invalidateParameterBuckets instead of of returning
+   * 2. This may return invalidateDataBuckets or invalidateParameterBuckets instead of returning
    *    specific changes.
    * @param options
    */

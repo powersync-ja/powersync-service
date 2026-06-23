@@ -9,7 +9,7 @@ The system only exposes a checkpoint to clients when storage can prove that buck
 
 ## Initial Snapshot
 
-A new replication stream usually starts in `PROCESSING`. If the stream has no completed snapshot, the source connector must snapshot all source tables or collections selected by the sync config.
+A new replication stream usually starts in `PROCESSING`. Incremental storage can also append a `PROCESSING` sync config to an existing active stream. If the selected config state has no completed snapshot, the source connector must snapshot the source table records storage marks incomplete for that config. In incremental storage, that may be only the new bucket or parameter memberships while compatible mappings continue serving the active config.
 
 Initial snapshot work happens through a storage writer returned by `SyncRulesBucketStorage`, either from `createWriter()` or the older `startBatch()` helper. The source-specific stream passes that `BucketStorageBatch` through its snapshot helpers, so row copies, table progress, snapshot completion markers, and the final checkpoint commit are persisted through the same storage writer workflow.
 
@@ -30,7 +30,7 @@ Different sources choose different snapshot boundaries. Postgres uses logical re
 
 Streaming is paired with the snapshot boundary in one of two common ways:
 
-- Streaming starts immediately when the initial snapshot starts, using the recorded starting position while snapshot work runs. Incremental reprocessing follows this shape.
+- Streaming starts immediately when the initial snapshot starts, using the recorded starting position while snapshot work runs. MongoDB incremental reprocessing follows this shape so the active config can continue streaming while the processing config catches up.
 - Streaming starts after the snapshot completes, but from the source position recorded before snapshotting began.
 
 Both approaches rely on recording the source position before or at snapshot start. The stream then replays all source changes from that position, ensuring writes that happen during the snapshot are not missed. This requires the source stream to contain every change relevant to the sync config inside the chosen boundary, even when the position is a source-specific cursor or synthetic marker rather than a native database LSN.
@@ -59,7 +59,7 @@ To avoid exposing inconsistent data, table completion records a `no_checkpoint_b
 
 The important invariant is:
 
-Clients may only receive a completed checkpoint after all snapshot data needed by the active sync config has been copied and all relevant source changes up to the snapshot completion boundary have been processed.
+Clients may only receive a completed checkpoint after all snapshot data needed by the active sync config has been copied and all relevant source changes up to the snapshot completion boundary have been processed. A deploying config in an incremental stream follows the same rule before it can become active.
 
 ## Ongoing Streaming
 
@@ -98,7 +98,7 @@ For relational sources, new or changed table metadata often triggers:
 
 For Convex, deltas contain complete documents and table schema behavior differs, so newly discovered tables can be handled differently.
 
-It is also acceptable for a source module not to detect new tables, column changes, replica identity changes, or other schema metadata changes in the streaming loop. In that case, operators must deploy a new sync config after making source schema changes that affect replication. The new deploying stream re-runs source metadata discovery and, in most cases, initial replication for the affected tables or collections.
+It is also acceptable for a source module not to detect new tables, column changes, replica identity changes, or other schema metadata changes in the streaming loop. In that case, operators must deploy a new sync config after making source schema changes that affect replication. The deployment re-runs source metadata discovery and, in most cases, initial replication for the affected tables or collections. Storage may represent that work as a separate deploying stream or as a processing config embedded in the active stream.
 
 ## Restarting From Missing Source History
 
@@ -108,6 +108,8 @@ The source connector should call `restartReplication(replicationStreamId)` when 
 
 ## Switching To Active
 
-Once initial processing has produced a consistent checkpoint, storage can transition the stream to `ACTIVE`. The sync API then reads from that active stream while the same replication job keeps applying new changes.
+Once initial processing has produced a consistent checkpoint, storage can transition the stream or config to `ACTIVE`. The sync API then reads from that active state while the replication job keeps applying new changes.
 
 An older active stream can continue serving clients while a newer stream is still processing. This allows sync config changes to be deployed without exposing partially snapshotted state.
+
+With incremental storage, the older active config and the newer processing config can share the same replication stream. Activation atomically replaces the active config served to clients. Stopped embedded config state can then be cleaned up without dropping bucket or parameter definitions still used by the newly active config.

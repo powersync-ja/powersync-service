@@ -8,18 +8,18 @@ This is not the client wire protocol itself. For the client-facing stream messag
 
 PowerSync clients sync from the service using checkpoint, checkpoint diff, bucket data, and checkpoint-complete messages described in [sync-protocol.md](../specs/sync-protocol.md). Those messages are generated from bucket storage. Replication is the process that keeps bucket storage up to date with a configured source database.
 
-Automatic source schema change detection is source-specific and optional. A replication module can support schema metadata changes in its streaming loop, or it can require operators to deploy a new sync config after changing source schemas. That deployment creates new replication processing work and, in most cases, performs initial replication for the affected tables or collections.
+Automatic source schema change detection is source-specific and optional. A replication module can support schema metadata changes in its streaming loop, or it can require operators to deploy a new sync config after changing source schemas. That deployment creates replication processing work. Depending on source and storage support, it may create a separate processing stream or append a processing sync config to an existing stream for incremental reprocessing.
 
 At a high level:
 
-1. A sync config is persisted as part of a replication stream in bucket storage.
+1. One or more sync configs are persisted as part of a replication stream in bucket storage.
 2. A replication module registers a source-specific replicator with `ReplicationEngine`.
 3. The replicator starts one replication job for each storage stream that should currently replicate.
 4. The job's `replicate()` method creates a source-specific stream, such as `WalStream` or `ChangeStream`.
-5. The source stream performs initial replication if required, then consumes ongoing source changes.
-6. Each source row change is resolved to one or more tracked `SourceTable` records and evaluated against the sync config.
+5. The source stream performs snapshot work if required, then consumes ongoing source changes.
+6. Each source row change is resolved to one or more tracked `SourceTable` records and evaluated against the sync config state selected for that stream.
 7. Storage writes bucket operations and parameter index entries through a `BucketStorageBatch`.
-8. A batch `commit(lsn)` or `keepalive(lsn)` advances the source position stored with the replication stream.
+8. A batch `commit(lsn)` or `keepalive(lsn)` advances persisted source progress and any checkpoint state that is safe to expose.
 9. Once checkpoints are unblocked, bucket storage exposes a new checkpoint.
 10. The sync API watches checkpoint changes and streams updated checksums, bucket data, and write checkpoint acknowledgements to clients.
 
@@ -59,7 +59,7 @@ sequenceDiagram
 
   Source-->>Stream: Source transaction/page boundary with LSN
   Stream->>Batch: commit(lsn)
-  Batch->>Storage: Advance last_checkpoint_lsn and checkpoint op
+  Batch->>Storage: Advance source progress and checkpoint state
   Storage-->>SyncAPI: watchCheckpointChanges() emits update
   SyncAPI->>Storage: getChecksums(checkpoint)
   Storage-->>SyncAPI: Bucket checksums and parameter lookups
@@ -92,6 +92,8 @@ The client opens a single sync stream request. Checkpoint lines, bucket data chu
 The optional mutation block is shown later so the main path starts with the standard read/sync flow. When a client mutation is involved, the write normally reaches the source database through the application's own backend or write path. PowerSync replication then observes that source transaction and streams the resulting bucket changes back to the client.
 
 The `flush()` call may persist partial work inside a large source transaction, but `commit(lsn)` should only happen after a source transaction boundary. A single PowerSync checkpoint can include multiple complete source transactions when the stream batches them together.
+
+In storage modes that support incremental reprocessing, a replication stream can contain an active sync config and a processing sync config at the same time. Table resolution and row writes use the storage instance's canonical parsed sync config set, so compatible persisted bucket and parameter definitions can be reused while only new or changed definitions need snapshot work. The processing config stays invisible to the sync API until it has a consistent checkpoint.
 
 ## Reading Path
 

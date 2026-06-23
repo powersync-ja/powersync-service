@@ -4,7 +4,7 @@ This page defines shared terms used by source replication modules, `service-core
 
 ## Replication Stream
 
-A replication stream is one persisted unit of replication state. Today, it normally corresponds to one sync config version, but the storage API is designed to allow multiple streams to exist at the same time.
+A replication stream is one persisted unit of replication state for a source replication job. Non-incremental storage usually has one sync config version per stream. Storage that supports incremental reprocessing can keep multiple sync config versions in one stream so compatible updates share the same source stream and persisted bucket data.
 
 A stream has:
 
@@ -12,13 +12,21 @@ A stream has:
 - A human-readable `replicationStreamName`, often used as a source-side slot or marker name.
 - A storage version.
 - A lifecycle state such as `PROCESSING`, `ACTIVE`, `STOP`, `TERMINATED`, or `ERRORED`.
-- One or more persisted sync config contents that can be parsed into a hydrated sync config.
+- One or more persisted sync config definitions that can be parsed into a hydrated sync config.
 
-The current public sync API reads from the active replication stream. Replicators may also process a deploying stream while an older stream remains active for clients.
+The public sync API reads from the active sync config of the active replication stream. Replicators may also process a separate deploying stream while an older stream remains active for clients. In incremental storage, a processing sync config can instead be embedded in the active stream; it stays invisible to clients until storage activates it.
 
 "Sync config" is the current term for the replication configuration. Some legacy code, APIs, and config files still use "sync rules" for the same concept, including `SyncRulesBucketStorage`, `configureSyncRules()`, `terminateSyncRules()`, and `sync-rules.yaml`. Treat the two terms as equivalent when reading the code.
 
-Incremental reprocessing is expected to allow multiple sync configs to be processed by one replication stream, instead of always creating a fully separate stream per sync config version. See [powersync-ja/powersync-service#670](https://github.com/powersync-ja/powersync-service/pull/670).
+Incremental reprocessing currently requires storage and source support. MongoDB source replication with MongoDB storage v3 can append a compatible sync config to the active stream. Incompatible updates, storage-version changes, or sources that only support a single sync config per stream still use a separate processing stream.
+
+## Parsed Sync Config Set And Definition Mapping
+
+A parsed sync config set is the identity boundary for parsed replication state. It includes the parsed sync config definitions for a stream, the hydration state, the hydrated sync config, and the mapping from parsed bucket or parameter sources to persisted storage ids.
+
+Writer paths must keep these values together. In incremental streams, the same bucket source name can appear in more than one sync config, so resolving through an unrelated parse can point a row write at the wrong persisted definition. Read paths are narrower: they serve one active sync config and resolve through that config's persisted mapping.
+
+Definition mappings assign stable ids to bucket data definitions and parameter indexes. Compatible incremental updates reuse ids for definitions that have the same serialized plan shape and allocate new ids for added definitions. Those ids are stored on bucket data collections, parameter index collections, bucket state, and `SourceTable` membership.
 
 ## Replication Module
 
@@ -64,9 +72,9 @@ Internal operation ids are not enough to drive replication from the source. Powe
 
 For a source to be usable as a replication module, it must provide some form of ordered replication stream with positional information. The position does not need to be a database-native LSN, but the stream must be resumable from a known point or otherwise have source-managed resume state, and it must contain all changes relevant to PowerSync within the consistency boundary chosen by the connector.
 
-The current implementation uses one string value for multiple purposes: checkpoint/source-head comparison, snapshot consistency boundaries, and sometimes replication resume. Source modules are responsible for using a stable encoding that preserves the required ordering when values are compared. For example, Postgres can use the WAL LSN directly, while MongoDB uses an encoding that combines cluster time for ordering with resume token information for resuming.
+Most storage interfaces still expose one string value for checkpoint/source-head comparison, snapshot consistency boundaries, and sometimes replication resume. Source modules are responsible for using a stable encoding that preserves the required ordering when values are compared. For example, Postgres can use the WAL LSN directly, while MongoDB uses an encoding that combines cluster time for ordering with resume token information.
 
-Future storage designs may split these concepts into separate fields: opaque resume tokens that do not need to sort, and comparable source-head values used for write checkpoint acknowledgement. Today, `last_checkpoint_lsn` is still shared by both concerns, so source-specific encodings must satisfy both sets of requirements where applicable.
+Some storage implementations now separate resume progress from checkpoint state. MongoDB storage v3 stores a stream-level `resume_lsn` for restarting the change stream, while per-sync-config `last_checkpoint_lsn` values remain client-visible consistency markers. Even in that model, source-head values used for checkpoints and write checkpoint acknowledgement must remain comparable.
 
 ## Source Entity
 
@@ -87,7 +95,7 @@ Not every source module must detect those metadata changes while streaming. Some
 
 A `SourceTable` is the persisted storage-side representation of a replicated source entity for a replication stream.
 
-One physical table can resolve to multiple `SourceTable` records. This allows different sync config definitions, parameter indexes, or future incremental reprocessing paths to snapshot and process the same physical table independently.
+One physical table can resolve to multiple `SourceTable` records. This allows different sync config definitions or parameter indexes to snapshot and process the same physical table independently during incremental reprocessing.
 
 A `SourceTable` tracks:
 
@@ -96,7 +104,9 @@ A `SourceTable` tracks:
 - Whether it participates in data, parameters, or events.
 - Whether current row data must be stored for partial update handling.
 - Per-table snapshot completion and progress.
-- The bucket data sources and parameter lookup sources that use it.
+- The bucket data sources and parameter lookup sources that use it, plus their persisted definition ids where storage tracks them.
+
+When multiple `SourceTable` records exist for one physical table, storage designates only one record as the event carrier for row-change events. This lets the source connector save a row change to each relevant table record without firing duplicate events.
 
 For a fuller walkthrough, see [09-resolve-tables-flow.md](./09-resolve-tables-flow.md).
 

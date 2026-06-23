@@ -20,16 +20,18 @@ The operation id is storage-wide for the replication stream. It orders bucket op
 
 The source position is different from the checkpoint operation id. The checkpoint id says where the PowerSync bucket history is; the source position says how far the source replication stream has been observed. That source position is what lets initial snapshots wait for stream catch-up and lets managed write checkpoints know when a client write has been replicated back.
 
+Incremental storage can separate stream-level resume progress from per-sync-config checkpoint state. For example, MongoDB storage v3 stores a stream `resume_lsn` used to restart the change stream, while each embedded sync config has its own checkpoint source position used as a consistency marker. The sync API serves checkpoints from one active config; a processing config in the same stream does not affect client checkpoints until storage activates it.
+
 ## Creating Checkpoints
 
 Replication creates checkpoints through the writer:
 
-- `commit(lsn)`: flushes pending row operations and commits a source position.
-- `keepalive(lsn)`: commits a source position without row operations.
+- `commit(lsn)`: flushes pending row operations and commits source progress at a checkpoint-safe boundary.
+- `keepalive(lsn)`: commits source progress without row operations.
 
 `commit()` should be called only at a source transaction or page boundary where it is valid for clients to observe all flushed changes together.
 
-Checkpoint creation can be blocked even after `commit()` or `keepalive()` when:
+Checkpoint visibility can be blocked even after `commit()` or `keepalive()` when:
 
 - Initial snapshot is still in progress.
 - A table snapshot set a `no_checkpoint_before_lsn` boundary that streaming has not reached.

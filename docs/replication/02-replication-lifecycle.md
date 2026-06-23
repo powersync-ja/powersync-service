@@ -40,7 +40,9 @@ The storage layer exposes streams in these states:
 
 The replicator starts jobs for streams returned by `getReplicatingReplicationStreams()`. It separately terminates streams returned by `getStoppedReplicationStreams()`.
 
-A sync config deployment is also the manual refresh path for replication modules that do not automatically detect source schema changes while streaming. After a source table, collection, column set, or replica identity changes, those modules require a new sync config deploy so a `PROCESSING` stream can re-discover source metadata and, in most cases, run initial replication for the affected data.
+In storage modes with embedded sync config state, the top-level stream state and the per-config states are related but not identical. MongoDB storage v3 can keep the stream itself `ACTIVE` while an embedded sync config is `PROCESSING`; the sync API continues reading the active config while the replication job processes both active and deploying work through the same source stream.
+
+A sync config deployment is also the manual refresh path for replication modules that do not automatically detect source schema changes while streaming. After a source table, collection, column set, or replica identity changes, those modules require a new sync config deploy so source metadata can be re-discovered. Depending on compatibility and storage support, that deploy either creates a separate `PROCESSING` stream or appends a processing config to the active stream, then snapshots the affected data before activation.
 
 ## Job Lifecycle
 
@@ -81,6 +83,8 @@ When a replication stream is stopped, the replicator calls `terminateSyncRules()
 2. `syncRuleStorage.terminate({ clearStorage: true })` clears bucket storage and marks the stream terminated.
 
 Source cleanup must be idempotent. It should be safe to call even if source-side state has already been removed.
+
+Incremental streams can also have stopped sync configs inside a still-running stream. In that case the source job may ask storage to clean up stopped embedded configs while streaming continues. Storage compares the stopped configs with live configs, drops only bucket data, parameter index, bucket state, source record, and source table state that no live config still uses, then prunes the stopped config state from the stream.
 
 ## Lag Reporting
 
