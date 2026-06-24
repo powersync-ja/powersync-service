@@ -1,6 +1,7 @@
 import { container, ErrorCode, logger } from '@powersync/lib-services-framework';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
+import { setTimeout as sleep } from 'node:timers/promises';
 import winston from 'winston';
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
 import * as storage from '../storage/storage-index.js';
@@ -12,6 +13,12 @@ import { ConnectionTestResult } from './ReplicationModule.js';
 
 // 1 minute
 const PING_INTERVAL = 1_000_000_000n * 60n;
+
+// In the initial startup period, we use a short refresh interval. This helps to take over replication quickly in the case
+// of rolling deploys. After the initial period, we switch to a longer refresh interval to reduce load.
+const FAST_REFRESH_INTERVAL_MS = 500;
+const FAST_REFRESH_TIMEOUT_MS = 120_000;
+const REFRESH_INTERVAL_MS = 5_000;
 
 export interface CreateJobOptions {
   lock: storage.ReplicationLock;
@@ -158,10 +165,15 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     } else {
       this.logger.info('No sync streams or rules configured - configure via API');
     }
+    let useFastRefresh = true;
+    const fastRefreshDeadline = Date.now() + FAST_REFRESH_TIMEOUT_MS;
     while (!this.stopped) {
       await container.probes.touch();
       try {
-        await this.refresh({ configuredLock, loadedSyncConfig });
+        const refreshResult = await this.refresh({ configuredLock, loadedSyncConfig });
+        if (refreshResult.replicationJobStarted || Date.now() >= fastRefreshDeadline) {
+          useFastRefresh = false;
+        }
         // The lock is only valid on the first refresh.
         configuredLock = undefined;
 
@@ -180,16 +192,23 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       } catch (e) {
         this.logger.error('Failed to refresh replication jobs', e);
       }
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+      if (Date.now() >= fastRefreshDeadline) {
+        useFastRefresh = false;
+      }
+      await sleep(useFastRefresh ? FAST_REFRESH_INTERVAL_MS : REFRESH_INTERVAL_MS);
     }
   }
 
-  private async refresh(options?: { configuredLock?: storage.ReplicationLock; loadedSyncConfig?: string }) {
+  private async refresh(options?: {
+    configuredLock?: storage.ReplicationLock;
+    loadedSyncConfig?: string;
+  }): Promise<{ replicationJobStarted: boolean }> {
     if (this.stopped) {
-      return;
+      return { replicationJobStarted: false };
     }
 
     let configuredLock = options?.configuredLock;
+    let replicationJobStarted = false;
 
     const existingJobs = new Map<string, T>(this.replicationJobs.entries());
     const replicatingStreams = await this.storage.getReplicatingReplicationStreams();
@@ -232,6 +251,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
           newJobs.set(jobId, newJob);
           newJob.start();
+          replicationJobStarted = true;
           if (replicationStream.state == storage.SyncRuleState.ACTIVE) {
             activeJob = newJob;
           }
@@ -286,6 +306,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         });
       this.clearingJobs.set(replicationStream.replicationStreamId, promise);
     }
+
+    return { replicationJobStarted };
   }
 
   private logReplicationStreamInfoOnce(replicationStream: storage.PersistedReplicationStream, message: string) {
