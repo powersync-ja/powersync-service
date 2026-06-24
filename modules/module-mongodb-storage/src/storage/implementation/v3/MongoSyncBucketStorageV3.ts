@@ -181,13 +181,20 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   // For storage v3, bucket state is a per-stream collection and current rows are split into per-table collections.
+  // A replication stream can host multiple sync configs (active + processing + stopped, until cleanup runs), all
+  // sharing these collections. Scope to the active config's definition ids so the report excludes stale buckets
+  // from old/stopped definitions. `this.storageIds` is derived from the active config only (see getActiveSyncConfig).
   protected collectBucketOperationStats(): Promise<Map<string, storage.BucketOperationStat>> {
-    return this.aggregateBucketOperationStats(this.db.bucketState(this.replicationStreamId));
+    return this.aggregateBucketOperationStats(this.db.bucketState(this.replicationStreamId), {
+      '_id.d': { $in: this.storageIds.bucketDefinitionIds }
+    });
   }
 
   protected async collectBucketLiveRowCounts(): Promise<Map<string, number>> {
     const collections = await this.db.listSourceRecordCollections(this.replicationStreamId);
-    return this.aggregateBucketLiveRowCounts(collections);
+    return this.aggregateBucketLiveRowCounts(collections, {
+      bucketDefinitionIds: this.storageIds.bucketDefinitionIds
+    });
   }
 
   protected createMongoParameterCompactor(

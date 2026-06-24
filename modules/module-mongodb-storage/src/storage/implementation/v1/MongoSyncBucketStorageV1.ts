@@ -186,7 +186,10 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   }
 
   protected collectBucketLiveRowCounts(): Promise<Map<string, number>> {
-    return this.aggregateBucketLiveRowCounts([this.db.sourceRecordsV1], { '_id.g': this.replicationStreamId });
+    // V1/V2 have a single sync config per replication stream, so scoping by group is sufficient.
+    return this.aggregateBucketLiveRowCounts([this.db.sourceRecordsV1], {
+      match: { '_id.g': this.replicationStreamId }
+    });
   }
 
   protected createMongoParameterCompactor(

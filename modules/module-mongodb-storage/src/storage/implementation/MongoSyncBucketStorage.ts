@@ -22,7 +22,12 @@ import {
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
-import { HydratedSyncConfig, ParameterLookupRows, ScopedParameterLookup } from '@powersync/service-sync-rules';
+import {
+  BucketDefinitionId,
+  HydratedSyncConfig,
+  ParameterLookupRows,
+  ScopedParameterLookup
+} from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
@@ -415,7 +420,9 @@ export abstract class MongoSyncBucketStorage
     });
 
     const result = new Map<string, storage.BucketOperationStat>();
-    const cursor = collection.aggregate<{ _id: { b: string }; operations: number; operationBytes: number }>(pipeline);
+    const cursor = collection.aggregate<{ _id: { b: string }; operations: number; operationBytes: number }>(pipeline, {
+      maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS
+    });
     for await (const doc of cursor.stream()) {
       result.set(doc._id.b, { operations: doc.operations, operationBytes: doc.operationBytes });
     }
@@ -428,20 +435,30 @@ export abstract class MongoSyncBucketStorage
    * Each stored row records its bucket memberships, so unwinding those memberships and grouping by bucket gives
    * the distinct live row count. Counts are summed across collections, since a bucket may contain rows from
    * multiple source tables (each in its own collection).
+   *
+   * `options.bucketDefinitionIds` restricts to memberships of those definitions - used by V3 to exclude rows
+   * still tagged with stopped/old definitions that share the stream but are not part of the active config.
    */
   protected async aggregateBucketLiveRowCounts<T extends mongo.Document>(
     collections: mongo.Collection<T>[],
-    match?: mongo.Filter<T>
+    options?: { match?: mongo.Filter<T>; bucketDefinitionIds?: BucketDefinitionId[] }
   ): Promise<Map<string, number>> {
     const pipeline: mongo.Document[] = [];
-    if (match != null) {
-      pipeline.push({ $match: match });
+    if (options?.match != null) {
+      pipeline.push({ $match: options.match });
     }
-    pipeline.push({ $unwind: '$buckets' }, { $group: { _id: '$buckets.bucket', count: { $sum: 1 } } });
+    pipeline.push({ $unwind: '$buckets' });
+    if (options?.bucketDefinitionIds != null) {
+      pipeline.push({ $match: { 'buckets.def': { $in: options.bucketDefinitionIds } } });
+    }
+    pipeline.push({ $group: { _id: '$buckets.bucket', count: { $sum: 1 } } });
 
     const result = new Map<string, number>();
     for (const collection of collections) {
-      const cursor = collection.aggregate<{ _id: string; count: number }>(pipeline, { allowDiskUse: true });
+      const cursor = collection.aggregate<{ _id: string; count: number }>(pipeline, {
+        allowDiskUse: true,
+        maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS
+      });
       for await (const doc of cursor.stream()) {
         result.set(doc._id, (result.get(doc._id) ?? 0) + doc.count);
       }
