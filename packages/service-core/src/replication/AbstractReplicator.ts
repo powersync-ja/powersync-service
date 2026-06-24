@@ -213,6 +213,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     const existingJobs = new Map<string, T>(this.replicationJobs.entries());
     const replicatingStreams = await this.storage.getReplicatingReplicationStreams();
     const newJobs = new Map<string, T>();
+    const streamsToStart: storage.PersistedReplicationStream[] = [];
     let activeJob: T | undefined = undefined;
     for (let replicationStream of replicatingStreams) {
       const jobId = replicationStream.replicationJobId;
@@ -238,47 +239,12 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         existingJobs.delete(jobId);
       } else {
         // New sync config was found (or resume after restart)
-        try {
-          let lock: storage.ReplicationLock;
-          if (configuredLock?.sync_rules_id == replicationStream.replicationStreamId) {
-            lock = configuredLock;
-          } else {
-            lock = await replicationStream.lock();
-          }
-          const syncRuleStorage = this.storage.getInstance(replicationStream);
-          const newJob = this.createJob({
-            lock: lock,
-            storage: syncRuleStorage
-          });
-
-          newJobs.set(jobId, newJob);
-          newJob.start();
-          replicationJobStarted = true;
-          if (replicationStream.state == storage.SyncRuleState.ACTIVE) {
-            activeJob = newJob;
-          }
-          this.lastReplicationStreamInfoLogs.delete(replicationStream.replicationStreamName);
-        } catch (e) {
-          if (e?.errorData?.code === ErrorCode.PSYNC_S1003) {
-            this.logReplicationStreamInfoOnce(replicationStream, 'replication-stream-locked', () => {
-              replicationStream.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
-            });
-          } else {
-            // Could be a sync config parse error,
-            // for example from stricter validation that was added.
-            // This will be retried every couple of seconds.
-            // When new (valid) sync config is deployed and processed, this one be disabled.
-            replicationStream.logger.error('Failed to start replication for new sync config', e);
-          }
-        }
+        streamsToStart.push(replicationStream);
       }
     }
 
-    this.replicationJobs = newJobs;
-    this.activeReplicationJob = activeJob;
-
-    // Stop any orphaned jobs that no longer have a replication stream.
-    // Termination happens below
+    // Stop any orphaned jobs that no longer have a replication stream before starting replacements.
+    // Termination happens below.
     for (let job of existingJobs.values()) {
       // Old - stop and clean up
       try {
@@ -288,6 +254,46 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         job.storage.logger.warn('Failed to stop old replication job', e);
       }
     }
+
+    for (let replicationStream of streamsToStart) {
+      const jobId = replicationStream.replicationJobId;
+      try {
+        let lock: storage.ReplicationLock;
+        if (configuredLock?.sync_rules_id == replicationStream.replicationStreamId) {
+          lock = configuredLock;
+        } else {
+          lock = await replicationStream.lock();
+        }
+        const syncRuleStorage = this.storage.getInstance(replicationStream);
+        const newJob = this.createJob({
+          lock: lock,
+          storage: syncRuleStorage
+        });
+
+        newJobs.set(jobId, newJob);
+        newJob.start();
+        replicationJobStarted = true;
+        if (replicationStream.state == storage.SyncRuleState.ACTIVE) {
+          activeJob = newJob;
+        }
+        this.lastReplicationStreamInfoLogs.delete(replicationStream.replicationStreamName);
+      } catch (e) {
+        if (e?.errorData?.code === ErrorCode.PSYNC_S1003) {
+          this.logReplicationStreamInfoOnce(replicationStream, 'replication-stream-locked', () => {
+            replicationStream.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
+          });
+        } else {
+          // Could be a sync config parse error,
+          // for example from stricter validation that was added.
+          // This will be retried every couple of seconds.
+          // When new (valid) sync config is deployed and processed, this one be disabled.
+          replicationStream.logger.error('Failed to start replication for new sync config', e);
+        }
+      }
+    }
+
+    this.replicationJobs = newJobs;
+    this.activeReplicationJob = activeJob;
 
     // Replication stream stopped previously, including by a different process.
     const stopped = await this.storage.getStoppedReplicationStreams();
