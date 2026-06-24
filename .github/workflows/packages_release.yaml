@@ -65,12 +65,12 @@ jobs:
           packages="${{ toJson(steps.changesets.outputs.publishedPackages) }}"
 
           set +e
-          echo "$packages" | jq -e '[.[] | select(.name == "@powersync/service-image")] | length > 0' > /dev/null
+          echo "$packages" | jq -e '[.[] | select(.name == "@powersync/service-core")] | length > 0' > /dev/null
           jq_exit_code=$?
           set -e
 
           if [ $jq_exit_code -ne 0 ]; then
-            echo "Skipping service version tag because @powersync/service-image was not released."
+            echo "Skipping service version tag because @powersync/service-core was not released."
             echo "create_release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
