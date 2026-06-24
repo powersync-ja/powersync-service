@@ -13,6 +13,13 @@
  * ratio is the usual cause of an unexpectedly high "Data Synced" metric and is reclaimable via compact/defragment.
  */
 
+/**
+ * Time budget for the per-bucket report's storage aggregations (Mongo `maxTimeMS`, Postgres
+ * `statement_timeout`). The report scans current rows (and, on Postgres, all bucket data), which can be
+ * expensive on large instances, so the queries are bounded rather than allowed to run unbounded.
+ */
+export const BUCKET_REPORT_TIMEOUT_MS: number = 60_000;
+
 export interface BucketOperationStat {
   /** Total operations in the bucket's history (PUT/REMOVE/MOVE/CLEAR). */
   operations: number;
