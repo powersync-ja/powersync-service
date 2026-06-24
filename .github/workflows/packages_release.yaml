@@ -58,6 +58,34 @@ jobs:
         run: |
           echo "Published Packages: ${{ steps.changesets.outputs.publishedPackages }}"
 
+      - name: Create service version tag
+        if: ${{ github.event_name == 'push' && steps.changesets.outputs.published == 'true' }}
+        run: |
+          packages="${{ toJson(steps.changesets.outputs.publishedPackages) }}"
+
+          set +e
+          echo "$packages" | jq -e '[.[] | select(.name == "@powersync/service-image")] | length > 0' > /dev/null
+          jq_exit_code=$?
+          set -e
+
+          if [ $jq_exit_code -ne 0 ]; then
+            echo "Skipping service version tag because @powersync/service-image was not released."
+            exit 0
+          fi
+
+          git fetch --tags
+
+          version="$(node -p "require('./service/package.json').version")"
+          version_tag="v$version"
+
+          if git rev-parse --verify "refs/tags/$version_tag" >/dev/null 2>&1; then
+            echo "$version_tag already exists."
+            exit 0
+          fi
+
+          git tag "$version_tag"
+          git push origin "$version_tag"
+
       - name: Dev publish
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
