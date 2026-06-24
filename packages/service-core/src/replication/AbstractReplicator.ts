@@ -146,7 +146,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       try {
         // Configure new sync config, if they have changed.
         // In that case, also immediately take out a lock, so that another process doesn't start replication on it.
-        // This upfront lock is mostly superseded by the replicationStreamMatchesLoadedSyncRules() check. However, that doesn't cover old
+        // This upfront lock is mostly superseded by the replicationStreamLoadedSyncConfigMatch() check. However, that doesn't cover old
         // versions before that check was added, so we keep the lock for now - for where te service version and sync config is updated at
         // the same time.
 
@@ -218,7 +218,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       const jobId = replicationStream.replicationJobId;
       const existingJob = existingJobs.get(jobId);
       const syncConfigMismatchMessage = 'Ignoring replication stream for sync config not loaded by this process';
-      if (!this.replicationStreamMatchesLoadedSyncRules(replicationStream, options?.loadedSyncConfig)) {
+      if (!this.shouldHandleReplicationStream(replicationStream, options?.loadedSyncConfig)) {
         this.logReplicationStreamInfoOnce(replicationStream, syncConfigMismatchMessage);
         continue;
       }
@@ -327,14 +327,13 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   /**
    * When we load sync config from the filesystem/config source, we ignore any config loaded by other processes.
-   *
    * The idea is that if a different process loads updated config, that process should process it, not this one.
    *
    * This specifically helps for cases with rolling deploys.
    *
    * This does not apply when sync config is loaded from the database/API, instead of in the config.
    */
-  private replicationStreamMatchesLoadedSyncRules(
+  private shouldHandleReplicationStream(
     replicationStream: storage.PersistedReplicationStream,
     loadedSyncRules: string | undefined
   ) {
@@ -342,30 +341,10 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       return true;
     }
 
-    const syncConfig = this.replicationStreamSyncConfigForLoadedRulesGate(replicationStream);
-    return syncConfig == null || syncConfig.sync_rules_content == loadedSyncRules;
-  }
-
-  /**
-   * Return the "latest" sync config in a replication stream: Prioritize the "PROCESSING" one, then ACTIVE/ERRORED.
-   */
-  private replicationStreamSyncConfigForLoadedRulesGate(
-    replicationStream: storage.PersistedReplicationStream
-  ): storage.PersistedSyncConfigContent | null {
-    const processing = replicationStream.syncConfigContent.find(
+    const processingConfig = replicationStream.syncConfigContent.find(
       (syncConfig) => syncConfig.syncConfigState == storage.SyncRuleState.PROCESSING
     );
-    if (processing != null) {
-      return processing;
-    }
-
-    return (
-      replicationStream.syncConfigContent.find(
-        (syncConfig) =>
-          syncConfig.syncConfigState == storage.SyncRuleState.ACTIVE ||
-          syncConfig.syncConfigState == storage.SyncRuleState.ERRORED
-      ) ?? null
-    );
+    return processingConfig == null || processingConfig.sync_rules_content == loadedSyncRules;
   }
 
   protected createJobId(syncRuleId: number) {
