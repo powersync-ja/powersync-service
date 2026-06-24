@@ -152,50 +152,58 @@ export class PostgresSyncRulesStorage
   }
 
   async getBucketReport(options?: storage.GetBucketReportOptions): Promise<storage.BucketReport> {
-    // Operations + operation-history bytes per bucket.
-    const operationRows = await this.db.sql`
-      SELECT
-        bucket_name,
-        COUNT(*)::BIGINT AS operations,
-        COALESCE(SUM(OCTET_LENGTH(data)), 0)::BIGINT AS operation_bytes
-      FROM
-        bucket_data
-      WHERE
-        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
-      GROUP BY
-        bucket_name;
-    `.rows<{ bucket_name: string; operations: bigint; operation_bytes: bigint }>();
+    // Both queries scan storage (Postgres has no pre-aggregated bucket state), so they run in a transaction
+    // with a statement timeout rather than letting an admin request run unbounded on a large instance.
+    const { operationStats, rowCounts } = await this.db.transaction(async (db) => {
+      await db.query(`SET LOCAL statement_timeout = ${storage.BUCKET_REPORT_TIMEOUT_MS}`);
 
-    const operationStats = new Map<string, storage.BucketOperationStat>(
-      operationRows.map((row) => [
-        row.bucket_name,
-        { operations: Number(row.operations), operationBytes: Number(row.operation_bytes) }
-      ])
-    );
-
-    // Distinct live rows per bucket, from each row's bucket memberships. The current-data table is
-    // version-specific (current_data for v1/v2, v3_current_data for v3), so the table name is interpolated
-    // from the resolved store rather than parameterised.
-    const rowCounts = new Map<string, number>();
-    for await (const batch of this.db.streamRows<{ bucket: string; rows: bigint }>({
-      statement: `
+      // Operations + operation-history bytes per bucket.
+      const operationRows = await db.sql`
         SELECT
-          elem ->> 'bucket' AS bucket,
-          COUNT(*)::BIGINT AS rows
+          bucket_name,
+          COUNT(*)::BIGINT AS operations,
+          COALESCE(SUM(OCTET_LENGTH(data)), 0)::BIGINT AS operation_bytes
         FROM
-          ${this.currentDataStore.table} cd,
-          jsonb_array_elements(cd.buckets) AS elem
+          bucket_data
         WHERE
-          cd.group_id = $1
+          group_id = ${{ type: 'int4', value: this.replicationStreamId }}
         GROUP BY
-          elem ->> 'bucket'
-      `,
-      params: [{ type: 'int4', value: this.replicationStreamId }]
-    })) {
-      for (const row of batch) {
-        rowCounts.set(row.bucket, Number(row.rows));
+          bucket_name;
+      `.rows<{ bucket_name: string; operations: bigint; operation_bytes: bigint }>();
+
+      const operationStats = new Map<string, storage.BucketOperationStat>(
+        operationRows.map((row) => [
+          row.bucket_name,
+          { operations: Number(row.operations), operationBytes: Number(row.operation_bytes) }
+        ])
+      );
+
+      // Distinct live rows per bucket, from each row's bucket memberships. The current-data table is
+      // version-specific (current_data for v1/v2, v3_current_data for v3), so the table name is interpolated
+      // from the resolved store rather than parameterised.
+      const rowCounts = new Map<string, number>();
+      for await (const batch of db.streamRows<{ bucket: string; rows: bigint }>({
+        statement: `
+          SELECT
+            elem ->> 'bucket' AS bucket,
+            COUNT(*)::BIGINT AS rows
+          FROM
+            ${this.currentDataStore.table} cd,
+            jsonb_array_elements(cd.buckets) AS elem
+          WHERE
+            cd.group_id = $1
+          GROUP BY
+            elem ->> 'bucket'
+        `,
+        params: [{ type: 'int4', value: this.replicationStreamId }]
+      })) {
+        for (const row of batch) {
+          rowCounts.set(row.bucket, Number(row.rows));
+        }
       }
-    }
+
+      return { operationStats, rowCounts };
+    });
 
     return storage.buildBucketReport(operationStats, rowCounts, options);
   }
