@@ -38,6 +38,9 @@ import { PostgresCurrentDataStore } from './current-data-store.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresCompactor } from './PostgresCompactor.js';
 
+/** Postgres SQLSTATE raised when a statement is cancelled, e.g. by statement_timeout. */
+const POSTGRES_QUERY_CANCELED = '57014';
+
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
   db: lib_postgres.DatabaseClient;
@@ -152,6 +155,23 @@ export class PostgresSyncRulesStorage
   }
 
   async getBucketReport(options?: storage.GetBucketReportOptions): Promise<storage.BucketReport> {
+    try {
+      return await this.collectBucketReport(options);
+    } catch (e) {
+      // statement_timeout cancels the query with SQLSTATE 57014 (query_canceled). Translate it into a
+      // friendly "query timed out" error instead of a raw 500.
+      if (e?.cause?.code === POSTGRES_QUERY_CANCELED) {
+        throw new framework.DatabaseQueryError(
+          framework.ErrorCode.PSYNC_S2501,
+          'Query timed out while building the bucket report',
+          e
+        );
+      }
+      throw e;
+    }
+  }
+
+  private async collectBucketReport(options?: storage.GetBucketReportOptions): Promise<storage.BucketReport> {
     // Both queries scan storage (Postgres has no pre-aggregated bucket state), so they run in a transaction
     // with a statement timeout rather than letting an admin request run unbounded on a large instance.
     const { operationStats, rowCounts } = await this.db.transaction(async (db) => {

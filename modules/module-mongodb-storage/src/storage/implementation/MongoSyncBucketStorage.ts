@@ -367,11 +367,16 @@ export abstract class MongoSyncBucketStorage
   }
 
   async getBucketReport(options?: storage.GetBucketReportOptions): Promise<storage.BucketReport> {
-    const [operationStats, rowCounts] = await Promise.all([
-      this.collectBucketOperationStats(),
-      this.collectBucketLiveRowCounts()
-    ]);
-    return storage.buildBucketReport(operationStats, rowCounts, options);
+    try {
+      const [operationStats, rowCounts] = await Promise.all([
+        this.collectBucketOperationStats(),
+        this.collectBucketLiveRowCounts()
+      ]);
+      return storage.buildBucketReport(operationStats, rowCounts, options);
+    } catch (e) {
+      // Translate a maxTimeMS expiry into a friendly "query timed out" error instead of a raw 500.
+      throw lib_mongo.mapQueryError(e, 'while building the bucket report');
+    }
   }
 
   /**
