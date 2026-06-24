@@ -219,10 +219,12 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       const existingJob = existingJobs.get(jobId);
       const syncConfigMismatchMessage = 'Ignoring replication stream for sync config not loaded by this process';
       if (!this.shouldHandleReplicationStream(replicationStream, options?.loadedSyncConfig)) {
-        this.logReplicationStreamInfoOnce(replicationStream, syncConfigMismatchMessage);
+        this.logReplicationStreamInfoOnce(replicationStream, 'sync-config-mismatch', () => {
+          replicationStream.logger.info(syncConfigMismatchMessage);
+        });
         continue;
       }
-      this.clearReplicationStreamInfoLog(replicationStream, syncConfigMismatchMessage);
+      this.clearReplicationStreamInfoLog(replicationStream, 'sync-config-mismatch');
       if (replicationStream.state == storage.SyncRuleState.ACTIVE && activeJob == null) {
         activeJob = existingJob;
       }
@@ -258,7 +260,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           this.lastReplicationStreamInfoLogs.delete(replicationStream.replicationStreamName);
         } catch (e) {
           if (e?.errorData?.code === ErrorCode.PSYNC_S1003) {
-            this.logReplicationStreamInfoOnce(replicationStream, `[${e.errorData.code}] ${e.errorData.description}`);
+            this.logReplicationStreamInfoOnce(replicationStream, 'replication-stream-locked', () => {
+              replicationStream.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
+            });
           } else {
             // Could be a sync config parse error,
             // for example from stricter validation that was added.
@@ -310,17 +314,21 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     return { replicationJobStarted };
   }
 
-  private logReplicationStreamInfoOnce(replicationStream: storage.PersistedReplicationStream, message: string) {
-    if (this.lastReplicationStreamInfoLogs.get(replicationStream.replicationStreamName) == message) {
+  private logReplicationStreamInfoOnce(
+    replicationStream: storage.PersistedReplicationStream,
+    category: string,
+    log: () => void
+  ) {
+    if (this.lastReplicationStreamInfoLogs.get(replicationStream.replicationStreamName) == category) {
       return;
     }
 
-    replicationStream.logger.info(message);
-    this.lastReplicationStreamInfoLogs.set(replicationStream.replicationStreamName, message);
+    log();
+    this.lastReplicationStreamInfoLogs.set(replicationStream.replicationStreamName, category);
   }
 
-  private clearReplicationStreamInfoLog(replicationStream: storage.PersistedReplicationStream, message: string) {
-    if (this.lastReplicationStreamInfoLogs.get(replicationStream.replicationStreamName) == message) {
+  private clearReplicationStreamInfoLog(replicationStream: storage.PersistedReplicationStream, category: string) {
+    if (this.lastReplicationStreamInfoLogs.get(replicationStream.replicationStreamName) == category) {
       this.lastReplicationStreamInfoLogs.delete(replicationStream.replicationStreamName);
     }
   }
