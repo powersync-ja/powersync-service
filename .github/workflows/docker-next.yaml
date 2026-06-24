@@ -25,14 +25,14 @@ jobs:
         id: version
         run: |
           if [ "${{ github.ref_type }}" != "tag" ]; then
-            echo "This workflow must be run against a git tag, e.g. gh workflow run docker-next --ref @powersync/service-image@1.21.0" >&2
+            echo "This workflow must be run against a git tag, e.g. gh workflow run docker-next --ref v1.21.0" >&2
             exit 1
           fi
 
           version="$(node -p "require('./service/package.json').version")"
           tag="${{ github.ref_name }}"
 
-          if [ "$tag" != "@powersync/service-image@$version" ] && [ "$tag" != "v$version" ]; then
+          if [ "$tag" != "v$version" ]; then
             echo "Git tag $tag does not match service package version $version" >&2
             exit 1
           fi
