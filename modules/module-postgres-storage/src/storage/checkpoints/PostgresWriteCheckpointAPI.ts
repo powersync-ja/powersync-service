@@ -32,22 +32,67 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     return batchCreateCustomWriteCheckpoints(this.db, checkpoints);
   }
 
-  async createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
+  async createManagedWriteCheckpoints(
+    checkpoints: storage.ManagedWriteCheckpointOptions[]
+  ): Promise<Map<string, bigint>> {
     if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
       throw new framework.errors.ValidationError(
         `Attempting to create a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
       );
     }
 
-    const row = await this.db.sql`
+    const uniqueCheckpoints = [...new Map(checkpoints.map((checkpoint) => [checkpoint.user_id, checkpoint])).values()];
+    if (uniqueCheckpoints.length == 0) {
+      return new Map();
+    }
+
+    if (uniqueCheckpoints.length == 1) {
+      const checkpoint = uniqueCheckpoints[0];
+      const row = await this.db.sql`
+        INSERT INTO
+          write_checkpoints (user_id, lsns, write_checkpoint)
+        VALUES
+          (
+            ${{ type: 'varchar', value: checkpoint.user_id }},
+            ${{ type: 'jsonb', value: checkpoint.heads }},
+            ${{ type: 'int8', value: 1 }}
+          )
+        ON CONFLICT (user_id) DO UPDATE
+        SET
+          write_checkpoint = write_checkpoints.write_checkpoint + 1,
+          lsns = EXCLUDED.lsns
+        RETURNING
+          *;
+      `
+        .decoded(models.WriteCheckpoint)
+        .first();
+
+      return new Map([[row!.user_id, row!.write_checkpoint]]);
+    }
+
+    const mappedCheckpoints = uniqueCheckpoints.map((checkpoint) => ({
+      user_id: checkpoint.user_id,
+      lsns: checkpoint.heads
+    }));
+
+    const rows = await this.db.sql`
+      WITH
+        json_data AS (
+          SELECT
+          CHECKPOINT ->> 'user_id' AS user_id,
+          CHECKPOINT -> 'lsns' AS lsns
+          FROM
+            jsonb_array_elements(${{ type: 'jsonb', value: mappedCheckpoints }}) AS
+          CHECKPOINT
+        )
       INSERT INTO
         write_checkpoints (user_id, lsns, write_checkpoint)
-      VALUES
-        (
-          ${{ type: 'varchar', value: checkpoint.user_id }},
-          ${{ type: 'jsonb', value: checkpoint.heads }},
-          ${{ type: 'int8', value: 1 }}
-        )
+      SELECT
+        user_id,
+        lsns,
+        1
+      FROM
+        json_data
       ON CONFLICT (user_id) DO UPDATE
       SET
         write_checkpoint = write_checkpoints.write_checkpoint + 1,
@@ -56,8 +101,9 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         *;
     `
       .decoded(models.WriteCheckpoint)
-      .first();
-    return row!.write_checkpoint;
+      .rows();
+
+    return new Map(rows.map((row) => [row.user_id, row.write_checkpoint]));
   }
 
   async lastWriteCheckpoint(filters: storage.LastWriteCheckpointFilters): Promise<bigint | null> {
