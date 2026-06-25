@@ -7,7 +7,7 @@ import { BucketStorageFactory, SyncRulesBucketStorage } from '../storage/storage
 // already bounds how many requests can be waiting in this process.
 // Smaller values here have better efficiency, while larger numbers here may give slight improvements in latency.
 // We want to limit the number of database connections in use for write checkpoints, so we keep the numbers low here.
-export const MAX_IN_FLIGHT_WRITE_CHECKPOINT_BATCHES = 2;
+export const MAX_IN_FLIGHT_WRITE_CHECKPOINT_BATCHES = 3;
 
 export interface CreateWriteCheckpointResult {
   writeCheckpoint: string;
