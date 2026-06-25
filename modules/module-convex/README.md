@@ -120,7 +120,7 @@ The content below is written in an agents.md style describing the behavior of `m
 - Exact table patterns are resolved directly from Sync Streams rules. `json_schemas` is only used for initial wildcard table expansion and API/debug schema previews.
 - A re-snapshot is still required for initial replication, a sync-rule deployment that selects new existing data, or a lost/expired cursor, but not merely because a Convex field was added, removed, or changed type.
 - Table drops are not (yet) detected by continuously diffing `json_schemas`. Validation showed that deleting a table from the Convex dashboard does not emit per-document `_deleted` rows in `document_deltas`, so previously replicated rows can remain synced to clients. Use the dashboard "Clear Table" action before deleting a table, or delete documents through mutation paths that emit document deltas. Otherwise, handle dashboard/schema-only table removal as a sync-rule/deployment state change and clear/re-replicate affected PowerSync state.
-- See [Convex schema change handling](../../docs/convex/schema-change-handling.md) for the detailed rationale and limitations.
+- See [Convex schema change handling](../../docs/modules/convex/schema-change-handling.md) for the detailed rationale and limitations.
 
 ## 7) Datatype Mapping
 

@@ -16,7 +16,7 @@ type ParameterCompactionReadDocument = {
  *
  * This scans through the entire collection to find data to compact.
  *
- * For background, see the `/docs/parameters-lookups.md` file.
+ * For background, see the `/docs/storage/parameter-lookups.md` file.
  */
 export class MongoParameterCompactor {
   constructor(
