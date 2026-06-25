@@ -159,8 +159,9 @@ export interface SyncRulesBucketStorage
    * Per-bucket report of total operations vs total live rows in storage.
    *
    * Intended for an on-demand admin/diagnostics view (e.g. answering "why is my Data Synced so high"),
-   * not as a live gauge. Operation counts are read from pre-aggregated bucket state; live-row counts are
-   * derived from current stored rows. May be expensive on large instances.
+   * not as a live gauge. Operation and live-row counts are aggregated from storage; the exact source is
+   * backend-specific (MongoDB reads pre-aggregated bucket state, Postgres scans bucket data). May be
+   * expensive on large instances.
    *
    * Optional: storage providers that don't implement it are reported as unsupported by the API.
    */

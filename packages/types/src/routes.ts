@@ -81,7 +81,8 @@ export type ValidateResponse = t.Encoded<typeof ValidateResponse>;
 export const BucketReportRequest = t.object({
   /**
    * Maximum number of buckets to return, ranked by operation count descending (worst offenders first).
-   * Totals are still computed across all buckets. Omit for no limit.
+   * Caps the response only, not the query cost: totals are still computed across all buckets. Omit for
+   * no limit.
    */
   limit: t.number.optional()
 });
@@ -92,7 +93,7 @@ export const BucketStorageStats = t.object({
   bucket: t.string,
   /** Total operations in the bucket's history (PUT/REMOVE/MOVE/CLEAR). */
   operations: t.number,
-  /** Distinct live rows currently in the bucket. */
+  /** Live rows currently in the bucket. */
   rows: t.number,
   /** Approximate size of the operation history in bytes. */
   operation_bytes: t.number,
@@ -108,7 +109,7 @@ export const BucketReportResponse = t.object({
   /** Per-bucket stats, ranked worst-first (most operations, then most fragmented). */
   buckets: t.array(BucketStorageStats),
   totals: t.object({
-    /** Total number of buckets in the active sync config (before any `limit`). */
+    /** Number of buckets with stored operations or rows (before any `limit`). */
     bucket_count: t.number,
     operations: t.number,
     /** Sum of per-bucket live rows. Rows in multiple buckets are counted per bucket. */
