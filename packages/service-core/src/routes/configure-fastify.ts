@@ -31,6 +31,7 @@ export type RouteRegistrationOptions = {
  */
 export type RouteDefinitions = {
   api?: Partial<RouteRegistrationOptions>;
+  checkpointing?: Partial<RouteRegistrationOptions>;
   sync_stream?: Partial<RouteRegistrationOptions>;
 };
 
@@ -41,10 +42,17 @@ export type FastifyServerConfig = {
 
 export const DEFAULT_ROUTE_OPTIONS = {
   api: {
-    routes: [...ADMIN_ROUTES, ...CHECKPOINT_ROUTES, ...SYNC_RULES_ROUTES, ...PROBES_ROUTES],
+    routes: [...ADMIN_ROUTES, ...SYNC_RULES_ROUTES, ...PROBES_ROUTES],
     queue_options: {
       concurrency: 10,
       max_queue_depth: 20
+    }
+  },
+  checkpointing: {
+    routes: [...CHECKPOINT_ROUTES],
+    queue_options: {
+      concurrency: 50,
+      max_queue_depth: 100
     }
   },
   sync_stream: {
@@ -87,6 +95,21 @@ export function configureFastifyServer(server: fastify.FastifyInstance, options:
     childContext.addHook(
       'onRequest',
       createRequestQueueHook(routes.api?.queue_options ?? DEFAULT_ROUTE_OPTIONS.api.queue_options)
+    );
+  });
+
+  server.register(async function (childContext) {
+    registerFastifyRoutes(
+      childContext,
+      generateContext,
+      routes.checkpointing?.routes ?? DEFAULT_ROUTE_OPTIONS.checkpointing.routes
+    );
+    registerFastifyNotFoundHandler(childContext);
+
+    // Limit the active concurrent requests
+    childContext.addHook(
+      'onRequest',
+      createRequestQueueHook(routes.checkpointing?.queue_options ?? DEFAULT_ROUTE_OPTIONS.checkpointing.queue_options)
     );
   });
 
