@@ -207,6 +207,39 @@ streams:
     expect(evaluateBucketIds(desc, USERS, { id: 'foo' })).toStrictEqual(['stream|0[]']);
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo2' })).toStrictEqual(['stream|0[]']);
   });
+
+  syncTest('aliased column and star precedence', ({ sync }) => {
+    const aliasFirst = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  
+streams:
+  stream:
+    query: SELECT user_id as id, * FROM users
+`);
+    const aliasLast = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  
+streams:
+  stream:
+    query: SELECT *, user_id as id FROM users
+`);
+
+    const sourceRecord = { user_id: 'uid', id: 'internal_id', name: 'username' };
+
+    {
+      const [row] = aliasFirst.evaluateRow({ sourceTable: USERS, record: sourceRecord });
+      expect(row.id).toStrictEqual('internal_id');
+      expect(row.data).toStrictEqual({ id: 'internal_id', user_id: 'uid', name: 'username' });
+    }
+
+    {
+      const [row] = aliasLast.evaluateRow({ sourceTable: USERS, record: sourceRecord });
+      expect(row.id).toStrictEqual('uid');
+      expect(row.data).toStrictEqual({ id: 'uid', user_id: 'uid', name: 'username' });
+    }
+  });
 });
 
 describe('evaluating parameters', () => {
