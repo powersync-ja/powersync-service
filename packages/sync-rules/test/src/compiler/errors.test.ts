@@ -286,7 +286,7 @@ streams:
   test('warns when * appears after aliased columns', () => {
     expect(compilationErrorsForSingleStream('select user_id as id, * from users')).toStrictEqual([
       {
-        message: `A '*' column after aliased columns may give unexpected results: If the synced row contains a column named 'id', '*' would overwrite it.`,
+        message: `A '*' column after aliased columns may give unexpected results: If the source row contains a column named 'id', '*' would overwrite it.`,
         source: '*',
         isWarning: true
       }

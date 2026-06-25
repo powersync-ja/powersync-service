@@ -471,7 +471,7 @@ export class StreamQueryParser {
             selectsFrom(resolved, column.expr);
             if (seenExplicitAlias) {
               this.errors.report(
-                `A '*' column after aliased columns may give unexpected results: If the synced row contains a column named '${seenExplicitAlias}', '*' would overwrite it.`,
+                `A '*' column after aliased columns may give unexpected results: If the source row contains a column named '${seenExplicitAlias}', '*' would overwrite it.`,
                 column.expr,
                 { isWarning: true }
               );
