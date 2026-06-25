@@ -13,7 +13,8 @@ export class PostgresPersistedSyncConfigContent extends storage.PersistedSyncCon
       sync_rules_content: row.content,
       compiled_plan: row.sync_plan,
       replicationStreamName: row.slot_name,
-      storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION
+      storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION,
+      syncConfigState: row.state as storage.SyncRuleState
     });
   }
 
