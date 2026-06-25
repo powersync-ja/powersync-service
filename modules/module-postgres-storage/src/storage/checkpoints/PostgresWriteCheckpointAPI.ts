@@ -46,30 +46,6 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       return new Map();
     }
 
-    if (uniqueCheckpoints.length == 1) {
-      const checkpoint = uniqueCheckpoints[0];
-      const row = await this.db.sql`
-        INSERT INTO
-          write_checkpoints (user_id, lsns, write_checkpoint)
-        VALUES
-          (
-            ${{ type: 'varchar', value: checkpoint.user_id }},
-            ${{ type: 'jsonb', value: checkpoint.heads }},
-            ${{ type: 'int8', value: 1 }}
-          )
-        ON CONFLICT (user_id) DO UPDATE
-        SET
-          write_checkpoint = write_checkpoints.write_checkpoint + 1,
-          lsns = EXCLUDED.lsns
-        RETURNING
-          *;
-      `
-        .decoded(models.WriteCheckpoint)
-        .first();
-
-      return new Map([[row!.user_id, row!.write_checkpoint]]);
-    }
-
     const mappedCheckpoints = uniqueCheckpoints.map((checkpoint) => ({
       user_id: checkpoint.user_id,
       lsns: checkpoint.heads
