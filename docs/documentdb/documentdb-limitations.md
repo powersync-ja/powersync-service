@@ -1,6 +1,6 @@
 # Azure DocumentDB — Limitations
 
-PowerSync can replicate from Azure DocumentDB (formerly Azure Cosmos DB for MongoDB vCore), but it is not fully MongoDB-compatible. This document lists the limitations that **affect users** — behaviour that differs from a standard MongoDB source in a way a deployment can observe.
+PowerSync can replicate from Azure DocumentDB (formerly Azure Cosmos DB for MongoDB vCore). DocumentDB speaks the MongoDB wire protocol, so PowerSync connects to it through the same MongoDB connector used for standard MongoDB sources. DocumentDB is a separate engine, though, and doesn't implement every MongoDB feature. PowerSync handles most of these gaps internally. This page covers the ones that may still affect deployments.
 
 Internal implementation details (how checkpoints and LSNs work on DocumentDB) are documented separately in [documentdb-lsn-sentinel-checkpoints.md](./documentdb-lsn-sentinel-checkpoints.md).
 
