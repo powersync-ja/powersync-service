@@ -51,7 +51,7 @@ export const DEFAULT_ROUTE_OPTIONS = {
   checkpointing: {
     routes: [...CHECKPOINT_ROUTES],
     queue_options: {
-      concurrency: 50,
+      concurrency: 100,
       max_queue_depth: 100
     }
   },
