@@ -1348,6 +1348,44 @@ streams:
     await syncRules.current_lock?.release();
   });
 
+  test.runIf(storageVersion >= 3)('does not lock when appending a sync config to an existing stream', async () => {
+    await using factory = await storageConfig.factory();
+
+    const firstRules = `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`;
+    const secondRules = `
+config:
+  edition: 3
+
+streams:
+  by_project:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+`;
+
+    const first = await factory.updateSyncRules(updateSyncRulesFromYaml(firstRules, { storageVersion, lock: true }));
+    expect(first.current_lock?.sync_rules_id).toBe(first.replicationStreamId);
+    try {
+      const firstStorage = factory.getInstance(first);
+      await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+      await firstWriter.markAllSnapshotDone('1/1');
+      await firstWriter.commit('1/1');
+
+      const second = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(secondRules, { storageVersion, lock: true })
+      );
+      expect(second.replicationStreamId).toBe(first.replicationStreamId);
+      expect(second.current_lock).toBeNull();
+    } finally {
+      await first.current_lock?.release();
+    }
+  });
+
   test.runIf(storageVersion < 3)('uses a single current_data collection for v1 source records', async () => {
     await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(
