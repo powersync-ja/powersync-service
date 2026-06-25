@@ -39,6 +39,8 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       );
     }
 
+    const checkpointRequestId = checkpoint.checkpoint_request_id ?? null;
+
     const row = await this.db.sql`
       INSERT INTO
         write_checkpoints (user_id, lsns, write_checkpoint)
@@ -46,12 +48,24 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         (
           ${{ type: 'varchar', value: checkpoint.user_id }},
           ${{ type: 'jsonb', value: checkpoint.heads }},
-          ${{ type: 'int8', value: 1 }}
+          -- First generated managed checkpoint for a new user starts at 1.
+          -- Supplied checkpoint request ids are inserted as-is.
+          ${{ type: 'int8', value: checkpointRequestId ?? 1n }}
         )
       ON CONFLICT (user_id) DO UPDATE
       SET
-        write_checkpoint = write_checkpoints.write_checkpoint + 1,
-        lsns = EXCLUDED.lsns
+        write_checkpoint = CASE
+          WHEN ${{ type: 'int8', value: checkpointRequestId }} IS NULL THEN write_checkpoints.write_checkpoint + 1
+          ELSE ${{ type: 'int8', value: checkpointRequestId }}
+        END,
+        lsns = CASE
+          WHEN ${{ type: 'int8', value: checkpointRequestId }} IS NOT NULL
+          AND write_checkpoints.write_checkpoint = ${{
+        type: 'int8',
+        value: checkpointRequestId
+      }} THEN write_checkpoints.lsns
+          ELSE EXCLUDED.lsns
+        END
       RETURNING
         *;
     `

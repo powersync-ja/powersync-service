@@ -20,6 +20,58 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
     register.registerDataStorageCheckpointTests({ ...POSTGRES_STORAGE_FACTORY, storageVersion }));
 
   describe(`Postgres Sync Bucket Storage - pg-specific - v${storageVersion}`, () => {
+    test('managed write checkpoints - client supplied id', async () => {
+      await using factory = await POSTGRES_STORAGE_FACTORY.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+    bucket_definitions:
+      global:
+        data: []
+    `,
+          { storageVersion, validate: false }
+        )
+      );
+      const bucketStorage = factory.getInstance(syncRules);
+
+      const first = await bucketStorage.createManagedWriteCheckpoint({
+        user_id: 'user1',
+        heads: { '1': '5/0' },
+        checkpoint_request_id: 42n
+      });
+      expect(first).toEqual(42n);
+      await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '5/0' } })).resolves.toEqual(
+        42n
+      );
+
+      const retried = await bucketStorage.createManagedWriteCheckpoint({
+        user_id: 'user1',
+        heads: { '1': '8/0' },
+        checkpoint_request_id: 42n
+      });
+      expect(retried).toEqual(42n);
+      await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '6/0' } })).resolves.toEqual(
+        42n
+      );
+
+      const replaced = await bucketStorage.createManagedWriteCheckpoint({
+        user_id: 'user1',
+        heads: { '1': '8/0' },
+        checkpoint_request_id: 43n
+      });
+      expect(replaced).toEqual(43n);
+      await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '7/0' } })).resolves.toBeNull();
+      await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '8/0' } })).resolves.toEqual(
+        43n
+      );
+
+      const generated = await bucketStorage.createManagedWriteCheckpoint({
+        user_id: 'user1',
+        heads: { '1': '9/0' }
+      });
+      expect(generated).toEqual(44n);
+    });
+
     /**
      * The split of returned results can vary depending on storage drivers.
      * The large rows here are 2MB large while the default chunk limit is 1mb.

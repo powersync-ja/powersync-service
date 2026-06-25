@@ -1,9 +1,14 @@
-import { logger, router, schema } from '@powersync/lib-services-framework';
+import { codecs, logger, router, schema } from '@powersync/lib-services-framework';
 import * as t from 'ts-codec';
 
 import * as util from '../../util/util-index.js';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
+
+const CheckpointRequestPayload = t.object({
+  client_id: t.string,
+  checkpoint_request_id: codecs.bigint // bigint here might be overkill, but we use it for other checkpoint inputs
+});
 
 const WriteCheckpointRequest = t.object({
   client_id: t.string.optional()
@@ -73,4 +78,38 @@ export const writeCheckpoint2 = routeDefinition({
   }
 });
 
-export const CHECKPOINT_ROUTES = [writeCheckpoint, writeCheckpoint2];
+export const checkpointRequest = routeDefinition({
+  path: '/sync/checkpoint-request',
+  method: router.HTTPMethod.POST,
+  authorize: authUser,
+  validator: schema.createTsCodecValidator(CheckpointRequestPayload, { allowAdditional: true }),
+  handler: async (request) => {
+    const { token_payload, service_context } = request.context;
+    const { params } = request;
+
+    const apiHandler = service_context.routerEngine.getAPI();
+
+    const decodedParams = CheckpointRequestPayload.decode(params);
+
+    // Duplicate checkpoint requests still go through createReplicationHead, so the source may receive a marker/keepalive.
+    // Storage preserves the original heads for same-id retries; this keeps the retry path simple for now.
+    const { replicationHead, writeCheckpoint } = await util.createWriteCheckpoint({
+      userId: token_payload!.userIdString,
+      clientId: decodedParams.client_id,
+      api: apiHandler,
+      storage: service_context.storageEngine.activeBucketStorage,
+      checkpointRequestId: decodedParams.checkpoint_request_id
+    });
+
+    logger.info(
+      `Requested checkpoint for ${token_payload!.userIdString}/${params.client_id}: ${writeCheckpoint} | ${replicationHead}`
+    );
+
+    // TODO, we don't actually need to return this here, what should we return :?
+    return {
+      write_checkpoint: String(writeCheckpoint)
+    };
+  }
+});
+
+export const CHECKPOINT_ROUTES = [checkpointRequest, writeCheckpoint, writeCheckpoint2];

@@ -7,9 +7,11 @@ export interface CreateWriteCheckpointOptions {
   clientId: string | undefined;
   api: RouteAPI;
   storage: BucketStorageFactory;
+  checkpointRequestId?: bigint;
 }
 export async function createWriteCheckpoint(options: CreateWriteCheckpointOptions) {
   const full_user_id = checkpointUserId(options.userId, options.clientId);
+  const { checkpointRequestId } = options;
 
   const syncBucketStorage = (await options.storage.getActiveSyncConfig())?.storage;
   if (!syncBucketStorage) {
@@ -19,7 +21,8 @@ export async function createWriteCheckpoint(options: CreateWriteCheckpointOption
   const { writeCheckpoint, currentCheckpoint } = await options.api.createReplicationHead(async (currentCheckpoint) => {
     const writeCheckpoint = await syncBucketStorage.createManagedWriteCheckpoint({
       user_id: full_user_id,
-      heads: { '1': currentCheckpoint }
+      heads: { '1': currentCheckpoint },
+      checkpoint_request_id: checkpointRequestId
     });
     return { writeCheckpoint, currentCheckpoint };
   });

@@ -33,7 +33,20 @@ export interface BatchedCustomWriteCheckpointOptions extends BaseWriteCheckpoint
   checkpoint: bigint;
 }
 
-export interface CustomWriteCheckpointOptions extends BatchedCustomWriteCheckpointOptions {
+export interface ClientRequestedCheckpointOptions {
+  /**
+   * Supplied for client-generated checkpoint requests.
+   *
+   * If omitted, storage generates the next managed write checkpoint id.
+   * If supplied and the same id already exists for user_id, this is a no-op.
+   * If supplied and a different id exists, replace the stored id and heads.
+   */
+  checkpoint_request_id?: bigint;
+}
+
+export interface CustomWriteCheckpointOptions
+  extends BatchedCustomWriteCheckpointOptions,
+    ClientRequestedCheckpointOptions {
   /**
    * Replication stream which was active when this checkpoint was created.
    */
@@ -50,7 +63,7 @@ export interface ManagedWriteCheckpointFilters extends BaseWriteCheckpointIdenti
   heads: Record<string, string>;
 }
 
-export type ManagedWriteCheckpointOptions = ManagedWriteCheckpointFilters;
+export type ManagedWriteCheckpointOptions = ManagedWriteCheckpointFilters & ClientRequestedCheckpointOptions;
 
 export type SyncStorageLastWriteCheckpointFilters = BaseWriteCheckpointIdentifier | ManagedWriteCheckpointFilters;
 export type LastWriteCheckpointFilters = CustomWriteCheckpointFilters | ManagedWriteCheckpointFilters;

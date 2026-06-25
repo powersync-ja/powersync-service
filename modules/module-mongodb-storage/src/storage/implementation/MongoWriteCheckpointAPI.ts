@@ -34,19 +34,50 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     }
 
     const { user_id, heads: lsns } = checkpoint;
+    const checkpointRequestId = checkpoint.checkpoint_request_id ?? null;
+
+    // A conditional which branches if the the checkpoint_request_id has been supplied
+    const hasSuppliedId = checkpointRequestId != null;
+    // We should perform a no-op in this case
+    const sameSuppliedId = {
+      $and: [{ $literal: hasSuppliedId }, { $eq: ['$client_id', { $literal: checkpointRequestId }] }]
+    };
+
+    // If no checkpoint_request_id is specified, then we need to increment
+    const generatedId = {
+      $add: [{ $ifNull: ['$client_id', 0n] }, 1n]
+    };
+
+    // The next client id is:
+    // - the checkpoint_request_id if it is supplied and different
+    // - the previous client_id if the checkpoint_request_id is the same value as before
+    // - an incremented value if no checkpoint_request_id is supplied
+    const nextClientId = {
+      $cond: [{ $literal: hasSuppliedId }, { $literal: checkpointRequestId }, generatedId]
+    };
+
     const doc = await this.db.write_checkpoints.findOneAndUpdate(
-      {
-        user_id: user_id
-      },
-      {
-        $set: {
-          lsns,
-          processed_at_lsn: null
-        },
-        $inc: {
-          client_id: 1n
+      { user_id },
+      [
+        {
+          $set: {
+            user_id,
+            client_id: {
+              $cond: [sameSuppliedId, '$client_id', nextClientId]
+            },
+            lsns: {
+              // Only update LSNs if not the sameSuppliedId
+              $cond: [sameSuppliedId, '$lsns', { $literal: lsns }]
+            },
+            processed_at_lsn: {
+              $cond: [sameSuppliedId, '$processed_at_lsn', null]
+            },
+            // Track if this record originated from a checkpoint-request with supplied ID
+            // these records are treated as temporary and may be cleaned-up on a periodic basis
+            isCheckpointRequest: hasSuppliedId
+          }
         }
-      },
+      ],
       { upsert: true, returnDocument: 'after' }
     );
     return doc!.client_id;
