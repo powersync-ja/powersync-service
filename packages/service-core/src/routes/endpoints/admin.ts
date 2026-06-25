@@ -241,7 +241,8 @@ export const validate = routeDefinition({
       replicationStreamName: '',
       storageVersion: storage.LEGACY_STORAGE_VERSION,
       sync_rules_content: content,
-      compiled_plan: null
+      compiled_plan: null,
+      syncConfigState: storage.SyncRuleState.PROCESSING
     });
 
     const connectionStatus = await apiHandler.getConnectionStatus();
