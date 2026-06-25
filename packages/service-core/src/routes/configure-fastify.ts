@@ -80,6 +80,7 @@ export function configureFastifyServer(server: fastify.FastifyInstance, options:
 
   // Set on the outer server so both child scopes inherit.
   registerFastifyErrorHandler(server);
+  registerFastifyNotFoundHandler(server);
 
   /**
    * Fastify creates an encapsulated context for each `.register` call.
@@ -89,7 +90,6 @@ export function configureFastifyServer(server: fastify.FastifyInstance, options:
    */
   server.register(async function (childContext) {
     registerFastifyRoutes(childContext, generateContext, routes.api?.routes ?? DEFAULT_ROUTE_OPTIONS.api.routes);
-    registerFastifyNotFoundHandler(childContext);
 
     // Limit the active concurrent requests
     childContext.addHook(
@@ -104,7 +104,6 @@ export function configureFastifyServer(server: fastify.FastifyInstance, options:
       generateContext,
       routes.checkpointing?.routes ?? DEFAULT_ROUTE_OPTIONS.checkpointing.routes
     );
-    registerFastifyNotFoundHandler(childContext);
 
     // Limit the active concurrent requests
     childContext.addHook(
