@@ -1,6 +1,6 @@
 {
   "name": "@powersync/service-schema",
-  "version": "1.23.0",
+  "version": "1.23.1",
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "publishConfig": {
