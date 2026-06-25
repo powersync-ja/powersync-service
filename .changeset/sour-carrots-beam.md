@@ -1,10 +1,10 @@
 ---
-'@powersync/service-module-postgres-storage': minor
-'@powersync/service-module-mongodb-storage': minor
-'@powersync/service-core-tests': minor
-'@powersync/service-module-postgres': minor
-'@powersync/service-module-mongodb': minor
-'@powersync/service-core': minor
+'@powersync/service-module-postgres-storage': patch
+'@powersync/service-module-mongodb-storage': patch
+'@powersync/service-core-tests': patch
+'@powersync/service-module-postgres': patch
+'@powersync/service-module-mongodb': patch
+'@powersync/service-core': patch
 ---
 
-Batch concurrent write checkpoint requests.
+Batch concurrent write checkpoint requests and increase request limits to improve throughput.
