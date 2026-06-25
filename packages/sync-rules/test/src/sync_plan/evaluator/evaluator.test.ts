@@ -209,14 +209,18 @@ streams:
   });
 
   syncTest('aliased column and star precedence', ({ sync }) => {
-    const aliasFirst = sync.prepareSyncStreams(`
+    const aliasFirst = sync.prepareSyncStreams(
+      `
 config:
   edition: 3
   
 streams:
   stream:
     query: SELECT user_id as id, * FROM users
-`);
+`,
+      undefined,
+      { allowWarnings: true }
+    );
     const aliasLast = sync.prepareSyncStreams(`
 config:
   edition: 3

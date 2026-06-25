@@ -462,12 +462,20 @@ export class StreamQueryParser {
       }
     };
 
+    let seenExplicitAlias: string | undefined;
     for (const column of columns) {
       if (column.expr.type == 'ref' && column.expr.name == '*') {
         const resolved = this.resolveTableName(column.expr, column.expr.table?.name);
         if (resolved != null) {
           if (resolved instanceof BaseSourceResultSet) {
             selectsFrom(resolved, column.expr);
+            if (seenExplicitAlias) {
+              this.errors.report(
+                `A '*' column after aliased columns may give unexpected results: If the synced row contains a column named '${seenExplicitAlias}', '*' would overwrite it.`,
+                column.expr,
+                { isWarning: true }
+              );
+            }
             this.resultColumns.push(StarColumnSource.instance);
           } else {
             // Selecting from a subquery, add all columns.
@@ -477,6 +485,9 @@ export class StreamQueryParser {
           }
         }
       } else {
+        if (column.alias?.name) {
+          seenExplicitAlias = column.alias?.name;
+        }
         const expr = this.parseExpression(column.expr);
         const outputName = this.inferColumnName(column);
         addColumn(expr, outputName);
