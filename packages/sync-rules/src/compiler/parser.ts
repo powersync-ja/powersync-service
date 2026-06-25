@@ -254,7 +254,6 @@ export class StreamQueryParser {
       return false;
     }
 
-    this.diagnoseAliasedPrimaryWithJoin(node.from);
     node.from?.forEach((f) => this.processFrom(f));
     if (node.where) {
       this.addAndTermToWhereClause(node.where);
@@ -262,6 +261,9 @@ export class StreamQueryParser {
 
     if (!options.forSubquery && node.columns) {
       this.processResultColumns(node, node.columns);
+      // Run after processResultColumns so the primary table (determined by the selected columns, not the
+      // order of the FROM clause) is known. See #565.
+      this.diagnoseAliasedPrimaryWithJoin(node.from);
     }
 
     this.warnUnsupported(node.groupBy, 'GROUP BY');
@@ -359,54 +361,62 @@ export class StreamQueryParser {
   }
 
   /**
-   * Diagnose silent-row-loss from joining onto an aliased primary table when one or more join targets are
-   * unaliased. See #565: a query like
+   * Warn when a Sync Stream joins multiple tables, the primary table (the one the stream selects from) carries
+   * an alias, and at least one joined source is referenced by its bare (unaliased) name. See #565: a query like
    *
    *   SELECT cm.* FROM chat_messages cm
    *     INNER JOIN chat_conversations ON cm.conversation_id = chat_conversations.id
    *     WHERE chat_conversations.user_id = auth.user_id()
    *
-   * parses, but filter compilation cannot route the `chat_conversations.user_id` reference back to the
-   * joined table when the primary table wears an alias and the joined table is referenced by its bare name.
-   * Downstream the stream may silently degenerate and sync zero rows.
+   * compiles successfully, but the alias renames the synced table: rows sync under `cm` rather than
+   * `chat_messages`. When joining, an alias is frequently introduced only to make the join's `ON` clause
+   * easier to write, in which case the rename is unintentional and clients querying `chat_messages` will
+   * unexpectedly see zero rows.
    *
-   * The check intentionally suppresses the warning when *every* join target is also aliased — that is the
-   * idiom for queries where the author has already disambiguated scopes (e.g. `FROM users AS u JOIN orgs
-   * AS uom ON ...`) and the silent-row-loss footgun does not apply.
+   * The primary table is determined by the selected columns (tracked in {@link primaryResultSet} by
+   * {@link processResultColumns}), not by the order of the `FROM` clause, so this must run afterwards.
    *
-   * Escape hatch: if the primary alias is double-quoted in source SQL (e.g. `FROM user_data AS "users"`) we
-   * treat that as a deliberate signal that the author has accepted the constraint and suppress the warning.
+   * The warning is suppressed when every joined source is itself aliased (e.g. `json_each(...) AS tags`):
+   * there the author has clearly opted into explicit naming and the rename is unlikely to surprise. It is also
+   * suppressed when the alias is double-quoted in the source SQL (e.g. `FROM user_data AS "users"`), which we
+   * treat as a deliberate rename.
    */
   private diagnoseAliasedPrimaryWithJoin(fromList: From[] | nil) {
+    // Only relevant when joining (more than one source in the FROM clause).
     if (!fromList || fromList.length < 2) {
       return;
     }
-    const primary = fromList[0];
-    if (primary.type != 'table' || !primary.name.alias) {
+    const primary = this.primaryResultSet;
+    if (primary == null || primary.source.explicitName == null) {
       return;
     }
-    if (this.aliasIsQuoted(primary.name)) {
+    // An explicitly quoted alias signals the rename is intentional.
+    if (this.aliasIsQuoted(primary.source.origin)) {
       return;
     }
-    const hasUnaliasedJoin = fromList.slice(1).some((entry) => {
+    // Only warn when a joined source is referenced by its bare name; if every join target is aliased the author
+    // has opted into explicit naming and the primary's alias is unlikely to be a surprise.
+    const hasUnaliasedJoinTarget = fromList.some((entry) => {
       if (entry.type == 'table') {
-        return !entry.name.alias;
+        // Skip the primary table itself (identified by node identity, since it need not be the first entry).
+        return entry.name !== primary.source.origin && !entry.name.alias;
       }
       if (entry.type == 'call' || entry.type == 'statement') {
         return !entry.alias;
       }
       return false;
     });
-    if (!hasUnaliasedJoin) {
+    if (!hasUnaliasedJoinTarget) {
       return;
     }
+    const alias = primary.source.explicitName;
+    const tableName = primary.tablePattern.name;
     this.errors.report(
-      'Joining onto an aliased primary table is not currently supported and may silently sync zero rows: ' +
-        'filter expressions that reference the joined table cannot be resolved through the alias. ' +
-        'Drop the alias on the primary table, or quote it (`AS "' +
-        primary.name.alias +
-        '"`) to silence this warning if the join is intentional.',
-      primary.name,
+      `The primary table is synced under its alias '${alias}' instead of '${tableName}'. ` +
+        `When joining, an alias is often added only to make the ON clause easier to write; if that is the case ` +
+        `here, the rename is likely unintentional and clients querying '${tableName}' will see zero rows. ` +
+        `Drop the alias on the primary table, or quote it (\`AS "${alias}"\`) to keep the rename and silence this warning.`,
+      primary.source.origin,
       { isWarning: true }
     );
   }
