@@ -1,10 +1,6 @@
 /**
  * Per-bucket storage report for an active sync config.
  *
- * Surfaces the same "total rows vs total operations" signal as the diagnostics app
- * (https://github.com/powersync-ja/powersync-js/tree/main/tools/diagnostics-app), but
- * measured server-side, per bucket, across the whole instance instead of per-client.
- *
  * - An **operation** is any entry in a bucket's append-only history (`PUT`, `REMOVE`, `MOVE`, `CLEAR`).
  * - A **row** is a distinct live object currently in the bucket.
  *
@@ -32,7 +28,7 @@ export interface BucketStorageStats {
   bucket: string;
   /** Total operations in the bucket's history. */
   operations: number;
-  /** Distinct live rows currently in the bucket. */
+  /** Live rows currently in the bucket. */
   rows: number;
   /** Approximate size of the operation history in bytes. */
   operationBytes: number;
@@ -44,7 +40,7 @@ export interface BucketStorageStats {
 }
 
 export interface BucketReportTotals {
-  /** Total number of buckets in the active sync config (before any `limit`). */
+  /** Number of buckets with stored operations or rows (before any `limit`). */
   bucketCount: number;
   /** Sum of operations across all buckets. */
   operations: number;
@@ -75,7 +71,9 @@ export interface BucketReport {
 export interface GetBucketReportOptions {
   /**
    * Maximum number of buckets to return, ranked by operation count descending (worst offenders first).
-   * Totals are still computed across all buckets. Defaults to no limit.
+   * This caps the response size only: every backend still aggregates all buckets (and `totals` covers
+   * them all), so it is not a query-cost bound. Non-integer or negative values are floored and clamped
+   * to 0. Defaults to no limit.
    */
   limit?: number;
 }
@@ -83,8 +81,9 @@ export interface GetBucketReportOptions {
 /**
  * Combine per-bucket operation stats and live-row counts (each keyed by full bucket name) into a
  * ranked {@link BucketReport}. Backend storage adapters collect the two maps however is cheapest for
- * them; this builder owns the shared merge/rank/total logic so the calculation never drifts between
- * backends.
+ * them; this builder owns the shared merge/rank/total logic so that part stays identical across
+ * backends. The inputs are not identical: operation counts are exact on Postgres (a `COUNT(*)`) but a
+ * pre-aggregated estimate on MongoDB, so the same data can yield slightly different counts per backend.
  */
 export function buildBucketReport(
   operationStats: Map<string, BucketOperationStat>,
@@ -123,9 +122,12 @@ export function buildBucketReport(
 
   let truncated = false;
   let reported = buckets;
-  if (options?.limit != null && buckets.length > options.limit) {
-    reported = buckets.slice(0, options.limit);
-    truncated = true;
+  if (options?.limit != null) {
+    const limit = Math.max(0, Math.floor(options.limit));
+    if (buckets.length > limit) {
+      reported = buckets.slice(0, limit);
+      truncated = true;
+    }
   }
 
   return { buckets: reported, totals, truncated };

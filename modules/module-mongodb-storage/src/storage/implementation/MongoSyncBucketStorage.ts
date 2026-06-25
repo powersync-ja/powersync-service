@@ -367,28 +367,35 @@ export abstract class MongoSyncBucketStorage
   }
 
   async getBucketReport(options?: storage.GetBucketReportOptions): Promise<storage.BucketReport> {
+    let operationStats: Map<string, storage.BucketOperationStat>;
+    let rowCounts: Map<string, number>;
     try {
-      const [operationStats, rowCounts] = await Promise.all([
+      [operationStats, rowCounts] = await Promise.all([
         this.collectBucketOperationStats(),
         this.collectBucketLiveRowCounts()
       ]);
-      return storage.buildBucketReport(operationStats, rowCounts, options);
     } catch (e) {
-      // Translate a maxTimeMS expiry into a friendly "query timed out" error instead of a raw 500.
+      // Translate a storage query timeout (maxTimeMS) into a specific, retryable error code rather than a
+      // generic internal error. Only the storage reads are wrapped; the pure-JS merge below cannot time out.
       throw lib_mongo.mapQueryError(e, 'while building the bucket report');
     }
+    return storage.buildBucketReport(operationStats, rowCounts, options);
   }
 
   /**
    * Operation count and operation-history bytes per bucket, read from the pre-aggregated bucket state
    * (compacted_state + estimate_since_compact). Cheap: one document per bucket, no scan of bucket data.
    *
+   * Note: for v1/v2 storage, bucket_state is not backfilled (see models.ts: "only populated by new updates").
+   * Buckets whose data predates bucket_state tracking, and which have not been updated or compacted since,
+   * have no document here and so report zero operations. v3 always has bucket_state.
+   *
    * Implementations supply their version-specific bucket state collection(s) to {@link aggregateBucketOperationStats}.
    */
   protected abstract collectBucketOperationStats(): Promise<Map<string, storage.BucketOperationStat>>;
 
   /**
-   * Distinct live rows per bucket, derived from the current stored rows and their bucket memberships.
+   * Live rows per bucket, derived from the current stored rows and their bucket memberships.
    *
    * Implementations supply their version-specific current-row collection(s) to {@link aggregateBucketLiveRowCounts}.
    */
@@ -437,9 +444,9 @@ export abstract class MongoSyncBucketStorage
   /**
    * Aggregate distinct live rows per bucket across one or more current-row collections.
    *
-   * Each stored row records its bucket memberships, so unwinding those memberships and grouping by bucket gives
-   * the distinct live row count. Counts are summed across collections, since a bucket may contain rows from
-   * multiple source tables (each in its own collection).
+   * Each stored row records its bucket memberships, so unwinding those memberships and grouping by bucket counts
+   * the live rows in each bucket (one membership per stored row). Counts are summed across collections, since a
+   * bucket may contain rows from multiple source tables (each in its own collection).
    *
    * `options.bucketDefinitionIds` restricts to memberships of those definitions - used by V3 to exclude rows
    * still tagged with stopped/old definitions that share the stream but are not part of the active config.

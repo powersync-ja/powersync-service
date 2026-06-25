@@ -159,7 +159,7 @@ export class PostgresSyncRulesStorage
       return await this.collectBucketReport(options);
     } catch (e) {
       // statement_timeout cancels the query with SQLSTATE 57014 (query_canceled). Translate it into a
-      // friendly "query timed out" error instead of a raw 500.
+      // specific, retryable timeout code rather than a generic internal error.
       if (e?.cause?.code === POSTGRES_QUERY_CANCELED) {
         throw new framework.DatabaseQueryError(
           framework.ErrorCode.PSYNC_S2501,
@@ -198,9 +198,9 @@ export class PostgresSyncRulesStorage
         ])
       );
 
-      // Distinct live rows per bucket, from each row's bucket memberships. The current-data table is
-      // version-specific (current_data for v1/v2, v3_current_data for v3), so the table name is interpolated
-      // from the resolved store rather than parameterised.
+      // Live rows per bucket (one membership per stored row), from each row's bucket memberships. The
+      // current-data table is version-specific (current_data for v1/v2, v3_current_data for v3), so the table
+      // name is interpolated from the resolved store rather than parameterised.
       const rowCounts = new Map<string, number>();
       for await (const batch of db.streamRows<{ bucket: string; rows: bigint }>({
         statement: `
