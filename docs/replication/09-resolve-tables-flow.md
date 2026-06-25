@@ -31,7 +31,7 @@ A `SourceTableRef` describes the table of a source row as replicated. This inclu
 
 This is similar in structure to `TablePattern`, but uses specific names instead of wildcards.
 
-We can do directy matching of `TablePattern.matches(ref: SourceTableRef)`. This is what drives matching of replicated rows with specific sync queries.
+We can do direct matching of `TablePattern.matches(ref: SourceTableRef)`. This is what drives matching of replicated rows with specific sync queries.
 
 ### SourceEntityDescriptor
 
@@ -48,14 +48,16 @@ A `SourceTable` is a replicated table with state:
 2. It stores the specific metadata from the `SourceEntityDescriptor` - any changes would result in a new `SourceTable`.
 3. It tracks snapshot lifecycle state (complete/in-progress, progress markers).
 4. It carries resolved sync participation flags (used for data, parameters, events).
-5. It tracks which sync stream / bucket definitions are used with it.
+5. It tracks which persisted bucket data definitions and parameter indexes are used with it.
 
-There may now be multiple `SourceTable`s per `SourceTableRef`. Historically it was generally 1:1, but we now support multiple in preparation for incremental reprocessing: If a new data source or parameter index creator is added, we need to snapshot the source table. Instead of doing a re-snapshot of an existing SourceTable, we create a new SourceTable with the same SourceTableRef. The new snapshot then only affects the new data sources, not existing ones.
+There may be multiple `SourceTable`s per `SourceTableRef`. Historically it was generally 1:1, but incremental reprocessing now uses multiple records when a new bucket data source or parameter index is added. Instead of re-snapshotting an existing `SourceTable`, storage creates a new `SourceTable` with the same `SourceTableRef`. The new snapshot then only affects the new definitions, not existing compatible ones.
+
+When multiple records exist for one physical table, their bucket and parameter memberships must be disjoint so each definition receives each source row once. Storage also designates a single event carrier so row-change events are not duplicated.
 
 `SourceTable` is also used to track changes that may require a re-snapshot:
 
 1. Renamed tables (same table name with different relationId or vice versa).
-2. Changes in replica indentity.
+2. Changes in replica identity.
 
 These changes generally require "truncating" the outdated `SourceTable`, then snapshotting the new one.
 
@@ -74,7 +76,7 @@ These both produce a `SourceEntityDescriptor`, describing the table to replicate
 
 For each discovered table, the system finds all matching `TablePattern`s.
 
-This may be more than one pattern (for example wildcard + exact match overlaps, or multiple rule sets).
+This may be more than one pattern, for example wildcard and exact-match overlaps, or multiple sync configs in one incremental stream.
 
 Each matching pattern is resolved independently.
 
@@ -85,11 +87,14 @@ Each matching pattern is resolved independently.
 Conceptually it does:
 
 1. Look up existing `SourceTable` records that match the physical identity.
-2. Determine which sync config sources are already covered.
-3. Create missing `SourceTable` records when coverage is incomplete.
-4. Return the `SourceTable` records that should receive replicated data.
+2. Resolve matching sources through the parsed sync config set's definition mapping.
+3. Determine which persisted bucket and parameter definition ids are already covered.
+4. Create missing `SourceTable` records when coverage is incomplete.
+5. Return the `SourceTable` records that should receive replicated data.
 
 Important: one physical table can resolve to multiple `SourceTable` records when sync config definitions have been added over time.
+
+The parsed sync config set matters here. Source objects, hydration state, and definition mappings are identity-bound; resolving sources from one parse and writing them through a batch created from another parse can point at the wrong persisted ids.
 
 ### 4. Detect differences/conflicts
 
@@ -126,6 +131,6 @@ When all required tables are done in initial snapshot:
 ### 7. Continue streaming with resolved mappings
 
 Resolved `SourceTable` mappings are cached by relation identity for fast CDC routing.
-Subsequent insert/update/delete events use those mappings to write bucket and parameter updates.
+Subsequent insert/update/delete events use those mappings to write bucket and parameter updates. If multiple `SourceTable` records are returned, the connector saves the row change for each relevant record; storage uses each record's membership ids to route the write to the correct persisted definitions.
 
 If table metadata changes later, the same resolve + diff + drop cycle runs again.

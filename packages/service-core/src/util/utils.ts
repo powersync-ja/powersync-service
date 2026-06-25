@@ -223,7 +223,7 @@ export function isCompleteRow<V>(
  * All other operations are replaced with a single CLEAR operation,
  * summing their checksums, and using a 0 as an op_id.
  *
- * This is the function $r(B)$, as described in /docs/bucket-properties.md.
+ * This is the function $r(B)$, as described in /docs/storage/bucket-properties.md.
  *
  * Used for tests.
  */

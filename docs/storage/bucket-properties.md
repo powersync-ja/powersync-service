@@ -2,7 +2,7 @@
 
 This document describes buckets as a set of operations, along with the properties we guarantee for the sync protocol. These are the properties used to ensure that each client ends up with the same bucket state when the same bucket has been downloaded.
 
-For a more broad overview of the protocol, see [sync-protocol.md](./sync-protocol.md). For a high-level description of the compact implementation, see [compacting-operations.md](./compacting-operations.md).
+For a more broad overview of the protocol, see [sync-protocol.md](../specs/sync-protocol.md). For a high-level description of the compact implementation, see [compacting-operations.md](./compacting-operations.md).
 
 ## Buckets
 
