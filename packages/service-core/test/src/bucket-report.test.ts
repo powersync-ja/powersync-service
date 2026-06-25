@@ -65,7 +65,8 @@ describe('buildBucketReport', () => {
       ])
     );
 
-    expect(report.totals).toEqual({ bucketCount: 2, operations: 120, rows: 6, operationBytes: 15 });
+    // fragmentation is the row-weighted ratio 120/6 = 20, not the mean of the per-bucket ratios (25 and 10).
+    expect(report.totals).toEqual({ bucketCount: 2, operations: 120, rows: 6, operationBytes: 15, fragmentation: 20 });
   });
 
   it('truncates the bucket list by limit but keeps totals across all buckets', () => {

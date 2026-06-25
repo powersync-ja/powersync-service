@@ -55,6 +55,12 @@ export interface BucketReportTotals {
   rows: number;
   /** Sum of operation-history bytes across all buckets. */
   operationBytes: number;
+  /**
+   * Instance-wide fragmentation: `operations / max(rows, 1)`, i.e. the row-weighted average of the
+   * per-bucket ratios. ~1 is healthy; a higher value means a new client downloads that many operations
+   * per live row across the whole instance, which is the headline cause of a high "Data Synced" metric.
+   */
+  fragmentation: number;
 }
 
 export interface BucketReport {
@@ -88,7 +94,7 @@ export function buildBucketReport(
   const bucketNames = new Set<string>([...operationStats.keys(), ...rowCounts.keys()]);
 
   const buckets: BucketStorageStats[] = [];
-  const totals: BucketReportTotals = { bucketCount: 0, operations: 0, rows: 0, operationBytes: 0 };
+  const totals: BucketReportTotals = { bucketCount: 0, operations: 0, rows: 0, operationBytes: 0, fragmentation: 0 };
 
   for (const bucket of bucketNames) {
     const opStat = operationStats.get(bucket);
@@ -109,6 +115,8 @@ export function buildBucketReport(
     totals.rows += rows;
     totals.operationBytes += operationBytes;
   }
+
+  totals.fragmentation = totals.operations / Math.max(totals.rows, 1);
 
   // Worst-first: most operations, then most fragmented.
   buckets.sort((a, b) => b.operations - a.operations || b.fragmentation - a.fragmentation);

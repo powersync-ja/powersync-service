@@ -319,7 +319,8 @@ export const bucketReport = routeDefinition({
         bucket_count: report.totals.bucketCount,
         operations: report.totals.operations,
         rows: report.totals.rows,
-        operation_bytes: report.totals.operationBytes
+        operation_bytes: report.totals.operationBytes,
+        fragmentation: report.totals.fragmentation
       },
       truncated: report.truncated
     });

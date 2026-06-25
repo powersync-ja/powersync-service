@@ -153,7 +153,8 @@ bucket_definitions:
 
     const report = await getReport(bucketStorage);
     expect(report.totals.bucketCount).toEqual(2);
-    expect(report.totals).toMatchObject({ operations: 5, rows: 3 });
+    // Instance-wide fragmentation is the row-weighted ratio 5/3, not the mean of the per-bucket ratios (3 and 1).
+    expect(report.totals).toMatchObject({ operations: 5, rows: 3, fragmentation: 5 / 3 });
 
     // Ranked worst-first by operation count: b1 (3) before b2 (2).
     expect(report.buckets.map((b) => b.bucket)).toEqual([b1, b2]);

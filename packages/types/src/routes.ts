@@ -113,7 +113,9 @@ export const BucketReportResponse = t.object({
     operations: t.number,
     /** Sum of per-bucket live rows. Rows in multiple buckets are counted per bucket. */
     rows: t.number,
-    operation_bytes: t.number
+    operation_bytes: t.number,
+    /** Instance-wide `operations / max(rows, 1)`: operations a new client downloads per live row. */
+    fragmentation: t.number
   }),
   /** True if `buckets` was truncated by `limit`. `totals` still reflects all buckets. */
   truncated: t.boolean
