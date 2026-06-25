@@ -2,12 +2,12 @@ import { ErrorCode, ServiceAssertionError, ServiceError } from '@powersync/lib-s
 import { RouteAPI } from '../api/RouteAPI.js';
 import { BucketStorageFactory, SyncRulesBucketStorage } from '../storage/storage-index.js';
 
-// Keep up to two source-head/storage batches executing concurrently under load.
+// Keep up to three source-head/storage batches executing concurrently under load.
 // There is intentionally no explicit batch-size cap here: the HTTP request queue
 // already bounds how many requests can be waiting in this process.
 // Smaller values here have better efficiency, while larger numbers here may give slight improvements in latency.
 // We want to limit the number of database connections in use for write checkpoints, so we keep the numbers low here.
-export const MAX_IN_FLIGHT_WRITE_CHECKPOINT_BATCHES = 3;
+const MAX_IN_FLIGHT_WRITE_CHECKPOINT_BATCHES = 3;
 
 export interface CreateWriteCheckpointResult {
   writeCheckpoint: string;

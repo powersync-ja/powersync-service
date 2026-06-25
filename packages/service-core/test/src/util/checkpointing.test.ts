@@ -33,7 +33,7 @@ function createBatcher(api: any, storage: any) {
 
 describe('write checkpoint batching', () => {
   test('dispatches immediately up to capacity and batches queued requests once saturated', async () => {
-    const gates = [deferred(), deferred(), deferred()];
+    const gates = [deferred(), deferred(), deferred(), deferred()];
     const { bucketStorage, storage } = createStorage();
     const api = {
       createReplicationHead: vi.fn(async (callback: (head: string) => Promise<unknown>) => {
@@ -67,37 +67,40 @@ describe('write checkpoint batching', () => {
 
     await waitForAsyncWork();
 
-    expect(api.createReplicationHead).toHaveBeenCalledTimes(2);
+    expect(api.createReplicationHead).toHaveBeenCalledTimes(3);
     expect(bucketStorage.createManagedWriteCheckpoints).toHaveBeenNthCalledWith(1, [
       { user_id: 'user-a/client-1', heads: { '1': 'head-1' } }
     ]);
     expect(bucketStorage.createManagedWriteCheckpoints).toHaveBeenNthCalledWith(2, [
       { user_id: 'user-b', heads: { '1': 'head-2' } }
     ]);
+    expect(bucketStorage.createManagedWriteCheckpoints).toHaveBeenNthCalledWith(3, [
+      { user_id: 'user-c/client-3', heads: { '1': 'head-3' } }
+    ]);
 
     gates[0].resolve();
     await first;
     await waitForAsyncWork();
 
-    expect(api.createReplicationHead).toHaveBeenCalledTimes(3);
-    expect(bucketStorage.createManagedWriteCheckpoints).toHaveBeenNthCalledWith(3, [
-      { user_id: 'user-c/client-3', heads: { '1': 'head-3' } },
-      { user_id: 'user-d', heads: { '1': 'head-3' } },
-      { user_id: 'user-e', heads: { '1': 'head-3' } }
+    expect(api.createReplicationHead).toHaveBeenCalledTimes(4);
+    expect(bucketStorage.createManagedWriteCheckpoints).toHaveBeenNthCalledWith(4, [
+      { user_id: 'user-d', heads: { '1': 'head-4' } },
+      { user_id: 'user-e', heads: { '1': 'head-4' } }
     ]);
 
     gates[1].resolve();
     gates[2].resolve();
+    gates[3].resolve();
     await expect(Promise.all([second, ...queued])).resolves.toEqual([
       { writeCheckpoint: '2', replicationHead: 'head-2' },
       { writeCheckpoint: '3', replicationHead: 'head-3' },
-      { writeCheckpoint: '4', replicationHead: 'head-3' },
-      { writeCheckpoint: '5', replicationHead: 'head-3' }
+      { writeCheckpoint: '4', replicationHead: 'head-4' },
+      { writeCheckpoint: '5', replicationHead: 'head-4' }
     ]);
   });
 
-  test('allows two executing batches and queues later requests until one completes', async () => {
-    const gates = [deferred(), deferred(), deferred()];
+  test('allows three executing batches and queues later requests until one completes', async () => {
+    const gates = [deferred(), deferred(), deferred(), deferred()];
     const { storage } = createStorage();
     const api = {
       createReplicationHead: vi.fn(async (callback: (head: string) => Promise<unknown>) => {
@@ -130,20 +133,31 @@ describe('write checkpoint batching', () => {
     });
     await waitForAsyncWork();
 
-    expect(api.createReplicationHead).toHaveBeenCalledTimes(2);
+    expect(api.createReplicationHead).toHaveBeenCalledTimes(3);
+
+    const fourth = createWriteCheckpoint({
+      userId: 'user-d',
+      clientId: undefined,
+      batcher
+    });
+    await waitForAsyncWork();
+
+    expect(api.createReplicationHead).toHaveBeenCalledTimes(3);
 
     gates[0].resolve();
     await first;
     await waitForAsyncWork();
 
-    expect(api.createReplicationHead).toHaveBeenCalledTimes(3);
+    expect(api.createReplicationHead).toHaveBeenCalledTimes(4);
 
     gates[1].resolve();
     gates[2].resolve();
+    gates[3].resolve();
 
-    await expect(Promise.all([second, third])).resolves.toEqual([
+    await expect(Promise.all([second, third, fourth])).resolves.toEqual([
       { writeCheckpoint: '2', replicationHead: 'head-2' },
-      { writeCheckpoint: '3', replicationHead: 'head-3' }
+      { writeCheckpoint: '3', replicationHead: 'head-3' },
+      { writeCheckpoint: '4', replicationHead: 'head-4' }
     ]);
   });
 
