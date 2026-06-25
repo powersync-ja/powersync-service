@@ -160,6 +160,15 @@ bucket_definitions:
     expect(report.buckets.map((b) => b.bucket)).toEqual([b1, b2]);
     expect(report.buckets.find((b) => b.bucket === b1)).toMatchObject({ operations: 3, rows: 1 });
     expect(report.buckets.find((b) => b.bucket === b2)).toMatchObject({ operations: 2, rows: 2 });
+
+    // operationBytes is aggregated differently per backend ($toDouble sum on Mongo, OCTET_LENGTH sum on
+    // Postgres); assert every bucket is non-zero and that the per-bucket bytes add up to the instance total.
+    expect(report.totals.operationBytes).toBeGreaterThan(0);
+    for (const bucket of report.buckets) {
+      expect(bucket.operationBytes).toBeGreaterThan(0);
+    }
+    const summedBytes = report.buckets.reduce((total, bucket) => total + bucket.operationBytes, 0);
+    expect(summedBytes).toEqual(report.totals.operationBytes);
   });
 
   test('limit truncates the bucket list but totals still span all buckets', async () => {

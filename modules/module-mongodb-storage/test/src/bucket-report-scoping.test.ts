@@ -95,6 +95,20 @@ streams:
     expect(replicatingStreams).toHaveLength(1);
     const secondStorage = factory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorageV3;
     await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
+    // Give config 2 its own replicated row, so the report has an active-config bucket to include.
+    const scenesTable = (
+      await secondWriter.resolveTables({
+        connection_id: 1,
+        source: sourceDescriptor('scenes', 'scenes-relation'),
+        idGenerator: objectIdGenerator('6544e3899293153fa7b38361')
+      })
+    ).tables[0];
+    await secondWriter.save({
+      sourceTable: scenesTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'scene-1', project_id: 'project-1' },
+      afterReplicaId: test_utils.rid('scene-1')
+    });
     await secondWriter.markAllSnapshotDone('2/1');
     await secondWriter.commit('2/1');
     await secondWriter.flush();
@@ -104,9 +118,10 @@ streams:
     const activeStorage = activeConfig!.storage as MongoSyncBucketStorageV3;
     const secondReport = await activeStorage.getBucketReport();
 
-    // Config 2 has no replicated data, and config 1's stale buckets must be excluded. Without scoping to the
-    // active config's definition ids, config 1's bucket would leak in here.
-    expect(secondReport.totals.bucketCount).toEqual(0);
+    // The active config's own bucket is included (include-active), while config 1's stale buckets, which still
+    // exist in the shared collections, are excluded (exclude-stale). Without scoping to the active config's
+    // definition ids, config 1's bucket would leak in here.
+    expect(secondReport.totals.bucketCount).toBeGreaterThan(0);
     const firstBucketNames = new Set(firstReport.buckets.map((b) => b.bucket));
     expect(secondReport.buckets.some((b) => firstBucketNames.has(b.bucket))).toBe(false);
   });
