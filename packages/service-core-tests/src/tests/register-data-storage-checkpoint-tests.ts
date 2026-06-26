@@ -42,7 +42,7 @@ bucket_definitions:
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
 
-    const writeCheckpoint = await bucketStorage.createManagedWriteCheckpoint({
+    const writeCheckpoint = await createManagedWriteCheckpoint(bucketStorage, {
       heads: { '1': '5/0' },
       user_id: 'user1'
     });
@@ -102,7 +102,7 @@ bucket_definitions:
       }
     });
 
-    const writeCheckpoint = await bucketStorage.createManagedWriteCheckpoint({
+    const writeCheckpoint = await createManagedWriteCheckpoint(bucketStorage, {
       heads: { '1': '6/0' },
       user_id: 'user1'
     });
@@ -126,6 +126,55 @@ bucket_definitions:
         writeCheckpoint: writeCheckpoint
       }
     });
+  });
+
+  test('managed write checkpoints - client supplied id', async () => {
+    await using factory = await generateStorageFactory();
+    const r = await factory.configureSyncRules(
+      updateSyncRulesFromYaml(
+        `
+bucket_definitions:
+  mybucket:
+    data: []
+    `,
+        {
+          validate: false,
+          storageVersion
+        }
+      )
+    );
+    const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+
+    const first = await createManagedWriteCheckpoint(bucketStorage, {
+      user_id: 'user1',
+      heads: { '1': '5/0' },
+      checkpoint_request_id: 42n
+    });
+    expect(first).toEqual(42n);
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '5/0' } })).resolves.toEqual(42n);
+
+    const retried = await createManagedWriteCheckpoint(bucketStorage, {
+      user_id: 'user1',
+      heads: { '1': '8/0' },
+      checkpoint_request_id: 42n
+    });
+    expect(retried).toEqual(42n);
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '6/0' } })).resolves.toEqual(42n);
+
+    const replaced = await createManagedWriteCheckpoint(bucketStorage, {
+      user_id: 'user1',
+      heads: { '1': '8/0' },
+      checkpoint_request_id: 43n
+    });
+    expect(replaced).toEqual(43n);
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '7/0' } })).resolves.toBeNull();
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '8/0' } })).resolves.toEqual(43n);
+
+    const generated = await createManagedWriteCheckpoint(bucketStorage, {
+      user_id: 'user1',
+      heads: { '1': '9/0' }
+    });
+    expect(generated).toEqual(44n);
   });
 
   test('custom write checkpoints - checkpoint after write', async (context) => {
@@ -301,4 +350,14 @@ bucket_definitions:
       }
     });
   });
+}
+
+async function createManagedWriteCheckpoint(
+  bucketStorage: storage.SyncRulesBucketStorage,
+  checkpoint: storage.ManagedWriteCheckpointOptions
+) {
+  const checkpoints = await bucketStorage.createManagedWriteCheckpoints([checkpoint]);
+  const writeCheckpoint = checkpoints.get(checkpoint.user_id);
+  expect(writeCheckpoint).not.toBeUndefined();
+  return writeCheckpoint!;
 }

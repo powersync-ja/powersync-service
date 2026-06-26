@@ -59,13 +59,10 @@ export const writeCheckpoint2 = routeDefinition({
   handler: async (payload) => {
     const { token_payload, service_context } = payload.context;
 
-    const apiHandler = service_context.routerEngine.getAPI();
-
     const { replicationHead, writeCheckpoint } = await util.createWriteCheckpoint({
       userId: token_payload!.userIdString,
       clientId: payload.params.client_id,
-      api: apiHandler,
-      storage: service_context.storageEngine.activeBucketStorage
+      batcher: service_context.storageEngine.writeCheckpointBatcher
     });
 
     logger.info(
@@ -87,8 +84,6 @@ export const checkpointRequest = routeDefinition({
     const { token_payload, service_context } = request.context;
     const { params } = request;
 
-    const apiHandler = service_context.routerEngine.getAPI();
-
     const decodedParams = CheckpointRequestPayload.decode(params);
 
     // Duplicate checkpoint requests still go through createReplicationHead, so the source may receive a marker/keepalive.
@@ -96,8 +91,7 @@ export const checkpointRequest = routeDefinition({
     const { replicationHead, writeCheckpoint } = await util.createWriteCheckpoint({
       userId: token_payload!.userIdString,
       clientId: decodedParams.client_id,
-      api: apiHandler,
-      storage: service_context.storageEngine.activeBucketStorage,
+      batcher: service_context.storageEngine.writeCheckpointBatcher,
       checkpointRequestId: decodedParams.checkpoint_request_id
     });
 

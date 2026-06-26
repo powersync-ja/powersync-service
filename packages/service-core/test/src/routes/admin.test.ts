@@ -41,6 +41,16 @@ describe('admin routes', () => {
     const state = active ? storage.SyncRuleState.ACTIVE : storage.SyncRuleState.PROCESSING;
     const lastKeepaliveTs = new Date('2026-01-01T00:00:00.000Z');
     const lastCheckpointTs = new Date('2026-01-01T00:00:00.000Z');
+    const syncConfigStatus = {
+      id: syncConfigId,
+      replicationStreamId: id,
+      state,
+      last_checkpoint_lsn: null,
+      last_fatal_error: null,
+      last_fatal_error_ts: null,
+      last_keepalive_ts: lastKeepaliveTs,
+      last_checkpoint_ts: lastCheckpointTs
+    };
     const content = {
       replicationStreamId: id,
       syncConfigId,
@@ -55,6 +65,7 @@ bucket_definitions:
 `,
       compiled_plan: null,
       storageVersion: storage.LEGACY_STORAGE_VERSION,
+      syncConfigState: syncConfigStatus.state,
       parsed(options?: any) {
         const syncRules = SqlSyncRules.fromYaml(content.sync_rules_content, {
           ...options,
@@ -67,16 +78,7 @@ bucket_definitions:
       asUpdateOptions: vi.fn(),
       getStorageConfig: vi.fn(),
       async getSyncConfigStatus() {
-        return {
-          id: syncConfigId,
-          replicationStreamId: id,
-          state,
-          last_checkpoint_lsn: null,
-          last_fatal_error: null,
-          last_fatal_error_ts: null,
-          last_keepalive_ts: lastKeepaliveTs,
-          last_checkpoint_ts: lastCheckpointTs
-        };
+        return syncConfigStatus;
       }
     };
     return content as unknown as storage.PersistedSyncConfigContent;

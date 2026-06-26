@@ -9,7 +9,7 @@ import { expect } from 'vitest';
  * All other operations are replaced with a single CLEAR operation,
  * summing their checksums, and using a 0 as an op_id.
  *
- * This is the function $r(B)$, as described in /docs/bucket-properties.md.
+ * This is the function $r(B)$, as described in /docs/storage/bucket-properties.md.
  */
 export function reduceBucket(operations: utils.OplogEntry[]) {
   let rowState = new Map<string, utils.OplogEntry>();
@@ -63,7 +63,7 @@ import { reduceBucket } from '@/util/utils.js';
 import { expect } from 'vitest';
 
 /**
- * Validate this property, as described in /docs/bucket-properties.md:
+ * Validate this property, as described in /docs/storage/bucket-properties.md:
  *
  * $r(B_{[..id_n]}) = r(r(B_{[..id_i]}) \cup B_{[id_{i+1}..id_n]}) \;\forall\; i \in [1..n]$
  *
@@ -87,7 +87,7 @@ export function validateBucket(bucket: utils.OplogEntry[]) {
 
 /**
  * Validate these properties for a bucket $B$ and its compacted version $B'$,:
- * as described in /docs/bucket-properties.md:
+ * as described in /docs/storage/bucket-properties.md:
  *
  * 1. $r(B) = r(B')$
  * 2. $r(B_{[..c]}) = r(r(B_{[..c_i]}) \cup B'_{[c_i+1..c]}) \;\forall\; c_i \in B$

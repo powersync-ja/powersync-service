@@ -8,6 +8,7 @@ export * from './protocol-types.js';
 export * from './secs.js';
 export * from './utils.js';
 export * from './version.js';
+export * from './write-checkpoint-batcher.js';
 
 export * from './config.js';
 export * from './config/compound-config-collector.js';

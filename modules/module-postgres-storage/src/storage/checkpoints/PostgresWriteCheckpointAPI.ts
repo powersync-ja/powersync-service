@@ -32,46 +32,106 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     return batchCreateCustomWriteCheckpoints(this.db, checkpoints);
   }
 
-  async createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
+  async createManagedWriteCheckpoints(
+    checkpoints: storage.ManagedWriteCheckpointOptions[]
+  ): Promise<Map<string, bigint>> {
     if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
       throw new framework.errors.ValidationError(
         `Attempting to create a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
       );
     }
 
-    const checkpointRequestId = checkpoint.checkpoint_request_id ?? null;
+    const uniqueCheckpoints = [...new Map(checkpoints.map((checkpoint) => [checkpoint.user_id, checkpoint])).values()];
+    if (uniqueCheckpoints.length == 0) {
+      return new Map();
+    }
 
-    const row = await this.db.sql`
-      INSERT INTO
-        write_checkpoints (user_id, lsns, write_checkpoint)
-      VALUES
-        (
-          ${{ type: 'varchar', value: checkpoint.user_id }},
-          ${{ type: 'jsonb', value: checkpoint.heads }},
-          -- First generated managed checkpoint for a new user starts at 1.
-          -- Supplied checkpoint request ids are inserted as-is.
-          ${{ type: 'int8', value: checkpointRequestId ?? 1n }}
-        )
-      ON CONFLICT (user_id) DO UPDATE
-      SET
-        write_checkpoint = CASE
-          WHEN ${{ type: 'int8', value: checkpointRequestId }} IS NULL THEN write_checkpoints.write_checkpoint + 1
-          ELSE ${{ type: 'int8', value: checkpointRequestId }}
-        END,
-        lsns = CASE
-          WHEN ${{ type: 'int8', value: checkpointRequestId }} IS NOT NULL
-          AND write_checkpoints.write_checkpoint = ${{
-        type: 'int8',
-        value: checkpointRequestId
-      }} THEN write_checkpoints.lsns
-          ELSE EXCLUDED.lsns
-        END
-      RETURNING
-        *;
-    `
-      .decoded(models.WriteCheckpoint)
-      .first();
-    return row!.write_checkpoint;
+    const rows: models.WriteCheckpointDecoded[] = [];
+    const generatedCheckpoints = uniqueCheckpoints.filter((checkpoint) => checkpoint.checkpoint_request_id == null);
+    const suppliedCheckpoints = uniqueCheckpoints.filter((checkpoint) => checkpoint.checkpoint_request_id != null);
+
+    if (generatedCheckpoints.length > 0) {
+      const mappedCheckpoints = generatedCheckpoints.map((checkpoint) => ({
+        user_id: checkpoint.user_id,
+        lsns: checkpoint.heads
+      }));
+
+      const generatedRows = await this.db.sql`
+        WITH
+          json_data AS (
+            SELECT
+            CHECKPOINT ->> 'user_id' AS user_id,
+            CHECKPOINT -> 'lsns' AS lsns
+            FROM
+              jsonb_array_elements(${{ type: 'jsonb', value: mappedCheckpoints }}) AS
+            CHECKPOINT
+          )
+        INSERT INTO
+          write_checkpoints (user_id, lsns, write_checkpoint)
+        SELECT
+          user_id,
+          lsns,
+          1
+        FROM
+          json_data
+        ON CONFLICT (user_id) DO UPDATE
+        SET
+          write_checkpoint = write_checkpoints.write_checkpoint + 1,
+          lsns = EXCLUDED.lsns
+        RETURNING
+          *;
+      `
+        .decoded(models.WriteCheckpoint)
+        .rows();
+
+      rows.push(...generatedRows);
+    }
+
+    if (suppliedCheckpoints.length > 0) {
+      const mappedCheckpoints = suppliedCheckpoints.map((checkpoint) => ({
+        user_id: checkpoint.user_id,
+        lsns: checkpoint.heads,
+        checkpoint_request_id: String(checkpoint.checkpoint_request_id)
+      }));
+
+      const suppliedRows = await this.db.sql`
+        WITH
+          json_data AS (
+            SELECT
+            CHECKPOINT ->> 'user_id' AS user_id,
+            CHECKPOINT -> 'lsns' AS lsns,
+            (
+              CHECKPOINT ->> 'checkpoint_request_id'
+            )::int8 AS checkpoint_request_id
+            FROM
+              jsonb_array_elements(${{ type: 'jsonb', value: mappedCheckpoints }}) AS
+            CHECKPOINT
+          )
+        INSERT INTO
+          write_checkpoints (user_id, lsns, write_checkpoint)
+        SELECT
+          user_id,
+          lsns,
+          checkpoint_request_id
+        FROM
+          json_data
+        ON CONFLICT (user_id) DO UPDATE
+        SET
+          write_checkpoint = EXCLUDED.write_checkpoint,
+          lsns = CASE
+            WHEN write_checkpoints.write_checkpoint = EXCLUDED.write_checkpoint THEN write_checkpoints.lsns
+            ELSE EXCLUDED.lsns
+          END
+        RETURNING
+          *;
+      `
+        .decoded(models.WriteCheckpoint)
+        .rows();
+
+      rows.push(...suppliedRows);
+    }
+
+    return new Map(rows.map((row) => [row.user_id, row.write_checkpoint]));
   }
 
   async lastWriteCheckpoint(filters: storage.LastWriteCheckpointFilters): Promise<bigint | null> {

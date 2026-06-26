@@ -458,9 +458,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       },
       [...existingConfigDocs, syncConfigDoc]
     );
-    if (updateOptions.lock) {
-      await stream.lock(session);
-    }
+    // The stream already exists, so an active replication job may already hold the stream lock.
+    // Deployment only persists the appended sync config; replication job locking is handled by
+    // the replicator.
     return stream;
   }
 
