@@ -2906,6 +2906,7 @@ exports[`new sync stream features > json-each of cte 1`] = `
   "dataSources": [
     {
       "columns": [
+        "star",
         {
           "alias": "id",
           "expr": {
@@ -2949,7 +2950,6 @@ exports[`new sync stream features > json-each of cte 1`] = `
             "type": "function",
           },
         },
-        "star",
       ],
       "filters": [],
       "hash": 288003166,
