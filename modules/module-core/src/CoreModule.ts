@@ -34,11 +34,8 @@ export class CoreModule extends core.modules.AbstractModule {
 
   protected registerAPIRoutes(context: core.ServiceContextContainer) {
     context.routerEngine.registerRoutes({
-      api_routes: [
-        ...core.routes.endpoints.ADMIN_ROUTES,
-        ...core.routes.endpoints.CHECKPOINT_ROUTES,
-        ...core.routes.endpoints.SYNC_RULES_ROUTES
-      ],
+      api_routes: [...core.routes.endpoints.ADMIN_ROUTES, ...core.routes.endpoints.SYNC_RULES_ROUTES],
+      checkpointing_routes: [...core.routes.endpoints.CHECKPOINT_ROUTES],
       stream_routes: [...core.routes.endpoints.SYNC_STREAM_ROUTES],
       socket_routes: [core.routes.endpoints.syncStreamReactive]
     });
@@ -66,6 +63,7 @@ export class CoreModule extends core.modules.AbstractModule {
             service_context: context,
             routes: {
               api: { routes: routes.api_routes },
+              checkpointing: { routes: routes.checkpointing_routes },
               sync_stream: {
                 routes: routes.stream_routes,
                 queue_options: {
