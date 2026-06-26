@@ -22,6 +22,7 @@ interface QueuedWriteCheckpoint {
 export class WriteCheckpointBatcher {
   private pending: QueuedWriteCheckpoint[] = [];
   private inFlight = 0;
+  private scheduledPump: NodeJS.Timeout | undefined;
 
   constructor(
     private readonly getAPI: () => RouteAPI,
@@ -31,22 +32,37 @@ export class WriteCheckpointBatcher {
   enqueue(userId: string): Promise<CreateWriteCheckpointResult> {
     const resolvers = Promise.withResolvers<CreateWriteCheckpointResult>();
     this.pending.push({ userId, resolvers });
-    this.pump();
+    this.schedulePump();
     return resolvers.promise;
+  }
+
+  private schedulePump() {
+    if (this.scheduledPump != null) {
+      return;
+    }
+
+    // Delay dispatch by one timer turn so requests arriving together can share
+    // one source head and one storage write batch.
+    // While normally we wouldn't have http requests arriving at the exact same time, this is relevant when
+    // requests are queued by fastify: All current requests are typically batched together, and finish at the
+    // same time. Then we get many requests from the queue arriving at the same time. Without this delayed dispatch,
+    // the first request would form its own batch, and the rest will then wait for a new batch to become available.
+    // The delayed dispatch allow all those requests to be batched together.
+    this.scheduledPump = setTimeout(() => {
+      this.scheduledPump = undefined;
+      this.pump();
+    }, 0);
   }
 
   private pump() {
     while (this.inFlight < MAX_IN_FLIGHT_WRITE_CHECKPOINT_BATCHES && this.pending.length > 0) {
-      // Dispatch immediately while capacity is available. Requests only batch
-      // together once all executing slots are saturated and the queue starts
-      // accumulating behind them.
       const batch = this.pending;
       this.pending = [];
       this.inFlight++;
 
       void this.executeBatch(batch).finally(() => {
         this.inFlight--;
-        this.pump();
+        this.schedulePump();
       });
     }
   }

@@ -6,6 +6,7 @@ function deferred<T = void>() {
 }
 
 async function waitForAsyncWork() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
   await new Promise((resolve) => setImmediate(resolve));
 }
 
@@ -32,8 +33,8 @@ function createBatcher(api: any, storage: any) {
 }
 
 describe('write checkpoint batching', () => {
-  test('dispatches immediately up to capacity and batches queued requests once saturated', async () => {
-    const gates = [deferred(), deferred(), deferred(), deferred()];
+  test('coalesces same-turn requests and dispatches queued requests as capacity becomes available', async () => {
+    const gates = [deferred(), deferred()];
     const { bucketStorage, storage } = createStorage();
     const api = {
       createReplicationHead: vi.fn(async (callback: (head: string) => Promise<unknown>) => {
@@ -45,21 +46,27 @@ describe('write checkpoint batching', () => {
     };
     const batcher = createBatcher(api, storage);
 
-    const first = createWriteCheckpoint({
-      userId: 'user-a',
-      clientId: 'client-1',
-      batcher
-    });
-    const second = createWriteCheckpoint({
-      userId: 'user-b',
-      clientId: undefined,
-      batcher
-    });
+    const firstBatch = [
+      createWriteCheckpoint({
+        userId: 'user-a',
+        clientId: 'client-1',
+        batcher
+      }),
+      createWriteCheckpoint({
+        userId: 'user-b',
+        clientId: undefined,
+        batcher
+      })
+    ];
     await waitForAsyncWork();
 
-    expect(api.createReplicationHead).toHaveBeenCalledTimes(2);
+    expect(api.createReplicationHead).toHaveBeenCalledTimes(1);
+    expect(bucketStorage.createManagedWriteCheckpoints).toHaveBeenNthCalledWith(1, [
+      { user_id: 'user-a/client-1', heads: { '1': 'head-1' } },
+      { user_id: 'user-b', heads: { '1': 'head-1' } }
+    ]);
 
-    const queued = [
+    const secondBatch = [
       createWriteCheckpoint({ userId: 'user-c', clientId: 'client-3', batcher }),
       createWriteCheckpoint({ userId: 'user-d', clientId: undefined, batcher }),
       createWriteCheckpoint({ userId: 'user-e', clientId: undefined, batcher })
@@ -67,35 +74,21 @@ describe('write checkpoint batching', () => {
 
     await waitForAsyncWork();
 
-    expect(api.createReplicationHead).toHaveBeenCalledTimes(3);
-    expect(bucketStorage.createManagedWriteCheckpoints).toHaveBeenNthCalledWith(1, [
-      { user_id: 'user-a/client-1', heads: { '1': 'head-1' } }
-    ]);
+    expect(api.createReplicationHead).toHaveBeenCalledTimes(2);
     expect(bucketStorage.createManagedWriteCheckpoints).toHaveBeenNthCalledWith(2, [
-      { user_id: 'user-b', heads: { '1': 'head-2' } }
-    ]);
-    expect(bucketStorage.createManagedWriteCheckpoints).toHaveBeenNthCalledWith(3, [
-      { user_id: 'user-c/client-3', heads: { '1': 'head-3' } }
+      { user_id: 'user-c/client-3', heads: { '1': 'head-2' } },
+      { user_id: 'user-d', heads: { '1': 'head-2' } },
+      { user_id: 'user-e', heads: { '1': 'head-2' } }
     ]);
 
     gates[0].resolve();
-    await first;
-    await waitForAsyncWork();
-
-    expect(api.createReplicationHead).toHaveBeenCalledTimes(4);
-    expect(bucketStorage.createManagedWriteCheckpoints).toHaveBeenNthCalledWith(4, [
-      { user_id: 'user-d', heads: { '1': 'head-4' } },
-      { user_id: 'user-e', heads: { '1': 'head-4' } }
-    ]);
-
     gates[1].resolve();
-    gates[2].resolve();
-    gates[3].resolve();
-    await expect(Promise.all([second, ...queued])).resolves.toEqual([
-      { writeCheckpoint: '2', replicationHead: 'head-2' },
-      { writeCheckpoint: '3', replicationHead: 'head-3' },
-      { writeCheckpoint: '4', replicationHead: 'head-4' },
-      { writeCheckpoint: '5', replicationHead: 'head-4' }
+    await expect(Promise.all([...firstBatch, ...secondBatch])).resolves.toEqual([
+      { writeCheckpoint: '1', replicationHead: 'head-1' },
+      { writeCheckpoint: '2', replicationHead: 'head-1' },
+      { writeCheckpoint: '3', replicationHead: 'head-2' },
+      { writeCheckpoint: '4', replicationHead: 'head-2' },
+      { writeCheckpoint: '5', replicationHead: 'head-2' }
     ]);
   });
 

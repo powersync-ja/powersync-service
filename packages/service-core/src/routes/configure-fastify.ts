@@ -51,6 +51,7 @@ export const DEFAULT_ROUTE_OPTIONS = {
   checkpointing: {
     routes: [...CHECKPOINT_ROUTES],
     queue_options: {
+      // Note that the values here has an effect on WriteCheckpointBatcher
       concurrency: 100,
       max_queue_depth: 100
     }
