@@ -87,30 +87,43 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     const { user_id, heads: lsns } = checkpoint;
     const checkpointRequestId = checkpoint.checkpoint_request_id ?? null;
     const hasSuppliedId = checkpointRequestId != null;
-    const sameSuppliedId = {
-      $and: [{ $literal: hasSuppliedId }, { $eq: ['$client_id', { $literal: checkpointRequestId }] }]
+    // Generated managed checkpoints always increment. Supplied request ids are
+    // monotonic: only a value greater than the stored client_id may update the
+    // checkpoint id and heads. Stale or duplicate requests return the stored id.
+    const shouldApplySuppliedId = {
+      $and: [
+        { $literal: hasSuppliedId },
+        {
+          $or: [{ $eq: ['$client_id', null] }, { $gt: [{ $literal: checkpointRequestId }, '$client_id'] }]
+        }
+      ]
+    };
+    const shouldUpdateCheckpoint = hasSuppliedId ? shouldApplySuppliedId : { $literal: true };
+    const suppliedOrCurrentId = {
+      $cond: [shouldApplySuppliedId, { $literal: checkpointRequestId }, '$client_id']
     };
     const generatedId = {
       $add: [{ $ifNull: ['$client_id', 0n] }, 1n]
     };
     const nextClientId = {
-      $cond: [{ $literal: hasSuppliedId }, { $literal: checkpointRequestId }, generatedId]
+      $cond: [{ $literal: hasSuppliedId }, suppliedOrCurrentId, generatedId]
     };
+    const nextIsCheckpointRequest = hasSuppliedId
+      ? { $cond: [shouldApplySuppliedId, true, '$isCheckpointRequest'] }
+      : false;
 
     return [
       {
         $set: {
           user_id,
-          client_id: {
-            $cond: [sameSuppliedId, '$client_id', nextClientId]
-          },
+          client_id: nextClientId,
           lsns: {
-            $cond: [sameSuppliedId, '$lsns', { $literal: lsns }]
+            $cond: [shouldUpdateCheckpoint, { $literal: lsns }, '$lsns']
           },
           processed_at_lsn: {
-            $cond: [sameSuppliedId, '$processed_at_lsn', null]
+            $cond: [shouldUpdateCheckpoint, null, '$processed_at_lsn']
           },
-          isCheckpointRequest: hasSuppliedId
+          isCheckpointRequest: nextIsCheckpointRequest
         }
       }
     ];

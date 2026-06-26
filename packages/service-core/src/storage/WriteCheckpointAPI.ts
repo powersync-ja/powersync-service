@@ -38,8 +38,9 @@ export interface ClientRequestedCheckpointOptions {
    * Supplied for client-generated checkpoint requests.
    *
    * If omitted, storage generates the next managed write checkpoint id.
-   * If supplied and the same id already exists for user_id, this is a no-op.
-   * If supplied and a different id exists, replace the stored id and heads.
+   * If supplied, storage only uses it when it is greater than the stored id for
+   * the user_id. Same or lower supplied ids are no-ops, and storage returns the
+   * current stored id.
    */
   checkpoint_request_id?: bigint;
 }

@@ -86,8 +86,8 @@ export const checkpointRequest = routeDefinition({
 
     const decodedParams = CheckpointRequestPayload.decode(params);
 
-    // Duplicate checkpoint requests still go through createReplicationHead, so the source may receive a marker/keepalive.
-    // Storage preserves the original heads for same-id retries; this keeps the retry path simple for now.
+    // Duplicate or stale checkpoint requests still go through createReplicationHead, so the source may receive a marker.
+    // Storage only applies supplied request ids that advance the stored managed checkpoint.
     const { replicationHead, writeCheckpoint } = await util.createWriteCheckpoint({
       userId: token_payload!.userIdString,
       clientId: decodedParams.client_id,

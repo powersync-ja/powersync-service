@@ -128,7 +128,7 @@ bucket_definitions:
     });
   });
 
-  test('managed write checkpoints - client supplied id', async () => {
+  test('managed write checkpoints - client supplied ids are monotonic', async () => {
     await using factory = await generateStorageFactory();
     const r = await factory.configureSyncRules(
       updateSyncRulesFromYaml(
@@ -153,6 +153,14 @@ bucket_definitions:
     expect(first).toEqual(42n);
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '5/0' } })).resolves.toEqual(42n);
 
+    const stale = await createManagedWriteCheckpoint(bucketStorage, {
+      user_id: 'user1',
+      heads: { '1': '8/0' },
+      checkpoint_request_id: 41n
+    });
+    expect(stale).toEqual(42n);
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '6/0' } })).resolves.toEqual(42n);
+
     const retried = await createManagedWriteCheckpoint(bucketStorage, {
       user_id: 'user1',
       heads: { '1': '8/0' },
@@ -161,12 +169,12 @@ bucket_definitions:
     expect(retried).toEqual(42n);
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '6/0' } })).resolves.toEqual(42n);
 
-    const replaced = await createManagedWriteCheckpoint(bucketStorage, {
+    const advanced = await createManagedWriteCheckpoint(bucketStorage, {
       user_id: 'user1',
       heads: { '1': '8/0' },
       checkpoint_request_id: 43n
     });
-    expect(replaced).toEqual(43n);
+    expect(advanced).toEqual(43n);
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '7/0' } })).resolves.toBeNull();
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '8/0' } })).resolves.toEqual(43n);
 

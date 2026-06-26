@@ -88,6 +88,9 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     }
 
     if (suppliedCheckpoints.length > 0) {
+      // Supplied request ids are monotonic: only a value greater than the stored
+      // write_checkpoint may update the checkpoint id and heads. Stale or
+      // duplicate requests return the stored id.
       const mappedCheckpoints = suppliedCheckpoints.map((checkpoint) => ({
         user_id: checkpoint.user_id,
         lsns: checkpoint.heads,
@@ -117,10 +120,13 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
           json_data
         ON CONFLICT (user_id) DO UPDATE
         SET
-          write_checkpoint = EXCLUDED.write_checkpoint,
+          write_checkpoint = CASE
+            WHEN EXCLUDED.write_checkpoint > write_checkpoints.write_checkpoint THEN EXCLUDED.write_checkpoint
+            ELSE write_checkpoints.write_checkpoint
+          END,
           lsns = CASE
-            WHEN write_checkpoints.write_checkpoint = EXCLUDED.write_checkpoint THEN write_checkpoints.lsns
-            ELSE EXCLUDED.lsns
+            WHEN EXCLUDED.write_checkpoint > write_checkpoints.write_checkpoint THEN EXCLUDED.lsns
+            ELSE write_checkpoints.lsns
           END
         RETURNING
           *;
