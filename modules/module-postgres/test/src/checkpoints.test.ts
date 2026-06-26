@@ -23,7 +23,7 @@ const checkpointTests = ({ factory, storageVersion }: StorageVersionTestContext)
     const { pool } = context;
     const api = new PostgresRouteAPIAdapter(pool);
     const writeCheckpointBatcher = new WriteCheckpointBatcher(
-      () => api,
+      () => (callback) => api.createReplicationHead(callback),
       () => context.factory
     );
     const serverVersion = await context.connectionManager.getServerVersion();

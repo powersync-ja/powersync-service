@@ -27,7 +27,7 @@ function createStorage() {
 
 function createBatcher(api: any, storage: any) {
   return new WriteCheckpointBatcher(
-    () => api,
+    () => (callback) => api.createReplicationHead(callback),
     () => storage
   );
 }
