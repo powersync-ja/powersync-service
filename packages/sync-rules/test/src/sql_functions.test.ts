@@ -115,6 +115,12 @@ describe('SQL functions', () => {
     expect(fn.length(123n)).toEqual(3n);
     expect(fn.length(123.4)).toEqual(5n);
     expect(fn.length(Uint8Array.of(1, 2, 3))).toEqual(3n);
+    // SQLite counts characters (code points), not UTF-16 code units. length('😀') is 1, not 2.
+    expect(fn.length('😀')).toEqual(1n);
+    expect(fn.length('a😀b')).toEqual(3n);
+    expect(fn.length('𝕏')).toEqual(1n);
+    // length() of a blob still counts bytes (the 4 UTF-8 bytes of 😀).
+    expect(fn.length(new TextEncoder().encode('😀'))).toEqual(4n);
   });
 
   test('hex', () => {
@@ -372,6 +378,12 @@ describe('SQL functions', () => {
     expect(fn.instr('path/to/file', '/')).toEqual(5n);
     expect(fn.instr('rofl 😂', '😂')).toEqual(6n);
     expect(fn.instr('😂😂', '😂')).toEqual(1n);
+
+    // Position is counted in characters (code points), not UTF-16 code units, to match SQLite. A non-BMP
+    // character *before* the match must not shift the reported position (it would with a UTF-16 index).
+    expect(fn.instr('😀x', 'x')).toEqual(2n);
+    expect(fn.instr('a😀b', 'b')).toEqual(3n);
+    expect(fn.instr('😀😀x', 'x')).toEqual(3n);
 
     // Numeric inputs (converted to string via toString)
     expect(fn.instr(12345, '3')).toEqual(3n);

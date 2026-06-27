@@ -165,8 +165,10 @@ const length: DocumentedSqlFunction = {
     } else if (value instanceof Uint8Array) {
       return BigInt(value.byteLength);
     } else {
-      value = castAsText(value);
-      return BigInt(value!.length);
+      const text = castAsText(value)!;
+      // SQLite length() counts characters (Unicode code points), not UTF-16 code units. Spreading the string
+      // iterates by code point, so e.g. length('😀') is 1, matching SQLite (rather than 2 for the surrogate pair).
+      return BigInt([...text].length);
     }
   },
   parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
@@ -288,8 +290,13 @@ const instr: DocumentedSqlFunction = {
     // Neither BLOB, or mixed: cast both to text
     const haystack = castAsText(x)!;
     const needle = castAsText(y)!;
-    const pos = haystack.indexOf(needle);
-    return BigInt(pos < 0 ? 0 : pos + 1);
+    const utf16Index = haystack.indexOf(needle);
+    if (utf16Index < 0) {
+      return 0n;
+    }
+    // SQLite returns the 1-indexed character (code point) position, not the UTF-16 code unit index. Count the
+    // code points preceding the match so e.g. instr('😀x', 'x') is 2 rather than 3.
+    return BigInt([...haystack.slice(0, utf16Index)].length + 1);
   },
   parameters: [
     { name: 'x', type: ExpressionType.ANY, optional: false },
