@@ -87,7 +87,9 @@ export function cast(value: SqliteValue, to: string) {
     if (typeof value == 'string') {
       return parseBigInt(value);
     } else if (typeof value == 'number') {
-      return Number.isInteger(value) ? BigInt(value) : BigInt(Math.floor(value));
+      // SQLite truncates a REAL towards zero when casting to INTEGER (e.g. CAST(-3.7 AS INTEGER) is -3),
+      // so use Math.trunc rather than Math.floor, which would round -3.7 down to -4.
+      return Number.isInteger(value) ? BigInt(value) : BigInt(Math.trunc(value));
     } else if (typeof value == 'bigint') {
       return value;
     } else {

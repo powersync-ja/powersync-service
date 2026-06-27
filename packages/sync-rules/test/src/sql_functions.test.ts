@@ -217,6 +217,10 @@ describe('SQL functions', () => {
     expect(cast(1.2, 'integer')).toEqual(1n);
     expect(cast(1.2, 'numeric')).toEqual(1.2);
     expect(cast(1.2, 'real')).toEqual(1.2);
+    // SQLite truncates a REAL towards zero when casting to INTEGER, so negative reals round up, not down.
+    expect(cast(-3.7, 'integer')).toEqual(-3n);
+    expect(cast(-0.9, 'integer')).toEqual(0n);
+    expect(cast(-2.1, 'integer')).toEqual(-2n);
     // We differ from SQLite here
     expect(cast(1.2, 'blob')).toEqual(Uint8Array.of(49, 46, 50));
 
