@@ -56,6 +56,50 @@ describe('streams', () => {
     expect(source.evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })).toHaveLength(0);
   });
 
+  describe('schema-per-tenant', () => {
+    // A wildcard schema (`%`) exposes the per-row schema as the synthetic `_schema` value (like
+    // `_table_suffix` for wildcard tables), filtered per client from the authenticated JWT claim.
+    const STREAM_SQL = `SELECT * FROM "%".comments WHERE _schema = auth.parameters() ->> 'tenant_schema'`;
+    const streamOptionsNoSchema: StreamParseOptions = {
+      ...PARSE_OPTIONS,
+      compatibility: new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
+    };
+    const tenant = (schema: string): SourceTableRef => ({ connectionTag: DEFAULT_TAG, schema, name: 'comments' });
+
+    test('a row is bucketed by its own schema', () => {
+      const desc = parseStream(STREAM_SQL, 'stream', streamOptionsNoSchema);
+
+      expect(evaluateBucketIds(desc, tenant('tenant_a'), { id: 'c1' })).toStrictEqual(['1#stream|0["tenant_a"]']);
+      expect(evaluateBucketIds(desc, tenant('tenant_b'), { id: 'c2' })).toStrictEqual(['1#stream|0["tenant_b"]']);
+    });
+
+    test('a client only sees buckets for the schema in its JWT claim', async () => {
+      const desc = parseStream(STREAM_SQL, 'stream', streamOptionsNoSchema);
+
+      expect(await queryBucketIds(desc, { tokenPayload: { tenant_schema: 'tenant_a' } })).toStrictEqual([
+        '1#stream|0["tenant_a"]'
+      ]);
+    });
+
+    test('validates against a schema without a "_schema" column-not-found warning', () => {
+      const [, errors] = syncStreamFromSql('stream', STREAM_SQL, options);
+      expect(errors).toStrictEqual([]);
+    });
+
+    test('_schema is not emitted as a synced column', () => {
+      const desc = parseStream(STREAM_SQL, 'stream', streamOptionsNoSchema);
+      const source = debugHydratedMergedSource(desc, hydrationParams);
+
+      const results = source.evaluateRow({ sourceTable: tenant('tenant_a'), record: { id: 'c1', content: 'hi' } });
+      expect(results).toHaveLength(1);
+      const [row] = results;
+      if ('error' in row) {
+        throw new Error(`Unexpected error evaluating row: ${row.error}`);
+      }
+      expect(row.data).toStrictEqual({ id: 'c1', content: 'hi' });
+    });
+  });
+
   test('row condition', () => {
     const desc = parseStream('SELECT * FROM comments WHERE length(content) > 5');
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'a' })).toStrictEqual([]);

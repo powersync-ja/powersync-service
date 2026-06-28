@@ -99,14 +99,20 @@ export class BaseSqlDataQuery {
   }
 
   addSpecialParameters(table: SourceTableRef, row: SqliteRow) {
+    let result = row;
     if (this.sourceTable.isWildcard) {
-      return {
-        ...row,
+      result = {
+        ...result,
         _table_suffix: this.sourceTable.suffix(table.name)
       };
-    } else {
-      return row;
     }
+    if (this.sourceTable.isSchemaWildcard) {
+      result = {
+        ...result,
+        _schema: table.schema
+      };
+    }
+    return result;
   }
 
   getOutputName(sourceTable: string) {

@@ -129,7 +129,7 @@ export class SyncStreamDataSource implements BucketDataSource, BucketDataEvaluat
 
     const row: TableRow = {
       sourceTable: options.sourceTable,
-      record: options.record
+      record: this.data.addSpecialParameters(options.sourceTable, options.record)
     };
 
     // There is some duplication in work here when there are multiple variants on a stream:

@@ -7,6 +7,7 @@ import {
   EvaluateRowOptions,
   SourceSchema,
   SqliteJsonRow,
+  SqliteRow,
   UnscopedEvaluatedRow,
   UnscopedEvaluationResult
 } from '../../types.js';
@@ -150,10 +151,13 @@ class PendingStreamDataSource {
 
   instantiate(engine: ScalarExpressionEngine) {
     const evaluator = engine.prepareEvaluator(this.statement);
+    const pattern = this.tablePattern;
 
     return (options: EvaluateRowOptions, results: UnscopedEvaluationResult[]) => {
       try {
-        const inputInstantiation = this.evaluatorInputs.map((input) => options.record[input.column]);
+        // Synthetic columns feed filters/bucket parameters via inputRecord; `star` reads the original record (never synced).
+        const inputRecord = addSpecialColumns(pattern, options.sourceTable, options.record);
+        const inputInstantiation = this.evaluatorInputs.map((input) => inputRecord[input.column]);
         row: for (const source of evaluator.evaluate(inputInstantiation)) {
           const record: SqliteJsonRow = {};
           for (const output of this.outputs) {
@@ -190,4 +194,15 @@ class PendingStreamDataSource {
       }
     };
   }
+}
+
+function addSpecialColumns(pattern: TablePattern, table: SourceTableRef, record: SqliteRow): SqliteRow {
+  let result = record;
+  if (pattern.isWildcard) {
+    result = { ...result, _table_suffix: pattern.suffix(table.name) };
+  }
+  if (pattern.isSchemaWildcard) {
+    result = { ...result, _schema: table.schema };
+  }
+  return result;
 }
