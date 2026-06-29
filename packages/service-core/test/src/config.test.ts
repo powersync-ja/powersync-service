@@ -109,7 +109,7 @@ describe('Config', () => {
       collector.collectConfig({
         config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
       })
-    ).rejects.toThrow('api.parameters.bucket_count_cache_ttl_minutes must be a non-negative integer');
+    ).rejects.toThrow('api.parameters.bucket_count_cache_ttl_minutes must be a positive integer');
   });
 
   it('should throw YAML validation error for invalid base64 config', {}, async () => {

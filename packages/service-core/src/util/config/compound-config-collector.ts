@@ -256,8 +256,8 @@ export class CompoundConfigCollector {
 
 function normalizeChecksumCacheTtlMinutes(ttlMinutes: number | undefined): number {
   const normalized = ttlMinutes ?? DEFAULT_CHECKSUM_CACHE_TTL_MINUTES;
-  if (!Number.isFinite(normalized) || !Number.isInteger(normalized) || normalized < 0) {
-    throw new Error('api.parameters.bucket_count_cache_ttl_minutes must be a non-negative integer');
+  if (!Number.isFinite(normalized) || !Number.isInteger(normalized) || normalized < 1) {
+    throw new Error('api.parameters.bucket_count_cache_ttl_minutes must be a positive integer');
   }
   return normalized;
 }
