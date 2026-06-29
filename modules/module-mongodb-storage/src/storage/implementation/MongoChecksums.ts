@@ -46,6 +46,8 @@ export interface MongoChecksumOptions {
    */
   operationBatchLimit?: number;
 
+  checksumCacheTtlMs?: number;
+
   storageConfig: StorageConfig;
 }
 
@@ -95,6 +97,7 @@ export abstract class MongoChecksums {
    */
   private get cache(): ChecksumCache<MongoChecksumCacheReadContext> {
     this._cache ??= new ChecksumCache<MongoChecksumCacheReadContext>({
+      ttlMs: this.options.checksumCacheTtlMs,
       fetchChecksums: (batch, context) => {
         return this.computePartialChecksums(batch, context);
       }

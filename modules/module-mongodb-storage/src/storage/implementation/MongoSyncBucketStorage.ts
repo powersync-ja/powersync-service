@@ -41,6 +41,7 @@ import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   readPreference?: mongo.ReadPreference;
+  checksumCacheTtlMs?: number;
   storageConfig: StorageConfig;
 }
 
