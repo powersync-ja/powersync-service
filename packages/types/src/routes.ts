@@ -93,7 +93,7 @@ export const BucketStorageStats = t.object({
   bucket: t.string,
   /** Total operations in the bucket's history (PUT/REMOVE/MOVE/CLEAR). */
   operations: t.number,
-  /** Live rows currently in the bucket. */
+  /** Live rows in the bucket. Exact for small buckets, otherwise a sampled estimate (see `rows_estimated`). */
   rows: t.number,
   /** Approximate size of the operation history in bytes. */
   operation_bytes: t.number,
@@ -101,24 +101,26 @@ export const BucketStorageStats = t.object({
    * `operations / max(rows, 1)`. ~1 is healthy (fully compacted); higher means more operation-history
    * overhead that a compact/defragment can reclaim.
    */
-  fragmentation: t.number
+  fragmentation: t.number,
+  /** True if `rows` (and therefore `fragmentation`) is a sampled estimate rather than an exact count. */
+  rows_estimated: t.boolean
 });
 export type BucketStorageStats = t.Encoded<typeof BucketStorageStats>;
 
 export const BucketReportResponse = t.object({
-  /** Per-bucket stats, ranked worst-first (most operations, then most fragmented). */
+  /** Worst-offender buckets, ranked by operation count then fragmentation. */
   buckets: t.array(BucketStorageStats),
   totals: t.object({
-    /** Number of buckets with stored operations or rows (before any `limit`). */
+    /** Number of buckets with stored operations. Estimated when the bucket set was sampled. */
     bucket_count: t.number,
+    /** Sum of operations across all buckets. Estimated when the bucket set was sampled. */
     operations: t.number,
-    /** Sum of per-bucket live rows. Rows in multiple buckets are counted per bucket. */
-    rows: t.number,
+    /** Sum of operation-history bytes across all buckets. Estimated when the bucket set was sampled. */
     operation_bytes: t.number,
-    /** Instance-wide `operations / max(rows, 1)`: operations a new client downloads per live row. */
-    fragmentation: t.number
+    /** True if the totals are estimated because the bucket set was sampled rather than fully scanned. */
+    estimated: t.boolean
   }),
-  /** True if `buckets` was truncated by `limit`. `totals` still reflects all buckets. */
+  /** True if there are more buckets than returned (more than `limit`). */
   truncated: t.boolean
 });
 export type BucketReportResponse = t.Encoded<typeof BucketReportResponse>;

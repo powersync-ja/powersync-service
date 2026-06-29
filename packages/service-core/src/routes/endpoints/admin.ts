@@ -313,14 +313,14 @@ export const bucketReport = routeDefinition({
         operations: bucket.operations,
         rows: bucket.rows,
         operation_bytes: bucket.operationBytes,
-        fragmentation: bucket.fragmentation
+        fragmentation: bucket.fragmentation,
+        rows_estimated: bucket.rowsEstimated
       })),
       totals: {
         bucket_count: report.totals.bucketCount,
         operations: report.totals.operations,
-        rows: report.totals.rows,
         operation_bytes: report.totals.operationBytes,
-        fragmentation: report.totals.fragmentation
+        estimated: report.totals.estimated
       },
       truncated: report.truncated
     });

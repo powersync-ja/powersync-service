@@ -7,28 +7,30 @@
  * A new client downloads every operation, not just live rows, so `operations / rows` is effectively a
  * fragmentation / compaction-efficiency score: a fully compacted bucket trends towards ~1, while a high
  * ratio is the usual cause of an unexpectedly high "Data Synced" metric and is reclaimable via compact/defragment.
+ *
+ * Scaling note: the report does NOT scan all storage. It ranks buckets by their pre-aggregated operation
+ * count and returns the worst offenders (top-N). Row counts (and therefore fragmentation) for those buckets
+ * are derived by sampling the operation history, so on large buckets they are estimates, flagged per bucket.
  */
 
 /**
- * Time budget for the per-bucket report's storage aggregations (Mongo `maxTimeMS`, Postgres
- * `statement_timeout`). The report scans current rows (and, on Postgres, all bucket data), which can be
- * expensive on large instances, so the queries are bounded rather than allowed to run unbounded.
+ * Time budget for the per-bucket report's bucket-selection aggregation (`maxTimeMS`). Bounded so an admin
+ * request on a large instance fails fast instead of running unbounded.
  */
 export const BUCKET_REPORT_TIMEOUT_MS: number = 60_000;
 
-export interface BucketOperationStat {
-  /** Total operations in the bucket's history (PUT/REMOVE/MOVE/CLEAR). */
-  operations: number;
-  /** Approximate size of the operation history in bytes. */
-  operationBytes: number;
-}
+/**
+ * Number of worst-offender buckets returned when the request omits a `limit`. Row counts are sampled per
+ * returned bucket, so this also bounds how much sampling work the report does.
+ */
+export const DEFAULT_BUCKET_REPORT_LIMIT: number = 50;
 
 export interface BucketStorageStats {
   /** Full bucket name, e.g. `by_user["u1"]`. */
   bucket: string;
   /** Total operations in the bucket's history. */
   operations: number;
-  /** Live rows currently in the bucket. */
+  /** Live rows in the bucket. Exact for small buckets, otherwise a sampled estimate (see `rowsEstimated`). */
   rows: number;
   /** Approximate size of the operation history in bytes. */
   operationBytes: number;
@@ -37,98 +39,82 @@ export interface BucketStorageStats {
    * overhead that a compact/defragment can reclaim.
    */
   fragmentation: number;
+  /** True if `rows` (and therefore `fragmentation`) is a sampled estimate rather than an exact count. */
+  rowsEstimated: boolean;
 }
 
 export interface BucketReportTotals {
-  /** Number of buckets with stored operations or rows (before any `limit`). */
+  /** Number of buckets with stored operations. Estimated when the bucket set was sampled (see `estimated`). */
   bucketCount: number;
-  /** Sum of operations across all buckets. */
+  /** Sum of operations across all buckets. Estimated when the bucket set was sampled. */
   operations: number;
-  /**
-   * Sum of per-bucket live rows. Note this double-counts rows that belong to multiple buckets,
-   * so it is a sum of per-bucket counts rather than a distinct instance-wide row total.
-   */
-  rows: number;
-  /** Sum of operation-history bytes across all buckets. */
+  /** Sum of operation-history bytes across all buckets. Estimated when the bucket set was sampled. */
   operationBytes: number;
   /**
-   * Instance-wide fragmentation: `operations / max(rows, 1)`, i.e. the row-weighted average of the
-   * per-bucket ratios. ~1 is healthy; a higher value means a new client downloads that many operations
-   * per live row across the whole instance, which is the headline cause of a high "Data Synced" metric.
+   * True if the totals are estimated because the bucket set was too large to scan in full and was sampled.
+   * Row counts are never totalled here (they are sampled per returned bucket, not across the whole instance).
    */
-  fragmentation: number;
+  estimated: boolean;
 }
 
 export interface BucketReport {
-  /** Per-bucket stats, ranked worst-first (most operations, then most fragmented). */
+  /** Worst-offender buckets, ranked by operation count then fragmentation. */
   buckets: BucketStorageStats[];
-  /** Instance-wide totals, computed across all buckets even when `buckets` is truncated by `limit`. */
+  /** Instance-wide operation totals. Does not include row counts (those are per-bucket estimates only). */
   totals: BucketReportTotals;
-  /** True if `buckets` was truncated by `limit`. `totals` still reflects all buckets. */
+  /** True if there are more buckets than returned (more than `limit`). */
   truncated: boolean;
 }
 
 export interface GetBucketReportOptions {
   /**
    * Maximum number of buckets to return, ranked by operation count descending (worst offenders first).
-   * This caps the response size only: every backend still aggregates all buckets (and `totals` covers
-   * them all), so it is not a query-cost bound. Non-integer or negative values are floored and clamped
-   * to 0. Defaults to no limit.
+   * Row counts are sampled per returned bucket, so this also bounds the report's cost. Non-integer or
+   * negative values are floored and clamped to 1. Defaults to {@link DEFAULT_BUCKET_REPORT_LIMIT}.
    */
   limit?: number;
 }
 
+/** A bucket's exact operation stats plus its (possibly sampled) row count, before ranking. */
+export interface RankedBucketInput {
+  bucket: string;
+  operations: number;
+  operationBytes: number;
+  rows: number;
+  rowsEstimated: boolean;
+}
+
 /**
- * Combine per-bucket operation stats and live-row counts (each keyed by full bucket name) into a
- * ranked {@link BucketReport}. Backend storage adapters collect the two maps however is cheapest for
- * them; this builder owns the shared merge/rank/total logic so that part stays identical across
- * backends. The inputs are not identical: operation counts are exact on Postgres (a `COUNT(*)`) but a
- * pre-aggregated estimate on MongoDB, so the same data can yield slightly different counts per backend.
+ * Normalize a requested limit to a positive integer, falling back to {@link DEFAULT_BUCKET_REPORT_LIMIT}.
  */
-export function buildBucketReport(
-  operationStats: Map<string, BucketOperationStat>,
-  rowCounts: Map<string, number>,
-  options?: GetBucketReportOptions
-): BucketReport {
-  const bucketNames = new Set<string>([...operationStats.keys(), ...rowCounts.keys()]);
-
-  const buckets: BucketStorageStats[] = [];
-  const totals: BucketReportTotals = { bucketCount: 0, operations: 0, rows: 0, operationBytes: 0, fragmentation: 0 };
-
-  for (const bucket of bucketNames) {
-    const opStat = operationStats.get(bucket);
-    const operations = opStat?.operations ?? 0;
-    const operationBytes = opStat?.operationBytes ?? 0;
-    const rows = rowCounts.get(bucket) ?? 0;
-
-    buckets.push({
-      bucket,
-      operations,
-      rows,
-      operationBytes,
-      fragmentation: operations / Math.max(rows, 1)
-    });
-
-    totals.bucketCount += 1;
-    totals.operations += operations;
-    totals.rows += rows;
-    totals.operationBytes += operationBytes;
+export function resolveBucketReportLimit(limit?: number): number {
+  if (limit == null) {
+    return DEFAULT_BUCKET_REPORT_LIMIT;
   }
+  return Math.max(1, Math.floor(limit));
+}
 
-  totals.fragmentation = totals.operations / Math.max(totals.rows, 1);
+/**
+ * Assemble the final {@link BucketReport} from per-bucket stats and instance-wide totals. Storage adapters
+ * select and sample the buckets however is cheapest for them; this owns the shared fragmentation / ranking /
+ * truncation logic so it cannot drift. Pure (no I/O) so it is unit-testable.
+ */
+export function assembleBucketReport(buckets: RankedBucketInput[], totals: BucketReportTotals): BucketReport {
+  const stats: BucketStorageStats[] = buckets.map((b) => ({
+    bucket: b.bucket,
+    operations: b.operations,
+    rows: b.rows,
+    operationBytes: b.operationBytes,
+    fragmentation: b.operations / Math.max(b.rows, 1),
+    rowsEstimated: b.rowsEstimated
+  }));
 
   // Worst-first: most operations, then most fragmented.
-  buckets.sort((a, b) => b.operations - a.operations || b.fragmentation - a.fragmentation);
+  stats.sort((a, b) => b.operations - a.operations || b.fragmentation - a.fragmentation);
 
-  let truncated = false;
-  let reported = buckets;
-  if (options?.limit != null) {
-    const limit = Math.max(0, Math.floor(options.limit));
-    if (buckets.length > limit) {
-      reported = buckets.slice(0, limit);
-      truncated = true;
-    }
-  }
-
-  return { buckets: reported, totals, truncated };
+  return {
+    buckets: stats,
+    totals,
+    truncated: totals.bucketCount > stats.length
+  };
 }
