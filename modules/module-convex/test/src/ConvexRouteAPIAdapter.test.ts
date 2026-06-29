@@ -83,15 +83,16 @@ bucket_definitions:
     await adapter.shutdown();
   });
 
-  it('creates replication head from the global snapshot cursor', async () => {
+  it('gets and advances replication head from the global snapshot cursor', async () => {
     const adapter = createAdapter();
     const getHeadCursor = vi.fn(async (_options?: any) => HEAD_CURSOR);
     const createWriteCheckpointMarker = vi.fn(async (_options?: any) => undefined);
     (adapter as any).connectionManager.client.getHeadCursor = getHeadCursor;
     (adapter as any).connectionManager.client.createWriteCheckpointMarker = createWriteCheckpointMarker;
 
-    const result = await adapter.createReplicationHead(async (head) => head);
-    expect(result).toBe(parseConvexLsn(HEAD_CURSOR));
+    const head = await adapter.getReplicationHead();
+    expect(head).toBe(parseConvexLsn(HEAD_CURSOR));
+    await adapter.advanceReplicationHead(head);
     expect(getHeadCursor).toHaveBeenCalledTimes(1);
     expect(getHeadCursor).toHaveBeenCalledWith();
     expect(createWriteCheckpointMarker).toHaveBeenCalledTimes(1);

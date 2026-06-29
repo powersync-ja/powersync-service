@@ -29,7 +29,8 @@ export const writeCheckpoint = routeDefinition({
     // Since we don't use LSNs anymore, the only way to get that is to wait.
     const start = Date.now();
 
-    const head = await apiHandler.createReplicationHead(async (head) => head);
+    const head = await apiHandler.getReplicationHead();
+    await apiHandler.advanceReplicationHead(head);
 
     const timeout = 50_000;
 
@@ -86,8 +87,8 @@ export const checkpointRequest = routeDefinition({
 
     const decodedParams = CheckpointRequestPayload.decode(params);
 
-    // Duplicate or stale checkpoint requests still go through createReplicationHead, so the source may receive a marker.
     // Storage only applies supplied request ids that advance the stored managed checkpoint.
+    // Stale or duplicate ids return the stored checkpoint without forcing a source marker.
     const { replicationHead, writeCheckpoint } = await util.createWriteCheckpoint({
       userId: token_payload!.userIdString,
       clientId: decodedParams.client_id,
@@ -99,7 +100,10 @@ export const checkpointRequest = routeDefinition({
       `Requested checkpoint for ${token_payload!.userIdString}/${params.client_id}: ${writeCheckpoint} | ${replicationHead}`
     );
 
-    // TODO, we don't actually need to return this here, what should we return :?
+    // Return the checkpoint value storage is actually at after this request.
+    // When an earlier request has already advanced the stored value beyond the
+    // supplied checkpoint_request_id, this returns that larger previous value so
+    // the client can treat the response as a stale-request acknowledgement.
     return {
       write_checkpoint: String(writeCheckpoint)
     };

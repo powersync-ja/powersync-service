@@ -286,6 +286,7 @@ export interface WriteCheckpointDocument {
    * between two checkpoints.
    */
   processed_at_lsn: string | null;
+  isCheckpointRequest?: boolean;
 }
 
 export interface InstanceDocument {

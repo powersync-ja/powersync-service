@@ -23,13 +23,13 @@ const checkpointTests = ({ factory, storageVersion }: StorageVersionTestContext)
     const { pool } = context;
     const api = new PostgresRouteAPIAdapter(pool);
     const writeCheckpointBatcher = new WriteCheckpointBatcher(
-      () => (callback) => api.createReplicationHead(callback),
+      () => api,
       () => context.factory
     );
     const serverVersion = await context.connectionManager.getServerVersion();
     if (serverVersion!.compareMain('14.0.0') < 0) {
       // The test is not stable on Postgres 11 or 12. See the notes on
-      // PostgresRouteAPIAdapter.createReplicationHead() for details.
+      // PostgresRouteAPIAdapter.advanceReplicationHead() for details.
       // Postgres 12 is already EOL, so not worth finding a fix - just skip the tests.
       // Postgres 13 fares a little better, but even there the test is still unstable.
       // Postgres 14+ appears to have no issue.

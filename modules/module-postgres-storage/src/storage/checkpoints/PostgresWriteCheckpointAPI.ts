@@ -34,19 +34,20 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
 
   async createManagedWriteCheckpoints(
     checkpoints: storage.ManagedWriteCheckpointOptions[]
-  ): Promise<Map<string, bigint>> {
+  ): Promise<storage.CreateManagedWriteCheckpointsResult> {
     if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
       throw new framework.errors.ValidationError(
         `Attempting to create a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
       );
     }
 
-    const uniqueCheckpoints = [...new Map(checkpoints.map((checkpoint) => [checkpoint.user_id, checkpoint])).values()];
+    const uniqueCheckpoints = storage.uniqueManagedWriteCheckpoints(checkpoints);
     if (uniqueCheckpoints.length == 0) {
-      return new Map();
+      return { writeCheckpoints: new Map(), updated: false };
     }
 
-    const rows: models.WriteCheckpointDecoded[] = [];
+    let updated = false;
+    const writeCheckpoints = new Map<string, bigint>();
     const generatedCheckpoints = uniqueCheckpoints.filter((checkpoint) => checkpoint.checkpoint_request_id == null);
     const suppliedCheckpoints = uniqueCheckpoints.filter((checkpoint) => checkpoint.checkpoint_request_id != null);
 
@@ -84,7 +85,10 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         .decoded(models.WriteCheckpoint)
         .rows();
 
-      rows.push(...generatedRows);
+      updated ||= generatedRows.length > 0;
+      for (const row of generatedRows) {
+        writeCheckpoints.set(row.user_id, row.write_checkpoint);
+      }
     }
 
     if (suppliedCheckpoints.length > 0) {
@@ -120,24 +124,53 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
           json_data
         ON CONFLICT (user_id) DO UPDATE
         SET
-          write_checkpoint = CASE
-            WHEN EXCLUDED.write_checkpoint > write_checkpoints.write_checkpoint THEN EXCLUDED.write_checkpoint
-            ELSE write_checkpoints.write_checkpoint
-          END,
-          lsns = CASE
-            WHEN EXCLUDED.write_checkpoint > write_checkpoints.write_checkpoint THEN EXCLUDED.lsns
-            ELSE write_checkpoints.lsns
-          END
+          write_checkpoint = EXCLUDED.write_checkpoint,
+          lsns = EXCLUDED.lsns
+        WHERE
+          EXCLUDED.write_checkpoint > write_checkpoints.write_checkpoint
         RETURNING
           *;
       `
         .decoded(models.WriteCheckpoint)
         .rows();
 
-      rows.push(...suppliedRows);
+      updated ||= suppliedRows.length > 0;
+      for (const row of suppliedRows) {
+        writeCheckpoints.set(row.user_id, row.write_checkpoint);
+      }
+
+      const updatedSuppliedUserIds = new Set(suppliedRows.map((row) => row.user_id));
+      const unchangedUserIds = suppliedCheckpoints
+        .map((checkpoint) => checkpoint.user_id)
+        .filter((userId) => !updatedSuppliedUserIds.has(userId));
+
+      if (unchangedUserIds.length > 0) {
+        const mappedUserIds = unchangedUserIds.map((user_id) => ({ user_id }));
+        const unchangedRows = await this.db.sql`
+          WITH
+            json_data AS (
+              SELECT
+              CHECKPOINT ->> 'user_id' AS user_id
+              FROM
+                jsonb_array_elements(${{ type: 'jsonb', value: mappedUserIds }}) AS
+              CHECKPOINT
+            )
+          SELECT
+            write_checkpoints.*
+          FROM
+            write_checkpoints
+            JOIN json_data ON write_checkpoints.user_id = json_data.user_id;
+        `
+          .decoded(models.WriteCheckpoint)
+          .rows();
+
+        for (const row of unchangedRows) {
+          writeCheckpoints.set(row.user_id, row.write_checkpoint);
+        }
+      }
     }
 
-    return new Map(rows.map((row) => [row.user_id, row.write_checkpoint]));
+    return { writeCheckpoints, updated };
   }
 
   async lastWriteCheckpoint(filters: storage.LastWriteCheckpointFilters): Promise<bigint | null> {

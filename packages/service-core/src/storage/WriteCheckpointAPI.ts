@@ -66,13 +66,66 @@ export interface ManagedWriteCheckpointFilters extends BaseWriteCheckpointIdenti
 
 export type ManagedWriteCheckpointOptions = ManagedWriteCheckpointFilters & ClientRequestedCheckpointOptions;
 
+export interface CreateManagedWriteCheckpointsResult {
+  /**
+   * Current managed checkpoint id for each full user_id after applying the batch.
+   */
+  writeCheckpoints: Map<string, bigint>;
+  /**
+   * True when at least one row was created or advanced. Callers use this to
+   * advance the source marker once for the whole batch.
+   */
+  updated: boolean;
+}
+
+export function uniqueManagedWriteCheckpoints(
+  checkpoints: ManagedWriteCheckpointOptions[]
+): ManagedWriteCheckpointOptions[] {
+  const byUser = new Map<string, ManagedWriteCheckpointOptions>();
+
+  for (const checkpoint of checkpoints) {
+    const existing = byUser.get(checkpoint.user_id);
+    // A single HTTP batch can contain multiple requests for the same user.
+    // If any request supplies a checkpoint id, process only the greatest one so
+    // lower stale ids cannot hide the request that should advance storage.
+    // In normal routing we should never receive both generated and supplied
+    // requests for the same full user_id; this keeps the storage boundary
+    // deterministic if that invariant is violated.
+    if (existing == null || shouldReplaceManagedWriteCheckpoint(existing, checkpoint)) {
+      byUser.set(checkpoint.user_id, checkpoint);
+    }
+  }
+
+  return [...byUser.values()];
+}
+
+function shouldReplaceManagedWriteCheckpoint(
+  existing: ManagedWriteCheckpointOptions,
+  candidate: ManagedWriteCheckpointOptions
+) {
+  const existingRequestId = existing.checkpoint_request_id;
+  const candidateRequestId = candidate.checkpoint_request_id;
+
+  if (candidateRequestId == null) {
+    return existingRequestId == null;
+  }
+
+  if (existingRequestId == null) {
+    return true;
+  }
+
+  return candidateRequestId > existingRequestId;
+}
+
 export type SyncStorageLastWriteCheckpointFilters = BaseWriteCheckpointIdentifier | ManagedWriteCheckpointFilters;
 export type LastWriteCheckpointFilters = CustomWriteCheckpointFilters | ManagedWriteCheckpointFilters;
 
 export interface BaseWriteCheckpointAPI {
   readonly writeCheckpointMode: WriteCheckpointMode;
   setWriteCheckpointMode(mode: WriteCheckpointMode): void;
-  createManagedWriteCheckpoints(checkpoints: ManagedWriteCheckpointOptions[]): Promise<Map<string, bigint>>;
+  createManagedWriteCheckpoints(
+    checkpoints: ManagedWriteCheckpointOptions[]
+  ): Promise<CreateManagedWriteCheckpointsResult>;
 }
 
 /**

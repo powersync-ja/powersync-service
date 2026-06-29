@@ -107,7 +107,7 @@ bucket_definitions:
       user_id: 'user1'
     });
     // We have to trigger a new keepalive after the checkpoint, at least to cover postgres storage.
-    // This is what is effetively triggered with RouteAPI.createReplicationHead().
+    // This is what is effectively triggered by RouteAPI.advanceReplicationHead().
     // MongoDB storage doesn't explicitly need this anymore.
     await writer.keepalive('6/0');
 
@@ -145,44 +145,49 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
 
-    const first = await createManagedWriteCheckpoint(bucketStorage, {
+    const first = await createManagedWriteCheckpointResult(bucketStorage, {
       user_id: 'user1',
       heads: { '1': '5/0' },
       checkpoint_request_id: 42n
     });
-    expect(first).toEqual(42n);
+    expect(first.writeCheckpoints.get('user1')).toEqual(42n);
+    expect(first.updated).toBe(true);
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '5/0' } })).resolves.toEqual(42n);
 
-    const stale = await createManagedWriteCheckpoint(bucketStorage, {
+    const stale = await createManagedWriteCheckpointResult(bucketStorage, {
       user_id: 'user1',
       heads: { '1': '8/0' },
       checkpoint_request_id: 41n
     });
-    expect(stale).toEqual(42n);
+    expect(stale.writeCheckpoints.get('user1')).toEqual(42n);
+    expect(stale.updated).toBe(false);
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '6/0' } })).resolves.toEqual(42n);
 
-    const retried = await createManagedWriteCheckpoint(bucketStorage, {
+    const retried = await createManagedWriteCheckpointResult(bucketStorage, {
       user_id: 'user1',
       heads: { '1': '8/0' },
       checkpoint_request_id: 42n
     });
-    expect(retried).toEqual(42n);
+    expect(retried.writeCheckpoints.get('user1')).toEqual(42n);
+    expect(retried.updated).toBe(false);
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '6/0' } })).resolves.toEqual(42n);
 
-    const advanced = await createManagedWriteCheckpoint(bucketStorage, {
+    const advanced = await createManagedWriteCheckpointResult(bucketStorage, {
       user_id: 'user1',
       heads: { '1': '8/0' },
       checkpoint_request_id: 43n
     });
-    expect(advanced).toEqual(43n);
+    expect(advanced.writeCheckpoints.get('user1')).toEqual(43n);
+    expect(advanced.updated).toBe(true);
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '7/0' } })).resolves.toBeNull();
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '8/0' } })).resolves.toEqual(43n);
 
-    const generated = await createManagedWriteCheckpoint(bucketStorage, {
+    const generated = await createManagedWriteCheckpointResult(bucketStorage, {
       user_id: 'user1',
       heads: { '1': '9/0' }
     });
-    expect(generated).toEqual(44n);
+    expect(generated.writeCheckpoints.get('user1')).toEqual(44n);
+    expect(generated.updated).toBe(true);
   });
 
   test('custom write checkpoints - checkpoint after write', async (context) => {
@@ -364,8 +369,17 @@ async function createManagedWriteCheckpoint(
   bucketStorage: storage.SyncRulesBucketStorage,
   checkpoint: storage.ManagedWriteCheckpointOptions
 ) {
-  const checkpoints = await bucketStorage.createManagedWriteCheckpoints([checkpoint]);
-  const writeCheckpoint = checkpoints.get(checkpoint.user_id);
+  const result = await createManagedWriteCheckpointResult(bucketStorage, checkpoint);
+  const writeCheckpoint = result.writeCheckpoints.get(checkpoint.user_id);
   expect(writeCheckpoint).not.toBeUndefined();
   return writeCheckpoint!;
+}
+
+async function createManagedWriteCheckpointResult(
+  bucketStorage: storage.SyncRulesBucketStorage,
+  checkpoint: storage.ManagedWriteCheckpointOptions
+) {
+  const result = await bucketStorage.createManagedWriteCheckpoints([checkpoint]);
+  expect(result.writeCheckpoints.get(checkpoint.user_id)).not.toBeUndefined();
+  return result;
 }

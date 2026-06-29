@@ -1,4 +1,4 @@
-import { createWriteCheckpoint, WriteCheckpointBatcher } from '@/index.js';
+import { createWriteCheckpoint, storage, WriteCheckpointBatcher } from '@/index.js';
 import { describe, expect, test, vi } from 'vitest';
 
 function deferred<T = void>() {
@@ -10,11 +10,14 @@ async function waitForAsyncWork() {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-function createStorage() {
+function createStorage(options?: { updated?: (checkpoint: { user_id: string }) => boolean }) {
   let nextCheckpoint = 1n;
   const bucketStorage = {
     createManagedWriteCheckpoints: vi.fn(async (checkpoints: { user_id: string }[]) => {
-      return new Map(checkpoints.map((checkpoint) => [checkpoint.user_id, nextCheckpoint++]));
+      return {
+        writeCheckpoints: new Map(checkpoints.map((checkpoint) => [checkpoint.user_id, nextCheckpoint++])),
+        updated: checkpoints.some((checkpoint) => options?.updated?.(checkpoint) ?? true)
+      };
     })
   };
 
@@ -27,21 +30,38 @@ function createStorage() {
 
 function createBatcher(api: any, storage: any) {
   return new WriteCheckpointBatcher(
-    () => (callback) => api.createReplicationHead(callback),
+    () => api,
     () => storage
   );
 }
 
 describe('write checkpoint batching', () => {
+  test('deduplicates managed checkpoints by greatest supplied request id per user', () => {
+    expect(
+      storage.uniqueManagedWriteCheckpoints([
+        { user_id: 'user-a', heads: { '1': 'generated' } },
+        { user_id: 'user-a', heads: { '1': 'stale' }, checkpoint_request_id: 41n },
+        { user_id: 'user-a', heads: { '1': 'winner' }, checkpoint_request_id: 43n },
+        { user_id: 'user-a', heads: { '1': 'lower' }, checkpoint_request_id: 42n },
+        { user_id: 'user-b', heads: { '1': 'generated-b' } }
+      ])
+    ).toEqual([
+      { user_id: 'user-a', heads: { '1': 'winner' }, checkpoint_request_id: 43n },
+      { user_id: 'user-b', heads: { '1': 'generated-b' } }
+    ]);
+  });
+
   test('coalesces same-turn requests and dispatches queued requests as capacity becomes available', async () => {
     const gates = [deferred(), deferred()];
     const { bucketStorage, storage } = createStorage();
     const api = {
-      createReplicationHead: vi.fn(async (callback: (head: string) => Promise<unknown>) => {
-        const batch = api.createReplicationHead.mock.calls.length;
-        const result = await callback(`head-${batch}`);
+      getReplicationHead: vi.fn(async () => {
+        const batch = api.getReplicationHead.mock.calls.length;
+        return `head-${batch}`;
+      }),
+      advanceReplicationHead: vi.fn(async () => {
+        const batch = api.advanceReplicationHead.mock.calls.length;
         await gates[batch - 1].promise;
-        return result;
       })
     };
     const batcher = createBatcher(api, storage);
@@ -60,7 +80,7 @@ describe('write checkpoint batching', () => {
     ];
     await waitForAsyncWork();
 
-    expect(api.createReplicationHead).toHaveBeenCalledTimes(1);
+    expect(api.getReplicationHead).toHaveBeenCalledTimes(1);
     expect(bucketStorage.createManagedWriteCheckpoints).toHaveBeenNthCalledWith(1, [
       { user_id: 'user-a/client-1', heads: { '1': 'head-1' } },
       { user_id: 'user-b', heads: { '1': 'head-1' } }
@@ -74,7 +94,7 @@ describe('write checkpoint batching', () => {
 
     await waitForAsyncWork();
 
-    expect(api.createReplicationHead).toHaveBeenCalledTimes(2);
+    expect(api.getReplicationHead).toHaveBeenCalledTimes(2);
     expect(bucketStorage.createManagedWriteCheckpoints).toHaveBeenNthCalledWith(2, [
       { user_id: 'user-c/client-3', heads: { '1': 'head-2' } },
       { user_id: 'user-d', heads: { '1': 'head-2' } },
@@ -95,9 +115,8 @@ describe('write checkpoint batching', () => {
   test('passes supplied checkpoint request ids into the storage batch', async () => {
     const { bucketStorage, storage } = createStorage();
     const api = {
-      createReplicationHead: vi.fn(async (callback: (head: string) => Promise<unknown>) => {
-        return callback('head-1');
-      })
+      getReplicationHead: vi.fn(async () => 'head-1'),
+      advanceReplicationHead: vi.fn(async () => undefined)
     };
     const batcher = createBatcher(api, storage);
 
@@ -119,15 +138,34 @@ describe('write checkpoint batching', () => {
     ]);
   });
 
+  test('does not advance the source marker when storage reports no checkpoint updates', async () => {
+    const { storage } = createStorage({ updated: () => false });
+    const api = {
+      getReplicationHead: vi.fn(async () => 'head-1'),
+      advanceReplicationHead: vi.fn(async () => undefined)
+    };
+    const batcher = createBatcher(api, storage);
+
+    await expect(createWriteCheckpoint({ userId: 'user-a', clientId: undefined, batcher })).resolves.toEqual({
+      writeCheckpoint: '1',
+      replicationHead: 'head-1'
+    });
+
+    expect(api.getReplicationHead).toHaveBeenCalledTimes(1);
+    expect(api.advanceReplicationHead).not.toHaveBeenCalled();
+  });
+
   test('allows three executing batches and queues later requests until one completes', async () => {
     const gates = [deferred(), deferred(), deferred(), deferred()];
     const { storage } = createStorage();
     const api = {
-      createReplicationHead: vi.fn(async (callback: (head: string) => Promise<unknown>) => {
-        const batch = api.createReplicationHead.mock.calls.length;
-        const result = await callback(`head-${batch}`);
+      getReplicationHead: vi.fn(async () => {
+        const batch = api.getReplicationHead.mock.calls.length;
+        return `head-${batch}`;
+      }),
+      advanceReplicationHead: vi.fn(async () => {
+        const batch = api.advanceReplicationHead.mock.calls.length;
         await gates[batch - 1].promise;
-        return result;
       })
     };
     const batcher = createBatcher(api, storage);
@@ -153,7 +191,7 @@ describe('write checkpoint batching', () => {
     });
     await waitForAsyncWork();
 
-    expect(api.createReplicationHead).toHaveBeenCalledTimes(3);
+    expect(api.getReplicationHead).toHaveBeenCalledTimes(3);
 
     const fourth = createWriteCheckpoint({
       userId: 'user-d',
@@ -162,13 +200,13 @@ describe('write checkpoint batching', () => {
     });
     await waitForAsyncWork();
 
-    expect(api.createReplicationHead).toHaveBeenCalledTimes(3);
+    expect(api.getReplicationHead).toHaveBeenCalledTimes(3);
 
     gates[0].resolve();
     await first;
     await waitForAsyncWork();
 
-    expect(api.createReplicationHead).toHaveBeenCalledTimes(4);
+    expect(api.getReplicationHead).toHaveBeenCalledTimes(4);
 
     gates[1].resolve();
     gates[2].resolve();
@@ -185,13 +223,15 @@ describe('write checkpoint batching', () => {
     const error = new Error('source unavailable');
     const { storage } = createStorage();
     const api = {
-      createReplicationHead: vi.fn(async () => {
+      getReplicationHead: vi.fn(async () => {
         throw error;
-      })
+      }),
+      advanceReplicationHead: vi.fn(async () => undefined)
     };
     const batcher = createBatcher(api, storage);
 
     await expect(createWriteCheckpoint({ userId: 'user-a', clientId: undefined, batcher })).rejects.toBe(error);
-    expect(api.createReplicationHead).toHaveBeenCalledTimes(1);
+    expect(api.getReplicationHead).toHaveBeenCalledTimes(1);
+    expect(api.advanceReplicationHead).not.toHaveBeenCalled();
   });
 });

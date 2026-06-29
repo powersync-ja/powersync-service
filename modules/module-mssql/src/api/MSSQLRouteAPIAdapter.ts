@@ -1,10 +1,4 @@
-import {
-  api,
-  ParseSyncConfigOptions,
-  PatternResult,
-  ReplicationHeadCallback,
-  ReplicationLagOptions
-} from '@powersync/service-core';
+import { api, ParseSyncConfigOptions, PatternResult, ReplicationLagOptions } from '@powersync/service-core';
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import sql from 'mssql';
@@ -27,14 +21,13 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
     this.connectionManager = new MSSQLConnectionManager(config, {});
   }
 
-  async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
-    const currentLSN = await getLatestLSN(this.connectionManager);
-    const result = await callback(currentLSN.toString());
+  async getReplicationHead(): Promise<string> {
+    return (await getLatestLSN(this.connectionManager)).toString();
+  }
 
+  async advanceReplicationHead(_head: string): Promise<void> {
     // Updates the powersync checkpoints table on the source database, ensuring that an update with a newer LSN will be captured by the CDC.
     await createCheckpoint(this.connectionManager);
-
-    return result;
   }
 
   async executeQuery(query: string, params: any[]): Promise<service_types.internal_routes.ExecuteSqlResponse> {

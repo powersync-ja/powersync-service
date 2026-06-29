@@ -70,14 +70,14 @@ export interface RouteAPI {
 
   /**
    * Get the current LSN or equivalent replication HEAD position identifier.
-   *
-   * The position is provided to the callback so the caller can persist its
-   * write-checkpoint mapping before the source adapter forces any required
-   * source-side marker or keepalive. After the callback returns, the adapter
-   * must ensure that the replication stream will observe this position or a
-   * greater one, even when the source is otherwise idle.
    */
-  createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T>;
+  getReplicationHead(): Promise<string>;
+
+  /**
+   * Force the replication stream to observe the provided replication head or a
+   * later position when the source would otherwise be idle.
+   */
+  advanceReplicationHead(head: string): Promise<void>;
 
   /**
    * @returns The connected source schema in service-friendly table and column
@@ -110,5 +110,3 @@ export interface RouteAPI {
    */
   getParseSyncRulesOptions(): ParseSyncConfigOptions;
 }
-
-export type ReplicationHeadCallback<T> = (head: string) => Promise<T>;

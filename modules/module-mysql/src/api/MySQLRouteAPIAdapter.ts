@@ -1,4 +1,4 @@
-import { api, ParseSyncConfigOptions, ReplicationHeadCallback } from '@powersync/service-core';
+import { api, ParseSyncConfigOptions } from '@powersync/service-core';
 
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
@@ -282,10 +282,8 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     return result.comparable;
   }
 
-  async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
-    const head = await this.getReplicationHead();
+  async advanceReplicationHead(_head: string): Promise<void> {
     // TODO: make sure another message is replicated
-    return await callback(head);
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
