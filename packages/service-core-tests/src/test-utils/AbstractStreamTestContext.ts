@@ -176,7 +176,7 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
     const syncConfigContent = this.getSyncConfigContent();
     const { checkpoint } = await this.storage!.getCheckpoint();
     const map = [bucketRequest(syncConfigContent, bucket, start)];
-    const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+    const batch = this.storage!.getBucketDataBatch(testCheckpoint(checkpoint), map);
     const batches = await fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];
   }

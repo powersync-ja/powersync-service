@@ -131,7 +131,9 @@ function registerStoreCurrentDataTests(storageVersion: number) {
     const checkpoint = flushResult!.flushed_op;
 
     const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRulesContent, 'global[]', 0n)])
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [
+        bucketRequest(syncRulesContent, 'global[]', 0n)
+      ])
     );
     expect(test_utils.getBatchData(batch)).toMatchObject([{ op: 'PUT', object_id: 'test1' }]);
 
@@ -161,7 +163,9 @@ function registerStoreCurrentDataTests(storageVersion: number) {
     const checkpoint = flushResult!.flushed_op;
 
     const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRulesContent, 'global[]', 0n)])
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [
+        bucketRequest(syncRulesContent, 'global[]', 0n)
+      ])
     );
     expect(test_utils.getBatchData(batch)).toMatchObject([{ op: 'PUT', object_id: 'test1' }]);
 
@@ -200,7 +204,9 @@ function registerStoreCurrentDataTests(storageVersion: number) {
     const checkpoint = flushResult!.flushed_op;
 
     const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRulesContent, 'global[]', 0n)])
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [
+        bucketRequest(syncRulesContent, 'global[]', 0n)
+      ])
     );
     const data = test_utils.getBatchData(batch);
     expect(data.length).toBeGreaterThan(0);

@@ -167,7 +167,7 @@ export class BinlogStreamTestContext {
     const checkpoint = await this.getCheckpoint(options);
     const syncConfigContent = this.getSyncConfigContent();
     const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncConfigContent, bucket, start));
-    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
+    return test_utils.fromAsync(this.storage!.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), map));
   }
 
   async getBucketData(
@@ -182,7 +182,7 @@ export class BinlogStreamTestContext {
     const syncConfigContent = this.getSyncConfigContent();
     const checkpoint = await this.getCheckpoint(options);
     const map = [bucketRequest(syncConfigContent, bucket, start)];
-    const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+    const batch = this.storage!.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];
   }

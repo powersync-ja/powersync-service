@@ -247,17 +247,17 @@ export abstract class MongoSyncBucketStorage
   }
 
   protected abstract getBucketDataBatchImpl(
-    checkpoint: utils.InternalOpId,
+    checkpoint: MongoReplicationCheckpoint,
     dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk>;
 
   async *getBucketDataBatch(
-    checkpoint: utils.InternalOpId,
+    checkpoint: storage.ReplicationCheckpoint,
     dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
-    yield* this.getBucketDataBatchImpl(checkpoint, dataBuckets, options);
+    yield* this.getBucketDataBatchImpl(checkpoint as MongoReplicationCheckpoint, dataBuckets, options);
   }
 
   async getChecksums(

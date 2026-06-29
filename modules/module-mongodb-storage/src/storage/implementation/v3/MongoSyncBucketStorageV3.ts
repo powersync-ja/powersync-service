@@ -351,7 +351,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected getBucketDataBatchImpl(
-    checkpoint: utils.InternalOpId,
+    checkpoint: MongoSyncBucketStorageCheckpoint,
     dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
@@ -528,7 +528,7 @@ export async function getParameterSetsV3(
 
 export async function* getBucketDataBatchV3(
   ctx: MongoSyncBucketStorageContextV3,
-  checkpoint: utils.InternalOpId,
+  checkpoint: MongoSyncBucketStorageCheckpoint,
   dataBuckets: storage.BucketDataRequest[],
   options?: storage.BucketDataBatchOptions
 ): AsyncIterable<storage.SyncBucketDataChunk> {
@@ -536,13 +536,20 @@ export async function* getBucketDataBatchV3(
     return;
   }
 
-  if (checkpoint == null) {
+  if (checkpoint.checkpoint == null) {
     throw new Error('checkpoint is null');
+  }
+
+  const session = checkpoint.snapshotTime == null ? undefined : ctx.db.client.startSession({ causalConsistency: true });
+  await using _ = { [Symbol.asyncDispose]: async () => session?.endSession() };
+
+  if (session != null) {
+    session.advanceOperationTime(checkpoint.snapshotTime);
   }
 
   const batchLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
   const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
-  const end = checkpoint;
+  const end = checkpoint.checkpoint;
   let remainingLimit = batchLimit;
 
   const requestsByDefinition = new Map<string, storage.BucketDataRequest[]>();
@@ -580,7 +587,9 @@ export async function* getBucketDataBatchV3(
     // raw: true returns Buffers, but the driver typing doesn't reflect that
     // without an explicit cast to FindCursor<Buffer>.
     const cursor = collection.find(filter, {
-      session: undefined,
+      session,
+      readPreference: session == null ? undefined : mongo.ReadPreference.secondaryPreferred,
+      readConcern: session == null ? undefined : 'majority',
       sort: { _id: 1 },
       raw: true,
       maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS,

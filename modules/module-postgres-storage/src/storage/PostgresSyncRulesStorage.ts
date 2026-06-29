@@ -309,7 +309,7 @@ export class PostgresSyncRulesStorage
   }
 
   async *getBucketDataBatch(
-    checkpoint: InternalOpId,
+    checkpoint: storage.ReplicationCheckpoint,
     dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
@@ -324,7 +324,7 @@ export class PostgresSyncRulesStorage
     // Each batch query batch are streamed in separate sets of rows, which may or may
     // not match up with chunks.
 
-    const end = checkpoint ?? BIGINT_MAX;
+    const end = checkpoint.checkpoint ?? BIGINT_MAX;
     const filters = dataBuckets.map((request) => ({ bucket_name: request.bucket, start: request.start }));
     const startOpByBucket = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
 

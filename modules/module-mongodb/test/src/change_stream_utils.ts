@@ -199,7 +199,7 @@ export class ChangeStreamTestContext {
     let checkpoint = await this.getCheckpoint(options);
     const syncConfigContent = this.getSyncConfigContent();
     const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncConfigContent, bucket, start));
-    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
+    return test_utils.fromAsync(this.storage!.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), map));
   }
 
   async getBucketData(bucket: string, start?: ProtocolOpId | InternalOpId | undefined, options?: { timeout?: number }) {
@@ -212,7 +212,7 @@ export class ChangeStreamTestContext {
     let map = [bucketRequest(syncConfigContent, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
-      const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+      const batch = this.storage!.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), map);
 
       const batches = await test_utils.fromAsync(batch);
       data = data.concat(batches[0]?.chunkData.data ?? []);
@@ -228,7 +228,7 @@ export class ChangeStreamTestContext {
     let checkpoint = await this.getCheckpoint(options);
     const syncConfigContent = this.getSyncConfigContent();
     const versionedBuckets = buckets.map((bucket) => bucketRequest(syncConfigContent, bucket, 0n));
-    const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
+    const checksums = await this.storage!.getChecksums(test_utils.testCheckpoint(checkpoint), versionedBuckets);
 
     const unversioned: utils.ChecksumMap = new Map();
     for (let i = 0; i < buckets.length; i++) {

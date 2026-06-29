@@ -119,7 +119,7 @@ async function* streamResponseInner(
   const newCheckpoints = stream[Symbol.asyncIterator]();
 
   type CheckpointAndLine = {
-    checkpoint: bigint;
+    checkpoint: storage.ReplicationCheckpoint;
     line: CheckpointLine | null;
   };
 
@@ -130,7 +130,7 @@ async function* streamResponseInner(
     }
 
     const line = await checksumState.buildNextCheckpointLine(next.value);
-    return { done: false, value: { checkpoint: next.value.base.checkpoint, line } };
+    return { done: false, value: { checkpoint: next.value.base, line } };
   }
 
   try {
@@ -253,7 +253,7 @@ async function* streamResponseInner(
 interface BucketDataRequest {
   syncContext: SyncContext;
   bucketStorage: storage.SyncRulesBucketStorage;
-  checkpoint: util.InternalOpId;
+  checkpoint: storage.ReplicationCheckpoint;
   /** Contains current bucket state. Modified by the request as data is sent. */
   checkpointLine: CheckpointLine;
   /** Subset of checkpointLine.bucketsToFetch, filtered by priority. */
@@ -363,7 +363,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       if (r.has_more) {
         has_more = true;
       }
-      if (targetOp != null && targetOp > checkpoint) {
+      if (targetOp != null && targetOp > checkpoint.checkpoint) {
         checkpointInvalidated = true;
       }
       if (r.data.length == 0) {
@@ -412,7 +412,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         if (request.forPriority != null) {
           const line: util.StreamingSyncCheckpointPartiallyComplete = {
             partial_checkpoint_complete: {
-              last_op_id: util.internalToExternalOpId(checkpoint),
+              last_op_id: util.internalToExternalOpId(checkpoint.checkpoint),
               priority: request.forPriority
             }
           };
@@ -420,7 +420,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         } else {
           const line: util.StreamingSyncCheckpointComplete = {
             checkpoint_complete: {
-              last_op_id: util.internalToExternalOpId(checkpoint)
+              last_op_id: util.internalToExternalOpId(checkpoint.checkpoint)
             }
           };
           yield { data: line, done: true };

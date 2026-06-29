@@ -56,7 +56,9 @@ bucket_definitions:
 
     const request = bucketRequest(syncRulesContent, 'global[]');
 
-    const batchBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const batchBefore = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
+    );
     const dataBefore = batchBefore.chunkData.data;
     const checksumBefore = await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), [request]);
 
@@ -87,7 +89,9 @@ bucket_definitions:
       minChangeRatio: 0
     });
 
-    const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const batchAfter = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
+    );
     const dataAfter = batchAfter.chunkData.data;
     const checksumAfter = await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), [request]);
     bucketStorage.clearChecksumCache();
@@ -172,7 +176,9 @@ bucket_definitions:
     const checkpoint = writer.last_flushed_op!;
     const request = bucketRequest(syncRulesContent, 'global[]');
 
-    const batchBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const batchBefore = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
+    );
     const dataBefore = batchBefore.chunkData.data;
     const checksumBefore = await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), [request]);
 
@@ -204,7 +210,9 @@ bucket_definitions:
       minChangeRatio: 0
     });
 
-    const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const batchAfter = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
+    );
     const dataAfter = batchAfter.chunkData.data;
     bucketStorage.clearChecksumCache();
     const checksumAfter = await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), [request]);
@@ -301,7 +309,9 @@ bucket_definitions:
       minChangeRatio: 0
     });
 
-    const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint2, [request]));
+    const batchAfter = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint2), [request])
+    );
     const dataAfter = batchAfter.chunkData.data;
     await bucketStorage.clearChecksumCache();
     const checksumAfter = await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint2), [request]);
@@ -416,7 +426,7 @@ bucket_definitions:
 
     const batchAfter = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
-        checkpoint,
+        test_utils.testCheckpoint(checkpoint),
         bucketRequestMap(syncRulesContent, [
           ['grouped["b1"]', 0n],
           ['grouped["b2"]', 0n]
@@ -656,7 +666,10 @@ bucket_definitions:
     });
 
     const batchAfterDefaultCompact = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint2, bucketRequestMap(syncRulesContent, [['global[]', 0n]]))
+      bucketStorage.getBucketDataBatch(
+        test_utils.testCheckpoint(checkpoint2),
+        bucketRequestMap(syncRulesContent, [['global[]', 0n]])
+      )
     );
 
     // Operation 1 should remain a PUT because op_id=2 is above the default maxOpId checkpoint.

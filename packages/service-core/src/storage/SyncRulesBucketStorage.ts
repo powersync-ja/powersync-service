@@ -138,7 +138,7 @@ export interface SyncRulesBucketStorage
    * @param options batch size options
    */
   getBucketDataBatch(
-    checkpoint: util.InternalOpId,
+    checkpoint: ReplicationCheckpoint,
     dataBuckets: BucketDataRequest[],
     options?: BucketDataBatchOptions
   ): AsyncIterable<SyncBucketDataChunk>;

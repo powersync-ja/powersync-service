@@ -5,7 +5,7 @@ import {
   PersistedSyncConfigContent,
   SyncRulesBucketStorage
 } from '@powersync/service-core';
-import { bucketRequest } from './general-utils.js';
+import { bucketRequest, testCheckpoint } from './general-utils.js';
 import { fromAsync } from './stream_utils.js';
 
 export class StorageDataHelpers {
@@ -25,7 +25,7 @@ export class StorageDataHelpers {
     let map = [bucketRequest(this.syncRules, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
-      const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+      const batch = this.storage!.getBucketDataBatch(testCheckpoint(checkpoint), map);
 
       const batches = await fromAsync(batch);
       data = data.concat(batches[0]?.chunkData.data ?? []);
@@ -39,6 +39,6 @@ export class StorageDataHelpers {
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, checkpoint: InternalOpId) {
     const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(this.syncRules, bucket, start));
-    return fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
+    return fromAsync(this.storage!.getBucketDataBatch(testCheckpoint(checkpoint), map));
   }
 }
