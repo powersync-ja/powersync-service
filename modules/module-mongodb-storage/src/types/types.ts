@@ -17,6 +17,8 @@ export const MongoStorageConfig = lib_mongo.BaseMongoConfig.and(
      * Read preference for bulk checksum and bucket data reads.
      *
      * If unset, MongoDB driver defaults are used for backwards compatibility.
+     *
+     * This is an experimental option, and may be removed in a future release.
      */
     read_preference: MongoStorageReadPreference.optional()
   })

@@ -11,4 +11,4 @@
 '@powersync/lib-service-mongodb': patch
 ---
 
-[MongoDB Storage] Add option to allow reading data from secondaries
+[MongoDB Storage] Add experimental option to allow reading data from secondaries.
