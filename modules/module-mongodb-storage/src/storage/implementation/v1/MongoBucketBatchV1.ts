@@ -388,7 +388,13 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           snapshot_lsn: lsn
         }
       },
-      { session: this.session }
+      {
+        session: this.session,
+        // Losing occasional resume LSN is fine. That may mean reprocessing
+        // some source changes in some edge cases, which is not an issue since
+        // changes are processed in an idempotent way.
+        writeConcern: { w: 1 }
+      }
     );
   }
 
