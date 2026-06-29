@@ -3,7 +3,6 @@ import {
   addPartialChecksums,
   bson,
   BucketChecksum,
-  BucketChecksumOptions,
   BucketChecksumRequest,
   ChecksumCache,
   ChecksumMap,
@@ -15,6 +14,7 @@ import {
 } from '@powersync/service-core';
 import type { VersionedPowerSyncMongo } from './db.js';
 
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { setSessionSnapshotTime } from '../../utils/util.js';
 import { StorageConfig } from './models.js';
@@ -49,23 +49,35 @@ export interface MongoChecksumOptions {
   storageConfig: StorageConfig;
 }
 
-interface MongoChecksumReadContext {
+/**
+ * Read options used in requests to the cache, used to construct a session.
+ *
+ * readConcern is always 'snapshot'.
+ */
+interface MongoChecksumCacheReadContext {
+  /**
+   * (Optional) Specify a specific Timestamp for the snapshot read.
+   */
   snapshotTime?: mongo.Timestamp;
-  readPreference?: mongo.ReadPreference;
-  readConcern?: mongo.ReadConcernLike;
+
+  /**
+   * Read preference. Use undefined for the default,
+   */
+  readPreference: mongo.ReadPreference | undefined;
 }
 
+/**
+ * Read options passed into individual methods.
+ */
 export interface MongoChecksumSessionContext {
-  session?: mongo.ClientSession;
-  readPreference?: mongo.ReadPreference;
-  readConcern?: mongo.ReadConcernLike;
+  readOptions: Pick<mongo.CommandOperationOptions, 'session' | 'readPreference' | 'readConcern'>;
 }
 
 const DEFAULT_BUCKET_BATCH_LIMIT = 200;
 export const DEFAULT_OPERATION_BATCH_LIMIT = 50_000;
 
 export abstract class MongoChecksums {
-  private _cache: ChecksumCache<MongoChecksumReadContext | undefined> | undefined;
+  private _cache: ChecksumCache<MongoChecksumCacheReadContext> | undefined;
   protected readonly storageConfig: StorageConfig;
 
   constructor(
@@ -81,8 +93,8 @@ export abstract class MongoChecksums {
    *
    * This means the cache only allocates memory once it is used for the first time.
    */
-  private get cache(): ChecksumCache<MongoChecksumReadContext | undefined> {
-    this._cache ??= new ChecksumCache<MongoChecksumReadContext | undefined>({
+  private get cache(): ChecksumCache<MongoChecksumCacheReadContext> {
+    this._cache ??= new ChecksumCache<MongoChecksumCacheReadContext>({
       fetchChecksums: (batch, context) => {
         return this.computePartialChecksums(batch, context);
       }
@@ -97,22 +109,9 @@ export abstract class MongoChecksums {
   async getChecksums(
     checkpoint: InternalOpId,
     buckets: BucketChecksumRequest[],
-    options?: {
-      snapshotTime?: mongo.Timestamp;
-      readConcern?: mongo.ReadConcernLike;
-      readPreference?: mongo.ReadPreference;
-      requestHint?: BucketChecksumOptions['requestHint'];
-    }
+    options: MongoChecksumCacheReadContext
   ): Promise<ChecksumMap> {
-    if (options?.snapshotTime == null && options?.readPreference == null && options?.readConcern == null) {
-      return this.cache.getChecksumMap(checkpoint, buckets);
-    }
-
-    return this.cache.getChecksumMap(checkpoint, buckets, {
-      snapshotTime: options.snapshotTime,
-      readConcern: options.readConcern,
-      readPreference: options.readPreference
-    });
+    return this.cache.getChecksumMap(checkpoint, buckets, options);
   }
 
   clearCache() {
@@ -130,30 +129,35 @@ export abstract class MongoChecksums {
    */
   private async computePartialChecksums(
     batch: FetchPartialBucketChecksum[],
-    context: MongoChecksumReadContext | undefined
+    context: MongoChecksumCacheReadContext | undefined
   ): Promise<PartialChecksumMap> {
     if (batch.length == 0) {
       return new Map();
     }
 
-    if (context?.snapshotTime != null) {
-      const { snapshotTime, readPreference } = context;
-      return this.db.client.withSession({ snapshot: true }, async (session) => {
-        setSessionSnapshotTime(session, snapshotTime);
-        return this.computePartialChecksumsWithSession(batch, {
-          session,
-          readConcern: 'snapshot',
-          readPreference
-        });
-      });
+    if (context == null) {
+      throw new ServiceAssertionError(`context is required`);
     }
 
-    return this.computePartialChecksumsWithSession(batch, context);
+    const { snapshotTime, readPreference } = context;
+    return this.db.client.withSession({ snapshot: true }, async (session) => {
+      if (snapshotTime != null) {
+        setSessionSnapshotTime(session, snapshotTime);
+      }
+      return this.computePartialChecksumsWithSession(batch, {
+        readOptions: {
+          // This is set on the session, but we set it on each operation as well just in case
+          readConcern: 'snapshot',
+          readPreference,
+          session
+        }
+      });
+    });
   }
 
   private async computePartialChecksumsWithSession(
     batch: FetchPartialBucketChecksum[],
-    context?: MongoChecksumSessionContext
+    context: MongoChecksumSessionContext
   ): Promise<PartialChecksumMap> {
     const preStates = await this.fetchPreStates(batch, context);
 
@@ -197,9 +201,9 @@ export abstract class MongoChecksums {
    * For large buckets, this can be slow, but should not time out as the underlying queries are performed in
    * smaller batches.
    */
-  public async computePartialChecksumsDirect(
+  private async computePartialChecksumsDirect(
     batch: FetchPartialBucketChecksum[],
-    context?: MongoChecksumSessionContext
+    context: MongoChecksumSessionContext
   ): Promise<PartialChecksumMap> {
     // Limit the number of buckets we query for at a time.
     const bucketBatchLimit = this.options?.bucketBatchLimit ?? DEFAULT_BUCKET_BATCH_LIMIT;
@@ -229,29 +233,13 @@ export abstract class MongoChecksums {
    */
   protected abstract computePartialChecksumsInternal(
     batch: FetchPartialBucketChecksum[],
-    context?: MongoChecksumSessionContext
+    context: MongoChecksumSessionContext
   ): Promise<PartialChecksumMap>;
 
   protected abstract fetchPreStates(
     batch: FetchPartialBucketChecksum[],
-    context?: MongoChecksumSessionContext
+    context: MongoChecksumSessionContext
   ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>>;
-
-  protected checksumReadOptions(context?: MongoChecksumSessionContext): {
-    session?: mongo.ClientSession;
-    readPreference?: mongo.ReadPreference;
-    readConcern?: mongo.ReadConcernLike;
-  } {
-    if (context?.readPreference == null && context?.readConcern == null) {
-      return {};
-    }
-
-    return {
-      session: context.session,
-      readPreference: context.readPreference,
-      readConcern: context.readConcern
-    };
-  }
 }
 
 export function emptyChecksumForRequest(

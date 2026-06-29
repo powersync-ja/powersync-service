@@ -180,7 +180,7 @@ export class BucketChecksumState {
       }
 
       if (checksumLookups.length > 0) {
-        const requestHint: storage.BucketChecksumRequestHint = hasNewBucket ? 'bulk' : 'incremental';
+        const requestHint: storage.BucketRequestHint = hasNewBucket ? 'bulk' : 'incremental';
         let updatedChecksums = await storage.getChecksums(base, checksumLookups, { requestHint });
         for (let [bucket, value] of updatedChecksums.entries()) {
           newChecksums.set(bucket, value);
@@ -192,7 +192,7 @@ export class BucketChecksumState {
       const hasNewBucket =
         this.lastChecksums == null ||
         [...bucketDescriptionMap.values()].some((b) => !this.lastChecksums!.has(b.bucket));
-      const requestHint: storage.BucketChecksumRequestHint = hasNewBucket ? 'bulk' : 'incremental';
+      const requestHint: storage.BucketRequestHint = hasNewBucket ? 'bulk' : 'incremental';
       const bucketList = [...bucketDescriptionMap.values()].map((b) => ({
         bucket: b.bucket,
         source: b.source

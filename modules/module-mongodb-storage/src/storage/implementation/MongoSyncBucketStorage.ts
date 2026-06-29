@@ -269,12 +269,10 @@ export abstract class MongoSyncBucketStorage
     options?: storage.BucketChecksumOptions
   ): Promise<utils.ChecksumMap> {
     const mongoCheckpoint = checkpoint as MongoReplicationCheckpoint;
-    const snapshotTime = mongoCheckpoint.snapshotTime;
+    const snapshotTime = mongoCheckpoint.snapshotTime; // May be undefined in tests
     return this.checksums.getChecksums(checkpoint.checkpoint, buckets, {
       snapshotTime,
-      readConcern: snapshotTime == null && this.readPreference != null ? 'majority' : undefined,
-      readPreference: options?.requestHint == 'bulk' ? this.readPreference : undefined,
-      requestHint: options?.requestHint
+      readPreference: options?.requestHint == 'bulk' ? this.readPreference : undefined
     });
   }
 

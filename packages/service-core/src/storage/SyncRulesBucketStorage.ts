@@ -184,11 +184,10 @@ export interface BucketChecksumRequest {
 }
 
 export interface BucketChecksumOptions {
-  requestHint?: BucketChecksumRequestHint;
+  requestHint?: BucketRequestHint;
 }
 
 export type BucketRequestHint = 'bulk' | 'incremental';
-export type BucketChecksumRequestHint = BucketRequestHint;
 
 export interface ReplicationStreamStatus {
   /**

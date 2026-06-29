@@ -67,7 +67,8 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computeChecksumsByDefinition(
         requests,
-        this.db.bucketData(this.group_id, definitionId)
+        this.db.bucketData(this.group_id, definitionId),
+        { readOptions: { readConcern: 'snapshot' } }
       );
       for (const checksum of groupResults.values()) {
         results.set(checksum.bucket, checksum);
@@ -81,7 +82,7 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
 
   protected async fetchPreStates(
     batch: FetchPartialBucketChecksum[],
-    context?: MongoChecksumSessionContext
+    context: MongoChecksumSessionContext
   ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>> {
     const normalizedBatch = batch.map((request) => ({
       bucket: request.bucket,
@@ -112,7 +113,7 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
           $or: preFilters
         },
         {
-          ...this.checksumReadOptions(context)
+          ...context.readOptions
         }
       )
       .toArray();
@@ -134,7 +135,7 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
 
   protected async computePartialChecksumsInternal(
     batch: FetchPartialBucketChecksum[],
-    context?: MongoChecksumSessionContext
+    context: MongoChecksumSessionContext
   ): Promise<PartialChecksumMap> {
     const normalized = batch.map((request) => ({
       bucket: request.bucket,
@@ -171,7 +172,7 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
   private async computeChecksumsByDefinition(
     batch: FetchPartialBucketChecksumByBucket[],
     collection: lib_mongo.mongo.Collection<BucketDataDocumentV3>,
-    context?: MongoChecksumSessionContext
+    context: MongoChecksumSessionContext
   ): Promise<PartialChecksumMap> {
     const requests = new Map<string, FetchPartialBucketChecksumByBucket>();
     for (let request of batch) {
@@ -181,7 +182,7 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
     const pipeline = this.buildPartialChecksumPipeline(requests);
     const aggregate = await collection
       .aggregate(pipeline, {
-        ...this.checksumReadOptions(context),
+        ...context.readOptions,
         maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS
       })
       .toArray()

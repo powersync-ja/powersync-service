@@ -64,7 +64,8 @@ export class MongoCompactorV1 extends MongoCompactor {
       buckets.map(({ bucket }) => ({
         bucket,
         end: this.maxOpId
-      }))
+      })),
+      { readOptions: { readConcern: 'snapshot' } }
     );
   }
 

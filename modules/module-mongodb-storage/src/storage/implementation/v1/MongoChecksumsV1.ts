@@ -17,13 +17,12 @@ import {
   MongoChecksumSessionContext
 } from '../MongoChecksums.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
-
 export class MongoChecksumsV1 extends MongoChecksums {
   declare protected readonly db: VersionedPowerSyncMongoV1;
 
   async computePartialChecksumsDirectByBucket(
     batch: FetchPartialBucketChecksumByBucket[],
-    context?: MongoChecksumSessionContext
+    context: MongoChecksumSessionContext
   ): Promise<PartialChecksumMap> {
     const collection = this.db.bucketDataV1;
     const createFilter = (request: FetchPartialBucketChecksumByBucket) => ({
@@ -97,7 +96,7 @@ export class MongoChecksumsV1 extends MongoChecksums {
             { $sort: { _id: 1 } }
           ],
           {
-            ...this.checksumReadOptions(context),
+            ...context.readOptions,
             maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS
           }
         )
@@ -166,7 +165,7 @@ export class MongoChecksumsV1 extends MongoChecksums {
 
   protected async fetchPreStates(
     batch: FetchPartialBucketChecksum[],
-    context?: MongoChecksumSessionContext
+    context: MongoChecksumSessionContext
   ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>> {
     const preFilters = batch
       .filter((request) => request.start == null)
@@ -189,7 +188,7 @@ export class MongoChecksumsV1 extends MongoChecksums {
           $or: preFilters
         },
         {
-          ...this.checksumReadOptions(context)
+          ...context.readOptions
         }
       )
       .toArray();
@@ -211,7 +210,7 @@ export class MongoChecksumsV1 extends MongoChecksums {
 
   protected async computePartialChecksumsInternal(
     batch: FetchPartialBucketChecksum[],
-    context?: MongoChecksumSessionContext
+    context: MongoChecksumSessionContext
   ): Promise<PartialChecksumMap> {
     return this.computePartialChecksumsDirectByBucket(batch, context);
   }
