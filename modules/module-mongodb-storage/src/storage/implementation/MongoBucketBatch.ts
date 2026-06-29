@@ -342,7 +342,7 @@ export abstract class MongoBucketBatch
 
     if (didFlush) {
       using _ = this.tracer.span('storage', 'clear_error');
-      await this.clearError();
+      await this.clearError(this.session);
     }
 
     return resumeBatch?.hasData() ? resumeBatch : null;
@@ -899,7 +899,7 @@ export abstract class MongoBucketBatch
     return copy;
   }
 
-  protected async clearError(): Promise<void> {
+  protected async clearError(session: mongo.ClientSession): Promise<void> {
     // No need to clear an error more than once per batch, since an error would always result in restarting the batch.
     if (this.clearedError) {
       return;
@@ -914,6 +914,9 @@ export abstract class MongoBucketBatch
           last_fatal_error: null,
           last_fatal_error_ts: null
         }
+      },
+      {
+        session
       }
     );
     this.clearedError = true;
