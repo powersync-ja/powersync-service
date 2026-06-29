@@ -174,7 +174,7 @@ bucket_definitions:
     expect(line2.bucketDataRequestHint).toEqual('incremental');
   });
 
-  test('unfinished bulk bucket keeps bulk data hint across checkpoint diff', async () => {
+  test('unfinished bulk bucket does not make checkpoint diff bulk', async () => {
     const storage = new MockBucketChecksumStateStorage();
     storage.updateTestChecksum({ bucket: '1#global[]', checksum: 1, count: 1 });
 
@@ -208,7 +208,7 @@ bucket_definitions:
     }))!;
     line2.advance();
 
-    expect(line2.bucketDataRequestHint).toEqual('bulk');
+    expect(line2.bucketDataRequestHint).toEqual('incremental');
     expect(bucketStarts(line2.getFilteredBucketPositions())).toEqual(new Map([['1#global[]', 1n]]));
   });
 

@@ -61,13 +61,6 @@ export class BucketChecksumState {
   private lastChecksums: util.ChecksumMap | null = null;
   private lastWriteCheckpoint: bigint | null = null;
   /**
-   * Buckets introduced to this connection that still need bulk data downloaded.
-   *
-   * If a large initial bucket download is interrupted by a later checkpoint, that checkpoint may only be represented as
-   * a `checkpoint_diff`, but the unfinished bucket data is still a bulk read.
-   */
-  private pendingBulkBucketDownloads = new Set<string>();
-  /**
    * Once we've sent the first full checkpoint line including all {@link util.Checkpoint.streams} that the user is
    * subscribed to, we keep an index of the stream names to their index in that array.
    *
@@ -256,11 +249,7 @@ export class BucketChecksumState {
           newBucketDownloads.add(bucket.bucket);
         }
       }
-      bucketDataRequestHint =
-        newBucketDownloads.size > 0 ||
-        [...generateBucketsToFetch].some((bucket) => this.pendingBulkBucketDownloads.has(bucket))
-          ? 'bulk'
-          : 'incremental';
+      bucketDataRequestHint = newBucketDownloads.size > 0 ? 'bulk' : 'incremental';
 
       deferredLog = () => {
         let message = `Updated checkpoint: ${base.checkpoint} | `;
@@ -375,18 +364,13 @@ export class BucketChecksumState {
         }
         for (let bucket of bucketsToRemove) {
           this.bucketDataPositions.delete(bucket);
-          this.pendingBulkBucketDownloads.delete(bucket);
         }
         for (let bucket of allBuckets) {
           if (!this.bucketDataPositions.has(bucket.bucket)) {
             // Bucket the client hasn't seen before - initialize with 0.
             this.bucketDataPositions.set(bucket.bucket, { start_op_id: 0n });
-            this.pendingBulkBucketDownloads.add(bucket.bucket);
           }
           // If the bucket position is already present, we keep the current position.
-        }
-        for (const bucket of newBucketDownloads) {
-          this.pendingBulkBucketDownloads.add(bucket);
         }
 
         this.lastChecksums = checksumMap;
@@ -427,7 +411,6 @@ export class BucketChecksumState {
           // This specifically updates the per-checkpoint line. Completing a download for one line,
           // does not remove it from the next line, since it could have new updates there.
           pendingBucketDownloads.delete(options.bucket);
-          this.pendingBulkBucketDownloads.delete(options.bucket);
         }
       }
     };
