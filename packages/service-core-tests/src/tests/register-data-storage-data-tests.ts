@@ -92,7 +92,9 @@ bucket_definitions:
       { op: 'REMOVE', object_id: 'test1', checksum: c2 }
     ]);
 
-    const checksums = [...(await bucketStorage.getChecksums(checkpoint, [request])).values()];
+    const checksums = [
+      ...(await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), [request])).values()
+    ];
     expect(checksums).toEqual([
       {
         bucket: request.bucket,
@@ -156,7 +158,9 @@ bucket_definitions:
 
     expect(data).toEqual([{ op: 'PUT', object_id: 'test1', checksum: c1 }]);
 
-    const checksums = [...(await bucketStorage.getChecksums(checkpoint, [request])).values()];
+    const checksums = [
+      ...(await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), [request])).values()
+    ];
     expect(checksums).toEqual([
       {
         bucket: request.bucket,
@@ -225,7 +229,9 @@ bucket_definitions:
 
     expect(data).toEqual([{ op: 'PUT', object_id: 'test1', checksum: c1 }]);
 
-    const checksums = [...(await bucketStorage.getChecksums(checkpoint, [request])).values()];
+    const checksums = [
+      ...(await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), [request])).values()
+    ];
     expect(checksums).toEqual([
       {
         bucket: request.bucket,
@@ -288,7 +294,9 @@ bucket_definitions:
 
     expect(data).toEqual([{ op: 'PUT', object_id: 'test1', checksum: c1 }]);
 
-    const checksums = [...(await bucketStorage.getChecksums(checkpoint, [request])).values()];
+    const checksums = [
+      ...(await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), [request])).values()
+    ];
     expect(checksums).toEqual([
       {
         bucket: request.bucket,
@@ -516,7 +524,9 @@ bucket_definitions:
       { op: 'REMOVE', object_id: 'test1', checksum: c2 }
     ]);
 
-    const checksums = [...(await bucketStorage.getChecksums(checkpoint, [request])).values()];
+    const checksums = [
+      ...(await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), [request])).values()
+    ];
     expect(checksums).toEqual([
       {
         bucket: bucketRequest(syncRules, 'global[]').bucket,
@@ -639,7 +649,9 @@ bucket_definitions:
       { op: 'REMOVE', object_id: 'test1', checksum: c2 }
     ]);
 
-    const checksums = [...(await bucketStorage.getChecksums(checkpoint, [request])).values()];
+    const checksums = [
+      ...(await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), [request])).values()
+    ];
     expect(checksums).toEqual([
       {
         bucket: bucketRequest(syncRules, 'global[]').bucket,
@@ -1519,9 +1531,13 @@ bucket_definitions:
     const { checkpoint } = await bucketStorage.getCheckpoint();
 
     const request = bucketRequest(syncRules, 'global[]');
-    const checksums = [...(await bucketStorage.getChecksums(checkpoint, [request])).values()];
+    const checksums = [
+      ...(await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), [request])).values()
+    ];
     expect(checksums).toEqual([{ bucket: request.bucket, checksum: 1917136889, count: 1 }]);
-    const checksums2 = [...(await bucketStorage.getChecksums(checkpoint + 1n, [request])).values()];
+    const checksums2 = [
+      ...(await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint + 1n), [request])).values()
+    ];
     expect(checksums2).toEqual([{ bucket: request.bucket, checksum: 1917136889, count: 1 }]);
   });
 
@@ -1781,7 +1797,9 @@ bucket_definitions:
     const users = ['u1', 'u2', 'u3', 'u4'];
     const expectedChecksums = [346204588, 5261081, 134760718, -302639724];
     const bucketRequests = users.map((user) => bucketRequest(syncRules, `user["${user}"]`));
-    const checksums = [...(await bucketStorage.getChecksums(checkpoint, bucketRequests)).values()];
+    const checksums = [
+      ...(await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), bucketRequests)).values()
+    ];
     checksums.sort((a, b) => a.bucket.localeCompare(b.bucket));
     const expected = bucketRequests.map((request, index) => ({
       bucket: request.bucket,

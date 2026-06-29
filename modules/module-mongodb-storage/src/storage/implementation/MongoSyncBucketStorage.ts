@@ -261,17 +261,15 @@ export abstract class MongoSyncBucketStorage
   }
 
   async getChecksums(
-    checkpoint: storage.ChecksumCheckpoint,
+    checkpoint: storage.ReplicationCheckpoint,
     buckets: storage.BucketChecksumRequest[],
     options?: storage.BucketChecksumOptions
   ): Promise<utils.ChecksumMap> {
-    if (checkpoint instanceof MongoReplicationCheckpoint) {
-      return this.checksums.getChecksums(checkpoint.checkpoint, buckets, {
-        readAfterTime: checkpoint.snapshotTime,
-        requestHint: options?.requestHint
-      });
-    }
-    return this.checksums.getChecksums(typeof checkpoint == 'bigint' ? checkpoint : checkpoint.checkpoint, buckets);
+    const mongoCheckpoint = checkpoint as MongoReplicationCheckpoint;
+    return this.checksums.getChecksums(checkpoint.checkpoint, buckets, {
+      readAfterTime: mongoCheckpoint.snapshotTime,
+      requestHint: options?.requestHint
+    });
   }
 
   clearChecksumCache() {

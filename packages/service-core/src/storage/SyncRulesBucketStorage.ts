@@ -152,7 +152,7 @@ export interface SyncRulesBucketStorage
    * The checksums are cached internally to compensate for this, but does not cover all cases.
    */
   getChecksums(
-    checkpoint: ChecksumCheckpoint,
+    checkpoint: ReplicationCheckpoint,
     buckets: BucketChecksumRequest[],
     options?: BucketChecksumOptions
   ): Promise<util.ChecksumMap>;
@@ -413,8 +413,6 @@ export interface SyncBucketDataChunk {
   chunkData: util.SyncBucketData;
   targetOp: util.InternalOpId | null;
 }
-
-export type ChecksumCheckpoint = util.InternalOpId | ReplicationCheckpoint;
 
 export interface ReplicationCheckpoint {
   readonly checkpoint: util.InternalOpId;

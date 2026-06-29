@@ -1240,7 +1240,7 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
     this.filter?.({ invalidate: true });
   }
 
-  async getChecksums(_checkpoint: InternalOpId, buckets: { bucket: string }[]): Promise<ChecksumMap> {
+  async getChecksums(_checkpoint: ReplicationCheckpoint, buckets: { bucket: string }[]): Promise<ChecksumMap> {
     return new Map<string, BucketChecksum>(
       buckets.map(({ bucket }) => {
         const checksum = this.state.get(bucket);

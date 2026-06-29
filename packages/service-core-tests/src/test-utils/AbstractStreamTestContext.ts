@@ -9,7 +9,7 @@ import {
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
 import { StorageDataHelpers } from './StorageDataHelpers.js';
-import { bucketRequest } from './general-utils.js';
+import { bucketRequest, testCheckpoint } from './general-utils.js';
 import { fromAsync } from './stream_utils.js';
 
 export abstract class AbstractStreamTestContext implements AsyncDisposable {
@@ -150,7 +150,7 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
     const checkpoint = await this.getCheckpoint(options);
     const syncConfigContent = this.getSyncConfigContent();
     const versionedBuckets = buckets.map((bucket) => bucketRequest(syncConfigContent, bucket, 0n));
-    const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
+    const checksums = await this.storage!.getChecksums(testCheckpoint(checkpoint), versionedBuckets);
 
     const unversioned = new Map();
     for (let i = 0; i < buckets.length; i++) {
