@@ -70,6 +70,48 @@ describe('Config', () => {
     expect(config.api_parameters.max_buckets_per_connection).toBe(1);
   });
 
+  it('should resolve checksum cache TTL from API parameters', async () => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: mongodb
+      api:
+        parameters:
+          bucket_count_cache_ttl_minutes: 15
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    const config = await collector.collectConfig({
+      config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
+    });
+
+    expect(config.api_parameters.bucket_count_cache_ttl_minutes).toBe(15);
+  });
+
+  it('should reject fractional checksum cache TTL minutes', async () => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: mongodb
+      api:
+        parameters:
+          bucket_count_cache_ttl_minutes: 1.5
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    await expect(
+      collector.collectConfig({
+        config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
+      })
+    ).rejects.toThrow('api.parameters.bucket_count_cache_ttl_minutes must be a non-negative integer');
+  });
+
   it('should throw YAML validation error for invalid base64 config', {}, async () => {
     const yamlConfig = /* yaml */ `
       # PowerSync config

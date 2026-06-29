@@ -15,6 +15,7 @@ import { PostgresPersistedReplicationStream } from './sync-rules/PostgresPersist
 export type PostgresBucketStorageOptions = {
   config: NormalizedPostgresStorageConfig;
   replicationStreamNamePrefix: string;
+  checksumCacheTtlMs?: number;
 };
 
 export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
@@ -56,7 +57,8 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       factory: this,
       db: this.db,
       replicationStream,
-      batchLimits: this.options.config.batch_limits
+      batchLimits: this.options.config.batch_limits,
+      checksumCacheTtlMs: this.options.checksumCacheTtlMs
     });
     if (!options?.skipLifecycleHooks) {
       this.iterateListeners((cb) => cb.syncStorageCreated?.(syncRuleStorage));

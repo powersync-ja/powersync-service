@@ -482,4 +482,26 @@ describe('checksum cache', function () {
     expect(await cache.getChecksums(123n, [{ bucket: 'test', source: DUMMY_SOURCE }])).toEqual([TEST_123]);
     expect(await cache.getChecksums(1234n, [{ bucket: 'test', source: DUMMY_SOURCE }])).toEqual([TEST_1234]);
   });
+
+  it('should refresh cached checksums after the configured TTL', async function () {
+    let lookups: FetchPartialBucketChecksum[][] = [];
+    const cache = new ChecksumCache({
+      fetchChecksums: async (batch) => {
+        lookups.push(batch);
+        return fetchTestChecksums(batch);
+      },
+      ttlMs: 1
+    });
+
+    expect(await cache.getChecksums(123n, [{ bucket: 'test', source: DUMMY_SOURCE }])).toEqual([TEST_123]);
+    expect(await cache.getChecksums(123n, [{ bucket: 'test', source: DUMMY_SOURCE }])).toEqual([TEST_123]);
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(await cache.getChecksums(123n, [{ bucket: 'test', source: DUMMY_SOURCE }])).toEqual([TEST_123]);
+    expect(lookups.map(removeLookupSources)).toEqual([
+      [{ bucket: 'test', end: 123n }],
+      [{ bucket: 'test', end: 123n }]
+    ]);
+  });
 });

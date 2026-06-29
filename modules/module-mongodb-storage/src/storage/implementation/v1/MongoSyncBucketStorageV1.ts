@@ -172,6 +172,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   protected createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums {
     return new MongoChecksumsV1(this.db, this.replicationStreamId, {
       ...options.checksumOptions,
+      checksumCacheTtlMs: options.checksumCacheTtlMs,
       storageConfig: options?.storageConfig
     });
   }

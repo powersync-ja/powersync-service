@@ -35,6 +35,7 @@ export interface MongoBucketStorageOptions {
    */
   replicationStreamNamePrefix: string;
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+  checksumCacheTtlMs?: number;
   /**
    * Reuse a compatible active replication stream by appending a new sync config.
    *
@@ -91,6 +92,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       undefined,
       {
         checksumOptions: this.options.checksumOptions,
+        checksumCacheTtlMs: this.options.checksumCacheTtlMs,
         storageConfig
       }
     );
