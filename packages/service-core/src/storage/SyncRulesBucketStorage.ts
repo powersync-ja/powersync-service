@@ -17,6 +17,18 @@ import { SourceTable } from './SourceTable.js';
 import { StorageVersionConfig } from './StorageVersionConfig.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
+export type StoragePerformanceTraceCategory =
+  | 'storage'
+  | 'evaluate'
+  | 'commit_flush'
+  | 'commit_write_checkpoints'
+  | 'commit_read_state'
+  | 'commit_calculate_state'
+  | 'commit_update_state'
+  | 'commit_auto_activate'
+  | 'commit_cleanup'
+  | 'commit_notify';
+
 /**
  * Storage for a specific replication stream.
  *
@@ -251,7 +263,7 @@ export interface CreateWriterOptions extends ParseSyncConfigOptions {
 
   hooks?: StorageHooks;
 
-  tracer?: PerformanceTracer<'storage' | 'evaluate'>;
+  tracer?: PerformanceTracer<StoragePerformanceTraceCategory>;
 
   logger?: Logger;
 }

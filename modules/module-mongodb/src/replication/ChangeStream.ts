@@ -536,8 +536,7 @@ export class ChangeStream {
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
     const tracer = new PerformanceTracer<
-      | 'storage'
-      | 'evaluate'
+      | storage.StoragePerformanceTraceCategory
       | 'batch'
       | 'source_checkpoint'
       | 'changestream'
