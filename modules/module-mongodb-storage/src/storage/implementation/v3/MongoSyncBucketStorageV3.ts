@@ -543,6 +543,7 @@ export async function* getBucketDataBatchV3(
   }
 
   const readPreference = options?.requestHint == 'bulk' ? ctx.readPreference : undefined;
+  const readConcern = ctx.readPreference == null ? undefined : 'majority';
   const session =
     readPreference == null || checkpoint.snapshotTime == null
       ? undefined
@@ -595,7 +596,7 @@ export async function* getBucketDataBatchV3(
     const cursor = collection.find(filter, {
       session,
       readPreference,
-      readConcern: readPreference == null ? undefined : 'majority',
+      readConcern,
       sort: { _id: 1 },
       raw: true,
       maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS,

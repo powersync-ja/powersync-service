@@ -41,7 +41,11 @@ export class MongoStorageProvider implements storage.StorageProvider {
     const readPreference =
       decodedConfig.read_preference == null
         ? undefined
-        : lib_mongo.mongo.ReadPreference.fromString(decodedConfig.read_preference);
+        : new lib_mongo.mongo.ReadPreference(decodedConfig.read_preference, undefined, {
+            maxStalenessSeconds: ['secondary', 'secondaryPreferred', 'nearest'].includes(decodedConfig.read_preference)
+              ? 90
+              : undefined
+          });
     const syncStorageFactory = new MongoBucketStorage(database, {
       replicationStreamNamePrefix: resolvedConfig.slot_name_prefix,
       readPreference,

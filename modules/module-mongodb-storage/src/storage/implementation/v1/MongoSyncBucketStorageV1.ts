@@ -379,6 +379,7 @@ export async function* getBucketDataBatchV1(
     return;
   }
   const readPreference = options?.requestHint == 'bulk' ? ctx.readPreference : undefined;
+  const readConcern = ctx.readPreference == null ? undefined : 'majority';
   const session =
     readPreference == null || checkpoint.snapshotTime == null
       ? undefined
@@ -425,7 +426,7 @@ export async function* getBucketDataBatchV1(
     {
       session,
       readPreference,
-      readConcern: readPreference == null ? undefined : 'majority',
+      readConcern,
       sort: { _id: 1 },
       limit: batchLimit,
       batchSize: batchLimit + 1,

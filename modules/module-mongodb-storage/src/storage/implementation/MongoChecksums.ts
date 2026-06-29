@@ -50,12 +50,14 @@ export interface MongoChecksumOptions {
 
 interface MongoChecksumReadContext {
   readAfterTime?: mongo.Timestamp;
-  readPreference: mongo.ReadPreference;
+  readPreference?: mongo.ReadPreference;
+  readConcern?: mongo.ReadConcernLike;
 }
 
 export interface MongoChecksumSessionContext {
   session?: mongo.ClientSession;
   readPreference?: mongo.ReadPreference;
+  readConcern?: mongo.ReadConcernLike;
 }
 
 const DEFAULT_BUCKET_BATCH_LIMIT = 200;
@@ -96,16 +98,18 @@ export abstract class MongoChecksums {
     buckets: BucketChecksumRequest[],
     options?: {
       readAfterTime?: mongo.Timestamp;
+      readConcern?: mongo.ReadConcernLike;
       readPreference?: mongo.ReadPreference;
       requestHint?: BucketChecksumOptions['requestHint'];
     }
   ): Promise<ChecksumMap> {
-    if (options?.readPreference == null || options.requestHint == 'incremental') {
+    if (options?.readPreference == null && options?.readConcern == null) {
       return this.cache.getChecksumMap(checkpoint, buckets);
     }
 
     return this.cache.getChecksumMap(checkpoint, buckets, {
       readAfterTime: options.readAfterTime,
+      readConcern: options.readConcern,
       readPreference: options.readPreference
     });
   }
@@ -132,10 +136,10 @@ export abstract class MongoChecksums {
     }
 
     if (context?.readAfterTime != null) {
-      const { readAfterTime, readPreference } = context;
+      const { readAfterTime, readConcern, readPreference } = context;
       return this.db.client.withSession({ causalConsistency: true }, async (session) => {
         session.advanceOperationTime(readAfterTime);
-        return this.computePartialChecksumsWithSession(batch, { session, readPreference });
+        return this.computePartialChecksumsWithSession(batch, { session, readConcern, readPreference });
       });
     }
 
@@ -233,14 +237,14 @@ export abstract class MongoChecksums {
     readPreference?: mongo.ReadPreference;
     readConcern?: mongo.ReadConcernLike;
   } {
-    if (context?.readPreference == null) {
+    if (context?.readPreference == null && context?.readConcern == null) {
       return {};
     }
 
     return {
       session: context.session,
       readPreference: context.readPreference,
-      readConcern: 'majority'
+      readConcern: context.readConcern
     };
   }
 }
