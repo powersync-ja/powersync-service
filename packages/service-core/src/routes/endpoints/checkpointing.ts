@@ -1,9 +1,17 @@
-import { logger, router, schema } from '@powersync/lib-services-framework';
+import { codecs, logger, router, schema } from '@powersync/lib-services-framework';
 import * as t from 'ts-codec';
 
 import * as util from '../../util/util-index.js';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
+
+const CheckpointRequestPayload = t.object({
+  client_id: t.string,
+  // bigint, matching the managed write checkpoint id. Clients should send values
+  // larger than Number.MAX_SAFE_INTEGER as strings, since JSON numbers are only
+  // validated up to the safe-integer range.
+  checkpoint_request_id: codecs.bigint
+});
 
 const WriteCheckpointRequest = t.object({
   client_id: t.string.optional()
@@ -24,7 +32,7 @@ export const writeCheckpoint = routeDefinition({
     // Since we don't use LSNs anymore, the only way to get that is to wait.
     const start = Date.now();
 
-    const head = await apiHandler.createReplicationHead(async (head) => head);
+    const head = await apiHandler.createReplicationHead(async (head) => ({ response: head, shouldAdvance: true }));
 
     const timeout = 50_000;
 
@@ -70,4 +78,38 @@ export const writeCheckpoint2 = routeDefinition({
   }
 });
 
-export const CHECKPOINT_ROUTES = [writeCheckpoint, writeCheckpoint2];
+export const checkpointRequest = routeDefinition({
+  path: '/sync/checkpoint-request',
+  method: router.HTTPMethod.POST,
+  authorize: authUser,
+  validator: schema.createTsCodecValidator(CheckpointRequestPayload, { allowAdditional: true }),
+  handler: async (request) => {
+    const { token_payload, service_context } = request.context;
+    const { params } = request;
+
+    const decodedParams = CheckpointRequestPayload.decode(params);
+
+    // Storage only applies supplied request ids that advance the stored managed checkpoint.
+    // Stale or duplicate ids return the stored checkpoint without forcing a source marker.
+    const { replicationHead, writeCheckpoint } = await util.createWriteCheckpoint({
+      userId: token_payload!.userIdString,
+      clientId: decodedParams.client_id,
+      batcher: service_context.storageEngine.writeCheckpointBatcher,
+      checkpointRequestId: decodedParams.checkpoint_request_id
+    });
+
+    logger.info(
+      `Requested checkpoint for ${token_payload!.userIdString}/${decodedParams.client_id}: ${writeCheckpoint} | ${replicationHead}`
+    );
+
+    // Return the checkpoint value storage is actually at after this request.
+    // When an earlier request has already advanced the stored value beyond the
+    // supplied checkpoint_request_id, this returns that larger previous value so
+    // the client can treat the response as a stale-request acknowledgement.
+    return {
+      write_checkpoint: String(writeCheckpoint)
+    };
+  }
+});
+
+export const CHECKPOINT_ROUTES = [checkpointRequest, writeCheckpoint, writeCheckpoint2];

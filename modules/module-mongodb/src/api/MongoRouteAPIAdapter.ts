@@ -1,6 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
-import { api, ParseSyncConfigOptions, ReplicationHeadCallback } from '@powersync/service-core';
+import { api, ParseSyncConfigOptions } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
@@ -198,7 +198,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     return undefined;
   }
 
-  async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
+  async createReplicationHead<T>(callback: api.ReplicationHeadCallback<T>): Promise<T> {
     const session = this.client.startSession();
     try {
       await this.db.command({ hello: 1 }, { session });
@@ -207,30 +207,32 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
         throw new ServiceAssertionError(`clusterTime not available for write checkpoint`);
       }
 
-      const r = await callback(new MongoLSN({ timestamp: head }).comparable);
+      const { response, shouldAdvance } = await callback(new MongoLSN({ timestamp: head }).comparable);
 
-      // Trigger a change on the changestream.
-      await this.db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
-        {
-          _id: STANDALONE_CHECKPOINT_ID as any
-        },
-        {
-          $inc: { i: 1 }
-        },
-        {
-          upsert: true,
-          returnDocument: 'after',
-          session
+      if (shouldAdvance) {
+        // Trigger a change on the changestream.
+        await this.db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
+          {
+            _id: STANDALONE_CHECKPOINT_ID as any
+          },
+          {
+            $inc: { i: 1 }
+          },
+          {
+            upsert: true,
+            returnDocument: 'after',
+            session
+          }
+        );
+        const time = session.operationTime!;
+        if (time == null) {
+          throw new ServiceAssertionError(`operationTime not available for write checkpoint`);
+        } else if (time.lt(head)) {
+          throw new ServiceAssertionError(`operationTime must be > clusterTime`);
         }
-      );
-      const time = session.operationTime!;
-      if (time == null) {
-        throw new ServiceAssertionError(`operationTime not available for write checkpoint`);
-      } else if (time.lt(head)) {
-        throw new ServiceAssertionError(`operationTime must be > clusterTime`);
       }
 
-      return r;
+      return response;
     } finally {
       await session.endSession();
     }

@@ -92,13 +92,15 @@ The flow is:
 
 The source marker does not need to be replicated as user data. It only needs to make the source stream advance after the mapping exists.
 
+`/sync/checkpoint-request` accepts a client-supplied `checkpoint_request_id`. Storage treats this id as monotonic for the full user/client id: it only updates the managed write checkpoint when the supplied value is greater than the stored value. The response `write_checkpoint` is always the checkpoint value storage is actually at after handling the request. If a previous request already advanced storage to a larger value, the stale request does not update storage and the response returns that larger stored value so the client can detect that its request id was stale.
+
 Managed write checkpoints require a comparable source head. The source adapter reads a position that should include the client's write, stores it with the generated write checkpoint id, and then ensures replication observes that position or a later one. Postgres uses `pg_current_wal_lsn()` and emits a logical message; MongoDB uses cluster time and writes to `_powersync_checkpoints`; other sources use their equivalent source position and marker behavior.
 
 ### Source-Side Checkpoint Markers
 
 A source-side checkpoint marker is a source-visible event whose job is to make the replication stream advance after PowerSync has stored a managed write checkpoint mapping. It may be a logical replication message, a write to a `_powersync_checkpoints` or `powersync_checkpoints` table or collection, or another source-specific no-op event.
 
-Use a marker table or collection when the connector cannot otherwise guarantee that a later ordered event will appear in the replication stream after `createReplicationHead()` calls its callback. This is common when:
+Use a marker table or collection when the connector cannot otherwise guarantee that a later ordered event will appear in the replication stream after storage persists a managed write checkpoint for a source head. This is common when:
 
 - The source stream only advances when source data changes, so idle databases can stop producing new positions.
 - The source stream is filtered and a valid database head may include writes that are not visible to the stream.

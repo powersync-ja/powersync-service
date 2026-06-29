@@ -1,6 +1,11 @@
 import { ErrorCode, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { ReplicationHeadCallback } from '../api/RouteAPI.js';
-import { BucketStorageFactory, SyncRulesBucketStorage } from '../storage/storage-index.js';
+import {
+  BucketStorageFactory,
+  CreateManagedWriteCheckpointsResult,
+  ManagedWriteCheckpointOptions,
+  SyncRulesBucketStorage
+} from '../storage/storage-index.js';
 
 // Keep up to three source-head/storage batches executing concurrently under load.
 // There is intentionally no explicit batch-size cap here: the HTTP request queue
@@ -18,6 +23,7 @@ export type CreateReplicationHead = <T>(callback: ReplicationHeadCallback<T>) =>
 
 interface QueuedWriteCheckpoint {
   userId: string;
+  checkpointRequestId: bigint | undefined;
   resolvers: PromiseWithResolvers<CreateWriteCheckpointResult>;
 }
 
@@ -31,9 +37,9 @@ export class WriteCheckpointBatcher {
     private readonly getStorage: () => BucketStorageFactory
   ) {}
 
-  enqueue(userId: string): Promise<CreateWriteCheckpointResult> {
+  enqueue(userId: string, checkpointRequestId?: bigint): Promise<CreateWriteCheckpointResult> {
     const resolvers = Promise.withResolvers<CreateWriteCheckpointResult>();
-    this.pending.push({ userId, resolvers });
+    this.pending.push({ userId, checkpointRequestId, resolvers });
     this.schedulePump();
     return resolvers.promise;
   }
@@ -76,10 +82,18 @@ export class WriteCheckpointBatcher {
         throw new ServiceError(ErrorCode.PSYNC_S2302, `Cannot create Write Checkpoint since no sync config is active.`);
       }
 
+      // The source adapter reads the head, hands it to this callback to persist the
+      // write-checkpoint mapping, then forces a source marker only when storage
+      // reports an advance. Keeping the marker inside the callback means it is
+      // causally ordered after the head within a single source session.
       const { writeCheckpoints, currentCheckpoint } = await this.getCreateReplicationHead()(
         async (currentCheckpoint) => {
-          const writeCheckpoints = await this.createBatchWriteCheckpoints(syncBucketStorage, batch, currentCheckpoint);
-          return { writeCheckpoints, currentCheckpoint };
+          const { writeCheckpoints, shouldAdvance } = await this.createBatchWriteCheckpoints(
+            syncBucketStorage,
+            batch,
+            currentCheckpoint
+          );
+          return { response: { writeCheckpoints, currentCheckpoint }, shouldAdvance };
         }
       );
 
@@ -113,12 +127,18 @@ export class WriteCheckpointBatcher {
     syncBucketStorage: SyncRulesBucketStorage,
     batch: QueuedWriteCheckpoint[],
     currentCheckpoint: string
-  ) {
+  ): Promise<CreateManagedWriteCheckpointsResult> {
     return syncBucketStorage.createManagedWriteCheckpoints(
-      batch.map((request) => ({
-        user_id: request.userId,
-        heads: { '1': currentCheckpoint }
-      }))
+      batch.map((request) => {
+        const checkpoint: ManagedWriteCheckpointOptions = {
+          user_id: request.userId,
+          heads: { '1': currentCheckpoint }
+        };
+        if (request.checkpointRequestId != null) {
+          checkpoint.checkpoint_request_id = request.checkpointRequestId;
+        }
+        return checkpoint;
+      })
     );
   }
 }

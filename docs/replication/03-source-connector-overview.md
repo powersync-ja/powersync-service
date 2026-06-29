@@ -61,14 +61,16 @@ The `RouteAPI` adapter bridges API routes to source-specific capabilities.
 The most replication-sensitive method is:
 
 ```ts
-createReplicationHead<T>(callback: (head: string) => Promise<T>): Promise<T>
+createReplicationHead<T>(callback: (head: string) => Promise<{ response: T; shouldAdvance: boolean }>): Promise<T>
 ```
 
-The adapter must:
+For managed write checkpoints, the source adapter must:
 
 1. Read the current source replication head.
-2. Call the callback with that head.
-3. Ensure that the replication stream will later observe the head or a greater source position.
+2. Call the callback with that head so storage can persist its write-checkpoint mapping.
+3. If the callback returns `shouldAdvance: true`, ensure that the replication stream will later observe the head or a greater source position. If it returns `shouldAdvance: false` (e.g. only stale client-supplied requests were processed), skip the source marker.
+
+Reading the head and forcing the marker happen within a single source session/connection where applicable, so the marker is causally ordered after the head handed to the callback.
 
 Step 3 is important for managed write checkpoints. If the source database is idle, the mapping can be stored correctly but never become visible to a connected client unless replication observes a later checkpoint update.
 
