@@ -156,7 +156,7 @@ async function* streamResponseInner(
         continue;
       }
 
-      const { checkpointLine, bucketsToFetch } = line;
+      const { checkpointLine, bucketsToFetch, bucketDataRequestHint } = line;
 
       // Since yielding can block, we update the state just before yielding the line.
       line.advance();
@@ -228,6 +228,7 @@ async function* streamResponseInner(
           bucketStorage: bucketStorage,
           checkpoint: next.value.value.checkpoint,
           bucketsToFetch: buckets,
+          requestHint: bucketDataRequestHint,
           checkpointLine: line,
           legacyDataLines: !isEncodingAsBson && params.raw_data != true,
           onRowsSent: markOperationsSent,
@@ -254,6 +255,7 @@ interface BucketDataRequest {
   syncContext: SyncContext;
   bucketStorage: storage.SyncRulesBucketStorage;
   checkpoint: storage.ReplicationCheckpoint;
+  requestHint: storage.BucketRequestHint;
   /** Contains current bucket state. Modified by the request as data is sent. */
   checkpointLine: CheckpointLine;
   /** Subset of checkpointLine.bucketsToFetch, filtered by priority. */
@@ -319,6 +321,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     syncContext,
     bucketStorage: storage,
     checkpoint,
+    requestHint,
     bucketsToFetch,
     checkpointLine,
     legacyDataLines,
@@ -351,7 +354,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
     // For the first batch, this will be all buckets.
     const filteredBuckets = checkpointLine.getFilteredBucketPositions(bucketsToFetch);
-    const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets);
+    const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets, { requestHint });
 
     let has_more = false;
 

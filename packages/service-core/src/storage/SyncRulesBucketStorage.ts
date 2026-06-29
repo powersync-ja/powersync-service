@@ -187,7 +187,8 @@ export interface BucketChecksumOptions {
   requestHint?: BucketChecksumRequestHint;
 }
 
-export type BucketChecksumRequestHint = 'bulk' | 'incremental';
+export type BucketRequestHint = 'bulk' | 'incremental';
+export type BucketChecksumRequestHint = BucketRequestHint;
 
 export interface ReplicationStreamStatus {
   /**
@@ -394,6 +395,8 @@ export interface TerminateOptions extends ClearStorageOptions {
 }
 
 export interface BucketDataBatchOptions {
+  requestHint?: BucketRequestHint;
+
   /** Limit number of documents returned. Defaults to 1000. */
   limit?: number;
 

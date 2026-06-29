@@ -61,6 +61,13 @@ export class BucketChecksumState {
   private lastChecksums: util.ChecksumMap | null = null;
   private lastWriteCheckpoint: bigint | null = null;
   /**
+   * Buckets introduced to this connection that still need bulk data downloaded.
+   *
+   * If a large initial bucket download is interrupted by a later checkpoint, that checkpoint may only be represented as
+   * a `checkpoint_diff`, but the unfinished bucket data is still a bulk read.
+   */
+  private pendingBulkBucketDownloads = new Set<string>();
+  /**
    * Once we've sent the first full checkpoint line including all {@link util.Checkpoint.streams} that the user is
    * subscribed to, we keep an index of the stream names to their index in that array.
    *
@@ -202,6 +209,8 @@ export class BucketChecksumState {
 
     // Subset of buckets for which there may be new data in this batch.
     let bucketsToFetch: ResolvedBucket[];
+    let bucketDataRequestHint: storage.BucketRequestHint;
+    const newBucketDownloads = new Set<string>();
 
     let checkpointLine: util.StreamingSyncCheckpointDiff | util.StreamingSyncCheckpoint;
 
@@ -242,6 +251,16 @@ export class BucketChecksumState {
       bucketsToFetch = [...generateBucketsToFetch].map((b) => {
         return bucketDescriptionMap.get(b)!;
       });
+      for (const bucket of diff.updatedBuckets) {
+        if (!this.lastChecksums!.has(bucket.bucket)) {
+          newBucketDownloads.add(bucket.bucket);
+        }
+      }
+      bucketDataRequestHint =
+        newBucketDownloads.size > 0 ||
+        [...generateBucketsToFetch].some((bucket) => this.pendingBulkBucketDownloads.has(bucket))
+          ? 'bulk'
+          : 'incremental';
 
       deferredLog = () => {
         let message = `Updated checkpoint: ${base.checkpoint} | `;
@@ -290,6 +309,10 @@ export class BucketChecksumState {
         );
       };
       bucketsToFetch = allBuckets;
+      for (const bucket of bucketsToFetch) {
+        newBucketDownloads.add(bucket.bucket);
+      }
+      bucketDataRequestHint = 'bulk';
 
       const subscriptions: util.StreamDescription[] = [];
       const streamNameToIndex = new Map<string, number>();
@@ -331,6 +354,7 @@ export class BucketChecksumState {
     return {
       checkpointLine,
       bucketsToFetch,
+      bucketDataRequestHint,
       advance: () => {
         hasAdvanced = true;
         // bucketDataPositions must be updated in-place - it represents the current state of
@@ -351,13 +375,18 @@ export class BucketChecksumState {
         }
         for (let bucket of bucketsToRemove) {
           this.bucketDataPositions.delete(bucket);
+          this.pendingBulkBucketDownloads.delete(bucket);
         }
         for (let bucket of allBuckets) {
           if (!this.bucketDataPositions.has(bucket.bucket)) {
             // Bucket the client hasn't seen before - initialize with 0.
             this.bucketDataPositions.set(bucket.bucket, { start_op_id: 0n });
+            this.pendingBulkBucketDownloads.add(bucket.bucket);
           }
           // If the bucket position is already present, we keep the current position.
+        }
+        for (const bucket of newBucketDownloads) {
+          this.pendingBulkBucketDownloads.add(bucket);
         }
 
         this.lastChecksums = checksumMap;
@@ -398,6 +427,7 @@ export class BucketChecksumState {
           // This specifically updates the per-checkpoint line. Completing a download for one line,
           // does not remove it from the next line, since it could have new updates there.
           pendingBucketDownloads.delete(options.bucket);
+          this.pendingBulkBucketDownloads.delete(options.bucket);
         }
       }
     };
@@ -702,6 +732,7 @@ export class BucketParameterState {
 export interface CheckpointLine {
   checkpointLine: util.StreamingSyncCheckpointDiff | util.StreamingSyncCheckpoint;
   bucketsToFetch: ResolvedBucket[];
+  bucketDataRequestHint: storage.BucketRequestHint;
 
   /**
    * Call when a checkpoint line is being sent to a client, to update the internal state.

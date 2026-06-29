@@ -376,7 +376,8 @@ export async function* getBucketDataBatchV1(
   if (dataBuckets.length == 0) {
     return;
   }
-  const session = checkpoint.snapshotTime == null ? undefined : ctx.db.client.startSession({ causalConsistency: true });
+  const useSecondary = checkpoint.snapshotTime != null && options?.requestHint == 'bulk';
+  const session = !useSecondary ? undefined : ctx.db.client.startSession({ causalConsistency: true });
   await using _ = { [Symbol.asyncDispose]: async () => session?.endSession() };
 
   if (session != null) {
