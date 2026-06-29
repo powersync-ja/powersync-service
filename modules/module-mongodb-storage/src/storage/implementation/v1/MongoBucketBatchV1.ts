@@ -201,15 +201,12 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
     const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
 
-    {
-      using _ = this.tracer.span('commit_flush');
-      await this.flush(options);
-    }
+    await this.flush(options);
 
     const now = new Date();
 
     {
-      using _ = this.tracer.span('commit_write_checkpoints');
+      using _ = this.tracer.span('storage', 'commit_write_checkpoints');
       await this.db.write_checkpoints.updateMany(
         {
           processed_at_lsn: null,
@@ -262,7 +259,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
     let preUpdateDocument: SyncRuleDocumentV1 | null;
     {
-      using _ = this.tracer.span('commit_update_state');
+      using _ = this.tracer.span('storage', 'commit_update_state');
       preUpdateDocument = (await this.db.sync_rules.findOneAndUpdate(
         { _id: this.replicationStreamId },
         [
@@ -322,20 +319,16 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       );
     }
 
-    let checkpointState: ReturnType<typeof calculateCheckpointState>;
-    {
-      using _ = this.tracer.span('commit_calculate_state');
-      checkpointState = calculateCheckpointState({
-        lsn,
-        snapshotDone: preUpdateDocument.snapshot_done === true,
-        lastCheckpointLsn: preUpdateDocument.last_checkpoint_lsn,
-        noCheckpointBefore: preUpdateDocument.no_checkpoint_before,
-        keepaliveOp: preUpdateDocument.keepalive_op == null ? null : BigInt(preUpdateDocument.keepalive_op),
-        lastCheckpoint: preUpdateDocument.last_checkpoint,
-        persistedOp: this.persisted_op,
-        createEmptyCheckpoints
-      });
-    }
+    const checkpointState = calculateCheckpointState({
+      lsn,
+      snapshotDone: preUpdateDocument.snapshot_done === true,
+      lastCheckpointLsn: preUpdateDocument.last_checkpoint_lsn,
+      noCheckpointBefore: preUpdateDocument.no_checkpoint_before,
+      keepaliveOp: preUpdateDocument.keepalive_op == null ? null : BigInt(preUpdateDocument.keepalive_op),
+      lastCheckpoint: preUpdateDocument.last_checkpoint,
+      persistedOp: this.persisted_op,
+      createEmptyCheckpoints
+    });
     if (checkpointState.checkpointBlocked) {
       if (Date.now() - this.lastWaitingLogThrottled > 5_000) {
         this.logger.info(
@@ -353,17 +346,13 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       if (checkpointState.checkpointCreated) {
         this.logger.debug(`Created checkpoint at ${lsn} / ${checkpointState.newLastCheckpoint}`);
       }
+      await this.autoActivate(lsn);
       {
-        using _ = this.tracer.span('commit_auto_activate');
-        await this.autoActivate(lsn);
-      }
-      {
-        using _ = this.tracer.span('commit_notify');
+        using _ = this.tracer.span('storage', 'commit_notify');
         await this.db.notifyCheckpoint();
       }
       this.persisted_op = null;
       if (checkpointState.newLastCheckpoint != null) {
-        using _ = this.tracer.span('commit_cleanup');
         await this.sourceRecordStore.postCommitCleanup(checkpointState.newLastCheckpoint, this.logger);
       }
     }

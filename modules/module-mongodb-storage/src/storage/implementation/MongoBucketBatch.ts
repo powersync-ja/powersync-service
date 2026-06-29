@@ -70,7 +70,7 @@ export interface MongoBucketBatchOptions {
   hooks: storage.StorageHooks | undefined;
 
   logger: Logger;
-  tracer?: PerformanceTracer<storage.StoragePerformanceTraceCategory>;
+  tracer?: PerformanceTracer<'storage' | 'evaluate'>;
 }
 
 export abstract class MongoBucketBatch
@@ -107,7 +107,7 @@ export abstract class MongoBucketBatch
   private hooks: storage.StorageHooks | undefined;
   private clearedError = false;
 
-  protected tracer: PerformanceTracer<storage.StoragePerformanceTraceCategory>;
+  protected tracer: PerformanceTracer<'storage' | 'evaluate'>;
 
   /**
    * Last written op, if any. This may not reflect a consistent checkpoint.
