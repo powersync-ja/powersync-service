@@ -23,7 +23,13 @@ import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
+import {
+  BucketRowEstimate,
+  MongoSyncBucketStorage,
+  MongoSyncBucketStorageOptions,
+  TopBucketCandidate,
+  TopBucketSelection
+} from '../MongoSyncBucketStorage.js';
 import { loadBucketDataDocument } from './bucket-format.js';
 import {
   BucketDataDocumentV3,
@@ -180,21 +186,38 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return new MongoCompactorV3(this, this.db, options);
   }
 
-  // For storage v3, bucket state is a per-stream collection and current rows are split into per-table collections.
+  // For storage v3, bucket state is a per-stream collection and bucket data is split into per-definition collections.
   // A replication stream can host multiple sync configs (active + processing + stopped, until cleanup runs), all
   // sharing these collections. Scope to the active config's definition ids so the report excludes stale buckets
   // from old/stopped definitions. `this.storageIds` is derived from the active config only (see getActiveSyncConfig).
-  protected collectBucketOperationStats(): Promise<Map<string, storage.BucketOperationStat>> {
-    return this.aggregateBucketOperationStats(this.db.bucketState(this.replicationStreamId), {
-      '_id.d': { $in: this.storageIds.bucketDefinitionIds }
-    });
+  protected async collectTopBuckets(limit: number): Promise<TopBucketSelection> {
+    const { buckets, totals } = await this.aggregateTopBuckets(
+      this.db.bucketState(this.replicationStreamId),
+      { '_id.d': { $in: this.storageIds.bucketDefinitionIds } },
+      limit
+    );
+    return {
+      buckets: buckets.map((b) => ({
+        bucket: b.id.b,
+        operations: b.operations,
+        operationBytes: b.operationBytes,
+        defId: b.id.d
+      })),
+      totals
+    };
   }
 
-  protected async collectBucketLiveRowCounts(): Promise<Map<string, number>> {
-    const collections = await this.db.listSourceRecordCollections(this.replicationStreamId);
-    return this.aggregateBucketLiveRowCounts(collections, {
-      bucketDefinitionIds: this.storageIds.bucketDefinitionIds
-    });
+  protected estimateBucketRows(candidate: TopBucketCandidate): Promise<BucketRowEstimate> {
+    // v3 batches operations into documents (one doc holds an `ops` array), in a per-definition collection.
+    // Sample whole batch documents, then unwind to operation level so the shared estimator sees one doc per op.
+    const sampled = this.shouldSampleBucketRows(candidate.operations);
+    const collection = this.db.bucketData(this.replicationStreamId, candidate.defId!);
+    const prefix: mongo.Document[] = [{ $match: { '_id.b': candidate.bucket } }];
+    if (sampled) {
+      prefix.push({ $match: { $sampleRate: this.bucketRowSampleRate(candidate.operations) } });
+    }
+    prefix.push({ $unwind: '$ops' }, { $replaceRoot: { newRoot: '$ops' } });
+    return this.estimateRowsFromOperationSample(collection, prefix, candidate.operations, sampled);
   }
 
   protected createMongoParameterCompactor(

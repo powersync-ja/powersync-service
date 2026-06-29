@@ -24,7 +24,13 @@ import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
+import {
+  BucketRowEstimate,
+  MongoSyncBucketStorage,
+  MongoSyncBucketStorageOptions,
+  TopBucketCandidate,
+  TopBucketSelection
+} from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV1,
   BucketDataKeyV1,
@@ -180,16 +186,27 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     return new MongoCompactorV1(this, this.db, options);
   }
 
-  // For storage v1/v2, bucket state and current rows are shared collections scoped by group (replication stream).
-  protected collectBucketOperationStats(): Promise<Map<string, storage.BucketOperationStat>> {
-    return this.aggregateBucketOperationStats(this.db.bucketStateV1, { '_id.g': this.replicationStreamId });
+  // For storage v1/v2, bucket state and bucket data are shared collections scoped by group (replication stream).
+  protected async collectTopBuckets(limit: number): Promise<TopBucketSelection> {
+    const { buckets, totals } = await this.aggregateTopBuckets(
+      this.db.bucketStateV1,
+      { '_id.g': this.replicationStreamId },
+      limit
+    );
+    return {
+      buckets: buckets.map((b) => ({ bucket: b.id.b, operations: b.operations, operationBytes: b.operationBytes })),
+      totals
+    };
   }
 
-  protected collectBucketLiveRowCounts(): Promise<Map<string, number>> {
-    // V1/V2 have a single sync config per replication stream, so scoping by group is sufficient.
-    return this.aggregateBucketLiveRowCounts([this.db.sourceRecordsV1], {
-      match: { '_id.g': this.replicationStreamId }
-    });
+  protected estimateBucketRows(candidate: TopBucketCandidate): Promise<BucketRowEstimate> {
+    // v1/v2 store one document per operation, so a bucket's ops are an id-prefix range that can be sampled directly.
+    const sampled = this.shouldSampleBucketRows(candidate.operations);
+    const prefix: mongo.Document[] = [{ $match: { '_id.g': this.replicationStreamId, '_id.b': candidate.bucket } }];
+    if (sampled) {
+      prefix.push({ $match: { $sampleRate: this.bucketRowSampleRate(candidate.operations) } });
+    }
+    return this.estimateRowsFromOperationSample(this.db.bucketDataV1, prefix, candidate.operations, sampled);
   }
 
   protected createMongoParameterCompactor(

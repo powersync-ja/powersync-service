@@ -64,6 +64,41 @@ interface InternalCheckpointChanges extends CheckpointChanges {
  */
 const CHECKPOINT_TIMEOUT_MS = 60_000;
 
+/**
+ * Above this many buckets, the report ranks a bounded `$sample` of bucket_state rather than every bucket, so
+ * the request cannot exhaust memory or run unbounded. Below it, the ranking is exact.
+ */
+const BUCKET_SELECTION_SAMPLE_THRESHOLD = 50_000;
+
+/** Number of buckets to sample when over {@link BUCKET_SELECTION_SAMPLE_THRESHOLD}. */
+const BUCKET_SELECTION_SAMPLE_SIZE = 10_000;
+
+/**
+ * Target number of operations to sample per bucket when estimating its row count. Buckets with fewer
+ * operations than this are read in full (exact); larger buckets are sampled down to roughly this many.
+ */
+const BUCKET_ROW_SAMPLE_TARGET = 1_000;
+
+/** A worst-offender bucket selected from bucket_state, with the version-specific context needed to sample it. */
+export interface TopBucketCandidate {
+  bucket: string;
+  operations: number;
+  operationBytes: number;
+  /** v3 only: the bucket definition id, used to locate its per-definition bucket_data collection. */
+  defId?: BucketDefinitionId;
+}
+
+export interface TopBucketSelection {
+  buckets: TopBucketCandidate[];
+  totals: storage.BucketReportTotals;
+}
+
+export interface BucketRowEstimate {
+  rows: number;
+  /** True if `rows` is a sampled estimate rather than an exact count. */
+  estimated: boolean;
+}
+
 export abstract class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
@@ -367,115 +402,191 @@ export abstract class MongoSyncBucketStorage
   }
 
   async getBucketReport(options?: storage.GetBucketReportOptions): Promise<storage.BucketReport> {
-    let operationStats: Map<string, storage.BucketOperationStat>;
-    let rowCounts: Map<string, number>;
+    const limit = storage.resolveBucketReportLimit(options?.limit);
     try {
-      [operationStats, rowCounts] = await Promise.all([
-        this.collectBucketOperationStats(),
-        this.collectBucketLiveRowCounts()
-      ]);
+      // Rank the worst-offender buckets and total operations from the pre-aggregated bucket state (bounded,
+      // in the database), then estimate each returned bucket's row count by sampling its operation history.
+      const { buckets, totals } = await this.collectTopBuckets(limit);
+      const ranked: storage.RankedBucketInput[] = [];
+      for (const candidate of buckets) {
+        const estimate = await this.estimateBucketRows(candidate);
+        ranked.push({
+          bucket: candidate.bucket,
+          operations: candidate.operations,
+          operationBytes: candidate.operationBytes,
+          rows: estimate.rows,
+          rowsEstimated: estimate.estimated
+        });
+      }
+      return storage.assembleBucketReport(ranked, totals);
     } catch (e) {
       // Translate a storage query timeout (maxTimeMS) into a specific, retryable error code rather than a
-      // generic internal error. Only the storage reads are wrapped; the pure-JS merge below cannot time out.
+      // generic internal error.
       throw lib_mongo.mapQueryError(e, 'while building the bucket report');
     }
-    return storage.buildBucketReport(operationStats, rowCounts, options);
   }
 
   /**
-   * Operation count and operation-history bytes per bucket, read from the pre-aggregated bucket state
-   * (compacted_state + estimate_since_compact). Cheap: one document per bucket, no scan of bucket data.
-   *
-   * Note: for v1/v2 storage, bucket_state is not backfilled (see models.ts: "only populated by new updates").
-   * Buckets whose data predates bucket_state tracking, and which have not been updated or compacted since,
-   * have no document here and so report zero operations. v3 always has bucket_state.
-   *
-   * Implementations supply their version-specific bucket state collection(s) to {@link aggregateBucketOperationStats}.
+   * Select the worst-offender buckets (by operation count) plus instance-wide operation totals from the
+   * pre-aggregated bucket state. Ranking and limiting happen in the database, so memory stays bounded.
+   * Implementations supply their version-specific bucket state collection and active-config filter.
    */
-  protected abstract collectBucketOperationStats(): Promise<Map<string, storage.BucketOperationStat>>;
+  protected abstract collectTopBuckets(limit: number): Promise<TopBucketSelection>;
 
   /**
-   * Live rows per bucket, derived from the current stored rows and their bucket memberships.
-   *
-   * Implementations supply their version-specific current-row collection(s) to {@link aggregateBucketLiveRowCounts}.
+   * Estimate a single bucket's live row count by sampling its operation history. Implementations differ
+   * because v1/v2 store one document per operation while v3 batches operations per document.
    */
-  protected abstract collectBucketLiveRowCounts(): Promise<Map<string, number>>;
+  protected abstract estimateBucketRows(candidate: TopBucketCandidate): Promise<BucketRowEstimate>;
 
   /**
-   * Aggregate operation count and operation-history bytes per bucket from a bucket state collection.
+   * Rank buckets by operation count in the database and compute instance-wide operation totals, reading the
+   * pre-aggregated bucket state (compacted_state + estimate_since_compact). One document per bucket, no scan
+   * of bucket data.
    *
-   * Operations are pre-aggregated in bucket state, so this reads a single document per bucket rather than
-   * scanning bucket data. Shared by the storage versions, which differ only in which collection (and filter)
-   * holds their bucket state.
+   * For very large bucket sets the candidates are drawn from a bounded `$sample` rather than the whole
+   * collection (so the request cannot run unbounded or exhaust memory), and the totals are scaled from the
+   * sample and flagged estimated. `allowDiskUse: false` makes an over-threshold exact attempt fail fast
+   * rather than spill to disk and degrade the live instance.
+   *
+   * Note: for v1/v2 storage, bucket_state is not backfilled (see models.ts: "only populated by new updates"),
+   * so buckets that predate bucket_state tracking and have not been updated or compacted since are missing
+   * here and under-counted. v3 always has bucket_state.
    */
-  protected async aggregateBucketOperationStats<T extends BucketStateDocumentBase>(
+  protected async aggregateTopBuckets<T extends BucketStateDocumentBase>(
     collection: mongo.Collection<T>,
-    match?: mongo.Filter<T>
-  ): Promise<Map<string, storage.BucketOperationStat>> {
-    const pipeline: mongo.Document[] = [];
-    if (match != null) {
-      pipeline.push({ $match: match });
+    match: mongo.Filter<T>,
+    limit: number
+  ): Promise<{
+    buckets: { id: T['_id']; operations: number; operationBytes: number }[];
+    totals: storage.BucketReportTotals;
+  }> {
+    const operations = {
+      $add: [{ $ifNull: ['$compacted_state.count', 0] }, { $ifNull: ['$estimate_since_compact.count', 0] }]
+    };
+    const operationBytes = {
+      $add: [
+        { $toDouble: { $ifNull: ['$compacted_state.bytes', 0] } },
+        { $toDouble: { $ifNull: ['$estimate_since_compact.bytes', 0] } }
+      ]
+    };
+
+    // estimatedDocumentCount ignores the match filter, so this is an upper bound on the active bucket count.
+    // That is fine: it only decides whether to sample, and over-estimating just switches to sampling sooner.
+    const totalBuckets = await collection.estimatedDocumentCount();
+    const sampled = totalBuckets > BUCKET_SELECTION_SAMPLE_THRESHOLD;
+
+    const pipeline: mongo.Document[] = [{ $match: match }];
+    if (sampled) {
+      pipeline.push({ $sample: { size: BUCKET_SELECTION_SAMPLE_SIZE } });
     }
     pipeline.push({
-      $project: {
-        _id: 1,
-        operations: {
-          $add: [{ $ifNull: ['$compacted_state.count', 0] }, { $ifNull: ['$estimate_since_compact.count', 0] }]
-        },
-        operationBytes: {
-          $add: [
-            { $toDouble: { $ifNull: ['$compacted_state.bytes', 0] } },
-            { $toDouble: { $ifNull: ['$estimate_since_compact.bytes', 0] } }
+      $facet: {
+        totals: [
+          {
+            $group: {
+              _id: null,
+              operations: { $sum: operations },
+              operationBytes: { $sum: operationBytes },
+              bucketCount: { $sum: 1 }
+            }
+          }
+        ],
+        top: [{ $project: { _id: 1, operations, operationBytes } }, { $sort: { operations: -1 } }, { $limit: limit }]
+      }
+    });
+
+    type FacetResult = {
+      totals: { operations: number; operationBytes: number; bucketCount: number }[];
+      top: { _id: T['_id']; operations: number; operationBytes: number }[];
+    };
+    const [result] = await collection
+      .aggregate<FacetResult>(pipeline, { allowDiskUse: false, maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS })
+      .toArray();
+
+    const rawTotals = result?.totals[0] ?? { operations: 0, operationBytes: 0, bucketCount: 0 };
+    const buckets = (result?.top ?? []).map((doc) => ({
+      id: doc._id,
+      operations: doc.operations,
+      operationBytes: doc.operationBytes
+    }));
+
+    if (!sampled) {
+      return {
+        buckets,
+        totals: {
+          bucketCount: rawTotals.bucketCount,
+          operations: rawTotals.operations,
+          operationBytes: rawTotals.operationBytes,
+          estimated: false
+        }
+      };
+    }
+
+    // Scale the sampled totals up to the full collection.
+    const scale = totalBuckets / Math.max(rawTotals.bucketCount, 1);
+    return {
+      buckets,
+      totals: {
+        bucketCount: totalBuckets,
+        operations: Math.round(rawTotals.operations * scale),
+        operationBytes: Math.round(rawTotals.operationBytes * scale),
+        estimated: true
+      }
+    };
+  }
+
+  /**
+   * Estimate a bucket's live rows from a sample of its operations.
+   *
+   * `pipelinePrefix` must select the bucket's operations (and, when `sampled`, randomly down-sample them) and
+   * yield documents with top-level `op`, `table` and `row_id` fields. Fragmentation is then
+   * `sampledOps / distinctRows` and the row count is `operations / fragmentation`. Exact (not sampled) when
+   * the whole bucket fits within the sample target.
+   */
+  protected async estimateRowsFromOperationSample(
+    collection: mongo.Collection<any>,
+    pipelinePrefix: mongo.Document[],
+    operations: number,
+    sampled: boolean
+  ): Promise<BucketRowEstimate> {
+    const pipeline: mongo.Document[] = [
+      ...pipelinePrefix,
+      {
+        $facet: {
+          sampledOps: [{ $count: 'count' }],
+          distinctRows: [
+            { $match: { op: { $in: ['PUT', 'REMOVE'] } } },
+            { $group: { _id: { table: '$table', row_id: '$row_id' } } },
+            { $count: 'count' }
           ]
         }
       }
-    });
+    ];
 
-    const result = new Map<string, storage.BucketOperationStat>();
-    const cursor = collection.aggregate<{ _id: { b: string }; operations: number; operationBytes: number }>(pipeline, {
-      maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS
-    });
-    for await (const doc of cursor.stream()) {
-      result.set(doc._id.b, { operations: doc.operations, operationBytes: doc.operationBytes });
+    type FacetResult = { sampledOps: { count: number }[]; distinctRows: { count: number }[] };
+    const [result] = await collection
+      .aggregate<FacetResult>(pipeline, { allowDiskUse: false, maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS })
+      .toArray();
+
+    const sampledOps = result?.sampledOps[0]?.count ?? 0;
+    const distinctRows = result?.distinctRows[0]?.count ?? 0;
+    if (sampledOps == 0 || distinctRows == 0) {
+      // Nothing row-bearing was sampled (e.g. a bucket of only MOVE/CLEAR ops): treat as fully fragmented.
+      return { rows: 0, estimated: sampled };
     }
-    return result;
+    // fragmentation = sampledOps / distinctRows; rows = operations / fragmentation = operations * distinctRows / sampledOps.
+    return { rows: Math.round((operations * distinctRows) / sampledOps), estimated: sampled };
   }
 
-  /**
-   * Aggregate distinct live rows per bucket across one or more current-row collections.
-   *
-   * Each stored row records its bucket memberships, so unwinding those memberships and grouping by bucket counts
-   * the live rows in each bucket (one membership per stored row). Counts are summed across collections, since a
-   * bucket may contain rows from multiple source tables (each in its own collection).
-   *
-   * `options.bucketDefinitionIds` restricts to memberships of those definitions - used by V3 to exclude rows
-   * still tagged with stopped/old definitions that share the stream but are not part of the active config.
-   */
-  protected async aggregateBucketLiveRowCounts<T extends mongo.Document>(
-    collections: mongo.Collection<T>[],
-    options?: { match?: mongo.Filter<T>; bucketDefinitionIds?: BucketDefinitionId[] }
-  ): Promise<Map<string, number>> {
-    const pipeline: mongo.Document[] = [];
-    if (options?.match != null) {
-      pipeline.push({ $match: options.match });
-    }
-    pipeline.push({ $unwind: '$buckets' });
-    if (options?.bucketDefinitionIds != null) {
-      pipeline.push({ $match: { 'buckets.def': { $in: options.bucketDefinitionIds } } });
-    }
-    pipeline.push({ $group: { _id: '$buckets.bucket', count: { $sum: 1 } } });
+  /** Whether a bucket with this many operations should be sampled rather than read in full. */
+  protected shouldSampleBucketRows(operations: number): boolean {
+    return operations > BUCKET_ROW_SAMPLE_TARGET;
+  }
 
-    const result = new Map<string, number>();
-    for (const collection of collections) {
-      const cursor = collection.aggregate<{ _id: string; count: number }>(pipeline, {
-        allowDiskUse: true,
-        maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS
-      });
-      for await (const doc of cursor.stream()) {
-        result.set(doc._id, (result.get(doc._id) ?? 0) + doc.count);
-      }
-    }
-    return result;
+  /** `$sampleRate` for sampling roughly {@link BUCKET_ROW_SAMPLE_TARGET} of a bucket's operations. */
+  protected bucketRowSampleRate(operations: number): number {
+    return BUCKET_ROW_SAMPLE_TARGET / operations;
   }
 
   /**
