@@ -536,7 +536,20 @@ export class ChangeStream {
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
     const tracer = new PerformanceTracer<
-      'storage' | 'evaluate' | 'batch' | 'source_checkpoint' | 'changestream' | 'processing'
+      | 'storage'
+      | 'evaluate'
+      | 'batch'
+      | 'source_checkpoint'
+      | 'changestream'
+      | 'processing'
+      | 'change_parse'
+      | 'keepalive'
+      | 'commit'
+      | 'resolve_tables'
+      | 'write_change'
+      | 'drop_tables'
+      | 'flush'
+      | 'resume_lsn'
     >('MongoDB streaming replication');
     await this.storage.startBatch(
       {
@@ -605,6 +618,7 @@ export class ChangeStream {
             // with old tokens may cause connection timeouts.
             if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > 60_000) {
               const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(resumeToken);
+              using _ = tracer.span('keepalive');
               await batch.keepalive(lsn);
               this.touch();
               lastEmptyResume = performance.now();
@@ -627,6 +641,7 @@ export class ChangeStream {
 
           for (let eventIndex = 0; eventIndex < events.length; eventIndex++) {
             const rawChangeDocument = events[eventIndex];
+            using parseSpan = tracer.span('change_parse');
             const originalChangeDocument = parseChangeDocument(rawChangeDocument);
             if (this.abortSignal.aborted) {
               break;
@@ -660,6 +675,7 @@ export class ChangeStream {
               // We were waiting for fragments, but got a different event
               throw new ReplicationAssertionError(`Incomplete splitEvent: ${JSON.stringify(splitDocument.splitEvent)}`);
             }
+            parseSpan.end();
 
             if (
               !filters.multipleDatabases &&
@@ -757,9 +773,14 @@ export class ChangeStream {
               if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
                 waitForCheckpointLsn = null;
               }
-              const { checkpointBlocked, checkpointCreated } = await batch.commit(lsn, {
-                oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
-              });
+              let checkpointBlocked: boolean;
+              let checkpointCreated: boolean;
+              {
+                using _ = tracer.span('commit');
+                ({ checkpointBlocked, checkpointCreated } = await batch.commit(lsn, {
+                  oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
+                }));
+              }
 
               if (!checkpointBlocked || checkpointCreated) {
                 this.replicationLag.markCommitted();
@@ -776,13 +797,17 @@ export class ChangeStream {
               }
 
               const rel = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
-              const tables = await this.getRelations(batch, rel, {
-                // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
-                // for whatever reason, then we do need to snapshot it.
-                // This may result in some duplicate operations when a collection is created for the first time after
-                // sync config was deployed.
-                snapshot: true
-              });
+              let tables: SourceTable[];
+              {
+                using _ = tracer.span('resolve_tables');
+                tables = await this.getRelations(batch, rel, {
+                  // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
+                  // for whatever reason, then we do need to snapshot it.
+                  // This may result in some duplicate operations when a collection is created for the first time after
+                  // sync config was deployed.
+                  snapshot: true
+                });
+              }
               const tablesToReplicate = tables.filter((table) => table.syncAny);
               if (tablesToReplicate.length > 0) {
                 this.replicationLag.trackUncommittedChange(
@@ -800,39 +825,53 @@ export class ChangeStream {
                 }
 
                 for (const table of tablesToReplicate) {
+                  using _ = tracer.span('write_change');
                   await this.writeChange(batch, table, changeDocument);
                 }
               }
             } else if (changeDocument.operationType == 'drop') {
               const rel = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
-              const tables = await this.getRelations(batch, rel, {
-                // We're "dropping" this collection, so never snapshot it.
-                snapshot: false
-              });
+              let tables: SourceTable[];
+              {
+                using _ = tracer.span('resolve_tables');
+                tables = await this.getRelations(batch, rel, {
+                  // We're "dropping" this collection, so never snapshot it.
+                  snapshot: false
+                });
+              }
               const tablesToDrop = tables.filter((table) => table.syncAny);
               if (tablesToDrop.length > 0) {
+                using _ = tracer.span('drop_tables');
                 await batch.drop(tablesToDrop);
               }
               this.relationCache.delete(rel);
             } else if (changeDocument.operationType == 'rename') {
               const relFrom = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
               const relTo = getMongoRelation(changeDocument.to, this.connections.connectionTag);
-              const tablesFrom = await this.getRelations(batch, relFrom, {
-                // We're "dropping" this collection, so never snapshot it.
-                snapshot: false
-              });
+              let tablesFrom: SourceTable[];
+              {
+                using _ = tracer.span('resolve_tables');
+                tablesFrom = await this.getRelations(batch, relFrom, {
+                  // We're "dropping" this collection, so never snapshot it.
+                  snapshot: false
+                });
+              }
               const tablesToDrop = tablesFrom.filter((table) => table.syncAny);
               if (tablesToDrop.length > 0) {
+                using _ = tracer.span('drop_tables');
                 await batch.drop(tablesToDrop);
               }
               this.relationCache.delete(relFrom);
               // Here we do need to snapshot the new table
-              const collection = await this.getCollectionInfo(relTo.schema, relTo.name);
-              await this.handleRelation(batch, relTo, {
-                // This is a new (renamed) collection, so always snapshot it.
-                snapshot: true,
-                collectionInfo: collection
-              });
+              {
+                using _ = tracer.span('resolve_tables');
+                const collection = await this.getCollectionInfo(relTo.schema, relTo.name);
+                await this.handleRelation(batch, relTo, {
+                  // This is a new (renamed) collection, so always snapshot it.
+                  snapshot: true,
+                  collectionInfo: collection
+                });
+              }
             }
           }
 
@@ -842,9 +881,15 @@ export class ChangeStream {
             // so this is a good natural point to flush and mark progress.
             // We avoid this when splitDocument is set, since we cannot resume in the middle of a split event.
             const { comparable: lsn } = MongoLSN.fromResumeToken(resumeToken);
-            await batch.flush({ oldestUncommittedChange: this.replicationLag.oldestUncommittedChange });
+            {
+              using _ = tracer.span('flush');
+              await batch.flush({ oldestUncommittedChange: this.replicationLag.oldestUncommittedChange });
+            }
             // TODO: We should consider making this standard behavior of flush().
-            await batch.setResumeLsn(lsn);
+            {
+              using _ = tracer.span('resume_lsn');
+              await batch.setResumeLsn(lsn);
+            }
           }
 
           batchSpan.end();
