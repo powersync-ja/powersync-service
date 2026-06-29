@@ -42,6 +42,7 @@ import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 export interface MongoSyncBucketStorageContextV3 {
   db: VersionedPowerSyncMongoV3;
   replicationStreamId: number;
+  readPreference?: mongo.ReadPreference;
   /**
    * Persisted mapping of the single sync config that read operations are served from.
    *
@@ -336,6 +337,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return {
       db: this.db,
       replicationStreamId: this.replicationStreamId,
+      readPreference: this.readPreference,
       get mapping() {
         return self.singleSyncConfigMapping();
       }
@@ -540,8 +542,11 @@ export async function* getBucketDataBatchV3(
     throw new Error('checkpoint is null');
   }
 
-  const useSecondary = checkpoint.snapshotTime != null && options?.requestHint == 'bulk';
-  const session = !useSecondary ? undefined : ctx.db.client.startSession({ causalConsistency: true });
+  const readPreference = options?.requestHint == 'bulk' ? ctx.readPreference : undefined;
+  const session =
+    readPreference == null || checkpoint.snapshotTime == null
+      ? undefined
+      : ctx.db.client.startSession({ causalConsistency: true });
   await using _ = { [Symbol.asyncDispose]: async () => session?.endSession() };
 
   if (session != null) {
@@ -589,8 +594,8 @@ export async function* getBucketDataBatchV3(
     // without an explicit cast to FindCursor<Buffer>.
     const cursor = collection.find(filter, {
       session,
-      readPreference: session == null ? undefined : mongo.ReadPreference.secondaryPreferred,
-      readConcern: session == null ? undefined : 'majority',
+      readPreference,
+      readConcern: readPreference == null ? undefined : 'majority',
       sort: { _id: 1 },
       raw: true,
       maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS,

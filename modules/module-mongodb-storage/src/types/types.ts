@@ -2,9 +2,23 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
 
+export const MongoStorageReadPreference = t
+  .literal('primary')
+  .or(t.literal('primaryPreferred'))
+  .or(t.literal('secondary'))
+  .or(t.literal('secondaryPreferred'))
+  .or(t.literal('nearest'));
+
+export type MongoStorageReadPreference = t.Encoded<typeof MongoStorageReadPreference>;
+
 export const MongoStorageConfig = lib_mongo.BaseMongoConfig.and(
   t.object({
-    // Add any mongo specific storage settings here in future
+    /**
+     * Read preference for bulk checksum and bucket data reads.
+     *
+     * If unset, MongoDB driver defaults are used for backwards compatibility.
+     */
+    read_preference: MongoStorageReadPreference.optional()
   })
 );
 

@@ -41,6 +41,7 @@ import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 export interface MongoSyncBucketStorageContextV1 {
   db: VersionedPowerSyncMongoV1;
   replicationStreamId: number;
+  readPreference?: mongo.ReadPreference;
 }
 
 export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
@@ -190,7 +191,8 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   protected get versionContext(): MongoSyncBucketStorageContextV1 {
     return {
       db: this.db,
-      replicationStreamId: this.replicationStreamId
+      replicationStreamId: this.replicationStreamId,
+      readPreference: this.readPreference
     };
   }
 
@@ -376,8 +378,11 @@ export async function* getBucketDataBatchV1(
   if (dataBuckets.length == 0) {
     return;
   }
-  const useSecondary = checkpoint.snapshotTime != null && options?.requestHint == 'bulk';
-  const session = !useSecondary ? undefined : ctx.db.client.startSession({ causalConsistency: true });
+  const readPreference = options?.requestHint == 'bulk' ? ctx.readPreference : undefined;
+  const session =
+    readPreference == null || checkpoint.snapshotTime == null
+      ? undefined
+      : ctx.db.client.startSession({ causalConsistency: true });
   await using _ = { [Symbol.asyncDispose]: async () => session?.endSession() };
 
   if (session != null) {
@@ -419,8 +424,8 @@ export async function* getBucketDataBatchV1(
     },
     {
       session,
-      readPreference: session == null ? undefined : mongo.ReadPreference.secondaryPreferred,
-      readConcern: session == null ? undefined : 'majority',
+      readPreference,
+      readConcern: readPreference == null ? undefined : 'majority',
       sort: { _id: 1 },
       limit: batchLimit,
       batchSize: batchLimit + 1,

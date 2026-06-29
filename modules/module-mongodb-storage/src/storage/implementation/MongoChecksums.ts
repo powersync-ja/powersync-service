@@ -49,11 +49,13 @@ export interface MongoChecksumOptions {
 }
 
 interface MongoChecksumReadContext {
-  readAfterTime: mongo.Timestamp;
+  readAfterTime?: mongo.Timestamp;
+  readPreference: mongo.ReadPreference;
 }
 
 export interface MongoChecksumSessionContext {
-  session: mongo.ClientSession;
+  session?: mongo.ClientSession;
+  readPreference?: mongo.ReadPreference;
 }
 
 const DEFAULT_BUCKET_BATCH_LIMIT = 200;
@@ -92,14 +94,19 @@ export abstract class MongoChecksums {
   async getChecksums(
     checkpoint: InternalOpId,
     buckets: BucketChecksumRequest[],
-    options?: { readAfterTime?: mongo.Timestamp; requestHint?: BucketChecksumOptions['requestHint'] }
+    options?: {
+      readAfterTime?: mongo.Timestamp;
+      readPreference?: mongo.ReadPreference;
+      requestHint?: BucketChecksumOptions['requestHint'];
+    }
   ): Promise<ChecksumMap> {
-    if (options?.readAfterTime == null || options.requestHint == 'incremental') {
+    if (options?.readPreference == null || options.requestHint == 'incremental') {
       return this.cache.getChecksumMap(checkpoint, buckets);
     }
 
     return this.cache.getChecksumMap(checkpoint, buckets, {
-      readAfterTime: options.readAfterTime
+      readAfterTime: options.readAfterTime,
+      readPreference: options.readPreference
     });
   }
 
@@ -124,14 +131,15 @@ export abstract class MongoChecksums {
       return new Map();
     }
 
-    if (context != null) {
+    if (context?.readAfterTime != null) {
+      const { readAfterTime, readPreference } = context;
       return this.db.client.withSession({ causalConsistency: true }, async (session) => {
-        session.advanceOperationTime(context.readAfterTime);
-        return this.computePartialChecksumsWithSession(batch, { session });
+        session.advanceOperationTime(readAfterTime);
+        return this.computePartialChecksumsWithSession(batch, { session, readPreference });
       });
     }
 
-    return this.computePartialChecksumsWithSession(batch);
+    return this.computePartialChecksumsWithSession(batch, context);
   }
 
   private async computePartialChecksumsWithSession(
@@ -225,13 +233,13 @@ export abstract class MongoChecksums {
     readPreference?: mongo.ReadPreference;
     readConcern?: mongo.ReadConcernLike;
   } {
-    if (context == null) {
+    if (context?.readPreference == null) {
       return {};
     }
 
     return {
       session: context.session,
-      readPreference: mongo.ReadPreference.secondaryPreferred,
+      readPreference: context.readPreference,
       readConcern: 'majority'
     };
   }

@@ -38,8 +38,13 @@ export class MongoStorageProvider implements storage.StorageProvider {
     await client.connect();
 
     const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
+    const readPreference =
+      decodedConfig.read_preference == null
+        ? undefined
+        : lib_mongo.mongo.ReadPreference.fromString(decodedConfig.read_preference);
     const syncStorageFactory = new MongoBucketStorage(database, {
       replicationStreamNamePrefix: resolvedConfig.slot_name_prefix,
+      readPreference,
       // Right now, only MongoDB source databases supports incremental reprocessing.
       // Remove this filter when we support it for other source databases.
       // This assumes a single source connection - revisit if we ever support multiple connections.

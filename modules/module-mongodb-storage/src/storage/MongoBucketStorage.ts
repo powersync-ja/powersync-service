@@ -34,6 +34,7 @@ export interface MongoBucketStorageOptions {
    * Prefix for replication stream name and Postgres logical replication slot name.
    */
   replicationStreamNamePrefix: string;
+  readPreference?: mongo.ReadPreference;
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   /**
    * Reuse a compatible active replication stream by appending a new sync config.
@@ -91,6 +92,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       undefined,
       {
         checksumOptions: this.options.checksumOptions,
+        readPreference: this.options.readPreference,
         storageConfig
       }
     );

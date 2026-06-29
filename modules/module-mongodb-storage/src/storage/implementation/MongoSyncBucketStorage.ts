@@ -40,6 +40,7 @@ import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+  readPreference?: mongo.ReadPreference;
   storageConfig: StorageConfig;
 }
 
@@ -80,6 +81,7 @@ export abstract class MongoSyncBucketStorage
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
   public readonly logger: Logger;
   public readonly storageConfig: StorageConfig;
+  public readonly readPreference: mongo.ReadPreference | undefined;
   #storageInitialized = false;
 
   constructor(
@@ -92,6 +94,7 @@ export abstract class MongoSyncBucketStorage
   ) {
     super();
     this.storageConfig = options.storageConfig;
+    this.readPreference = options.readPreference;
     this.db = factory.db.versioned(this.storageConfig);
     this.checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
@@ -268,6 +271,7 @@ export abstract class MongoSyncBucketStorage
     const mongoCheckpoint = checkpoint as MongoReplicationCheckpoint;
     return this.checksums.getChecksums(checkpoint.checkpoint, buckets, {
       readAfterTime: mongoCheckpoint.snapshotTime,
+      readPreference: options?.requestHint == 'bulk' ? this.readPreference : undefined,
       requestHint: options?.requestHint
     });
   }
