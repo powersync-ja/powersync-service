@@ -16,6 +16,7 @@ import {
 import type { VersionedPowerSyncMongo } from './db.js';
 
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
+import { setSessionSnapshotTime } from '../../utils/util.js';
 import { StorageConfig } from './models.js';
 
 export interface FetchPartialBucketChecksumByDefinition {
@@ -49,7 +50,7 @@ export interface MongoChecksumOptions {
 }
 
 interface MongoChecksumReadContext {
-  readAfterTime?: mongo.Timestamp;
+  snapshotTime?: mongo.Timestamp;
   readPreference?: mongo.ReadPreference;
   readConcern?: mongo.ReadConcernLike;
 }
@@ -97,18 +98,18 @@ export abstract class MongoChecksums {
     checkpoint: InternalOpId,
     buckets: BucketChecksumRequest[],
     options?: {
-      readAfterTime?: mongo.Timestamp;
+      snapshotTime?: mongo.Timestamp;
       readConcern?: mongo.ReadConcernLike;
       readPreference?: mongo.ReadPreference;
       requestHint?: BucketChecksumOptions['requestHint'];
     }
   ): Promise<ChecksumMap> {
-    if (options?.readPreference == null && options?.readConcern == null) {
+    if (options?.snapshotTime == null && options?.readPreference == null && options?.readConcern == null) {
       return this.cache.getChecksumMap(checkpoint, buckets);
     }
 
     return this.cache.getChecksumMap(checkpoint, buckets, {
-      readAfterTime: options.readAfterTime,
+      snapshotTime: options.snapshotTime,
       readConcern: options.readConcern,
       readPreference: options.readPreference
     });
@@ -135,13 +136,15 @@ export abstract class MongoChecksums {
       return new Map();
     }
 
-    if (context?.readAfterTime != null) {
-      const { readAfterTime, readConcern, readPreference } = context;
-      return this.db.client.withSession({ causalConsistency: true }, async (session) => {
-        // As long as we're using the same MongoClient here and for the client where readAfterTime originates,
-        // we don't need advanceClusterTime. See: https://jira.mongodb.org/browse/DRIVERS-2860
-        session.advanceOperationTime(readAfterTime);
-        return this.computePartialChecksumsWithSession(batch, { session, readConcern, readPreference });
+    if (context?.snapshotTime != null) {
+      const { snapshotTime, readPreference } = context;
+      return this.db.client.withSession({ snapshot: true }, async (session) => {
+        setSessionSnapshotTime(session, snapshotTime);
+        return this.computePartialChecksumsWithSession(batch, {
+          session,
+          readConcern: 'snapshot',
+          readPreference
+        });
       });
     }
 
