@@ -483,7 +483,8 @@ export class PostgresSyncRulesStorage
 
   async getChecksums(
     checkpoint: storage.ChecksumCheckpoint,
-    buckets: storage.BucketChecksumRequest[]
+    buckets: storage.BucketChecksumRequest[],
+    _options?: storage.BucketChecksumOptions
   ): Promise<utils.ChecksumMap> {
     return this.checksumCache.getChecksumMap(
       typeof checkpoint == 'bigint' ? checkpoint : checkpoint.checkpoint,

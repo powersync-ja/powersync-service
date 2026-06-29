@@ -151,7 +151,11 @@ export interface SyncRulesBucketStorage
    * This may be slow, depending on the size of the buckets.
    * The checksums are cached internally to compensate for this, but does not cover all cases.
    */
-  getChecksums(checkpoint: ChecksumCheckpoint, buckets: BucketChecksumRequest[]): Promise<util.ChecksumMap>;
+  getChecksums(
+    checkpoint: ChecksumCheckpoint,
+    buckets: BucketChecksumRequest[],
+    options?: BucketChecksumOptions
+  ): Promise<util.ChecksumMap>;
 
   /**
    * Clear checksum cache. Primarily intended for tests.
@@ -178,6 +182,12 @@ export interface BucketChecksumRequest {
   bucket: string;
   source: BucketDataSource;
 }
+
+export interface BucketChecksumOptions {
+  requestHint?: BucketChecksumRequestHint;
+}
+
+export type BucketChecksumRequestHint = 'bulk' | 'incremental';
 
 export interface ReplicationStreamStatus {
   /**

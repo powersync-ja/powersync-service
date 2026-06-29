@@ -3,6 +3,7 @@ import {
   addPartialChecksums,
   bson,
   BucketChecksum,
+  BucketChecksumOptions,
   BucketChecksumRequest,
   ChecksumCache,
   ChecksumMap,
@@ -91,13 +92,15 @@ export abstract class MongoChecksums {
   async getChecksums(
     checkpoint: InternalOpId,
     buckets: BucketChecksumRequest[],
-    options?: { readAfterTime?: mongo.Timestamp }
+    options?: { readAfterTime?: mongo.Timestamp; requestHint?: BucketChecksumOptions['requestHint'] }
   ): Promise<ChecksumMap> {
-    return this.cache.getChecksumMap(
-      checkpoint,
-      buckets,
-      options?.readAfterTime == null ? undefined : { readAfterTime: options.readAfterTime }
-    );
+    if (options?.readAfterTime == null || options.requestHint == 'incremental') {
+      return this.cache.getChecksumMap(checkpoint, buckets);
+    }
+
+    return this.cache.getChecksumMap(checkpoint, buckets, {
+      readAfterTime: options.readAfterTime
+    });
   }
 
   clearCache() {

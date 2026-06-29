@@ -161,6 +161,7 @@ export class BucketChecksumState {
 
       // Re-check updated buckets only
       let checksumLookups: storage.BucketChecksumRequest[] = [];
+      let hasNewBucket = false;
 
       let newChecksums = new Map<string, util.BucketChecksum>();
       for (let desc of bucketDescriptionMap.values()) {
@@ -174,11 +175,13 @@ export class BucketChecksumState {
           newChecksums.set(desc.bucket, existing);
         } else {
           checksumLookups.push({ bucket: desc.bucket, source: desc.source });
+          hasNewBucket ||= !this.lastChecksums.has(desc.bucket);
         }
       }
 
       if (checksumLookups.length > 0) {
-        let updatedChecksums = await storage.getChecksums(base, checksumLookups);
+        const requestHint: storage.BucketChecksumRequestHint = hasNewBucket ? 'bulk' : 'incremental';
+        let updatedChecksums = await storage.getChecksums(base, checksumLookups, { requestHint });
         for (let [bucket, value] of updatedChecksums.entries()) {
           newChecksums.set(bucket, value);
         }
@@ -186,8 +189,15 @@ export class BucketChecksumState {
       checksumMap = newChecksums;
     } else {
       // Re-check all buckets
-      const bucketList = [...bucketDescriptionMap.values()].map((b) => ({ bucket: b.bucket, source: b.source }));
-      checksumMap = await storage.getChecksums(base, bucketList);
+      const hasNewBucket =
+        this.lastChecksums == null ||
+        [...bucketDescriptionMap.values()].some((b) => !this.lastChecksums!.has(b.bucket));
+      const requestHint: storage.BucketChecksumRequestHint = hasNewBucket ? 'bulk' : 'incremental';
+      const bucketList = [...bucketDescriptionMap.values()].map((b) => ({
+        bucket: b.bucket,
+        source: b.source
+      }));
+      checksumMap = await storage.getChecksums(base, bucketList, { requestHint });
     }
 
     // Subset of buckets for which there may be new data in this batch.
