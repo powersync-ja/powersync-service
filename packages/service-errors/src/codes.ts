@@ -492,13 +492,7 @@ export enum ErrorCode {
    */
   PSYNC_S2404 = 'PSYNC_S2404',
 
-  // ## PSYNC_S25xx: Sync API errors - Postgres Storage
-
-  /**
-   * Postgres storage query timed out. Could be due to a large query or a temporary load issue on the
-   * storage database. Retry the request.
-   */
-  PSYNC_S2501 = 'PSYNC_S2501',
+  // ## PSYNC_S23xx: Sync API errors - Postgres Storage
 
   // ## PSYNC_S3xxx: Service configuration issues
 

@@ -38,9 +38,6 @@ import { PostgresCurrentDataStore } from './current-data-store.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresCompactor } from './PostgresCompactor.js';
 
-/** Postgres SQLSTATE raised when a statement is cancelled, e.g. by statement_timeout. */
-const POSTGRES_QUERY_CANCELED = '57014';
-
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
   db: lib_postgres.DatabaseClient;
@@ -152,80 +149,6 @@ export class PostgresSyncRulesStorage
       maxOpId,
       logger: this.logger
     }).compact();
-  }
-
-  async getBucketReport(options?: storage.GetBucketReportOptions): Promise<storage.BucketReport> {
-    try {
-      return await this.collectBucketReport(options);
-    } catch (e) {
-      // statement_timeout cancels the query with SQLSTATE 57014 (query_canceled). Translate it into a
-      // specific, retryable timeout code rather than a generic internal error.
-      if (e?.cause?.code === POSTGRES_QUERY_CANCELED) {
-        throw new framework.DatabaseQueryError(
-          framework.ErrorCode.PSYNC_S2501,
-          'Query timed out while building the bucket report',
-          e
-        );
-      }
-      throw e;
-    }
-  }
-
-  private async collectBucketReport(options?: storage.GetBucketReportOptions): Promise<storage.BucketReport> {
-    // Both queries scan storage (Postgres has no pre-aggregated bucket state), so they run in a transaction
-    // with a statement timeout rather than letting an admin request run unbounded on a large instance.
-    const { operationStats, rowCounts } = await this.db.transaction(async (db) => {
-      await db.query(`SET LOCAL statement_timeout = ${storage.BUCKET_REPORT_TIMEOUT_MS}`);
-
-      // Operations + operation-history bytes per bucket.
-      const operationRows = await db.sql`
-        SELECT
-          bucket_name,
-          COUNT(*)::BIGINT AS operations,
-          COALESCE(SUM(OCTET_LENGTH(data)), 0)::BIGINT AS operation_bytes
-        FROM
-          bucket_data
-        WHERE
-          group_id = ${{ type: 'int4', value: this.replicationStreamId }}
-        GROUP BY
-          bucket_name;
-      `.rows<{ bucket_name: string; operations: bigint; operation_bytes: bigint }>();
-
-      const operationStats = new Map<string, storage.BucketOperationStat>(
-        operationRows.map((row) => [
-          row.bucket_name,
-          { operations: Number(row.operations), operationBytes: Number(row.operation_bytes) }
-        ])
-      );
-
-      // Live rows per bucket (one membership per stored row), from each row's bucket memberships. The
-      // current-data table is version-specific (current_data for v1/v2, v3_current_data for v3), so the table
-      // name is interpolated from the resolved store rather than parameterised.
-      const rowCounts = new Map<string, number>();
-      for await (const batch of db.streamRows<{ bucket: string; rows: bigint }>({
-        statement: `
-          SELECT
-            elem ->> 'bucket' AS bucket,
-            COUNT(*)::BIGINT AS rows
-          FROM
-            ${this.currentDataStore.table} cd,
-            jsonb_array_elements(cd.buckets) AS elem
-          WHERE
-            cd.group_id = $1
-          GROUP BY
-            elem ->> 'bucket'
-        `,
-        params: [{ type: 'int4', value: this.replicationStreamId }]
-      })) {
-        for (const row of batch) {
-          rowCounts.set(row.bucket, Number(row.rows));
-        }
-      }
-
-      return { operationStats, rowCounts };
-    });
-
-    return storage.buildBucketReport(operationStats, rowCounts, options);
   }
 
   async populatePersistentChecksumCache(_options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
