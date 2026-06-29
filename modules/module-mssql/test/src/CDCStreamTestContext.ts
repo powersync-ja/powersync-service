@@ -185,7 +185,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
     let checkpoint = await this.getCheckpoint(options);
     const syncConfigContent = this.getSyncConfigContent();
     const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncConfigContent, bucket, start));
-    return test_utils.fromAsync(this.storage!.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), map));
+    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
   /**
@@ -201,7 +201,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
     let map = [bucketRequest(syncConfigContent, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
-      const batch = this.storage!.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), map);
+      const batch = this.storage!.getBucketDataBatch(checkpoint, map);
 
       const batches = await test_utils.fromAsync(batch);
       data = data.concat(batches[0]?.chunkData.data ?? []);
@@ -226,10 +226,10 @@ export class CDCStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const { checkpoint } = await this.storage!.getCheckpoint();
+    const checkpoint = await this.storage!.getCheckpoint();
     const syncConfigContent = this.getSyncConfigContent();
     const map = [bucketRequest(syncConfigContent, bucket, start)];
-    const batch = this.storage!.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), map);
+    const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];
   }

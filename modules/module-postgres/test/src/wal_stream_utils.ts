@@ -204,7 +204,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     const checkpoint = await this.getCheckpoint(options);
     const syncConfigContent = this.getSyncConfigContent();
     const versionedBuckets = buckets.map((bucket) => bucketRequest(syncConfigContent, bucket, 0n));
-    const checksums = await this.storage!.getChecksums(test_utils.testCheckpoint(checkpoint), versionedBuckets);
+    const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
 
     const unversioned = new Map();
     for (let i = 0; i < buckets.length; i++) {
@@ -228,9 +228,9 @@ export class WalStreamTestContext implements AsyncDisposable {
       start = BigInt(start);
     }
     const syncConfigContent = this.getSyncConfigContent();
-    const { checkpoint } = await this.storage!.getCheckpoint();
+    const checkpoint = await this.storage!.getCheckpoint();
     const map = [bucketRequest(syncConfigContent, bucket, start)];
-    const batch = this.storage!.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), map);
+    const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];
   }

@@ -199,7 +199,7 @@ export class ChangeStreamTestContext {
     let checkpoint = await this.getCheckpoint(options);
     const syncConfigContent = this.getSyncConfigContent();
     const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncConfigContent, bucket, start));
-    return test_utils.fromAsync(this.storage!.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), map));
+    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
   async getBucketData(bucket: string, start?: ProtocolOpId | InternalOpId | undefined, options?: { timeout?: number }) {
@@ -212,7 +212,7 @@ export class ChangeStreamTestContext {
     let map = [bucketRequest(syncConfigContent, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
-      const batch = this.storage!.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), map);
+      const batch = this.storage!.getBucketDataBatch(checkpoint, map);
 
       const batches = await test_utils.fromAsync(batch);
       data = data.concat(batches[0]?.chunkData.data ?? []);
@@ -228,7 +228,7 @@ export class ChangeStreamTestContext {
     let checkpoint = await this.getCheckpoint(options);
     const syncConfigContent = this.getSyncConfigContent();
     const versionedBuckets = buckets.map((bucket) => bucketRequest(syncConfigContent, bucket, 0n));
-    const checksums = await this.storage!.getChecksums(test_utils.testCheckpoint(checkpoint), versionedBuckets);
+    const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
 
     const unversioned: utils.ChecksumMap = new Map();
     for (let i = 0; i < buckets.length; i++) {
@@ -248,7 +248,7 @@ export async function getClientCheckpoint(
   db: mongo.Db,
   storageFactory: BucketStorageFactory,
   options?: { timeout?: number }
-): Promise<InternalOpId> {
+): Promise<ReplicationCheckpoint> {
   const start = Date.now();
   const lsn = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID);
   // This old API needs a persisted checkpoint id.
@@ -263,7 +263,7 @@ export async function getClientCheckpoint(
     if (cp != null) {
       lastCp = cp;
       if (cp.lsn && cp.lsn >= lsn) {
-        return cp.checkpoint;
+        return cp;
       }
     }
     await new Promise((resolve) => setTimeout(resolve, 30));
