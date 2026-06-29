@@ -138,6 +138,8 @@ export abstract class MongoChecksums {
     if (context?.readAfterTime != null) {
       const { readAfterTime, readConcern, readPreference } = context;
       return this.db.client.withSession({ causalConsistency: true }, async (session) => {
+        // As long as we're using the same MongoClient here and for the client where readAfterTime originates,
+        // we don't need advanceClusterTime. See: https://jira.mongodb.org/browse/DRIVERS-2860
         session.advanceOperationTime(readAfterTime);
         return this.computePartialChecksumsWithSession(batch, { session, readConcern, readPreference });
       });
