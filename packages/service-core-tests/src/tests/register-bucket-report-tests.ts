@@ -5,8 +5,10 @@ import * as test_utils from '../test-utils/test-utils-index.js';
 /**
  * Tests for {@link storage.SyncRulesBucketStorage.getBucketReport}: per-bucket operations vs live rows.
  *
- * Asserts on stable counts (operations, rows, fragmentation, totals) rather than op_ids or checksums,
- * which differ between storage backends and versions.
+ * Asserts on stable counts (operations, rows, fragmentation, operation totals) rather than op_ids or
+ * checksums, which differ between storage backends and versions. The buckets here are tiny (well under the
+ * row-sample target), so row counts are exact (`rowsEstimated: false`); the sampling path is exercised in
+ * the higher-volume manual tests.
  */
 export function registerBucketReportTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
@@ -63,9 +65,9 @@ bucket_definitions:
 
     const stats = report.buckets.find((b) => b.bucket === bucket)!;
     // Three inserts of distinct ids: three operations, three live rows, fully compacted (ratio 1).
-    expect(stats).toMatchObject({ operations: 3, rows: 3, fragmentation: 1 });
+    expect(stats).toMatchObject({ operations: 3, rows: 3, fragmentation: 1, rowsEstimated: false });
     expect(stats.operationBytes).toBeGreaterThan(0);
-    expect(report.totals).toMatchObject({ operations: 3, rows: 3 });
+    expect(report.totals).toMatchObject({ operations: 3, estimated: false });
   });
 
   test('operations exceed live rows after updates, and compaction reduces fragmentation', async () => {
@@ -153,8 +155,7 @@ bucket_definitions:
 
     const report = await getReport(bucketStorage);
     expect(report.totals.bucketCount).toEqual(2);
-    // Instance-wide fragmentation is the row-weighted ratio 5/3, not the mean of the per-bucket ratios (3 and 1).
-    expect(report.totals).toMatchObject({ operations: 5, rows: 3, fragmentation: 5 / 3 });
+    expect(report.totals).toMatchObject({ operations: 5, estimated: false });
 
     // Ranked worst-first by operation count: b1 (3) before b2 (2).
     expect(report.buckets.map((b) => b.bucket)).toEqual([b1, b2]);
@@ -207,6 +208,6 @@ bucket_definitions:
     expect(report.buckets.map((b) => b.bucket)).toEqual([b1]);
     // Totals still cover every bucket, not just the truncated list.
     expect(report.totals.bucketCount).toEqual(2);
-    expect(report.totals).toMatchObject({ operations: 3, rows: 2 });
+    expect(report.totals).toMatchObject({ operations: 3, estimated: false });
   });
 }

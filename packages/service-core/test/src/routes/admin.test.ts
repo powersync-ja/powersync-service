@@ -213,10 +213,24 @@ bucket_definitions:
   describe('bucket-report', () => {
     const report = {
       buckets: [
-        { bucket: '1#by_user["u1"]', operations: 4750, rows: 95, operationBytes: 1216000, fragmentation: 50 },
-        { bucket: '1#global[]', operations: 1000, rows: 1000, operationBytes: 3145728, fragmentation: 1 }
+        {
+          bucket: '1#by_user["u1"]',
+          operations: 4750,
+          rows: 95,
+          operationBytes: 1216000,
+          fragmentation: 50,
+          rowsEstimated: true
+        },
+        {
+          bucket: '1#global[]',
+          operations: 1000,
+          rows: 1000,
+          operationBytes: 3145728,
+          fragmentation: 1,
+          rowsEstimated: false
+        }
       ],
-      totals: { bucketCount: 2, operations: 5750, rows: 1095, operationBytes: 4361728, fragmentation: 5750 / 1095 },
+      totals: { bucketCount: 2, operations: 5750, operationBytes: 4361728, estimated: false },
       truncated: false
     };
 
@@ -242,14 +256,14 @@ bucket_definitions:
         operations: 4750,
         rows: 95,
         operation_bytes: 1216000,
-        fragmentation: 50
+        fragmentation: 50,
+        rows_estimated: true
       });
       expect(response.totals).toEqual({
         bucket_count: 2,
         operations: 5750,
-        rows: 1095,
         operation_bytes: 4361728,
-        fragmentation: 5750 / 1095
+        estimated: false
       });
       expect(response.truncated).toBe(false);
     });

@@ -1,94 +1,90 @@
-import { buildBucketReport, type BucketOperationStat } from '@/storage/bucket-report.js';
+import {
+  assembleBucketReport,
+  BucketReportTotals,
+  DEFAULT_BUCKET_REPORT_LIMIT,
+  RankedBucketInput,
+  resolveBucketReportLimit
+} from '@/storage/bucket-report.js';
 import { describe, expect, it } from 'vitest';
 
-describe('buildBucketReport', () => {
-  const ops = (operations: number, operationBytes = 0): BucketOperationStat => ({ operations, operationBytes });
+describe('assembleBucketReport', () => {
+  const bucket = (
+    name: string,
+    operations: number,
+    rows: number,
+    extra?: Partial<RankedBucketInput>
+  ): RankedBucketInput => ({
+    bucket: name,
+    operations,
+    rows,
+    operationBytes: extra?.operationBytes ?? 0,
+    rowsEstimated: extra?.rowsEstimated ?? false
+  });
 
-  it('merges operation stats and row counts per bucket and derives fragmentation', () => {
-    const report = buildBucketReport(
-      new Map([
-        ['global[]', ops(100, 1024)],
-        ['by_user["u1"]', ops(10, 256)]
-      ]),
-      new Map([
-        ['global[]', 10],
-        ['by_user["u1"]', 10]
-      ])
+  const totals = (bucketCount: number, extra?: Partial<BucketReportTotals>): BucketReportTotals => ({
+    bucketCount,
+    operations: extra?.operations ?? 0,
+    operationBytes: extra?.operationBytes ?? 0,
+    estimated: extra?.estimated ?? false
+  });
+
+  it('derives fragmentation and passes through rowsEstimated', () => {
+    const report = assembleBucketReport(
+      [bucket('global[]', 100, 10, { operationBytes: 1024 }), bucket('by_user["u1"]', 30, 30, { rowsEstimated: true })],
+      totals(2)
     );
 
-    const global = report.buckets.find((b) => b.bucket === 'global[]')!;
-    expect(global).toMatchObject({
+    expect(report.buckets.find((b) => b.bucket === 'global[]')).toMatchObject({
       operations: 100,
       rows: 10,
       operationBytes: 1024,
-      fragmentation: 10
+      fragmentation: 10,
+      rowsEstimated: false
     });
-
-    const byUser = report.buckets.find((b) => b.bucket === 'by_user["u1"]')!;
-    expect(byUser.fragmentation).toBe(1);
+    expect(report.buckets.find((b) => b.bucket === 'by_user["u1"]')).toMatchObject({
+      fragmentation: 1,
+      rowsEstimated: true
+    });
   });
 
-  it('ranks buckets worst-first by operations', () => {
-    const report = buildBucketReport(
-      new Map([
-        ['a[]', ops(5)],
-        ['b[]', ops(50)],
-        ['c[]', ops(20)]
-      ]),
-      new Map()
-    );
+  it('ranks buckets worst-first by operations then fragmentation', () => {
+    const report = assembleBucketReport([bucket('a[]', 5, 5), bucket('b[]', 50, 5), bucket('c[]', 50, 50)], totals(3));
 
+    // b and c both have 50 ops; b is more fragmented (10 vs 1) so it ranks first.
     expect(report.buckets.map((b) => b.bucket)).toEqual(['b[]', 'c[]', 'a[]']);
   });
 
-  it('treats a bucket with operations but no live rows as fully fragmented (rows floored at 1)', () => {
-    const report = buildBucketReport(new Map([['gone[]', ops(42)]]), new Map());
+  it('floors rows at 1 so a bucket with operations but no rows is fully fragmented', () => {
+    const report = assembleBucketReport([bucket('gone[]', 42, 0)], totals(1));
 
     expect(report.buckets[0]).toMatchObject({ operations: 42, rows: 0, fragmentation: 42 });
   });
 
-  it('includes buckets that have rows but no recorded operations', () => {
-    const report = buildBucketReport(new Map(), new Map([['fresh[]', 7]]));
+  it('marks truncated when there are more buckets than returned', () => {
+    const truncated = assembleBucketReport([bucket('a[]', 10, 1), bucket('b[]', 5, 1)], totals(5));
+    expect(truncated.truncated).toBe(true);
 
-    expect(report.buckets[0]).toMatchObject({ bucket: 'fresh[]', operations: 0, rows: 7, fragmentation: 0 });
+    const complete = assembleBucketReport([bucket('a[]', 10, 1), bucket('b[]', 5, 1)], totals(2));
+    expect(complete.truncated).toBe(false);
   });
 
-  it('computes instance-wide totals across all buckets', () => {
-    const report = buildBucketReport(
-      new Map([
-        ['a[]', ops(100, 10)],
-        ['b[]', ops(20, 5)]
-      ]),
-      new Map([
-        ['a[]', 4],
-        ['b[]', 2]
-      ])
-    );
+  it('carries the totals through unchanged', () => {
+    const t = totals(2, { operations: 120, operationBytes: 15, estimated: true });
+    const report = assembleBucketReport([bucket('a[]', 100, 4), bucket('b[]', 20, 2)], t);
 
-    // fragmentation is the row-weighted ratio 120/6 = 20, not the mean of the per-bucket ratios (25 and 10).
-    expect(report.totals).toEqual({ bucketCount: 2, operations: 120, rows: 6, operationBytes: 15, fragmentation: 20 });
+    expect(report.totals).toEqual({ bucketCount: 2, operations: 120, operationBytes: 15, estimated: true });
+  });
+});
+
+describe('resolveBucketReportLimit', () => {
+  it('defaults when no limit is given', () => {
+    expect(resolveBucketReportLimit(undefined)).toBe(DEFAULT_BUCKET_REPORT_LIMIT);
   });
 
-  it('truncates the bucket list by limit but keeps totals across all buckets', () => {
-    const report = buildBucketReport(
-      new Map([
-        ['a[]', ops(100)],
-        ['b[]', ops(50)],
-        ['c[]', ops(10)]
-      ]),
-      new Map(),
-      { limit: 2 }
-    );
-
-    expect(report.truncated).toBe(true);
-    expect(report.buckets.map((b) => b.bucket)).toEqual(['a[]', 'b[]']);
-    expect(report.totals).toMatchObject({ bucketCount: 3, operations: 160 });
-  });
-
-  it('is not truncated when the limit exceeds the bucket count', () => {
-    const report = buildBucketReport(new Map([['a[]', ops(1)]]), new Map(), { limit: 10 });
-
-    expect(report.truncated).toBe(false);
-    expect(report.buckets).toHaveLength(1);
+  it('floors and clamps to a positive integer', () => {
+    expect(resolveBucketReportLimit(2.7)).toBe(2);
+    expect(resolveBucketReportLimit(-5)).toBe(1);
+    expect(resolveBucketReportLimit(0)).toBe(1);
+    expect(resolveBucketReportLimit(20)).toBe(20);
   });
 });
