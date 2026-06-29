@@ -39,7 +39,7 @@ export interface ChecksumCacheOptions {
 // Approximately 5MB of memory, if we assume 50 bytes per entry
 const DEFAULT_MAX_SIZE = 100_000;
 
-const TTL_MS = 3_600_000;
+const TTL_MS = 8 * 3_600_000;
 
 /**
  * Implement a LRU cache for checksum requests. Each (bucket, checkpoint) request is cached separately,
