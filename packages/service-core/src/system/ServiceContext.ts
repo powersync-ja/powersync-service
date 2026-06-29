@@ -66,8 +66,8 @@ export class ServiceContextContainer implements ServiceContext {
 
     this.storageEngine = new storage.StorageEngine({
       configuration,
-      getReplicationHeadProvider: () => {
-        return this.routerEngine.getAPI();
+      getCreateReplicationHead: () => {
+        return (callback) => this.routerEngine.getAPI().createReplicationHead(callback);
       }
     });
     this.storageEngine.registerListener({

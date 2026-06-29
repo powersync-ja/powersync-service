@@ -125,8 +125,7 @@ export async function getClientCheckpoint(
   const start = Date.now();
 
   const api = new PostgresRouteAPIAdapter(db);
-  const lsn = await api.getReplicationHead();
-  await api.advanceReplicationHead(lsn);
+  const lsn = await api.createReplicationHead(async (head) => ({ response: head, shouldAdvance: true }));
 
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.

@@ -198,7 +198,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     return undefined;
   }
 
-  async getReplicationHead(): Promise<string> {
+  async createReplicationHead<T>(callback: api.ReplicationHeadCallback<T>): Promise<T> {
     const session = this.client.startSession();
     try {
       await this.db.command({ hello: 1 }, { session });
@@ -207,35 +207,32 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
         throw new ServiceAssertionError(`clusterTime not available for write checkpoint`);
       }
 
-      return new MongoLSN({ timestamp: head }).comparable;
-    } finally {
-      await session.endSession();
-    }
-  }
+      const { response, shouldAdvance } = await callback(new MongoLSN({ timestamp: head }).comparable);
 
-  async advanceReplicationHead(head: string): Promise<void> {
-    const session = this.client.startSession();
-    try {
-      // Trigger a change on the changestream.
-      await this.db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
-        {
-          _id: STANDALONE_CHECKPOINT_ID as any
-        },
-        {
-          $inc: { i: 1 }
-        },
-        {
-          upsert: true,
-          returnDocument: 'after',
-          session
+      if (shouldAdvance) {
+        // Trigger a change on the changestream.
+        await this.db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
+          {
+            _id: STANDALONE_CHECKPOINT_ID as any
+          },
+          {
+            $inc: { i: 1 }
+          },
+          {
+            upsert: true,
+            returnDocument: 'after',
+            session
+          }
+        );
+        const time = session.operationTime!;
+        if (time == null) {
+          throw new ServiceAssertionError(`operationTime not available for write checkpoint`);
+        } else if (time.lt(head)) {
+          throw new ServiceAssertionError(`operationTime must be > clusterTime`);
         }
-      );
-      const time = session.operationTime!;
-      if (time == null) {
-        throw new ServiceAssertionError(`operationTime not available for write checkpoint`);
-      } else if (time.lt(MongoLSN.fromSerialized(head).timestamp)) {
-        throw new ServiceAssertionError(`operationTime must be > clusterTime`);
       }
+
+      return response;
     } finally {
       await session.endSession();
     }

@@ -70,14 +70,21 @@ export interface RouteAPI {
 
   /**
    * Get the current LSN or equivalent replication HEAD position identifier.
+   *
+   * The position is provided to the callback so the caller can persist its
+   * write-checkpoint mapping before the source adapter forces any required
+   * source-side marker or keepalive. The callback returns whether storage
+   * actually advanced a managed write checkpoint: when `shouldAdvance` is true
+   * the adapter must ensure that the replication stream will observe this
+   * position or a greater one, even when the source is otherwise idle. When it
+   * is false (e.g. only stale client-supplied requests were processed), the
+   * adapter may skip the source marker.
+   *
+   * Reading the head and forcing the marker happen within a single source
+   * session/connection where applicable, so the marker is causally ordered
+   * after the head that was handed to the callback.
    */
-  getReplicationHead(): Promise<string>;
-
-  /**
-   * Force the replication stream to observe the provided replication head or a
-   * later position when the source would otherwise be idle.
-   */
-  advanceReplicationHead(head: string): Promise<void>;
+  createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T>;
 
   /**
    * @returns The connected source schema in service-friendly table and column
@@ -110,3 +117,16 @@ export interface RouteAPI {
    */
   getParseSyncRulesOptions(): ParseSyncConfigOptions;
 }
+
+export interface ReplicationHeadResult<T> {
+  response: T;
+  /**
+   * True when storage created or advanced a managed write checkpoint, so the
+   * source must force a later observable position. False when nothing changed
+   * (e.g. only stale client-supplied requests), in which case the source
+   * marker can be skipped.
+   */
+  shouldAdvance: boolean;
+}
+
+export type ReplicationHeadCallback<T> = (head: string) => Promise<ReplicationHeadResult<T>>;

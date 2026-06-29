@@ -72,10 +72,36 @@ export interface CreateManagedWriteCheckpointsResult {
    */
   writeCheckpoints: Map<string, bigint>;
   /**
-   * True when at least one row was created or advanced. Callers use this to
-   * advance the source marker once for the whole batch.
+   * True when the source marker must be forced so replication observes the
+   * stored head. Callers use this to advance the source marker once for the
+   * whole batch.
+   *
+   * This must be true whenever a checkpoint in the batch has not yet been
+   * processed by replication - both freshly created/advanced checkpoints and
+   * existing checkpoints matched by a stale or duplicate request that are still
+   * pending. Already-processed checkpoints do not need a new marker.
+   *
+   * The case this guards against is a lost source marker on a stale retry. The
+   * source marker is forced after the checkpoint is persisted, so the two are
+   * not atomic (storage and source are usually different databases). Without
+   * this flag, the following sequence strands the checkpoint:
+   *
+   *   1. A client-supplied checkpoint id is persisted (write checkpoint stored,
+   *      processed_at_lsn null).
+   *   2. Forcing the source marker fails, so the request errors and the client
+   *      retries with the same id.
+   *   3. The retry is a no-op for the stored id (monotonic, not greater), so if
+   *      we only advanced on "a row changed" we would skip the marker.
+   *   4. On an idle source nothing else moves replication past the stored head,
+   *      so the checkpoint never gets acknowledged and the client waits forever.
+   *
+   * Reporting true while the checkpoint is still pending makes the retry re-force
+   * the marker, which resolves the wait.
+   *
+   * Backends that do not track a per-row processed indicator may conservatively
+   * report true whenever any checkpoint was matched.
    */
-  updated: boolean;
+  shouldAdvance: boolean;
 }
 
 export function uniqueManagedWriteCheckpoints(
@@ -85,12 +111,18 @@ export function uniqueManagedWriteCheckpoints(
 
   for (const checkpoint of checkpoints) {
     const existing = byUser.get(checkpoint.user_id);
-    // A single HTTP batch can contain multiple requests for the same user.
-    // If any request supplies a checkpoint id, process only the greatest one so
-    // lower stale ids cannot hide the request that should advance storage.
-    // In normal routing we should never receive both generated and supplied
-    // requests for the same full user_id; this keeps the storage boundary
-    // deterministic if that invariant is violated.
+    // A batch can contain entries for many users, and different users may use
+    // different request types (generated vs client-supplied). For a single full
+    // user_id, though, all entries should be the same type - a batch can still
+    // hold multiple entries for that user (e.g. coalesced requests), so we
+    // collapse them to one. For client-supplied ids we keep the greatest
+    // requested value, so lower stale ids cannot hide the request that should
+    // advance storage. For generated ids the entries are equivalent, so any one
+    // is kept.
+    //
+    // Mixing generated and supplied entries for the same user_id is not expected;
+    // shouldReplaceManagedWriteCheckpoint still resolves it deterministically
+    // (supplied wins) if that invariant is ever violated.
     if (existing == null || shouldReplaceManagedWriteCheckpoint(existing, checkpoint)) {
       byUser.set(checkpoint.user_id, checkpoint);
     }

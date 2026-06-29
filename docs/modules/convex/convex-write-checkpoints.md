@@ -28,9 +28,10 @@ For Convex, the source position is the Convex replication cursor. The current
 managed write-checkpoint flow:
 
 1. calls `getHeadCursor()` to read the current global Convex head,
-2. stores the managed write checkpoint mapping with the original head cursor,
-3. calls `createWriteCheckpointMarker()` through `advanceReplicationHead()` only
-   if storage advanced a managed checkpoint.
+2. stores the managed write checkpoint mapping with the original head cursor (in
+   the `createReplicationHead()` callback),
+3. calls `createWriteCheckpointMarker()` only if the callback reports that storage
+   advanced a managed checkpoint (`shouldAdvance: true`).
 
 The marker write is intentionally not the write checkpoint position. It is a
 later Convex mutation whose job is to advance the Convex delta stream beyond the

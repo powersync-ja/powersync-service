@@ -21,13 +21,16 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
     this.connectionManager = new MSSQLConnectionManager(config, {});
   }
 
-  async getReplicationHead(): Promise<string> {
-    return (await getLatestLSN(this.connectionManager)).toString();
-  }
+  async createReplicationHead<T>(callback: api.ReplicationHeadCallback<T>): Promise<T> {
+    const currentLSN = (await getLatestLSN(this.connectionManager)).toString();
+    const { response, shouldAdvance } = await callback(currentLSN);
 
-  async advanceReplicationHead(_head: string): Promise<void> {
-    // Updates the powersync checkpoints table on the source database, ensuring that an update with a newer LSN will be captured by the CDC.
-    await createCheckpoint(this.connectionManager);
+    if (shouldAdvance) {
+      // Updates the powersync checkpoints table on the source database, ensuring that an update with a newer LSN will be captured by the CDC.
+      await createCheckpoint(this.connectionManager);
+    }
+
+    return response;
   }
 
   async executeQuery(query: string, params: any[]): Promise<service_types.internal_routes.ExecuteSqlResponse> {

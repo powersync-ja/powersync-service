@@ -37,10 +37,10 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
 
     const uniqueCheckpoints = storage.uniqueManagedWriteCheckpoints(checkpoints);
     if (uniqueCheckpoints.length == 0) {
-      return { writeCheckpoints: new Map(), updated: false };
+      return { writeCheckpoints: new Map(), shouldAdvance: false };
     }
 
-    let updated = false;
+    let shouldAdvance = false;
     const writeCheckpoints = new Map<string, bigint>();
     const generatedCheckpoints = uniqueCheckpoints.filter((checkpoint) => checkpoint.checkpoint_request_id == null);
     const suppliedCheckpoints = uniqueCheckpoints.filter((checkpoint) => checkpoint.checkpoint_request_id != null);
@@ -56,7 +56,7 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
           $set: {
             lsns,
             processed_at_lsn: null,
-            isCheckpointRequest: false
+            is_checkpoint_request: false
           },
           $inc: {
             client_id: 1n
@@ -65,7 +65,9 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         { upsert: true, returnDocument: 'after' }
       );
 
-      updated = true;
+      // Generated checkpoints always reset processed_at_lsn, so they are pending
+      // and the source marker must be forced.
+      shouldAdvance = true;
       writeCheckpoints.set(doc!.user_id, doc!.client_id);
     } else if (generatedCheckpoints.length > 1) {
       // For more than one generated checkpoint, this gives a constant 2 requests.
@@ -77,7 +79,7 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
               $set: {
                 lsns,
                 processed_at_lsn: null,
-                isCheckpointRequest: false
+                is_checkpoint_request: false
               },
               $inc: {
                 client_id: 1n
@@ -103,7 +105,7 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         )
         .toArray();
 
-      updated = true;
+      shouldAdvance = true;
       for (const doc of docs) {
         writeCheckpoints.set(doc.user_id, doc.client_id);
       }
@@ -111,17 +113,17 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
 
     if (suppliedCheckpoints.length > 0) {
       const suppliedResult = await this.createSuppliedManagedWriteCheckpoints(suppliedCheckpoints);
-      updated ||= suppliedResult.updated;
+      shouldAdvance ||= suppliedResult.shouldAdvance;
       for (const [userId, writeCheckpoint] of suppliedResult.writeCheckpoints) {
         writeCheckpoints.set(userId, writeCheckpoint);
       }
     }
 
-    return { writeCheckpoints, updated };
+    return { writeCheckpoints, shouldAdvance };
   }
 
   private async createSuppliedManagedWriteCheckpoints(checkpoints: storage.ManagedWriteCheckpointOptions[]) {
-    const updateResult = await this.db.write_checkpoints.bulkWrite(
+    await this.db.write_checkpoints.bulkWrite(
       checkpoints.map((checkpoint) => {
         const { user_id, heads: lsns } = checkpoint;
         const checkpointRequestId = checkpoint.checkpoint_request_id!;
@@ -153,8 +155,8 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
                   processed_at_lsn: {
                     $cond: [shouldApplyRequestId, null, '$processed_at_lsn']
                   },
-                  isCheckpointRequest: {
-                    $cond: [shouldApplyRequestId, true, '$isCheckpointRequest']
+                  is_checkpoint_request: {
+                    $cond: [shouldApplyRequestId, true, '$is_checkpoint_request']
                   }
                 }
               }
@@ -165,9 +167,13 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       })
     );
 
-    // The caller only needs a batch-level updated flag, so the aggregate bulk
-    // result is enough for marker advancement. Fetch the final ids separately
-    // so stale requests can still return the checkpoint currently stored.
+    // Fetch the final ids separately so stale requests can still return the
+    // checkpoint currently stored. We also read processed_at_lsn to decide
+    // whether the source marker must be forced: any checkpoint that has not yet
+    // been processed by replication (processed_at_lsn == null) still needs a
+    // marker, including stale/duplicate requests whose stored checkpoint is
+    // pending. This keeps retries correct when a previous attempt persisted the
+    // checkpoint but failed to force the marker.
     const userIds = checkpoints.map((checkpoint) => checkpoint.user_id);
     const docs = await this.db.write_checkpoints
       .find(
@@ -177,7 +183,8 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         {
           projection: {
             user_id: 1,
-            client_id: 1
+            client_id: 1,
+            processed_at_lsn: 1
           }
         }
       )
@@ -185,7 +192,7 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
 
     return {
       writeCheckpoints: new Map(docs.map((doc) => [doc.user_id, doc.client_id])),
-      updated: updateResult.upsertedCount > 0 || updateResult.modifiedCount > 0
+      shouldAdvance: docs.some((doc) => doc.processed_at_lsn == null)
     };
   }
 

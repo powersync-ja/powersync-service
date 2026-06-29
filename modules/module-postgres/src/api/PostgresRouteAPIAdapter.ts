@@ -245,12 +245,20 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
     return String(lsn);
   }
 
-  async advanceReplicationHead(_head: string): Promise<void> {
-    // Note: This may not reliably trigger a new replication message on Postgres 11 or 12,
-    // in which case there could be a delay in the client receiving the write checkpoint acknowledgement.
-    // Postgres 12 already reached EOL, and this is not a critical issue, so we're not fixing it.
-    // On postgres 13+, this works reliably.
-    await lib_postgres.retriedQuery(this.pool, KEEPALIVE_STATEMENT);
+  async createReplicationHead<T>(callback: api.ReplicationHeadCallback<T>): Promise<T> {
+    const currentLsn = await this.getReplicationHead();
+
+    const { response, shouldAdvance } = await callback(currentLsn);
+
+    if (shouldAdvance) {
+      // Note: This may not reliably trigger a new replication message on Postgres 11 or 12,
+      // in which case there could be a delay in the client receiving the write checkpoint acknowledgement.
+      // Postgres 12 already reached EOL, and this is not a critical issue, so we're not fixing it.
+      // On postgres 13+, this works reliably.
+      await lib_postgres.retriedQuery(this.pool, KEEPALIVE_STATEMENT);
+    }
+
+    return response;
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {

@@ -107,7 +107,7 @@ bucket_definitions:
       user_id: 'user1'
     });
     // We have to trigger a new keepalive after the checkpoint, at least to cover postgres storage.
-    // This is what is effectively triggered by RouteAPI.advanceReplicationHead().
+    // This is what is effectively triggered by RouteAPI.createReplicationHead().
     // MongoDB storage doesn't explicitly need this anymore.
     await writer.keepalive('6/0');
 
@@ -151,7 +151,7 @@ bucket_definitions:
       checkpoint_request_id: 42n
     });
     expect(first.writeCheckpoints.get('user1')).toEqual(42n);
-    expect(first.updated).toBe(true);
+    expect(first.shouldAdvance).toBe(true);
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '5/0' } })).resolves.toEqual(42n);
 
     const stale = await createManagedWriteCheckpointResult(bucketStorage, {
@@ -160,7 +160,10 @@ bucket_definitions:
       checkpoint_request_id: 41n
     });
     expect(stale.writeCheckpoints.get('user1')).toEqual(42n);
-    expect(stale.updated).toBe(false);
+    // The stored checkpoint is unchanged but has not been processed by replication
+    // yet, so the source marker must still be forced (e.g. for a retry after a
+    // previous attempt failed to advance the marker).
+    expect(stale.shouldAdvance).toBe(true);
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '6/0' } })).resolves.toEqual(42n);
 
     const retried = await createManagedWriteCheckpointResult(bucketStorage, {
@@ -169,7 +172,8 @@ bucket_definitions:
       checkpoint_request_id: 42n
     });
     expect(retried.writeCheckpoints.get('user1')).toEqual(42n);
-    expect(retried.updated).toBe(false);
+    // Same as above: the duplicate request still points at a pending checkpoint.
+    expect(retried.shouldAdvance).toBe(true);
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '6/0' } })).resolves.toEqual(42n);
 
     const advanced = await createManagedWriteCheckpointResult(bucketStorage, {
@@ -178,7 +182,7 @@ bucket_definitions:
       checkpoint_request_id: 43n
     });
     expect(advanced.writeCheckpoints.get('user1')).toEqual(43n);
-    expect(advanced.updated).toBe(true);
+    expect(advanced.shouldAdvance).toBe(true);
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '7/0' } })).resolves.toBeNull();
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '8/0' } })).resolves.toEqual(43n);
 
@@ -187,7 +191,7 @@ bucket_definitions:
       heads: { '1': '9/0' }
     });
     expect(generated.writeCheckpoints.get('user1')).toEqual(44n);
-    expect(generated.updated).toBe(true);
+    expect(generated.shouldAdvance).toBe(true);
   });
 
   test('custom write checkpoints - checkpoint after write', async (context) => {

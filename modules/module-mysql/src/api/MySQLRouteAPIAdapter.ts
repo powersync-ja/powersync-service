@@ -282,8 +282,11 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     return result.comparable;
   }
 
-  async advanceReplicationHead(_head: string): Promise<void> {
-    // TODO: make sure another message is replicated
+  async createReplicationHead<T>(callback: api.ReplicationHeadCallback<T>): Promise<T> {
+    const head = await this.getReplicationHead();
+    // TODO: make sure another message is replicated when shouldAdvance is true
+    const { response } = await callback(head);
+    return response;
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {

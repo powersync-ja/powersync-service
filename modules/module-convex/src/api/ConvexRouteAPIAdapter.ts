@@ -121,13 +121,15 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
     return undefined;
   }
 
-  async getReplicationHead(): Promise<string> {
+  async createReplicationHead<T>(callback: api.ReplicationHeadCallback<T>): Promise<T> {
     const head = await this.connectionManager.client.getHeadCursor();
-    return parseConvexLsn(head);
-  }
+    const { response, shouldAdvance } = await callback(parseConvexLsn(head));
 
-  async advanceReplicationHead(_head: string): Promise<void> {
-    await this.connectionManager.client.createWriteCheckpointMarker();
+    if (shouldAdvance) {
+      await this.connectionManager.client.createWriteCheckpointMarker();
+    }
+
+    return response;
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {

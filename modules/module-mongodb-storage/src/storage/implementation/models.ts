@@ -286,7 +286,14 @@ export interface WriteCheckpointDocument {
    * between two checkpoints.
    */
   processed_at_lsn: string | null;
-  isCheckpointRequest?: boolean;
+  /**
+   * True when this checkpoint was created from a client-supplied checkpoint request
+   * rather than a server-generated id.
+   *
+   * TODO: not yet read anywhere — intended to support clearing expired checkpoint
+   * requests in the future.
+   */
+  is_checkpoint_request?: boolean;
 }
 
 export interface InstanceDocument {

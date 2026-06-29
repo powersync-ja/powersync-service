@@ -626,7 +626,7 @@ bucket_definitions:
       ...TEST_CONNECTION_OPTIONS
     });
     const writeCheckpointBatcher = new WriteCheckpointBatcher(
-      () => api,
+      () => (callback) => api.createReplicationHead(callback),
       () => context.factory
     );
 

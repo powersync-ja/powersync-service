@@ -43,10 +43,9 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
 
     const uniqueCheckpoints = storage.uniqueManagedWriteCheckpoints(checkpoints);
     if (uniqueCheckpoints.length == 0) {
-      return { writeCheckpoints: new Map(), updated: false };
+      return { writeCheckpoints: new Map(), shouldAdvance: false };
     }
 
-    let updated = false;
     const writeCheckpoints = new Map<string, bigint>();
     const generatedCheckpoints = uniqueCheckpoints.filter((checkpoint) => checkpoint.checkpoint_request_id == null);
     const suppliedCheckpoints = uniqueCheckpoints.filter((checkpoint) => checkpoint.checkpoint_request_id != null);
@@ -85,7 +84,6 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         .decoded(models.WriteCheckpoint)
         .rows();
 
-      updated ||= generatedRows.length > 0;
       for (const row of generatedRows) {
         writeCheckpoints.set(row.user_id, row.write_checkpoint);
       }
@@ -134,7 +132,6 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         .decoded(models.WriteCheckpoint)
         .rows();
 
-      updated ||= suppliedRows.length > 0;
       for (const row of suppliedRows) {
         writeCheckpoints.set(row.user_id, row.write_checkpoint);
       }
@@ -170,7 +167,15 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       }
     }
 
-    return { writeCheckpoints, updated };
+    // Postgres storage does not track a per-row processed indicator: a write
+    // checkpoint is considered processed at read time by comparing its lsns
+    // against the replicated head (see lastManagedWriteCheckpoint). We therefore
+    // force the source marker whenever any checkpoint was matched, which also
+    // covers stale or duplicate requests whose stored checkpoint may still be
+    // pending. Forcing a marker for an already-processed checkpoint is wasteful
+    // but harmless.
+    const shouldAdvance = generatedCheckpoints.length > 0 || suppliedCheckpoints.length > 0;
+    return { writeCheckpoints, shouldAdvance };
   }
 
   async lastWriteCheckpoint(filters: storage.LastWriteCheckpointFilters): Promise<bigint | null> {

@@ -7,7 +7,10 @@ import { routeDefinition } from '../router.js';
 
 const CheckpointRequestPayload = t.object({
   client_id: t.string,
-  checkpoint_request_id: codecs.bigint // bigint here might be overkill, but we use it for other checkpoint inputs
+  // bigint, matching the managed write checkpoint id. Clients should send values
+  // larger than Number.MAX_SAFE_INTEGER as strings, since JSON numbers are only
+  // validated up to the safe-integer range.
+  checkpoint_request_id: codecs.bigint
 });
 
 const WriteCheckpointRequest = t.object({
@@ -29,8 +32,7 @@ export const writeCheckpoint = routeDefinition({
     // Since we don't use LSNs anymore, the only way to get that is to wait.
     const start = Date.now();
 
-    const head = await apiHandler.getReplicationHead();
-    await apiHandler.advanceReplicationHead(head);
+    const head = await apiHandler.createReplicationHead(async (head) => ({ response: head, shouldAdvance: true }));
 
     const timeout = 50_000;
 
@@ -97,7 +99,7 @@ export const checkpointRequest = routeDefinition({
     });
 
     logger.info(
-      `Requested checkpoint for ${token_payload!.userIdString}/${params.client_id}: ${writeCheckpoint} | ${replicationHead}`
+      `Requested checkpoint for ${token_payload!.userIdString}/${decodedParams.client_id}: ${writeCheckpoint} | ${replicationHead}`
     );
 
     // Return the checkpoint value storage is actually at after this request.

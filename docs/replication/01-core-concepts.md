@@ -131,7 +131,7 @@ A write checkpoint lets a client wait until its own backend write has been obser
 
 In managed mode, PowerSync stores a mapping from user/client id plus source replication head to an internal write checkpoint id. When a later storage checkpoint reaches or passes that source head, the sync stream can include the write checkpoint id for that client.
 
-Source modules implement `RouteAPI.getReplicationHead()` to obtain a current source head and `RouteAPI.advanceReplicationHead()` to force a later observable source event when storage actually advances a managed write checkpoint.
+Source modules implement `RouteAPI.createReplicationHead()` to obtain a current source head, let storage persist its write-checkpoint mapping via the callback, and then force a later observable source event when storage actually advances a managed write checkpoint (`shouldAdvance: true`).
 
 ## Replication Lock
 
