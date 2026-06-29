@@ -496,7 +496,7 @@ describe('checksum cache', function () {
     expect(await cache.getChecksums(123n, [{ bucket: 'test', source: DUMMY_SOURCE }])).toEqual([TEST_123]);
     expect(await cache.getChecksums(123n, [{ bucket: 'test', source: DUMMY_SOURCE }])).toEqual([TEST_123]);
 
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await new Promise((resolve) => setTimeout(resolve, 1001)); // Needs to be >1s
 
     expect(await cache.getChecksums(123n, [{ bucket: 'test', source: DUMMY_SOURCE }])).toEqual([TEST_123]);
     expect(lookups.map(removeLookupSources)).toEqual([
