@@ -461,6 +461,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
     const session = this.session;
     let activated = false;
+    let needsFutureActivationCheck = true;
     await session.withTransaction(async () => {
       const doc = await this.db.sync_rules.findOne(
         {
@@ -541,12 +542,16 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         );
         activated = true;
       } else if (doc.state != storage.SyncRuleState.PROCESSING && doc.state != storage.SyncRuleState.ACTIVE) {
-        this.needsActivationV3 = false;
+        needsFutureActivationCheck = false;
+      } else if (doc.state == storage.SyncRuleState.ACTIVE && processingStates.length == 0) {
+        needsFutureActivationCheck = false;
       }
     });
     if (activated) {
       this.logger.info(`Activated new replication stream at ${lsn}`);
       await this.db.notifyCheckpoint();
+      this.needsActivationV3 = false;
+    } else if (!needsFutureActivationCheck) {
       this.needsActivationV3 = false;
     }
   }
