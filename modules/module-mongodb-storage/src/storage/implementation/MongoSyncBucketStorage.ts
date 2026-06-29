@@ -79,6 +79,9 @@ const BUCKET_SELECTION_SAMPLE_SIZE = 10_000;
  */
 const BUCKET_ROW_SAMPLE_TARGET = 1_000;
 
+/** Maximum number of per-bucket row-estimate queries to run concurrently while building a report. */
+const BUCKET_ROW_SAMPLE_CONCURRENCY = 10;
+
 /** A worst-offender bucket selected from bucket_state, with the version-specific context needed to sample it. */
 export interface TopBucketCandidate {
   bucket: string;
@@ -407,17 +410,29 @@ export abstract class MongoSyncBucketStorage
       // Rank the worst-offender buckets and total operations from the pre-aggregated bucket state (bounded,
       // in the database), then estimate each returned bucket's row count by sampling its operation history.
       const { buckets, totals } = await this.collectTopBuckets(limit);
-      const ranked: storage.RankedBucketInput[] = [];
-      for (const candidate of buckets) {
-        const estimate = await this.estimateBucketRows(candidate);
-        ranked.push({
-          bucket: candidate.bucket,
-          operations: candidate.operations,
-          operationBytes: candidate.operationBytes,
-          rows: estimate.rows,
-          rowsEstimated: estimate.estimated
-        });
-      }
+      // Each bucket's row estimate is an independent query; run a bounded number concurrently so the report
+      // cost scales with the limit without firing one query per bucket serially.
+      const ranked: storage.RankedBucketInput[] = new Array(buckets.length);
+      let cursor = 0;
+      const runWorker = async () => {
+        while (true) {
+          const index = cursor++;
+          if (index >= buckets.length) {
+            return;
+          }
+          const candidate = buckets[index];
+          const estimate = await this.estimateBucketRows(candidate);
+          ranked[index] = {
+            bucket: candidate.bucket,
+            operations: candidate.operations,
+            operationBytes: candidate.operationBytes,
+            rows: estimate.rows,
+            rowsEstimated: estimate.estimated
+          };
+        }
+      };
+      const workers = Math.min(BUCKET_ROW_SAMPLE_CONCURRENCY, buckets.length);
+      await Promise.all(Array.from({ length: workers }, () => runWorker()));
       return storage.assembleBucketReport(ranked, totals);
     } catch (e) {
       // Translate a storage query timeout (maxTimeMS) into a specific, retryable error code rather than a
@@ -540,9 +555,9 @@ export abstract class MongoSyncBucketStorage
    * Estimate a bucket's live rows from a sample of its operations.
    *
    * `pipelinePrefix` must select the bucket's operations (and, when `sampled`, randomly down-sample them) and
-   * yield documents with top-level `op`, `table` and `row_id` fields. Fragmentation is then
-   * `sampledOps / distinctRows` and the row count is `operations / fragmentation`. Exact (not sampled) when
-   * the whole bucket fits within the sample target.
+   * yield documents with top-level `op`, `table` and `row_id` fields. Returns the distinct row count (exact
+   * when the whole bucket was read, otherwise estimated via {@link estimateDistinctRows}); fragmentation is
+   * then `operations / rows`.
    */
   protected async estimateRowsFromOperationSample(
     collection: mongo.Collection<any>,
@@ -575,8 +590,43 @@ export abstract class MongoSyncBucketStorage
       // Nothing row-bearing was sampled (e.g. a bucket of only MOVE/CLEAR ops): treat as fully fragmented.
       return { rows: 0, estimated: sampled };
     }
-    // fragmentation = sampledOps / distinctRows; rows = operations / fragmentation = operations * distinctRows / sampledOps.
-    return { rows: Math.round((operations * distinctRows) / sampledOps), estimated: sampled };
+    if (!sampled) {
+      // Read in full: the distinct row count is exact.
+      return { rows: distinctRows, estimated: false };
+    }
+    return { rows: this.estimateDistinctRows(operations, sampledOps, distinctRows), estimated: true };
+  }
+
+  /**
+   * Estimate the true distinct row count of a bucket from a sample of its operations.
+   *
+   * Each operation is included in the sample with probability `r = sampledOps / operations`, so a row with
+   * `k` operations is seen with probability `1 - (1 - r)^k`. Assuming operations are spread roughly evenly
+   * across rows (so each of `R` rows has about `operations / R` of them), the expected number of distinct
+   * rows in the sample is `R * (1 - (1 - r)^(operations / R))`. This is monotonic in `R`, so we binary-search
+   * for the `R` that matches the observed distinct count.
+   *
+   * The naive `distinctRows / r` over-counts rows (and so under-states fragmentation) whenever the sample
+   * already covered most rows - exactly the highly-fragmented buckets the report exists to surface.
+   */
+  protected estimateDistinctRows(operations: number, sampledOps: number, distinctRows: number): number {
+    const r = Math.min(1, sampledOps / operations);
+    if (r >= 1) {
+      return distinctRows;
+    }
+    const expectedDistinct = (rows: number) => rows * (1 - Math.pow(1 - r, operations / rows));
+    // True distinct count is between the observed distinct (a lower bound) and one row per operation.
+    let lo = distinctRows;
+    let hi = operations;
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      if (expectedDistinct(mid) < distinctRows) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    return Math.round((lo + hi) / 2);
   }
 
   /** Whether a bucket with this many operations should be sampled rather than read in full. */
