@@ -1,3 +1,4 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import {
   addPartialChecksums,
   bson,
@@ -46,11 +47,19 @@ export interface MongoChecksumOptions {
   storageConfig: StorageConfig;
 }
 
+interface MongoChecksumReadContext {
+  readAfterTime: mongo.Timestamp;
+}
+
+export interface MongoChecksumSessionContext {
+  session: mongo.ClientSession;
+}
+
 const DEFAULT_BUCKET_BATCH_LIMIT = 200;
 export const DEFAULT_OPERATION_BATCH_LIMIT = 50_000;
 
 export abstract class MongoChecksums {
-  private _cache: ChecksumCache | undefined;
+  private _cache: ChecksumCache<MongoChecksumReadContext | undefined> | undefined;
   protected readonly storageConfig: StorageConfig;
 
   constructor(
@@ -66,10 +75,10 @@ export abstract class MongoChecksums {
    *
    * This means the cache only allocates memory once it is used for the first time.
    */
-  private get cache(): ChecksumCache {
-    this._cache ??= new ChecksumCache({
-      fetchChecksums: (batch) => {
-        return this.computePartialChecksums(batch);
+  private get cache(): ChecksumCache<MongoChecksumReadContext | undefined> {
+    this._cache ??= new ChecksumCache<MongoChecksumReadContext | undefined>({
+      fetchChecksums: (batch, context) => {
+        return this.computePartialChecksums(batch, context);
       }
     });
     return this._cache;
@@ -79,8 +88,16 @@ export abstract class MongoChecksums {
    * Calculate checksums, utilizing the cache for partial checkums, and querying the remainder from
    * the database (bucket_state + bucket_data).
    */
-  async getChecksums(checkpoint: InternalOpId, buckets: BucketChecksumRequest[]): Promise<ChecksumMap> {
-    return this.cache.getChecksumMap(checkpoint, buckets);
+  async getChecksums(
+    checkpoint: InternalOpId,
+    buckets: BucketChecksumRequest[],
+    options?: { readAfterTime?: mongo.Timestamp }
+  ): Promise<ChecksumMap> {
+    return this.cache.getChecksumMap(
+      checkpoint,
+      buckets,
+      options?.readAfterTime == null ? undefined : { readAfterTime: options.readAfterTime }
+    );
   }
 
   clearCache() {
@@ -96,11 +113,29 @@ export abstract class MongoChecksums {
    * As long as data is compacted regularly, this should be fast. Large buckets without pre-compacted bucket_state
    * can be slow.
    */
-  private async computePartialChecksums(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+  private async computePartialChecksums(
+    batch: FetchPartialBucketChecksum[],
+    context: MongoChecksumReadContext | undefined
+  ): Promise<PartialChecksumMap> {
     if (batch.length == 0) {
       return new Map();
     }
-    const preStates = await this.fetchPreStates(batch);
+
+    if (context != null) {
+      return this.db.client.withSession({ causalConsistency: true }, async (session) => {
+        session.advanceOperationTime(context.readAfterTime);
+        return this.computePartialChecksumsWithSession(batch, { session });
+      });
+    }
+
+    return this.computePartialChecksumsWithSession(batch);
+  }
+
+  private async computePartialChecksumsWithSession(
+    batch: FetchPartialBucketChecksum[],
+    context?: MongoChecksumSessionContext
+  ): Promise<PartialChecksumMap> {
+    const preStates = await this.fetchPreStates(batch, context);
 
     const mappedRequests = batch.map((request) => {
       let start = request.start;
@@ -116,7 +151,7 @@ export abstract class MongoChecksums {
       };
     });
 
-    const queriedChecksums = await this.computePartialChecksumsDirect(mappedRequests);
+    const queriedChecksums = await this.computePartialChecksumsDirect(mappedRequests, context);
 
     return new Map<string, PartialOrFullChecksum>(
       batch.map((request) => {
@@ -142,19 +177,22 @@ export abstract class MongoChecksums {
    * For large buckets, this can be slow, but should not time out as the underlying queries are performed in
    * smaller batches.
    */
-  public async computePartialChecksumsDirect(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+  public async computePartialChecksumsDirect(
+    batch: FetchPartialBucketChecksum[],
+    context?: MongoChecksumSessionContext
+  ): Promise<PartialChecksumMap> {
     // Limit the number of buckets we query for at a time.
     const bucketBatchLimit = this.options?.bucketBatchLimit ?? DEFAULT_BUCKET_BATCH_LIMIT;
 
     if (batch.length <= bucketBatchLimit) {
       // Single batch - no need for splitting the batch and merging results
-      return await this.computePartialChecksumsInternal(batch);
+      return await this.computePartialChecksumsInternal(batch, context);
     }
     // Split the batch and merge results
     let results = new Map<string, PartialOrFullChecksum>();
     for (let i = 0; i < batch.length; i += bucketBatchLimit) {
       const bucketBatch = batch.slice(i, i + bucketBatchLimit);
-      const batchResults = await this.computePartialChecksumsInternal(bucketBatch);
+      const batchResults = await this.computePartialChecksumsInternal(bucketBatch, context);
       for (let r of batchResults.values()) {
         results.set(r.bucket, r);
       }
@@ -169,11 +207,31 @@ export abstract class MongoChecksums {
    *
    * `batch` must be limited to DEFAULT_BUCKET_BATCH_LIMIT buckets before calling this.
    */
-  protected abstract computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap>;
+  protected abstract computePartialChecksumsInternal(
+    batch: FetchPartialBucketChecksum[],
+    context?: MongoChecksumSessionContext
+  ): Promise<PartialChecksumMap>;
 
   protected abstract fetchPreStates(
-    batch: FetchPartialBucketChecksum[]
+    batch: FetchPartialBucketChecksum[],
+    context?: MongoChecksumSessionContext
   ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>>;
+
+  protected checksumReadOptions(context?: MongoChecksumSessionContext): {
+    session?: mongo.ClientSession;
+    readPreference?: mongo.ReadPreference;
+    readConcern?: mongo.ReadConcernLike;
+  } {
+    if (context == null) {
+      return {};
+    }
+
+    return {
+      session: context.session,
+      readPreference: mongo.ReadPreference.secondaryPreferred,
+      readConcern: 'majority'
+    };
+  }
 }
 
 export function emptyChecksumForRequest(

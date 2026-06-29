@@ -5,7 +5,7 @@ import { BucketChecksum } from '../util/protocol-types.js';
 import { addBucketChecksums, ChecksumMap, InternalOpId, PartialChecksum } from '../util/utils.js';
 import { BucketChecksumRequest } from './SyncRulesBucketStorage.js';
 
-interface ChecksumFetchContext {
+interface ChecksumFetchContext<TContext> {
   fetch(bucket: string): Promise<BucketChecksum>;
   checkpoint: InternalOpId;
 }
@@ -20,15 +20,18 @@ export interface FetchPartialBucketChecksum {
 export type PartialOrFullChecksum = PartialChecksum | BucketChecksum;
 export type PartialChecksumMap = Map<string, PartialOrFullChecksum>;
 
-export type FetchChecksums = (batch: FetchPartialBucketChecksum[]) => Promise<PartialChecksumMap>;
+export type FetchChecksums<TContext = undefined> = (
+  batch: FetchPartialBucketChecksum[],
+  context: TContext
+) => Promise<PartialChecksumMap>;
 
-export interface ChecksumCacheOptions {
+export interface ChecksumCacheOptions<TContext = undefined> {
   /**
    * Upstream checksum implementation.
    *
    * This fetches a batch of either entire bucket checksums, or a partial range.
    */
-  fetchChecksums: FetchChecksums;
+  fetchChecksums: FetchChecksums<TContext>;
 
   /**
    * Maximum number of cached checksums.
@@ -50,22 +53,22 @@ const TTL_MS = 3_600_000;
  *
  * We use the LRUCache fetchMethod to deduplicate in-progress requests.
  */
-export class ChecksumCache {
+export class ChecksumCache<TContext = undefined> {
   /**
    * The primary checksum cache, with key of `${checkpoint}/${bucket}`.
    */
-  private cache: LRUCache<string, BucketChecksum, ChecksumFetchContext>;
+  private cache: LRUCache<string, BucketChecksum, ChecksumFetchContext<TContext>>;
   /**
    * For each bucket, an ordered set of cached checkpoints.
    */
   private bucketCheckpoints = new Map<string, OrderedSet<bigint>>();
 
-  private fetchChecksums: FetchChecksums;
+  private fetchChecksums: FetchChecksums<TContext>;
 
-  constructor(options: ChecksumCacheOptions) {
+  constructor(options: ChecksumCacheOptions<TContext>) {
     this.fetchChecksums = options.fetchChecksums;
 
-    this.cache = new LRUCache<string, BucketChecksum, ChecksumFetchContext>({
+    this.cache = new LRUCache<string, BucketChecksum, ChecksumFetchContext<TContext>>({
       max: options.maxSize ?? DEFAULT_MAX_SIZE,
       fetchMethod: async (cacheKey, _staleValue, options) => {
         // Called when this checksum hasn't been cached yet.
@@ -129,7 +132,11 @@ export class ChecksumCache {
    *
    * @returns a Map with exactly one entry for each bucket requested
    */
-  async getChecksumMap(checkpoint: InternalOpId, buckets: BucketChecksumRequest[]): Promise<ChecksumMap> {
+  async getChecksumMap(
+    checkpoint: InternalOpId,
+    buckets: BucketChecksumRequest[],
+    fetchContext?: TContext
+  ): Promise<ChecksumMap> {
     // Buckets that don't have a cached checksum for this checkpoint yet
     let toFetch = new Set<string>();
 
@@ -147,7 +154,7 @@ export class ChecksumCache {
     // Accumulated results - both from cached checksums, and fetched checksums
     let finalResults = new Map<string, BucketChecksum>();
 
-    const context: ChecksumFetchContext = {
+    const context: ChecksumFetchContext<TContext> = {
       async fetch(bucket) {
         await fetchPromise;
         if (!toFetch.has(bucket)) {
@@ -260,7 +267,7 @@ export class ChecksumCache {
         }
 
         // Fetch partial checksums from upstream
-        const results = await this.fetchChecksums(bucketRequests);
+        const results = await this.fetchChecksums(bucketRequests, fetchContext as TContext);
 
         for (let bucket of toFetch) {
           const result = results.get(bucket);

@@ -13,7 +13,8 @@ import {
   checksumFromAggregate,
   DEFAULT_OPERATION_BATCH_LIMIT,
   FetchPartialBucketChecksumByBucket,
-  MongoChecksums
+  MongoChecksums,
+  MongoChecksumSessionContext
 } from '../MongoChecksums.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
@@ -21,7 +22,8 @@ export class MongoChecksumsV1 extends MongoChecksums {
   declare protected readonly db: VersionedPowerSyncMongoV1;
 
   async computePartialChecksumsDirectByBucket(
-    batch: FetchPartialBucketChecksumByBucket[]
+    batch: FetchPartialBucketChecksumByBucket[],
+    context?: MongoChecksumSessionContext
   ): Promise<PartialChecksumMap> {
     const collection = this.db.bucketDataV1;
     const createFilter = (request: FetchPartialBucketChecksumByBucket) => ({
@@ -95,8 +97,7 @@ export class MongoChecksumsV1 extends MongoChecksums {
             { $sort: { _id: 1 } }
           ],
           {
-            session: undefined,
-            readConcern: 'snapshot',
+            ...this.checksumReadOptions(context),
             maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS
           }
         )
@@ -164,7 +165,8 @@ export class MongoChecksumsV1 extends MongoChecksums {
   }
 
   protected async fetchPreStates(
-    batch: FetchPartialBucketChecksum[]
+    batch: FetchPartialBucketChecksum[],
+    context?: MongoChecksumSessionContext
   ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>> {
     const preFilters = batch
       .filter((request) => request.start == null)
@@ -182,9 +184,14 @@ export class MongoChecksumsV1 extends MongoChecksums {
     }
 
     const states = await this.db.bucketStateV1
-      .find({
-        $or: preFilters
-      })
+      .find(
+        {
+          $or: preFilters
+        },
+        {
+          ...this.checksumReadOptions(context)
+        }
+      )
       .toArray();
 
     for (const state of states) {
@@ -202,7 +209,10 @@ export class MongoChecksumsV1 extends MongoChecksums {
     return preStates;
   }
 
-  protected async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
-    return this.computePartialChecksumsDirectByBucket(batch);
+  protected async computePartialChecksumsInternal(
+    batch: FetchPartialBucketChecksum[],
+    context?: MongoChecksumSessionContext
+  ): Promise<PartialChecksumMap> {
+    return this.computePartialChecksumsDirectByBucket(batch, context);
   }
 }

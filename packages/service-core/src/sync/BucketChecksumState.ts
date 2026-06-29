@@ -178,7 +178,7 @@ export class BucketChecksumState {
       }
 
       if (checksumLookups.length > 0) {
-        let updatedChecksums = await storage.getChecksums(base.checkpoint, checksumLookups);
+        let updatedChecksums = await storage.getChecksums(base, checksumLookups);
         for (let [bucket, value] of updatedChecksums.entries()) {
           newChecksums.set(bucket, value);
         }
@@ -187,7 +187,7 @@ export class BucketChecksumState {
     } else {
       // Re-check all buckets
       const bucketList = [...bucketDescriptionMap.values()].map((b) => ({ bucket: b.bucket, source: b.source }));
-      checksumMap = await storage.getChecksums(base.checkpoint, bucketList);
+      checksumMap = await storage.getChecksums(base, bucketList);
     }
 
     // Subset of buckets for which there may be new data in this batch.

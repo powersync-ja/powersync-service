@@ -482,10 +482,13 @@ export class PostgresSyncRulesStorage
   }
 
   async getChecksums(
-    checkpoint: utils.InternalOpId,
+    checkpoint: storage.ChecksumCheckpoint,
     buckets: storage.BucketChecksumRequest[]
   ): Promise<utils.ChecksumMap> {
-    return this.checksumCache.getChecksumMap(checkpoint, buckets);
+    return this.checksumCache.getChecksumMap(
+      typeof checkpoint == 'bigint' ? checkpoint : checkpoint.checkpoint,
+      buckets
+    );
   }
 
   clearChecksumCache() {
