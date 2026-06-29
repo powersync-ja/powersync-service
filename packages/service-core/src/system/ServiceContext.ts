@@ -59,8 +59,16 @@ export class ServiceContextContainer implements ServiceContext {
 
     this.lifeCycleEngine = new LifeCycledSystem();
 
+    this.routerEngine = new routes.RouterEngine();
+    this.lifeCycleEngine.withLifecycle(this.routerEngine, {
+      stop: (routerEngine) => routerEngine.shutDown()
+    });
+
     this.storageEngine = new storage.StorageEngine({
-      configuration
+      configuration,
+      getCreateReplicationHead: () => {
+        return (callback) => this.routerEngine.getAPI().createReplicationHead(callback);
+      }
     });
     this.storageEngine.registerListener({
       storageFatalError: (error) => {
@@ -77,11 +85,6 @@ export class ServiceContextContainer implements ServiceContext {
     this.lifeCycleEngine.withLifecycle(this.storageEngine, {
       start: (storageEngine) => storageEngine.start(),
       stop: (storageEngine) => storageEngine.shutDown()
-    });
-
-    this.routerEngine = new routes.RouterEngine();
-    this.lifeCycleEngine.withLifecycle(this.routerEngine, {
-      stop: (routerEngine) => routerEngine.shutDown()
     });
 
     this.syncContext = new SyncContext({

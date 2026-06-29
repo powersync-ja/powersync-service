@@ -26,30 +26,77 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     this._mode = mode;
   }
 
-  async createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
+  async createManagedWriteCheckpoints(
+    checkpoints: storage.ManagedWriteCheckpointOptions[]
+  ): Promise<Map<string, bigint>> {
     if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
       throw new framework.ServiceAssertionError(
         `Attempting to create a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
       );
     }
 
-    const { user_id, heads: lsns } = checkpoint;
-    const doc = await this.db.write_checkpoints.findOneAndUpdate(
-      {
-        user_id: user_id
-      },
-      {
-        $set: {
-          lsns,
-          processed_at_lsn: null
+    const uniqueCheckpoints = [...new Map(checkpoints.map((checkpoint) => [checkpoint.user_id, checkpoint])).values()];
+    if (uniqueCheckpoints.length == 0) {
+      return new Map();
+    }
+
+    if (uniqueCheckpoints.length == 1) {
+      // For the common case of a single checkpoint, we can do this in a single request.
+      const { user_id, heads: lsns } = uniqueCheckpoints[0];
+      const doc = await this.db.write_checkpoints.findOneAndUpdate(
+        {
+          user_id
         },
-        $inc: {
-          client_id: 1n
+        {
+          $set: {
+            lsns,
+            processed_at_lsn: null
+          },
+          $inc: {
+            client_id: 1n
+          }
+        },
+        { upsert: true, returnDocument: 'after' }
+      );
+
+      return new Map([[doc!.user_id, doc!.client_id]]);
+    }
+
+    // For more than one checkpoint, this gives a constant 2 requests
+    await this.db.write_checkpoints.bulkWrite(
+      uniqueCheckpoints.map(({ user_id, heads: lsns }) => ({
+        updateOne: {
+          filter: { user_id },
+          update: {
+            $set: {
+              lsns,
+              processed_at_lsn: null
+            },
+            $inc: {
+              client_id: 1n
+            }
+          },
+          upsert: true
         }
-      },
-      { upsert: true, returnDocument: 'after' }
+      }))
     );
-    return doc!.client_id;
+
+    const userIds = uniqueCheckpoints.map((checkpoint) => checkpoint.user_id);
+    const docs = await this.db.write_checkpoints
+      .find(
+        {
+          user_id: { $in: userIds }
+        },
+        {
+          projection: {
+            user_id: 1,
+            client_id: 1
+          }
+        }
+      )
+      .toArray();
+
+    return new Map(docs.map((doc) => [doc.user_id, doc.client_id]));
   }
 
   async lastWriteCheckpoint(filters: storage.LastWriteCheckpointFilters): Promise<bigint | null> {

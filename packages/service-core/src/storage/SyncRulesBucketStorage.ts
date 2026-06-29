@@ -20,6 +20,11 @@ import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
 /**
  * Storage for a specific replication stream.
+ *
+ * Replication writes source changes, source table metadata, snapshot progress,
+ * resume positions, and checkpoint boundaries through this interface. The sync
+ * API reads the same stream state as checkpoints, checksums, bucket data,
+ * parameter lookup rows, and write-checkpoint acknowledgements.
  */
 export interface SyncRulesBucketStorage
   extends ObserverClient<SyncRulesBucketStorageListener>,
@@ -32,13 +37,18 @@ export interface SyncRulesBucketStorage
   readonly logger: Logger;
 
   /**
-   * Create a new writer.
+   * Create a writer for a source-specific unit of replication work.
    *
-   * The writer must be flushed and disposed when done.
+   * The writer may be used for a long-running streaming attempt, a table
+   * snapshot, a page of snapshot work, or a short setup step. Pending work
+   * that should be persisted must be flushed, committed, or kept alive at the
+   * appropriate source boundary before the writer is disposed.
    */
   createWriter(options: CreateWriterOptions): Promise<BucketStorageBatch>;
 
   /**
+   * Callback wrapper around `createWriter()`.
+   *
    * @deprecated Use `createWriter()` with `await using` instead.
    */
   startBatch(
@@ -104,7 +114,7 @@ export interface SyncRulesBucketStorage
    *
    * This is a best-effort optimization:
    * 1. This may include more changes than what actually occurred.
-   * 2. This may return invalidateDataBuckets or invalidateParameterBuckets instead of of returning
+   * 2. This may return invalidateDataBuckets or invalidateParameterBuckets instead of returning
    *    specific changes.
    * @param options
    */
@@ -194,6 +204,9 @@ export interface ReplicationStreamStatus {
 }
 export interface ResolveTablesOptions {
   connection_id: number;
+  /**
+   * Source table or collection metadata discovered during snapshot or streaming.
+   */
   source: SourceEntityDescriptor;
   /**
    * For tests only - custom id generator for stable ids.
@@ -206,11 +219,23 @@ export interface ResolveTablesOptions {
 }
 
 export interface ResolveTablesResult {
+  /**
+   * Current source table mappings that should receive replicated data.
+   */
   tables: SourceTable[];
+  /**
+   * Outdated source table mappings that should be removed by the connector.
+   */
   dropTables: SourceTable[];
 }
 
+/**
+ * Options for creating a storage writer.
+ */
 export interface CreateWriterOptions extends ParseSyncConfigOptions {
+  /**
+   * Source-specific zero or empty replication position.
+   */
   zeroLSN: string;
   /**
    * Whether or not to store a copy of the current data.

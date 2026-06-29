@@ -72,6 +72,11 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     this.logger = logger.child({ name: `Replicator:${options.id}` });
   }
 
+  /**
+   * Create the source-specific replication job for a locked storage stream.
+   *
+   * The job owns the per-stream snapshot and streaming work for this attempt.
+   */
   abstract createJob(options: CreateJobOptions): T;
 
   /**
@@ -374,6 +379,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     syncRuleStorage.logger.info(`Successfully terminated replication stream`);
   }
 
+  /**
+   * Check source connectivity using the replicator's decoded connection config.
+   */
   abstract testConnection(): Promise<ConnectionTestResult>;
 
   /**

@@ -687,7 +687,7 @@ bucket_definitions:
           receivedCompletions++;
           if (receivedCompletions == 1) {
             // Trigger an empty bucket update.
-            await bucketStorage.createManagedWriteCheckpoint({ user_id: '', heads: { '1': '1/0' } });
+            await bucketStorage.createManagedWriteCheckpoints([{ user_id: '', heads: { '1': '1/0' } }]);
             await writer.commit('1/0');
           } else {
             break;
@@ -1252,10 +1252,14 @@ bucket_definitions:
     // <= the managed write checkpoint LSN below
     await writer.commit('0/1');
 
-    const checkpoint = await bucketStorage.createManagedWriteCheckpoint({
-      user_id: 'test',
-      heads: { '1': '1/0' }
-    });
+    const checkpoint = (
+      await bucketStorage.createManagedWriteCheckpoints([
+        {
+          user_id: 'test',
+          heads: { '1': '1/0' }
+        }
+      ])
+    ).get('test')!;
 
     const params: sync.SyncStreamParameters = {
       syncContext,
