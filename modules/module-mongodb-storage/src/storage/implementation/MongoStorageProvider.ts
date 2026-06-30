@@ -42,9 +42,9 @@ export class MongoStorageProvider implements storage.StorageProvider {
       decodedConfig.bulk_read_preference == null
         ? undefined
         : new lib_mongo.mongo.ReadPreference(decodedConfig.bulk_read_preference, undefined, {
-            // maxStalenessSeconds is relevant for all modes except 'primary', and doesn't hurt for 'primary' either.
+            // maxStalenessSeconds is relevant for all modes except 'primary'.
             // 90 is the minimum value.
-            maxStalenessSeconds: 90
+            maxStalenessSeconds: decodedConfig.bulk_read_preference == 'primary' ? undefined : 90
           });
     const syncStorageFactory = new MongoBucketStorage(database, {
       replicationStreamNamePrefix: resolvedConfig.slot_name_prefix,
