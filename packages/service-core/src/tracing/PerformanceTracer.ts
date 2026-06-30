@@ -14,11 +14,6 @@ export interface Span extends Disposable {
   endAt: number;
 
   /**
-   * True if the span has ended (.end() called or disposed).
-   */
-  ended: boolean;
-
-  /**
    * Time spent not in nested spans, in microseconds.
    */
   selfDuration: number;
@@ -150,10 +145,6 @@ export class PerformanceTracer<K extends string> {
 
       get durationMillis() {
         return Math.ceil((this.endAt - this.startAt) / 1000);
-      },
-
-      get ended() {
-        return this.endAt != 0;
       },
 
       [Symbol.dispose]() {
