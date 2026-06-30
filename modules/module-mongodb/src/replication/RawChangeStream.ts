@@ -6,6 +6,8 @@ import {
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
 import { PerformanceTracer } from '@powersync/service-core';
+import { performance } from 'node:perf_hooks';
+import { setTimeout as delay } from 'node:timers/promises';
 import { ChangeStreamInvalidatedError } from './ChangeStream.js';
 
 export interface RawChangeStreamOptions {
@@ -14,9 +16,22 @@ export interface RawChangeStreamOptions {
   /**
    * How long to wait for new data per batch (max time for long-polling).
    *
-   * This is used for maxTimeMS for the getMore command.
+   * By default, this is sent as maxTimeMS for the getMore command. When
+   * clientSideMaxAwaitTimeMS is enabled, it is enforced locally for empty
+   * batches instead.
    */
   maxAwaitTimeMS: number;
+
+  /**
+   * Emulate maxAwaitTimeMS on the client instead of sending it as getMore
+   * maxTimeMS.
+   *
+   * Azure DocumentDB currently returns idle getMore calls before maxTimeMS, and
+   * can also apply that value as a hard execution timeout while preparing a
+   * large non-empty batch. When this is enabled, getMore is allowed to complete
+   * server-side and empty batches are delayed locally to avoid tight polling.
+   */
+  clientSideMaxAwaitTimeMS?: boolean;
 
   /**
    * Timeout for the initial aggregate command.
@@ -212,31 +227,34 @@ async function* rawChangeStreamInner(
       options.signal?.throwIfAborted();
 
       using commandSpan = options.tracer?.span('changestream', 'getmore');
-      const getMoreResult: mongo.Document = await db
-        .command(
-          {
-            getMore: cursorId,
-            collection: nsCollection,
-            batchSize: batchSizer.next(),
-            maxTimeMS: options.maxAwaitTimeMS
-          },
-          { session, raw: true }
-        )
-        .catch((e) => {
-          if (isMongoServerError(e) && e.codeName == 'CursorKilled') {
-            // This may be due to the killCursors command issued when aborting.
-            // In that case, use the abort error instead.
-            options.signal?.throwIfAborted();
-          }
+      const getMoreStartedAt = performance.now();
+      const getMoreCommand: mongo.Document = {
+        getMore: cursorId,
+        collection: nsCollection,
+        batchSize: batchSizer.next()
+      };
+      // Azure DocumentDB currently treats getMore maxTimeMS as a hard command
+      // timeout instead of just the idle maxAwaitTimeMS, which can fail slow
+      // batches with "Query exceeded command timeout of 200ms". In client-side
+      // mode, don't supply it and enforce the idle wait locally for empty batches below.
+      if (!options.clientSideMaxAwaitTimeMS) {
+        getMoreCommand.maxTimeMS = options.maxAwaitTimeMS;
+      }
+      const getMoreResult: mongo.Document = await db.command(getMoreCommand, { session, raw: true }).catch((e) => {
+        if (isMongoServerError(e) && e.codeName == 'CursorKilled') {
+          // This may be due to the killCursors command issued when aborting.
+          // In that case, use the abort error instead.
+          options.signal?.throwIfAborted();
+        }
 
-          if (isResumableChangeStreamError(e)) {
-            if (isTimeoutError(e)) {
-              batchSizer.reduceAfterError();
-            }
-            throw new ResumableChangeStreamError(e.message, { cause: e });
+        if (isResumableChangeStreamError(e)) {
+          if (isTimeoutError(e)) {
+            batchSizer.reduceAfterError();
           }
-          throw mapChangeStreamError(e);
-        });
+          throw new ResumableChangeStreamError(e.message, { cause: e });
+        }
+        throw mapChangeStreamError(e);
+      });
 
       commandSpan?.end();
 
@@ -248,6 +266,12 @@ async function* rawChangeStreamInner(
         // Deviation from spec: We require that the server always returns a postBatchResumeToken.
         // postBatchResumeToken is returned in MongoDB 4.0.7 and later, and we support 6.0+
         throw new ReplicationAssertionError(`postBatchResumeToken from aggregate response`);
+      }
+      if (options.clientSideMaxAwaitTimeMS && nextBatch.length == 0) {
+        const remainingMaxAwaitTimeMS = Math.ceil(options.maxAwaitTimeMS - (performance.now() - getMoreStartedAt));
+        if (remainingMaxAwaitTimeMS > 0) {
+          await delay(remainingMaxAwaitTimeMS, undefined, { signal: options.signal });
+        }
       }
       yield {
         events: nextBatch,

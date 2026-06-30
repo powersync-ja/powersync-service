@@ -573,9 +573,12 @@ export class ChangeStream {
       watchDb = this.defaultDb;
     }
 
+    const maxAwaitTimeMS = options.maxAwaitTimeMS ?? this.maxAwaitTimeMS;
+
     return rawChangeStream(watchDb, pipeline, {
       batchSize: options.batchSize ?? this.snapshotChunkLength,
-      maxAwaitTimeMS: options.maxAwaitTimeMS ?? this.maxAwaitTimeMS,
+      maxAwaitTimeMS,
+      clientSideMaxAwaitTimeMS: this.isDocumentDb && maxAwaitTimeMS > 0,
       maxTimeMS: this.changeStreamTimeout,
 
       signal: options.signal,

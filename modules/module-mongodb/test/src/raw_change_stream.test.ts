@@ -101,6 +101,53 @@ describe('internal mongodb utils', () => {
     }
   );
 
+  test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)(
+    'omits getMore maxTimeMS when client-side maxAwaitTimeMS is enabled',
+    async () => {
+      const { db, client } = await connectMongoData({ monitorCommands: true });
+      await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+      await clearTestDb(db);
+      const collection = db.collection('test_data');
+
+      const started: any[] = [];
+      client.on('commandStarted', (event) => {
+        if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
+          started.push(event);
+        }
+      });
+
+      const stream = rawChangeStream(
+        db,
+        [
+          {
+            $changeStream: {
+              fullDocument: 'updateLookup'
+            }
+          }
+        ],
+        {
+          batchSize: 10,
+          maxAwaitTimeMS: 50,
+          clientSideMaxAwaitTimeMS: true,
+          maxTimeMS: 1_000
+        }
+      );
+
+      await stream.next();
+      await collection.insertOne({ test: 1 });
+      const nextBatch = await readUntilNonEmptyBatch(stream);
+      await stream.return?.();
+
+      expect(nextBatch.events).toHaveLength(1);
+
+      const aggregate = started.find((event) => event.commandName == 'aggregate');
+      const getMore = started.find((event) => event.commandName == 'getMore');
+
+      expect(aggregate?.command.maxTimeMS).toEqual(1_000);
+      expect(getMore?.command.maxTimeMS).toBeUndefined();
+    }
+  );
+
   test('should resume on MaxTimeMSExpired from getMore', async (ctx) => {
     const { db, client } = await connectMongoData({ monitorCommands: true });
     await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
