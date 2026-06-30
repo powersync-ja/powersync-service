@@ -34,7 +34,9 @@ export interface MongoBucketStorageOptions {
    * Prefix for replication stream name and Postgres logical replication slot name.
    */
   replicationStreamNamePrefix: string;
+  readPreference?: mongo.ReadPreference;
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+  checksumCacheTtlMs?: number;
   /**
    * Reuse a compatible active replication stream by appending a new sync config.
    *
@@ -91,6 +93,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       undefined,
       {
         checksumOptions: this.options.checksumOptions,
+        readPreference: this.options.readPreference,
+        checksumCacheTtlMs: this.options.checksumCacheTtlMs,
         storageConfig
       }
     );
@@ -458,9 +462,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       },
       [...existingConfigDocs, syncConfigDoc]
     );
-    if (updateOptions.lock) {
-      await stream.lock(session);
-    }
+    // The stream already exists, so an active replication job may already hold the stream lock.
+    // Deployment only persists the appended sync config; replication job locking is handled by
+    // the replicator.
     return stream;
   }
 

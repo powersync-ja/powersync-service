@@ -192,7 +192,11 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     const options: storage.BucketDataBatchOptions = {};
     const batch1 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRulesContent, 'global[]', 0n)], options)
+      bucketStorage.getBucketDataBatch(
+        test_utils.testCheckpoint(checkpoint),
+        [bucketRequest(syncRulesContent, 'global[]', 0n)],
+        options
+      )
     );
     expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
@@ -206,7 +210,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     const batch2 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
-        checkpoint,
+        test_utils.testCheckpoint(checkpoint),
         [bucketRequest(syncRulesContent, 'global[]', batch1[0].chunkData.next_after)],
         options
       )
@@ -222,7 +226,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     const batch3 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
-        checkpoint,
+        test_utils.testCheckpoint(checkpoint),
         [bucketRequest(syncRulesContent, 'global[]', batch2[0].chunkData.next_after)],
         options
       )
@@ -1348,6 +1352,44 @@ streams:
     await syncRules.current_lock?.release();
   });
 
+  test.runIf(storageVersion >= 3)('does not lock when appending a sync config to an existing stream', async () => {
+    await using factory = await storageConfig.factory();
+
+    const firstRules = `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`;
+    const secondRules = `
+config:
+  edition: 3
+
+streams:
+  by_project:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+`;
+
+    const first = await factory.updateSyncRules(updateSyncRulesFromYaml(firstRules, { storageVersion, lock: true }));
+    expect(first.current_lock?.sync_rules_id).toBe(first.replicationStreamId);
+    try {
+      const firstStorage = factory.getInstance(first);
+      await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+      await firstWriter.markAllSnapshotDone('1/1');
+      await firstWriter.commit('1/1');
+
+      const second = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(secondRules, { storageVersion, lock: true })
+      );
+      expect(second.replicationStreamId).toBe(first.replicationStreamId);
+      expect(second.current_lock).toBeNull();
+    } finally {
+      await first.current_lock?.release();
+    }
+  });
+
   test.runIf(storageVersion < 3)('uses a single current_data collection for v1 source records', async () => {
     await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(
@@ -1705,7 +1747,9 @@ describe('sync - mongodb', () => {
         async function getFilteredOps(start: number, checkpoint: number): Promise<bigint[]> {
           const { syncRules, bucketStorage } = await setupFilteringTest();
           const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', BigInt(start));
-          const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(BigInt(checkpoint), [request]));
+          const batch = await test_utils.fromAsync(
+            bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(BigInt(checkpoint)), [request])
+          );
           const ops = batch.flatMap((b) => b.chunkData.data.map((d) => BigInt(d.op_id)));
           return ops;
         }
@@ -1850,7 +1894,9 @@ describe('sync - mongodb', () => {
             const roundRequests = requests
               .filter((request) => pending.has(request.bucket))
               .map((request) => ({ ...request, start: positions.get(request.bucket)! }));
-            const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(end, roundRequests));
+            const batch = await test_utils.fromAsync(
+              bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(end), roundRequests)
+            );
             let anyHasMore = false;
             for (const { chunkData } of batch) {
               positions.set(chunkData.bucket, BigInt(chunkData.next_after));

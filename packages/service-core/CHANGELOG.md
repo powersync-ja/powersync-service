@@ -1,5 +1,11 @@
 # @powersync/service-core
 
+## 1.23.1
+
+### Patch Changes
+
+- 7e65360: Restructure replication locks for updated sync config.
+
 ## 1.23.0
 
 ### Minor Changes

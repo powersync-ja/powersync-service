@@ -69,7 +69,8 @@ export class MongoPersistedSyncConfigContentV1 extends MongoPersistedSyncConfigC
       replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
       storageVersion: doc.storage_version ?? storage.LEGACY_STORAGE_VERSION,
       mapping: new SingleSyncConfigBucketDefinitionMapping(),
-      syncConfigId: null
+      syncConfigId: null,
+      syncConfigState: doc.state
     });
   }
 
@@ -98,7 +99,8 @@ export class MongoPersistedSyncConfigContentV3 extends MongoPersistedSyncConfigC
       replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
       storageVersion: doc.storage_version,
       mapping: SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(config.rule_mapping),
-      syncConfigId: config._id
+      syncConfigId: config._id,
+      syncConfigState: state.state
     });
   }
 

@@ -1,7 +1,7 @@
 import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test, vi } from 'vitest';
 
-import { createWriteCheckpoint } from '@powersync/service-core';
+import { createWriteCheckpoint, WriteCheckpointBatcher } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
@@ -857,6 +857,11 @@ bucket_definitions:
     // Insert data so the stream has something to process
     await collection.insertOne({ description: 'write_cp_test' });
 
+    const writeCheckpointBatcher = new WriteCheckpointBatcher(
+      () => api,
+      () => context.factory
+    );
+
     // Exercise the write checkpoint flow. On DocumentDB, createReplicationHead
     // advances the sentinel counter with a standalone (null stream_id) bump and
     // uses the resulting sentinel-based LSN as the source-side head. The sentinel
@@ -864,8 +869,7 @@ bucket_definitions:
     const result = await createWriteCheckpoint({
       userId: 'test_user',
       clientId: 'test_client',
-      api,
-      storage: context.factory
+      batcher: writeCheckpointBatcher
     });
 
     // The write checkpoint should resolve with a valid result

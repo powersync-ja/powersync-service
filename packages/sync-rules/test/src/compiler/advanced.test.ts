@@ -271,10 +271,10 @@ streams:
           AND 'Scene' IN connection.parameter('synced_objects')
     queries:
       - |
-        SELECT "Scene"._id as id,
+        SELECT "Scene".*,
+        "Scene"._id as id,
         unixepoch("Scene"."createdOn") as "createdOnSortable",
-        IFNULL("Scene".archived, 0) as "archived",
-        "Scene".*
+        IFNULL("Scene".archived, 0) as "archived"
         FROM "Scene", available_projects
         WHERE "Scene".project IN available_projects.project
 `);

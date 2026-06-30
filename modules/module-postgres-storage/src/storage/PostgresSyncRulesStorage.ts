@@ -44,6 +44,7 @@ export type PostgresSyncRulesStorageOptions = {
   replicationStream: storage.PersistedReplicationStream;
   write_checkpoint_mode?: storage.WriteCheckpointMode;
   batchLimits: RequiredOperationBatchLimits;
+  checksumCacheTtlMs?: number;
 };
 
 export class PostgresSyncRulesStorage
@@ -101,6 +102,7 @@ export class PostgresSyncRulesStorage
    */
   private get checksumCache(): storage.ChecksumCache {
     this._checksumCache ??= new storage.ChecksumCache({
+      ttlMs: this.options.checksumCacheTtlMs,
       fetchChecksums: (batch) => {
         return this.getChecksumsInternal(batch);
       }
@@ -167,8 +169,8 @@ export class PostgresSyncRulesStorage
     return this.writeCheckpointAPI.setWriteCheckpointMode(mode);
   }
 
-  createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
-    return this.writeCheckpointAPI.createManagedWriteCheckpoint(checkpoint);
+  createManagedWriteCheckpoints(checkpoints: storage.ManagedWriteCheckpointOptions[]): Promise<Map<string, bigint>> {
+    return this.writeCheckpointAPI.createManagedWriteCheckpoints(checkpoints);
   }
 
   async getCheckpoint(): Promise<storage.ReplicationCheckpoint> {
@@ -309,7 +311,7 @@ export class PostgresSyncRulesStorage
   }
 
   async *getBucketDataBatch(
-    checkpoint: InternalOpId,
+    checkpoint: storage.ReplicationCheckpoint,
     dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
@@ -324,7 +326,7 @@ export class PostgresSyncRulesStorage
     // Each batch query batch are streamed in separate sets of rows, which may or may
     // not match up with chunks.
 
-    const end = checkpoint ?? BIGINT_MAX;
+    const end = checkpoint.checkpoint ?? BIGINT_MAX;
     const filters = dataBuckets.map((request) => ({ bucket_name: request.bucket, start: request.start }));
     const startOpByBucket = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
 
@@ -482,10 +484,11 @@ export class PostgresSyncRulesStorage
   }
 
   async getChecksums(
-    checkpoint: utils.InternalOpId,
-    buckets: storage.BucketChecksumRequest[]
+    checkpoint: storage.ReplicationCheckpoint,
+    buckets: storage.BucketChecksumRequest[],
+    _options?: storage.BucketChecksumOptions
   ): Promise<utils.ChecksumMap> {
-    return this.checksumCache.getChecksumMap(checkpoint, buckets);
+    return this.checksumCache.getChecksumMap(checkpoint.checkpoint, buckets);
   }
 
   clearChecksumCache() {

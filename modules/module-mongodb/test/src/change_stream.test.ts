@@ -3,7 +3,7 @@ import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test, vi } from 'vitest';
 
 import { mongo } from '@powersync/lib-service-mongodb';
-import { createWriteCheckpoint, storage } from '@powersync/service-core';
+import { createWriteCheckpoint, storage, WriteCheckpointBatcher } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
@@ -644,6 +644,10 @@ bucket_definitions:
       type: 'mongodb',
       ...TEST_CONNECTION_OPTIONS
     });
+    const writeCheckpointBatcher = new WriteCheckpointBatcher(
+      () => api,
+      () => context.factory
+    );
 
     context.startStreaming();
 
@@ -660,8 +664,7 @@ bucket_definitions:
         createWriteCheckpoint({
           userId: 'test_user',
           clientId: 'test_client' + i,
-          api,
-          storage: context.factory
+          batcher: writeCheckpointBatcher
         })
       )
     );

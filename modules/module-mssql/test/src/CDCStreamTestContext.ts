@@ -226,7 +226,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const { checkpoint } = await this.storage!.getCheckpoint();
+    const checkpoint = await this.storage!.getCheckpoint();
     const syncConfigContent = this.getSyncConfigContent();
     const map = [bucketRequest(syncConfigContent, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);

@@ -255,12 +255,12 @@ export class ChangeStreamTestContext {
     }
 
     const checkpoint = await this.storage.getCheckpoint();
-    return this.getBucketDataAtCheckpoint(bucket, checkpoint.checkpoint, start);
+    return this.getBucketDataAtCheckpoint(bucket, checkpoint, start);
   }
 
   async getBucketDataAtCheckpoint(
     bucket: string,
-    checkpoint: InternalOpId,
+    checkpoint: ReplicationCheckpoint,
     start?: ProtocolOpId | InternalOpId | undefined
   ) {
     start ??= 0n;
@@ -307,7 +307,7 @@ export async function getClientCheckpoint(
   db: mongo.Db,
   storageFactory: BucketStorageFactory,
   options?: { timeout?: number; documentDbMode?: boolean; storage?: SyncRulesBucketStorage }
-): Promise<InternalOpId> {
+): Promise<ReplicationCheckpoint> {
   const start = Date.now();
   const documentDbMode = options?.documentDbMode ?? (await detectDocumentDb(db));
 
@@ -333,7 +333,7 @@ export async function getClientCheckpoint(
     if (cp != null) {
       lastCp = cp;
       if (cp.lsn && cp.lsn >= lsn) {
-        return cp.checkpoint;
+        return cp;
       }
     }
 

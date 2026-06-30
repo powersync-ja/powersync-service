@@ -1,5 +1,5 @@
 import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js';
-import { checkpointUserId, createWriteCheckpoint } from '@powersync/service-core';
+import { checkpointUserId, createWriteCheckpoint, WriteCheckpointBatcher } from '@powersync/service-core';
 import { describe, test } from 'vitest';
 import { describeWithStorage, StorageVersionTestContext } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
@@ -22,6 +22,10 @@ const checkpointTests = ({ factory, storageVersion }: StorageVersionTestContext)
     await context.updateSyncRules(BASIC_SYNC_RULES);
     const { pool } = context;
     const api = new PostgresRouteAPIAdapter(pool);
+    const writeCheckpointBatcher = new WriteCheckpointBatcher(
+      () => api,
+      () => context.factory
+    );
     const serverVersion = await context.connectionManager.getServerVersion();
     if (serverVersion!.compareMain('14.0.0') < 0) {
       // The test is not stable on Postgres 11 or 12. See the notes on
@@ -65,8 +69,7 @@ const checkpointTests = ({ factory, storageVersion }: StorageVersionTestContext)
         const cp = await createWriteCheckpoint({
           userId: 'test_user',
           clientId: 'test_client',
-          api,
-          storage: context.factory
+          batcher: writeCheckpointBatcher
         });
 
         const start = Date.now();

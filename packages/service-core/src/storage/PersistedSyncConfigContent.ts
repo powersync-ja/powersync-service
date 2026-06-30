@@ -17,6 +17,7 @@ import {
 } from '@powersync/service-sync-rules';
 import * as sqlite from 'node:sqlite';
 import { Logger } from 'winston';
+import { SyncRuleState } from './BucketStorage.js';
 import { SerializedSyncPlan, UpdateSyncRulesOptions } from './BucketStorageFactory.js';
 import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { PersistedSyncConfigStatus } from './PersistedSyncConfigStatus.js';
@@ -91,6 +92,7 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
   readonly storageVersion: number;
   readonly logger: Logger;
   readonly syncConfigId: PersistedSyncConfigId | null;
+  readonly syncConfigState: SyncRuleState;
 
   constructor(data: PersistedSyncConfigContentData) {
     this.replicationStreamId = data.replicationStreamId;
@@ -99,6 +101,7 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
     this.replicationStreamName = data.replicationStreamName;
     this.storageVersion = data.storageVersion;
     this.syncConfigId = data.syncConfigId ?? null;
+    this.syncConfigState = data.syncConfigState;
     this.logger = defaultLogger.child({ prefix: `[${this.replicationStreamName}] ` });
   }
 
@@ -181,6 +184,7 @@ export interface PersistedSyncConfigContentData {
   readonly storageVersion: number;
 
   readonly syncConfigId?: PersistedSyncConfigId | null;
+  readonly syncConfigState: SyncRuleState;
 }
 export type PersistedSyncConfigId = string;
 export interface ParseSyncConfigOptions {

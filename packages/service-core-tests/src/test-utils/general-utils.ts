@@ -14,6 +14,16 @@ export const BATCH_OPTIONS: storage.CreateWriterOptions = {
   storeCurrentData: true
 };
 
+export function testCheckpoint(checkpoint: InternalOpId, lsn: string | null = null): storage.ReplicationCheckpoint {
+  return {
+    checkpoint,
+    lsn,
+    async getParameterSets() {
+      return [];
+    }
+  };
+}
+
 /**
  * Deploy a sync config and return both the replication stream (for {@link storage.BucketStorageFactory.getInstance})
  * and the deployed config content (for parsing / bucket requests).

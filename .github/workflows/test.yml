@@ -60,7 +60,6 @@ jobs:
       - name: Test Build Docker Image
         uses: docker/build-push-action@v5
         with:
-          cache-from: type=registry,ref=stevenontong/${{vars.DOCKER_REGISTRY}}:cache
           context: .
           platforms: linux/amd64
           push: false
