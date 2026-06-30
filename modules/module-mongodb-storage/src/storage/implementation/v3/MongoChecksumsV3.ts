@@ -15,7 +15,8 @@ import {
   FetchPartialBucketChecksumByBucket,
   FetchPartialBucketChecksumByDefinition,
   MongoChecksumOptions,
-  MongoChecksums
+  MongoChecksums,
+  MongoChecksumSessionContext
 } from '../MongoChecksums.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { BucketDataDocumentV3 } from './models.js';
@@ -66,7 +67,8 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computeChecksumsByDefinition(
         requests,
-        this.db.bucketData(this.group_id, definitionId)
+        this.db.bucketData(this.group_id, definitionId),
+        { readOptions: { readConcern: 'snapshot' } }
       );
       for (const checksum of groupResults.values()) {
         results.set(checksum.bucket, checksum);
@@ -79,7 +81,8 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
   }
 
   protected async fetchPreStates(
-    batch: FetchPartialBucketChecksum[]
+    batch: FetchPartialBucketChecksum[],
+    context: MongoChecksumSessionContext
   ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>> {
     const normalizedBatch = batch.map((request) => ({
       bucket: request.bucket,
@@ -105,9 +108,14 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
 
     const states = await this.db
       .bucketState(this.group_id)
-      .find({
-        $or: preFilters
-      })
+      .find(
+        {
+          $or: preFilters
+        },
+        {
+          ...context.readOptions
+        }
+      )
       .toArray();
 
     for (const state of states) {
@@ -125,7 +133,10 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
     return preStates;
   }
 
-  protected async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+  protected async computePartialChecksumsInternal(
+    batch: FetchPartialBucketChecksum[],
+    context: MongoChecksumSessionContext
+  ): Promise<PartialChecksumMap> {
     const normalized = batch.map((request) => ({
       bucket: request.bucket,
       definitionId: this.syncConfigMapping().bucketSourceId(request.source),
@@ -145,7 +156,8 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computeChecksumsByDefinition(
         requests,
-        this.db.bucketData(this.group_id, definitionId)
+        this.db.bucketData(this.group_id, definitionId),
+        context
       );
       for (const checksum of groupResults.values()) {
         results.set(checksum.bucket, checksum);
@@ -159,7 +171,8 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
 
   private async computeChecksumsByDefinition(
     batch: FetchPartialBucketChecksumByBucket[],
-    collection: lib_mongo.mongo.Collection<BucketDataDocumentV3>
+    collection: lib_mongo.mongo.Collection<BucketDataDocumentV3>,
+    context: MongoChecksumSessionContext
   ): Promise<PartialChecksumMap> {
     const requests = new Map<string, FetchPartialBucketChecksumByBucket>();
     for (let request of batch) {
@@ -169,8 +182,7 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
     const pipeline = this.buildPartialChecksumPipeline(requests);
     const aggregate = await collection
       .aggregate(pipeline, {
-        session: undefined,
-        readConcern: 'snapshot',
+        ...context.readOptions,
         maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS
       })
       .toArray()

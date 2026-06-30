@@ -148,7 +148,7 @@ export class BinlogStreamTestContext {
     });
   }
 
-  async getCheckpoint(options?: { timeout?: number }): Promise<InternalOpId> {
+  async getCheckpoint(options?: { timeout?: number }): Promise<ReplicationCheckpoint> {
     const connection = await this.connectionManager.getConnection();
     let checkpoint = await Promise.race([
       getClientCheckpoint(connection, this.factory, { timeout: options?.timeout ?? 60_000 }),
@@ -192,7 +192,7 @@ export async function getClientCheckpoint(
   connection: mysqlPromise.Connection,
   storageFactory: BucketStorageFactory,
   options?: { timeout?: number }
-): Promise<InternalOpId> {
+): Promise<ReplicationCheckpoint> {
   const start = Date.now();
   const gtid = await readExecutedGtid(connection);
   // This old API needs a persisted checkpoint id.
@@ -210,7 +210,7 @@ export async function getClientCheckpoint(
     }
     lastCp = cp;
     if (cp.lsn && cp.lsn >= gtid.comparable) {
-      return cp.checkpoint;
+      return cp;
     }
 
     await new Promise((resolve) => setTimeout(resolve, 30));
