@@ -238,7 +238,8 @@ async function* streamResponseInner(
           // Passing null here will emit a full sync complete message at the end. If we pass a priority, we'll emit a partial
           // sync complete message instead.
           forPriority: !isLast ? priority : null,
-          logger
+          logger,
+          tracker
         });
       }
 
@@ -274,6 +275,7 @@ interface BucketDataRequest {
   forPriority: BucketPriority | null;
   onRowsSent: (stats: OperationsSentStats) => void;
   logger: Logger;
+  tracker: RequestTracker;
 }
 
 async function* bucketDataInBatches(request: BucketDataRequest) {
@@ -423,7 +425,8 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
           logger.info(`partial_checkpoint_complete: ${checkpoint.checkpoint}`, {
             checkpoint: checkpoint.checkpoint,
             priority: request.forPriority,
-            user_id: request.userIdForLogs
+            user_id: request.userIdForLogs,
+            ...request.tracker.getIncrementalCheckpointStats()
           });
         } else {
           const line: util.StreamingSyncCheckpointComplete = {
@@ -434,7 +437,8 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
           yield { data: line, done: true };
           logger.info(`checkpoint_complete: ${checkpoint.checkpoint}`, {
             checkpoint: checkpoint.checkpoint,
-            user_id: request.userIdForLogs
+            user_id: request.userIdForLogs,
+            ...request.tracker.getIncrementalCheckpointStats()
           });
         }
       }
