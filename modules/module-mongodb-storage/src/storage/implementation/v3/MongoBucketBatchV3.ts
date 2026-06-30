@@ -449,6 +449,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     let activated = false;
     let needsFutureActivationCheck = true;
     await session.withTransaction(async () => {
+      // Reset on transaction retries.
+      needsFutureActivationCheck = true;
+      activated = false;
+
       const doc = await this.db.sync_rules.findOne(
         {
           _id: this.replicationStreamId,
