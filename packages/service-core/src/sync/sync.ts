@@ -264,9 +264,16 @@ async function* streamResponseInner(
           // sync complete message instead.
           forPriority: !isLast ? priority : null,
           logger,
-          tracker,
           tracer
         });
+        if (checkpointResult == 'partial_complete') {
+          logger.info(`partial_checkpoint_complete: ${next.value.value.checkpoint.checkpoint}`, {
+            checkpoint: next.value.value.checkpoint.checkpoint,
+            priority,
+            user_id: tokenPayload.userIdJson,
+            ...tracker.getIncrementalCheckpointStats()
+          });
+        }
         if (checkpointResult == 'complete' || isInvalidatedCheckpointResult(checkpointResult)) {
           break;
         }
@@ -321,7 +328,6 @@ interface BucketDataRequest {
   forPriority: BucketPriority | null;
   onRowsSent: (stats: OperationsSentStats) => void;
   logger: Logger;
-  tracker: RequestTracker;
   tracer: PerformanceTracer<SyncCheckpointTraceCategory>;
 }
 
@@ -488,12 +494,6 @@ async function* bucketDataBatch(
             }
           };
           yield { data: line, done: true };
-          logger.info(`partial_checkpoint_complete: ${checkpoint.checkpoint}`, {
-            checkpoint: checkpoint.checkpoint,
-            priority: request.forPriority,
-            user_id: request.userIdForLogs,
-            ...request.tracker.getIncrementalCheckpointStats()
-          });
           return 'partial_complete';
         } else {
           const line: util.StreamingSyncCheckpointComplete = {
