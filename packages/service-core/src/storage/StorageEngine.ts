@@ -1,12 +1,10 @@
 import { BaseObserver, logger, ServiceError } from '@powersync/lib-services-framework';
 import { ResolvedPowerSyncConfig } from '../util/util-index.js';
-import { CreateReplicationHead, WriteCheckpointBatcher } from '../util/write-checkpoint-batcher.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
 import { ActiveStorage, StorageProvider } from './StorageProvider.js';
 
 export type StorageEngineOptions = {
   configuration: ResolvedPowerSyncConfig;
-  getCreateReplicationHead: () => CreateReplicationHead;
 };
 
 export interface StorageEngineListener {
@@ -18,14 +16,9 @@ export class StorageEngine extends BaseObserver<StorageEngineListener> {
   // TODO: This will need to revisited when we actually support multiple storage providers.
   private storageProviders: Map<string, StorageProvider> = new Map();
   private currentActiveStorage: ActiveStorage | null = null;
-  readonly writeCheckpointBatcher: WriteCheckpointBatcher;
 
   constructor(private options: StorageEngineOptions) {
     super();
-    this.writeCheckpointBatcher = new WriteCheckpointBatcher(
-      options.getCreateReplicationHead,
-      () => this.activeBucketStorage
-    );
   }
 
   get activeBucketStorage(): BucketStorageFactory {
