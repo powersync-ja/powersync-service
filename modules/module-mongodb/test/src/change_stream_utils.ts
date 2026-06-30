@@ -248,7 +248,7 @@ export async function getClientCheckpoint(
   db: mongo.Db,
   storageFactory: BucketStorageFactory,
   options?: { timeout?: number }
-): Promise<InternalOpId> {
+): Promise<ReplicationCheckpoint> {
   const start = Date.now();
   const lsn = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID);
   // This old API needs a persisted checkpoint id.
@@ -263,7 +263,7 @@ export async function getClientCheckpoint(
     if (cp != null) {
       lastCp = cp;
       if (cp.lsn && cp.lsn >= lsn) {
-        return cp.checkpoint;
+        return cp;
       }
     }
     await new Promise((resolve) => setTimeout(resolve, 30));

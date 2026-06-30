@@ -161,6 +161,7 @@ export class BucketChecksumState {
 
       // Re-check updated buckets only
       let checksumLookups: storage.BucketChecksumRequest[] = [];
+      let hasNewBucket = false;
 
       let newChecksums = new Map<string, util.BucketChecksum>();
       for (let desc of bucketDescriptionMap.values()) {
@@ -174,11 +175,13 @@ export class BucketChecksumState {
           newChecksums.set(desc.bucket, existing);
         } else {
           checksumLookups.push({ bucket: desc.bucket, source: desc.source });
+          hasNewBucket ||= !this.lastChecksums.has(desc.bucket);
         }
       }
 
       if (checksumLookups.length > 0) {
-        let updatedChecksums = await storage.getChecksums(base.checkpoint, checksumLookups);
+        const requestHint: storage.BucketRequestHint = hasNewBucket ? 'bulk' : 'incremental';
+        let updatedChecksums = await storage.getChecksums(base, checksumLookups, { requestHint });
         for (let [bucket, value] of updatedChecksums.entries()) {
           newChecksums.set(bucket, value);
         }
@@ -186,12 +189,21 @@ export class BucketChecksumState {
       checksumMap = newChecksums;
     } else {
       // Re-check all buckets
-      const bucketList = [...bucketDescriptionMap.values()].map((b) => ({ bucket: b.bucket, source: b.source }));
-      checksumMap = await storage.getChecksums(base.checkpoint, bucketList);
+      const hasNewBucket =
+        this.lastChecksums == null ||
+        [...bucketDescriptionMap.values()].some((b) => !this.lastChecksums!.has(b.bucket));
+      const requestHint: storage.BucketRequestHint = hasNewBucket ? 'bulk' : 'incremental';
+      const bucketList = [...bucketDescriptionMap.values()].map((b) => ({
+        bucket: b.bucket,
+        source: b.source
+      }));
+      checksumMap = await storage.getChecksums(base, bucketList, { requestHint });
     }
 
     // Subset of buckets for which there may be new data in this batch.
     let bucketsToFetch: ResolvedBucket[];
+    let bucketDataRequestHint: storage.BucketRequestHint;
+    const newBucketDownloads = new Set<string>();
 
     let checkpointLine: util.StreamingSyncCheckpointDiff | util.StreamingSyncCheckpoint;
 
@@ -232,6 +244,12 @@ export class BucketChecksumState {
       bucketsToFetch = [...generateBucketsToFetch].map((b) => {
         return bucketDescriptionMap.get(b)!;
       });
+      for (const bucket of diff.updatedBuckets) {
+        if (!this.lastChecksums!.has(bucket.bucket)) {
+          newBucketDownloads.add(bucket.bucket);
+        }
+      }
+      bucketDataRequestHint = newBucketDownloads.size > 0 ? 'bulk' : 'incremental';
 
       deferredLog = () => {
         let message = `Updated checkpoint: ${base.checkpoint} | `;
@@ -280,6 +298,10 @@ export class BucketChecksumState {
         );
       };
       bucketsToFetch = allBuckets;
+      for (const bucket of bucketsToFetch) {
+        newBucketDownloads.add(bucket.bucket);
+      }
+      bucketDataRequestHint = 'bulk';
 
       const subscriptions: util.StreamDescription[] = [];
       const streamNameToIndex = new Map<string, number>();
@@ -321,6 +343,7 @@ export class BucketChecksumState {
     return {
       checkpointLine,
       bucketsToFetch,
+      bucketDataRequestHint,
       advance: () => {
         hasAdvanced = true;
         // bucketDataPositions must be updated in-place - it represents the current state of
@@ -692,6 +715,7 @@ export class BucketParameterState {
 export interface CheckpointLine {
   checkpointLine: util.StreamingSyncCheckpointDiff | util.StreamingSyncCheckpoint;
   bucketsToFetch: ResolvedBucket[];
+  bucketDataRequestHint: storage.BucketRequestHint;
 
   /**
    * Call when a checkpoint line is being sent to a client, to update the internal state.

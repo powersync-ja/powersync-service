@@ -2,6 +2,7 @@ import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
   BucketStorageFactory,
   InternalOpId,
+  ReplicationCheckpoint,
   settledPromise,
   storage,
   SyncRulesBucketStorage,
@@ -116,7 +117,7 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
     }
   }
 
-  abstract getClientCheckpoint(options?: { timeout?: number }): Promise<bigint>;
+  abstract getClientCheckpoint(options?: { timeout?: number }): Promise<ReplicationCheckpoint>;
 
   async getCheckpoint(options?: { timeout?: number }) {
     let checkpoint = await Promise.race([
@@ -174,7 +175,7 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
       start = BigInt(start);
     }
     const syncConfigContent = this.getSyncConfigContent();
-    const { checkpoint } = await this.storage!.getCheckpoint();
+    const checkpoint = await this.storage!.getCheckpoint();
     const map = [bucketRequest(syncConfigContent, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await fromAsync(batch);

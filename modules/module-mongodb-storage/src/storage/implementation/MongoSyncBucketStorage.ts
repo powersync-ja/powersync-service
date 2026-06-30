@@ -40,6 +40,7 @@ import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+  readPreference?: mongo.ReadPreference;
   checksumCacheTtlMs?: number;
   storageConfig: StorageConfig;
 }
@@ -81,6 +82,7 @@ export abstract class MongoSyncBucketStorage
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
   public readonly logger: Logger;
   public readonly storageConfig: StorageConfig;
+  public readonly readPreference: mongo.ReadPreference | undefined;
   #storageInitialized = false;
 
   constructor(
@@ -93,6 +95,7 @@ export abstract class MongoSyncBucketStorage
   ) {
     super();
     this.storageConfig = options.storageConfig;
+    this.readPreference = options.readPreference;
     this.db = factory.db.versioned(this.storageConfig);
     this.checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
@@ -248,24 +251,30 @@ export abstract class MongoSyncBucketStorage
   }
 
   protected abstract getBucketDataBatchImpl(
-    checkpoint: utils.InternalOpId,
+    checkpoint: MongoReplicationCheckpoint,
     dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk>;
 
   async *getBucketDataBatch(
-    checkpoint: utils.InternalOpId,
+    checkpoint: storage.ReplicationCheckpoint,
     dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
-    yield* this.getBucketDataBatchImpl(checkpoint, dataBuckets, options);
+    yield* this.getBucketDataBatchImpl(checkpoint as MongoReplicationCheckpoint, dataBuckets, options);
   }
 
   async getChecksums(
-    checkpoint: utils.InternalOpId,
-    buckets: storage.BucketChecksumRequest[]
+    checkpoint: storage.ReplicationCheckpoint,
+    buckets: storage.BucketChecksumRequest[],
+    options?: storage.BucketChecksumOptions
   ): Promise<utils.ChecksumMap> {
-    return this.checksums.getChecksums(checkpoint, buckets);
+    const mongoCheckpoint = checkpoint as MongoReplicationCheckpoint;
+    const snapshotTime = mongoCheckpoint.snapshotTime; // May be undefined in tests
+    return this.checksums.getChecksums(checkpoint.checkpoint, buckets, {
+      snapshotTime,
+      readPreference: options?.requestHint == 'bulk' ? this.readPreference : undefined
+    });
   }
 
   clearChecksumCache() {
