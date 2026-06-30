@@ -20,7 +20,7 @@ export const MongoStorageConfig = lib_mongo.BaseMongoConfig.and(
      *
      * This is an experimental option, and may be removed in a future release.
      */
-    read_preference: MongoStorageReadPreference.optional()
+    bulk_read_preference: MongoStorageReadPreference.optional()
   })
 );
 
