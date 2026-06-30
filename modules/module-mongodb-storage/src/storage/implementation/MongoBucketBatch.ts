@@ -198,14 +198,18 @@ export abstract class MongoBucketBatch
     const batch = this.batch;
     let last_op: InternalOpId | null = null;
     let resumeBatch: OperationBatch | null = null;
+    let clearedError = false;
 
     using _ = this.tracer.span('storage', 'flush');
 
     await this.hooks?.beforeBatchFlush?.(this);
 
     await this.withReplicationTransaction(`Flushing ${batch?.length ?? 0} ops`, async (session, opSeq) => {
+      clearedError = false;
       if (batch != null) {
-        resumeBatch = await this.replicateBatch(session, batch, opSeq, options);
+        const result = await this.replicateBatch(session, batch, opSeq, options);
+        resumeBatch = result.resumeBatch;
+        clearedError ||= result.clearedError;
       }
 
       if (this.write_checkpoint_batch.length > 0) {
@@ -216,6 +220,10 @@ export abstract class MongoBucketBatch
 
       last_op = opSeq.last();
     });
+
+    if (clearedError) {
+      this.clearedError = true;
+    }
 
     // null if done, set if we need another flush
     this.batch = resumeBatch;
@@ -235,7 +243,7 @@ export abstract class MongoBucketBatch
     batch: OperationBatch,
     op_seq: MongoIdSequence,
     options?: storage.BucketBatchCommitOptions
-  ): Promise<OperationBatch | null> {
+  ): Promise<{ resumeBatch: OperationBatch | null; clearedError: boolean }> {
     let sizes: Map<string, number> | undefined = undefined;
     using _ = this.tracer.span('storage', 'replicate_batch');
     // Only look up current_data sizes if the batch stores current_data and at least one
@@ -340,12 +348,17 @@ export abstract class MongoBucketBatch
       }
     }
 
-    if (didFlush) {
+    const clearedError = didFlush && !this.clearedError;
+    if (clearedError) {
+      // No need to clear an error more than once per batch, since an error would always result in restarting the batch.
       using _ = this.tracer.span('storage', 'clear_error');
       await this.clearError(this.session);
     }
 
-    return resumeBatch?.hasData() ? resumeBatch : null;
+    return {
+      resumeBatch: resumeBatch?.hasData() ? resumeBatch : null,
+      clearedError
+    };
   }
 
   private saveOperation(
@@ -900,11 +913,6 @@ export abstract class MongoBucketBatch
   }
 
   protected async clearError(session: mongo.ClientSession): Promise<void> {
-    // No need to clear an error more than once per batch, since an error would always result in restarting the batch.
-    if (this.clearedError) {
-      return;
-    }
-
     await this.db.sync_rules.updateOne(
       {
         _id: this.replicationStreamId
@@ -919,7 +927,6 @@ export abstract class MongoBucketBatch
         session
       }
     );
-    this.clearedError = true;
   }
 
   /**
