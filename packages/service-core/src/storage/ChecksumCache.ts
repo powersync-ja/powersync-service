@@ -34,12 +34,18 @@ export interface ChecksumCacheOptions {
    * Maximum number of cached checksums.
    */
   maxSize?: number;
+
+  /**
+   * How long to keep cached checksums before refreshing them.
+   */
+  ttlMs?: number;
 }
 
 // Approximately 5MB of memory, if we assume 50 bytes per entry
 const DEFAULT_MAX_SIZE = 100_000;
 
-const TTL_MS = 3_600_000;
+// Default to 1h
+export const DEFAULT_CHECKSUM_CACHE_TTL_MS = 1 * 3_600_000;
 
 /**
  * Implement a LRU cache for checksum requests. Each (bucket, checkpoint) request is cached separately,
@@ -105,7 +111,7 @@ export class ChecksumCache {
       // We use a TTL so that counts can eventually be refreshed
       // after a compact. This only has effect if the bucket has
       // not been checked in the meantime.
-      ttl: TTL_MS,
+      ttl: options.ttlMs ?? DEFAULT_CHECKSUM_CACHE_TTL_MS,
       ttlResolution: 1_000,
       allowStale: false
     });

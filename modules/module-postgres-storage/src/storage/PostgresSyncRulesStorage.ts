@@ -44,6 +44,7 @@ export type PostgresSyncRulesStorageOptions = {
   replicationStream: storage.PersistedReplicationStream;
   write_checkpoint_mode?: storage.WriteCheckpointMode;
   batchLimits: RequiredOperationBatchLimits;
+  checksumCacheTtlMs?: number;
 };
 
 export class PostgresSyncRulesStorage
@@ -101,6 +102,7 @@ export class PostgresSyncRulesStorage
    */
   private get checksumCache(): storage.ChecksumCache {
     this._checksumCache ??= new storage.ChecksumCache({
+      ttlMs: this.options.checksumCacheTtlMs,
       fetchChecksums: (batch) => {
         return this.getChecksumsInternal(batch);
       }
