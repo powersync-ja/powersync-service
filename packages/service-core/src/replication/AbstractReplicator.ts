@@ -12,13 +12,13 @@ import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { ConnectionTestResult } from './ReplicationModule.js';
 
 // 1 minute
-const PING_INTERVAL = 1_000_000_000n * 60n;
+const PING_INTERVAL = 1_000_000_000n * 2n;
 
 // In the initial startup period, we use a short refresh interval. This helps to take over replication quickly in the case
 // of rolling deploys. After the initial period, we switch to a longer refresh interval to reduce load.
 const FAST_REFRESH_INTERVAL_MS = 500;
 const FAST_REFRESH_TIMEOUT_MS = 120_000;
-const REFRESH_INTERVAL_MS = 5_000;
+const REFRESH_INTERVAL_MS = 1_000;
 
 export interface CreateJobOptions {
   lock: storage.ReplicationLock;

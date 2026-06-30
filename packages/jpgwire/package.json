@@ -22,6 +22,7 @@
     "@powersync/service-jsonbig": "workspace:^",
     "@powersync/service-sync-rules": "workspace:^",
     "date-fns": "^4.1.0",
+    "net-keepalive": "^4.0.25",
     "pgwire": "^0.8.1"
   },
   "devDependencies": {

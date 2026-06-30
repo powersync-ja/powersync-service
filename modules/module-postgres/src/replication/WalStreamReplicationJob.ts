@@ -5,6 +5,7 @@ import { sendKeepAlive, WalStream } from './WalStream.js';
 
 import { replication } from '@powersync/service-core';
 import { getApplicationName } from '../utils/application-name.js';
+import { mapPostgresReplicationError } from '../utils/errors.js';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 
 export interface WalStreamReplicationJobOptions extends replication.AbstractReplicationJobOptions {
@@ -39,7 +40,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       try {
         await sendKeepAlive(this.connectionManager.pool);
       } catch (e) {
-        this.logger.warn(`KeepAlive failed, unable to post to WAL`, e);
+        this.logger.warn(`KeepAlive failed, unable to post to WAL`, mapPostgresReplicationError(e));
       }
     }
   }

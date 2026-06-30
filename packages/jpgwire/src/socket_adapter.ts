@@ -1,5 +1,6 @@
 // Fork of pgwire/index.js, customized to handle additional TLS options
 
+import * as NetKeepAlive from 'net-keepalive';
 import { once } from 'node:events';
 import net from 'node:net';
 import tls from 'node:tls';
@@ -8,15 +9,15 @@ import { recordBytesRead } from './metrics.js';
 
 // pgwire doesn't natively support configuring timeouts, but we just hardcode a default.
 // Timeout idle connections after 6 minutes (we ping at least every 5 minutes).
-const POWERSYNC_SOCKET_DEFAULT_TIMEOUT = 360_000;
+const POWERSYNC_SOCKET_DEFAULT_TIMEOUT = 15_000;
 
 // Timeout for the initial connection (pre-TLS)
 // Must be less than the timeout for a HTTP request
-const POWERSYNC_SOCKET_CONNECT_TIMEOUT = 20_000;
+const POWERSYNC_SOCKET_CONNECT_TIMEOUT = 4_000;
 
 // TCP keepalive delay in milliseconds.
 // This can help detect dead connections earlier.
-const POWERSYNC_SOCKET_KEEPALIVE_INITIAL_DELAY = 40_000;
+const POWERSYNC_SOCKET_KEEPALIVE_INITIAL_DELAY = 4_000;
 
 export interface ConnectOptions {
   host: string;
@@ -55,6 +56,10 @@ export class SocketAdapter {
         socket.destroy(new Error(`Timeout while connecting to ${options.host}:${options.port}`));
       }, connectTimeout);
       await once(socket, 'connect');
+      socket.setKeepAlive(true, 1_000);
+      NetKeepAlive.setKeepAliveInterval(socket, 1_000);
+      NetKeepAlive.setKeepAliveProbes(socket, 3);
+      NetKeepAlive.setUserTimeout(socket, 3000);
       clearTimeout(timeout);
       return new SocketAdapter(socket, options);
     } catch (e) {

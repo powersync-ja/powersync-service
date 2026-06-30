@@ -6,7 +6,7 @@ export function mapPostgresReplicationError(error: unknown, query?: string): Ser
     return error;
   }
 
-  if ((error as Error).message == 'postgres query late') {
+  if ((error as Error).message == 'postgres query late' || (error as Error).message == 'postgres query failed') {
     // This comes from pgwire
     // The "postgres query late" message is not very useful on its own.
     // The cause may contain more details, but the error itself contains the most useful stack.
