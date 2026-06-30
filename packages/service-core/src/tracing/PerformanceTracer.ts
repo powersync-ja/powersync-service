@@ -8,8 +8,16 @@ export interface Span extends Disposable {
   startAt: number;
   /**
    * End time in microseconds since an arbitrary epoch.
+   *
+   * 0 if the span hasn't ended yet.
    */
   endAt: number;
+
+  /**
+   * True if the span has ended (.end() called or disposed).
+   */
+  ended: boolean;
+
   /**
    * Time spent not in nested spans.
    */
@@ -36,6 +44,11 @@ export interface Span extends Disposable {
    * Returns an aggregate record of category -> "selfDuration", in microseconds.
    */
   end(): Record<string, number>;
+
+  /**
+   * Call a nested function, then end the span, returning the function's result.
+   */
+  with<T>(cb: () => Promise<T>): Promise<T>;
 }
 
 function now() {
@@ -138,8 +151,21 @@ export class PerformanceTracer<K extends string> {
       get durationMillis() {
         return Math.ceil((this.endAt - this.startAt) / 1000);
       },
+
+      get ended() {
+        return this.endAt != 0;
+      },
+
       [Symbol.dispose]() {
         this.end();
+      },
+
+      async with<T>(cb: () => Promise<T>): Promise<T> {
+        try {
+          return await cb();
+        } finally {
+          this.end();
+        }
       }
     };
     this.stack.push(s);

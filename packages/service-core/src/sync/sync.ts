@@ -9,10 +9,18 @@ import * as util from '../util/util-index.js';
 
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { mergeAsyncIterables } from '../streams/streams-index.js';
-import { BucketChecksumState, CheckpointLine } from './BucketChecksumState.js';
+import { PerformanceTracer, type Span } from '../tracing/PerformanceTracer.js';
+import { BucketChecksumState, CheckpointLine, type SyncCheckpointTraceCategory } from './BucketChecksumState.js';
 import { OperationsSentStats, RequestTracker, statsForBatch } from './RequestTracker.js';
 import { SyncContext } from './SyncContext.js';
 import { TokenStreamOptions, acquireSemaphoreAbortable, settledPromise, tokenStream } from './util.js';
+
+type CheckpointTiming = Record<string, number>;
+
+interface ActiveCheckpointTrace {
+  tracer: PerformanceTracer<SyncCheckpointTraceCategory>;
+  span: Span;
+}
 
 export interface SyncStreamParameters {
   syncContext: SyncContext;
@@ -121,6 +129,7 @@ async function* streamResponseInner(
   type CheckpointAndLine = {
     checkpoint: storage.ReplicationCheckpoint;
     line: CheckpointLine | null;
+    trace: ActiveCheckpointTrace | null;
   };
 
   async function waitForNewCheckpointLine(): Promise<IteratorResult<CheckpointAndLine>> {
@@ -129,8 +138,17 @@ async function* streamResponseInner(
       return { done: true, value: undefined };
     }
 
-    const line = await checksumState.buildNextCheckpointLine(next.value);
-    return { done: false, value: { checkpoint: next.value.base, line } };
+    const trace = startCheckpointTrace(next.value.base.checkpoint);
+    try {
+      const line = await checksumState.buildNextCheckpointLine(next.value, trace.tracer);
+      if (line == null) {
+        finishCheckpointTrace(trace);
+      }
+      return { done: false, value: { checkpoint: next.value.base, line, trace: line == null ? null : trace } };
+    } catch (e) {
+      finishCheckpointTrace(trace);
+      throw e;
+    }
   }
 
   try {
@@ -155,12 +173,16 @@ async function* streamResponseInner(
         // No update to sync
         continue;
       }
+      const trace = next.value.value.trace!;
 
       const { checkpointLine, bucketsToFetch, bucketDataRequestHint } = line;
 
       // Since yielding can block, we update the state just before yielding the line.
       line.advance();
-      yield checkpointLine;
+      {
+        using _ = trace.tracer.span('client', 'checkpoint');
+        yield checkpointLine;
+      }
 
       // Start syncing data for buckets up to the checkpoint. As soon as we have completed at least one priority and
       // at least 1000 operations, we also start listening for new checkpoints concurrently. When a new checkpoint comes
@@ -239,8 +261,20 @@ async function* streamResponseInner(
           // sync complete message instead.
           forPriority: !isLast ? priority : null,
           logger,
-          tracker
+          tracker,
+          trace
         });
+      }
+
+      if (abortCheckpointController.signal.aborted && !trace.span.ended) {
+        logger.info(`checkpoint_invalidated: ${next.value.value.checkpoint.checkpoint}`, {
+          checkpoint: next.value.value.checkpoint.checkpoint,
+          user_id: tokenPayload.userIdJson,
+          t: finishCheckpointTrace(trace),
+          ...tracker.getIncrementalCheckpointStats()
+        });
+      } else if (!trace.span.ended) {
+        finishCheckpointTrace(trace);
       }
 
       if (!abortCheckpointSignal.aborted) {
@@ -276,6 +310,7 @@ interface BucketDataRequest {
   onRowsSent: (stats: OperationsSentStats) => void;
   logger: Logger;
   tracker: RequestTracker;
+  trace: ActiveCheckpointTrace;
 }
 
 async function* bucketDataInBatches(request: BucketDataRequest) {
@@ -298,6 +333,7 @@ async function* bucketDataInBatches(request: BucketDataRequest) {
           break;
         } else {
           const { done, data } = value;
+          using _ = request.trace.tracer.span('client', 'data');
           yield data;
           if (done) {
             isDone = true;
@@ -333,18 +369,26 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     logger
   } = request;
 
+  const tracer = request.trace.tracer;
+
   let checkpointInvalidated = false;
 
   if (syncContext.syncSemaphore.isLocked()) {
     logger.info('Sync concurrency limit reached, waiting for lock', { user_id: request.userIdForLogs });
   }
-  const acquired = await acquireSemaphoreAbortable(syncContext.syncSemaphore, AbortSignal.any([abort_batch]));
+  const acquired = await request.trace.tracer.span('sync_lock').with(async () => {
+    return acquireSemaphoreAbortable(syncContext.syncSemaphore, AbortSignal.any([abort_batch]));
+  });
   if (acquired === 'aborted') {
     return;
   }
 
   const [value, release] = acquired;
+  let checkpointInvalidationComplete = false;
+  let checkpointComplete = false;
   try {
+    let has_more = false;
+    using _ = tracer.span('sync_data');
     if (value <= 3) {
       // This can be noisy, so we only log when we get close to the
       // concurrency limit.
@@ -358,9 +402,9 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
     const filteredBuckets = checkpointLine.getFilteredBucketPositions(bucketsToFetch);
     const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets, { requestHint });
 
-    let has_more = false;
-
     for await (let { chunkData: r, targetOp } of dataBatches) {
+      using _ = tracer.span('bucket_data');
+
       // Abort in current batch if the connection is closed
       if (abort_connection.aborted) {
         return;
@@ -376,7 +420,11 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         // storage can emit an empty chunk for a bucket that has no operations in the
         // requested range, and its position must advance so the bucket is not
         // re-requested indefinitely.
-        checkpointLine.updateBucketPosition({ bucket: r.bucket, nextAfter: BigInt(r.next_after), hasMore: r.has_more });
+        checkpointLine.updateBucketPosition({
+          bucket: r.bucket,
+          nextAfter: BigInt(r.next_after),
+          hasMore: r.has_more
+        });
         continue;
       }
       logger.debug(`Sending data for ${r.bucket}`);
@@ -412,6 +460,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
         // Checkpoint invalidated by a CLEAR or MOVE op.
         // Don't send the checkpoint_complete line in this case.
         // More data should be available immediately for a new checkpoint.
+        checkpointInvalidationComplete = true;
         yield { data: null, done: true };
       } else {
         if (request.forPriority != null) {
@@ -435,11 +484,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
             }
           };
           yield { data: line, done: true };
-          logger.info(`checkpoint_complete: ${checkpoint.checkpoint}`, {
-            checkpoint: checkpoint.checkpoint,
-            user_id: request.userIdForLogs,
-            ...request.tracker.getIncrementalCheckpointStats()
-          });
+          checkpointComplete = true;
         }
       }
     }
@@ -452,6 +497,50 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       });
     }
     release();
+  }
+
+  if (checkpointInvalidationComplete) {
+    logger.info(`checkpoint_invalidated: ${checkpoint.checkpoint}`, {
+      checkpoint: checkpoint.checkpoint,
+      user_id: request.userIdForLogs,
+      t: finishCheckpointTrace(request.trace),
+      ...request.tracker.getIncrementalCheckpointStats()
+    });
+  }
+  if (checkpointComplete) {
+    const timings = finishCheckpointTrace(request.trace);
+    logger.info(`checkpoint_complete: ${checkpoint.checkpoint}`, {
+      checkpoint: checkpoint.checkpoint,
+      user_id: request.userIdForLogs,
+      t: timings,
+      ...request.tracker.getIncrementalCheckpointStats()
+    });
+  }
+}
+
+function startCheckpointTrace(checkpoint: util.InternalOpId): ActiveCheckpointTrace {
+  const tracer = new PerformanceTracer<SyncCheckpointTraceCategory>(`sync checkpoint ${checkpoint}`);
+  return {
+    tracer,
+    span: tracer.span('checkpoint')
+  };
+}
+
+function finishCheckpointTrace(trace: ActiveCheckpointTrace): CheckpointTiming {
+  if (trace.span.ended) {
+    return {};
+  }
+
+  const timings = trace.span.end();
+  const result: CheckpointTiming = { ...timings };
+  addTiming(result, 'other', trace.span.selfDuration);
+  addTiming(result, 'total', trace.span.endAt - trace.span.startAt);
+  return result;
+}
+
+function addTiming(timings: CheckpointTiming, key: string, duration: number) {
+  if (duration > 0) {
+    timings[key] = (timings[key] ?? 0) + duration;
   }
 }
 
