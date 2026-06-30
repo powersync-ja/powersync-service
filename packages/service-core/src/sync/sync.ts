@@ -420,6 +420,11 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
             }
           };
           yield { data: line, done: true };
+          logger.info(`partial_checkpoint_complete: ${checkpoint.checkpoint}`, {
+            checkpoint: checkpoint.checkpoint,
+            priority: request.forPriority,
+            user_id: request.userIdForLogs
+          });
         } else {
           const line: util.StreamingSyncCheckpointComplete = {
             checkpoint_complete: {
@@ -427,6 +432,10 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
             }
           };
           yield { data: line, done: true };
+          logger.info(`checkpoint_complete: ${checkpoint.checkpoint}`, {
+            checkpoint: checkpoint.checkpoint,
+            user_id: request.userIdForLogs
+          });
         }
       }
     }
