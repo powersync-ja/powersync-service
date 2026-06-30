@@ -170,13 +170,14 @@ async function* streamResponseInner(
         continue;
       }
       const trace = next.value.value.trace!;
+      const tracer = trace.tracer;
 
       const { checkpointLine, bucketsToFetch, bucketDataRequestHint } = line;
 
       // Since yielding can block, we update the state just before yielding the line.
       line.advance();
       {
-        using _ = trace.tracer.span('sending', 'checkpoint');
+        using _ = tracer.span('sending', 'checkpoint');
         yield checkpointLine;
       }
 
@@ -262,7 +263,7 @@ async function* streamResponseInner(
           forPriority: !isLast ? priority : null,
           logger,
           tracker,
-          trace
+          tracer
         });
         if (checkpointResult == 'complete' || isInvalidatedCheckpointResult(checkpointResult)) {
           break;
@@ -273,7 +274,7 @@ async function* streamResponseInner(
         logger.info(`checkpoint_complete: ${next.value.value.checkpoint.checkpoint}`, {
           checkpoint: next.value.value.checkpoint.checkpoint,
           user_id: tokenPayload.userIdJson,
-          t: getCheckpointTraceTimings(trace),
+          t: getCheckpointTraceTimings(trace.span),
           ...tracker.getIncrementalCheckpointStats()
         });
       } else if (isInvalidatedCheckpointResult(checkpointResult) || checkpointInvalidationReason != null) {
@@ -281,7 +282,7 @@ async function* streamResponseInner(
           checkpoint: next.value.value.checkpoint.checkpoint,
           reason: isInvalidatedCheckpointResult(checkpointResult) ? checkpointResult : checkpointInvalidationReason,
           user_id: tokenPayload.userIdJson,
-          t: getCheckpointTraceTimings(trace),
+          t: getCheckpointTraceTimings(trace.span),
           ...tracker.getIncrementalCheckpointStats()
         });
       }
@@ -319,7 +320,7 @@ interface BucketDataRequest {
   onRowsSent: (stats: OperationsSentStats) => void;
   logger: Logger;
   tracker: RequestTracker;
-  trace: ActiveCheckpointTrace;
+  tracer: PerformanceTracer<SyncCheckpointTraceCategory>;
 }
 
 type CheckpointResult =
@@ -360,7 +361,7 @@ async function* bucketDataInBatches(
           break;
         } else {
           const { done, data } = value;
-          using _ = request.trace.tracer.span('sending', 'data');
+          using _ = request.tracer.span('sending', 'data');
           yield data;
           if (done) {
             isDone = true;
@@ -399,11 +400,11 @@ async function* bucketDataBatch(
     logger
   } = request;
 
-  const tracer = request.trace.tracer;
+  const tracer = request.tracer;
 
   let checkpointInvalidated = false;
 
-  const acquired = await request.trace.tracer.span('acquiring_lock').with(async () => {
+  const acquired = await tracer.span('acquiring_lock').with(async () => {
     return acquireSemaphoreAbortable(syncContext.syncSemaphore, AbortSignal.any([abort_batch]));
   });
   if (acquired === 'aborted') {
@@ -517,11 +518,11 @@ function startCheckpointTrace(checkpoint: util.InternalOpId): ActiveCheckpointTr
   };
 }
 
-function getCheckpointTraceTimings(trace: ActiveCheckpointTrace): CheckpointTiming {
-  const timings = trace.span.end();
+function getCheckpointTraceTimings(span: Span): CheckpointTiming {
+  const timings = span.end();
   const result: CheckpointTiming = { ...timings };
-  addTiming(result, 'other', trace.span.selfDuration);
-  addTiming(result, 'total', trace.span.endAt - trace.span.startAt);
+  addTiming(result, 'other', span.selfDuration);
+  addTiming(result, 'total', span.endAt - span.startAt);
   return result;
 }
 
