@@ -172,6 +172,7 @@ async function* streamResponseInner(
         continue;
       }
       const trace = next.value.value.trace!;
+      const checkpoint = next.value.value.checkpoint;
       const tracer = trace.tracer;
 
       const { checkpointLine, bucketsToFetch, bucketDataRequestHint } = line;
@@ -239,6 +240,14 @@ async function* streamResponseInner(
         maybeRaceForNewCheckpoint();
       }
 
+      function checkpointLogDetails(cp: storage.ReplicationCheckpoint) {
+        return {
+          checkpoint: cp.checkpoint,
+          user_id: tokenPayload.userIdJson,
+          ...tracker.getIncrementalCheckpointStats()
+        };
+      }
+
       let checkpointResult: CheckpointResult | null = null;
       // This incrementally updates dataBuckets with each individual bucket position.
       // At the end of this, we can be sure that all buckets have data up to the checkpoint.
@@ -251,7 +260,7 @@ async function* streamResponseInner(
         checkpointResult = yield* bucketDataInBatches({
           syncContext: syncContext,
           bucketStorage: bucketStorage,
-          checkpoint: next.value.value.checkpoint,
+          checkpoint,
           bucketsToFetch: buckets,
           requestHint: bucketDataRequestHint,
           checkpointLine: line,
@@ -267,11 +276,11 @@ async function* streamResponseInner(
           tracer
         });
         if (checkpointResult == 'partial_complete') {
-          logger.info(`partial_checkpoint_complete: ${next.value.value.checkpoint.checkpoint}`, {
-            checkpoint: next.value.value.checkpoint.checkpoint,
+          // We don't specifically include timing details here, since that would end the span.
+          // Timings are included in the checkpoint_complete following this.
+          logger.info(`partial_checkpoint_complete: ${checkpoint.checkpoint}`, {
             priority,
-            user_id: tokenPayload.userIdJson,
-            ...tracker.getIncrementalCheckpointStats()
+            ...checkpointLogDetails(checkpoint)
           });
         }
         if (checkpointResult == 'complete' || isInvalidatedCheckpointResult(checkpointResult)) {
@@ -280,19 +289,18 @@ async function* streamResponseInner(
       }
 
       if (checkpointResult == 'complete') {
-        logger.info(`checkpoint_complete: ${next.value.value.checkpoint.checkpoint}`, {
-          checkpoint: next.value.value.checkpoint.checkpoint,
-          user_id: tokenPayload.userIdJson,
-          t: getCheckpointTraceTimings(trace.span),
-          ...tracker.getIncrementalCheckpointStats()
+        logger.info(`checkpoint_complete: ${checkpoint.checkpoint}`, {
+          // Incremental stats since the last checkpoint_complete, partial_checkpoint_complete or checkpoint_invalidated
+          ...checkpointLogDetails(checkpoint),
+          // Timings since the last checkpoint or checkpoint_diff
+          t: getCheckpointTraceTimings(trace.span)
         });
       } else if (isInvalidatedCheckpointResult(checkpointResult) || checkpointInvalidationReason != null) {
-        logger.info(`checkpoint_invalidated: ${next.value.value.checkpoint.checkpoint}`, {
-          checkpoint: next.value.value.checkpoint.checkpoint,
+        // A new checkpoint and checkpoint_complete should follow soon, but we log the stats already
+        logger.info(`checkpoint_invalidated: ${checkpoint.checkpoint}`, {
           reason: isInvalidatedCheckpointResult(checkpointResult) ? checkpointResult : checkpointInvalidationReason,
-          user_id: tokenPayload.userIdJson,
-          t: getCheckpointTraceTimings(trace.span),
-          ...tracker.getIncrementalCheckpointStats()
+          ...checkpointLogDetails(checkpoint),
+          t: getCheckpointTraceTimings(trace.span)
         });
       }
 
