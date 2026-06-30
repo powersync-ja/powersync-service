@@ -197,9 +197,10 @@ export class PowerSyncMongo {
   async notifyCheckpoint() {
     await this.checkpoint_events.insertOne({} as any, {
       forceServerObjectId: true,
-      // No correctness issue if this is missed
+      // No correctness issue if this write is missed / rolled back.
+      // It could cause some sync delays, that will resolve in at most a minute, but no consistency issues.
       writeConcern: {
-        w: 0
+        w: 1
       }
     });
   }
