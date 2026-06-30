@@ -143,6 +143,8 @@ async function* streamResponseInner(
       const line = await checksumState.buildNextCheckpointLine(next.value, trace.tracer);
       return { done: false, value: { checkpoint: next.value.base, line, trace: line == null ? null : trace } };
     } catch (e) {
+      // Only end the span if we error. If we return normally, we pass ownership on to the caller.
+      trace.span.end();
       throw e;
     }
   }
