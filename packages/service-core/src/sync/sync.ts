@@ -403,9 +403,6 @@ async function* bucketDataBatch(
 
   let checkpointInvalidated = false;
 
-  if (syncContext.syncSemaphore.isLocked()) {
-    logger.info('Sync concurrency limit reached, waiting for lock', { user_id: request.userIdForLogs });
-  }
   const acquired = await request.trace.tracer.span('acquiring_lock').with(async () => {
     return acquireSemaphoreAbortable(syncContext.syncSemaphore, AbortSignal.any([abort_batch]));
   });
@@ -413,18 +410,10 @@ async function* bucketDataBatch(
     return null;
   }
 
-  const [value, release] = acquired;
+  const [, release] = acquired;
   try {
     using _ = tracer.span('bucket_data');
     let has_more = false;
-    if (value <= 3) {
-      // This can be noisy, so we only log when we get close to the
-      // concurrency limit.
-      logger.info(`Got sync lock. Slots available: ${value - 1}`, {
-        user_id: request.userIdForLogs,
-        sync_data_slots: value - 1
-      });
-    }
     // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
     // For the first batch, this will be all buckets.
     const filteredBuckets = checkpointLine.getFilteredBucketPositions(bucketsToFetch);
@@ -515,13 +504,6 @@ async function* bucketDataBatch(
       }
     }
   } finally {
-    if (value <= 3) {
-      // This can be noisy, so we only log when we get close to the
-      // concurrency limit.
-      logger.info(`Releasing sync lock`, {
-        user_id: request.userIdForLogs
-      });
-    }
     release();
   }
   return null;
