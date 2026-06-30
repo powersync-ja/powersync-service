@@ -19,7 +19,7 @@ export interface Span extends Disposable {
   ended: boolean;
 
   /**
-   * Time spent not in nested spans.
+   * Time spent not in nested spans, in microseconds.
    */
   selfDuration: number;
 

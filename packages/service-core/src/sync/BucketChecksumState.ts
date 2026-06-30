@@ -31,9 +31,8 @@ export type SyncCheckpointTraceCategory =
   | 'parameters'
   | 'checksum'
   | 'bucket_data'
-  | 'sync_lock'
-  | 'sync_data'
-  | 'client';
+  | 'acquiring_lock'
+  | 'sending';
 
 export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
