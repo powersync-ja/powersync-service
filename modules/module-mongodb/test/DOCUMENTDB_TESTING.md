@@ -75,6 +75,19 @@ TEST_MONGO_STORAGE=false \
 npx vitest run documentdb --reporter=verbose
 ```
 
+## GitHub Actions
+
+The `.github/workflows/documentdb-integration.yml` workflow runs these tests manually via `workflow_dispatch` only. Add a repository or organization secret named `MONGO_TEST_DATA_URL`, then dispatch the workflow.
+
+The URI must include a database name in the path. The tests clear/drop this database as part of setup, so use a dedicated test database and cluster.
+
+The workflow starts a local MongoDB storage service, then runs the complete `modules/module-mongodb` `test` script against that storage backend. `MONGO_TEST_DATA_URL` is the remote DocumentDB source; `MONGO_TEST_URL` points at the local MongoDB storage test instance.
+
+```bash
+TEST_MONGO_STORAGE=true
+TEST_POSTGRES_STORAGE=false
+```
+
 ## Test Files
 
 | File                         | Requires DocumentDB       | Description                                                                                                                                                                    |
