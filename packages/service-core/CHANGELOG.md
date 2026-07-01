@@ -1,5 +1,21 @@
 # @powersync/service-core
 
+## 1.23.2
+
+### Patch Changes
+
+- 71d4a0a: Add logs for checkpoint_complete to assist with debugging. Remove "sync lock" logs.
+- e4f683d: [MongoDB Storage] Add experimental option to allow reading data from secondaries.
+- 71d4a0a: Fix edge case where the service can return incomplete data. This could happen when using bucket priorities, and a checkpoint is invalidated by the compact process while syncing.
+- c2edf86: Add `api.parameters.bucket_count_cache_ttl_minutes` configuration option.
+- df9ab1e: Batch concurrent write checkpoint requests and increase request limits to improve throughput.
+- Updated dependencies [a6ae678]
+- Updated dependencies [c2edf86]
+  - @powersync/service-sync-rules@0.38.1
+  - @powersync/service-types@0.16.1
+  - @powersync/lib-services-framework@0.9.7
+  - @powersync/service-rsocket-router@0.2.23
+
 ## 1.23.1
 
 ### Patch Changes
