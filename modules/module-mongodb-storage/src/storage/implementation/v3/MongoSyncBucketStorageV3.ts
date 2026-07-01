@@ -15,7 +15,7 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
+import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageCheckpoint.js';
@@ -212,7 +212,11 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     // Sample whole batch documents, then unwind to operation level so the shared estimator sees one doc per op.
     const sampled = this.shouldSampleBucketRows(candidate.operations);
     const collection = this.db.bucketData(this.replicationStreamId, candidate.defId!);
-    const prefix: mongo.Document[] = [{ $match: { '_id.b': candidate.bucket } }];
+    // Range-match on the whole `_id` (b, o) so the {_id} index is used; a dotted `{'_id.b': ...}` match
+    // cannot use the compound-object index and would scan the whole collection per bucket.
+    const prefix: mongo.Document[] = [
+      { $match: { _id: idPrefixFilter<{ b: string; o: unknown }>({ b: candidate.bucket }, ['o']) } }
+    ];
     if (sampled) {
       prefix.push({ $match: { $sampleRate: this.bucketRowSampleRate(candidate.operations) } });
     }
