@@ -214,16 +214,19 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     // Sample whole batch documents, then unwind to operation level so the shared estimator sees one doc per op.
     const sampled = this.shouldSampleBucketRows(candidate.operations);
     const collection = this.db.bucketData(this.replicationStreamId, candidate.defId!);
-    // Range-match on the whole `_id` (b, o) so the {_id} index is used; a dotted `{'_id.b': ...}` match
-    // cannot use the compound-object index and would scan the whole collection per bucket.
-    const prefix: mongo.Document[] = [
-      { $match: { _id: idPrefixFilter<{ b: string; o: unknown }>({ b: candidate.bucket }, ['o']) } }
-    ];
-    if (sampled) {
-      prefix.push({ $match: { $sampleRate: this.bucketRowSampleRate(candidate.operations) } });
-    }
-    prefix.push({ $unwind: '$ops' }, { $replaceRoot: { newRoot: '$ops' } });
-    return this.estimateRowsFromOperationSample(collection, prefix, candidate.operations, sampled);
+    const buildPrefix = (applySample: boolean): mongo.Document[] => {
+      // Range-match on the whole `_id` (b, o) so the {_id} index is used; a dotted `{'_id.b': ...}` match
+      // cannot use the compound-object index and would scan the whole collection per bucket.
+      const prefix: mongo.Document[] = [
+        { $match: { _id: idPrefixFilter<{ b: string; o: unknown }>({ b: candidate.bucket }, ['o']) } }
+      ];
+      if (applySample) {
+        prefix.push({ $match: { $sampleRate: this.bucketRowSampleRate(candidate.operations) } });
+      }
+      prefix.push({ $unwind: '$ops' }, { $replaceRoot: { newRoot: '$ops' } });
+      return prefix;
+    };
+    return this.estimateRowsFromOperationSample(collection, buildPrefix, candidate.operations, sampled);
   }
 
   protected createMongoParameterCompactor(

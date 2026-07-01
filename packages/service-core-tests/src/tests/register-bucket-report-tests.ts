@@ -210,4 +210,60 @@ bucket_definitions:
     expect(report.totals.bucketCount).toEqual(2);
     expect(report.totals).toMatchObject({ operations: 3, estimated: false });
   });
+
+  test('samples the row count for a bucket above the sampling threshold', async () => {
+    await using factory = await generateStorageFactory();
+    const { stream, content } = await test_utils.deploySyncRules(
+      factory,
+      updateSyncRulesFromYaml(GLOBAL_SYNC_RULES, { storageVersion })
+    );
+    const bucketStorage = factory.getInstance(stream);
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    await writer.markAllSnapshotDone('1/1');
+
+    // 50 rows, each updated 25 times, is 1,300 operations against 50 live rows. That is past the 1,000
+    // operation threshold, so the report samples the operation history rather than reading it in full and
+    // the row count comes back as an estimate. The value per update varies so no two writes are identical.
+    // Each round is flushed separately so the operations span many storage documents, as they would in real
+    // replication (some backends batch operations per document, and a sample must see more than one).
+    const rowCount = 50;
+    const updatesPerRow = 25;
+    for (let row = 0; row < rowCount; row++) {
+      await writer.save({
+        sourceTable: testTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: `r${row}` },
+        afterReplicaId: test_utils.rid(`r${row}`)
+      });
+    }
+    await writer.commit('1/1');
+    await writer.flush();
+    for (let update = 0; update < updatesPerRow; update++) {
+      for (let row = 0; row < rowCount; row++) {
+        await writer.save({
+          sourceTable: testTable,
+          tag: storage.SaveOperationTag.UPDATE,
+          after: { id: `r${row}`, value: `v${update}` },
+          afterReplicaId: test_utils.rid(`r${row}`)
+        });
+      }
+      await writer.commit('1/1');
+      await writer.flush();
+    }
+
+    const bucket = test_utils.bucketRequest(content, 'global[]').bucket;
+    const report = await getReport(bucketStorage);
+    const stats = report.buckets.find((b) => b.bucket === bucket)!;
+
+    // The operation count is exact (read from bucket_state); the row count is a sampled estimate.
+    expect(stats.operations).toEqual(rowCount + rowCount * updatesPerRow);
+    expect(stats.rowsEstimated).toEqual(true);
+    // The sample covers enough of a bucket this fragmented to recover the 50 live rows within a small margin.
+    expect(stats.rows).toBeGreaterThanOrEqual(45);
+    expect(stats.rows).toBeLessThanOrEqual(55);
+    // Fragmentation is operations / rows, so a heavily updated bucket reads well above 1.
+    expect(stats.fragmentation).toBeGreaterThan(10);
+  });
 }

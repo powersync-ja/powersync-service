@@ -576,40 +576,52 @@ export abstract class MongoSyncBucketStorage
   /**
    * Estimate a bucket's live rows from a sample of its operations.
    *
-   * `pipelinePrefix` must select the bucket's operations (and, when `sampled`, randomly down-sample them) and
-   * yield documents with top-level `op`, `table` and `row_id` fields. Returns the distinct row count (exact
-   * when the whole bucket was read, otherwise estimated via {@link storage.estimateDistinctRows}); fragmentation is
-   * then `operations / rows`.
+   * `buildPrefix(applySample)` returns a pipeline prefix that selects the bucket's operations (down-sampled
+   * when `applySample` is true) and yields documents with top-level `op`, `table` and `row_id` fields.
+   * Returns the distinct row count (exact when the whole bucket was read, otherwise estimated via
+   * {@link storage.estimateDistinctRows}); fragmentation is then `operations / rows`.
    */
   protected async estimateRowsFromOperationSample<T extends mongo.Document>(
     collection: mongo.Collection<T>,
-    pipelinePrefix: mongo.Document[],
+    buildPrefix: (applySample: boolean) => mongo.Document[],
     operations: number,
     sampled: boolean
   ): Promise<BucketRowEstimate> {
-    const pipeline: mongo.Document[] = [
-      ...pipelinePrefix,
-      {
-        $facet: {
-          sampledOps: [{ $count: 'count' }],
-          distinctRows: [
-            { $match: { op: { $in: ['PUT', 'REMOVE'] } } },
-            { $group: { _id: { table: '$table', row_id: '$row_id' } } },
-            { $count: 'count' }
-          ]
+    const runCounts = async (applySample: boolean) => {
+      const pipeline: mongo.Document[] = [
+        ...buildPrefix(applySample),
+        {
+          $facet: {
+            sampledOps: [{ $count: 'count' }],
+            distinctRows: [
+              { $match: { op: { $in: ['PUT', 'REMOVE'] } } },
+              { $group: { _id: { table: '$table', row_id: '$row_id' } } },
+              { $count: 'count' }
+            ]
+          }
         }
-      }
-    ];
+      ];
+      type FacetResult = { sampledOps: { count: number }[]; distinctRows: { count: number }[] };
+      const [result] = await collection
+        .aggregate<FacetResult>(pipeline, { allowDiskUse: false, maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS })
+        .toArray();
+      return {
+        sampledOps: result?.sampledOps[0]?.count ?? 0,
+        distinctRows: result?.distinctRows[0]?.count ?? 0
+      };
+    };
 
-    type FacetResult = { sampledOps: { count: number }[]; distinctRows: { count: number }[] };
-    const [result] = await collection
-      .aggregate<FacetResult>(pipeline, { allowDiskUse: false, maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS })
-      .toArray();
-
-    const sampledOps = result?.sampledOps[0]?.count ?? 0;
-    const distinctRows = result?.distinctRows[0]?.count ?? 0;
-    if (sampledOps == 0 || distinctRows == 0) {
-      // Nothing row-bearing was sampled (e.g. a bucket of only MOVE/CLEAR ops): treat as fully fragmented.
+    let { sampledOps, distinctRows } = await runCounts(sampled);
+    if (sampled && sampledOps == 0) {
+      // A document-level `$sampleRate` can select nothing when a bucket spans very few storage documents
+      // (v3 batches operations into a document). Fall back to an exact read so the bucket is not reported as
+      // zero rows. This reads the whole bucket only in the rare empty-sample case, which cannot happen for a
+      // bucket large enough to span many documents.
+      distinctRows = (await runCounts(false)).distinctRows;
+      return { rows: distinctRows, estimated: false };
+    }
+    if (distinctRows == 0) {
+      // Nothing row-bearing was found (e.g. a bucket of only MOVE/CLEAR ops): treat as fully fragmented.
       return { rows: 0, estimated: sampled };
     }
     if (!sampled) {
