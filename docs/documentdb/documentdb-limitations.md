@@ -60,15 +60,15 @@ DocumentDB delivers large change events much more slowly than standard MongoDB. 
 
 If your workload includes large documents (especially frequently-updated ones), validate replication latency against your cluster.
 
-### Temporary `getMore` timeout workaround
+### Temporary idle `getMore` workaround
 
-At the time of writing, Azure DocumentDB may treat `getMore.maxTimeMS` as a hard command execution timeout instead of only as the idle long-poll wait. With small test values, this can fail a valid slow batch with an error like:
+At the time of writing, Azure DocumentDB may return an empty idle `getMore` batch before `getMore.maxTimeMS` has elapsed. With small test values, DocumentDB may also surface timeout errors like:
 
 ```text
 MongoServerError: Query exceeded command timeout of 200ms
 ```
 
-PowerSync works around this in DocumentDB mode by not sending `maxTimeMS` on `getMore` and instead enforcing `maxAwaitTimeMS` locally for empty batches. This avoids server-side timeouts while large batches are being prepared, at the cost of potentially slightly higher idle latency. Once Microsoft releases the DocumentDB fix for `getMore` timeout handling and the fixed version is available on supported clusters, this workaround should be removed and the skipped `maxAwaitTimeMS` characterization test should be re-enabled.
+PowerSync works around the early-empty-batch behavior in DocumentDB mode by still sending `maxTimeMS` on `getMore`, but also enforcing the remaining `maxAwaitTimeMS` locally when an empty batch returns too quickly. This avoids tight idle polling while staying forwards-compatible with the server-side behavior once Microsoft releases the DocumentDB fix. After the fixed version is available on supported clusters, this workaround should be removed and the skipped `maxAwaitTimeMS` characterization test should be re-enabled.
 
 ## Operational note: the internal checkpoints collection
 

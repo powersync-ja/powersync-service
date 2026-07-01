@@ -15,21 +15,17 @@ export interface RawChangeStreamOptions {
 
   /**
    * How long to wait for new data per batch (max time for long-polling).
-   *
-   * By default, this is sent as maxTimeMS for the getMore command. When
-   * clientSideMaxAwaitTimeMS is enabled, it is enforced locally for empty
-   * batches instead.
+   * This is sent as maxTimeMS for the getMore command.
    */
   maxAwaitTimeMS: number;
 
   /**
-   * Emulate maxAwaitTimeMS on the client instead of sending it as getMore
-   * maxTimeMS.
+   * Also enforce maxAwaitTimeMS on the client for empty getMore batches.
    *
-   * Azure DocumentDB currently returns idle getMore calls before maxTimeMS, and
-   * can also apply that value as a hard execution timeout while preparing a
-   * large non-empty batch. When this is enabled, getMore is allowed to complete
-   * server-side and empty batches are delayed locally to avoid tight polling.
+   * Azure DocumentDB currently returns idle getMore calls before maxTimeMS. When
+   * this is enabled, empty batches are delayed locally to avoid tight polling.
+   * We still send maxTimeMS so this remains compatible with servers that handle
+   * maxAwaitTimeMS correctly.
    */
   clientSideMaxAwaitTimeMS?: boolean;
 
@@ -231,15 +227,13 @@ async function* rawChangeStreamInner(
       const getMoreCommand: mongo.Document = {
         getMore: cursorId,
         collection: nsCollection,
-        batchSize: batchSizer.next()
+        batchSize: batchSizer.next(),
+        maxTimeMS: options.maxAwaitTimeMS
       };
-      // Azure DocumentDB currently treats getMore maxTimeMS as a hard command
-      // timeout instead of just the idle maxAwaitTimeMS, which can fail slow
-      // batches with "Query exceeded command timeout of 200ms". In client-side
-      // mode, don't supply it and enforce the idle wait locally for empty batches below.
-      if (!options.clientSideMaxAwaitTimeMS) {
-        getMoreCommand.maxTimeMS = options.maxAwaitTimeMS;
-      }
+      // Azure DocumentDB currently returns empty getMore batches before
+      // maxTimeMS expires. Keep maxTimeMS for forward compatibility with the
+      // server-side behavior, and when client-side mode is enabled, enforce the
+      // remaining idle wait locally for empty batches below.
       const getMoreResult: mongo.Document = await db.command(getMoreCommand, { session, raw: true }).catch((e) => {
         if (isMongoServerError(e) && e.codeName == 'CursorKilled') {
           // This may be due to the killCursors command issued when aborting.
@@ -424,8 +418,18 @@ export function parseChangeDocument(buffer: Buffer): ProjectedChangeStreamDocume
   return doc as any;
 }
 
+function isMaxTimeMSExpiredError(e: unknown) {
+  return (
+    isMongoServerError(e) &&
+    (e.codeName == 'MaxTimeMSExpired' ||
+      // MongoDB documents code 50 as MaxTimeMSExpired. Azure DocumentDB reports
+      // this code with codeName ExceededTimeLimit.
+      e.code == 50)
+  );
+}
+
 function isTimeoutError(e: unknown) {
-  return isMongoNetworkTimeoutError(e) || (isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired');
+  return isMongoNetworkTimeoutError(e) || isMaxTimeMSExpiredError(e);
 }
 
 function isResumableChangeStreamError(e: unknown) {
@@ -439,8 +443,8 @@ function isResumableChangeStreamError(e: unknown) {
   } else if (e.hasErrorLabel('ResumableChangeStreamError')) {
     // For servers with wire version 9 or higher (server version 4.4 or higher), any server error with the ResumableChangeStreamError error label.
     return true;
-  } else if (e.codeName == 'MaxTimeMSExpired') {
-    // Our own exception for MaxTimeMSExpired.
+  } else if (isMaxTimeMSExpiredError(e)) {
+    // Our own exception for maxTimeMS timeouts.
     // This can help us retry faster, with a smaller batch size (if initialBatchSize is set to 1), which should hopefully avoid the timeout.
     return true;
   } else {

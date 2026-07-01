@@ -25,6 +25,7 @@ bucket_definitions:
 const DOCUMENTDB_BUCKET_DATA_TIMEOUT = testTimeout(20_000, { cloudOverride: 120_000 });
 const DOCUMENTDB_LARGE_BUCKET_DATA_TIMEOUT = testTimeout(60_000, { cloudOverride: 180_000 });
 const DOCUMENTDB_LARGE_DOCUMENT_TIMEOUT = testTimeout(120_000, { cloudOverride: 360_000 });
+const DOCUMENTDB_LARGE_DOCUMENT_MAX_AWAIT_TIME_MS = testTimeout(10_000, { cloudOverride: 30_000 });
 const DOCUMENTDB_RESTART_TIMEOUT = testTimeout(50_000, { cloudOverride: 120_000 });
 
 // These tests require a real DocumentDB cluster. See test/DOCUMENTDB_TESTING.md for setup.
@@ -671,7 +672,14 @@ bucket_definitions:
     // Fetching the large row takes very long in DocumentDB cloud.
     { timeout: DOCUMENTDB_LARGE_DOCUMENT_TIMEOUT },
     async () => {
-      await using context = await openContext();
+      await using context = await openContext({
+        streamOptions: {
+          // The test context normally uses 200ms so local MongoDB streams abort
+          // quickly, but DocumentDB needs a realistic getMore maxTimeMS for
+          // intentionally large change events.
+          maxAwaitTimeMS: DOCUMENTDB_LARGE_DOCUMENT_MAX_AWAIT_TIME_MS
+        }
+      });
       const { db } = context;
       await context.updateSyncRules(`
 bucket_definitions:

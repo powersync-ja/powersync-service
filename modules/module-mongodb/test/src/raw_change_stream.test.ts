@@ -5,6 +5,7 @@ import { getCursorBatchBytes } from '@module/replication/replication-index.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { bson } from '@powersync/service-core';
 import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
+import { testTimeout } from './test-timeouts.js';
 import { clearTestDb, connectMongoData, requireFailCommand } from './util.js';
 
 // DocumentDB only supports cluster-level change streams — collection- and
@@ -101,60 +102,67 @@ describe('internal mongodb utils', () => {
     }
   );
 
-  test('omits getMore maxTimeMS when client-side maxAwaitTimeMS is enabled', { timeout: 30_000 }, async () => {
-    const { db, client } = await connectMongoData({ monitorCommands: true });
-    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
-    await clearTestDb(db);
-    const collection = db.collection('test_data');
+  test(
+    'keeps getMore maxTimeMS when client-side maxAwaitTimeMS is enabled',
+    { timeout: testTimeout(30_000, { cloudOverride: 150_000 }) },
+    async () => {
+      const { db, client } = await connectMongoData({ monitorCommands: true });
+      await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+      await clearTestDb(db);
+      const collection = db.collection('test_data');
+      // Keep the local Mongo path fast, but give Azure DocumentDB enough time
+      // for slow cloud change-stream delivery when maxTimeMS is sent to getMore.
+      const maxAwaitTimeMS = testTimeout(50, { cloudOverride: 10_000 });
 
-    const started: any[] = [];
-    client.on('commandStarted', (event) => {
-      if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
-        started.push(event);
-      }
-    });
+      const started: any[] = [];
+      client.on('commandStarted', (event) => {
+        if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
+          started.push(event);
+        }
+      });
 
-    const stream = rawChangeStream(
-      DATABASE_TYPE == DatabaseType.DOCUMENTDB ? client.db('admin') : db,
-      [
-        {
-          $changeStream: {
-            fullDocument: 'updateLookup',
-            ...(DATABASE_TYPE == DatabaseType.DOCUMENTDB ? { allChangesForCluster: true } : {})
-          }
-        },
-        ...(DATABASE_TYPE == DatabaseType.DOCUMENTDB
-          ? [
-              {
-                $match: {
-                  'ns.db': db.databaseName,
-                  'ns.coll': collection.collectionName
+      const stream = rawChangeStream(
+        DATABASE_TYPE == DatabaseType.DOCUMENTDB ? client.db('admin') : db,
+        [
+          {
+            $changeStream: {
+              fullDocument: 'updateLookup',
+              ...(DATABASE_TYPE == DatabaseType.DOCUMENTDB ? { allChangesForCluster: true } : {})
+            }
+          },
+          ...(DATABASE_TYPE == DatabaseType.DOCUMENTDB
+            ? [
+                {
+                  $match: {
+                    'ns.db': db.databaseName,
+                    'ns.coll': collection.collectionName
+                  }
                 }
-              }
-            ]
-          : [])
-      ],
-      {
-        batchSize: 10,
-        maxAwaitTimeMS: 50,
-        clientSideMaxAwaitTimeMS: true,
-        maxTimeMS: 1_000
-      }
-    );
+              ]
+            : [])
+        ],
+        {
+          batchSize: 10,
+          maxAwaitTimeMS,
+          clientSideMaxAwaitTimeMS: true,
+          maxTimeMS: 1_000
+        }
+      );
 
-    await stream.next();
-    await collection.insertOne({ test: 1 });
-    const nextBatch = await readUntilNonEmptyBatch(stream, DATABASE_TYPE == DatabaseType.DOCUMENTDB ? 200 : 5);
-    await stream.return?.();
+      await stream.next();
+      await collection.insertOne({ test: 1 });
+      const nextBatch = await readUntilNonEmptyBatch(stream);
+      await stream.return?.();
 
-    expect(nextBatch.events).toHaveLength(1);
+      expect(nextBatch.events).toHaveLength(1);
 
-    const aggregate = started.find((event) => event.commandName == 'aggregate');
-    const getMore = started.find((event) => event.commandName == 'getMore');
+      const aggregate = started.find((event) => event.commandName == 'aggregate');
+      const getMore = started.find((event) => event.commandName == 'getMore');
 
-    expect(aggregate?.command.maxTimeMS).toEqual(1_000);
-    expect(getMore?.command.maxTimeMS).toBeUndefined();
-  });
+      expect(aggregate?.command.maxTimeMS).toEqual(1_000);
+      expect(getMore?.command.maxTimeMS).toEqual(maxAwaitTimeMS);
+    }
+  );
 
   // This test uses configureFailPoint to inject a getMore timeout. Azure
   // DocumentDB does not support configureFailPoint.
