@@ -16,10 +16,10 @@ function aliasedPrimaryJoinWarning(alias: string, tableName: string) {
   return {
     isWarning: true,
     message:
-      `The primary table is synced under its alias '${alias}' instead of '${tableName}'. ` +
+      `The source row is synced under its alias '${alias}' instead of '${tableName}'. ` +
       `When joining, an alias is often added only to make the ON clause easier to write; if that is the case ` +
       `here, the rename is likely unintentional and clients querying '${tableName}' will see zero rows. ` +
-      `Drop the alias on the primary table, or quote it (\`AS "${alias}"\`) to keep the rename and silence this warning.`,
+      `Drop the alias on the source table, or quote it (\`AS "${alias}"\`) to keep the rename and silence this warning.`,
     source: tableName
   };
 }
@@ -276,7 +276,8 @@ streams:
 
   test('full join', () => {
     expect(compilationErrorsForSingleStream('select i.* from issues i FULL JOIN users u')).toStrictEqual([
-      { message: 'FULL JOIN is not supported', source: 'select i.* from issues i FULL JOIN users u' }
+      { message: 'FULL JOIN is not supported', source: 'select i.* from issues i FULL JOIN users u' },
+      aliasedPrimaryJoinWarning('i', 'issues')
     ]);
   });
 
@@ -301,6 +302,14 @@ streams:
         'SELECT users.* FROM user_data AS "users", chat_msg WHERE users.id = chat_msg.user_id'
       )
     ).toStrictEqual([]);
+  });
+
+  test('aliased primary table with join: still warns when joined tables are aliased', () => {
+    expect(
+      compilationErrorsForSingleStream(
+        'SELECT u.* FROM users u INNER JOIN orgs o ON u.org_id = o.id WHERE o.owner_id = auth.user_id()'
+      )
+    ).toStrictEqual([aliasedPrimaryJoinWarning('u', 'users')]);
   });
 
   test('aliased primary table without join: no warning', () => {

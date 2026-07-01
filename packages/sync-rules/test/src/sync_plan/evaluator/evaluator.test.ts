@@ -518,7 +518,7 @@ streams:
   stream:
       auto_subscribe: true
       query: |
-        SELECT c.* FROM comments c
+        SELECT c.* FROM comments AS "c"
           INNER JOIN issues i ON c.issue = i.id
           INNER JOIN users owner ON owner.name = i.owned_by
         WHERE owner.id = auth.user_id()

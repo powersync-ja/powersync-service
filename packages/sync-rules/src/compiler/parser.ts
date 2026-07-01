@@ -162,11 +162,11 @@ export class StreamQueryParser {
       if (this.primaryResultSet == null) {
         return null;
       }
+      // The statement must be a select statement, as processAst would have returned false otherwise.
+      const select = stmt as SelectFromStatement;
+      this.diagnoseAliasedPrimaryWithJoin(select.from, this.primaryResultSet);
 
-      const where = this.compileFilterClause(
-        // The statement must be a select statement, as processAst would have returned false otherwise.
-        stmt as SelectFromStatement
-      );
+      const where = this.compileFilterClause(select);
       const joined: SourceResultSet[] = [];
       for (const source of this.resultSets.values()) {
         if (source != this.primaryResultSet) {
@@ -261,9 +261,6 @@ export class StreamQueryParser {
 
     if (!options.forSubquery && node.columns) {
       this.processResultColumns(node, node.columns);
-      // Run after processResultColumns so the primary table (determined by the selected columns, not the
-      // order of the FROM clause) is known. See #565.
-      this.diagnoseAliasedPrimaryWithJoin(node.from);
     }
 
     this.warnUnsupported(node.groupBy, 'GROUP BY');
@@ -373,49 +370,31 @@ export class StreamQueryParser {
    * easier to write, in which case the rename is unintentional and clients querying `chat_messages` will
    * unexpectedly see zero rows.
    *
-   * The primary table is determined by the selected columns (tracked in {@link primaryResultSet} by
-   * {@link processResultColumns}), not by the order of the `FROM` clause, so this must run afterwards.
+   * The primary table is determined by the selected columns, not by the order of the `FROM` clause, so this
+   * runs after a non-null primary result set has been established.
    *
-   * The warning is suppressed when every joined source is itself aliased (e.g. `json_each(...) AS tags`):
-   * there the author has clearly opted into explicit naming and the rename is unlikely to surprise. It is also
-   * suppressed when the alias is double-quoted in the source SQL (e.g. `FROM user_data AS "users"`), which we
-   * treat as a deliberate rename.
+   * The warning is suppressed when the alias is double-quoted in the source SQL (e.g. `FROM user_data AS "users"`),
+   * which we treat as a deliberate rename.
    */
-  private diagnoseAliasedPrimaryWithJoin(fromList: From[] | nil) {
+  private diagnoseAliasedPrimaryWithJoin(fromList: From[] | nil, primary: PhysicalSourceResultSet) {
     // Only relevant when joining (more than one source in the FROM clause).
     if (!fromList || fromList.length < 2) {
       return;
     }
-    const primary = this.primaryResultSet;
-    if (primary == null || primary.source.explicitName == null) {
+    if (primary.source.explicitName == null) {
       return;
     }
     // An explicitly quoted alias signals the rename is intentional.
     if (this.aliasIsQuoted(primary.source.origin)) {
       return;
     }
-    // Only warn when a joined source is referenced by its bare name; if every join target is aliased the author
-    // has opted into explicit naming and the primary's alias is unlikely to be a surprise.
-    const hasUnaliasedJoinTarget = fromList.some((entry) => {
-      if (entry.type == 'table') {
-        // Skip the primary table itself (identified by node identity, since it need not be the first entry).
-        return entry.name !== primary.source.origin && !entry.name.alias;
-      }
-      if (entry.type == 'call' || entry.type == 'statement') {
-        return !entry.alias;
-      }
-      return false;
-    });
-    if (!hasUnaliasedJoinTarget) {
-      return;
-    }
     const alias = primary.source.explicitName;
     const tableName = primary.tablePattern.name;
     this.errors.report(
-      `The primary table is synced under its alias '${alias}' instead of '${tableName}'. ` +
+      `The source row is synced under its alias '${alias}' instead of '${tableName}'. ` +
         `When joining, an alias is often added only to make the ON clause easier to write; if that is the case ` +
         `here, the rename is likely unintentional and clients querying '${tableName}' will see zero rows. ` +
-        `Drop the alias on the primary table, or quote it (\`AS "${alias}"\`) to keep the rename and silence this warning.`,
+        `Drop the alias on the source table, or quote it (\`AS "${alias}"\`) to keep the rename and silence this warning.`,
       primary.source.origin,
       { isWarning: true }
     );
