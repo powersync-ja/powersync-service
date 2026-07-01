@@ -199,6 +199,11 @@ export class ChangeStream {
       return;
     }
     this.isDocumentDb = await detectDocumentDb(this.defaultDb);
+    if (this.isDocumentDb) {
+      this.logger.warn(
+        'Azure DocumentDB support is experimental. APIs and behavior may change, and long-term stability is not yet guaranteed.'
+      );
+    }
     this._checkpointImplementation = createCheckpointImplementation(this.isDocumentDb, {
       client: this.client,
       db: this.defaultDb,
@@ -578,6 +583,8 @@ export class ChangeStream {
     return rawChangeStream(watchDb, pipeline, {
       batchSize: options.batchSize ?? this.snapshotChunkLength,
       maxAwaitTimeMS,
+      // maxAwaitTimeMS can be 0 for probe-style streams that do not want an idle wait.
+      // In that case there is no client-side wait to emulate for DocumentDB.
       clientSideMaxAwaitTimeMS: this.isDocumentDb && maxAwaitTimeMS > 0,
       maxTimeMS: this.changeStreamTimeout,
 

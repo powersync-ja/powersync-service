@@ -10,12 +10,19 @@ import { performance } from 'node:perf_hooks';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ChangeStreamInvalidatedError } from './ChangeStream.js';
 
+// Keep the DocumentDB idle-poll workaround from adding the full maxAwaitTimeMS
+// as local latency when an update arrives just after an empty batch.
+const CLIENT_SIDE_MAX_AWAIT_TIME_MS_DELAY_CAP_MS = 1_000;
+
 export interface RawChangeStreamOptions {
   signal?: AbortSignal;
 
   /**
    * How long to wait for new data per batch (max time for long-polling).
    * This is sent as maxTimeMS for the getMore command.
+   *
+   * A value of 0 is allowed for probe-style streams that do not want an idle
+   * wait; in that case PowerSync also skips the local empty-batch delay.
    */
   maxAwaitTimeMS: number;
 
@@ -23,9 +30,9 @@ export interface RawChangeStreamOptions {
    * Also enforce maxAwaitTimeMS on the client for empty getMore batches.
    *
    * Azure DocumentDB currently returns idle getMore calls before maxTimeMS. When
-   * this is enabled, empty batches are delayed locally to avoid tight polling.
-   * We still send maxTimeMS so this remains compatible with servers that handle
-   * maxAwaitTimeMS correctly.
+   * this is enabled, empty batches are delayed locally (capped at 1s) to avoid
+   * tight polling. We still send maxTimeMS so this remains compatible with
+   * servers that handle maxAwaitTimeMS correctly.
    */
   clientSideMaxAwaitTimeMS?: boolean;
 
@@ -233,7 +240,7 @@ async function* rawChangeStreamInner(
       // Azure DocumentDB currently returns empty getMore batches before
       // maxTimeMS expires. Keep maxTimeMS for forward compatibility with the
       // server-side behavior, and when client-side mode is enabled, enforce the
-      // remaining idle wait locally for empty batches below.
+      // capped idle wait locally for empty batches below.
       const getMoreResult: mongo.Document = await db.command(getMoreCommand, { session, raw: true }).catch((e) => {
         if (isMongoServerError(e) && e.codeName == 'CursorKilled') {
           // This may be due to the killCursors command issued when aborting.
@@ -264,7 +271,8 @@ async function* rawChangeStreamInner(
       if (options.clientSideMaxAwaitTimeMS && nextBatch.length == 0) {
         const remainingMaxAwaitTimeMS = Math.ceil(options.maxAwaitTimeMS - (performance.now() - getMoreStartedAt));
         if (remainingMaxAwaitTimeMS > 0) {
-          await delay(remainingMaxAwaitTimeMS, undefined, { signal: options.signal });
+          const clientSideDelayMs = Math.min(remainingMaxAwaitTimeMS, CLIENT_SIDE_MAX_AWAIT_TIME_MS_DELAY_CAP_MS);
+          await delay(clientSideDelayMs, undefined, { signal: options.signal });
         }
       }
       yield {

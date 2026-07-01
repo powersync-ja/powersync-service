@@ -772,6 +772,8 @@ export class MongoSnapshotter {
     return rawChangeStream(watchDb, pipeline, {
       batchSize: options.batchSize ?? this.snapshotChunkLength,
       maxAwaitTimeMS,
+      // maxAwaitTimeMS can be 0 for probe-style streams that do not want an idle wait.
+      // In that case there is no client-side wait to emulate for DocumentDB.
       clientSideMaxAwaitTimeMS: this.isDocumentDb && maxAwaitTimeMS > 0,
       maxTimeMS: this.changeStreamTimeout,
       signal: options.signal,
