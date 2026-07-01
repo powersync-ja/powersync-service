@@ -27,11 +27,17 @@ import { SyncContext } from './SyncContext.js';
 import { getIntersection, hasIntersection } from './util.js';
 
 export type SyncCheckpointTraceCategory =
+  // buildNextCheckpointLine, excluding parameter computation and checksum lookups
   | 'checkpoint'
+  // Parameter lookups
   | 'parameters'
+  // Checksum calculations
   | 'checksum'
-  | 'bucket_data'
+  // Waiting for a data lock to become available
   | 'acquiring_lock'
+  // Data fetches. Holds one data lock for this period.
+  | 'bucket_data'
+  // Sending data to client, may include serialization overhead. Holds one data lock for this period in most cases.
   | 'sending';
 
 export interface BucketChecksumStateOptions {
