@@ -74,10 +74,16 @@ const BUCKET_SELECTION_SAMPLE_THRESHOLD = 50_000;
 const BUCKET_SELECTION_SAMPLE_SIZE = 10_000;
 
 /**
- * Target number of operations to sample per bucket when estimating its row count. Buckets with fewer
- * operations than this are read in full (exact); larger buckets are sampled down to roughly this many.
+ * Fewest operations sampled per bucket when estimating its row count. Buckets with fewer operations than
+ * this are read in full (exact).
  */
-const BUCKET_ROW_SAMPLE_TARGET = 1_000;
+const BUCKET_ROW_SAMPLE_MIN = 1_000;
+
+/**
+ * Most operations sampled per bucket, capping the per-bucket cost on very large buckets at the price of a
+ * weaker estimate for buckets that are both extremely wide and barely fragmented (see {@link bucketRowSampleTarget}).
+ */
+const BUCKET_ROW_SAMPLE_MAX = 25_000;
 
 /** Maximum number of per-bucket row-estimate queries to run concurrently while building a report. */
 const BUCKET_ROW_SAMPLE_CONCURRENCY = 10;
@@ -486,10 +492,12 @@ export abstract class MongoSyncBucketStorage
       ]
     };
 
-    // estimatedDocumentCount ignores the match filter, so this is an upper bound on the active bucket count.
-    // That is fine: it only decides whether to sample, and over-estimating just switches to sampling sooner.
-    const totalBuckets = await collection.estimatedDocumentCount();
-    const sampled = totalBuckets > BUCKET_SELECTION_SAMPLE_THRESHOLD;
+    // estimatedDocumentCount is O(1) but ignores the match filter, so this is an upper bound on the active
+    // bucket count. That is fine for the sampling decision: over-estimating only switches to sampling sooner.
+    // It must NOT be used to scale the sampled totals though - the collection can hold buckets outside the
+    // match (other replication groups for v1/v2, inactive definitions for v3), which would over-scale.
+    const estimatedTotalBuckets = await collection.estimatedDocumentCount();
+    const sampled = estimatedTotalBuckets > BUCKET_SELECTION_SAMPLE_THRESHOLD;
 
     const pipeline: mongo.Document[] = [{ $match: match }];
     if (sampled) {
@@ -538,12 +546,16 @@ export abstract class MongoSyncBucketStorage
       };
     }
 
-    // Scale the sampled totals up to the full collection.
-    const scale = totalBuckets / Math.max(rawTotals.bucketCount, 1);
+    // Scale the sampled totals up to the full *matched* set. countDocuments respects the match filter (so it
+    // excludes other groups / inactive definitions) and uses the _id index; it only runs on the already-large
+    // sampled path, and is bounded by maxTimeMS like the rest of the report. When the matched set fits within
+    // the sample, rawTotals is already exact and the scale collapses to 1.
+    const matchedBuckets = await collection.countDocuments(match, { maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS });
+    const scale = matchedBuckets / Math.max(rawTotals.bucketCount, 1);
     return {
       buckets,
       totals: {
-        bucketCount: totalBuckets,
+        bucketCount: matchedBuckets,
         operations: Math.round(rawTotals.operations * scale),
         operationBytes: Math.round(rawTotals.operationBytes * scale),
         estimated: true
@@ -556,7 +568,7 @@ export abstract class MongoSyncBucketStorage
    *
    * `pipelinePrefix` must select the bucket's operations (and, when `sampled`, randomly down-sample them) and
    * yield documents with top-level `op`, `table` and `row_id` fields. Returns the distinct row count (exact
-   * when the whole bucket was read, otherwise estimated via {@link estimateDistinctRows}); fragmentation is
+   * when the whole bucket was read, otherwise estimated via {@link storage.estimateDistinctRows}); fragmentation is
    * then `operations / rows`.
    */
   protected async estimateRowsFromOperationSample(
@@ -594,49 +606,34 @@ export abstract class MongoSyncBucketStorage
       // Read in full: the distinct row count is exact.
       return { rows: distinctRows, estimated: false };
     }
-    return { rows: this.estimateDistinctRows(operations, sampledOps, distinctRows), estimated: true };
+    return { rows: storage.estimateDistinctRows(operations, sampledOps, distinctRows), estimated: true };
   }
 
   /**
-   * Estimate the true distinct row count of a bucket from a sample of its operations.
+   * How many operations to sample when estimating a bucket's row count.
    *
-   * Each operation is included in the sample with probability `r = sampledOps / operations`, so a row with
-   * `k` operations is seen with probability `1 - (1 - r)^k`. Assuming operations are spread roughly evenly
-   * across rows (so each of `R` rows has about `operations / R` of them), the expected number of distinct
-   * rows in the sample is `R * (1 - (1 - r)^(operations / R))`. This is monotonic in `R`, so we binary-search
-   * for the `R` that matches the observed distinct count.
-   *
-   * The naive `distinctRows / r` over-counts rows (and so under-states fragmentation) whenever the sample
-   * already covered most rows - exactly the highly-fragmented buckets the report exists to surface.
+   * {@link storage.estimateDistinctRows} recovers the true row count from how often the sample lands on the
+   * same row twice ("collisions"). A bucket with `R` rows produces collisions only once the sample size
+   * approaches `sqrt(R)`, and needs roughly `sqrt(100 * R)` before they carry a usable signal. `R` is unknown
+   * up front but is bounded by the operation count, so sampling `sqrt(200 * operations)` operations yields on
+   * the order of 100 expected collisions even in the worst case of one row per operation - enough to keep the
+   * estimate stable rather than swinging with sampling noise. Clamped to [MIN, MAX] to bound per-bucket cost;
+   * above the MAX-implied width the estimate degrades gracefully (only for buckets both very wide and barely
+   * fragmented, which are not the fragmented offenders the report exists to surface).
    */
-  protected estimateDistinctRows(operations: number, sampledOps: number, distinctRows: number): number {
-    const r = Math.min(1, sampledOps / operations);
-    if (r >= 1) {
-      return distinctRows;
-    }
-    const expectedDistinct = (rows: number) => rows * (1 - Math.pow(1 - r, operations / rows));
-    // True distinct count is between the observed distinct (a lower bound) and one row per operation.
-    let lo = distinctRows;
-    let hi = operations;
-    for (let i = 0; i < 60; i++) {
-      const mid = (lo + hi) / 2;
-      if (expectedDistinct(mid) < distinctRows) {
-        lo = mid;
-      } else {
-        hi = mid;
-      }
-    }
-    return Math.round((lo + hi) / 2);
+  protected bucketRowSampleTarget(operations: number): number {
+    const target = Math.ceil(Math.sqrt(200 * operations));
+    return Math.min(BUCKET_ROW_SAMPLE_MAX, Math.max(BUCKET_ROW_SAMPLE_MIN, target));
   }
 
   /** Whether a bucket with this many operations should be sampled rather than read in full. */
   protected shouldSampleBucketRows(operations: number): boolean {
-    return operations > BUCKET_ROW_SAMPLE_TARGET;
+    return operations > this.bucketRowSampleTarget(operations);
   }
 
-  /** `$sampleRate` for sampling roughly {@link BUCKET_ROW_SAMPLE_TARGET} of a bucket's operations. */
+  /** `$sampleRate` for sampling roughly {@link bucketRowSampleTarget} operations from a bucket. */
   protected bucketRowSampleRate(operations: number): number {
-    return BUCKET_ROW_SAMPLE_TARGET / operations;
+    return this.bucketRowSampleTarget(operations) / operations;
   }
 
   /**

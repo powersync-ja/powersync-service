@@ -2,6 +2,7 @@ import {
   assembleBucketReport,
   BucketReportTotals,
   DEFAULT_BUCKET_REPORT_LIMIT,
+  estimateDistinctRows,
   RankedBucketInput,
   resolveBucketReportLimit
 } from '@/storage/bucket-report.js';
@@ -73,6 +74,37 @@ describe('assembleBucketReport', () => {
     const report = assembleBucketReport([bucket('a[]', 100, 4), bucket('b[]', 20, 2)], t);
 
     expect(report.totals).toEqual({ bucketCount: 2, operations: 120, operationBytes: 15, estimated: true });
+  });
+});
+
+describe('estimateDistinctRows', () => {
+  it('returns the observed distinct count when the whole bucket was sampled', () => {
+    // r >= 1: nothing was left out, so the observed distinct count is already exact.
+    expect(estimateDistinctRows(100, 100, 40)).toBe(40);
+    expect(estimateDistinctRows(100, 150, 40)).toBe(40);
+  });
+
+  it('recovers a heavily fragmented bucket the naive estimate would inflate', () => {
+    // 10 rows x 1000 ops each; a 10% sample sees ~1000 ops but still only the same 10 distinct rows.
+    // Naive distinct/rate would report 10 / 0.1 = 100 rows (10x too many, so 10x too little fragmentation).
+    const rows = estimateDistinctRows(10_000, 1_000, 10);
+    expect(rows).toBeGreaterThanOrEqual(9);
+    expect(rows).toBeLessThanOrEqual(12);
+  });
+
+  it('recovers a moderately fragmented bucket', () => {
+    // 500 rows x 2 ops each, 50% sample. Ground truth: 500*(1-0.5^2) = 375 distinct sampled rows.
+    // Naive distinct/rate would report 375 / 0.5 = 750 rows; the estimator should recover ~500.
+    const rows = estimateDistinctRows(1_000, 500, 375);
+    expect(rows).toBeGreaterThan(480);
+    expect(rows).toBeLessThan(520);
+  });
+
+  it('matches the naive estimate when there are no sampling collisions', () => {
+    // 2000 rows, 1 op each, 50% sample: no row is seen twice, so distinct/rate is already correct (~2000).
+    const rows = estimateDistinctRows(2_000, 1_000, 1_000);
+    expect(rows).toBeGreaterThan(1_900);
+    expect(rows).toBeLessThan(2_100);
   });
 });
 

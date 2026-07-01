@@ -95,6 +95,41 @@ export function resolveBucketReportLimit(limit?: number): number {
 }
 
 /**
+ * Estimate the true distinct row count of a bucket from a sample of its operations.
+ *
+ * Each operation is included in the sample with probability `r = sampledOps / operations`, so a row with
+ * `k` operations is seen with probability `1 - (1 - r)^k`. Assuming operations are spread roughly evenly
+ * across rows (so each of `R` rows has about `operations / R` of them), the expected number of distinct
+ * rows in the sample is `R * (1 - (1 - r)^(operations / R))`. This is monotonic in `R`, so we binary-search
+ * for the `R` that matches the observed distinct count.
+ *
+ * The naive `distinctRows / r` over-counts rows (and so under-states fragmentation) whenever the sample
+ * already covered most rows - exactly the highly-fragmented buckets the report exists to surface.
+ *
+ * Pure (no I/O) so it is unit-testable; storage adapters supply the sampled counts.
+ */
+export function estimateDistinctRows(operations: number, sampledOps: number, distinctRows: number): number {
+  const r = Math.min(1, sampledOps / operations);
+  if (r >= 1) {
+    return distinctRows;
+  }
+  const expectedDistinct = (rows: number) => rows * (1 - Math.pow(1 - r, operations / rows));
+  // The true row count is between the observed distinct count (a lower bound) and one row per operation.
+  // Binary-search that range until it is narrower than a single row, at which point rounding is exact.
+  let lo = distinctRows;
+  let hi = operations;
+  while (hi - lo > 0.5) {
+    const mid = (lo + hi) / 2;
+    if (expectedDistinct(mid) < distinctRows) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return Math.round((lo + hi) / 2);
+}
+
+/**
  * Assemble the final {@link BucketReport} from per-bucket stats and instance-wide totals. Storage adapters
  * select and sample the buckets however is cheapest for them; this owns the shared fragmentation / ranking /
  * truncation logic so it cannot drift. Pure (no I/O) so it is unit-testable.
