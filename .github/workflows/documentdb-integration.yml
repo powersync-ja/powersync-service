@@ -33,14 +33,14 @@ jobs:
 
       - name: Check DocumentDB test URI secret
         env:
-          MONGO_TEST_DATA_URL: ${{ secrets.MONGO_TEST_DATA_URL }}
+          MONGO_TEST_DATA_URL: ${{ secrets.AZURE_DOCUMENTDB_TEST_DATA_URL }}
         run: |
           if [ -n "${MONGO_TEST_DATA_URL}" ]; then
             echo "::add-mask::${MONGO_TEST_DATA_URL}"
           fi
 
           if [ -z "${MONGO_TEST_DATA_URL}" ]; then
-            echo "::error::Set the MONGO_TEST_DATA_URL repository or organization secret."
+            echo "::error::Set the AZURE_DOCUMENTDB_TEST_DATA_URL repository or organization secret."
             exit 1
           fi
 
@@ -52,7 +52,7 @@ jobs:
 
       - name: Mask DocumentDB hosts
         env:
-          MONGO_TEST_DATA_URL: ${{ secrets.MONGO_TEST_DATA_URL }}
+          MONGO_TEST_DATA_URL: ${{ secrets.AZURE_DOCUMENTDB_TEST_DATA_URL }}
         run: |
           # Use MongoDB's connection-string parser; WHATWG URL rejects valid
           # multi-host MongoDB URIs.
@@ -60,5 +60,5 @@ jobs:
 
       - name: Test DocumentDB integration
         env:
-          MONGO_TEST_DATA_URL: ${{ secrets.MONGO_TEST_DATA_URL }}
+          MONGO_TEST_DATA_URL: ${{ secrets.AZURE_DOCUMENTDB_TEST_DATA_URL }}
         run: pnpm --filter='./modules/module-mongodb' test

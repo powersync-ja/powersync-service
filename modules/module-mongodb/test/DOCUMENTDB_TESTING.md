@@ -77,7 +77,7 @@ npx vitest run documentdb --reporter=verbose
 
 ## GitHub Actions
 
-The `.github/workflows/documentdb-integration.yml` workflow runs these tests manually via `workflow_dispatch` only. Add a repository or organization secret named `MONGO_TEST_DATA_URL`, then dispatch the workflow.
+The `.github/workflows/documentdb-integration.yml` workflow runs these tests manually via `workflow_dispatch` only. Add a repository or organization secret named `AZURE_DOCUMENTDB_TEST_DATA_URL`, then dispatch the workflow. The workflow maps that secret to the test suite's `MONGO_TEST_DATA_URL` environment variable.
 
 The URI must include a database name in the path. The tests clear/drop this database as part of setup, so use a dedicated test database and cluster.
 
