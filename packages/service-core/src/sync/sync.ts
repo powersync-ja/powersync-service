@@ -214,7 +214,11 @@ async function* streamResponseInner(
             while (true) {
               const next = await settledPromise(waitForNewCheckpointLine());
               if (next.status == 'rejected') {
-                checkpointResult = { result: 'invalidated', invalidationReason: 'checkpoint_error' };
+                if (next.reason instanceof AbortError) {
+                  checkpointResult = { result: 'invalidated', invalidationReason: 'checkpoint_cancelled' };
+                } else {
+                  checkpointResult = { result: 'invalidated', invalidationReason: 'checkpoint_error' };
+                }
                 abortCheckpointController.abort();
               } else if (!next.value.done) {
                 if (next.value.value.line == null) {
@@ -293,14 +297,14 @@ async function* streamResponseInner(
           // Incremental stats since the last checkpoint_complete, partial_checkpoint_complete or checkpoint_invalidated
           ...checkpointLogDetails(checkpoint),
           // Timings since the last checkpoint or checkpoint_diff
-          t: getCheckpointTraceTimings(trace.span)
+          ms: getCheckpointTraceTimings(trace.span)
         });
       } else if (checkpointResult?.result == 'invalidated') {
         // A new checkpoint and checkpoint_complete should follow soon, but we log the stats already
         logger.info(`checkpoint_invalidated: ${checkpoint.checkpoint}`, {
           reason: checkpointResult.invalidationReason,
           ...checkpointLogDetails(checkpoint),
-          t: getCheckpointTraceTimings(trace.span)
+          ms: getCheckpointTraceTimings(trace.span)
         });
       }
 
@@ -344,7 +348,7 @@ type CheckpointResult =
   | { result: 'checkpoint_complete' }
   | {
       result: 'invalidated';
-      invalidationReason: 'compacted' | 'checkpoint_error' | 'checkpoint_superseded';
+      invalidationReason: 'compacted' | 'checkpoint_error' | 'checkpoint_superseded' | 'checkpoint_cancelled';
     };
 
 async function* bucketDataInBatches(
@@ -525,15 +529,19 @@ function startCheckpointTrace(checkpoint: util.InternalOpId): ActiveCheckpointTr
 
 function getCheckpointTraceTimings(span: Span): CheckpointTiming {
   const timings = span.end();
-  const result: CheckpointTiming = { ...timings };
+  const result: CheckpointTiming = {};
+  for (let key in timings) {
+    addTiming(result, key, timings[key]);
+  }
   addTiming(result, 'other', span.selfDuration);
   addTiming(result, 'total', span.endAt - span.startAt);
   return result;
 }
 
-function addTiming(timings: CheckpointTiming, key: string, duration: number) {
-  if (duration > 0) {
-    timings[key] = (timings[key] ?? 0) + duration;
+function addTiming(timings: CheckpointTiming, key: string, durationMicros: number) {
+  const ms = Math.round(durationMicros / 1000);
+  if (ms > 0) {
+    timings[key] = (timings[key] ?? 0) + ms;
   }
 }
 
