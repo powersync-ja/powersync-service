@@ -4,9 +4,12 @@ import { mongo } from '@powersync/lib-service-mongodb';
 
 import { MongoLSN } from '@module/common/MongoLSN.js';
 import { createCheckpoint } from '@module/replication/MongoRelation.js';
+import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
 import { clearTestDb, connectMongoData, requireFailCommand } from './util.js';
 
-describe('checkpoint retryable writes', () => {
+// This suite uses configureFailPoint to force retry timing. Azure DocumentDB
+// does not support configureFailPoint.
+describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('checkpoint retryable writes', () => {
   test('returns the persisted checkpoint clusterTime after a retryable write', { repeats: 1 }, async (ctx) => {
     // This test relies on very specific timing:
     //

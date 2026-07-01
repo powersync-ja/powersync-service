@@ -101,11 +101,70 @@ describe('internal mongodb utils', () => {
     }
   );
 
+  test('omits getMore maxTimeMS when client-side maxAwaitTimeMS is enabled', { timeout: 30_000 }, async () => {
+    const { db, client } = await connectMongoData({ monitorCommands: true });
+    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+    await clearTestDb(db);
+    const collection = db.collection('test_data');
+
+    const started: any[] = [];
+    client.on('commandStarted', (event) => {
+      if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
+        started.push(event);
+      }
+    });
+
+    const stream = rawChangeStream(
+      DATABASE_TYPE == DatabaseType.DOCUMENTDB ? client.db('admin') : db,
+      [
+        {
+          $changeStream: {
+            fullDocument: 'updateLookup',
+            ...(DATABASE_TYPE == DatabaseType.DOCUMENTDB ? { allChangesForCluster: true } : {})
+          }
+        },
+        ...(DATABASE_TYPE == DatabaseType.DOCUMENTDB
+          ? [
+              {
+                $match: {
+                  'ns.db': db.databaseName,
+                  'ns.coll': collection.collectionName
+                }
+              }
+            ]
+          : [])
+      ],
+      {
+        batchSize: 10,
+        maxAwaitTimeMS: 50,
+        clientSideMaxAwaitTimeMS: true,
+        maxTimeMS: 1_000
+      }
+    );
+
+    await stream.next();
+    await collection.insertOne({ test: 1 });
+    const nextBatch = await readUntilNonEmptyBatch(stream, DATABASE_TYPE == DatabaseType.DOCUMENTDB ? 200 : 5);
+    await stream.return?.();
+
+    expect(nextBatch.events).toHaveLength(1);
+
+    const aggregate = started.find((event) => event.commandName == 'aggregate');
+    const getMore = started.find((event) => event.commandName == 'getMore');
+
+    expect(aggregate?.command.maxTimeMS).toEqual(1_000);
+    expect(getMore?.command.maxTimeMS).toBeUndefined();
+  });
+
+  // This test uses configureFailPoint to inject a getMore timeout. Azure
+  // DocumentDB does not support configureFailPoint.
   test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)(
-    'omits getMore maxTimeMS when client-side maxAwaitTimeMS is enabled',
-    async () => {
+    'should resume on MaxTimeMSExpired from getMore',
+    async (ctx) => {
       const { db, client } = await connectMongoData({ monitorCommands: true });
       await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+      await using failCommand = await requireFailCommand(client, ctx);
+
       await clearTestDb(db);
       const collection = db.collection('test_data');
 
@@ -126,121 +185,75 @@ describe('internal mongodb utils', () => {
           }
         ],
         {
-          batchSize: 10,
+          batchSize: 3,
           maxAwaitTimeMS: 50,
-          clientSideMaxAwaitTimeMS: true,
           maxTimeMS: 1_000
+          // To get more details when debugging, enable the logger:
+          // logger: logger
         }
       );
 
       await stream.next();
-      await collection.insertOne({ test: 1 });
-      const nextBatch = await readUntilNonEmptyBatch(stream);
-      await stream.return?.();
 
-      expect(nextBatch.events).toHaveLength(1);
+      await failCommand.configure({
+        mode: { times: 1 },
+        data: {
+          failCommands: ['getMore'],
+          errorCode: 50 // MaxTimeMSExpired
+        }
+      });
 
-      const aggregate = started.find((event) => event.commandName == 'aggregate');
-      const getMore = started.find((event) => event.commandName == 'getMore');
-
-      expect(aggregate?.command.maxTimeMS).toEqual(1_000);
-      expect(getMore?.command.maxTimeMS).toBeUndefined();
-    }
-  );
-
-  test('should resume on MaxTimeMSExpired from getMore', async (ctx) => {
-    const { db, client } = await connectMongoData({ monitorCommands: true });
-    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
-    await using failCommand = await requireFailCommand(client, ctx);
-
-    await clearTestDb(db);
-    const collection = db.collection('test_data');
-
-    const started: any[] = [];
-    client.on('commandStarted', (event) => {
-      if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
-        started.push(event);
+      for (let i = 1; i <= 8; i++) {
+        await collection.insertOne({ test: i });
       }
-    });
 
-    const stream = rawChangeStream(
-      db,
-      [
+      // Test the exponentially-increasing batch size after the retry
+      {
+        // This will fail the getMore, then retry with aggregate with batchSize 1
+        const batch = await readUntilNonEmptyBatch(stream, 10);
+        expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+          { test: 1 }
+        ]);
+      }
+      {
+        // This will be a getMore with batchSize 2
+        const batch = await readUntilNonEmptyBatch(stream, 10);
+        expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+          { test: 2 },
+          { test: 3 }
+        ]);
+      }
+      {
+        // At this point, this batch size is at the original size of 3 again.
+        const batch = await readUntilNonEmptyBatch(stream, 10);
+        expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+          { test: 4 },
+          { test: 5 },
+          { test: 6 }
+        ]);
+      }
+      {
+        const batch = await readUntilNonEmptyBatch(stream, 10);
+        expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+          { test: 7 },
+          { test: 8 }
+        ]);
+      }
+
+      const aggregateCommands = started.filter((event) => event.commandName == 'aggregate');
+      expect(aggregateCommands.length).toBeGreaterThanOrEqual(2);
+      expect(aggregateCommands[0].command.pipeline).toEqual([
         {
           $changeStream: {
             fullDocument: 'updateLookup'
           }
         }
-      ],
-      {
-        batchSize: 3,
-        maxAwaitTimeMS: 50,
-        maxTimeMS: 1_000
-        // To get more details when debugging, enable the logger:
-        // logger: logger
-      }
-    );
-
-    await stream.next();
-
-    await failCommand.configure({
-      mode: { times: 1 },
-      data: {
-        failCommands: ['getMore'],
-        errorCode: 50 // MaxTimeMSExpired
-      }
-    });
-
-    for (let i = 1; i <= 8; i++) {
-      await collection.insertOne({ test: i });
-    }
-
-    // Test the exponentially-increasing batch size after the retry
-    {
-      // This will fail the getMore, then retry with aggregate with batchSize 1
-      const batch = await readUntilNonEmptyBatch(stream, 10);
-      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
-        { test: 1 }
       ]);
-    }
-    {
-      // This will be a getMore with batchSize 2
-      const batch = await readUntilNonEmptyBatch(stream, 10);
-      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
-        { test: 2 },
-        { test: 3 }
-      ]);
-    }
-    {
-      // At this point, this batch size is at the original size of 3 again.
-      const batch = await readUntilNonEmptyBatch(stream, 10);
-      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
-        { test: 4 },
-        { test: 5 },
-        { test: 6 }
-      ]);
-    }
-    {
-      const batch = await readUntilNonEmptyBatch(stream, 10);
-      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
-        { test: 7 },
-        { test: 8 }
-      ]);
-    }
+      expect(aggregateCommands[1].command.pipeline[0]?.$changeStream?.resumeAfter).toBeDefined();
 
-    const aggregateCommands = started.filter((event) => event.commandName == 'aggregate');
-    expect(aggregateCommands.length).toBeGreaterThanOrEqual(2);
-    expect(aggregateCommands[0].command.pipeline).toEqual([
-      {
-        $changeStream: {
-          fullDocument: 'updateLookup'
-        }
-      }
-    ]);
-    expect(aggregateCommands[1].command.pipeline[0]?.$changeStream?.resumeAfter).toBeDefined();
-
-    await stream?.return().catch(() => {});
-  });
+      await stream?.return().catch(() => {});
+    }
+  );
 
   async function testChangeStreamBsonBytes(type: 'db' | 'collection' | 'cluster') {
     const { db, client } = await connectMongoData();

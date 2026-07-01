@@ -12,6 +12,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
 import { env } from './env.js';
+import { testTimeout } from './test-timeouts.js';
 import { connectMongoData, describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
 
 const BASIC_SYNC_RULES = `
@@ -20,6 +21,11 @@ bucket_definitions:
     data:
       - SELECT _id as id, description FROM "test_data"
 `;
+
+const DOCUMENTDB_BUCKET_DATA_TIMEOUT = testTimeout(20_000, { cloudOverride: 120_000 });
+const DOCUMENTDB_LARGE_BUCKET_DATA_TIMEOUT = testTimeout(60_000, { cloudOverride: 180_000 });
+const DOCUMENTDB_LARGE_DOCUMENT_TIMEOUT = testTimeout(120_000, { cloudOverride: 360_000 });
+const DOCUMENTDB_RESTART_TIMEOUT = testTimeout(50_000, { cloudOverride: 120_000 });
 
 // These tests require a real DocumentDB cluster. See test/DOCUMENTDB_TESTING.md for setup.
 //
@@ -571,9 +577,9 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.DOCUMENTDB)('documentDbMode', () =
     }
   });
 
-  // 120s timeout — remote DocumentDB clusters can have 10-30s latency spikes
-  // for change stream delivery. Tests that poll for data need headroom.
-  describeWithStorage({ timeout: 120_000 }, defineDocumentDBDbModeTests);
+  // Remote DocumentDB clusters can have 10-30s latency spikes for change
+  // stream delivery. Tests that poll for data need headroom.
+  describeWithStorage({ timeout: testTimeout(120_000, { cloudOverride: 180_000 }) }, defineDocumentDBDbModeTests);
 });
 
 function defineDocumentDBDbModeTests({ factory, storageVersion }: StorageVersionTestContext) {
@@ -607,7 +613,7 @@ bucket_definitions:
     await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
     await collection.deleteOne({ _id: test_id });
 
-    const data = await context.getBucketData('global[]');
+    const data = await context.getBucketData('global[]', undefined, { timeout: DOCUMENTDB_BUCKET_DATA_TIMEOUT });
 
     expect(data).toMatchObject([
       test_utils.putOp('test_data', { id: test_id.toHexString(), description: 'test1' }),
@@ -639,7 +645,7 @@ bucket_definitions:
     const checkpoint = await context.getCheckpoint();
     expect(checkpoint).toBeTruthy();
 
-    const data = await context.getBucketData('global[]');
+    const data = await context.getBucketData('global[]', undefined, { timeout: DOCUMENTDB_BUCKET_DATA_TIMEOUT });
     expect(data).toMatchObject([test_utils.putOp('test_data', { id: insertedId, description: 'sentinel_test' })]);
   });
 
@@ -662,8 +668,8 @@ bucket_definitions:
   // docs/documentdb/documentdb-limitations.md.
   test(
     'replicates a large document near the row size limit',
-    // Fetching the large row takes very long in DocumentDBDB cloud
-    { timeout: 120_000 },
+    // Fetching the large row takes very long in DocumentDB cloud.
+    { timeout: DOCUMENTDB_LARGE_DOCUMENT_TIMEOUT },
     async () => {
       await using context = await openContext();
       const { db } = context;
@@ -688,7 +694,9 @@ bucket_definitions:
       const id = insertResult.insertedId.toHexString();
 
       // Large events are slow to fetch on DocumentDB, so allow well beyond the 15s default.
-      const afterInsert = await context.getBucketData('global[]', undefined, { timeout: 50_000 });
+      const afterInsert = await context.getBucketData('global[]', undefined, {
+        timeout: DOCUMENTDB_LARGE_BUCKET_DATA_TIMEOUT
+      });
       expect(afterInsert.length).toEqual(1);
       const insertData = JSON.parse(afterInsert[0].data as string);
       expect(insertData).toMatchObject({ id, marker: 'big_insert' });
@@ -698,8 +706,10 @@ bucket_definitions:
       // fullDocument on the change event is still ~15MB.
       await collection.updateOne({ _id: insertResult.insertedId }, { $set: { marker: 'big_update' } });
 
-      // Fetching the large row takes very long in DocumentDBDB cloud
-      const afterUpdate = await context.getBucketData('global[]', undefined, { timeout: 50_000 });
+      // Fetching the large row takes very long in DocumentDB cloud.
+      const afterUpdate = await context.getBucketData('global[]', undefined, {
+        timeout: DOCUMENTDB_LARGE_BUCKET_DATA_TIMEOUT
+      });
       expect(afterUpdate.length).toEqual(2);
       const updateData = JSON.parse(afterUpdate[1].data as string);
       expect(updateData).toMatchObject({ id, marker: 'big_update' });
@@ -722,7 +732,7 @@ bucket_definitions:
     context.startStreaming();
 
     // Wait for the initial checkpoint to be processed
-    await context.getCheckpoint({ timeout: 50_000 });
+    await context.getCheckpoint({ timeout: DOCUMENTDB_BUCKET_DATA_TIMEOUT });
 
     // Wait past the keepalive interval so the idle keepalive path fires.
     // On DocumentDB, this must NOT crash from parseResumeTokenTimestamp
@@ -733,7 +743,9 @@ bucket_definitions:
     const collection = db.collection('test_data');
     await collection.insertOne({ description: 'after_keepalive' });
 
-    const data = await context.getBucketData('global[]');
+    const data = await context.getBucketData('global[]', undefined, {
+      timeout: DOCUMENTDB_BUCKET_DATA_TIMEOUT
+    });
     expect(data.length).toBeGreaterThanOrEqual(1);
     const lastOp = data[data.length - 1];
     expect(JSON.parse(lastOp.data as string)).toMatchObject({ description: 'after_keepalive' });
@@ -918,7 +930,7 @@ bucket_definitions:
     // process its initial checkpoint before we insert test data. Without this,
     // the insert can happen before the ChangeStream's lazy aggregate command
     // is sent, causing the event to be missed entirely (not a .lte() issue).
-    await context2.getCheckpoint({ timeout: 50_000 });
+    await context2.getCheckpoint({ timeout: DOCUMENTDB_RESTART_TIMEOUT });
 
     // Insert — if .lte() drops same-second events, this data will never appear.
     const collection2 = db2.collection('test_data');
@@ -929,12 +941,11 @@ bucket_definitions:
     // We bypass the flaky getClientCheckpoint timing by polling until the data appears
     // or the timeout expires. If the .lte() guard drops same-second events, the data
     // will never appear — deterministic failure.
-    // 50s timeout — remote DocumentDB clusters can have 10-30s latency spikes.
-    const deadline = Date.now() + 50_000;
+    const deadline = Date.now() + DOCUMENTDB_RESTART_TIMEOUT;
     let found = false;
     while (Date.now() < deadline) {
       try {
-        const data = await context2.getBucketData('global[]', undefined, { timeout: 2_000 });
+        const data = await context2.getBucketData('global[]', undefined, { timeout: 5_000 });
         const match = data.find((op) => op.object_id === id2.toHexString() && op.op === 'PUT');
         if (match) {
           const parsed = JSON.parse(match.data as string);
@@ -974,7 +985,7 @@ bucket_definitions:
     const id1 = result1.insertedId;
 
     // Wait for the data to be replicated and checkpoint to advance
-    await context.getCheckpoint();
+    await context.getCheckpoint({ timeout: DOCUMENTDB_BUCKET_DATA_TIMEOUT });
 
     const dataBefore = await context.getBucketDataAtLatestCheckpoint('global[]');
     expect(dataBefore).toMatchObject([
@@ -995,7 +1006,7 @@ bucket_definitions:
 
     // Wait for the stream to fully initialize and process the initial checkpoint
     // before inserting new data.
-    await context2.getCheckpoint({ timeout: 10_000 });
+    await context2.getCheckpoint({ timeout: DOCUMENTDB_RESTART_TIMEOUT });
 
     const collection2 = db2.collection('test_data');
     const result2 = await collection2.insertOne({ description: 'after_restart' });
@@ -1004,8 +1015,7 @@ bucket_definitions:
     // On DocumentDB, wall-clock LSNs have second precision and stored LSNs may
     // include resume-token suffixes. Avoid creating a fresh sentinel checkpoint
     // on every poll; read at the latest persisted checkpoint instead.
-    // 50s timeout — remote DocumentDB clusters can have 10-30s latency spikes.
-    const deadline = Date.now() + 50_000;
+    const deadline = Date.now() + DOCUMENTDB_RESTART_TIMEOUT;
     let found = false;
     while (Date.now() < deadline) {
       const dataAfter = await context2.getBucketDataAtLatestCheckpoint('global[]');
