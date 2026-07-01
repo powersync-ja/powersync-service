@@ -8,6 +8,10 @@ on:
         required: false
         default: '6'
         type: string
+  #  Temporary for smoke testing
+  push:
+    branches:
+      - '**'
 
 permissions:
   contents: read
