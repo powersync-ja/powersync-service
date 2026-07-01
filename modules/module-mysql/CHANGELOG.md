@@ -1,5 +1,21 @@
 # @powersync/service-module-mysql
 
+## 0.14.2
+
+### Patch Changes
+
+- e4f683d: [MongoDB Storage] Add experimental option to allow reading data from secondaries.
+- Updated dependencies [71d4a0a]
+- Updated dependencies [e4f683d]
+- Updated dependencies [71d4a0a]
+- Updated dependencies [a6ae678]
+- Updated dependencies [c2edf86]
+- Updated dependencies [df9ab1e]
+  - @powersync/service-core@1.23.2
+  - @powersync/service-sync-rules@0.38.1
+  - @powersync/service-types@0.16.1
+  - @powersync/lib-services-framework@0.9.7
+
 ## 0.14.1
 
 ### Patch Changes

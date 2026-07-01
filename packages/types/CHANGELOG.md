@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.16.1
+
+### Patch Changes
+
+- c2edf86: Add `api.parameters.bucket_count_cache_ttl_minutes` configuration option.
+
 ## 0.16.0
 
 ### Minor Changes

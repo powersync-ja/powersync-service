@@ -1,5 +1,12 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.28
+
+### Patch Changes
+
+- e4f683d: [MongoDB Storage] Add experimental option to allow reading data from secondaries.
+  - @powersync/lib-services-framework@0.9.7
+
 ## 0.6.27
 
 ### Patch Changes
