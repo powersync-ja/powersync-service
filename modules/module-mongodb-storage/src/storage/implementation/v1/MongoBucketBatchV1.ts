@@ -203,6 +203,8 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
     await this.flush(options);
 
+    using _ = this.tracer.span('storage', 'commit');
+
     const now = new Date();
 
     await this.db.write_checkpoints.updateMany(
@@ -358,6 +360,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   }
 
   async setResumeLsn(lsn: string): Promise<void> {
+    using _ = this.tracer.span('storage', 'set_resume_lsn');
     await this.db.sync_rules.updateOne(
       {
         _id: this.replicationStreamId
@@ -367,7 +370,13 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           snapshot_lsn: lsn
         }
       },
-      { session: this.session }
+      {
+        session: this.session,
+        // Losing occasional resume LSN is fine. That may mean reprocessing
+        // some source changes in some edge cases, which is not an issue since
+        // changes are processed in an idempotent way.
+        writeConcern: { w: 1 }
+      }
     );
   }
 
@@ -486,7 +495,12 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
     const session = this.session;
     let activated = false;
+    let needsFutureActivationCheck = true;
     await session.withTransaction(async () => {
+      // Reset on transaction retries.
+      activated = false;
+      needsFutureActivationCheck = true;
+
       const doc = (await this.db.sync_rules.findOne(
         { _id: this.replicationStreamId },
         { session }
@@ -518,12 +532,14 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         );
         activated = true;
       } else if (doc?.state != storage.SyncRuleState.PROCESSING) {
-        this.needsActivation = false;
+        needsFutureActivationCheck = false;
       }
     });
     if (activated) {
       this.logger.info(`Activated new replication stream at ${lsn}`);
       await this.db.notifyCheckpoint();
+      this.needsActivation = false;
+    } else if (!needsFutureActivationCheck) {
       this.needsActivation = false;
     }
   }
