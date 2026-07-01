@@ -137,11 +137,17 @@ async function* streamResponseInner(
     if (next.done) {
       return { done: true, value: undefined };
     }
+    const cp = next.value.base;
 
-    const trace = startCheckpointTrace(next.value.base.checkpoint);
+    const tracer = new PerformanceTracer<SyncCheckpointTraceCategory>(`sync checkpoint ${cp.checkpoint}`);
+    const trace = {
+      tracer,
+      span: tracer.span('checkpoint')
+    };
+
     try {
       const line = await checksumState.buildNextCheckpointLine(next.value, trace.tracer);
-      return { done: false, value: { checkpoint: next.value.base, line, trace: line == null ? null : trace } };
+      return { done: false, value: { checkpoint: cp, line, trace: line == null ? null : trace } };
     } catch (e) {
       // Only end the span if we error. If we return normally, we pass ownership on to the caller.
       trace.span.end();
@@ -517,14 +523,6 @@ async function* bucketDataBatch(
     release();
   }
   return null;
-}
-
-function startCheckpointTrace(checkpoint: util.InternalOpId): ActiveCheckpointTrace {
-  const tracer = new PerformanceTracer<SyncCheckpointTraceCategory>(`sync checkpoint ${checkpoint}`);
-  return {
-    tracer,
-    span: tracer.span('checkpoint')
-  };
 }
 
 function getCheckpointTraceTimings(span: Span): CheckpointTiming {
