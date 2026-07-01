@@ -22,8 +22,23 @@ import {
 } from '@powersync/lib-services-framework';
 import { JwtPayload } from '../auth/JwtPayload.js';
 import { ParameterSetLimitExceededError } from '../storage/storage-index.js';
+import { PerformanceTracer } from '../tracing/PerformanceTracer.js';
 import { SyncContext } from './SyncContext.js';
 import { getIntersection, hasIntersection } from './util.js';
+
+export type SyncCheckpointTraceCategory =
+  // buildNextCheckpointLine, excluding parameter computation and checksum lookups
+  | 'checkpoint'
+  // Parameter lookups
+  | 'parameters'
+  // Checksum calculations
+  | 'checksum'
+  // Waiting for a data lock to become available
+  | 'acquiring_lock'
+  // Data fetches. Holds one data lock for this period.
+  | 'bucket_data'
+  // Sending data to client, may include serialization overhead. Holds one data lock for this period in most cases.
+  | 'sending';
 
 export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
@@ -112,13 +127,18 @@ export class BucketChecksumState {
    * @param next The updated checkpoint
    * @returns A {@link CheckpointLine} if any of the buckets watched by this connected was updated, or otherwise `null`.
    */
-  async buildNextCheckpointLine(next: storage.StorageCheckpointUpdate): Promise<CheckpointLine | null> {
+  async buildNextCheckpointLine(
+    next: storage.StorageCheckpointUpdate,
+    tracer?: PerformanceTracer<SyncCheckpointTraceCategory>
+  ): Promise<CheckpointLine | null> {
+    tracer ??= new PerformanceTracer<SyncCheckpointTraceCategory>(`sync checkpoint ${next.base.checkpoint}`);
+
     const { writeCheckpoint, base } = next;
     const userIdForLogs = this.parameterState.syncParams.userId;
 
     const storage = this.bucketStorage;
 
-    const update = await this.parameterState.getCheckpointUpdate(next);
+    const update = await this.parameterState.getCheckpointUpdate(next, tracer);
     const { buckets: allBuckets, updatedBuckets, usedParameterResults } = update;
 
     /** Set of all buckets in this checkpoint. */
@@ -181,7 +201,11 @@ export class BucketChecksumState {
 
       if (checksumLookups.length > 0) {
         const requestHint: storage.BucketRequestHint = hasNewBucket ? 'bulk' : 'incremental';
-        let updatedChecksums = await storage.getChecksums(base, checksumLookups, { requestHint });
+        let updatedChecksums: util.ChecksumMap;
+
+        using _ = tracer.span('checksum');
+        updatedChecksums = await storage.getChecksums(base, checksumLookups, { requestHint });
+
         for (let [bucket, value] of updatedChecksums.entries()) {
           newChecksums.set(bucket, value);
         }
@@ -197,6 +221,8 @@ export class BucketChecksumState {
         bucket: b.bucket,
         source: b.source
       }));
+
+      using _ = tracer.span('checksum');
       checksumMap = await storage.getChecksums(base, bucketList, { requestHint });
     }
 
@@ -535,12 +561,15 @@ export class BucketParameterState {
     return (desc.subscribedToByDefault && this.includeDefaultStreams) || this.subscribedStreamNames.has(desc.name);
   }
 
-  async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
+  async getCheckpointUpdate(
+    checkpoint: storage.StorageCheckpointUpdate,
+    tracer: PerformanceTracer<SyncCheckpointTraceCategory>
+  ): Promise<CheckpointUpdate> {
     const querier = this.querier;
     let update: CheckpointUpdate;
     if (querier.hasDynamicBuckets) {
       try {
-        update = await this.getCheckpointUpdateDynamic(checkpoint);
+        update = await this.getCheckpointUpdateDynamic(checkpoint, tracer);
       } catch (e: unknown) {
         if (e instanceof ParameterSetLimitExceededError) {
           // Too many parameter results, create a breakdown of which streams are responsible for the most queries and
@@ -603,7 +632,10 @@ export class BucketParameterState {
   /**
    * For dynamic buckets, we need to re-query the list of buckets every time.
    */
-  private async getCheckpointUpdateDynamic(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
+  private async getCheckpointUpdateDynamic(
+    checkpoint: storage.StorageCheckpointUpdate,
+    tracer: PerformanceTracer<SyncCheckpointTraceCategory>
+  ): Promise<CheckpointUpdate> {
     const querier = this.querier;
     const staticBuckets = this.staticBuckets.values();
     const update = checkpoint.update;
@@ -659,6 +691,7 @@ export class BucketParameterState {
           }
 
           try {
+            using _ = tracer.span('parameters', definition);
             const results = await checkpoint.base.getParameterSets(lookups, remainingBudget);
             const numRows = results.reduce((a, b) => a + b.rows.length, 0);
 
