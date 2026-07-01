@@ -100,6 +100,7 @@ export class TestBinLogEventHandler implements BinLogEventHandler {
   commitCount = 0;
   schemaChanges: SchemaChange[] = [];
   lastKeepAlive: string | undefined;
+  lastCommitLsn: string | undefined;
 
   unpause: ((value: void | PromiseLike<void>) => void) | undefined;
   private pausedPromise: Promise<void> | undefined;
@@ -127,6 +128,7 @@ export class TestBinLogEventHandler implements BinLogEventHandler {
 
   async onCommit(lsn: string) {
     this.commitCount++;
+    this.lastCommitLsn = lsn;
   }
 
   async onSchemaChange(change: SchemaChange) {
