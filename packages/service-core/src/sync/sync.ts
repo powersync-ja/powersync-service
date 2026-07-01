@@ -190,7 +190,8 @@ async function* streamResponseInner(
       // the new checkpoint.
       const abortCheckpointController = new AbortController();
       let syncedOperations = 0;
-      let checkpointInvalidationReason: CheckpointInvalidationResult | null = null;
+
+      let checkpointResult: CheckpointResult | null = null;
 
       const abortCheckpointSignal = AbortSignal.any([abortCheckpointController.signal, signal]);
 
@@ -213,7 +214,7 @@ async function* streamResponseInner(
             while (true) {
               const next = await settledPromise(waitForNewCheckpointLine());
               if (next.status == 'rejected') {
-                checkpointInvalidationReason = 'invalidated_next_checkpoint_error';
+                checkpointResult = { result: 'invalidated', invalidationReason: 'checkpoint_error' };
                 abortCheckpointController.abort();
               } else if (!next.value.done) {
                 if (next.value.value.line == null) {
@@ -224,7 +225,7 @@ async function* streamResponseInner(
 
                 // A new sync line can be emitted. Stop running the bucketDataInBatches() iterations, making the
                 // main flow reach the new checkpoint.
-                checkpointInvalidationReason = 'invalidated_new_checkpoint';
+                checkpointResult = { result: 'invalidated', invalidationReason: 'checkpoint_superseded' };
                 abortCheckpointController.abort();
               }
 
@@ -248,7 +249,6 @@ async function* streamResponseInner(
         };
       }
 
-      let checkpointResult: CheckpointResult | null = null;
       // This incrementally updates dataBuckets with each individual bucket position.
       // At the end of this, we can be sure that all buckets have data up to the checkpoint.
       for (const [priority, buckets] of priorityBatches) {
@@ -257,7 +257,7 @@ async function* streamResponseInner(
           break;
         }
 
-        checkpointResult = yield* bucketDataInBatches({
+        const batchResult = yield* bucketDataInBatches({
           syncContext: syncContext,
           bucketStorage: bucketStorage,
           checkpoint,
@@ -275,30 +275,30 @@ async function* streamResponseInner(
           logger,
           tracer
         });
-        if (checkpointResult == 'partial_complete') {
+        if (batchResult?.result == 'partial_checkpoint_complete') {
           // We don't specifically include timing details here, since that would end the span.
           // Timings are included in the checkpoint_complete following this.
           logger.info(`partial_checkpoint_complete: ${checkpoint.checkpoint}`, {
             priority,
             ...checkpointLogDetails(checkpoint)
           });
-        }
-        if (checkpointResult == 'complete' || isInvalidatedCheckpointResult(checkpointResult)) {
+        } else if (batchResult?.result != null) {
+          checkpointResult = batchResult;
           break;
         }
       }
 
-      if (checkpointResult == 'complete') {
+      if (checkpointResult?.result == 'checkpoint_complete') {
         logger.info(`checkpoint_complete: ${checkpoint.checkpoint}`, {
           // Incremental stats since the last checkpoint_complete, partial_checkpoint_complete or checkpoint_invalidated
           ...checkpointLogDetails(checkpoint),
           // Timings since the last checkpoint or checkpoint_diff
           t: getCheckpointTraceTimings(trace.span)
         });
-      } else if (isInvalidatedCheckpointResult(checkpointResult) || checkpointInvalidationReason != null) {
+      } else if (checkpointResult?.result == 'invalidated') {
         // A new checkpoint and checkpoint_complete should follow soon, but we log the stats already
         logger.info(`checkpoint_invalidated: ${checkpoint.checkpoint}`, {
-          reason: isInvalidatedCheckpointResult(checkpointResult) ? checkpointResult : checkpointInvalidationReason,
+          reason: checkpointResult.invalidationReason,
           ...checkpointLogDetails(checkpoint),
           t: getCheckpointTraceTimings(trace.span)
         });
@@ -340,17 +340,12 @@ interface BucketDataRequest {
 }
 
 type CheckpointResult =
-  | 'partial_complete'
-  | 'complete'
-  | 'invalidated_bucket_data_target_op'
-  | 'invalidated_new_checkpoint'
-  | 'invalidated_next_checkpoint_error';
-
-type CheckpointInvalidationResult = Extract<CheckpointResult, `invalidated_${string}`>;
-
-function isInvalidatedCheckpointResult(result: CheckpointResult | null): result is CheckpointInvalidationResult {
-  return result?.startsWith('invalidated_') ?? false;
-}
+  | { result: 'partial_checkpoint_complete' }
+  | { result: 'checkpoint_complete' }
+  | {
+      result: 'invalidated';
+      invalidationReason: 'compacted' | 'checkpoint_error' | 'checkpoint_superseded';
+    };
 
 async function* bucketDataInBatches(
   request: BucketDataRequest
@@ -492,7 +487,7 @@ async function* bucketDataBatch(
         // Don't send the checkpoint_complete line in this case.
         // More data should be available immediately for a new checkpoint.
         yield { data: null, done: true };
-        return 'invalidated_bucket_data_target_op';
+        return { result: 'invalidated', invalidationReason: 'compacted' };
       } else {
         if (request.forPriority != null) {
           const line: util.StreamingSyncCheckpointPartiallyComplete = {
@@ -502,7 +497,7 @@ async function* bucketDataBatch(
             }
           };
           yield { data: line, done: true };
-          return 'partial_complete';
+          return { result: 'partial_checkpoint_complete' };
         } else {
           const line: util.StreamingSyncCheckpointComplete = {
             checkpoint_complete: {
@@ -510,7 +505,7 @@ async function* bucketDataBatch(
             }
           };
           yield { data: line, done: true };
-          return 'complete';
+          return { result: 'checkpoint_complete' };
         }
       }
     }
