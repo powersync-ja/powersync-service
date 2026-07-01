@@ -1,5 +1,5 @@
 import { ErrorCode, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
-import { ReplicationHeadCallback } from '../api/RouteAPI.js';
+import { RouteAPI } from '../api/RouteAPI.js';
 import { BucketStorageFactory, SyncRulesBucketStorage } from '../storage/storage-index.js';
 
 // Keep up to three source-head/storage batches executing concurrently under load.
@@ -14,8 +14,6 @@ export interface CreateWriteCheckpointResult {
   replicationHead: string;
 }
 
-export type CreateReplicationHead = <T>(callback: ReplicationHeadCallback<T>) => Promise<T>;
-
 interface QueuedWriteCheckpoint {
   userId: string;
   resolvers: PromiseWithResolvers<CreateWriteCheckpointResult>;
@@ -27,7 +25,7 @@ export class WriteCheckpointBatcher {
   private scheduledPump: NodeJS.Timeout | undefined;
 
   constructor(
-    private readonly getCreateReplicationHead: () => CreateReplicationHead,
+    private readonly getAPI: () => RouteAPI,
     private readonly getStorage: () => BucketStorageFactory
   ) {}
 
@@ -76,7 +74,7 @@ export class WriteCheckpointBatcher {
         throw new ServiceError(ErrorCode.PSYNC_S2302, `Cannot create Write Checkpoint since no sync config is active.`);
       }
 
-      const { writeCheckpoints, currentCheckpoint } = await this.getCreateReplicationHead()(
+      const { writeCheckpoints, currentCheckpoint } = await this.getAPI().createReplicationHead(
         async (currentCheckpoint) => {
           const writeCheckpoints = await this.createBatchWriteCheckpoints(syncBucketStorage, batch, currentCheckpoint);
           return { writeCheckpoints, currentCheckpoint };

@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.38.1
+
+### Patch Changes
+
+- a6ae678: Warn when using a `*` column in Sync Streams might overwrite an earlier alias.
+
 ## 0.38.0
 
 ### Minor Changes

@@ -183,9 +183,9 @@ bucket_definitions:
             break;
           }
 
-          const checkpoint = (await storage.getCheckpoint()).checkpoint;
+          const checkpoint = await storage.getCheckpoint();
           const opsBefore = await helpers.getBucketData('global[]', checkpoint);
-          await storage.compact({ maxOpId: checkpoint });
+          await storage.compact({ maxOpId: checkpoint.checkpoint });
           const opsAfter = await helpers.getBucketData('global[]', checkpoint);
 
           test_utils.validateCompactedBucket(opsBefore, opsAfter);
@@ -252,7 +252,7 @@ bucket_definitions:
       }
 
       // Check that each PUT has a REMOVE
-      const checkpoint = (await storage.getCheckpoint()).checkpoint;
+      const checkpoint = await storage.getCheckpoint();
       const ops = await helpers.getBucketData('global[]', checkpoint);
 
       const reduced = test_utils.reduceBucket(ops);

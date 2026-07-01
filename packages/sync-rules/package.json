@@ -1,7 +1,7 @@
 {
   "name": "@powersync/service-sync-rules",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.38.0",
+  "version": "0.38.1",
   "exports": "./dist/index.js",
   "license": "FSL-1.1-ALv2",
   "publishConfig": {
