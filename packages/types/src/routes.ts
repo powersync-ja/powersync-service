@@ -81,8 +81,8 @@ export type ValidateResponse = t.Encoded<typeof ValidateResponse>;
 export const BucketReportRequest = t.object({
   /**
    * Maximum number of buckets to return, ranked by operation count descending (worst offenders first).
-   * Caps the response only, not the query cost: totals are still computed across all buckets. Omit for
-   * no limit.
+   * Row counts are sampled per returned bucket, so this also bounds the report's cost. Defaults to 50 when
+   * omitted; non-integer or negative values are floored and clamped to 1.
    */
   limit: t.number.optional()
 });
