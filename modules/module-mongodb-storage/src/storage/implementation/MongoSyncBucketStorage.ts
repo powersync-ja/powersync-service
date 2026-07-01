@@ -581,8 +581,8 @@ export abstract class MongoSyncBucketStorage
    * when the whole bucket was read, otherwise estimated via {@link storage.estimateDistinctRows}); fragmentation is
    * then `operations / rows`.
    */
-  protected async estimateRowsFromOperationSample(
-    collection: mongo.Collection<any>,
+  protected async estimateRowsFromOperationSample<T extends mongo.Document>(
+    collection: mongo.Collection<T>,
     pipelinePrefix: mongo.Document[],
     operations: number,
     sampled: boolean

@@ -271,9 +271,8 @@ export const validate = routeDefinition({
 /**
  * Per-bucket report of total operations vs total live rows in storage, for the active sync config.
  *
- * Answers the recurring "why is my Data Synced so high" question instance-wide
- * a high `operations / rows` ratio indicates fragmented buckets that a compact or
- * defragment can reclaim.
+ * Answers the recurring "why is my Data Synced so high" question. A high `operations / rows` ratio
+ * indicates fragmented buckets that a compact or defragment can reclaim.
  */
 export const bucketReport = routeDefinition({
   path: '/api/admin/v1/bucket-report',
