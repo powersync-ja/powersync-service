@@ -162,7 +162,9 @@ bucket_definitions:
 
       const options: storage.BucketDataBatchOptions = {};
 
-      const batch1 = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [globalBucket], options));
+      const batch1 = await test_utils.fromAsync(
+        bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [globalBucket], options)
+      );
       expect(test_utils.getBatchData(batch1)).toEqual([
         { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
       ]);
@@ -174,7 +176,7 @@ bucket_definitions:
 
       const batch2 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
-          checkpoint,
+          test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch1[0].chunkData.next_after) }],
           options
         )
@@ -190,7 +192,7 @@ bucket_definitions:
 
       const batch3 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
-          checkpoint,
+          test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch2[0].chunkData.next_after) }],
           options
         )
@@ -206,7 +208,7 @@ bucket_definitions:
 
       const batch4 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
-          checkpoint,
+          test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch3[0].chunkData.next_after) }],
           options
         )

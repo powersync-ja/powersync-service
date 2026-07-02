@@ -138,7 +138,7 @@ export interface SyncRulesBucketStorage
    * @param options batch size options
    */
   getBucketDataBatch(
-    checkpoint: util.InternalOpId,
+    checkpoint: ReplicationCheckpoint,
     dataBuckets: BucketDataRequest[],
     options?: BucketDataBatchOptions
   ): AsyncIterable<SyncBucketDataChunk>;
@@ -151,7 +151,11 @@ export interface SyncRulesBucketStorage
    * This may be slow, depending on the size of the buckets.
    * The checksums are cached internally to compensate for this, but does not cover all cases.
    */
-  getChecksums(checkpoint: util.InternalOpId, buckets: BucketChecksumRequest[]): Promise<util.ChecksumMap>;
+  getChecksums(
+    checkpoint: ReplicationCheckpoint,
+    buckets: BucketChecksumRequest[],
+    options?: BucketChecksumOptions
+  ): Promise<util.ChecksumMap>;
 
   /**
    * Clear checksum cache. Primarily intended for tests.
@@ -178,6 +182,12 @@ export interface BucketChecksumRequest {
   bucket: string;
   source: BucketDataSource;
 }
+
+export interface BucketChecksumOptions {
+  requestHint?: BucketRequestHint;
+}
+
+export type BucketRequestHint = 'bulk' | 'incremental';
 
 export interface ReplicationStreamStatus {
   /**
@@ -391,6 +401,8 @@ export interface TerminateOptions extends ClearStorageOptions {
 }
 
 export interface BucketDataBatchOptions {
+  requestHint?: BucketRequestHint;
+
   /** Limit number of documents returned. Defaults to 1000. */
   limit?: number;
 

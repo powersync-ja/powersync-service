@@ -1,5 +1,5 @@
 import { ErrorCode, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
-import { ReplicationHeadCallback } from '../api/RouteAPI.js';
+import { RouteAPI } from '../api/RouteAPI.js';
 import {
   BucketStorageFactory,
   CreateManagedWriteCheckpointsResult,
@@ -19,8 +19,6 @@ export interface CreateWriteCheckpointResult {
   replicationHead: string;
 }
 
-export type CreateReplicationHead = <T>(callback: ReplicationHeadCallback<T>) => Promise<T>;
-
 interface QueuedWriteCheckpoint {
   userId: string;
   checkpointRequestId: bigint | undefined;
@@ -33,7 +31,7 @@ export class WriteCheckpointBatcher {
   private scheduledPump: NodeJS.Timeout | undefined;
 
   constructor(
-    private readonly getCreateReplicationHead: () => CreateReplicationHead,
+    private readonly getAPI: () => RouteAPI,
     private readonly getStorage: () => BucketStorageFactory
   ) {}
 
@@ -86,7 +84,7 @@ export class WriteCheckpointBatcher {
       // write-checkpoint mapping, then forces a source marker only when storage
       // reports an advance. Keeping the marker inside the callback means it is
       // causally ordered after the head within a single source session.
-      const { writeCheckpoints, currentCheckpoint } = await this.getCreateReplicationHead()(
+      const { writeCheckpoints, currentCheckpoint } = await this.getAPI().createReplicationHead(
         async (currentCheckpoint) => {
           const { writeCheckpoints, shouldAdvance } = await this.createBatchWriteCheckpoints(
             syncBucketStorage,

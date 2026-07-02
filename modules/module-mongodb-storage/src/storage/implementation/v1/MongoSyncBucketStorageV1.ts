@@ -41,6 +41,7 @@ import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 export interface MongoSyncBucketStorageContextV1 {
   db: VersionedPowerSyncMongoV1;
   replicationStreamId: number;
+  readPreference?: mongo.ReadPreference;
 }
 
 export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
@@ -172,6 +173,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   protected createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums {
     return new MongoChecksumsV1(this.db, this.replicationStreamId, {
       ...options.checksumOptions,
+      checksumCacheTtlMs: options.checksumCacheTtlMs,
       storageConfig: options?.storageConfig
     });
   }
@@ -190,7 +192,8 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   protected get versionContext(): MongoSyncBucketStorageContextV1 {
     return {
       db: this.db,
-      replicationStreamId: this.replicationStreamId
+      replicationStreamId: this.replicationStreamId,
+      readPreference: this.readPreference
     };
   }
 
@@ -203,7 +206,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   }
 
   protected getBucketDataBatchImpl(
-    checkpoint: utils.InternalOpId,
+    checkpoint: MongoSyncBucketStorageCheckpoint,
     dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
@@ -369,20 +372,32 @@ export async function getParameterSetsV1(
 
 export async function* getBucketDataBatchV1(
   ctx: MongoSyncBucketStorageContextV1,
-  checkpoint: utils.InternalOpId,
+  checkpoint: MongoSyncBucketStorageCheckpoint,
   dataBuckets: storage.BucketDataRequest[],
   options?: storage.BucketDataBatchOptions
 ): AsyncIterable<storage.SyncBucketDataChunk> {
   if (dataBuckets.length == 0) {
     return;
   }
+  const readPreference = options?.requestHint == 'bulk' ? ctx.readPreference : undefined;
+  const readConcern = ctx.readPreference == null ? undefined : 'majority';
+  const session =
+    readPreference == null || checkpoint.snapshotTime == null
+      ? undefined
+      : ctx.db.client.startSession({ causalConsistency: true });
+  await using _ = { [Symbol.asyncDispose]: async () => session?.endSession() };
+
+  if (session != null) {
+    session.advanceOperationTime(checkpoint.snapshotTime);
+  }
+
   let filters: mongo.Filter<BucketDataDocumentV1>[] = [];
   const bucketMap = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
 
-  if (checkpoint == null) {
+  if (checkpoint.checkpoint == null) {
     throw new Error('checkpoint is null');
   }
-  const end = checkpoint;
+  const end = checkpoint.checkpoint;
   for (let { bucket: name, start } of dataBuckets) {
     filters.push({
       _id: {
@@ -410,7 +425,9 @@ export async function* getBucketDataBatchV1(
       $or: filters
     },
     {
-      session: undefined,
+      session,
+      readPreference,
+      readConcern,
       sort: { _id: 1 },
       limit: batchLimit,
       batchSize: batchLimit + 1,

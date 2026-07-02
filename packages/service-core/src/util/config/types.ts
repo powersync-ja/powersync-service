@@ -54,6 +54,7 @@ export type ResolvedPowerSyncConfig = {
     max_buckets_per_connection: number;
     max_parameter_query_results: number;
     checkpoint_request_retention_days: number;
+    bucket_count_cache_ttl_minutes: number;
   };
 
   /** Prefix for postgres replication slot names, as well as replication stream names. */

@@ -195,7 +195,14 @@ export class PowerSyncMongo {
    * This is used in a similar way to the Postgres NOTIFY functionality.
    */
   async notifyCheckpoint() {
-    await this.checkpoint_events.insertOne({} as any, { forceServerObjectId: true });
+    await this.checkpoint_events.insertOne({} as any, {
+      forceServerObjectId: true,
+      // No correctness issue if this write is missed / rolled back.
+      // It could cause some sync delays, that will resolve in at most a minute, but no consistency issues.
+      writeConcern: {
+        w: 1
+      }
+    });
   }
 
   /**

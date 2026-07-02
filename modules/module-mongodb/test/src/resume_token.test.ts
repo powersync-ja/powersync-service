@@ -1,4 +1,5 @@
 import { MongoLSN, parseResumeTokenTimestamp, ZERO_LSN } from '@module/common/MongoLSN.js';
+import { SentinelLSN } from '@module/common/SentinelLSN.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { describe, expect, it, test } from 'vitest';
 
@@ -107,5 +108,34 @@ describe('mongo lsn', () => {
           timestamp: mongo.Timestamp.fromNumber(10)
         }).comparable.split('|')[0] // Simulate an old LSN
     ).toBe(true);
+  });
+});
+
+describe('documentdb lsn', () => {
+  test('uses sentinel as the comparable prefix', () => {
+    expect(new SentinelLSN({ sentinel: 9n }).comparable < new SentinelLSN({ sentinel: 10n }).comparable).toBe(true);
+    expect(new SentinelLSN({ sentinel: 10n }).comparable > new SentinelLSN({ sentinel: 9n }).comparable).toBe(true);
+  });
+
+  test('resume token round-trips without changing the sentinel', () => {
+    const lsn = new SentinelLSN({
+      sentinel: 42n,
+      resume_token: { _data: 'MzowOjM1MjY4MTIwOTEyOjA6MzUyNjgxMjA5MTI6MTowOg==' }
+    });
+
+    const parsed = SentinelLSN.fromSerialized(lsn.comparable);
+
+    expect(parsed.sentinel).toEqual(42n);
+    expect(parsed.resumeToken).toEqual({ _data: 'MzowOjM1MjY4MTIwOTEyOjA6MzUyNjgxMjA5MTI6MTowOg==' });
+  });
+
+  test('write checkpoint LSN without resume token compares below observed stream LSN for the same sentinel', () => {
+    const writeCheckpointHead = new SentinelLSN({ sentinel: 42n }).comparable;
+    const observedStreamHead = new SentinelLSN({
+      sentinel: 42n,
+      resume_token: { _data: 'resume' }
+    }).comparable;
+
+    expect(observedStreamHead >= writeCheckpointHead).toBe(true);
   });
 });

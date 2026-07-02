@@ -55,7 +55,7 @@ function createApi(options?: { gates?: PromiseWithResolvers<void>[] }) {
 
 function createBatcher(api: any, storage: any) {
   return new WriteCheckpointBatcher(
-    () => (callback) => api.createReplicationHead(callback),
+    () => api,
     () => storage
   );
 }
