@@ -137,6 +137,7 @@ bucket_definitions:
         priority: 3
       }
     ]);
+    expect(line.bucketDataRequestHint).toEqual('bulk');
     // This is the bucket data to be fetched
     expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(new Map([['1#global[]', 0n]]));
 
@@ -169,6 +170,45 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
+    expect(bucketStarts(line2.getFilteredBucketPositions())).toEqual(new Map([['1#global[]', 1n]]));
+    expect(line2.bucketDataRequestHint).toEqual('incremental');
+  });
+
+  test('unfinished bulk bucket does not make checkpoint diff bulk', async () => {
+    const storage = new MockBucketChecksumStateStorage();
+    storage.updateTestChecksum({ bucket: '1#global[]', checksum: 1, count: 1 });
+
+    const state = new BucketChecksumState({
+      syncContext,
+      syncRequest,
+      tokenPayload,
+      syncRules: SYNC_RULES_GLOBAL,
+      bucketStorage: storage
+    });
+
+    const line = (await state.buildNextCheckpointLine({
+      base: storage.makeCheckpoint(1n),
+      writeCheckpoint: null,
+      update: CHECKPOINT_INVALIDATE_ALL
+    }))!;
+    line.advance();
+    line.updateBucketPosition({ bucket: '1#global[]', nextAfter: 1n, hasMore: true });
+
+    storage.updateTestChecksum({ bucket: '1#global[]', checksum: 2, count: 2 });
+
+    const line2 = (await state.buildNextCheckpointLine({
+      base: storage.makeCheckpoint(2n),
+      writeCheckpoint: null,
+      update: {
+        updatedDataBuckets: new Set(['1#global[]']),
+        invalidateDataBuckets: false,
+        updatedParameterLookups: new Set(),
+        invalidateParameterBuckets: false
+      }
+    }))!;
+    line2.advance();
+
+    expect(line2.bucketDataRequestHint).toEqual('incremental');
     expect(bucketStarts(line2.getFilteredBucketPositions())).toEqual(new Map([['1#global[]', 1n]]));
   });
 
@@ -1240,7 +1280,7 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
     this.filter?.({ invalidate: true });
   }
 
-  async getChecksums(_checkpoint: InternalOpId, buckets: { bucket: string }[]): Promise<ChecksumMap> {
+  async getChecksums(_checkpoint: ReplicationCheckpoint, buckets: { bucket: string }[]): Promise<ChecksumMap> {
     return new Map<string, BucketChecksum>(
       buckets.map(({ bucket }) => {
         const checksum = this.state.get(bucket);

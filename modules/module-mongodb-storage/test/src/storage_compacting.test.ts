@@ -95,7 +95,7 @@ bucket_definitions:
       const users = ['u1', 'u2'];
       const userRequests = users.map((user) => bucketRequest(syncRules, `by_user["${user}"]`));
       const [u1Request, u2Request] = userRequests;
-      const checksumAfter = await bucketStorage.getChecksums(checkpoint, userRequests);
+      const checksumAfter = await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), userRequests);
       expect(checksumAfter.get(u1Request.bucket)).toEqual({
         bucket: u1Request.bucket,
         checksum: -659469718,
@@ -151,7 +151,7 @@ bucket_definitions:
       const users = ['u1', 'u2'];
       const userRequests = users.map((user) => bucketRequest(syncRulesContent, `by_user2["${user}"]`));
       const [u1Request, u2Request] = userRequests;
-      const checksumAfter = await bucketStorage.getChecksums(checkpoint, userRequests);
+      const checksumAfter = await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), userRequests);
       expect(checksumAfter.get(u1Request.bucket)).toEqual({
         bucket: u1Request.bucket,
         checksum: -659469718,
@@ -869,7 +869,7 @@ bucket_definitions:
       } as any
     };
 
-    const result = await bucketStorage.getChecksums(60n, [request]);
+    const result = await bucketStorage.getChecksums(test_utils.testCheckpoint(60n), [request]);
     const checksumResult = result.get(BUCKET)!;
 
     // The total checksum should be: compacted (ops 10,20,30) + partial (ops 40,50,60)
@@ -922,7 +922,7 @@ bucket_definitions:
       } as any
     };
 
-    const result = await bucketStorage.getChecksums(45n, [request]);
+    const result = await bucketStorage.getChecksums(test_utils.testCheckpoint(45n), [request]);
     const checksumResult = result.get(BUCKET)!;
 
     // If createBucketFilter's _id.o <= 45 excludes this document,

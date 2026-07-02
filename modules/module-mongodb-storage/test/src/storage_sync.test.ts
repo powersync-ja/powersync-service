@@ -192,7 +192,11 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     const options: storage.BucketDataBatchOptions = {};
     const batch1 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRulesContent, 'global[]', 0n)], options)
+      bucketStorage.getBucketDataBatch(
+        test_utils.testCheckpoint(checkpoint),
+        [bucketRequest(syncRulesContent, 'global[]', 0n)],
+        options
+      )
     );
     expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
@@ -206,7 +210,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     const batch2 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
-        checkpoint,
+        test_utils.testCheckpoint(checkpoint),
         [bucketRequest(syncRulesContent, 'global[]', batch1[0].chunkData.next_after)],
         options
       )
@@ -222,7 +226,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     const batch3 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
-        checkpoint,
+        test_utils.testCheckpoint(checkpoint),
         [bucketRequest(syncRulesContent, 'global[]', batch2[0].chunkData.next_after)],
         options
       )
@@ -1743,7 +1747,9 @@ describe('sync - mongodb', () => {
         async function getFilteredOps(start: number, checkpoint: number): Promise<bigint[]> {
           const { syncRules, bucketStorage } = await setupFilteringTest();
           const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', BigInt(start));
-          const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(BigInt(checkpoint), [request]));
+          const batch = await test_utils.fromAsync(
+            bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(BigInt(checkpoint)), [request])
+          );
           const ops = batch.flatMap((b) => b.chunkData.data.map((d) => BigInt(d.op_id)));
           return ops;
         }
@@ -1888,7 +1894,9 @@ describe('sync - mongodb', () => {
             const roundRequests = requests
               .filter((request) => pending.has(request.bucket))
               .map((request) => ({ ...request, start: positions.get(request.bucket)! }));
-            const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(end, roundRequests));
+            const batch = await test_utils.fromAsync(
+              bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(end), roundRequests)
+            );
             let anyHasMore = false;
             for (const { chunkData } of batch) {
               positions.set(chunkData.bucket, BigInt(chunkData.next_after));

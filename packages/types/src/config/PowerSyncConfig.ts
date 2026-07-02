@@ -407,6 +407,16 @@ export const powerSyncConfig = t
               Default of 1000.
             `
               })
+              .optional(),
+
+            bucket_count_cache_ttl_minutes: t.number
+              .meta({
+                description: dedent`
+              How long to keep cached bucket counts before refreshing them, in minutes.
+              Bucket counts may be affected by compacting.
+              Default of 60 (1 hour).
+            `
+              })
               .optional()
           })
           .meta({

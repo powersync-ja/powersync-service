@@ -5,7 +5,7 @@ import { BucketDataSource } from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
-import { SQLITE_FALSE, SQLITE_TRUE } from './sql_support.js';
+import { SQLITE_FALSE, SQLITE_TRUE } from './sqliteBool.js';
 import {
   DatabaseInputRow,
   DatabaseInputValue,
@@ -328,4 +328,17 @@ export function normalizeParameterValue(value: SqliteJsonValue): SqliteJsonValue
     return BigInt(value);
   }
   return value;
+}
+
+export function* cartesianProduct<T>(...sets: T[][]): Generator<T[]> {
+  if (sets.length == 0) {
+    yield [];
+    return;
+  }
+
+  const [head, ...tail] = sets;
+  for (let h of head) {
+    const remainder = cartesianProduct(...tail);
+    for (let r of remainder) yield [h, ...r];
+  }
 }
