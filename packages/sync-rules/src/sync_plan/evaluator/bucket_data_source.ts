@@ -110,7 +110,7 @@ class PendingStreamDataSource {
   private readonly outputs: ('star' | { index: number; alias: string })[] = [];
   private readonly numberOfOutputExpressions: number;
   private readonly numberOfParameters: number;
-  private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
+  private readonly evaluatorInputs: (plan.ColumnSqlParameterValue | plan.RowMetadataSqlValue)[];
   private readonly statement: ScalarStatement;
   readonly fixedOutputTableName?: string;
 
@@ -150,10 +150,13 @@ class PendingStreamDataSource {
 
   instantiate(engine: ScalarExpressionEngine) {
     const evaluator = engine.prepareEvaluator(this.statement);
+    const pattern = this.tablePattern;
 
     return (options: EvaluateRowOptions, results: UnscopedEvaluationResult[]) => {
       try {
-        const inputInstantiation = this.evaluatorInputs.map((input) => options.record[input.column]);
+        const inputInstantiation = this.evaluatorInputs.map((input) =>
+          'column' in input ? options.record[input.column] : resolveRowMetadata(input, pattern, options.sourceTable)
+        );
         row: for (const source of evaluator.evaluate(inputInstantiation)) {
           const record: SqliteJsonRow = {};
           for (const output of this.outputs) {
@@ -189,5 +192,18 @@ class PendingStreamDataSource {
         return results.push({ error: e.message });
       }
     };
+  }
+}
+
+export function resolveRowMetadata(
+  value: plan.RowMetadataSqlValue,
+  pattern: TablePattern,
+  table: SourceTableRef
+): string {
+  switch (value.metadata) {
+    case 'schema':
+      return table.schema;
+    case 'table_suffix':
+      return pattern.isWildcard ? pattern.suffix(table.name) : '';
   }
 }
