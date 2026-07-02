@@ -162,11 +162,11 @@ export class StreamQueryParser {
       if (this.primaryResultSet == null) {
         return null;
       }
+      // The statement must be a select statement, as processAst would have returned false otherwise.
+      const select = stmt as SelectFromStatement;
+      this.diagnoseAliasedPrimaryWithJoin(select.from, this.primaryResultSet);
 
-      const where = this.compileFilterClause(
-        // The statement must be a select statement, as processAst would have returned false otherwise.
-        stmt as SelectFromStatement
-      );
+      const where = this.compileFilterClause(select);
       const joined: SourceResultSet[] = [];
       for (const source of this.resultSets.values()) {
         if (source != this.primaryResultSet) {
@@ -355,6 +355,60 @@ export class StreamQueryParser {
         this.addAndTermToWhereClause(join.on);
       }
     }
+  }
+
+  /**
+   * Warn when a Sync Stream joins multiple tables, the primary table (the one the stream selects from) carries
+   * an alias, and at least one joined source is referenced by its bare (unaliased) name. See #565: a query like
+   *
+   *   SELECT cm.* FROM chat_messages cm
+   *     INNER JOIN chat_conversations ON cm.conversation_id = chat_conversations.id
+   *     WHERE chat_conversations.user_id = auth.user_id()
+   *
+   * compiles successfully, but the alias renames the synced table: rows sync under `cm` rather than
+   * `chat_messages`. When joining, an alias is frequently introduced only to make the join's `ON` clause
+   * easier to write, in which case the rename is unintentional and clients querying `chat_messages` will
+   * unexpectedly see zero rows.
+   *
+   * The primary table is determined by the selected columns, not by the order of the `FROM` clause, so this
+   * runs after a non-null primary result set has been established.
+   *
+   * The warning is suppressed when the alias is double-quoted in the source SQL (e.g. `FROM user_data AS "users"`),
+   * which we treat as a deliberate rename.
+   */
+  private diagnoseAliasedPrimaryWithJoin(fromList: From[] | nil, primary: PhysicalSourceResultSet) {
+    // Only relevant when joining (more than one source in the FROM clause).
+    if (!fromList || fromList.length < 2) {
+      return;
+    }
+    if (primary.source.explicitName == null) {
+      return;
+    }
+    // An explicitly quoted alias signals the rename is intentional.
+    if (this.aliasIsQuoted(primary.source.origin)) {
+      return;
+    }
+    const alias = primary.source.explicitName;
+    const tableName = primary.tablePattern.name;
+    this.errors.report(
+      `The source row is synced under its alias '${alias}' instead of '${tableName}'. ` +
+        `When joining, an alias is often added only to make the ON clause easier to write; if that is the case ` +
+        `here, the rename is likely unintentional and clients querying '${tableName}' will see zero rows. ` +
+        `Drop the alias on the source table, or quote it (\`AS "${alias}"\`) to keep the rename and silence this warning.`,
+      primary.source.origin,
+      { isWarning: true }
+    );
+  }
+
+  private aliasIsQuoted(name: PGNode): boolean {
+    const loc = name._location;
+    if (!loc) {
+      return false;
+    }
+    // The alias appears at the tail of the from-table fragment. A quoted alias is the only way for a literal
+    // double-quote to show up here, so the substring test is sufficient and intentionally cheap.
+    const text = this.originalText.substring(loc.start, loc.end);
+    return text.includes('"');
   }
 
   private resolveTableValued(call: ExprCall, source: SyntacticResultSetSource): TableValuedResultSet {
