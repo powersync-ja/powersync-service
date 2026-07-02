@@ -125,7 +125,7 @@ export const checkpointRequest = routeDefinition({
     const { replicationHead, writeCheckpoint } = await util.createWriteCheckpoint({
       userId: token_payload!.userIdString,
       clientId: decodedParams.client_id,
-      batcher: service_context.storageEngine.writeCheckpointBatcher,
+      batcher: service_context.writeCheckpointBatcher,
       checkpointRequestId: decodedParams.checkpoint_request_id
     });
 

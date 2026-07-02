@@ -116,15 +116,8 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
       CREATE TABLE write_checkpoints (
         user_id text PRIMARY KEY,
         lsns jsonb NOT NULL,
-        write_checkpoint BIGINT NOT NULL,
-        checkpoint_requested_at TIMESTAMP WITH TIME ZONE
+        write_checkpoint BIGINT NOT NULL
       )
-    `.execute();
-
-    await db.sql`
-      CREATE INDEX write_checkpoints_checkpoint_requested_at ON write_checkpoints (checkpoint_requested_at)
-      WHERE
-        checkpoint_requested_at IS NOT NULL
     `.execute();
 
     await db.sql`

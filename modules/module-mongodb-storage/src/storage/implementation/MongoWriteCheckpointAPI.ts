@@ -55,8 +55,12 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         {
           $set: {
             lsns,
-            processed_at_lsn: null,
-            checkpoint_requested_at: null
+            processed_at_lsn: null
+          },
+          // Unset rather than set to null, to keep the document out of the
+          // partial checkpoint_requested_at index used for retention cleanup.
+          $unset: {
+            checkpoint_requested_at: 1
           },
           $inc: {
             client_id: 1n
@@ -78,8 +82,10 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
             update: {
               $set: {
                 lsns,
-                processed_at_lsn: null,
-                checkpoint_requested_at: null
+                processed_at_lsn: null
+              },
+              $unset: {
+                checkpoint_requested_at: 1
               },
               $inc: {
                 client_id: 1n

@@ -48,7 +48,10 @@ bucket_definitions:
 
       await bucketStorage.createManagedWriteCheckpoints([{ user_id: 'user1', heads: { '1': '7/0' } }]);
       const generated = await factory.db.write_checkpoints.findOne({ user_id: 'user1' });
-      expect(generated?.checkpoint_requested_at).toBeNull();
+      // Generated checkpoints unset the field, keeping the document out of the
+      // partial checkpoint_requested_at index.
+      expect(generated).not.toBeNull();
+      expect(generated?.checkpoint_requested_at).toBeUndefined();
 
       await bucketStorage.createManagedWriteCheckpoints([
         { user_id: 'user2', heads: { '1': '8/0' }, checkpoint_request_id: 50n }

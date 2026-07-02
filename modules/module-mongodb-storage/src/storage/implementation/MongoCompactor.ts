@@ -144,8 +144,10 @@ export abstract class MongoCompactor {
     }
 
     this.signal?.throwIfAborted();
+    // The explicit $exists guarantees the query is a subset of the
+    // checkpoint_requested_at partial index's filter, so the planner can use it.
     await this.db.write_checkpoints.deleteMany({
-      checkpoint_requested_at: { $lt: this.deleteCheckpointRequestsBefore }
+      checkpoint_requested_at: { $exists: true, $lt: this.deleteCheckpointRequestsBefore }
     });
   }
 

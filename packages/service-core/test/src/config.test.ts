@@ -91,6 +91,27 @@ describe('Config', () => {
     expect(config.api_parameters.checkpoint_request_retention_days).toBe(7);
   });
 
+  it.each([0, -1, 1.5])('should reject checkpoint request retention of %s days', async (retentionDays) => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: mongodb
+      api:
+        parameters:
+          checkpoint_request_retention_days: ${retentionDays}
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    await expect(
+      collector.collectConfig({
+        config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
+      })
+    ).rejects.toThrow('api.parameters.checkpoint_request_retention_days must be a positive integer');
+  });
+
   it('should resolve checksum cache TTL from API parameters', async () => {
     const yamlConfig = /* yaml */ `
       # PowerSync config

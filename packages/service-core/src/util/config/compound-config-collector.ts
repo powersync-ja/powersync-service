@@ -196,8 +196,9 @@ export class CompoundConfigCollector {
           baseConfig.api?.parameters?.max_concurrent_connections ?? DEFAULT_MAX_CONCURRENT_CONNECTIONS,
         max_data_fetch_concurrency:
           baseConfig.api?.parameters?.max_data_fetch_concurrency ?? DEFAULT_MAX_DATA_FETCH_CONCURRENCY,
-        checkpoint_request_retention_days:
-          baseConfig.api?.parameters?.checkpoint_request_retention_days ?? DEFAULT_CHECKPOINT_REQUEST_RETENTION_DAYS,
+        checkpoint_request_retention_days: normalizeCheckpointRequestRetentionDays(
+          baseConfig.api?.parameters?.checkpoint_request_retention_days
+        ),
         bucket_count_cache_ttl_minutes: normalizeChecksumCacheTtlMinutes(
           baseConfig.api?.parameters?.bucket_count_cache_ttl_minutes
         )
@@ -261,6 +262,14 @@ function normalizeChecksumCacheTtlMinutes(ttlMinutes: number | undefined): numbe
   const normalized = ttlMinutes ?? DEFAULT_CHECKSUM_CACHE_TTL_MINUTES;
   if (!Number.isFinite(normalized) || !Number.isInteger(normalized) || normalized < 1) {
     throw new Error('api.parameters.bucket_count_cache_ttl_minutes must be a positive integer');
+  }
+  return normalized;
+}
+
+function normalizeCheckpointRequestRetentionDays(retentionDays: number | undefined): number {
+  const normalized = retentionDays ?? DEFAULT_CHECKPOINT_REQUEST_RETENTION_DAYS;
+  if (!Number.isFinite(normalized) || !Number.isInteger(normalized) || normalized < 1) {
+    throw new Error('api.parameters.checkpoint_request_retention_days must be a positive integer');
   }
   return normalized;
 }

@@ -414,7 +414,7 @@ export const powerSyncConfig = t
                 description: dedent`
               Number of days to keep client-requested write checkpoint records.
               Expired records are removed by the compact job.
-              Default of 30.
+              Must be a positive integer. Default of 30.
             `
               })
               .optional(),
