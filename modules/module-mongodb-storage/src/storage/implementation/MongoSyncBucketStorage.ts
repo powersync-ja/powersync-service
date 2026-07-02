@@ -593,6 +593,7 @@ export abstract class MongoSyncBucketStorage
         {
           $facet: {
             sampledOps: [{ $count: 'count' }],
+            rowOps: [{ $match: { op: { $in: ['PUT', 'REMOVE'] } } }, { $count: 'count' }],
             distinctRows: [
               { $match: { op: { $in: ['PUT', 'REMOVE'] } } },
               { $group: { _id: { table: '$table', row_id: '$row_id' } } },
@@ -601,34 +602,46 @@ export abstract class MongoSyncBucketStorage
           }
         }
       ];
-      type FacetResult = { sampledOps: { count: number }[]; distinctRows: { count: number }[] };
+      type FacetResult = {
+        sampledOps: { count: number }[];
+        rowOps: { count: number }[];
+        distinctRows: { count: number }[];
+      };
       const [result] = await collection
         .aggregate<FacetResult>(pipeline, { allowDiskUse: false, maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS })
         .toArray();
       return {
         sampledOps: result?.sampledOps[0]?.count ?? 0,
+        rowOps: result?.rowOps[0]?.count ?? 0,
         distinctRows: result?.distinctRows[0]?.count ?? 0
       };
     };
 
-    let { sampledOps, distinctRows } = await runCounts(sampled);
-    if (sampled && sampledOps == 0) {
+    let counts = await runCounts(sampled);
+    if (sampled && counts.sampledOps == 0) {
       // A document-level `$sampleRate` can select nothing when a bucket spans very few storage documents
       // (v3 batches operations into a document). Fall back to an exact read so the bucket is not reported as
       // zero rows. This reads the whole bucket only in the rare empty-sample case, which cannot happen for a
       // bucket large enough to span many documents.
-      distinctRows = (await runCounts(false)).distinctRows;
-      return { rows: distinctRows, estimated: false };
+      return { rows: (await runCounts(false)).distinctRows, estimated: false };
     }
-    if (distinctRows == 0) {
+    if (counts.distinctRows == 0) {
       // Nothing row-bearing was found (e.g. a bucket of only MOVE/CLEAR ops): treat as fully fragmented.
       return { rows: 0, estimated: sampled };
     }
     if (!sampled) {
       // Read in full: the distinct row count is exact.
-      return { rows: distinctRows, estimated: false };
+      return { rows: counts.distinctRows, estimated: false };
     }
-    return { rows: storage.estimateDistinctRows(operations, sampledOps, distinctRows), estimated: true };
+    // Only PUT/REMOVE operations carry a row identity; MOVE/CLEAR (produced by compaction) do not. Run the
+    // estimator over the row-bearing operations only, scaling the bucket's operation count by the row-bearing
+    // share observed in the sample. Including identity-less operations in the model under-counts rows on
+    // compacted buckets. For uncompacted buckets rowOps equals sampledOps and this changes nothing.
+    const rowBearingOperations = Math.round(operations * (counts.rowOps / counts.sampledOps));
+    return {
+      rows: storage.estimateDistinctRows(rowBearingOperations, counts.rowOps, counts.distinctRows),
+      estimated: true
+    };
   }
 
   /**
