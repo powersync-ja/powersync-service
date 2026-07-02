@@ -634,14 +634,12 @@ export abstract class MongoSyncBucketStorage
   /**
    * How many operations to sample when estimating a bucket's row count.
    *
-   * {@link storage.estimateDistinctRows} recovers the true row count from how often the sample lands on the
-   * same row twice ("collisions"). A bucket with `R` rows produces collisions only once the sample size
-   * approaches `sqrt(R)`, and needs roughly `sqrt(100 * R)` before they carry a usable signal. `R` is unknown
-   * up front but is bounded by the operation count, so sampling `sqrt(200 * operations)` operations yields on
-   * the order of 100 expected collisions even in the worst case of one row per operation - enough to keep the
-   * estimate stable rather than swinging with sampling noise. Clamped to [MIN, MAX] to bound per-bucket cost;
-   * above the MAX-implied width the estimate degrades gracefully (only for buckets both very wide and barely
-   * fragmented, which are not the fragmented offenders the report exists to surface).
+   * {@link storage.estimateDistinctRows} infers the row count from how often the sample lands on the same
+   * row twice, so the sample must be large enough to contain such repeats. Sampling `sqrt(200 * operations)`
+   * operations yields on the order of 100 expected repeats even in the worst case of one row per operation,
+   * which keeps the estimate stable instead of swinging with sampling noise. The clamp bounds per-bucket
+   * cost; past the cap only very wide, barely fragmented buckets lose accuracy, and those are not the
+   * offenders the report exists to surface.
    */
   protected bucketRowSampleTarget(operations: number): number {
     const target = Math.ceil(Math.sqrt(200 * operations));

@@ -95,16 +95,17 @@ export function resolveBucketReportLimit(limit?: number): number {
 }
 
 /**
- * Estimate the true distinct row count of a bucket from a sample of its operations.
+ * Estimate the true distinct row count of a bucket from a random sample of its operations.
  *
- * Each operation is included in the sample with probability `r = sampledOps / operations`, so a row with
- * `k` operations is seen with probability `1 - (1 - r)^k`. Assuming operations are spread roughly evenly
- * across rows (so each of `R` rows has about `operations / R` of them), the expected number of distinct
- * rows in the sample is `R * (1 - (1 - r)^(operations / R))`. This is monotonic in `R`, so we binary-search
- * for the `R` that matches the observed distinct count.
+ * The signal is repetition: a sample that keeps landing on the same rows means few rows, while a sample
+ * where every operation lands on a new row means many. Formally, each operation is included in the sample
+ * with probability `r = sampledOps / operations`, so a row with `k` operations appears with probability
+ * `1 - (1 - r)^k`. Assuming operations are spread roughly evenly across `R` rows (`k = operations / R`),
+ * the expected number of distinct rows in the sample is `R * (1 - (1 - r)^(operations / R))`. That grows
+ * with `R`, so a binary search finds the `R` matching the observed distinct count.
  *
- * The naive `distinctRows / r` over-counts rows (and so under-states fragmentation) whenever the sample
- * already covered most rows - exactly the highly-fragmented buckets the report exists to surface.
+ * The naive `distinctRows / r` ignores repetition and over-counts rows (under-stating fragmentation) on
+ * exactly the highly fragmented buckets the report exists to surface.
  *
  * Pure (no I/O) so it is unit-testable; storage adapters supply the sampled counts.
  */
