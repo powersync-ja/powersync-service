@@ -5,6 +5,7 @@ import { MSSQLConnectionConfig } from '@powersync/service-module-mssql/types';
 import { MySQLConnectionConfig } from '@powersync/service-module-mysql/types';
 import { PostgresStorageConfig } from '@powersync/service-module-postgres-storage/types';
 import { PostgresConnectionConfig } from '@powersync/service-module-postgres/types';
+import { SlateDBStorageConfig } from '@powersync/service-module-slatedb-storage/types';
 import { configFile } from '@powersync/service-types';
 import fs from 'fs';
 import path from 'path';
@@ -25,7 +26,9 @@ const mergedDataSourceConfig = configFile.genericDataSourceConfig
   .or(PostgresConnectionConfig)
   .or(ConvexConnectionConfig);
 
-const mergedStorageConfig = configFile.GenericStorageConfig.or(PostgresStorageConfig).or(MongoStorageConfig);
+const mergedStorageConfig = configFile.GenericStorageConfig.or(PostgresStorageConfig)
+  .or(MongoStorageConfig)
+  .or(SlateDBStorageConfig);
 
 const mergedConfig = t.object({
   ...baseShape,

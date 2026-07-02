@@ -53,6 +53,9 @@
       "path": "./modules/module-mongodb-storage"
     },
     {
+      "path": "./modules/module-slatedb-storage"
+    },
+    {
       "path": "./libs/lib-services"
     },
     {
@@ -111,6 +114,9 @@
     },
     {
       "path": "./modules/module-mongodb-storage/test"
+    },
+    {
+      "path": "./modules/module-slatedb-storage/test"
     },
     {
       "path": "./libs/lib-services/test"

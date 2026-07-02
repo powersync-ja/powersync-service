@@ -545,6 +545,46 @@ importers:
         specifier: 'catalog:'
         version: 6.0.3
 
+  modules/module-slatedb-storage:
+    dependencies:
+      '@powersync/lib-services-framework':
+        specifier: workspace:*
+        version: link:../../libs/lib-services
+      '@powersync/service-core':
+        specifier: workspace:*
+        version: link:../../packages/service-core
+      '@powersync/service-jsonbig':
+        specifier: workspace:*
+        version: link:../../packages/jsonbig
+      '@powersync/service-sync-rules':
+        specifier: workspace:*
+        version: link:../../packages/sync-rules
+      '@powersync/service-types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      '@slatedb/uniffi':
+        specifier: ^0.14.1
+        version: 0.14.1
+      ix:
+        specifier: ^5.0.0
+        version: 5.0.0
+      lru-cache:
+        specifier: ^10.2.2
+        version: 10.4.3
+      ts-codec:
+        specifier: ^1.3.0
+        version: 1.3.0
+      uuid:
+        specifier: 'catalog:'
+        version: 14.0.0
+    devDependencies:
+      '@powersync/service-core-tests':
+        specifier: workspace:*
+        version: link:../../packages/service-core-tests
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+
   packages/jpgwire:
     dependencies:
       '@powersync/service-jsonbig':
@@ -621,6 +661,9 @@ importers:
       '@powersync/service-module-postgres-storage':
         specifier: workspace:*
         version: link:../../modules/module-postgres-storage
+      '@powersync/service-module-slatedb-storage':
+        specifier: workspace:*
+        version: link:../../modules/module-slatedb-storage
       '@powersync/service-types':
         specifier: workspace:*
         version: link:../types
@@ -845,6 +888,9 @@ importers:
       '@powersync/service-module-postgres-storage':
         specifier: workspace:*
         version: link:../modules/module-postgres-storage
+      '@powersync/service-module-slatedb-storage':
+        specifier: workspace:*
+        version: link:../modules/module-slatedb-storage
       '@powersync/service-rsocket-router':
         specifier: workspace:*
         version: link:../packages/rsocket-router
@@ -2017,6 +2063,10 @@ packages:
     resolution: {integrity: sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ==}
     engines: {node: '>=18'}
 
+  '@slatedb/uniffi@0.14.1':
+    resolution: {integrity: sha512-zUEphw47rtGjSnMXA199e0wUOfXEkfsc6wFlErUeo54zVVtwU+DIPeoFMOakADztIKAOl82Ug3BfNUDWGeHGww==}
+    engines: {node: '>=20'}
+
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
@@ -3042,6 +3092,9 @@ packages:
   jwt-decode@4.0.0:
     resolution: {integrity: sha512-+KJGIyHgkGuIq3IEBNftfhW/LfWhXUIY6OmyVWjliu5KH1y0fw7VQ8YndE2O4qZdMSd9SqbnC8GOcZEy0Om7sA==}
     engines: {node: '>=18'}
+
+  koffi@2.16.2:
+    resolution: {integrity: sha512-owU0MRwv6xkrVqCd+33uw6BaYppkTRXbO/rVdJNI2dvZG0gzyRhYwW25eWtc5pauwK8TGh3AbkFONSezdykfSA==}
 
   kuler@2.0.0:
     resolution: {integrity: sha512-Xq9nH7KlWZmXAtodXDDRE7vs6DU1gTU8zYDHDiWLSip45Egwq3plLHzPn27NgvzL2r1LMPC1vdqh98sQxtqj4A==}
@@ -5564,6 +5617,10 @@ snapshots:
 
   '@sindresorhus/merge-streams@4.0.0': {}
 
+  '@slatedb/uniffi@0.14.1':
+    dependencies:
+      koffi: 2.16.2
+
   '@standard-schema/spec@1.1.0': {}
 
   '@syncpoint/wkx@0.5.2':
@@ -6586,6 +6643,8 @@ snapshots:
       safe-buffer: 5.2.1
 
   jwt-decode@4.0.0: {}
+
+  koffi@2.16.2: {}
 
   kuler@2.0.0: {}
 

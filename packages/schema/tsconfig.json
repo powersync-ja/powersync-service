@@ -22,6 +22,9 @@
       "path": "../../modules/module-mongodb-storage"
     },
     {
+      "path": "../../modules/module-slatedb-storage"
+    },
+    {
       "path": "../../modules/module-mysql"
     },
     {

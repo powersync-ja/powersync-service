@@ -12,6 +12,8 @@ export const DYNAMIC_MODULES: core.ModuleLoaders = {
     mongodb: () =>
       import('@powersync/service-module-mongodb-storage').then((module) => new module.MongoStorageModule()),
     postgresql: () =>
-      import('@powersync/service-module-postgres-storage').then((module) => new module.PostgresStorageModule())
+      import('@powersync/service-module-postgres-storage').then((module) => new module.PostgresStorageModule()),
+    slatedb: () =>
+      import('@powersync/service-module-slatedb-storage').then((module) => new module.SlateDBStorageModule())
   }
 };
