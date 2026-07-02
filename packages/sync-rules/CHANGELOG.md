@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.39.0
+
+### Minor Changes
+
+- ea71bf3: Stop exporting legacy Sync Rules and alpha Sync Streams implementations
+
 ## 0.38.1
 
 ### Patch Changes
