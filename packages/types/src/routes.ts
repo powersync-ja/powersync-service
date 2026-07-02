@@ -88,6 +88,13 @@ export const BucketReportRequest = t.object({
 });
 export type BucketReportRequest = t.Encoded<typeof BucketReportRequest>;
 
+export const SuggestedBucketAction = t
+  .literal('none')
+  .or(t.literal('compact'))
+  .or(t.literal('defragment'))
+  .or(t.literal('both'));
+export type SuggestedBucketAction = t.Encoded<typeof SuggestedBucketAction>;
+
 export const BucketStorageStats = t.object({
   /** Full bucket name, e.g. `by_user["u1"]`. */
   bucket: t.string,
@@ -103,13 +110,51 @@ export const BucketStorageStats = t.object({
    */
   fragmentation: t.number,
   /** True if `rows` (and therefore `fragmentation`) is a sampled estimate rather than an exact count. */
-  rows_estimated: t.boolean
+  rows_estimated: t.boolean,
+  /**
+   * Suggested maintenance action, derived from the bucket's operation mix: `none` (healthy), `compact`
+   * (un-compacted superseded history to reclaim), `defragment` (mostly compaction residue that only a
+   * defragment collapses), or `both`.
+   */
+  suggested_action: SuggestedBucketAction,
+  /**
+   * Tables making up the (sampled) operation history, ordered by their share of it, largest first. These
+   * are the tables whose rows a defragment should touch.
+   */
+  tables: t.array(t.string)
 });
 export type BucketStorageStats = t.Encoded<typeof BucketStorageStats>;
+
+export const BucketDefinitionStats = t.object({
+  /** Definition name as it prefixes bucket names, e.g. `1#by_user` (versioned in storage v2 and later). */
+  definition: t.string,
+  /** Number of buckets in this definition with stored operations. */
+  bucket_count: t.number,
+  /** Total operations across the definition's buckets. */
+  operations: t.number,
+  /** Approximate size of the definition's operation history in bytes. */
+  operation_bytes: t.number,
+  /**
+   * Live rows across the definition's buckets, counting a row once per bucket that contains it. A sampled
+   * estimate for all but tiny definitions (see `rows_estimated`).
+   */
+  rows: t.number,
+  /** `operations / max(rows, 1)` across the whole definition. */
+  fragmentation: t.number,
+  /** True if `rows` (and therefore `fragmentation`) is a sampled estimate rather than an exact count. */
+  rows_estimated: t.boolean,
+  /** Suggested maintenance action for the definition; same values as `buckets[].suggested_action`. */
+  suggested_action: SuggestedBucketAction,
+  /** Tables in the definition's (sampled) operation history, ordered by their share of it, largest first. */
+  tables: t.array(t.string)
+});
+export type BucketDefinitionStats = t.Encoded<typeof BucketDefinitionStats>;
 
 export const BucketReportResponse = t.object({
   /** Worst-offender buckets, ranked by operation count then fragmentation. */
   buckets: t.array(BucketStorageStats),
+  /** Per-definition rollup, ranked by operation count then fragmentation. */
+  definitions: t.array(BucketDefinitionStats),
   totals: t.object({
     /** Number of buckets with stored operations. Estimated when the bucket set was sampled. */
     bucket_count: t.number,
@@ -121,6 +166,8 @@ export const BucketReportResponse = t.object({
     estimated: t.boolean
   }),
   /** True if there are more buckets than returned (more than `limit`). */
-  truncated: t.boolean
+  buckets_truncated: t.boolean,
+  /** True if the definition rollup is incomplete: more definitions exist than the report caps at. */
+  definitions_truncated: t.boolean
 });
 export type BucketReportResponse = t.Encoded<typeof BucketReportResponse>;

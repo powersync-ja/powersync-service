@@ -219,7 +219,9 @@ bucket_definitions:
           rows: 95,
           operationBytes: 1216000,
           fragmentation: 50,
-          rowsEstimated: true
+          rowsEstimated: true,
+          suggestedAction: 'compact',
+          tables: ['todos']
         },
         {
           bucket: '1#global[]',
@@ -227,11 +229,27 @@ bucket_definitions:
           rows: 1000,
           operationBytes: 3145728,
           fragmentation: 1,
-          rowsEstimated: false
+          rowsEstimated: false,
+          suggestedAction: 'none',
+          tables: ['lists']
+        }
+      ],
+      definitions: [
+        {
+          definition: '1#by_user',
+          bucketCount: 1,
+          operations: 4750,
+          operationBytes: 1216000,
+          rows: 95,
+          fragmentation: 50,
+          rowsEstimated: true,
+          suggestedAction: 'compact',
+          tables: ['todos']
         }
       ],
       totals: { bucketCount: 2, operations: 5750, operationBytes: 4361728, estimated: false },
-      truncated: false
+      bucketsTruncated: false,
+      definitionsTruncated: true
     };
 
     it('returns the report, forwards the limit, and maps fields to snake_case', async () => {
@@ -257,15 +275,31 @@ bucket_definitions:
         rows: 95,
         operation_bytes: 1216000,
         fragmentation: 50,
-        rows_estimated: true
+        rows_estimated: true,
+        suggested_action: 'compact',
+        tables: ['todos']
       });
+      expect(response.definitions).toEqual([
+        {
+          definition: '1#by_user',
+          bucket_count: 1,
+          operations: 4750,
+          operation_bytes: 1216000,
+          rows: 95,
+          fragmentation: 50,
+          rows_estimated: true,
+          suggested_action: 'compact',
+          tables: ['todos']
+        }
+      ]);
       expect(response.totals).toEqual({
         bucket_count: 2,
         operations: 5750,
         operation_bytes: 4361728,
         estimated: false
       });
-      expect(response.truncated).toBe(false);
+      expect(response.buckets_truncated).toBe(false);
+      expect(response.definitions_truncated).toBe(true);
     });
 
     it('rejects when there is no active sync config', async () => {

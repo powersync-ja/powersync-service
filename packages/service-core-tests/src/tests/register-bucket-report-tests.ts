@@ -61,13 +61,33 @@ bucket_definitions:
     const report = await getReport(bucketStorage);
 
     expect(report.totals.bucketCount).toEqual(1);
-    expect(report.truncated).toEqual(false);
+    expect(report.bucketsTruncated).toEqual(false);
+    expect(report.definitionsTruncated).toEqual(false);
 
     const stats = report.buckets.find((b) => b.bucket === bucket)!;
     // Three inserts of distinct ids: three operations, three live rows, fully compacted (ratio 1).
-    expect(stats).toMatchObject({ operations: 3, rows: 3, fragmentation: 1, rowsEstimated: false });
+    expect(stats).toMatchObject({
+      operations: 3,
+      rows: 3,
+      fragmentation: 1,
+      rowsEstimated: false,
+      suggestedAction: 'none',
+      tables: ['test']
+    });
     expect(stats.operationBytes).toBeGreaterThan(0);
     expect(report.totals).toMatchObject({ operations: 3, estimated: false });
+
+    // The definition rollup aggregates the single bucket. The definition name is the bucket-name prefix.
+    expect(report.definitions).toHaveLength(1);
+    expect(report.definitions[0]).toMatchObject({
+      definition: bucket.split('[')[0],
+      bucketCount: 1,
+      operations: 3,
+      rows: 3,
+      fragmentation: 1,
+      suggestedAction: 'none',
+      tables: ['test']
+    });
   });
 
   test('operations exceed live rows after updates, and compaction reduces fragmentation', async () => {
@@ -162,6 +182,15 @@ bucket_definitions:
     expect(report.buckets.find((b) => b.bucket === b1)).toMatchObject({ operations: 3, rows: 1 });
     expect(report.buckets.find((b) => b.bucket === b2)).toMatchObject({ operations: 2, rows: 2 });
 
+    // Both buckets belong to one definition; the rollup sums them, counting each bucket's rows separately.
+    expect(report.definitions).toHaveLength(1);
+    expect(report.definitions[0]).toMatchObject({
+      definition: b1.split('[')[0],
+      bucketCount: 2,
+      operations: 5,
+      rows: 3
+    });
+
     // operationBytes is an aggregated ($toDouble) sum; assert every bucket is non-zero and that the
     // per-bucket bytes add up to the instance total.
     expect(report.totals.operationBytes).toBeGreaterThan(0);
@@ -204,11 +233,44 @@ bucket_definitions:
     const b1 = test_utils.bucketRequest(content, 'grouped["b1"]').bucket;
 
     const report = await getReport(bucketStorage, { limit: 1 });
-    expect(report.truncated).toEqual(true);
+    expect(report.bucketsTruncated).toEqual(true);
     expect(report.buckets.map((b) => b.bucket)).toEqual([b1]);
     // Totals still cover every bucket, not just the truncated list.
     expect(report.totals.bucketCount).toEqual(2);
     expect(report.totals).toMatchObject({ operations: 3, estimated: false });
+  });
+
+  test('caps the definition rollup and flags the truncation', async () => {
+    // Two definitions past the rollup cap; a single row lands in every definition's global bucket.
+    const definitionCount = storage.BUCKET_REPORT_DEFINITION_LIMIT + 2;
+    const manyDefinitions =
+      'bucket_definitions:\n' +
+      Array.from({ length: definitionCount }, (_, i) => `  def${i}:\n    data: [select * from test]\n`).join('');
+
+    await using factory = await generateStorageFactory();
+    const { stream } = await test_utils.deploySyncRules(
+      factory,
+      updateSyncRulesFromYaml(manyDefinitions, { storageVersion })
+    );
+    const bucketStorage = factory.getInstance(stream);
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 't1' },
+      afterReplicaId: test_utils.rid('t1')
+    });
+    await writer.commit('1/1');
+    await writer.flush();
+
+    const report = await getReport(bucketStorage);
+    expect(report.totals.bucketCount).toEqual(definitionCount);
+    expect(report.bucketsTruncated).toEqual(false);
+    expect(report.definitions).toHaveLength(storage.BUCKET_REPORT_DEFINITION_LIMIT);
+    expect(report.definitionsTruncated).toEqual(true);
   });
 
   test('samples the row count for a bucket above the sampling threshold', async () => {
@@ -265,5 +327,21 @@ bucket_definitions:
     expect(stats.rows).toBeLessThanOrEqual(55);
     // Fragmentation is operations / rows, so a heavily updated bucket reads well above 1.
     expect(stats.fragmentation).toBeGreaterThan(10);
+    // The history is un-compacted superseded churn, which a compact reclaims.
+    expect(stats.suggestedAction).toEqual('compact');
+    // The sampled history names the tables a defragment would touch.
+    expect(stats.tables).toEqual(['test']);
+
+    // The definition rollup samples the same history at definition grain.
+    expect(report.definitions).toHaveLength(1);
+    const defStats = report.definitions[0];
+    expect(defStats).toMatchObject({
+      bucketCount: 1,
+      operations: stats.operations,
+      suggestedAction: 'compact',
+      tables: ['test']
+    });
+    expect(defStats.rows).toBeGreaterThanOrEqual(45);
+    expect(defStats.rows).toBeLessThanOrEqual(55);
   });
 }

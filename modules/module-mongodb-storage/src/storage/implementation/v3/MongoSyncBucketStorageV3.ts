@@ -28,7 +28,8 @@ import {
   MongoSyncBucketStorage,
   MongoSyncBucketStorageOptions,
   TopBucketCandidate,
-  TopBucketSelection
+  TopBucketSelection,
+  TopDefinitionCandidate
 } from '../MongoSyncBucketStorage.js';
 import { loadBucketDataDocument } from './bucket-format.js';
 import {
@@ -193,7 +194,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   // sharing these collections. Scope to the active config's definition ids so the report excludes stale buckets
   // from old/stopped definitions. `this.storageIds` is derived from the active config only (see getActiveSyncConfig).
   protected async collectTopBuckets(limit: number): Promise<TopBucketSelection> {
-    const { buckets, totals } = await this.aggregateTopBuckets(
+    const { buckets, definitions, definitionsTruncated, totals } = await this.aggregateTopBuckets(
       this.db.bucketState(this.replicationStreamId),
       { '_id.d': { $in: this.storageIds.bucketDefinitionIds } },
       limit
@@ -205,6 +206,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         operationBytes: b.operationBytes,
         defId: b.id.d
       })),
+      definitions,
+      definitionsTruncated,
       totals
     };
   }
@@ -227,6 +230,30 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       return prefix;
     };
     return this.estimateRowsFromOperationSample(collection, buildPrefix, candidate.operations, sampled);
+  }
+
+  protected estimateDefinitionRows(candidate: TopDefinitionCandidate): Promise<BucketRowEstimate> {
+    // A definition's operations are exactly its per-definition bucket_data collection, so no match stage is
+    // needed. Keep the bucket name alongside each unwound operation: at definition grain a row counts once
+    // per bucket holding it.
+    const sampled = this.shouldSampleBucketRows(candidate.operations);
+    const collection = this.db.bucketData(this.replicationStreamId, candidate.defId!);
+    const buildPrefix = (applySample: boolean): mongo.Document[] => {
+      const prefix: mongo.Document[] = [];
+      if (applySample) {
+        prefix.push({ $match: { $sampleRate: this.bucketRowSampleRate(candidate.operations) } });
+      }
+      prefix.push(
+        { $unwind: '$ops' },
+        { $project: { b: '$_id.b', op: '$ops.op', table: '$ops.table', row_id: '$ops.row_id' } }
+      );
+      return prefix;
+    };
+    return this.estimateRowsFromOperationSample(collection, buildPrefix, candidate.operations, sampled, {
+      b: '$b',
+      table: '$table',
+      row_id: '$row_id'
+    });
   }
 
   protected createMongoParameterCompactor(

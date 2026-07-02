@@ -29,7 +29,8 @@ import {
   MongoSyncBucketStorage,
   MongoSyncBucketStorageOptions,
   TopBucketCandidate,
-  TopBucketSelection
+  TopBucketSelection,
+  TopDefinitionCandidate
 } from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV1,
@@ -190,13 +191,15 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
 
   // For storage v1/v2, bucket state and bucket data are shared collections scoped by group (replication stream).
   protected async collectTopBuckets(limit: number): Promise<TopBucketSelection> {
-    const { buckets, totals } = await this.aggregateTopBuckets(
+    const { buckets, definitions, definitionsTruncated, totals } = await this.aggregateTopBuckets(
       this.db.bucketStateV1,
       { '_id.g': this.replicationStreamId },
       limit
     );
     return {
       buckets: buckets.map((b) => ({ bucket: b.id.b, operations: b.operations, operationBytes: b.operationBytes })),
+      definitions,
+      definitionsTruncated,
       totals
     };
   }
@@ -223,6 +226,36 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
       return prefix;
     };
     return this.estimateRowsFromOperationSample(this.db.bucketDataV1, buildPrefix, candidate.operations, sampled);
+  }
+
+  protected estimateDefinitionRows(candidate: TopDefinitionCandidate): Promise<BucketRowEstimate> {
+    const sampled = this.shouldSampleBucketRows(candidate.operations);
+    const buildPrefix = (applySample: boolean): mongo.Document[] => {
+      // All of a definition's bucket names start with `<definition>[`, so an `_id` range on that string
+      // prefix selects exactly the definition's operations via the index. `\\` (0x5C) is the character
+      // after `[` (0x5B), so [`<definition>[`, `<definition>\\`) cannot include any other definition:
+      // a longer definition name would have to differ at or before the `[`.
+      const prefix: mongo.Document[] = [
+        {
+          $match: {
+            _id: {
+              $gte: { g: this.replicationStreamId, b: `${candidate.definition}[`, o: new bson.MinKey() },
+              $lt: { g: this.replicationStreamId, b: `${candidate.definition}\\`, o: new bson.MinKey() }
+            }
+          }
+        }
+      ];
+      if (applySample) {
+        prefix.push({ $match: { $sampleRate: this.bucketRowSampleRate(candidate.operations) } });
+      }
+      return prefix;
+    };
+    // Include the bucket name in the row key: at definition grain a row counts once per bucket holding it.
+    return this.estimateRowsFromOperationSample(this.db.bucketDataV1, buildPrefix, candidate.operations, sampled, {
+      b: '$_id.b',
+      table: '$table',
+      row_id: '$row_id'
+    });
   }
 
   protected createMongoParameterCompactor(

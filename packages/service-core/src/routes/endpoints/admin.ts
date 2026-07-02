@@ -313,7 +313,20 @@ export const bucketReport = routeDefinition({
         rows: bucket.rows,
         operation_bytes: bucket.operationBytes,
         fragmentation: bucket.fragmentation,
-        rows_estimated: bucket.rowsEstimated
+        rows_estimated: bucket.rowsEstimated,
+        suggested_action: bucket.suggestedAction,
+        tables: bucket.tables
+      })),
+      definitions: report.definitions.map((definition) => ({
+        definition: definition.definition,
+        bucket_count: definition.bucketCount,
+        operations: definition.operations,
+        operation_bytes: definition.operationBytes,
+        rows: definition.rows,
+        fragmentation: definition.fragmentation,
+        rows_estimated: definition.rowsEstimated,
+        suggested_action: definition.suggestedAction,
+        tables: definition.tables
       })),
       totals: {
         bucket_count: report.totals.bucketCount,
@@ -321,7 +334,8 @@ export const bucketReport = routeDefinition({
         operation_bytes: report.totals.operationBytes,
         estimated: report.totals.estimated
       },
-      truncated: report.truncated
+      buckets_truncated: report.bucketsTruncated,
+      definitions_truncated: report.definitionsTruncated
     });
   }
 });
