@@ -157,15 +157,17 @@ describe('assembleBucketReport', () => {
 });
 
 describe('suggestBucketAction', () => {
-  it('suggests nothing for healthy buckets', () => {
+  it('suggests nothing for buckets under 3x fragmentation', () => {
     expect(suggestBucketAction(100, 100, 100)).toEqual('none');
-    expect(suggestBucketAction(150, 150, 100)).toEqual('none');
+    expect(suggestBucketAction(250, 250, 100)).toEqual('none');
     expect(suggestBucketAction(0, 0, 0)).toEqual('none');
   });
 
   it('suggests compact for un-compacted superseded history', () => {
     // All operations carry row identity, but there are 10x more of them than rows.
     expect(suggestBucketAction(1000, 1000, 100)).toEqual('compact');
+    // 3x fragmentation is the threshold where actions start.
+    expect(suggestBucketAction(300, 300, 100)).toEqual('compact');
   });
 
   it('suggests defragment when compaction residue dominates', () => {
@@ -181,8 +183,8 @@ describe('suggestBucketAction', () => {
   });
 
   it('suggests both for a fragmented but inconclusive mix', () => {
-    // Fragmented (frag 2.5), yet neither residue (40%) nor superseded share (33%) dominates.
-    expect(suggestBucketAction(1000, 600, 400)).toEqual('both');
+    // Fragmented (frag 3), yet neither residue (40%) nor superseded share (44%) dominates.
+    expect(suggestBucketAction(1200, 720, 400)).toEqual('both');
   });
 });
 

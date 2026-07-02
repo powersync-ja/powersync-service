@@ -32,8 +32,11 @@ export const DEFAULT_BUCKET_REPORT_LIMIT: number = 50;
  */
 export const BUCKET_REPORT_DEFINITION_LIMIT: number = 20;
 
-/** Fragmentation below this is considered healthy: no maintenance action is suggested. */
-export const BUCKET_ACTION_MIN_FRAGMENTATION: number = 2;
+/**
+ * Fragmentation below this is considered healthy: no maintenance action is suggested. Matches the 3x rule
+ * of thumb used by the PowerSync diagnostics app.
+ */
+export const BUCKET_ACTION_MIN_FRAGMENTATION: number = 3;
 
 /**
  * When at least this share of a bucket's operations is compaction residue (MOVE/CLEAR, no row identity),
