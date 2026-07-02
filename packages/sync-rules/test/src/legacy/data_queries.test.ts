@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { CompatibilityContext, ExpressionType, SqlDataQuery } from '../../src/index.js';
-import { ASSETS, BASIC_SCHEMA, PARSE_OPTIONS } from './util.js';
+import { CompatibilityContext, ExpressionType } from '../../../src/index.js';
+import { SqlDataQuery } from '../../../src/legacy/SqlDataQuery.js';
+import { ASSETS, BASIC_SCHEMA, PARSE_OPTIONS } from '../util.js';
 
 describe('data queries', () => {
   test('bucket parameters = query', function () {

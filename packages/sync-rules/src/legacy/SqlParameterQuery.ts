@@ -4,16 +4,16 @@ import {
   BucketInclusionReason,
   BucketPriority,
   DEFAULT_BUCKET_PRIORITY
-} from './BucketDescription.js';
+} from '../BucketDescription.js';
 import {
   BucketParameterQuerier,
   ParameterLookupSource,
   PendingQueriers,
   UnscopedParameterLookup
-} from './BucketParameterQuerier.js';
-import { CreateSourceParams, ParameterIndexLookupCreator } from './BucketSource.js';
-import { SqlRuleError } from './errors.js';
-import { BucketDataScope, ParameterLookupDefinitionId, ParameterLookupScope } from './HydrationState.js';
+} from '../BucketParameterQuerier.js';
+import { CreateSourceParams, ParameterIndexLookupCreator } from '../BucketSource.js';
+import { SqlRuleError } from '../errors.js';
+import { BucketDataScope, ParameterLookupDefinitionId, ParameterLookupScope } from '../HydrationState.js';
 import {
   BucketDataSource,
   BucketParameterQuerierSource,
@@ -23,14 +23,9 @@ import {
   ScopedParameterLookup,
   UnscopedEvaluatedParameters,
   UnscopedEvaluatedParametersResult
-} from './index.js';
-import { SourceTableRef } from './SourceTableRef.js';
-import { AvailableTable, SqlTools } from './sql_filters.js';
-import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
-import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
-import { TablePattern } from './TablePattern.js';
-import { TableQuerySchema } from './TableQuerySchema.js';
-import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
+} from '../index.js';
+import { SourceTableRef } from '../SourceTableRef.js';
+import { TablePattern } from '../TablePattern.js';
 import {
   InputParameter,
   ParameterMatchClause,
@@ -42,7 +37,7 @@ import {
   SqliteJsonRow,
   SqliteJsonValue,
   SqliteRow
-} from './types.js';
+} from '../types.js';
 import {
   bucketDescription,
   filterJsonRow,
@@ -50,7 +45,12 @@ import {
   isSelectStatement,
   normalizeParameterValue,
   serializeBucketParameters
-} from './utils.js';
+} from '../utils.js';
+import { AvailableTable, SqlTools } from './sql_filters.js';
+import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
+import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
+import { TableQuerySchema } from './TableQuerySchema.js';
+import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import { DetectRequestParameters } from './validators.js';
 
 export interface SqlParameterQueryOptions {

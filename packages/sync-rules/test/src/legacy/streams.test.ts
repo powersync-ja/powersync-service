@@ -1,6 +1,6 @@
-/// <reference path="../matchers.d.ts" />
+/// <reference path="../../matchers.d.ts" />
 import { describe, expect, test } from 'vitest';
-import { HydrationState, ParameterLookupScope, versionedHydrationState } from '../../src/HydrationState.js';
+import { HydrationState, ParameterLookupScope, versionedHydrationState } from '../../../src/HydrationState.js';
 import {
   BucketDataScope,
   BucketParameterQuerier,
@@ -19,10 +19,10 @@ import {
   SqliteRow,
   StaticSchema,
   StreamParseOptions,
-  SyncStream,
-  syncStreamFromSql,
   UnscopedParameterLookup
-} from '../../src/index.js';
+} from '../../../src/index.js';
+import { syncStreamFromSql } from '../../../src/legacy/streams/from_sql.js';
+import { SyncStream } from '../../../src/legacy/streams/stream.js';
 import {
   debugHydratedMergedSource,
   lookupScope,
@@ -31,7 +31,7 @@ import {
   requestParameters,
   testHydrationInput,
   TestSourceTable
-} from './util.js';
+} from '../util.js';
 
 describe('streams', () => {
   const STREAM_0: ParameterLookupScope = lookupScope('stream', '0');

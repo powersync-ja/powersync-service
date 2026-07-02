@@ -7,16 +7,16 @@ import {
   nodeSqlite,
   ScopedParameterLookup,
   SqlSyncRules
-} from '../../src/index.js';
+} from '../../../src/index.js';
 
 import {
   BucketDataScope,
   DEFAULT_HYDRATION_STATE,
   HydrationState,
   ParameterLookupScope
-} from '../../src/HydrationState.js';
-import { SqlBucketDescriptor } from '../../src/SqlBucketDescriptor.js';
-import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
+} from '../../../src/HydrationState.js';
+import { SqlBucketDescriptor } from '../../../src/legacy/SqlBucketDescriptor.js';
+import { StaticSqlParameterQuery } from '../../../src/legacy/StaticSqlParameterQuery.js';
 import {
   ASSETS,
   BASIC_SCHEMA,
@@ -27,7 +27,7 @@ import {
   requestParameters,
   TestSourceTable,
   USERS
-} from './util.js';
+} from '../util.js';
 
 describe('sync rules', () => {
   const hydrationParams: HydrateSyncConfigParams = {

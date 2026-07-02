@@ -1,8 +1,8 @@
 import { SelectFromStatement } from 'pgsql-ast-parser';
-import { SqlRuleError } from './errors.js';
-import { ColumnDefinition, ExpressionType } from './ExpressionType.js';
-import { MATCH_CONST_FALSE, MATCH_CONST_TRUE } from './sql_filters.js';
-import { evaluateOperator, getOperatorReturnType } from './sql_functions.js';
+import { SqlRuleError } from '../errors.js';
+import { ColumnDefinition, ExpressionType } from '../ExpressionType.js';
+import { evaluateOperator, getOperatorReturnType } from '../sql_functions.js';
+import { SQLITE_TRUE, sqliteBool } from '../sqliteBool.js';
 import {
   ClauseError,
   CompiledClause,
@@ -17,7 +17,8 @@ import {
   SqliteValue,
   StaticValueClause,
   TrueIfParametersMatch
-} from './types.js';
+} from '../types.js';
+import { MATCH_CONST_FALSE, MATCH_CONST_TRUE } from './sql_filters.js';
 
 export function isParameterMatchClause(clause: CompiledClause): clause is ParameterMatchClause {
   return Array.isArray((clause as ParameterMatchClause).inputParameters);
@@ -39,28 +40,6 @@ export function isParameterValueClause(clause: CompiledClause): clause is Parame
 export function isClauseError(clause: CompiledClause): clause is ClauseError {
   return (clause as ClauseError).error === true;
 }
-
-export const SQLITE_TRUE = 1n;
-export const SQLITE_FALSE = 0n;
-
-export function sqliteBool(value: SqliteValue | boolean): 1n | 0n {
-  if (value == null) {
-    return SQLITE_FALSE;
-  } else if (typeof value == 'boolean' || typeof value == 'number') {
-    return value ? SQLITE_TRUE : SQLITE_FALSE;
-  } else if (typeof value == 'bigint') {
-    return value != 0n ? SQLITE_TRUE : SQLITE_FALSE;
-  } else if (typeof value == 'string') {
-    return parseInt(value) ? SQLITE_TRUE : SQLITE_FALSE;
-  } else {
-    return SQLITE_FALSE;
-  }
-}
-
-export function sqliteNot(value: SqliteValue | boolean) {
-  return sqliteBool(!sqliteBool(value));
-}
-
 /**
  * Applies a combinator on row values that itself is also a row value.
  */

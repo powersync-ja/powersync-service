@@ -1,7 +1,7 @@
-import { BucketInclusionReason, ResolvedBucket } from '../BucketDescription.js';
-import { BucketParameterQuerier, PendingQueriers } from '../BucketParameterQuerier.js';
-import { BucketDataSource, BucketParameterQuerierSource, ParameterIndexLookupCreator } from '../BucketSource.js';
-import { BucketDataScope } from '../HydrationState.js';
+import { BucketInclusionReason, ResolvedBucket } from '../../BucketDescription.js';
+import { BucketParameterQuerier, PendingQueriers } from '../../BucketParameterQuerier.js';
+import { BucketDataSource, BucketParameterQuerierSource, ParameterIndexLookupCreator } from '../../BucketSource.js';
+import { BucketDataScope } from '../../HydrationState.js';
 import {
   BucketPriority,
   CreateSourceParams,
@@ -9,12 +9,11 @@ import {
   RequestedStream,
   resolvedBucket,
   ScopedParameterLookup
-} from '../index.js';
-import { RequestParameters, SqliteJsonValue, TableRow } from '../types.js';
-import { bucketDescription, isJsonValue, JSONBucketNameSerialize } from '../utils.js';
+} from '../../index.js';
+import { RequestParameters, SqliteJsonValue, TableRow } from '../../types.js';
+import { bucketDescription, cartesianProduct, isJsonValue, JSONBucketNameSerialize } from '../../utils.js';
 import { BucketParameter, SubqueryEvaluator } from './parameter.js';
 import { SyncStream } from './stream.js';
-import { cartesianProduct } from './utils.js';
 
 /**
  * A variant of a stream.

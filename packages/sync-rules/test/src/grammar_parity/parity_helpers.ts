@@ -2,14 +2,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect } from 'vitest';
 import { parse as parseYaml } from 'yaml';
-import {
-  CompatibilityContext,
-  CompatibilityEdition,
-  SqlDataQuery,
-  SqlParameterQuery,
-  syncStreamFromSql,
-  SyncStreamsCompiler
-} from '../../../src/index.js';
+import { CompatibilityContext, CompatibilityEdition, SyncStreamsCompiler } from '../../../src/index.js';
+import { SqlDataQuery } from '../../../src/legacy/SqlDataQuery.js';
+import { SqlParameterQuery } from '../../../src/legacy/SqlParameterQuery.js';
+import { syncStreamFromSql } from '../../../src/legacy/streams/from_sql.js';
 import { EMPTY_DATA_SOURCE, PARSE_OPTIONS } from '../util.js';
 import { grammarAcceptsSql } from './generated_grammar.js';
 

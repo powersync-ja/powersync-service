@@ -3,8 +3,8 @@ import {
   globalRequestParameterFunctions,
   parameterFunctions,
   SqlParameterFunction
-} from '../request_functions.js';
-import { ParameterValueSet } from '../types.js';
+} from '../../request_functions.js';
+import { ParameterValueSet } from '../../types.js';
 
 export const STREAM_FUNCTIONS: Record<string, Record<string, SqlParameterFunction>> = {
   subscription: {

@@ -3,11 +3,11 @@ import {
   CompatibilityContext,
   CompatibilityEdition,
   CompatibilityOption,
-  RequestJwtPayload,
-  SqlParameterQuery
-} from '../../src/index.js';
-import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
-import { bucketDataScope, EMPTY_DATA_SOURCE, PARSE_OPTIONS, requestParameters } from './util.js';
+  RequestJwtPayload
+} from '../../../src/index.js';
+import { SqlParameterQuery } from '../../../src/legacy/SqlParameterQuery.js';
+import { StaticSqlParameterQuery } from '../../../src/legacy/StaticSqlParameterQuery.js';
+import { bucketDataScope, EMPTY_DATA_SOURCE, PARSE_OPTIONS, requestParameters } from '../util.js';
 
 describe('table-valued function queries', () => {
   const emptyPayload: RequestJwtPayload = { userIdJson: '', parsedPayload: {} };

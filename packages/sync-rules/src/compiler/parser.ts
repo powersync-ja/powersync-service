@@ -12,9 +12,9 @@ import {
 } from 'pgsql-ast-parser';
 import { expandNodeLocations } from '../errors.js';
 import { SourceSchemaTable } from '../index.js';
-import { cartesianProduct } from '../streams/utils.js';
 import { SqlExpression } from '../sync_plan/expression.js';
 import { ImplicitSchemaTablePattern } from '../TablePattern.js';
+import { cartesianProduct } from '../utils.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
 import { ColumnInRow, ExpressionInput, NodeLocations, SourceLocation, SyncExpression } from './expression.js';
 import {

@@ -1,10 +1,9 @@
 import { SelectedColumn } from 'pgsql-ast-parser';
-import { idFromData } from './cast.js';
-import { SqlRuleError } from './errors.js';
-import { ColumnDefinition } from './ExpressionType.js';
-import { SourceTableRef } from './SourceTableRef.js';
-import { AvailableTable, SqlTools } from './sql_filters.js';
-import { TablePattern } from './TablePattern.js';
+import { idFromData } from '../cast.js';
+import { SqlRuleError } from '../errors.js';
+import { ColumnDefinition } from '../ExpressionType.js';
+import { SourceTableRef } from '../SourceTableRef.js';
+import { TablePattern } from '../TablePattern.js';
 import {
   QueryParameters,
   QuerySchema,
@@ -14,8 +13,9 @@ import {
   SqliteRow,
   UnscopedEvaluatedRow,
   UnscopedEvaluationResult
-} from './types.js';
-import { filterJsonRow } from './utils.js';
+} from '../types.js';
+import { filterJsonRow } from '../utils.js';
+import { AvailableTable, SqlTools } from './sql_filters.js';
 
 export interface RowValueExtractor {
   extract(tables: QueryParameters, into: SqliteRow): void;

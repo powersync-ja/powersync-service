@@ -1,11 +1,11 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { Expr, ExprRef, FromCall, Name, NodeLocation, QName, QNameAliased, SelectedColumn } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
-import { BucketPriority, isValidPriority } from './BucketDescription.js';
-import { CompatibilityContext } from './compatibility.js';
-import { SqlRuleError } from './errors.js';
-import { ExpressionType } from './ExpressionType.js';
-import { REQUEST_FUNCTIONS, RequestFunctionCall, SqlParameterFunction } from './request_functions.js';
+import { BucketPriority, isValidPriority } from '../BucketDescription.js';
+import { CompatibilityContext } from '../compatibility.js';
+import { SqlRuleError } from '../errors.js';
+import { ExpressionType } from '../ExpressionType.js';
+import { REQUEST_FUNCTIONS, RequestFunctionCall, SqlParameterFunction } from '../request_functions.js';
 import {
   BASIC_OPERATORS,
   OPERATOR_IN,
@@ -18,21 +18,9 @@ import {
   generateSqlFunctions,
   getOperatorFunction,
   sqliteTypeOf
-} from './sql_functions.js';
-import {
-  SQLITE_FALSE,
-  SQLITE_TRUE,
-  andFilters,
-  compileStaticOperator,
-  isClauseError,
-  isParameterMatchClause,
-  isParameterValueClause,
-  isRowValueClause,
-  isStaticValueClause,
-  orFilters,
-  toBooleanParameterSetClause
-} from './sql_support.js';
-import { TablePattern } from './TablePattern.js';
+} from '../sql_functions.js';
+import { SQLITE_FALSE, SQLITE_TRUE } from '../sqliteBool.js';
+import { TablePattern } from '../TablePattern.js';
 import {
   ClauseError,
   CompiledClause,
@@ -46,8 +34,19 @@ import {
   SqliteValue,
   StaticValueClause,
   TrueIfParametersMatch
-} from './types.js';
-import { isJsonValue } from './utils.js';
+} from '../types.js';
+import { isJsonValue } from '../utils.js';
+import {
+  andFilters,
+  compileStaticOperator,
+  isClauseError,
+  isParameterMatchClause,
+  isParameterValueClause,
+  isRowValueClause,
+  isStaticValueClause,
+  orFilters,
+  toBooleanParameterSetClause
+} from './sql_support.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];

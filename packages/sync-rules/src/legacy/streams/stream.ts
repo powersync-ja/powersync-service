@@ -1,5 +1,4 @@
-import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
-import { BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
+import { BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../../BucketDescription.js';
 import {
   BucketDataEvaluator,
   BucketDataSource,
@@ -9,11 +8,12 @@ import {
   CreateSourceParams,
   HydratedBucketSource,
   ParameterIndexLookupCreator
-} from '../BucketSource.js';
-import { ColumnDefinition } from '../ExpressionType.js';
-import { SourceTableRef } from '../SourceTableRef.js';
-import { TablePattern } from '../TablePattern.js';
-import { EvaluateRowOptions, SourceSchema, TableRow, UnscopedEvaluationResult } from '../types.js';
+} from '../../BucketSource.js';
+import { ColumnDefinition } from '../../ExpressionType.js';
+import { SourceTableRef } from '../../SourceTableRef.js';
+import { TablePattern } from '../../TablePattern.js';
+import { EvaluateRowOptions, SourceSchema, TableRow, UnscopedEvaluationResult } from '../../types.js';
+import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { StreamVariant } from './variant.js';
 
 export class SyncStream implements BucketSource {

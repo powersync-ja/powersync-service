@@ -1,20 +1,19 @@
 import { FromCall, SelectFromStatement } from 'pgsql-ast-parser';
-import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
-import { CreateSourceParams } from './BucketSource.js';
-import { SqlRuleError } from './errors.js';
-import { BucketDataScope } from './HydrationState.js';
+import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
+import { CreateSourceParams } from '../BucketSource.js';
+import { SqlRuleError } from '../errors.js';
+import { BucketDataScope } from '../HydrationState.js';
 import {
   BucketDataSource,
   BucketParameterQuerier,
   BucketParameterQuerierSource,
   GetQuerierOptions,
   PendingQueriers
-} from './index.js';
-import { SourceTableRef } from './SourceTableRef.js';
-import { AvailableTable, SqlTools } from './sql_filters.js';
-import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
-import { TablePattern } from './TablePattern.js';
-import { generateTableValuedFunctions, TableValuedFunction } from './TableValuedFunctions.js';
+} from '../index.js';
+import { SourceTableRef } from '../SourceTableRef.js';
+import { sqliteBool } from '../sqliteBool.js';
+import { TablePattern } from '../TablePattern.js';
+import { generateTableValuedFunctions, TableValuedFunction } from '../TableValuedFunctions.js';
 import {
   ParameterValueClause,
   ParameterValueSet,
@@ -22,8 +21,10 @@ import {
   RequestParameters,
   SqliteJsonValue,
   SqliteRow
-} from './types.js';
-import { bucketDescription, isJsonValue, resolvedBucket, serializeBucketParameters } from './utils.js';
+} from '../types.js';
+import { bucketDescription, isJsonValue, resolvedBucket, serializeBucketParameters } from '../utils.js';
+import { AvailableTable, SqlTools } from './sql_filters.js';
+import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { DetectRequestParameters } from './validators.js';
 
 export interface TableValuedFunctionSqlParameterQueryOptions {
