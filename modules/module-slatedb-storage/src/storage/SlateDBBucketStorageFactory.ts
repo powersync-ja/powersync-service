@@ -10,6 +10,7 @@ import {
   SlateDBPersistedReplicationStream,
   SlateDBReplicationStreamRecord
 } from './SlateDBPersistedSyncConfigContent.js';
+import { SlateDBSyncBucketStorage } from './SlateDBSyncBucketStorage.js';
 
 export type SlateDBBucketStorageOptions = {
   config: SlateDBStorageConfigDecoded;
@@ -21,6 +22,8 @@ export class SlateDBBucketStorageFactory extends storage.BucketStorageFactory {
 
   readonly replicationStreamNamePrefix: string;
   private store: Promise<SlateDBKVStore> | undefined;
+  private resolvedStore: SlateDBKVStore | undefined;
+  private activeStorageCache: SlateDBSyncBucketStorage | undefined;
 
   constructor(readonly options: SlateDBBucketStorageOptions) {
     super();
@@ -31,14 +34,27 @@ export class SlateDBBucketStorageFactory extends storage.BucketStorageFactory {
     this.store ??= SlateDBKVStore.open({
       path: this.options.config.path
     });
-    return this.store;
+    this.resolvedStore ??= await this.store;
+    return this.resolvedStore;
   }
 
   getInstance(
-    _replicationStream: storage.PersistedReplicationStream,
+    replicationStream: storage.PersistedReplicationStream,
     _options?: storage.GetIntanceOptions
   ): storage.SyncRulesBucketStorage {
-    throw notImplemented('getInstance');
+    if (!(replicationStream instanceof SlateDBPersistedReplicationStream)) {
+      throw new Error(`Expected SlateDBPersistedReplicationStream`);
+    }
+    if (this.activeStorageCache?.replicationStreamId == replicationStream.replicationStreamId) {
+      return this.activeStorageCache;
+    }
+    const store = this.resolvedStore;
+    if (store == null) {
+      throw new Error(`SlateDB store has not been initialized`);
+    }
+    const instance = new SlateDBSyncBucketStorage(this, store, replicationStream);
+    this.activeStorageCache = instance;
+    return instance;
   }
 
   async updateSyncRules(_options: storage.UpdateSyncRulesOptions): Promise<storage.PersistedReplicationStream> {
@@ -174,6 +190,7 @@ export class SlateDBBucketStorageFactory extends storage.BucketStorageFactory {
       const store = await this.store;
       await store[Symbol.asyncDispose]();
       this.store = undefined;
+      this.resolvedStore = undefined;
     }
   }
 

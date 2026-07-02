@@ -3,3 +3,4 @@ export * from './SlateDBKVStore.js';
 export * from './SlateDBPersistedSyncConfigContent.js';
 export * from './SlateDBReportStorage.js';
 export * from './SlateDBStorageProvider.js';
+export * from './SlateDBSyncBucketStorage.js';

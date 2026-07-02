@@ -8,6 +8,10 @@ export interface SlateDBReplicationStreamRecord {
   state: storage.SyncRuleState;
   storageVersion: number;
   syncConfig: SlateDBSyncConfigRecord;
+  next_op_id?: string;
+  last_persisted_op?: string;
+  resume_lsn?: string | null;
+  no_checkpoint_before_lsn?: string | null;
   snapshot_done?: boolean;
   last_checkpoint_lsn: string | null;
   last_fatal_error?: string | null;

@@ -63,10 +63,11 @@ export class SlateDBKVStore implements AsyncDisposable {
   ) {}
 
   static async open(options: SlateDBKVStoreOptions): Promise<SlateDBKVStore> {
-    await fs.mkdir(options.path, { recursive: true });
+    const rootPath = path.resolve(options.path);
+    await fs.mkdir(rootPath, { recursive: true });
 
     const objectStoreUrl = LOCAL_FILE_OBJECT_STORE_URL;
-    const dbPath = path.join(options.path, options.dbPath ?? DEFAULT_DB_PATH).replace(/^\/+/, '');
+    const dbPath = path.join(rootPath, options.dbPath ?? DEFAULT_DB_PATH).replace(/^\/+/, '');
     const objectStore = ObjectStore.resolve(objectStoreUrl);
 
     const dbBuilder = new DbBuilder(dbPath, objectStore);
@@ -91,6 +92,15 @@ export class SlateDBKVStore implements AsyncDisposable {
 
   async delete(key: SlateDBKey): Promise<void> {
     await this.db.delete(toKeyBytes(key));
+  }
+
+  async deletePrefix(prefix: SlateDBKey, options: { limit?: number } = {}): Promise<number> {
+    const deletes: SlateDBWriteOperation[] = [];
+    for await (const entry of this.scanPrefix(prefix, options)) {
+      deletes.push({ type: 'delete', key: entry.key });
+    }
+    await this.write(deletes);
+    return deletes.length;
   }
 
   async write(operations: SlateDBWriteOperation[]): Promise<void> {

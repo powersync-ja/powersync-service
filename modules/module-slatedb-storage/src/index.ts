@@ -1,3 +1,4 @@
+export * from './migrations/SlateDBMigrationAgent.js';
 export * from './module/SlateDBStorageModule.js';
 
 export * from './storage/storage-index.js';

@@ -1,0 +1,599 @@
+import { BaseObserver, logger as defaultLogger, Logger } from '@powersync/lib-services-framework';
+import { storage, utils } from '@powersync/service-core';
+import { JSONBig } from '@powersync/service-jsonbig';
+import { HydratedSyncConfig } from '@powersync/service-sync-rules';
+import { SlateDBBucketStorageFactory } from './SlateDBBucketStorageFactory.js';
+import { encodeOpId, SlateDBKVStore, storageKey, storagePrefix } from './SlateDBKVStore.js';
+import {
+  getReplicationStreamRecord,
+  putReplicationStreamRecord,
+  SlateDBPersistedReplicationStream,
+  SlateDBReplicationStreamRecord
+} from './SlateDBPersistedSyncConfigContent.js';
+
+interface SourceTableRecord {
+  id: string;
+  connection_id: number;
+  schema: string;
+  name: string;
+  connectionTag: string;
+  objectId: string | number | undefined;
+  replicaIdColumns: storage.ColumnDescriptor[];
+  snapshotComplete: boolean;
+}
+
+interface CurrentDataRecord {
+  data: Record<string, unknown> | null;
+  buckets: CurrentBucket[];
+}
+
+interface CurrentBucket {
+  bucket: string;
+  table: string;
+  id: string;
+}
+
+interface BucketOpRecord {
+  op_id: string;
+  op_id_bigint: string;
+  bucket: string;
+  op: 'PUT' | 'REMOVE';
+  object_type?: string;
+  object_id?: string;
+  data?: string | null;
+  checksum: number;
+}
+
+export class SlateDBSyncBucketStorage
+  extends BaseObserver<storage.SyncRulesBucketStorageListener>
+  implements storage.SyncRulesBucketStorage
+{
+  readonly replicationStreamId: number;
+  readonly replicationStreamName: string;
+  readonly storageConfig: storage.StorageVersionConfig;
+  readonly logger: Logger;
+  writeCheckpointMode = storage.WriteCheckpointMode.MANAGED;
+
+  private parsedSyncConfigSet: storage.ParsedSyncConfigSet | undefined;
+
+  constructor(
+    readonly factory: SlateDBBucketStorageFactory,
+    readonly store: SlateDBKVStore,
+    readonly replicationStream: SlateDBPersistedReplicationStream
+  ) {
+    super();
+    this.replicationStreamId = replicationStream.replicationStreamId;
+    this.replicationStreamName = replicationStream.replicationStreamName;
+    this.storageConfig = replicationStream.getStorageConfig();
+    this.logger = defaultLogger.child({ prefix: `[${this.replicationStreamName}] ` });
+  }
+
+  setWriteCheckpointMode(mode: storage.WriteCheckpointMode): void {
+    this.writeCheckpointMode = mode;
+  }
+
+  async createManagedWriteCheckpoints(
+    checkpoints: storage.ManagedWriteCheckpointOptions[]
+  ): Promise<Map<string, bigint>> {
+    return new Map(checkpoints.map((checkpoint, index) => [checkpoint.user_id, BigInt(index + 1)]));
+  }
+
+  async lastWriteCheckpoint(): Promise<bigint | null> {
+    return null;
+  }
+
+  async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
+    const batch = new SlateDBBucketBatch(this, options, await this.getRecord());
+    this.iterateListeners((listener) => listener.batchStarted?.(batch));
+    return batch;
+  }
+
+  async startBatch(
+    options: storage.CreateWriterOptions,
+    callback: (batch: storage.BucketStorageBatch) => Promise<void>
+  ): Promise<storage.FlushedResult | null> {
+    await using batch = await this.createWriter(options);
+    await callback(batch);
+    return batch.flush();
+  }
+
+  getParsedSyncConfigSet(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
+    this.parsedSyncConfigSet ??= this.replicationStream.parsed(options);
+    return this.parsedSyncConfigSet;
+  }
+
+  getParsedSyncRules(options: storage.ParseSyncConfigOptions): HydratedSyncConfig {
+    return this.getParsedSyncConfigSet(options).hydratedSyncConfig;
+  }
+
+  async terminate(options?: storage.TerminateOptions): Promise<void> {
+    if (options?.clearStorage) {
+      await this.clear(options);
+    }
+    await this.updateRecord({ state: storage.SyncRuleState.TERMINATED });
+  }
+
+  async getStatus(): Promise<storage.ReplicationStreamStatus> {
+    const record = await this.getRecord();
+    return {
+      resumeLsn: record.resume_lsn ?? record.last_checkpoint_lsn,
+      snapshotDone: record.snapshot_done === true && record.last_checkpoint_lsn != null
+    };
+  }
+
+  async clear(_options?: storage.ClearStorageOptions): Promise<void> {
+    for (const prefix of [
+      storagePrefix('source-table', this.replicationStreamId),
+      storagePrefix('current-data', this.replicationStreamId),
+      storagePrefix('bucket-data', this.replicationStreamId),
+      storagePrefix('bucket-state', this.replicationStreamId)
+    ]) {
+      await this.store.deletePrefix(prefix);
+    }
+    await this.updateRecord({ last_persisted_op: '0', last_checkpoint_lsn: null, snapshot_done: false });
+  }
+
+  async reportError(e: any): Promise<void> {
+    await this.updateRecord({
+      last_fatal_error: e instanceof Error ? e.message : String(e),
+      last_fatal_error_ts: new Date().toISOString()
+    });
+  }
+
+  async compact(): Promise<void> {
+    // No compaction for the POC.
+  }
+
+  async populatePersistentChecksumCache(): Promise<storage.PopulateChecksumCacheResults> {
+    return { buckets: 0 };
+  }
+
+  async getCheckpoint(): Promise<storage.ReplicationCheckpoint> {
+    const record = await this.getRecord();
+    const checkpoint = BigInt(record.last_persisted_op ?? '0');
+    return new SlateDBReplicationCheckpoint(checkpoint, record.last_checkpoint_lsn ?? null);
+  }
+
+  async getCheckpointChanges(options: storage.GetCheckpointChangesOptions): Promise<storage.CheckpointChanges> {
+    const updatedDataBuckets = new Set<string>();
+    for await (const entry of this.store.scanPrefix<{ last_op: string }>(
+      storagePrefix('bucket-state', this.replicationStreamId)
+    )) {
+      if (BigInt(entry.value.last_op) > options.lastCheckpoint.checkpoint) {
+        updatedDataBuckets.add(decodeURIComponent(entry.keyText.split('/').at(-1)!));
+        if (updatedDataBuckets.size > 1000) {
+          return {
+            updatedDataBuckets: new Set(),
+            invalidateDataBuckets: true,
+            updatedParameterLookups: new Set(),
+            invalidateParameterBuckets: false
+          };
+        }
+      }
+    }
+    return {
+      updatedDataBuckets,
+      invalidateDataBuckets: false,
+      updatedParameterLookups: new Set(),
+      invalidateParameterBuckets: false
+    };
+  }
+
+  async *watchCheckpointChanges(
+    options: storage.WatchWriteCheckpointOptions
+  ): AsyncIterable<storage.StorageCheckpointUpdate> {
+    let last = 0n;
+    while (!options.signal.aborted) {
+      const base = await this.getCheckpoint();
+      if (base.checkpoint > last) {
+        const previous = new SlateDBReplicationCheckpoint(last, null);
+        last = base.checkpoint;
+        yield {
+          base,
+          writeCheckpoint: null,
+          update: await this.getCheckpointChanges({ lastCheckpoint: previous, nextCheckpoint: base })
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
+  async *getBucketDataBatch(
+    checkpoint: storage.ReplicationCheckpoint,
+    dataBuckets: storage.BucketDataRequest[],
+    options: storage.BucketDataBatchOptions = {}
+  ): AsyncIterable<storage.SyncBucketDataChunk> {
+    const limit = options.limit ?? 1000;
+    let emitted = 0;
+    for (const request of dataBuckets) {
+      const chunk: utils.SyncBucketData = {
+        bucket: request.bucket,
+        after: utils.internalToExternalOpId(request.start),
+        next_after: utils.internalToExternalOpId(request.start),
+        has_more: false,
+        data: []
+      };
+
+      for await (const entry of this.store.scanPrefix<BucketOpRecord>(
+        storagePrefix('bucket-data', this.replicationStreamId, request.bucket)
+      )) {
+        const op = BigInt(entry.value.op_id_bigint);
+        if (op <= request.start || op > checkpoint.checkpoint) {
+          continue;
+        }
+        chunk.data.push({
+          op_id: entry.value.op_id,
+          op: entry.value.op,
+          object_type: entry.value.object_type,
+          object_id: entry.value.object_id,
+          data: entry.value.data ?? undefined,
+          checksum: entry.value.checksum
+        });
+        chunk.next_after = entry.value.op_id;
+        emitted++;
+        if (emitted >= limit) {
+          chunk.has_more = true;
+          break;
+        }
+      }
+
+      if (chunk.data.length > 0 || chunk.next_after != utils.internalToExternalOpId(request.start)) {
+        yield { chunkData: chunk, targetOp: null };
+      }
+      if (emitted >= limit) {
+        return;
+      }
+    }
+  }
+
+  async getChecksums(
+    checkpoint: storage.ReplicationCheckpoint,
+    buckets: storage.BucketChecksumRequest[]
+  ): Promise<utils.ChecksumMap> {
+    const result: utils.ChecksumMap = new Map();
+    for (const request of buckets) {
+      let checksum = 0;
+      let count = 0;
+      for await (const entry of this.store.scanPrefix<BucketOpRecord>(
+        storagePrefix('bucket-data', this.replicationStreamId, request.bucket)
+      )) {
+        if (BigInt(entry.value.op_id_bigint) <= checkpoint.checkpoint) {
+          checksum = utils.addChecksums(checksum, entry.value.checksum);
+          count++;
+        }
+      }
+      result.set(request.bucket, { bucket: request.bucket, checksum, count });
+    }
+    return result;
+  }
+
+  clearChecksumCache(): void {}
+
+  async getRecord(): Promise<SlateDBReplicationStreamRecord> {
+    const record = await getReplicationStreamRecord(this.store, this.replicationStreamId);
+    if (record == null) {
+      throw new Error(`SlateDB replication stream ${this.replicationStreamId} not found`);
+    }
+    return record;
+  }
+
+  async updateRecord(patch: Partial<SlateDBReplicationStreamRecord>): Promise<SlateDBReplicationStreamRecord> {
+    const current = await this.getRecord();
+    const next = { ...current, ...patch };
+    if (patch.state != null) {
+      next.syncConfig = { ...next.syncConfig, state: patch.state };
+    }
+    await putReplicationStreamRecord(this.store, next);
+    return next;
+  }
+}
+
+class SlateDBReplicationCheckpoint implements storage.ReplicationCheckpoint {
+  constructor(
+    readonly checkpoint: bigint,
+    readonly lsn: string | null
+  ) {}
+
+  async getParameterSets(): Promise<[]> {
+    return [];
+  }
+}
+
+class SlateDBBucketBatch
+  extends BaseObserver<storage.BucketBatchStorageListener>
+  implements storage.BucketStorageBatch
+{
+  last_flushed_op: bigint | null = null;
+  resumeFromLsn: string | null;
+  readonly skipExistingRows: boolean;
+  private pending: storage.SaveOptions[] = [];
+  private parsed: HydratedSyncConfig;
+
+  constructor(
+    private readonly storage: SlateDBSyncBucketStorage,
+    private readonly options: storage.CreateWriterOptions,
+    record: SlateDBReplicationStreamRecord
+  ) {
+    super();
+    this.resumeFromLsn = record.resume_lsn ?? record.last_checkpoint_lsn ?? options.zeroLSN;
+    this.skipExistingRows = options.skipExistingRows ?? false;
+    this.parsed = storage.getParsedSyncRules(options);
+  }
+
+  async [Symbol.asyncDispose](): Promise<void> {
+    this.clearListeners();
+  }
+
+  async dispose(): Promise<void> {
+    await this[Symbol.asyncDispose]();
+  }
+
+  async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
+    this.pending.push(record);
+    return null;
+  }
+
+  async truncate(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
+    for (const table of sourceTables) {
+      for await (const entry of this.storage.store.scanPrefix<CurrentDataRecord>(
+        storagePrefix('current-data', this.storage.replicationStreamId, table.id.toString())
+      )) {
+        await this.removeCurrentBuckets(entry.value.buckets);
+        await this.storage.store.delete(entry.key);
+      }
+    }
+    return this.last_flushed_op == null ? null : { flushed_op: this.last_flushed_op };
+  }
+
+  async drop(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
+    await this.truncate(sourceTables);
+    for (const table of sourceTables) {
+      await this.storage.store.delete(sourceTableKey(this.storage.replicationStreamId, table.id.toString()));
+    }
+    return this.last_flushed_op == null ? null : { flushed_op: this.last_flushed_op };
+  }
+
+  async flush(): Promise<storage.FlushedResult | null> {
+    if (this.pending.length == 0) {
+      return null;
+    }
+    for (const record of this.pending) {
+      await this.persistRecord(record);
+    }
+    this.pending = [];
+    return this.last_flushed_op == null ? null : { flushed_op: this.last_flushed_op };
+  }
+
+  async commit(lsn: string, options: storage.BucketBatchCommitOptions = {}): Promise<storage.CheckpointResult> {
+    const flushed = await this.flush();
+    const createEmpty = options.createEmptyCheckpoints ?? true;
+    if (flushed == null && !createEmpty) {
+      await this.setResumeLsn(lsn);
+      return { checkpointBlocked: false, checkpointCreated: false };
+    }
+    const record = await this.storage.getRecord();
+    const checkpoint = this.last_flushed_op ?? BigInt(record.last_persisted_op ?? '0');
+    await this.storage.updateRecord({
+      state: record.state == storage.SyncRuleState.PROCESSING ? storage.SyncRuleState.ACTIVE : record.state,
+      last_persisted_op: checkpoint.toString(),
+      last_checkpoint_lsn: lsn,
+      resume_lsn: lsn,
+      snapshot_done: true,
+      last_checkpoint_ts: new Date().toISOString(),
+      last_keepalive_ts: new Date().toISOString(),
+      last_fatal_error: null,
+      last_fatal_error_ts: null
+    });
+    return { checkpointBlocked: false, checkpointCreated: true };
+  }
+
+  async keepalive(lsn: string): Promise<storage.CheckpointResult> {
+    return this.commit(lsn, { createEmptyCheckpoints: true });
+  }
+
+  async setResumeLsn(lsn: string): Promise<void> {
+    this.resumeFromLsn = lsn;
+    await this.storage.updateRecord({ resume_lsn: lsn });
+  }
+
+  async markTableSnapshotDone(
+    tables: storage.SourceTable[],
+    no_checkpoint_before_lsn?: string
+  ): Promise<storage.SourceTable[]> {
+    for (const table of tables) {
+      table.snapshotComplete = true;
+      await this.saveSourceTable(table);
+    }
+    if (no_checkpoint_before_lsn != null) {
+      await this.storage.updateRecord({ no_checkpoint_before_lsn });
+    }
+    return tables;
+  }
+
+  async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
+    table.snapshotComplete = false;
+    await this.saveSourceTable(table);
+    await this.storage.updateRecord({ snapshot_done: false });
+  }
+
+  async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+    this.resumeFromLsn = this.resumeFromLsn ?? no_checkpoint_before_lsn;
+    await this.storage.updateRecord({
+      snapshot_done: true,
+      no_checkpoint_before_lsn,
+      resume_lsn: this.resumeFromLsn
+    });
+  }
+
+  async markSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+    await this.markAllSnapshotDone(no_checkpoint_before_lsn);
+  }
+
+  async updateTableProgress(
+    table: storage.SourceTable,
+    progress: Partial<storage.TableSnapshotStatus>
+  ): Promise<storage.SourceTable> {
+    table.snapshotStatus = {
+      ...(table.snapshotStatus ?? { totalEstimatedCount: -1, replicatedCount: 0, lastKey: null }),
+      ...progress
+    };
+    await this.saveSourceTable(table);
+    return table;
+  }
+
+  async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
+    const record = await this.storage.store.get<SourceTableRecord>(
+      sourceTableKey(this.storage.replicationStreamId, table.id.toString())
+    );
+    return record == null ? null : this.sourceTableFromRecord(record);
+  }
+
+  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
+    const source = options.source;
+    const id = String(
+      options.idGenerator?.() ?? `${options.connection_id}:${source.schema}:${source.name}:${source.objectId ?? ''}`
+    );
+    const key = sourceTableKey(this.storage.replicationStreamId, id);
+    let record = await this.storage.store.get<SourceTableRecord>(key);
+    if (record == null) {
+      record = {
+        id,
+        connection_id: options.connection_id,
+        schema: source.schema,
+        name: source.name,
+        objectId: source.objectId,
+        connectionTag: source.connectionTag,
+        replicaIdColumns: source.replicaIdColumns,
+        snapshotComplete: true
+      };
+      await this.storage.store.put(key, record);
+    }
+    return { tables: [this.sourceTableFromRecord(record)], dropTables: [] };
+  }
+
+  addCustomWriteCheckpoint(): void {
+    // Ignored for the POC.
+  }
+
+  private async persistRecord(record: storage.SaveOptions): Promise<void> {
+    const sourceKey = sourceRecordId(record);
+    const currentKey = currentDataKey(this.storage.replicationStreamId, record.sourceTable.id.toString(), sourceKey);
+    const existing = await this.storage.store.get<CurrentDataRecord>(currentKey);
+    let nextBuckets: CurrentBucket[] = [];
+    let nextData: Record<string, unknown> | null = null;
+
+    if (record.tag != storage.SaveOperationTag.DELETE) {
+      nextData = { ...(existing?.data ?? {}), ...record.after };
+      const { results } = this.parsed.evaluateRowWithErrors({
+        record: nextData as any,
+        sourceTable: record.sourceTable.ref,
+        bucketDataSources: record.sourceTable.bucketDataSources
+      });
+      nextBuckets = results.map((row) => ({ bucket: row.bucket, table: row.table, id: row.id }));
+      for (const row of results) {
+        await this.putBucketOp({
+          bucket: row.bucket,
+          op: 'PUT',
+          object_type: row.table,
+          object_id: row.id,
+          data: JSONBig.stringify(row.data),
+          checksum: utils.hashData(row.table, row.id, JSONBig.stringify(row.data))
+        });
+      }
+    }
+
+    const remaining = new Map((existing?.buckets ?? []).map((bucket) => [bucketKey(bucket), bucket]));
+    for (const bucket of nextBuckets) {
+      remaining.delete(bucketKey(bucket));
+    }
+    await this.removeCurrentBuckets([...remaining.values()]);
+
+    if (record.tag == storage.SaveOperationTag.DELETE) {
+      await this.storage.store.delete(currentKey);
+    } else {
+      await this.storage.store.put(currentKey, { data: nextData, buckets: nextBuckets } satisfies CurrentDataRecord);
+    }
+  }
+
+  private async removeCurrentBuckets(buckets: CurrentBucket[]): Promise<void> {
+    for (const bucket of buckets) {
+      await this.putBucketOp({
+        bucket: bucket.bucket,
+        op: 'REMOVE',
+        object_type: bucket.table,
+        object_id: bucket.id,
+        data: null,
+        checksum: utils.hashDelete(`${bucket.table}/${bucket.id}`)
+      });
+    }
+  }
+
+  private async putBucketOp(operation: Omit<BucketOpRecord, 'op_id' | 'op_id_bigint'>): Promise<void> {
+    const op = await this.nextOp();
+    const opId = utils.internalToExternalOpId(op);
+    const record: BucketOpRecord = { ...operation, op_id: opId, op_id_bigint: op.toString() };
+    await this.storage.store.put(bucketDataKey(this.storage.replicationStreamId, operation.bucket, op), record);
+    await this.storage.store.put(storageKey('bucket-state', this.storage.replicationStreamId, operation.bucket), {
+      bucket: operation.bucket,
+      last_op: op.toString()
+    });
+    this.last_flushed_op = op;
+  }
+
+  private async nextOp(): Promise<bigint> {
+    const record = await this.storage.getRecord();
+    const next = BigInt(record.next_op_id ?? '1');
+    await this.storage.updateRecord({ next_op_id: (next + 1n).toString() });
+    return next;
+  }
+
+  private async saveSourceTable(table: storage.SourceTable): Promise<void> {
+    await this.storage.store.put(sourceTableKey(this.storage.replicationStreamId, table.id.toString()), {
+      id: table.id.toString(),
+      connection_id: 0,
+      schema: table.schema,
+      name: table.name,
+      objectId: table.objectId,
+      connectionTag: table.ref.connectionTag,
+      replicaIdColumns: table.replicaIdColumns,
+      snapshotComplete: table.snapshotComplete
+    } satisfies SourceTableRecord);
+  }
+
+  private sourceTableFromRecord(record: SourceTableRecord): storage.SourceTable {
+    const ref = { connectionTag: record.connectionTag, schema: record.schema, name: record.name };
+    const table = new storage.SourceTable({
+      id: record.id,
+      ref,
+      objectId: record.objectId,
+      replicaIdColumns: record.replicaIdColumns,
+      snapshotComplete: record.snapshotComplete,
+      ...this.parsed.getMatchingSources(ref)
+    });
+    table.syncData = table.bucketDataSources.length > 0;
+    table.syncParameters = false;
+    table.syncEvent = this.parsed.tableTriggersEvent(ref);
+    return table;
+  }
+}
+
+function sourceTableKey(streamId: number, tableId: string): string {
+  return storageKey('source-table', streamId, tableId);
+}
+
+function currentDataKey(streamId: number, tableId: string, sourceKey: string): string {
+  return storageKey('current-data', streamId, tableId, sourceKey);
+}
+
+function bucketDataKey(streamId: number, bucket: string, op: bigint): string {
+  return storageKey('bucket-data', streamId, bucket, encodeOpId(op));
+}
+
+function sourceRecordId(record: storage.SaveOptions): string {
+  const replicaId = record.tag == storage.SaveOperationTag.DELETE ? record.beforeReplicaId : record.afterReplicaId;
+  return storage.serializeReplicaId(replicaId).toString('base64url');
+}
+
+function bucketKey(bucket: CurrentBucket): string {
+  return `${bucket.bucket}/${bucket.table}/${bucket.id}`;
+}
