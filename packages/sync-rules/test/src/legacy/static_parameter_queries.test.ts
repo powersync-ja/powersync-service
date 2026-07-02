@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import { BucketDataScope, HydrationState, ParameterLookupScope } from '../../src/HydrationState.js';
-import { BucketParameterQuerier, GetQuerierOptions, QuerierError, SqlParameterQuery } from '../../src/index.js';
-import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
-import { bucketDataScope, EMPTY_DATA_SOURCE, PARSE_OPTIONS, requestParameters } from './util.js';
+import { BucketDataScope, HydrationState, ParameterLookupScope } from '../../../src/HydrationState.js';
+import { BucketParameterQuerier, GetQuerierOptions, QuerierError } from '../../../src/index.js';
+import { SqlParameterQuery } from '../../../src/legacy/SqlParameterQuery.js';
+import { StaticSqlParameterQuery } from '../../../src/legacy/StaticSqlParameterQuery.js';
+import { bucketDataScope, EMPTY_DATA_SOURCE, PARSE_OPTIONS, requestParameters } from '../util.js';
 
 describe('static parameter queries', () => {
   const MYBUCKET_SCOPE: BucketDataScope = {

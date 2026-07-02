@@ -1,6 +1,6 @@
-import { isRequestFunctionCall } from './request_functions.js';
+import { isRequestFunctionCall } from '../request_functions.js';
+import { CompiledClause, isLegacyParameterFromTableClause } from '../types.js';
 import { isParameterMatchClause } from './sql_support.js';
-import { CompiledClause, isLegacyParameterFromTableClause } from './types.js';
 
 /**
  * Detects the use of request parameters in a compiled clause.

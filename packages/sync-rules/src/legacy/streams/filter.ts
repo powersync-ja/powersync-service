@@ -1,8 +1,6 @@
-import { ScopedParameterLookup, UnscopedParameterLookup } from '../BucketParameterQuerier.js';
-import { SqlTools } from '../sql_filters.js';
-import { checkJsonArray, OPERATOR_NOT } from '../sql_functions.js';
-import { isParameterValueClause, isRowValueClause, SQLITE_TRUE, sqliteBool } from '../sql_support.js';
-import { TablePattern } from '../TablePattern.js';
+import { ScopedParameterLookup, UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
+import { checkJsonArray, OPERATOR_NOT } from '../../sql_functions.js';
+import { TablePattern } from '../../TablePattern.js';
 import {
   ParameterMatchClause,
   ParameterValueClause,
@@ -11,15 +9,18 @@ import {
   SqliteJsonValue,
   SqliteRow,
   UnscopedEvaluatedParametersResult
-} from '../types.js';
-import { isJsonValue, normalizeParameterValue } from '../utils.js';
+} from '../../types.js';
+import { isJsonValue, normalizeParameterValue } from '../../utils.js';
+import { SqlTools } from '../sql_filters.js';
+import { isParameterValueClause, isRowValueClause } from '../sql_support.js';
 
 import { NodeLocation } from 'pgsql-ast-parser';
-import { ParameterIndexLookupCreator, ParameterIndexLookupEvaluator } from '../BucketSource.js';
-import { HydrationState, ParameterLookupDefinitionId } from '../HydrationState.js';
-import { SourceTableRef } from '../SourceTableRef.js';
+import { ParameterIndexLookupCreator, ParameterIndexLookupEvaluator } from '../../BucketSource.js';
+import { HydrationState, ParameterLookupDefinitionId } from '../../HydrationState.js';
+import { SourceTableRef } from '../../SourceTableRef.js';
+import { SQLITE_TRUE, sqliteBool } from '../../sqliteBool.js';
+import { cartesianProduct } from '../../utils.js';
 import { SubqueryEvaluator } from './parameter.js';
-import { cartesianProduct } from './utils.js';
 import { StreamVariant } from './variant.js';
 
 /**

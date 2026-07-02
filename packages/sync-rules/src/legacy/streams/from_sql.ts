@@ -8,10 +8,13 @@ import {
   SelectStatement,
   Statement
 } from 'pgsql-ast-parser';
+import { CompatibilityEdition } from '../../compatibility.js';
+import { SqlRuleError } from '../../errors.js';
+import { ExpressionType } from '../../ExpressionType.js';
+import { TablePattern } from '../../TablePattern.js';
+import { CompiledClause, QuerySchema, StaticValueClause, StreamParseOptions } from '../../types.js';
+import { isSelectStatement } from '../../utils.js';
 import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from '../BaseSqlDataQuery.js';
-import { CompatibilityEdition } from '../compatibility.js';
-import { SqlRuleError } from '../errors.js';
-import { ExpressionType } from '../ExpressionType.js';
 import { AvailableTable, SqlTools } from '../sql_filters.js';
 import {
   andFilters,
@@ -23,10 +26,7 @@ import {
   isStaticValueClause,
   orFilters
 } from '../sql_support.js';
-import { TablePattern } from '../TablePattern.js';
 import { TableQuerySchema } from '../TableQuerySchema.js';
-import { CompiledClause, QuerySchema, StaticValueClause, StreamParseOptions } from '../types.js';
-import { isSelectStatement } from '../utils.js';
 import { DetectRequestParameters } from '../validators.js';
 import {
   And,

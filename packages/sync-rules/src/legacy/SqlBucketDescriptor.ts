@@ -1,4 +1,4 @@
-import { PendingQueriers } from './BucketParameterQuerier.js';
+import { PendingQueriers } from '../BucketParameterQuerier.js';
 import {
   BucketDataEvaluator,
   BucketDataSource,
@@ -6,19 +6,19 @@ import {
   BucketSourceType,
   CreateSourceParams,
   HydratedBucketSource
-} from './BucketSource.js';
-import { ColumnDefinition } from './ExpressionType.js';
-import { IdSequence } from './IdSequence.js';
-import { SourceTableRef } from './SourceTableRef.js';
+} from '../BucketSource.js';
+import { CompatibilityContext } from '../compatibility.js';
+import { SqlRuleError } from '../errors.js';
+import { ColumnDefinition } from '../ExpressionType.js';
+import { IdSequence } from '../IdSequence.js';
+import { SourceTableRef } from '../SourceTableRef.js';
+import { GetQuerierOptions, SyncRulesOptions } from '../SqlSyncRules.js';
+import { TablePattern } from '../TablePattern.js';
+import { EvaluateRowOptions, QueryParseOptions, SourceSchema, UnscopedEvaluationResult } from '../types.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
 import { SqlParameterQuery } from './SqlParameterQuery.js';
-import { GetQuerierOptions, SyncRulesOptions } from './SqlSyncRules.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
-import { TablePattern } from './TablePattern.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
-import { CompatibilityContext } from './compatibility.js';
-import { SqlRuleError } from './errors.js';
-import { EvaluateRowOptions, QueryParseOptions, SourceSchema, UnscopedEvaluationResult } from './types.js';
 
 export interface QueryParseResult {
   /**

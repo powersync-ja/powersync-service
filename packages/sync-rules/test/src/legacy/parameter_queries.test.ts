@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from 'vitest';
-import { HydrationState } from '../../src/HydrationState.js';
+import { HydrationState } from '../../../src/HydrationState.js';
 import {
   BucketDataScope,
   BucketParameterQuerier,
@@ -9,10 +9,10 @@ import {
   QuerierError,
   ScopedParameterLookup,
   SourceTableRef,
-  SqlParameterQuery,
   UnscopedParameterLookup
-} from '../../src/index.js';
-import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
+} from '../../../src/index.js';
+import { SqlParameterQuery } from '../../../src/legacy/SqlParameterQuery.js';
+import { StaticSqlParameterQuery } from '../../../src/legacy/StaticSqlParameterQuery.js';
 import {
   BASIC_SCHEMA,
   bucketDataScope,
@@ -22,7 +22,7 @@ import {
   PARSE_OPTIONS,
   requestParameters,
   testHydrationInput
-} from './util.js';
+} from '../util.js';
 
 describe('parameter queries', () => {
   const table = (name: string): SourceTableRef => ({

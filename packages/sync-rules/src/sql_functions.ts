@@ -1,5 +1,5 @@
 import { JSONBig } from '@powersync/service-jsonbig';
-import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from './sql_support.js';
+import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from './sqliteBool.js';
 import { SqliteInputValue, SqliteJsonValue, SqliteValue } from './types.js';
 import { jsonValueToSqlite } from './utils.js';
 // Declares @syncpoint/wkx module

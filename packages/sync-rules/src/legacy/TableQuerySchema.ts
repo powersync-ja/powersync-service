@@ -1,6 +1,6 @@
-import { ColumnDefinition } from './ExpressionType.js';
+import { ColumnDefinition } from '../ExpressionType.js';
+import { QuerySchema, SourceSchemaTable } from '../types.js';
 import { AvailableTable } from './sql_filters.js';
-import { QuerySchema, SourceSchemaTable } from './types.js';
 
 /**
  * Exposes a list of {@link SourceSchemaTable}s as a {@link QuerySchema} by only exposing the subset of the schema

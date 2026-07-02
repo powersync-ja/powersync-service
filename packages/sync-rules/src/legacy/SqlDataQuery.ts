@@ -1,17 +1,17 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { parse } from 'pgsql-ast-parser';
+import { CompatibilityContext } from '../compatibility.js';
+import { SqlRuleError } from '../errors.js';
+import { ExpressionType } from '../ExpressionType.js';
+import { SourceTableRef } from '../SourceTableRef.js';
+import { SyncRulesOptions } from '../SqlSyncRules.js';
+import { TablePattern } from '../TablePattern.js';
+import { ParameterMatchClause, QuerySchema, SqliteRow, UnscopedEvaluationResult } from '../types.js';
+import { isSelectStatement, serializeBucketParameters } from '../utils.js';
 import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from './BaseSqlDataQuery.js';
-import { CompatibilityContext } from './compatibility.js';
-import { SqlRuleError } from './errors.js';
-import { ExpressionType } from './ExpressionType.js';
-import { SourceTableRef } from './SourceTableRef.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
-import { SyncRulesOptions } from './SqlSyncRules.js';
-import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
-import { ParameterMatchClause, QuerySchema, SqliteRow, UnscopedEvaluationResult } from './types.js';
-import { isSelectStatement, serializeBucketParameters } from './utils.js';
 
 export interface SqlDataQueryOptions extends BaseSqlDataQueryOptions {
   filter: ParameterMatchClause;
