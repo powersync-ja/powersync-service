@@ -779,3 +779,31 @@ streams:
     ]);
   });
 });
+
+describe('table metadata', () => {
+  test('unknown table function', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE "table".unknown() = 1`)).toStrictEqual([
+      { message: 'Unknown table function', source: '"table".unknown' }
+    ]);
+  });
+
+  test('arguments to table metadata functions', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE "table".schema('x') = 'a'`)).toStrictEqual([
+      { message: 'Expected no arguments here', source: '"table".schema' }
+    ]);
+  });
+
+  test('compiles table.schema() without diagnostics', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE "table".schema() = 'a'`)).toStrictEqual([]);
+  });
+
+  test('warns for table_suffix on tables without a wildcard name', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE "table".table_suffix() = 's'`)).toStrictEqual([
+      {
+        message: 'table.table_suffix() is always empty because this table is not selected with a wildcard name.',
+        source: '"table".table_suffix',
+        isWarning: true
+      }
+    ]);
+  });
+});

@@ -9,9 +9,7 @@ import { QuerySchema, SourceSchemaTable } from './types.js';
 export class TableQuerySchema implements QuerySchema {
   constructor(
     private tables: SourceSchemaTable[],
-    private alias: AvailableTable,
-    /** Resolved by {@link getColumn} (validation) but excluded from {@link getColumns} (`SELECT *`). */
-    private syntheticColumns: ColumnDefinition[] = []
+    private alias: AvailableTable
   ) {}
 
   getColumn(table: string, column: string): ColumnDefinition | undefined {
@@ -24,7 +22,7 @@ export class TableQuerySchema implements QuerySchema {
         return t;
       }
     }
-    return this.syntheticColumns.find((c) => c.name == column);
+    return undefined;
   }
 
   getColumns(table: string): ColumnDefinition[] {

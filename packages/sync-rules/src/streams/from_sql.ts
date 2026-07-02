@@ -11,7 +11,7 @@ import {
 import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from '../BaseSqlDataQuery.js';
 import { CompatibilityEdition } from '../compatibility.js';
 import { SqlRuleError } from '../errors.js';
-import { ColumnDefinition, ExpressionType } from '../ExpressionType.js';
+import { ExpressionType } from '../ExpressionType.js';
 import { AvailableTable, SqlTools } from '../sql_filters.js';
 import {
   andFilters,
@@ -496,7 +496,7 @@ class SyncStreamCompiler {
 
         this.errors.push(e);
       } else {
-        querySchema = new TableQuerySchema(tables, alias, syntheticWildcardColumns(sourceTable));
+        querySchema = new TableQuerySchema(tables, alias);
       }
     }
 
@@ -522,17 +522,6 @@ class SyncStreamCompiler {
       throw new Error('Unknown clause type');
     }
   }
-}
-
-function syntheticWildcardColumns(sourceTable: TablePattern): ColumnDefinition[] {
-  const columns: ColumnDefinition[] = [];
-  if (sourceTable.isWildcard) {
-    columns.push({ name: '_table_suffix', type: ExpressionType.TEXT });
-  }
-  if (sourceTable.isSchemaWildcard) {
-    columns.push({ name: '_schema', type: ExpressionType.TEXT });
-  }
-  return columns;
 }
 
 function isScalarExpression(clause: CompiledClause): clause is ScalarExpression {

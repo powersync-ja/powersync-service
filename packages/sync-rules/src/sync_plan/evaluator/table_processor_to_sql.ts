@@ -13,7 +13,7 @@ import * as plan from '../plan.js';
  * separately, because their order depends on the type of table processor (data source vs. parameter lookup creator).
  */
 export class TableProcessorToSqlHelper {
-  mapper = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue>();
+  mapper = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue | plan.RowMetadataSqlValue>();
   readonly filterExpressions: SqlExpression<number | TableValuedFunctionOutput>[] = [];
 
   get tableValuedFunctions() {

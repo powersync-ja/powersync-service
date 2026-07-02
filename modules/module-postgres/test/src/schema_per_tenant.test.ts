@@ -4,15 +4,16 @@ import { describe, expect, test } from 'vitest';
 import { describeWithStorage, StorageVersionTestContext } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
-// A wildcard schema (`%`) lets one stream span many schemas, exposing the per-row schema as `_schema`
-// and resolving it per client from a JWT claim. A single slot and `FOR ALL TABLES` publication cover all.
+// A wildcard schema (`%`) lets one stream span many schemas, with the row's schema available as
+// `table.schema()` and resolved per client from a JWT claim. A single replication slot and
+// `FOR ALL TABLES` publication cover every schema.
 const TENANT_STREAM = `
 streams:
   stream:
-    query: SELECT * FROM "%".test_data WHERE _schema = auth.parameters() ->> 'tenant_schema'
+    query: SELECT * FROM "%".test_data WHERE "table".schema() = auth.parameter('tenant_schema')
 
 config:
-  edition: 2
+  edition: 3
 `;
 
 describe('schema-per-tenant streams', () => {

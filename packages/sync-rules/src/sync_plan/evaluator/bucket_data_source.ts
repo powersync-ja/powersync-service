@@ -7,7 +7,6 @@ import {
   EvaluateRowOptions,
   SourceSchema,
   SqliteJsonRow,
-  SqliteRow,
   UnscopedEvaluatedRow,
   UnscopedEvaluationResult
 } from '../../types.js';
@@ -111,7 +110,7 @@ class PendingStreamDataSource {
   private readonly outputs: ('star' | { index: number; alias: string })[] = [];
   private readonly numberOfOutputExpressions: number;
   private readonly numberOfParameters: number;
-  private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
+  private readonly evaluatorInputs: (plan.ColumnSqlParameterValue | plan.RowMetadataSqlValue)[];
   private readonly statement: ScalarStatement;
   readonly fixedOutputTableName?: string;
 
@@ -155,9 +154,9 @@ class PendingStreamDataSource {
 
     return (options: EvaluateRowOptions, results: UnscopedEvaluationResult[]) => {
       try {
-        // Synthetic columns feed filters/bucket parameters via inputRecord; `star` reads the original record (never synced).
-        const inputRecord = addSpecialColumns(pattern, options.sourceTable, options.record);
-        const inputInstantiation = this.evaluatorInputs.map((input) => inputRecord[input.column]);
+        const inputInstantiation = this.evaluatorInputs.map((input) =>
+          'column' in input ? options.record[input.column] : resolveRowMetadata(input, pattern, options.sourceTable)
+        );
         row: for (const source of evaluator.evaluate(inputInstantiation)) {
           const record: SqliteJsonRow = {};
           for (const output of this.outputs) {
@@ -196,13 +195,15 @@ class PendingStreamDataSource {
   }
 }
 
-function addSpecialColumns(pattern: TablePattern, table: SourceTableRef, record: SqliteRow): SqliteRow {
-  let result = record;
-  if (pattern.isWildcard) {
-    result = { ...result, _table_suffix: pattern.suffix(table.name) };
+export function resolveRowMetadata(
+  value: plan.RowMetadataSqlValue,
+  pattern: TablePattern,
+  table: SourceTableRef
+): string {
+  switch (value.metadata) {
+    case 'schema':
+      return table.schema;
+    case 'table_suffix':
+      return pattern.isWildcard ? pattern.suffix(table.name) : '';
   }
-  if (pattern.isSchemaWildcard) {
-    result = { ...result, _schema: table.schema };
-  }
-  return result;
 }

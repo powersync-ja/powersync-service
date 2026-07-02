@@ -1,7 +1,6 @@
 import {
   Expr,
   ExprCall,
-  ExprRef,
   From,
   nil,
   NodeLocation,
@@ -16,7 +15,7 @@ import { cartesianProduct } from '../streams/utils.js';
 import { SqlExpression } from '../sync_plan/expression.js';
 import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
-import { ColumnInRow, ExpressionInput, NodeLocations, SourceLocation, SyncExpression } from './expression.js';
+import { ExpressionInput, NodeLocations, RowReference, SourceLocation, SyncExpression } from './expression.js';
 import {
   And,
   BaseTerm,
@@ -439,7 +438,7 @@ export class StreamQueryParser {
 
     const addColumn = (expr: SyncExpression, name: string) => {
       for (const dependency of expr.instantiation) {
-        if (dependency instanceof ColumnInRow) {
+        if (dependency instanceof RowReference) {
           if (!selectsFrom(dependency.resultSet, dependency.syntacticOrigin)) {
             return;
           }
@@ -503,7 +502,7 @@ export class StreamQueryParser {
     return this.exprParser.translateExpression(source);
   }
 
-  private resolveTableName(node: ExprRef, name: string | nil): SourceResultSet | PreparedSubquery | null {
+  private resolveTableName(node: Expr, name: string | nil): SourceResultSet | PreparedSubquery | null {
     if (name == null) {
       // For unqualified references, there must be a single table in scope. We don't allow unqualified references if
       // there are multiple tables because we don't know which column is available in which table with certainty (and
@@ -628,7 +627,7 @@ export class StreamQueryParser {
     let hadError = false;
 
     for (const dependency of inner.instantiation) {
-      if (dependency instanceof ColumnInRow) {
+      if (dependency instanceof RowReference) {
         if (referencingConnection != null) {
           this.errors.report(
             "This expression already references connection parameters, so it can't also reference row data unless the two are compared with an equals operator.",

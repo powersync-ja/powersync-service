@@ -3,7 +3,6 @@ import {
   Expr,
   ExprBinary,
   ExprCall,
-  ExprRef,
   nil,
   NodeLocation,
   PGNode,
@@ -24,6 +23,8 @@ import {
   ConnectionParameter,
   ExpressionInput,
   NodeLocations,
+  RowMetadata,
+  RowMetadataKind,
   SourceLocation,
   SyncExpression
 } from './expression.js';
@@ -71,7 +72,7 @@ export interface PostgresToSqliteOptions {
    *
    * Should report an error if resolving the table failed, using `node` as the source location for the error.
    */
-  resolveTableName(node: ExprRef, name: string | nil): SourceResultSet | PreparedSubquery | null;
+  resolveTableName(node: Expr, name: string | nil): SourceResultSet | PreparedSubquery | null;
 
   /**
    * Generates a table alias for synthetic subqueries like those generated to desugar `IN` expressions to `json_each`
@@ -198,6 +199,8 @@ export class PostgresToSqlite {
         if (schemaName) {
           if (source) {
             return this.translateRequestParameter(source, expr);
+          } else if (schemaName === 'table') {
+            return this.translateRowMetadata(expr);
           } else {
             return this.invalidExpression(expr.function, 'Invalid schema in function name');
           }
@@ -547,6 +550,48 @@ export class PostgresToSqlite {
       default:
         return this.invalidExpression(expr.function, 'Unknown request function');
     }
+  }
+
+  private translateRowMetadata(expr: ExprCall): SqlExpression<ExpressionInput> {
+    let kind: RowMetadataKind;
+    switch (expr.function.name.toLowerCase()) {
+      case 'schema':
+        kind = 'schema';
+        break;
+      case 'table_suffix':
+        kind = 'table_suffix';
+        break;
+      default:
+        return this.invalidExpression(expr.function, 'Unknown table function');
+    }
+
+    if (expr.args.length != 0) {
+      return this.invalidExpression(expr.function, 'Expected no arguments here');
+    }
+
+    const resultSet = this.options.resolveTableName(expr, undefined);
+    if (resultSet == null) {
+      // resolveTableName will have logged an error, transform with a bogus value to keep going.
+      return { type: 'lit_null' };
+    }
+    if (!(resultSet instanceof BaseSourceResultSet)) {
+      return this.invalidExpression(expr.function, `table.${kind}() is not supported on subqueries`);
+    }
+
+    if (kind == 'table_suffix' && resultSet instanceof PhysicalSourceResultSet && !resultSet.tablePattern.isWildcard) {
+      this.options.errors.report(
+        'table.table_suffix() is always empty because this table is not selected with a wildcard name.',
+        expr.function,
+        { isWarning: true }
+      );
+    }
+
+    const replacement: SqlExpression<ExpressionInput> = {
+      type: 'data',
+      source: new RowMetadata(expr, resultSet, kind)
+    };
+    this.options.locations.sourceForNode.set(replacement, this.sourceLocation(expr.function));
+    return replacement;
   }
 
   private sourceLocation(location: PGNode | NodeLocation): SourceLocation {
