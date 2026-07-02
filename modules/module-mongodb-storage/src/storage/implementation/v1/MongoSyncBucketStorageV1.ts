@@ -24,7 +24,14 @@ import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
+import {
+  BucketRowEstimate,
+  MongoSyncBucketStorage,
+  MongoSyncBucketStorageOptions,
+  TopBucketCandidate,
+  TopBucketSelection,
+  TopDefinitionCandidate
+} from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV1,
   BucketDataKeyV1,
@@ -180,6 +187,75 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
 
   createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
     return new MongoCompactorV1(this, this.db, options);
+  }
+
+  // For storage v1/v2, bucket state and bucket data are shared collections scoped by group (replication stream).
+  protected async collectTopBuckets(limit: number): Promise<TopBucketSelection> {
+    const { buckets, definitions, definitionsTruncated, totals } = await this.aggregateTopBuckets(
+      this.db.bucketStateV1,
+      { '_id.g': this.replicationStreamId },
+      limit
+    );
+    return {
+      buckets: buckets.map((b) => ({ bucket: b.id.b, operations: b.operations, operationBytes: b.operationBytes })),
+      definitions,
+      definitionsTruncated,
+      totals
+    };
+  }
+
+  protected estimateBucketRows(candidate: TopBucketCandidate): Promise<BucketRowEstimate> {
+    // v1/v2 store one document per operation, so a bucket's ops are an id-prefix range that can be sampled directly.
+    const sampled = this.shouldSampleBucketRows(candidate.operations);
+    const buildPrefix = (applySample: boolean): mongo.Document[] => {
+      // Range-match on the whole `_id` (g, b, o) so the {_id} index is used; a dotted `{'_id.g','_id.b'}` match
+      // cannot use the compound-object index and would scan the whole collection per bucket.
+      const prefix: mongo.Document[] = [
+        {
+          $match: {
+            _id: idPrefixFilter<{ g: number; b: string; o: unknown }>(
+              { g: this.replicationStreamId, b: candidate.bucket },
+              ['o']
+            )
+          }
+        }
+      ];
+      if (applySample) {
+        prefix.push({ $match: { $sampleRate: this.bucketRowSampleRate(candidate.operations) } });
+      }
+      return prefix;
+    };
+    return this.estimateRowsFromOperationSample(this.db.bucketDataV1, buildPrefix, candidate.operations, sampled);
+  }
+
+  protected estimateDefinitionRows(candidate: TopDefinitionCandidate): Promise<BucketRowEstimate> {
+    const sampled = this.shouldSampleBucketRows(candidate.operations);
+    const buildPrefix = (applySample: boolean): mongo.Document[] => {
+      // All of a definition's bucket names start with `<definition>[`, so an `_id` range on that string
+      // prefix selects exactly the definition's operations via the index. `\\` (0x5C) is the character
+      // after `[` (0x5B), so [`<definition>[`, `<definition>\\`) cannot include any other definition:
+      // a longer definition name would have to differ at or before the `[`.
+      const prefix: mongo.Document[] = [
+        {
+          $match: {
+            _id: {
+              $gte: { g: this.replicationStreamId, b: `${candidate.definition}[`, o: new bson.MinKey() },
+              $lt: { g: this.replicationStreamId, b: `${candidate.definition}\\`, o: new bson.MinKey() }
+            }
+          }
+        }
+      ];
+      if (applySample) {
+        prefix.push({ $match: { $sampleRate: this.bucketRowSampleRate(candidate.operations) } });
+      }
+      return prefix;
+    };
+    // Include the bucket name in the row key: at definition grain a row counts once per bucket holding it.
+    return this.estimateRowsFromOperationSample(this.db.bucketDataV1, buildPrefix, candidate.operations, sampled, {
+      b: '$_id.b',
+      table: '$table',
+      row_id: '$row_id'
+    });
   }
 
   protected createMongoParameterCompactor(
