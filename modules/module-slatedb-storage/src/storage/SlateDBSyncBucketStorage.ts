@@ -3,7 +3,7 @@ import { storage, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { HydratedSyncConfig } from '@powersync/service-sync-rules';
 import { SlateDBBucketStorageFactory } from './SlateDBBucketStorageFactory.js';
-import { encodeOpId, SlateDBKVStore, storageKey, storagePrefix } from './SlateDBKVStore.js';
+import { encodeOpId, SlateDBKVStore, storageKey, storagePrefix, type SlateDBWriteOperation } from './SlateDBKVStore.js';
 import {
   getReplicationStreamRecord,
   putReplicationStreamRecord,
@@ -20,6 +20,7 @@ interface SourceTableRecord {
   objectId: string | number | undefined;
   replicaIdColumns: storage.ColumnDescriptor[];
   snapshotComplete: boolean;
+  snapshotStatus?: storage.TableSnapshotStatus;
 }
 
 interface CurrentDataRecord {
@@ -182,16 +183,19 @@ export class SlateDBSyncBucketStorage
   async *watchCheckpointChanges(
     options: storage.WatchWriteCheckpointOptions
   ): AsyncIterable<storage.StorageCheckpointUpdate> {
-    let last = 0n;
+    let last: bigint | null = null;
     while (!options.signal.aborted) {
       const base = await this.getCheckpoint();
-      if (base.checkpoint > last) {
-        const previous = new SlateDBReplicationCheckpoint(last, null);
+      if (last == null || base.checkpoint > last) {
+        const previous = last == null ? null : new SlateDBReplicationCheckpoint(last, null);
         last = base.checkpoint;
         yield {
           base,
           writeCheckpoint: null,
-          update: await this.getCheckpointChanges({ lastCheckpoint: previous, nextCheckpoint: base })
+          update:
+            previous == null
+              ? storage.CHECKPOINT_INVALIDATE_ALL
+              : await this.getCheckpointChanges({ lastCheckpoint: previous, nextCheckpoint: base })
         };
       }
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -357,6 +361,9 @@ class SlateDBBucketBatch
     if (this.pending.length == 0) {
       return null;
     }
+    if (!this.options.storeCurrentData) {
+      return this.flushWithoutCurrentData();
+    }
     for (const record of this.pending) {
       await this.persistRecord(record);
     }
@@ -464,7 +471,7 @@ class SlateDBBucketBatch
         objectId: source.objectId,
         connectionTag: source.connectionTag,
         replicaIdColumns: source.replicaIdColumns,
-        snapshotComplete: true
+        snapshotComplete: false
       };
       await this.storage.store.put(key, record);
     }
@@ -473,6 +480,64 @@ class SlateDBBucketBatch
 
   addCustomWriteCheckpoint(): void {
     // Ignored for the POC.
+  }
+
+  private async flushWithoutCurrentData(): Promise<storage.FlushedResult | null> {
+    const bucketOps: Array<Omit<BucketOpRecord, 'op_id' | 'op_id_bigint'>> = [];
+    for (const record of this.pending) {
+      if (record.tag == storage.SaveOperationTag.DELETE) {
+        continue;
+      }
+      const { results } = this.parsed.evaluateRowWithErrors({
+        record: record.after as any,
+        sourceTable: record.sourceTable.ref,
+        bucketDataSources: record.sourceTable.bucketDataSources
+      });
+      for (const row of results) {
+        const data = JSONBig.stringify(row.data);
+        bucketOps.push({
+          bucket: row.bucket,
+          op: 'PUT',
+          object_type: row.table,
+          object_id: row.id,
+          data,
+          checksum: utils.hashData(row.table, row.id, data)
+        });
+      }
+    }
+
+    this.pending = [];
+    if (bucketOps.length == 0) {
+      return null;
+    }
+
+    const firstOp = await this.reserveOps(bucketOps.length);
+    const writes: SlateDBWriteOperation[] = [];
+    const bucketStates = new Map<string, string>();
+    for (const [index, operation] of bucketOps.entries()) {
+      const op = firstOp + BigInt(index);
+      const record: BucketOpRecord = {
+        ...operation,
+        op_id: utils.internalToExternalOpId(op),
+        op_id_bigint: op.toString()
+      };
+      writes.push({
+        type: 'put',
+        key: bucketDataKey(this.storage.replicationStreamId, operation.bucket, op),
+        value: record
+      });
+      bucketStates.set(operation.bucket, op.toString());
+      this.last_flushed_op = op;
+    }
+    for (const [bucket, last_op] of bucketStates) {
+      writes.push({
+        type: 'put',
+        key: storageKey('bucket-state', this.storage.replicationStreamId, bucket),
+        value: { bucket, last_op }
+      });
+    }
+    await this.storage.store.write(writes);
+    return this.last_flushed_op == null ? null : { flushed_op: this.last_flushed_op };
   }
 
   private async persistRecord(record: storage.SaveOptions): Promise<void> {
@@ -547,6 +612,13 @@ class SlateDBBucketBatch
     return next;
   }
 
+  private async reserveOps(count: number): Promise<bigint> {
+    const record = await this.storage.getRecord();
+    const next = BigInt(record.next_op_id ?? '1');
+    await this.storage.updateRecord({ next_op_id: (next + BigInt(count)).toString() });
+    return next;
+  }
+
   private async saveSourceTable(table: storage.SourceTable): Promise<void> {
     await this.storage.store.put(sourceTableKey(this.storage.replicationStreamId, table.id.toString()), {
       id: table.id.toString(),
@@ -556,7 +628,8 @@ class SlateDBBucketBatch
       objectId: table.objectId,
       connectionTag: table.ref.connectionTag,
       replicaIdColumns: table.replicaIdColumns,
-      snapshotComplete: table.snapshotComplete
+      snapshotComplete: table.snapshotComplete,
+      snapshotStatus: table.snapshotStatus
     } satisfies SourceTableRecord);
   }
 
@@ -570,6 +643,7 @@ class SlateDBBucketBatch
       snapshotComplete: record.snapshotComplete,
       ...this.parsed.getMatchingSources(ref)
     });
+    table.snapshotStatus = record.snapshotStatus;
     table.syncData = table.bucketDataSources.length > 0;
     table.syncParameters = false;
     table.syncEvent = this.parsed.tableTriggersEvent(ref);
