@@ -32,10 +32,7 @@ export const DEFAULT_BUCKET_REPORT_LIMIT: number = 50;
  */
 export const BUCKET_REPORT_DEFINITION_LIMIT: number = 20;
 
-/**
- * Fragmentation below this is considered healthy: no maintenance action is suggested. Matches the 3x rule
- * of thumb used by the PowerSync diagnostics app.
- */
+/** Fragmentation below this is considered healthy: no maintenance action is suggested. */
 export const BUCKET_ACTION_MIN_FRAGMENTATION: number = 3;
 
 /**
