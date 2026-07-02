@@ -298,6 +298,13 @@ export interface CompactOptions {
 
   compactParameterData?: boolean;
 
+  /**
+   * Delete client-requested write checkpoints created before this time.
+   *
+   * Generated write checkpoints are not affected.
+   */
+  deleteCheckpointRequestsBefore?: Date;
+
   /** Minimum of 2 */
   clearBatchLimit?: number;
 

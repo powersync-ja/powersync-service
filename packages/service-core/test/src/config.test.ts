@@ -70,6 +70,27 @@ describe('Config', () => {
     expect(config.api_parameters.max_buckets_per_connection).toBe(1);
   });
 
+  it('should resolve checkpoint request retention config', {}, async () => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: mongodb
+      api:
+        parameters:
+          checkpoint_request_retention_days: 7
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    const config = await collector.collectConfig({
+      config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
+    });
+
+    expect(config.api_parameters.checkpoint_request_retention_days).toBe(7);
+  });
+
   it('should throw YAML validation error for invalid base64 config', {}, async () => {
     const yamlConfig = /* yaml */ `
       # PowerSync config

@@ -90,6 +90,7 @@ export abstract class MongoCompactor {
   protected readonly minChangeRatio: number;
   protected readonly maxOpId: bigint;
   protected readonly buckets: string[] | undefined;
+  protected readonly deleteCheckpointRequestsBefore: Date | undefined;
   protected readonly signal?: AbortSignal;
   protected readonly group_id: number;
 
@@ -113,6 +114,7 @@ export abstract class MongoCompactor {
     this.minChangeRatio = options.minChangeRatio ?? DEFAULT_MIN_CHANGE_RATIO;
     this.maxOpId = options.maxOpId ?? 0n;
     this.buckets = options.compactBuckets;
+    this.deleteCheckpointRequestsBefore = options.deleteCheckpointRequestsBefore;
     this.signal = options.signal;
     this.logger = options.logger ?? defaultLogger;
   }
@@ -123,6 +125,8 @@ export abstract class MongoCompactor {
    * See /docs/storage/compacting-operations.md for details.
    */
   async compact() {
+    await this.deleteOldCheckpointRequests();
+
     if (this.buckets) {
       for (const bucket of this.buckets) {
         // We can make this more efficient later on by iterating through the buckets in a single query.
@@ -132,6 +136,17 @@ export abstract class MongoCompactor {
     } else {
       await this.compactDirtyBuckets();
     }
+  }
+
+  private async deleteOldCheckpointRequests() {
+    if (this.deleteCheckpointRequestsBefore == null) {
+      return;
+    }
+
+    this.signal?.throwIfAborted();
+    await this.db.write_checkpoints.deleteMany({
+      checkpoint_requested_at: { $lt: this.deleteCheckpointRequestsBefore }
+    });
   }
 
   /**

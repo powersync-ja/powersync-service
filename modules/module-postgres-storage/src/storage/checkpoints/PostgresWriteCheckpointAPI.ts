@@ -67,17 +67,24 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
             CHECKPOINT
           )
         INSERT INTO
-          write_checkpoints (user_id, lsns, write_checkpoint)
+          write_checkpoints (
+            user_id,
+            lsns,
+            write_checkpoint,
+            checkpoint_requested_at
+          )
         SELECT
           user_id,
           lsns,
-          1
+          1,
+          NULL
         FROM
           json_data
         ON CONFLICT (user_id) DO UPDATE
         SET
           write_checkpoint = write_checkpoints.write_checkpoint + 1,
-          lsns = EXCLUDED.lsns
+          lsns = EXCLUDED.lsns,
+          checkpoint_requested_at = NULL
         RETURNING
           *;
       `
@@ -113,17 +120,24 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
             CHECKPOINT
           )
         INSERT INTO
-          write_checkpoints (user_id, lsns, write_checkpoint)
+          write_checkpoints (
+            user_id,
+            lsns,
+            write_checkpoint,
+            checkpoint_requested_at
+          )
         SELECT
           user_id,
           lsns,
-          checkpoint_request_id
+          checkpoint_request_id,
+          NOW()
         FROM
           json_data
         ON CONFLICT (user_id) DO UPDATE
         SET
           write_checkpoint = EXCLUDED.write_checkpoint,
-          lsns = EXCLUDED.lsns
+          lsns = EXCLUDED.lsns,
+          checkpoint_requested_at = NOW()
         WHERE
           EXCLUDED.write_checkpoint > write_checkpoints.write_checkpoint
         RETURNING

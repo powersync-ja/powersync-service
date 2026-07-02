@@ -1,7 +1,12 @@
-import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
+import { framework, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
+import * as t from 'ts-codec';
 import { describe, expect, test } from 'vitest';
 import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
+
+const CheckpointRequestedAtRow = t.object({
+  checkpoint_requested_at: t.Null.or(framework.codecs.date)
+});
 
 describe('Sync Bucket Validation', register.registerBucketValidationTests);
 
@@ -20,6 +25,64 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
     register.registerDataStorageCheckpointTests({ ...POSTGRES_STORAGE_FACTORY, storageVersion }));
 
   describe(`Postgres Sync Bucket Storage - pg-specific - v${storageVersion}`, () => {
+    test('uses checkpoint_requested_at as the client-requested checkpoint marker', async () => {
+      await using factory = await POSTGRES_STORAGE_FACTORY.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+bucket_definitions:
+  global:
+    data: []
+    `,
+          { storageVersion }
+        )
+      );
+      const bucketStorage = factory.getInstance(syncRules);
+      const requestedAt = async (userId = 'user1') =>
+        (
+          await factory.db.sql`
+            SELECT
+              checkpoint_requested_at
+            FROM
+              write_checkpoints
+            WHERE
+              user_id = ${{ type: 'varchar', value: userId }}
+          `
+            .decoded(CheckpointRequestedAtRow)
+            .first()
+        )?.checkpoint_requested_at;
+
+      await bucketStorage.createManagedWriteCheckpoints([
+        { user_id: 'user1', heads: { '1': '5/0' }, checkpoint_request_id: 42n }
+      ]);
+      const requested = await requestedAt();
+      expect(requested).toBeInstanceOf(Date);
+
+      await bucketStorage.createManagedWriteCheckpoints([
+        { user_id: 'user1', heads: { '1': '6/0' }, checkpoint_request_id: 41n }
+      ]);
+      await expect(requestedAt()).resolves.toEqual(requested);
+
+      await bucketStorage.createManagedWriteCheckpoints([{ user_id: 'user1', heads: { '1': '7/0' } }]);
+      await expect(requestedAt()).resolves.toBeNull();
+
+      await bucketStorage.createManagedWriteCheckpoints([
+        { user_id: 'user2', heads: { '1': '8/0' }, checkpoint_request_id: 50n }
+      ]);
+      await factory.db.sql`
+        UPDATE write_checkpoints
+        SET
+          checkpoint_requested_at = ${{ type: 1184, value: '2024-01-01T00:00:00.000Z' }}
+        WHERE
+          user_id = 'user2'
+      `.execute();
+      await bucketStorage.compact({
+        compactBuckets: [],
+        deleteCheckpointRequestsBefore: new Date('2024-02-01T00:00:00.000Z')
+      });
+      await expect(requestedAt('user2')).resolves.toBeUndefined();
+    });
+
     /**
      * The split of returned results can vary depending on storage drivers.
      * The large rows here are 2MB large while the default chunk limit is 1mb.

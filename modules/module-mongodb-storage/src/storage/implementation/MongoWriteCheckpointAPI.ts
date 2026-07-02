@@ -56,7 +56,7 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
           $set: {
             lsns,
             processed_at_lsn: null,
-            is_checkpoint_request: false
+            checkpoint_requested_at: null
           },
           $inc: {
             client_id: 1n
@@ -79,7 +79,7 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
               $set: {
                 lsns,
                 processed_at_lsn: null,
-                is_checkpoint_request: false
+                checkpoint_requested_at: null
               },
               $inc: {
                 client_id: 1n
@@ -123,6 +123,8 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
   }
 
   private async createSuppliedManagedWriteCheckpoints(checkpoints: storage.ManagedWriteCheckpointOptions[]) {
+    const checkpointRequestedAt = new Date();
+
     await this.db.write_checkpoints.bulkWrite(
       checkpoints.map((checkpoint) => {
         const { user_id, heads: lsns } = checkpoint;
@@ -155,8 +157,8 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
                   processed_at_lsn: {
                     $cond: [shouldApplyRequestId, null, '$processed_at_lsn']
                   },
-                  is_checkpoint_request: {
-                    $cond: [shouldApplyRequestId, true, '$is_checkpoint_request']
+                  checkpoint_requested_at: {
+                    $cond: [shouldApplyRequestId, { $literal: checkpointRequestedAt }, '$checkpoint_requested_at']
                   }
                 }
               }
