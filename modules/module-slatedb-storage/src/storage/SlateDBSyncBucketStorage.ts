@@ -157,7 +157,7 @@ export class SlateDBSyncBucketStorage
 
   async getCheckpoint(): Promise<storage.ReplicationCheckpoint> {
     const record = await this.getRecord();
-    const checkpoint = BigInt(record.last_persisted_op ?? '0');
+    const checkpoint = BigInt(record.last_checkpoint_op ?? '0');
     return new SlateDBReplicationCheckpoint(checkpoint, record.last_checkpoint_lsn ?? null);
   }
 
@@ -401,24 +401,43 @@ class SlateDBBucketBatch
   async commit(lsn: string, options: storage.BucketBatchCommitOptions = {}): Promise<storage.CheckpointResult> {
     const flushed = await this.flush();
     const createEmpty = options.createEmptyCheckpoints ?? true;
-    if (flushed == null && !createEmpty) {
-      await this.setResumeLsn(lsn);
-      return { checkpointBlocked: false, checkpointCreated: false };
-    }
     const record = await this.storage.getRecord();
-    const checkpoint = this.last_flushed_op ?? BigInt(record.last_persisted_op ?? '0');
-    await this.storage.updateRecord({
-      state: record.state == storage.SyncRuleState.PROCESSING ? storage.SyncRuleState.ACTIVE : record.state,
-      last_persisted_op: checkpoint.toString(),
-      last_checkpoint_lsn: lsn,
+    const persistedOp = this.last_flushed_op ?? BigInt(record.last_persisted_op ?? '0');
+    const lastCheckpoint = BigInt(record.last_checkpoint_op ?? '0');
+    const keepaliveOp = record.keepalive_op == null ? null : BigInt(record.keepalive_op);
+    const canCheckpoint =
+      record.snapshot_done === true &&
+      (record.last_checkpoint_lsn == null || record.last_checkpoint_lsn <= lsn) &&
+      (record.no_checkpoint_before_lsn == null || record.no_checkpoint_before_lsn <= lsn);
+
+    if (!canCheckpoint) {
+      await this.storage.updateRecord({
+        resume_lsn: lsn,
+        keepalive_op: maxOpId(keepaliveOp, persistedOp).toString(),
+        last_keepalive_ts: new Date().toISOString()
+      });
+      return { checkpointBlocked: true, checkpointCreated: false };
+    }
+
+    const checkpoint = maxOpId(lastCheckpoint, persistedOp, keepaliveOp);
+    const activatesStream = record.state == storage.SyncRuleState.PROCESSING;
+    const checkpointCreated = createEmpty || checkpoint != lastCheckpoint || activatesStream;
+    const update: Partial<SlateDBReplicationStreamRecord> = {
+      state: activatesStream ? storage.SyncRuleState.ACTIVE : record.state,
       resume_lsn: lsn,
       snapshot_done: true,
-      last_checkpoint_ts: new Date().toISOString(),
       last_keepalive_ts: new Date().toISOString(),
       last_fatal_error: null,
-      last_fatal_error_ts: null
-    });
-    return { checkpointBlocked: false, checkpointCreated: true };
+      last_fatal_error_ts: null,
+      keepalive_op: null
+    };
+    if (checkpointCreated) {
+      update.last_checkpoint_op = checkpoint.toString();
+      update.last_checkpoint_lsn = lsn;
+      update.last_checkpoint_ts = new Date().toISOString();
+    }
+    await this.storage.updateRecord(update);
+    return { checkpointBlocked: false, checkpointCreated };
   }
 
   async keepalive(lsn: string): Promise<storage.CheckpointResult> {
@@ -764,6 +783,16 @@ function previousCurrentDataKey(streamId: number, record: storage.SaveOptions): 
   }
   const sourceKey = storage.serializeReplicaId(record.beforeReplicaId).toString('base64url');
   return currentDataKey(streamId, record.sourceTable.id.toString(), sourceKey);
+}
+
+function maxOpId(...values: (bigint | null | undefined)[]): bigint {
+  let max = 0n;
+  for (const value of values) {
+    if (value != null && value > max) {
+      max = value;
+    }
+  }
+  return max;
 }
 
 function replicaIdToSubkey(tableId: storage.SourceTableId, id: storage.ReplicaId): string {

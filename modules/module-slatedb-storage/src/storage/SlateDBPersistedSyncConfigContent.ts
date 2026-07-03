@@ -10,6 +10,8 @@ export interface SlateDBReplicationStreamRecord {
   syncConfig: SlateDBSyncConfigRecord;
   next_op_id?: string;
   last_persisted_op?: string;
+  last_checkpoint_op?: string;
+  keepalive_op?: string | null;
   resume_lsn?: string | null;
   no_checkpoint_before_lsn?: string | null;
   snapshot_done?: boolean;
