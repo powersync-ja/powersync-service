@@ -8,6 +8,7 @@ import { encodeOpId, SlateDBKVStore, storageKey, storagePrefix, type SlateDBWrit
 import {
   getReplicationStreamRecord,
   putReplicationStreamRecord,
+  replicationStreamKey,
   SlateDBPersistedReplicationStream,
   SlateDBReplicationStreamRecord
 } from './SlateDBPersistedSyncConfigContent.js';
@@ -47,6 +48,8 @@ interface BucketOpRecord {
   checksum: number;
   subkey?: string;
 }
+
+const DELETED = Symbol('deleted');
 
 export class SlateDBSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -324,6 +327,9 @@ class SlateDBBucketBatch
   readonly skipExistingRows: boolean;
   private pending: storage.SaveOptions[] = [];
   private parsed: HydratedSyncConfig;
+  private pendingWrites: SlateDBWriteOperation[] = [];
+  private pendingValues = new Map<string, unknown | typeof DELETED>();
+  private nextOpId: bigint | undefined;
 
   constructor(
     private readonly storage: SlateDBSyncBucketStorage,
@@ -380,6 +386,7 @@ class SlateDBBucketBatch
       await this.persistRecord(record);
     }
     this.pending = [];
+    await this.flushPendingWrites();
     return this.currentFlushResult();
   }
 
@@ -555,12 +562,12 @@ class SlateDBBucketBatch
   private async persistRecord(record: storage.SaveOptions): Promise<void> {
     const sourceKey = sourceRecordId(record);
     const currentKey = currentDataKey(this.storage.replicationStreamId, record.sourceTable.id.toString(), sourceKey);
-    const existing = await this.storage.store.get<CurrentDataRecord>(currentKey);
+    const existing = await this.getPendingAware<CurrentDataRecord>(currentKey);
     const previousKey = previousCurrentDataKey(this.storage.replicationStreamId, record);
     const previous =
       previousKey == null || previousKey == currentKey
         ? undefined
-        : await this.storage.store.get<CurrentDataRecord>(previousKey);
+        : await this.getPendingAware<CurrentDataRecord>(previousKey);
     let nextBuckets: CurrentBucket[] = [];
     let nextData: Record<string, unknown> | null = null;
     let nextBucketOps: Array<Omit<BucketOpRecord, 'op_id' | 'op_id_bigint'>> = [];
@@ -600,12 +607,12 @@ class SlateDBBucketBatch
     }
 
     if (record.tag == storage.SaveOperationTag.DELETE) {
-      await this.storage.store.delete(currentKey);
+      this.deletePending(currentKey);
     } else {
       if (previousKey != null && previousKey != currentKey) {
-        await this.storage.store.delete(previousKey);
+        this.deletePending(previousKey);
       }
-      await this.storage.store.put(currentKey, { data: nextData, buckets: nextBuckets } satisfies CurrentDataRecord);
+      this.putPending(currentKey, { data: nextData, buckets: nextBuckets } satisfies CurrentDataRecord);
     }
   }
 
@@ -635,8 +642,8 @@ class SlateDBBucketBatch
     const op = await this.nextOp();
     const opId = utils.internalToExternalOpId(op);
     const record: BucketOpRecord = { ...operation, op_id: opId, op_id_bigint: op.toString() };
-    await this.storage.store.put(bucketDataKey(this.storage.replicationStreamId, operation.bucket, op), record);
-    await this.storage.store.put(storageKey('bucket-state', this.storage.replicationStreamId, operation.bucket), {
+    this.putPending(bucketDataKey(this.storage.replicationStreamId, operation.bucket, op), record);
+    this.putPending(storageKey('bucket-state', this.storage.replicationStreamId, operation.bucket), {
       bucket: operation.bucket,
       last_op: op.toString()
     });
@@ -644,10 +651,47 @@ class SlateDBBucketBatch
   }
 
   private async nextOp(): Promise<bigint> {
-    const record = await this.storage.getRecord();
-    const next = BigInt(record.next_op_id ?? '1');
-    await this.storage.updateRecord({ next_op_id: (next + 1n).toString() });
+    this.nextOpId ??= BigInt((await this.storage.getRecord()).next_op_id ?? '1');
+    const next = this.nextOpId;
+    this.nextOpId++;
     return next;
+  }
+
+  private async flushPendingWrites(): Promise<void> {
+    if (this.pendingWrites.length == 0 && this.nextOpId == null) {
+      return;
+    }
+
+    if (this.nextOpId != null) {
+      const record = await this.storage.getRecord();
+      this.putPending(replicationStreamKey(this.storage.replicationStreamId), {
+        ...record,
+        next_op_id: this.nextOpId.toString()
+      } satisfies SlateDBReplicationStreamRecord);
+    }
+
+    await this.storage.store.write(this.pendingWrites);
+    this.pendingWrites = [];
+    this.pendingValues.clear();
+    this.nextOpId = undefined;
+  }
+
+  private async getPendingAware<T>(key: string): Promise<T | undefined> {
+    if (this.pendingValues.has(key)) {
+      const value = this.pendingValues.get(key);
+      return value == DELETED ? undefined : (value as T);
+    }
+    return this.storage.store.get<T>(key);
+  }
+
+  private putPending(key: string, value: unknown): void {
+    this.pendingWrites.push({ type: 'put', key, value });
+    this.pendingValues.set(key, value);
+  }
+
+  private deletePending(key: string): void {
+    this.pendingWrites.push({ type: 'delete', key });
+    this.pendingValues.set(key, DELETED);
   }
 
   private async reserveOps(count: number): Promise<bigint> {
