@@ -16,8 +16,24 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export interface SlateDBKVStoreOptions {
-  path: string;
+  path?: string;
   dbPath?: string;
+  objectStore?:
+    | {
+        type: 'memory';
+      }
+    | {
+        type: 'file';
+        path: string;
+      }
+    | {
+        type: 's3';
+        bucket: string;
+        prefix?: string;
+      }
+    | {
+        url: string;
+      };
 }
 
 export type SlateDBKey = string | Uint8Array;
@@ -63,11 +79,7 @@ export class SlateDBKVStore implements AsyncDisposable {
   ) {}
 
   static async open(options: SlateDBKVStoreOptions): Promise<SlateDBKVStore> {
-    const rootPath = path.resolve(options.path);
-    await fs.mkdir(rootPath, { recursive: true });
-
-    const objectStoreUrl = LOCAL_FILE_OBJECT_STORE_URL;
-    const dbPath = path.join(rootPath, options.dbPath ?? DEFAULT_DB_PATH).replace(/^\/+/, '');
+    const { objectStoreUrl, dbPath } = await resolveObjectStoreOptions(options);
     const objectStore = ObjectStore.resolve(objectStoreUrl);
 
     const dbBuilder = new DbBuilder(dbPath, objectStore);
@@ -168,6 +180,64 @@ export class SlateDBKVStore implements AsyncDisposable {
     this.db.dispose();
     this.objectStore.dispose();
   }
+}
+
+async function resolveObjectStoreOptions(options: SlateDBKVStoreOptions): Promise<{
+  objectStoreUrl: string;
+  dbPath: string;
+}> {
+  const dbPath = options.dbPath ?? DEFAULT_DB_PATH;
+  const objectStore = options.objectStore;
+
+  if (objectStore == null) {
+    if (options.path == null) {
+      throw new Error(`SlateDB storage requires either path or object_store`);
+    }
+    return resolveFileObjectStore(options.path, dbPath);
+  }
+
+  if ('url' in objectStore) {
+    return {
+      objectStoreUrl: objectStore.url,
+      dbPath
+    };
+  }
+
+  if (objectStore.type == 'memory') {
+    return {
+      objectStoreUrl: 'memory:///',
+      dbPath
+    };
+  }
+
+  if (objectStore.type == 'file') {
+    return resolveFileObjectStore(objectStore.path, dbPath);
+  }
+
+  return {
+    objectStoreUrl: `s3://${objectStore.bucket}`,
+    dbPath: joinObjectStorePath(objectStore.prefix, dbPath)
+  };
+}
+
+async function resolveFileObjectStore(
+  root: string,
+  dbPath: string
+): Promise<{ objectStoreUrl: string; dbPath: string }> {
+  const rootPath = path.resolve(root);
+  await fs.mkdir(rootPath, { recursive: true });
+  return {
+    objectStoreUrl: LOCAL_FILE_OBJECT_STORE_URL,
+    dbPath: path.join(rootPath, dbPath).replace(/^\/+/, '')
+  };
+}
+
+function joinObjectStorePath(...segments: Array<string | undefined>): string {
+  return segments
+    .filter((segment): segment is string => segment != null && segment.length > 0)
+    .map((segment) => segment.replace(/^\/+|\/+$/g, ''))
+    .filter((segment) => segment.length > 0)
+    .join('/');
 }
 
 export class SlateDBCheckpointReader {

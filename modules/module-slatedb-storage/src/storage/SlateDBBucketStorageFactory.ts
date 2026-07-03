@@ -32,7 +32,9 @@ export class SlateDBBucketStorageFactory extends storage.BucketStorageFactory {
 
   async getKVStore(): Promise<SlateDBKVStore> {
     this.store ??= SlateDBKVStore.open({
-      path: this.options.config.path
+      path: this.options.config.path,
+      dbPath: this.options.config.db_path,
+      objectStore: this.options.config.object_store
     });
     this.resolvedStore ??= await this.store;
     return this.resolvedStore;
@@ -173,14 +175,14 @@ export class SlateDBBucketStorageFactory extends storage.BucketStorageFactory {
       return existing;
     }
 
-    const id = uuidv5(this.options.config.path, uuidv5.URL);
+    const id = uuidv5(this.storageIdentifier(), uuidv5.URL);
     await store.put(key, id);
     return id;
   }
 
   async getSystemIdentifier(): Promise<storage.BucketStorageSystemIdentifier> {
     return {
-      id: this.options.config.path,
+      id: this.storageIdentifier(),
       type: 'slatedb'
     };
   }
@@ -200,6 +202,23 @@ export class SlateDBBucketStorageFactory extends storage.BucketStorageFactory {
     const next = current + 1;
     await store.put(key, next);
     return next;
+  }
+
+  private storageIdentifier(): string {
+    const { config } = this.options;
+    if (config.object_store == null) {
+      return `file:${config.path}`;
+    }
+    if ('url' in config.object_store) {
+      return `${config.object_store.url}/${config.db_path ?? ''}`;
+    }
+    if (config.object_store.type == 's3') {
+      return `s3://${config.object_store.bucket}/${config.object_store.prefix ?? ''}/${config.db_path ?? ''}`;
+    }
+    if (config.object_store.type == 'file') {
+      return `file:${config.object_store.path}/${config.db_path ?? ''}`;
+    }
+    return `memory:${config.db_path ?? ''}`;
   }
 
   private async updateStreamState(
