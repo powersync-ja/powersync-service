@@ -28,6 +28,7 @@ interface SourceTableRecord {
 interface CurrentDataRecord {
   data: Record<string, unknown> | null;
   buckets: CurrentBucket[];
+  pendingDelete?: string;
 }
 
 interface CurrentBucket {
@@ -601,8 +602,13 @@ class SlateDBBucketBatch
 
     if (record.tag != storage.SaveOperationTag.DELETE) {
       const existingData = previous?.data ?? existing?.data;
-      if (record.tag == storage.SaveOperationTag.UPDATE && existingData == null) {
+      if (this.skipExistingRows && record.tag == storage.SaveOperationTag.INSERT && existing != null) {
         return;
+      }
+      if (record.tag == storage.SaveOperationTag.UPDATE && existingData == null) {
+        if (hasPartialUpdate(record.after)) {
+          return;
+        }
       }
       nextData =
         record.tag == storage.SaveOperationTag.UPDATE && existingData != null
@@ -635,13 +641,23 @@ class SlateDBBucketBatch
     for (const bucket of nextBuckets) {
       remaining.delete(bucketKey(bucket));
     }
-    await this.removeCurrentBuckets([...remaining.values()]);
+    const sourceKeyChanged = previousKey != null && previousKey != currentKey;
+    if (sourceKeyChanged) {
+      await this.removeCurrentBuckets([...remaining.values()]);
+    }
     for (const operation of nextBucketOps) {
       await this.putBucketOp(operation);
     }
+    if (!sourceKeyChanged) {
+      await this.removeCurrentBuckets([...remaining.values()]);
+    }
 
     if (record.tag == storage.SaveOperationTag.DELETE) {
-      this.deletePending(currentKey);
+      this.putPending(currentKey, {
+        data: null,
+        buckets: [],
+        pendingDelete: this.last_flushed_op?.toString()
+      } satisfies CurrentDataRecord);
     } else {
       if (previousKey != null && previousKey != currentKey) {
         this.deletePending(previousKey);
@@ -800,6 +816,10 @@ function maxOpId(...values: (bigint | null | undefined)[]): bigint {
     }
   }
   return max;
+}
+
+function hasPartialUpdate(row: Record<string, unknown> | undefined): boolean {
+  return row != null && Object.values(row).some((value) => value === undefined);
 }
 
 function replicaIdToSubkey(tableId: storage.SourceTableId, id: storage.ReplicaId): string {
