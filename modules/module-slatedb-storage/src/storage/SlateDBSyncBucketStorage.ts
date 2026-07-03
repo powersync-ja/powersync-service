@@ -600,7 +600,14 @@ class SlateDBBucketBatch
     let nextBucketOps: Array<Omit<BucketOpRecord, 'op_id' | 'op_id_bigint'>> = [];
 
     if (record.tag != storage.SaveOperationTag.DELETE) {
-      nextData = { ...(previous?.data ?? existing?.data ?? {}), ...record.after };
+      const existingData = previous?.data ?? existing?.data;
+      if (record.tag == storage.SaveOperationTag.UPDATE && existingData == null) {
+        return;
+      }
+      nextData =
+        record.tag == storage.SaveOperationTag.UPDATE && existingData != null
+          ? storage.mergeToast(record.after!, existingData as any)
+          : { ...(existingData ?? {}), ...record.after };
       const { results } = this.parsed.evaluateRowWithErrors({
         record: nextData as any,
         sourceTable: record.sourceTable.ref,
