@@ -205,7 +205,7 @@ export class SlateDBSyncBucketStorage
               : await this.getCheckpointChanges({ lastCheckpoint: previous, nextCheckpoint: base })
         };
       }
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 5));
     }
   }
 
