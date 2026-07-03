@@ -2,6 +2,7 @@ import { BaseObserver, logger as defaultLogger, Logger } from '@powersync/lib-se
 import { storage, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { HydratedSyncConfig } from '@powersync/service-sync-rules';
+import { v5 as uuidv5 } from 'uuid';
 import { SlateDBBucketStorageFactory } from './SlateDBBucketStorageFactory.js';
 import { encodeOpId, SlateDBKVStore, storageKey, storagePrefix, type SlateDBWriteOperation } from './SlateDBKVStore.js';
 import {
@@ -32,6 +33,7 @@ interface CurrentBucket {
   bucket: string;
   table: string;
   id: string;
+  subkey: string;
 }
 
 interface BucketOpRecord {
@@ -43,6 +45,7 @@ interface BucketOpRecord {
   object_id?: string;
   data?: string | null;
   checksum: number;
+  subkey?: string;
 }
 
 export class SlateDBSyncBucketStorage
@@ -230,8 +233,9 @@ export class SlateDBSyncBucketStorage
           op: entry.value.op,
           object_type: entry.value.object_type,
           object_id: entry.value.object_id,
-          data: entry.value.data ?? undefined,
-          checksum: entry.value.checksum
+          data: entry.value.data === undefined ? undefined : entry.value.data,
+          checksum: entry.value.checksum,
+          subkey: entry.value.subkey
         });
         chunk.next_after = entry.value.op_id;
         emitted++;
@@ -544,38 +548,55 @@ class SlateDBBucketBatch
     const sourceKey = sourceRecordId(record);
     const currentKey = currentDataKey(this.storage.replicationStreamId, record.sourceTable.id.toString(), sourceKey);
     const existing = await this.storage.store.get<CurrentDataRecord>(currentKey);
+    const previousKey = previousCurrentDataKey(this.storage.replicationStreamId, record);
+    const previous =
+      previousKey == null || previousKey == currentKey
+        ? undefined
+        : await this.storage.store.get<CurrentDataRecord>(previousKey);
     let nextBuckets: CurrentBucket[] = [];
     let nextData: Record<string, unknown> | null = null;
+    let nextBucketOps: Array<Omit<BucketOpRecord, 'op_id' | 'op_id_bigint'>> = [];
 
     if (record.tag != storage.SaveOperationTag.DELETE) {
-      nextData = { ...(existing?.data ?? {}), ...record.after };
+      nextData = { ...(previous?.data ?? existing?.data ?? {}), ...record.after };
       const { results } = this.parsed.evaluateRowWithErrors({
         record: nextData as any,
         sourceTable: record.sourceTable.ref,
         bucketDataSources: record.sourceTable.bucketDataSources
       });
-      nextBuckets = results.map((row) => ({ bucket: row.bucket, table: row.table, id: row.id }));
-      for (const row of results) {
-        await this.putBucketOp({
+      const subkey = replicaIdToSubkey(record.sourceTable.id, record.afterReplicaId);
+      nextBuckets = results.map((row) => ({ bucket: row.bucket, table: row.table, id: row.id, subkey }));
+      nextBucketOps = results.map((row) => {
+        const data = JSONBig.stringify(row.data);
+        return {
           bucket: row.bucket,
           op: 'PUT',
           object_type: row.table,
           object_id: row.id,
-          data: JSONBig.stringify(row.data),
-          checksum: utils.hashData(row.table, row.id, JSONBig.stringify(row.data))
-        });
-      }
+          data,
+          checksum: utils.hashData(row.table, row.id, data),
+          subkey
+        };
+      });
     }
 
-    const remaining = new Map((existing?.buckets ?? []).map((bucket) => [bucketKey(bucket), bucket]));
+    const remaining = new Map(
+      [...(existing?.buckets ?? []), ...(previous?.buckets ?? [])].map((bucket) => [bucketKey(bucket), bucket])
+    );
     for (const bucket of nextBuckets) {
       remaining.delete(bucketKey(bucket));
     }
     await this.removeCurrentBuckets([...remaining.values()]);
+    for (const operation of nextBucketOps) {
+      await this.putBucketOp(operation);
+    }
 
     if (record.tag == storage.SaveOperationTag.DELETE) {
       await this.storage.store.delete(currentKey);
     } else {
+      if (previousKey != null && previousKey != currentKey) {
+        await this.storage.store.delete(previousKey);
+      }
       await this.storage.store.put(currentKey, { data: nextData, buckets: nextBuckets } satisfies CurrentDataRecord);
     }
   }
@@ -588,7 +609,8 @@ class SlateDBBucketBatch
         object_type: bucket.table,
         object_id: bucket.id,
         data: null,
-        checksum: utils.hashDelete(`${bucket.table}/${bucket.id}`)
+        checksum: utils.hashDelete(bucket.subkey),
+        subkey: bucket.subkey
       });
     }
   }
@@ -668,6 +690,22 @@ function sourceRecordId(record: storage.SaveOptions): string {
   return storage.serializeReplicaId(replicaId).toString('base64url');
 }
 
+function previousCurrentDataKey(streamId: number, record: storage.SaveOptions): string | null {
+  if (record.tag != storage.SaveOperationTag.UPDATE || record.beforeReplicaId == null) {
+    return null;
+  }
+  const sourceKey = storage.serializeReplicaId(record.beforeReplicaId).toString('base64url');
+  return currentDataKey(streamId, record.sourceTable.id.toString(), sourceKey);
+}
+
+function replicaIdToSubkey(tableId: storage.SourceTableId, id: storage.ReplicaId): string {
+  if (storage.isUUID(id)) {
+    return `${tableId}/${id.toHexString()}`;
+  }
+  const repr = storage.serializeBson({ table: tableId, id });
+  return uuidv5(repr, utils.ID_NAMESPACE);
+}
+
 function bucketKey(bucket: CurrentBucket): string {
-  return `${bucket.bucket}/${bucket.table}/${bucket.id}`;
+  return `${bucket.bucket}/${bucket.table}/${bucket.id}/${bucket.subkey}`;
 }
