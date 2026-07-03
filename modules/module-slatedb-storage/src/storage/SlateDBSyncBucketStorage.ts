@@ -211,6 +211,7 @@ export class SlateDBSyncBucketStorage
     options: storage.BucketDataBatchOptions = {}
   ): AsyncIterable<storage.SyncBucketDataChunk> {
     const limit = options.limit ?? 1000;
+    const chunkLimitBytes = options.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
     let emitted = 0;
     for (const request of dataBuckets) {
       const chunk: utils.SyncBucketData = {
@@ -220,6 +221,7 @@ export class SlateDBSyncBucketStorage
         has_more: false,
         data: []
       };
+      let chunkSizeBytes = 0;
 
       for await (const entry of this.store.scanPrefix<BucketOpRecord>(
         storagePrefix('bucket-data', this.replicationStreamId, request.bucket)
@@ -227,6 +229,11 @@ export class SlateDBSyncBucketStorage
         const op = BigInt(entry.value.op_id_bigint);
         if (op <= request.start || op > checkpoint.checkpoint) {
           continue;
+        }
+        const entrySizeBytes = entry.value.data?.length ?? 0;
+        if (chunk.data.length > 0 && chunkSizeBytes + entrySizeBytes > chunkLimitBytes) {
+          chunk.has_more = true;
+          break;
         }
         chunk.data.push({
           op_id: entry.value.op_id,
@@ -238,6 +245,7 @@ export class SlateDBSyncBucketStorage
           subkey: entry.value.subkey
         });
         chunk.next_after = entry.value.op_id;
+        chunkSizeBytes += entrySizeBytes;
         emitted++;
         if (emitted >= limit) {
           chunk.has_more = true;
@@ -372,7 +380,7 @@ class SlateDBBucketBatch
       await this.persistRecord(record);
     }
     this.pending = [];
-    return this.last_flushed_op == null ? null : { flushed_op: this.last_flushed_op };
+    return this.currentFlushResult();
   }
 
   async commit(lsn: string, options: storage.BucketBatchCommitOptions = {}): Promise<storage.CheckpointResult> {
@@ -599,6 +607,14 @@ class SlateDBBucketBatch
       }
       await this.storage.store.put(currentKey, { data: nextData, buckets: nextBuckets } satisfies CurrentDataRecord);
     }
+  }
+
+  private async currentFlushResult(): Promise<storage.FlushedResult> {
+    if (this.last_flushed_op != null) {
+      return { flushed_op: this.last_flushed_op };
+    }
+    const record = await this.storage.getRecord();
+    return { flushed_op: BigInt(record.last_persisted_op ?? '0') };
   }
 
   private async removeCurrentBuckets(buckets: CurrentBucket[]): Promise<void> {
