@@ -7,7 +7,6 @@ import {
   DbBuilder,
   DbReader,
   DbReaderBuilder,
-  FlushType,
   KeyRange,
   ObjectStore,
   Settings,
@@ -144,16 +143,7 @@ export class SlateDBKVStore implements AsyncDisposable {
   }
 
   async flush(): Promise<void> {
-    const batch = new WriteBatch();
-    try {
-      batch.put(
-        toKeyBytes(storageKey('meta', 'durability-barrier')),
-        encodeValue({ id: ++this.durabilityBarrierId, flushed_at: new Date().toISOString() })
-      );
-      await this.db.write_with_options(batch, DURABLE_WRITE_OPTIONS);
-    } finally {
-      batch.dispose();
-    }
+    await this.db.flush();
   }
 
   scanPrefix<T = unknown>(
@@ -167,7 +157,6 @@ export class SlateDBKVStore implements AsyncDisposable {
     options: { name?: string; lifetimeMs?: number | bigint } = {}
   ): Promise<CheckpointCreateResult> {
     await this.flush();
-    await this.db.flush_with_options({ flush_type: FlushType.MemTable });
     return this.admin.create_detached_checkpoint({
       name: options.name,
       lifetime_ms: options.lifetimeMs,
