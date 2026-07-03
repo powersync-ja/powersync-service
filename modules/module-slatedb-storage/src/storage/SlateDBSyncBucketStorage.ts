@@ -220,6 +220,9 @@ export class SlateDBSyncBucketStorage
     for (const request of dataBuckets) {
       let start = request.start;
       while (emitted < limit) {
+        if (start >= checkpoint.checkpoint) {
+          break;
+        }
         const chunk: utils.SyncBucketData = {
           bucket: request.bucket,
           after: utils.internalToExternalOpId(start),
@@ -230,7 +233,8 @@ export class SlateDBSyncBucketStorage
         let chunkSizeBytes = 0;
 
         for await (const entry of this.store.scanPrefix<BucketOpRecord>(
-          storagePrefix('bucket-data', this.replicationStreamId, request.bucket)
+          storagePrefix('bucket-data', this.replicationStreamId, request.bucket),
+          { startAfter: encodeOpId(start), endAt: encodeOpId(checkpoint.checkpoint) }
         )) {
           const op = BigInt(entry.value.op_id_bigint);
           if (op <= start || op > checkpoint.checkpoint) {

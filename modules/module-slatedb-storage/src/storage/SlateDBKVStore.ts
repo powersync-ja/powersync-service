@@ -156,7 +156,10 @@ export class SlateDBKVStore implements AsyncDisposable {
     }
   }
 
-  scanPrefix<T = unknown>(prefix: SlateDBKey, options?: { limit?: number }): AsyncIterable<SlateDBEntry<T>> {
+  scanPrefix<T = unknown>(
+    prefix: SlateDBKey,
+    options?: { limit?: number; startAfter?: SlateDBKey; endAt?: SlateDBKey }
+  ): AsyncIterable<SlateDBEntry<T>> {
     return scanPrefixFrom<T>(this.db, prefix, options);
   }
 
@@ -269,7 +272,10 @@ export class SlateDBCheckpointReader {
     return getFrom<T>(this.reader, key);
   }
 
-  scanPrefix<T = unknown>(prefix: SlateDBKey, options?: { limit?: number }): AsyncIterable<SlateDBEntry<T>> {
+  scanPrefix<T = unknown>(
+    prefix: SlateDBKey,
+    options?: { limit?: number; startAfter?: SlateDBKey; endAt?: SlateDBKey }
+  ): AsyncIterable<SlateDBEntry<T>> {
     return scanPrefixFrom<T>(this.reader, prefix, options);
   }
 }
@@ -306,9 +312,9 @@ async function getFrom<T>(reader: SlateDBReadable, key: SlateDBKey): Promise<T |
 async function* scanPrefixFrom<T>(
   reader: SlateDBReadable,
   prefix: SlateDBKey,
-  options: { limit?: number } = {}
+  options: { limit?: number; startAfter?: SlateDBKey; endAt?: SlateDBKey } = {}
 ): AsyncIterable<SlateDBEntry<T>> {
-  const iterator = await reader.scan_prefix(toKeyBytes(prefix), unboundedRange());
+  const iterator = await reader.scan_prefix(toKeyBytes(prefix), scanRange(options));
   try {
     let count = 0;
     while (options.limit == null || count < options.limit) {
@@ -332,12 +338,12 @@ function toKeyBytes(key: SlateDBKey): Uint8Array {
   return typeof key == 'string' ? textEncoder.encode(key) : key;
 }
 
-function unboundedRange(): KeyRange {
+function scanRange(options: { startAfter?: SlateDBKey; endAt?: SlateDBKey }): KeyRange {
   return {
-    start: undefined,
+    start: options.startAfter == null ? undefined : toKeyBytes(options.startAfter),
     start_inclusive: false,
-    end: undefined,
-    end_inclusive: false
+    end: options.endAt == null ? undefined : toKeyBytes(options.endAt),
+    end_inclusive: true
   };
 }
 
