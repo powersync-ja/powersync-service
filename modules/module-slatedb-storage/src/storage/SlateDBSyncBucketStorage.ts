@@ -217,50 +217,58 @@ export class SlateDBSyncBucketStorage
     const chunkLimitBytes = options.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
     let emitted = 0;
     for (const request of dataBuckets) {
-      const chunk: utils.SyncBucketData = {
-        bucket: request.bucket,
-        after: utils.internalToExternalOpId(request.start),
-        next_after: utils.internalToExternalOpId(request.start),
-        has_more: false,
-        data: []
-      };
-      let chunkSizeBytes = 0;
+      let start = request.start;
+      while (emitted < limit) {
+        const chunk: utils.SyncBucketData = {
+          bucket: request.bucket,
+          after: utils.internalToExternalOpId(start),
+          next_after: utils.internalToExternalOpId(start),
+          has_more: false,
+          data: []
+        };
+        let chunkSizeBytes = 0;
 
-      for await (const entry of this.store.scanPrefix<BucketOpRecord>(
-        storagePrefix('bucket-data', this.replicationStreamId, request.bucket)
-      )) {
-        const op = BigInt(entry.value.op_id_bigint);
-        if (op <= request.start || op > checkpoint.checkpoint) {
-          continue;
+        for await (const entry of this.store.scanPrefix<BucketOpRecord>(
+          storagePrefix('bucket-data', this.replicationStreamId, request.bucket)
+        )) {
+          const op = BigInt(entry.value.op_id_bigint);
+          if (op <= start || op > checkpoint.checkpoint) {
+            continue;
+          }
+          const entrySizeBytes = entry.value.data?.length ?? 0;
+          if (chunk.data.length > 0 && chunkSizeBytes + entrySizeBytes > chunkLimitBytes) {
+            chunk.has_more = true;
+            break;
+          }
+          chunk.data.push({
+            op_id: entry.value.op_id,
+            op: entry.value.op,
+            object_type: entry.value.object_type,
+            object_id: entry.value.object_id,
+            data: entry.value.data === undefined ? undefined : entry.value.data,
+            checksum: entry.value.checksum,
+            subkey: entry.value.subkey
+          });
+          chunk.next_after = entry.value.op_id;
+          chunkSizeBytes += entrySizeBytes;
+          emitted++;
+          if (emitted >= limit) {
+            chunk.has_more = true;
+            break;
+          }
         }
-        const entrySizeBytes = entry.value.data?.length ?? 0;
-        if (chunk.data.length > 0 && chunkSizeBytes + entrySizeBytes > chunkLimitBytes) {
-          chunk.has_more = true;
+
+        if (chunk.data.length == 0 && chunk.next_after == utils.internalToExternalOpId(start)) {
           break;
         }
-        chunk.data.push({
-          op_id: entry.value.op_id,
-          op: entry.value.op,
-          object_type: entry.value.object_type,
-          object_id: entry.value.object_id,
-          data: entry.value.data === undefined ? undefined : entry.value.data,
-          checksum: entry.value.checksum,
-          subkey: entry.value.subkey
-        });
-        chunk.next_after = entry.value.op_id;
-        chunkSizeBytes += entrySizeBytes;
-        emitted++;
-        if (emitted >= limit) {
-          chunk.has_more = true;
-          break;
-        }
-      }
-
-      if (chunk.data.length > 0 || chunk.next_after != utils.internalToExternalOpId(request.start)) {
         yield { chunkData: chunk, targetOp: null };
-      }
-      if (emitted >= limit) {
-        return;
+        if (!chunk.has_more) {
+          break;
+        }
+        if (emitted >= limit) {
+          return;
+        }
+        start = BigInt(chunk.next_after);
       }
     }
   }
