@@ -103,6 +103,7 @@ export class SlateDBBucketStorageFactory extends storage.BucketStorageFactory {
     };
 
     await putReplicationStreamRecord(store, record);
+    await store.flush();
     return new SlateDBPersistedReplicationStream(store, record);
   }
 

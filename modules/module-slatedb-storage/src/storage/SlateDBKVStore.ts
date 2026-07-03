@@ -10,6 +10,7 @@ import {
   FlushType,
   KeyRange,
   ObjectStore,
+  Settings,
   WriteBatch
 } from '@slatedb/uniffi';
 import fs from 'node:fs/promises';
@@ -59,6 +60,8 @@ type SlateDBReadable = Pick<Db | DbReader, 'get' | 'scan_prefix'>;
 
 const DEFAULT_DB_PATH = 'powersync';
 const LOCAL_FILE_OBJECT_STORE_URL = 'file:///';
+const NON_DURABLE_WRITE_OPTIONS = { await_durable: false };
+const DURABLE_WRITE_OPTIONS = { await_durable: true };
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -75,14 +78,19 @@ export class SlateDBKVStore implements AsyncDisposable {
     readonly dbPath: string,
     private readonly objectStore: ObjectStore,
     private readonly db: Db,
-    private readonly admin: Admin
+    private readonly admin: Admin,
+    private durabilityBarrierId = 0
   ) {}
 
   static async open(options: SlateDBKVStoreOptions): Promise<SlateDBKVStore> {
     const { objectStoreUrl, dbPath } = await resolveObjectStoreOptions(options);
     const objectStore = ObjectStore.resolve(objectStoreUrl);
 
+    const settings = Settings.load();
+    settings.set('flush_interval', '"50ms"');
+
     const dbBuilder = new DbBuilder(dbPath, objectStore);
+    dbBuilder.with_settings(settings);
     const adminBuilder = new AdminBuilder(dbPath, objectStore);
     try {
       const db = await dbBuilder.build();
@@ -99,11 +107,11 @@ export class SlateDBKVStore implements AsyncDisposable {
   }
 
   async put(key: SlateDBKey, value: unknown): Promise<void> {
-    await this.db.put(toKeyBytes(key), encodeValue(value));
+    await this.write([{ type: 'put', key, value }]);
   }
 
   async delete(key: SlateDBKey): Promise<void> {
-    await this.db.delete(toKeyBytes(key));
+    await this.write([{ type: 'delete', key }]);
   }
 
   async deletePrefix(prefix: SlateDBKey, options: { limit?: number } = {}): Promise<number> {
@@ -129,7 +137,20 @@ export class SlateDBKVStore implements AsyncDisposable {
           batch.delete(toKeyBytes(operation.key));
         }
       }
-      await this.db.write(batch);
+      await this.db.write_with_options(batch, NON_DURABLE_WRITE_OPTIONS);
+    } finally {
+      batch.dispose();
+    }
+  }
+
+  async flush(): Promise<void> {
+    const batch = new WriteBatch();
+    try {
+      batch.put(
+        toKeyBytes(storageKey('meta', 'durability-barrier')),
+        encodeValue({ id: ++this.durabilityBarrierId, flushed_at: new Date().toISOString() })
+      );
+      await this.db.write_with_options(batch, DURABLE_WRITE_OPTIONS);
     } finally {
       batch.dispose();
     }
@@ -142,6 +163,7 @@ export class SlateDBKVStore implements AsyncDisposable {
   async createCheckpoint(
     options: { name?: string; lifetimeMs?: number | bigint } = {}
   ): Promise<CheckpointCreateResult> {
+    await this.flush();
     await this.db.flush_with_options({ flush_type: FlushType.MemTable });
     return this.admin.create_detached_checkpoint({
       name: options.name,

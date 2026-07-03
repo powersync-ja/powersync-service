@@ -386,6 +386,7 @@ class SlateDBBucketBatch
 
   async flush(): Promise<storage.FlushedResult | null> {
     if (this.pending.length == 0) {
+      await this.storage.store.flush();
       return null;
     }
     if (!this.options.storeCurrentData) {
@@ -396,6 +397,7 @@ class SlateDBBucketBatch
     }
     this.pending = [];
     await this.flushPendingWrites();
+    await this.storage.store.flush();
     return this.currentFlushResult();
   }
 
@@ -417,6 +419,7 @@ class SlateDBBucketBatch
         keepalive_op: maxOpId(keepaliveOp, persistedOp).toString(),
         last_keepalive_ts: new Date().toISOString()
       });
+      await this.storage.store.flush();
       return { checkpointBlocked: true, checkpointCreated: false };
     }
 
@@ -438,6 +441,7 @@ class SlateDBBucketBatch
       update.last_checkpoint_ts = new Date().toISOString();
     }
     await this.storage.updateRecord(update);
+    await this.storage.store.flush();
     return { checkpointBlocked: false, checkpointCreated };
   }
 
@@ -584,6 +588,7 @@ class SlateDBBucketBatch
       });
     }
     await this.storage.store.write(writes);
+    await this.storage.store.flush();
     return this.last_flushed_op == null ? null : { flushed_op: this.last_flushed_op };
   }
 
