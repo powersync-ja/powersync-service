@@ -358,8 +358,8 @@ export class StreamQueryParser {
   }
 
   /**
-   * Warn when a Sync Stream joins multiple tables, the primary table (the one the stream selects from) carries
-   * an alias, and at least one joined source is referenced by its bare (unaliased) name. See #565: a query like
+   * Warn when a Sync Stream joins multiple tables and the primary table (the one the stream selects from) carries
+   * an alias. See #565: a query like
    *
    *   SELECT cm.* FROM chat_messages cm
    *     INNER JOIN chat_conversations ON cm.conversation_id = chat_conversations.id
@@ -369,9 +369,6 @@ export class StreamQueryParser {
    * `chat_messages`. When joining, an alias is frequently introduced only to make the join's `ON` clause
    * easier to write, in which case the rename is unintentional and clients querying `chat_messages` will
    * unexpectedly see zero rows.
-   *
-   * The primary table is determined by the selected columns, not by the order of the `FROM` clause, so this
-   * runs after a non-null primary result set has been established.
    *
    * The warning is suppressed when the alias is double-quoted in the source SQL (e.g. `FROM user_data AS "users"`),
    * which we treat as a deliberate rename.
