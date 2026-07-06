@@ -12,6 +12,7 @@
  * count and returns the worst offenders (top-N). Row counts (and therefore fragmentation) for those buckets
  * are derived by sampling the operation history, so on large buckets they are estimates, flagged per bucket.
  */
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 /**
  * Time budget for the per-bucket report's bucket-selection aggregation (`maxTimeMS`). Bounded so an admin
@@ -24,6 +25,12 @@ export const BUCKET_REPORT_TIMEOUT_MS: number = 60_000;
  * returned bucket, so this also bounds how much sampling work the report does.
  */
 export const DEFAULT_BUCKET_REPORT_LIMIT: number = 50;
+
+/**
+ * Highest `limit` a request may ask for. Every returned bucket costs a row-sampling query, so an unbounded
+ * limit would let a single request overload the storage database.
+ */
+export const MAX_BUCKET_REPORT_LIMIT: number = 1_000;
 
 /**
  * Maximum number of bucket definitions in the report's definition rollup. Rows are sampled per returned
@@ -139,8 +146,9 @@ export interface BucketReport {
 export interface GetBucketReportOptions {
   /**
    * Maximum number of buckets to return, ranked by operation count descending (worst offenders first).
-   * Row counts are sampled per returned bucket, so this also bounds the report's cost. Non-integer or
-   * negative values are floored and clamped to 1. Defaults to {@link DEFAULT_BUCKET_REPORT_LIMIT}.
+   * Row counts are sampled per returned bucket, so this also bounds the report's cost. Must be an integer
+   * between 1 and {@link MAX_BUCKET_REPORT_LIMIT}; anything else is rejected with a validation error.
+   * Defaults to {@link DEFAULT_BUCKET_REPORT_LIMIT}.
    */
   limit?: number;
 }
@@ -176,13 +184,22 @@ export interface RankedDefinitionInput {
 }
 
 /**
- * Normalize a requested limit to a positive integer, falling back to {@link DEFAULT_BUCKET_REPORT_LIMIT}.
+ * Resolve the requested limit, falling back to {@link DEFAULT_BUCKET_REPORT_LIMIT}. Invalid values are
+ * rejected rather than clamped, so a caller asking for more than the maximum fails loudly instead of
+ * silently getting fewer buckets than requested.
  */
 export function resolveBucketReportLimit(limit?: number): number {
   if (limit == null) {
     return DEFAULT_BUCKET_REPORT_LIMIT;
   }
-  return Math.max(1, Math.floor(limit));
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_BUCKET_REPORT_LIMIT) {
+    throw new ServiceError({
+      status: 400,
+      code: ErrorCode.PSYNC_S2001,
+      description: `limit must be an integer between 1 and ${MAX_BUCKET_REPORT_LIMIT}`
+    });
+  }
+  return limit;
 }
 
 /**

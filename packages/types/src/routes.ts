@@ -82,7 +82,7 @@ export const BucketReportRequest = t.object({
   /**
    * Maximum number of buckets to return, ranked by operation count descending (worst offenders first).
    * Row counts are sampled per returned bucket, so this also bounds the report's cost. Defaults to 50 when
-   * omitted; non-integer or negative values are floored and clamped to 1.
+   * omitted. Must be an integer between 1 and 1000; anything else is rejected with a validation error.
    */
   limit: t.number.optional()
 });

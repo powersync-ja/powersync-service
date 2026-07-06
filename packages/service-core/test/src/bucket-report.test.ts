@@ -3,6 +3,7 @@ import {
   BucketReportTotals,
   DEFAULT_BUCKET_REPORT_LIMIT,
   estimateDistinctRows,
+  MAX_BUCKET_REPORT_LIMIT,
   RankedBucketInput,
   RankedDefinitionInput,
   resolveBucketReportLimit,
@@ -224,10 +225,21 @@ describe('resolveBucketReportLimit', () => {
     expect(resolveBucketReportLimit(undefined)).toBe(DEFAULT_BUCKET_REPORT_LIMIT);
   });
 
-  it('floors and clamps to a positive integer', () => {
-    expect(resolveBucketReportLimit(2.7)).toBe(2);
-    expect(resolveBucketReportLimit(-5)).toBe(1);
-    expect(resolveBucketReportLimit(0)).toBe(1);
+  it('accepts integers up to the maximum', () => {
+    expect(resolveBucketReportLimit(1)).toBe(1);
     expect(resolveBucketReportLimit(20)).toBe(20);
+    expect(resolveBucketReportLimit(MAX_BUCKET_REPORT_LIMIT)).toBe(MAX_BUCKET_REPORT_LIMIT);
+  });
+
+  it('rejects invalid limits instead of clamping them', () => {
+    for (const invalid of [0, -5, 2.7, MAX_BUCKET_REPORT_LIMIT + 1]) {
+      let error: any;
+      try {
+        resolveBucketReportLimit(invalid);
+      } catch (e) {
+        error = e;
+      }
+      expect(error?.errorData, `limit ${invalid}`).toMatchObject({ status: 400 });
+    }
   });
 });
