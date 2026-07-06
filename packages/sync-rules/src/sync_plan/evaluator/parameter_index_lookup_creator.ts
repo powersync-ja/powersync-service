@@ -6,10 +6,9 @@ import { TablePattern } from '../../TablePattern.js';
 import { SqliteJsonValue, SqliteParameterValue, SqliteRow, UnscopedEvaluatedParametersResult } from '../../types.js';
 import { ScalarStatement } from '../engine/scalar_expression_engine.js';
 import * as plan from '../plan.js';
-import { resolveRowMetadata } from './bucket_data_source.js';
 import { StreamEvaluationContext } from './index.js';
 import { isValidParameterValueRow } from './parameter_evaluator.js';
-import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
+import { resolveRowMetadata, TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 
 export class PreparedParameterIndexLookupCreator implements ParameterIndexLookupCreator {
   readonly sourceId: ParameterLookupDefinitionId;

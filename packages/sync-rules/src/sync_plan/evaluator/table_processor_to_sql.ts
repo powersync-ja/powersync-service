@@ -1,3 +1,5 @@
+import { SourceTableRef } from '../../SourceTableRef.js';
+import { TablePattern } from '../../TablePattern.js';
 import {
   mapExternalDataToInstantiation,
   TableValuedFunction,
@@ -33,5 +35,18 @@ export class TableProcessorToSqlHelper {
     for (const filter of source.filters) {
       this.filterExpressions.push(this.mapper.transform(filter));
     }
+  }
+}
+
+export function resolveRowMetadata(
+  value: plan.RowMetadataSqlValue,
+  pattern: TablePattern,
+  table: SourceTableRef
+): string {
+  switch (value.metadata) {
+    case 'schema':
+      return table.schema;
+    case 'table_suffix':
+      return pattern.isWildcard ? pattern.suffix(table.name) : '';
   }
 }

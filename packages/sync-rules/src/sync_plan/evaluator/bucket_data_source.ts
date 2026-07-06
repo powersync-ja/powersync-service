@@ -22,7 +22,7 @@ import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';
 import { SyncPlanSchemaAnalyzer } from '../schema_inference.js';
 import { StreamEvaluationContext } from './index.js';
-import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
+import { resolveRowMetadata, TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables = new Set<TablePattern>();
@@ -192,18 +192,5 @@ class PendingStreamDataSource {
         return results.push({ error: e.message });
       }
     };
-  }
-}
-
-export function resolveRowMetadata(
-  value: plan.RowMetadataSqlValue,
-  pattern: TablePattern,
-  table: SourceTableRef
-): string {
-  switch (value.metadata) {
-    case 'schema':
-      return table.schema;
-    case 'table_suffix':
-      return pattern.isWildcard ? pattern.suffix(table.name) : '';
   }
 }
