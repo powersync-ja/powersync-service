@@ -156,7 +156,7 @@ export const BucketReportResponse = t.object({
   /** Per-definition rollup, ranked by operation count then fragmentation. */
   definitions: t.array(BucketDefinitionStats),
   totals: t.object({
-    /** Number of buckets with stored operations. Estimated when the bucket set was sampled. */
+    /** Number of buckets with stored operations. Exact, even when the other totals are estimates. */
     bucket_count: t.number,
     /** Sum of operations across all buckets. Estimated when the bucket set was sampled. */
     operations: t.number,

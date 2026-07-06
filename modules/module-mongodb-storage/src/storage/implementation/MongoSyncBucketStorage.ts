@@ -3,9 +3,11 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import {
   BaseObserver,
   DO_NOT_LOG,
+  ErrorCode,
   Logger,
   ReplicationAbortedError,
-  ServiceAssertionError
+  ServiceAssertionError,
+  ServiceError
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
@@ -67,13 +69,24 @@ interface InternalCheckpointChanges extends CheckpointChanges {
 const CHECKPOINT_TIMEOUT_MS = 60_000;
 
 /**
- * Above this many buckets, the report ranks a bounded `$sample` of bucket_state rather than every bucket, so
- * the request cannot exhaust memory or run unbounded. Below it, the ranking is exact.
+ * Above this many buckets (a collection-wide estimate), the report ranks a bounded sample of bucket_state
+ * rather than every bucket, so the request cannot exhaust memory or run unbounded. Below it, the ranking is
+ * exact.
  */
 const BUCKET_SELECTION_SAMPLE_THRESHOLD = 50_000;
 
-/** Number of buckets to sample when over {@link BUCKET_SELECTION_SAMPLE_THRESHOLD}. */
+/**
+ * Approximate number of buckets sampled when over {@link BUCKET_SELECTION_SAMPLE_THRESHOLD}. The sample is
+ * drawn with `$sampleRate`, so the achieved count varies slightly around this.
+ */
 const BUCKET_SELECTION_SAMPLE_SIZE = 10_000;
+
+/**
+ * Most bucket_state index entries one report query may scan. Even when sampling fetches few documents, the
+ * covered index scan and the matched-bucket count still touch every matched index entry once, so past this
+ * the report fails fast instead of scaling without bound.
+ */
+const BUCKET_SELECTION_SCAN_MAX = 1_000_000;
 
 /**
  * Fewest operations sampled per bucket when estimating its row count. Buckets with fewer operations than
@@ -541,10 +554,10 @@ export abstract class MongoSyncBucketStorage
    * pre-aggregated bucket state (compacted_state + estimate_since_compact). One document per bucket, no scan
    * of bucket data.
    *
-   * For very large bucket sets the candidates are drawn from a bounded `$sample` rather than the whole
-   * collection (so the request cannot run unbounded or exhaust memory), and the totals are scaled from the
-   * sample and flagged estimated. `allowDiskUse: false` makes an over-threshold exact attempt fail fast
-   * rather than spill to disk and degrade the live instance.
+   * For very large bucket sets the candidates are drawn from a bounded sample of the matched `_id` index
+   * range rather than the whole collection (so the request cannot run unbounded or exhaust memory), and the
+   * totals are scaled from the sample and flagged estimated. `allowDiskUse: false` makes an over-threshold
+   * exact attempt fail fast rather than spill to disk and degrade the live instance.
    *
    * Note: for v1/v2 storage, bucket_state is not backfilled (see models.ts: "only populated by new updates"),
    * so buckets that predate bucket_state tracking and have not been updated or compacted since are missing
@@ -574,16 +587,49 @@ export abstract class MongoSyncBucketStorage
     // because all buckets sharing a name prefix share the definition (undefined for v1/v2).
     const definitionKey = { $arrayElemAt: [{ $split: ['$_id.b', '['] }, 0] };
 
+    // Reports are bulk reads: run them with the configured bulk read preference (secondaries where
+    // configured) so they do not load the primary.
+    const readPreference = this.readPreference;
+
     // estimatedDocumentCount is O(1) but ignores the match filter, so this is an upper bound on the active
     // bucket count. That is fine for the sampling decision: over-estimating only switches to sampling sooner.
-    // It must NOT be used to scale the sampled totals though - the collection can hold buckets outside the
-    // match (other replication groups for v1/v2, inactive definitions for v3), which would over-scale.
-    const estimatedTotalBuckets = await collection.estimatedDocumentCount();
-    const sampled = estimatedTotalBuckets > BUCKET_SELECTION_SAMPLE_THRESHOLD;
+    const estimatedTotalBuckets = await collection.estimatedDocumentCount({ readPreference });
+
+    let matchedBuckets: number | null = null;
+    if (estimatedTotalBuckets > BUCKET_SELECTION_SAMPLE_THRESHOLD) {
+      // The exact matched-bucket count. `match` is an `_id` range, so this is an index-only scan; it sets
+      // the sample rate, scales the sampled sums back up, and doubles as the exact totals.bucketCount.
+      // `limit` caps how many index entries the count may touch: hitting the cap means the instance is past
+      // what this report is designed to scan, so fail fast rather than read the index without bound.
+      matchedBuckets = await collection.countDocuments(match, {
+        maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS,
+        readPreference,
+        limit: BUCKET_SELECTION_SCAN_MAX + 1
+      });
+      if (matchedBuckets > BUCKET_SELECTION_SCAN_MAX) {
+        throw new ServiceError({
+          status: 422,
+          code: ErrorCode.PSYNC_S2001,
+          description: `Bucket report is not supported on this instance: more than ${BUCKET_SELECTION_SCAN_MAX} buckets match the active sync configuration`
+        });
+      }
+    }
+    const sampleRate = matchedBuckets == null ? 1 : BUCKET_SELECTION_SAMPLE_SIZE / Math.max(matchedBuckets, 1);
+    const sampled = sampleRate < 1;
 
     const pipeline: mongo.Document[] = [{ $match: match }];
     if (sampled) {
-      pipeline.push({ $sample: { size: BUCKET_SELECTION_SAMPLE_SIZE } });
+      // Sample on the index alone, then fetch only the sampled documents: the range $match plus the _id
+      // projection is a covered index scan (explain shows docsExamined: 0), $sampleRate keeps roughly
+      // SAMPLE_SIZE ids, and the self-$lookup fetches just those. Sampling after a plain $match would fetch
+      // every matched document only to discard most of them.
+      pipeline.push(
+        { $project: { _id: 1 } },
+        { $match: { $sampleRate: sampleRate } },
+        { $lookup: { from: collection.collectionName, localField: '_id', foreignField: '_id', as: 'doc' } },
+        { $unwind: '$doc' },
+        { $replaceRoot: { newRoot: '$doc' } }
+      );
     }
     pipeline.push({
       $facet: {
@@ -627,7 +673,11 @@ export abstract class MongoSyncBucketStorage
       }[];
     };
     const [result] = await collection
-      .aggregate<FacetResult>(pipeline, { allowDiskUse: false, maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS })
+      .aggregate<FacetResult>(pipeline, {
+        allowDiskUse: false,
+        maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS,
+        readPreference
+      })
       .toArray();
 
     const rawTotals = result?.totals[0] ?? { operations: 0, operationBytes: 0, bucketCount: 0 };
@@ -661,20 +711,16 @@ export abstract class MongoSyncBucketStorage
       };
     }
 
-    // Scale the sampled totals up to the full *matched* set. countDocuments respects the match filter (so it
-    // excludes other groups / inactive definitions) and uses the _id index; it only runs on the already-large
-    // sampled path, and is bounded by maxTimeMS like the rest of the report. When the matched set fits within
-    // the sample, rawTotals is already exact and the scale collapses to 1. The sample is uniform across
-    // buckets, so the per-definition sums scale by the same factor; a definition small enough to be missed
-    // by the sample entirely is absent.
-    const matchedBuckets = await collection.countDocuments(match, { maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS });
-    const scale = matchedBuckets / Math.max(rawTotals.bucketCount, 1);
+    // Scale the sampled sums up to the full matched set, using the exact matched count from above. The
+    // sample is uniform across buckets, so the per-definition sums scale by the same factor; a definition
+    // small enough to be missed by the sample entirely is absent. bucketCount itself is exact.
+    const scale = matchedBuckets! / Math.max(rawTotals.bucketCount, 1);
     return {
       buckets,
       definitions: mapDefinitions(scale),
       definitionsTruncated,
       totals: {
-        bucketCount: matchedBuckets,
+        bucketCount: matchedBuckets!,
         operations: Math.round(rawTotals.operations * scale),
         operationBytes: Math.round(rawTotals.operationBytes * scale),
         estimated: true
@@ -729,7 +775,11 @@ export abstract class MongoSyncBucketStorage
         tables: { _id: string }[];
       };
       const [result] = await collection
-        .aggregate<FacetResult>(pipeline, { allowDiskUse: false, maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS })
+        .aggregate<FacetResult>(pipeline, {
+          allowDiskUse: false,
+          maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS,
+          readPreference: this.readPreference
+        })
         .toArray();
       return {
         sampledOps: result?.sampledOps[0]?.count ?? 0,

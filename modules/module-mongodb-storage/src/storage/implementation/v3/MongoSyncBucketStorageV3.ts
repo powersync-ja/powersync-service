@@ -13,7 +13,12 @@ import {
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import {
+  BucketDefinitionId,
+  ParameterLookupRows,
+  ScopedParameterLookup,
+  SqliteJsonRow
+} from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
@@ -194,9 +199,20 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   // sharing these collections. Scope to the active config's definition ids so the report excludes stale buckets
   // from old/stopped definitions. `this.storageIds` is derived from the active config only (see getActiveSyncConfig).
   protected async collectTopBuckets(limit: number): Promise<TopBucketSelection> {
+    const definitionIds = this.storageIds.bucketDefinitionIds;
+    if (definitionIds.length == 0) {
+      return {
+        buckets: [],
+        definitions: [],
+        definitionsTruncated: false,
+        totals: { bucketCount: 0, operations: 0, operationBytes: 0, estimated: false }
+      };
+    }
+    // One `_id` range per active definition, so the {_id} index bounds the scan per definition; a dotted
+    // `{'_id.d': ...}` match cannot use the compound-object index and would scan the whole collection.
     const { buckets, definitions, definitionsTruncated, totals } = await this.aggregateTopBuckets(
       this.db.bucketState(this.replicationStreamId),
-      { '_id.d': { $in: this.storageIds.bucketDefinitionIds } },
+      { $or: definitionIds.map((d) => ({ _id: idPrefixFilter<{ d: BucketDefinitionId; b: string }>({ d }, ['b']) })) },
       limit
     );
     return {

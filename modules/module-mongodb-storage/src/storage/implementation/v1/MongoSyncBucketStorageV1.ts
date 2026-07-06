@@ -191,9 +191,11 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
 
   // For storage v1/v2, bucket state and bucket data are shared collections scoped by group (replication stream).
   protected async collectTopBuckets(limit: number): Promise<TopBucketSelection> {
+    // Range-match on the whole `_id` (g, b) so the {_id} index bounds the scan; a dotted `{'_id.g': ...}`
+    // match cannot use the compound-object index and would scan the whole collection.
     const { buckets, definitions, definitionsTruncated, totals } = await this.aggregateTopBuckets(
       this.db.bucketStateV1,
-      { '_id.g': this.replicationStreamId },
+      { _id: idPrefixFilter<{ g: number; b: string }>({ g: this.replicationStreamId }, ['b']) },
       limit
     );
     return {

@@ -111,7 +111,7 @@ export interface BucketDefinitionStats {
 }
 
 export interface BucketReportTotals {
-  /** Number of buckets with stored operations. Estimated when the bucket set was sampled (see `estimated`). */
+  /** Number of buckets with stored operations. Exact, even when the rest of the totals are estimates. */
   bucketCount: number;
   /** Sum of operations across all buckets. Estimated when the bucket set was sampled. */
   operations: number;
