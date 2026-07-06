@@ -126,7 +126,7 @@ export class ColumnInRow extends RowReference {
 export type RowMetadataKind = 'schema' | 'table_suffix';
 
 /**
- * A reference to metadata of the row's source table (`table.schema()` or `table.table_suffix()`) instead of an
+ * A reference to metadata of the row's source table (`users.schema()` or `users.table_suffix()`) instead of an
  * actual column, resolved against the concrete table a row was replicated from.
  */
 export class RowMetadata extends RowReference {

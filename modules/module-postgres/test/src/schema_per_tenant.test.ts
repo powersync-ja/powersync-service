@@ -4,13 +4,13 @@ import { describe, expect, test } from 'vitest';
 import { describeWithStorage, StorageVersionTestContext } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
-// A wildcard schema (`%`) lets one stream span many schemas, with the row's schema available as
-// `table.schema()` and resolved per client from a JWT claim. A single replication slot and
+// A wildcard schema (`%`) lets one stream span many schemas, with the row's schema available
+// through the `schema()` table function and resolved per client from a JWT claim. A single replication slot and
 // `FOR ALL TABLES` publication cover every schema.
 const TENANT_STREAM = `
 streams:
   stream:
-    query: SELECT * FROM "%".test_data WHERE "table".schema() = auth.parameter('tenant_schema')
+    query: SELECT * FROM "%".test_data WHERE test_data.schema() = auth.parameter('tenant_schema')
 
 config:
   edition: 3
@@ -48,7 +48,7 @@ function defineTests({ factory, storageVersion }: StorageVersionTestContext) {
     expect(qualified).toContain('tenant_b.test_data');
   });
 
-  test('routes each tenant row to a per-schema bucket, without syncing _schema', async () => {
+  test('routes each tenant row to a per-schema bucket', async () => {
     await using context = await openContext();
     const { pool } = context;
     await context.updateSyncRules(TENANT_STREAM);

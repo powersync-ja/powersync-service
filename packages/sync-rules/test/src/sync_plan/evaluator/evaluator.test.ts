@@ -1336,7 +1336,7 @@ config:
 
 streams:
   stream:
-      query: SELECT * FROM "%".comments WHERE "table".schema() = auth.parameter('tenant_schema')
+      query: SELECT * FROM "%".comments WHERE comments.schema() = auth.parameter('tenant_schema')
 `);
 
     expect(desc.evaluateRow({ sourceTable: tenantTable('tenant_a', 'comments'), record: { id: 'c1' } })).toStrictEqual([
@@ -1361,7 +1361,7 @@ config:
 
 streams:
   stream:
-      query: SELECT * FROM "%".comments WHERE "table".schema() = auth.parameter('tenant_schema')
+      query: SELECT * FROM "%".comments WHERE comments.schema() = auth.parameter('tenant_schema')
 `);
 
     const { querier, errors } = desc.getBucketParameterQuerier({
@@ -1375,14 +1375,14 @@ streams:
     expect(querier.staticBuckets.map((b) => b.bucket)).toStrictEqual(['stream|0["tenant_a"]']);
   });
 
-  syncTest('"table".schema() as a column', ({ sync }) => {
+  syncTest('schema() as a column', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
   edition: 3
 
 streams:
   stream:
-      query: SELECT id, "table".schema() AS tenant FROM users
+      query: SELECT id, users.schema() AS tenant FROM users
 `);
 
     expect(desc.evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })).toStrictEqual([
@@ -1395,14 +1395,14 @@ streams:
     ]);
   });
 
-  syncTest('"table".table_suffix() as a column', ({ sync }) => {
+  syncTest('table_suffix() as a column', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
   edition: 3
 
 streams:
   stream:
-      query: SELECT id, "table".table_suffix() AS suffix FROM "user%"
+      query: SELECT id, users.table_suffix() AS suffix FROM "user%" users
 `);
 
     expect(desc.evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })).toStrictEqual([
@@ -1422,7 +1422,7 @@ config:
 
 streams:
   stream:
-      query: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM "%".issues WHERE "table".schema() = auth.parameter('tenant_schema'))
+      query: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM "%".issues WHERE issues.schema() = auth.parameter('tenant_schema'))
 `);
 
     expect(desc.tableSyncsParameters(tenantTable('tenant_a', 'issues'))).toBeTruthy();

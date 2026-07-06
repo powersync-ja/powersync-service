@@ -222,8 +222,7 @@ export type RowMetadataKind = 'schema' | 'table_suffix';
 
 /**
  * A value that resolves to metadata about the source table of the row being processed: the schema containing the
- * table (`table.schema()`) or, for wildcard table patterns, the matched suffix of the table name
- * (`table.table_suffix()`).
+ * table (`schema()`) or, for wildcard table patterns, the matched suffix of the table name (`table_suffix()`).
  */
 export interface RowMetadataSqlValue {
   metadata: RowMetadataKind;
