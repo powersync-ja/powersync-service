@@ -422,7 +422,7 @@ bucket_definitions:
     expect(doc.min_op).toBe(3n);
     expect(doc.count).toBe(3);
     expect(doc.checksum).toBe(60n);
-    expect(doc.size).toBe(4 + 5 + 8);
+    expect(doc.size).toBe(bson.calculateObjectSize(doc.ops));
   });
 
   test('2. range metadata consistency - after compaction', async () => {
@@ -440,7 +440,7 @@ bucket_definitions:
       expect(doc.min_op).toBe(doc.ops.reduce((min, op) => (op.o < min ? op.o : min), doc.ops[0].o));
       expect(doc.count).toBe(doc.ops.length);
       expect(doc.checksum).toBe(doc.ops.reduce((sum, op) => sum + op.checksum, 0n));
-      expect(doc.size).toBe(doc.ops.reduce((sum, op) => sum + (op.data?.length ?? 0), 0));
+      expect(doc.size).toBe(bson.calculateObjectSize(doc.ops));
     }
   });
 
@@ -1368,8 +1368,9 @@ bucket_definitions:
     expect(putOps.every((op) => op.data != null)).toBe(true);
 
     expect(docs.length).toBe(1);
-    const putSize = putOps.reduce((sum, op) => sum + (op.data?.length ?? 0), 0);
-    expect(docs[0].size).toBe(putSize);
+    // Size calculation is not exact - we just check for a range
+    expect(docs[0].size).toBeGreaterThan(1_000_000);
+    expect(docs[0].size).toBeLessThan(1_001_000);
   });
 
   test('tombstones and survivors end up in same document after rechunking', async () => {
