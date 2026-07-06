@@ -65,15 +65,3 @@ jobs:
             --tag "${{ vars.DOCKER_REGISTRY }}:${{ steps.version.outputs.major }}" \
             --tag "${{ vars.DOCKER_REGISTRY }}:latest" \
             "${{ vars.DOCKER_REGISTRY }}:${{ steps.version.outputs.version }}-next"
-
-      # Updates the README section on the DockerHub page
-      - name: Update repo description
-        #  Note that this 3rd party extention is recommended in the DockerHub docs:
-        #  https://docs.docker.com/build/ci/github-actions/update-dockerhub-desc/
-        uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae # v4.0.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ vars.DOCKER_REGISTRY }}
-          #   This is the contents of what will be shown on DockerHub
-          readme-filepath: ./service/README.md
