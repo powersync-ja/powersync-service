@@ -330,19 +330,27 @@ export async function batchCreateCustomWriteCheckpoints(
   }
 
   await db.custom_write_checkpoints.bulkWrite(
-    checkpoints.map((checkpointOptions) => ({
-      updateOne: {
-        filter: { user_id: checkpointOptions.user_id, sync_rules_id: checkpointOptions.sync_rules_id },
-        update: {
-          $set: {
-            checkpoint: checkpointOptions.checkpoint,
-            sync_rules_id: checkpointOptions.sync_rules_id,
-            op_id: opId
-          }
-        },
-        upsert: true
+    checkpoints.map((checkpointOptions) => {
+      const set: Record<string, unknown> = {
+        checkpoint: checkpointOptions.checkpoint,
+        sync_rules_id: checkpointOptions.sync_rules_id,
+        op_id: opId
+      };
+      if (checkpointOptions.checkpoint_requested_at != null) {
+        set.checkpoint_requested_at = checkpointOptions.checkpoint_requested_at;
       }
-    })),
+
+      return {
+        updateOne: {
+          filter: { user_id: checkpointOptions.user_id, sync_rules_id: checkpointOptions.sync_rules_id },
+          update: {
+            $set: set,
+            ...(checkpointOptions.checkpoint_requested_at == null ? { $unset: { checkpoint_requested_at: 1 } } : {})
+          },
+          upsert: true
+        }
+      };
+    }),
     { session }
   );
 }

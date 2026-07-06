@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CheckpointRequestPayload, checkpointRequest } from '../../../src/routes/endpoints/checkpointing.js';
 
 describe('checkpoint request route', () => {
@@ -32,5 +32,23 @@ describe('checkpoint request route', () => {
     Number.MAX_SAFE_INTEGER + 1
   ])('rejects invalid API checkpoint request id %s', (checkpointRequestId) => {
     expect(checkpointRequest.validator!.validate(payload(checkpointRequestId)).valid).toBe(false);
+  });
+
+  it('returns the stored checkpoint request id from the checkpoint request route', async () => {
+    const writeCheckpointBatcher = {
+      enqueue: vi.fn(async () => ({ replicationHead: 'head-1', writeCheckpoint: '43' }))
+    };
+
+    await expect(
+      checkpointRequest.handler({
+        context: {
+          token_payload: { userIdString: 'user-a' },
+          service_context: { writeCheckpointBatcher }
+        },
+        params: payload(42)
+      } as any)
+    ).resolves.toEqual({ checkpoint_request_id: '43' });
+
+    expect(writeCheckpointBatcher.enqueue).toHaveBeenCalledWith('user-a/client-a', 42n);
   });
 });

@@ -94,7 +94,15 @@ export class PostgresCompactor {
     await this.db.sql`
       DELETE FROM write_checkpoints
       WHERE
-        checkpoint_requested_at < ${{ type: 1184, value: this.deleteCheckpointRequestsBefore.toISOString() }}
+        checkpoint_requested_at IS NOT NULL
+        AND checkpoint_requested_at < ${{ type: 1184, value: this.deleteCheckpointRequestsBefore.toISOString() }}
+    `.execute();
+
+    await this.db.sql`
+      DELETE FROM custom_write_checkpoints
+      WHERE
+        checkpoint_requested_at IS NOT NULL
+        AND checkpoint_requested_at < ${{ type: 1184, value: this.deleteCheckpointRequestsBefore.toISOString() }}
     `.execute();
   }
 

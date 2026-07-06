@@ -133,12 +133,12 @@ export const checkpointRequest = routeDefinition({
       `Requested checkpoint for ${token_payload!.userIdString}/${decodedParams.client_id}: ${writeCheckpoint} | ${replicationHead}`
     );
 
-    // Return the checkpoint value storage is actually at after this request.
+    // Return the checkpoint request id storage is actually at after this request.
     // When an earlier request has already advanced the stored value beyond the
     // supplied checkpoint_request_id, this returns that larger previous value so
     // the client can treat the response as a stale-request acknowledgement.
     return {
-      write_checkpoint: String(writeCheckpoint)
+      checkpoint_request_id: String(writeCheckpoint)
     };
   }
 });

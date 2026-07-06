@@ -81,6 +81,39 @@ bucket_definitions:
         deleteCheckpointRequestsBefore: new Date('2024-02-01T00:00:00.000Z')
       });
       await expect(requestedAt('user2')).resolves.toBeUndefined();
+
+      const customRequestedAt = async (userId = 'custom1') =>
+        (
+          await factory.db.sql`
+            SELECT
+              checkpoint_requested_at
+            FROM
+              custom_write_checkpoints
+            WHERE
+              user_id = ${{ type: 'varchar', value: userId }}
+          `
+            .decoded(CheckpointRequestedAtRow)
+            .first()
+        )?.checkpoint_requested_at;
+
+      bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      await writer.markAllSnapshotDone('1/1');
+      const customCheckpointRequestedAt = new Date('2024-01-01T00:00:00.000Z');
+      writer.addCustomWriteCheckpoint({
+        user_id: 'custom1',
+        checkpoint: 51n,
+        checkpoint_requested_at: customCheckpointRequestedAt
+      });
+      await writer.flush();
+      await expect(customRequestedAt()).resolves.toEqual(customCheckpointRequestedAt);
+
+      writer.addCustomWriteCheckpoint({
+        user_id: 'custom1',
+        checkpoint: 52n
+      });
+      await writer.flush();
+      await expect(customRequestedAt()).resolves.toBeNull();
     });
 
     /**

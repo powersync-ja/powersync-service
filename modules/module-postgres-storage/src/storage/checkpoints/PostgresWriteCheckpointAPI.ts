@@ -265,7 +265,8 @@ export async function batchCreateCustomWriteCheckpoints(
       // Cannot encode bigint directly using JSON.stringify.
       // The ::int8 in the query below will take care of casting back to a number
       checkpoint: String(cp.checkpoint),
-      sync_rules_id: cp.sync_rules_id
+      sync_rules_id: cp.sync_rules_id,
+      checkpoint_requested_at: cp.checkpoint_requested_at?.toISOString() ?? null
     };
   });
 
@@ -277,7 +278,12 @@ export async function batchCreateCustomWriteCheckpoints(
         CHECKPOINT
       )
     INSERT INTO
-      custom_write_checkpoints (user_id, write_checkpoint, sync_rules_id)
+      custom_write_checkpoints (
+        user_id,
+        write_checkpoint,
+        sync_rules_id,
+        checkpoint_requested_at
+      )
     SELECT
     CHECKPOINT ->> 'user_id'::varchar,
     (
@@ -285,11 +291,15 @@ export async function batchCreateCustomWriteCheckpoints(
     )::int8,
     (
       CHECKPOINT ->> 'sync_rules_id'
-    )::int4
+    )::int4,
+    (
+      CHECKPOINT ->> 'checkpoint_requested_at'
+    )::timestamptz
     FROM
       json_data
     ON CONFLICT (user_id, sync_rules_id) DO UPDATE
     SET
-      write_checkpoint = EXCLUDED.write_checkpoint;
+      write_checkpoint = EXCLUDED.write_checkpoint,
+      checkpoint_requested_at = EXCLUDED.checkpoint_requested_at;
   `.execute();
 }

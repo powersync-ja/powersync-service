@@ -367,6 +367,50 @@ bucket_definitions:
       }
     });
   });
+
+  test('custom write checkpoints - checkpoint request markers are temporary', async () => {
+    await using factory = await generateStorageFactory();
+    const r = await factory.configureSyncRules(
+      updateSyncRulesFromYaml(
+        `
+bucket_definitions:
+  mybucket:
+    data: []
+    `,
+        {
+          validate: false,
+          storageVersion
+        }
+      )
+    );
+    const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+    bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await writer.markAllSnapshotDone('1/1');
+
+    writer.addCustomWriteCheckpoint({
+      checkpoint: 5n,
+      user_id: 'persistent'
+    });
+    writer.addCustomWriteCheckpoint({
+      checkpoint: 6n,
+      user_id: 'temporary',
+      checkpoint_requested_at: new Date('2024-01-01T00:00:00.000Z')
+    });
+    await writer.flush();
+
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'persistent' })).resolves.toEqual(5n);
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'temporary' })).resolves.toEqual(6n);
+
+    await bucketStorage.compact({
+      compactBuckets: [],
+      deleteCheckpointRequestsBefore: new Date(Date.now() + 1_000)
+    });
+
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'persistent' })).resolves.toEqual(5n);
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'temporary' })).resolves.toBeNull();
+  });
 }
 
 async function createManagedWriteCheckpoint(

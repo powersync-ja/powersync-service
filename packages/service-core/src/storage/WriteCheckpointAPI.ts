@@ -19,6 +19,18 @@ export interface BaseWriteCheckpointIdentifier {
   user_id: string;
 }
 
+export interface ClientRequestedCheckpointOptions {
+  /**
+   * Supplied for client-generated checkpoint requests.
+   *
+   * If omitted, storage creates or stores a regular write checkpoint.
+   * If supplied for managed write checkpoints, storage only uses it when it is
+   * greater than the stored id for the user_id. Same or lower supplied ids are
+   * no-ops, and storage returns the current stored id.
+   */
+  checkpoint_request_id?: bigint;
+}
+
 export interface CustomWriteCheckpointFilters extends BaseWriteCheckpointIdentifier {
   /**
    * Replication stream which was active when this checkpoint was created.
@@ -31,23 +43,15 @@ export interface BatchedCustomWriteCheckpointOptions extends BaseWriteCheckpoint
    * A supplied incrementing Write Checkpoint number
    */
   checkpoint: bigint;
-}
-
-export interface ClientRequestedCheckpointOptions {
   /**
-   * Supplied for client-generated checkpoint requests.
-   *
-   * If omitted, storage generates the next managed write checkpoint id.
-   * If supplied, storage only uses it when it is greater than the stored id for
-   * the user_id. Same or lower supplied ids are no-ops, and storage returns the
-   * current stored id.
+   * Set when this custom write checkpoint was created from a client checkpoint
+   * request. Regular custom write checkpoints leave this unset so retention
+   * cleanup does not delete them.
    */
-  checkpoint_request_id?: bigint;
+  checkpoint_requested_at?: Date | null;
 }
 
-export interface CustomWriteCheckpointOptions
-  extends BatchedCustomWriteCheckpointOptions,
-    ClientRequestedCheckpointOptions {
+export interface CustomWriteCheckpointOptions extends BatchedCustomWriteCheckpointOptions {
   /**
    * Replication stream which was active when this checkpoint was created.
    */

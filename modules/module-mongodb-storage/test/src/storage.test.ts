@@ -1,6 +1,6 @@
 import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
-import { updateSyncRulesFromYaml } from '@powersync/service-core';
-import { register } from '@powersync/service-core-tests';
+import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
+import { register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
@@ -65,6 +65,28 @@ bucket_definitions:
         deleteCheckpointRequestsBefore: new Date('2024-02-01T00:00:00.000Z')
       });
       await expect(factory.db.write_checkpoints.findOne({ user_id: 'user2' })).resolves.toBeNull();
+
+      bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      await writer.markAllSnapshotDone('1/1');
+      const customCheckpointRequestedAt = new Date('2024-01-01T00:00:00.000Z');
+      writer.addCustomWriteCheckpoint({
+        user_id: 'custom1',
+        checkpoint: 51n,
+        checkpoint_requested_at: customCheckpointRequestedAt
+      });
+      await writer.flush();
+      const customRequested = await factory.db.custom_write_checkpoints.findOne({ user_id: 'custom1' });
+      expect(customRequested?.checkpoint_requested_at).toEqual(customCheckpointRequestedAt);
+
+      writer.addCustomWriteCheckpoint({
+        user_id: 'custom1',
+        checkpoint: 52n
+      });
+      await writer.flush();
+      const customGenerated = await factory.db.custom_write_checkpoints.findOne({ user_id: 'custom1' });
+      expect(customGenerated).not.toBeNull();
+      expect(customGenerated?.checkpoint_requested_at).toBeUndefined();
     });
   });
 }

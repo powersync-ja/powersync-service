@@ -149,6 +149,9 @@ export abstract class MongoCompactor {
     await this.db.write_checkpoints.deleteMany({
       checkpoint_requested_at: { $exists: true, $lt: this.deleteCheckpointRequestsBefore }
     });
+    await this.db.custom_write_checkpoints.deleteMany({
+      checkpoint_requested_at: { $exists: true, $lt: this.deleteCheckpointRequestsBefore }
+    });
   }
 
   /**
