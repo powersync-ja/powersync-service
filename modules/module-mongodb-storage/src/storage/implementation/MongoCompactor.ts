@@ -270,18 +270,21 @@ export abstract class MongoCompactor {
         sort: {
           'estimate_since_compact.bytes': -1
         },
-        limit: 200,
+        limit: 50,
         maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
       })
       .toArray();
 
-    return dirtyBuckets
-      .map((bucket) => ({
-        bucket: bucket._id.b,
-        definitionId: getDefinitionId(bucket),
-        estimatedCount: Number(bucket.estimate_since_compact!.count) + Number(bucket.compacted_state?.count ?? 0)
-      }))
-      .filter((s) => Math.random() < 0.2);
+    return (
+      dirtyBuckets
+        .map((bucket) => ({
+          bucket: bucket._id.b,
+          definitionId: getDefinitionId(bucket),
+          estimatedCount: Number(bucket.estimate_since_compact!.count) + Number(bucket.compacted_state?.count ?? 0)
+        }))
+        // Pick a random 20% of the top 50 buckets
+        .filter((_) => Math.random() < 0.2)
+    );
   }
 
   public abstract dirtyBucketBatches(options: {
