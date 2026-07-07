@@ -277,6 +277,7 @@ export abstract class MongoSyncBucketStorage
     const snapshotTime = mongoCheckpoint.snapshotTime; // May be undefined in tests
     return this.checksums.getChecksums(checkpoint.checkpoint, buckets, {
       snapshotTime,
+      clusterTime: mongoCheckpoint.clusterTime,
       readPreference: options?.requestHint == 'bulk' ? this.readPreference : undefined
     });
   }
