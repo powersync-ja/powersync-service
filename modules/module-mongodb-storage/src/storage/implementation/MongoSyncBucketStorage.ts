@@ -174,7 +174,7 @@ export abstract class MongoSyncBucketStorage
       }
 
       const snapshotTime = (session as any).snapshotTime as bson.Timestamp | undefined;
-      const clusterTime = session.clusterTime as mongo.ClusterTime | undefined;
+      const clusterTime = session.clusterTime;
       if (snapshotTime == null) {
         throw new ServiceAssertionError('Missing snapshotTime in getCheckpoint()');
       }
