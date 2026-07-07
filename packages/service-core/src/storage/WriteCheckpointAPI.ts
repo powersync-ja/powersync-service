@@ -40,13 +40,15 @@ export interface CustomWriteCheckpointFilters extends BaseWriteCheckpointIdentif
 
 export interface BatchedCustomWriteCheckpointOptions extends BaseWriteCheckpointIdentifier {
   /**
-   * A supplied incrementing Write Checkpoint number
+   * A supplied incrementing checkpoint request id. This is still named
+   * "write checkpoint" in storage APIs for backwards compatibility.
    */
   checkpoint: bigint;
   /**
-   * Set when this custom write checkpoint was created from a client checkpoint
-   * request. Regular custom write checkpoints leave this unset so retention
-   * cleanup does not delete them.
+   * Required when this custom checkpoint was created from a client checkpoint
+   * request and should be eligible for checkpoint request retention cleanup.
+   * Omit or set to null for persistent custom checkpoints owned by the source
+   * or integration.
    */
   checkpoint_requested_at?: Date | null;
 }

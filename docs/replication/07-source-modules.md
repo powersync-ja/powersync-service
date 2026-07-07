@@ -4,7 +4,7 @@ This page compares the current replication modules. Each module provides the rep
 
 ## Comparison
 
-| Source     | Position                                  | Stream                                   | Snapshot approach                                                                      | Write checkpoint barrier                                                                     | History loss handling                                                                                     |
+| Source     | Position                                  | Stream                                   | Snapshot approach                                                                      | Checkpoint request barrier                                                                   | History loss handling                                                                                     |
 | ---------- | ----------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | Postgres   | WAL LSN                                   | Logical replication slot with `pgoutput` | Creates/uses a slot, snapshots tables, then waits for WAL catch-up                     | Reads `pg_current_wal_lsn()` and sends a logical keepalive message                           | Missing or invalidated slot raises `MissingReplicationSlotError` and can restart replication              |
 | MongoDB    | `MongoLSN` from cluster time/resume token | Change stream                            | Snapshotter queues collections and stores resume state                                 | Reads session cluster time and updates `_powersync_checkpoints`                              | Invalidated change stream raises `ChangeStreamInvalidatedError` and restarts replication                  |
@@ -20,7 +20,7 @@ Postgres uses logical replication slots and WAL LSNs. The replication slot prese
 
 Initial replication snapshots selected tables and records boundaries that streaming must pass before checkpoints become valid. The deeper design history is in [initial-replication.md](../modules/postgres/initial-replication.md).
 
-The route adapter creates managed write checkpoint heads by reading `pg_current_wal_lsn()` and then sending a logical keepalive message.
+The route adapter creates checkpoint request heads by reading `pg_current_wal_lsn()` and then sending a logical keepalive message.
 
 ## MongoDB
 
@@ -28,7 +28,7 @@ MongoDB uses change streams and stores resume state in bucket storage. Initial s
 
 With MongoDB storage v3, MongoDB source replication supports incremental reprocessing for compatible sync config updates. The active and processing sync configs can share one change stream, compatible bucket and parameter definitions keep their persisted ids, and only new or changed definitions need new snapshot work before activation.
 
-The route adapter reads session cluster time for the managed write checkpoint head, then updates the checkpoints collection so the change stream observes a later operation.
+The route adapter reads session cluster time for the checkpoint request head, then updates the checkpoints collection so the change stream observes a later operation.
 
 If the change stream is invalidated or the resume token is no longer available, the module restarts replication with a fresh stream.
 
@@ -36,7 +36,7 @@ If the change stream is invalidated or the resume token is no longer available, 
 
 MySQL uses GTID/binlog positions. It persists resume state in bucket storage and checks whether required binlog files are still available when resuming.
 
-Keepalives are handled by the binlog heartbeat mechanism. The route adapter currently reads the executed GTID for write checkpoints and contains a TODO to ensure another message is replicated.
+Keepalives are handled by the binlog heartbeat mechanism. The route adapter currently reads the executed GTID for checkpoint requests and contains a TODO to ensure another message is replicated.
 
 ## SQL Server
 

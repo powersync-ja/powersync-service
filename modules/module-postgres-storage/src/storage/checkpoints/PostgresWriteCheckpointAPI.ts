@@ -150,10 +150,12 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         writeCheckpoints.set(row.user_id, row.write_checkpoint);
       }
 
-      const updatedSuppliedUserIds = new Set(suppliedRows.map((row) => row.user_id));
+      // RETURNING only includes inserted rows and rows updated by the monotonic
+      // conflict condition. Stale/duplicate requests still need the stored id.
+      const returnedSuppliedUserIds = new Set(suppliedRows.map((row) => row.user_id));
       const unchangedUserIds = suppliedCheckpoints
         .map((checkpoint) => checkpoint.user_id)
-        .filter((userId) => !updatedSuppliedUserIds.has(userId));
+        .filter((userId) => !returnedSuppliedUserIds.has(userId));
 
       if (unchangedUserIds.length > 0) {
         const mappedUserIds = unchangedUserIds.map((user_id) => ({ user_id }));

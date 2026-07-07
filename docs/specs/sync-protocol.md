@@ -22,6 +22,9 @@ Format:
 
 This indicates a new checkpoint is available, along with checksums for each bucket in the checkpoint.
 
+`write_checkpoint` acknowledges a checkpoint request. The field keeps its legacy
+name for backwards compatibility with older clients and servers.
+
 This is typically (but not necessarily) be the first message in the response, and is often followed by StreamingSyncData and StreamingSyncCheckpointComplete (both optional).
 
 ## StreamingSyncCheckpointDiff

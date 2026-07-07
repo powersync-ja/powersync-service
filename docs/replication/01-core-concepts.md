@@ -59,14 +59,14 @@ Internal operation ids are not enough to drive replication from the source. Powe
 
 - Initial snapshots record a source position before or at snapshot start, then stream from that position so writes during the snapshot are not missed.
 - Replication streams resume from a persisted source position, or from resume state managed by the source database, after restarts and reconnects.
-- Managed write checkpoints store a source position and are acknowledged once replication commits or keeps alive at or past that position.
+- Checkpoint requests, previously called managed write checkpoints, store a source position and are acknowledged once replication commits or keeps alive at or past that position.
 - Postgres replication slots track most resume state on the source side, so `setResumeLsn()` is less central there than in sources that require PowerSync to persist the resume position.
 
 For a source to be usable as a replication module, it must provide some form of ordered replication stream with positional information. The position does not need to be a database-native LSN, but the stream must be resumable from a known point or otherwise have source-managed resume state, and it must contain all changes relevant to PowerSync within the consistency boundary chosen by the connector.
 
 Most storage interfaces still expose one string value for checkpoint/source-head comparison, snapshot consistency boundaries, and sometimes replication resume. Source modules are responsible for using a stable encoding that preserves the required ordering when values are compared. For example, Postgres can use the WAL LSN directly, while MongoDB uses an encoding that combines cluster time for ordering with resume token information.
 
-Some storage implementations now separate resume progress from checkpoint state. MongoDB storage v3 stores a stream-level `resume_lsn` for restarting the change stream, while per-sync-config `last_checkpoint_lsn` values remain client-visible consistency markers. Even in that model, source-head values used for checkpoints and write checkpoint acknowledgement must remain comparable.
+Some storage implementations now separate resume progress from checkpoint state. MongoDB storage v3 stores a stream-level `resume_lsn` for restarting the change stream, while per-sync-config `last_checkpoint_lsn` values remain client-visible consistency markers. Even in that model, source-head values used for checkpoints and checkpoint request acknowledgement must remain comparable.
 
 ## Source Entity
 
@@ -125,13 +125,15 @@ A replication checkpoint is a storage checkpoint with:
 
 Replication creates checkpoints through `BucketStorageBatch.commit(lsn)` and advances positions without data through `BucketStorageBatch.keepalive(lsn)`.
 
-## Write Checkpoint
+## Checkpoint Request
 
-A write checkpoint lets a client wait until its own backend write has been observed by replication and surfaced through sync.
+A checkpoint request lets a client wait until its own backend write has been observed by replication and surfaced through sync.
 
-In managed mode, PowerSync stores a mapping from user/client id plus source replication head to an internal write checkpoint id. When a later storage checkpoint reaches or passes that source head, the sync stream can include the write checkpoint id for that client.
+This was previously called a write checkpoint. The older term still appears in code, route names, storage interfaces, and the sync protocol field `write_checkpoint` for backwards compatibility.
 
-Source modules implement `RouteAPI.createReplicationHead()` to obtain a current source head, let storage persist its write-checkpoint mapping via the callback, and then force a later observable source event when storage actually advances a managed write checkpoint (`shouldAdvance: true`).
+In managed mode, PowerSync stores a mapping from user/client id plus source replication head to an internal checkpoint request id. When a later storage checkpoint reaches or passes that source head, the sync stream can include the acknowledgement id for that client.
+
+Source modules implement `RouteAPI.createReplicationHead()` to obtain a current source head, let storage persist its checkpoint request mapping via the callback, and then force a later observable source event when storage reports that a marker is needed (`shouldAdvance: true`).
 
 ## Replication Lock
 

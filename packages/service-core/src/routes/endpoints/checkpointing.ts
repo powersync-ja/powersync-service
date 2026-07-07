@@ -121,7 +121,8 @@ export const checkpointRequest = routeDefinition({
     const decodedParams = CheckpointRequestPayload.decode(params);
 
     // Storage only applies supplied request ids that advance the stored managed checkpoint.
-    // Stale or duplicate ids return the stored checkpoint without forcing a source marker.
+    // Stale or duplicate ids return the stored checkpoint; storage decides whether
+    // the matched checkpoint still needs a source marker.
     const { replicationHead, writeCheckpoint } = await util.createWriteCheckpoint({
       userId: token_payload!.userIdString,
       clientId: decodedParams.client_id,

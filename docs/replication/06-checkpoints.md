@@ -16,9 +16,9 @@ The `lsn` field is nullable in the storage interface. In normal active replicati
 - A newly created or restarted replication stream has a storage row, but `last_checkpoint_lsn` is still `null` because initial snapshot work is not checkpointable yet.
 - Tests or manually constructed storage state have operations/checkpoint ids without a corresponding source position.
 
-The operation id is storage-wide for the replication stream. It orders bucket operations, parameter lookup records, and write checkpoint visibility.
+The operation id is storage-wide for the replication stream. It orders bucket operations, parameter lookup records, and checkpoint request visibility.
 
-The source position is different from the checkpoint operation id. The checkpoint id says where the PowerSync bucket history is; the source position says how far the source replication stream has been observed. That source position is what lets initial snapshots wait for stream catch-up and lets managed write checkpoints know when a client write has been replicated back.
+The source position is different from the checkpoint operation id. The checkpoint id says where the PowerSync bucket history is; the source position says how far the source replication stream has been observed. That source position is what lets initial snapshots wait for stream catch-up and lets checkpoint requests know when a client write has been replicated back.
 
 Incremental storage can separate stream-level resume progress from per-sync-config checkpoint state. For example, MongoDB storage v3 stores a stream `resume_lsn` used to restart the change stream, while each embedded sync config has its own checkpoint source position used as a consistency marker. The sync API serves checkpoints from one active config; a processing config in the same stream does not affect client checkpoints until storage activates it.
 
@@ -75,58 +75,60 @@ The API may omit `checkpoint_complete` for a checkpoint. This happens when a new
 
 Priority buckets can emit `partial_checkpoint_complete` before all lower-priority buckets are sent.
 
-## Managed Write Checkpoints
+## Checkpoint Requests
 
-Managed write checkpoints let a client wait for its own backend write to round-trip through replication.
+Checkpoint requests let a client wait for its own backend write to round-trip through replication.
+
+The feature was previously called a managed write checkpoint. That term remains in code and storage interfaces, and the sync stream still uses the `write_checkpoint` field for backwards compatibility. In this section, "managed write checkpoint" refers to the internal stored mapping that backs a checkpoint request.
 
 The flow is:
 
-1. The client calls `/write-checkpoint2.json`.
+1. The client calls `/sync/checkpoint-request` with a client-supplied `checkpoint_request_id`. The legacy `/write-checkpoint2.json` route creates the same kind of internal mapping with a generated id.
 2. The route asks the source `RouteAPI` to create a replication head.
 3. The source reads the current head and passes it to a callback.
-4. The callback stores a managed write checkpoint mapping in active bucket storage.
+4. The callback stores the managed write checkpoint mapping in active bucket storage.
 5. The source adapter forces a later observable source event when needed.
 6. Replication eventually commits or keeps alive at or beyond that head.
-7. `watchCheckpointChanges()` returns a checkpoint update with the applicable write checkpoint id.
-8. The sync API includes `write_checkpoint` in the next checkpoint line for that user/client.
+7. `watchCheckpointChanges()` returns a checkpoint update with the applicable checkpoint request id.
+8. The sync API includes that id in the legacy `write_checkpoint` field in the next checkpoint line for that user/client.
 
 The source marker does not need to be replicated as user data. It only needs to make the source stream advance after the mapping exists.
 
-`/sync/checkpoint-request` accepts a client-supplied `checkpoint_request_id`. Storage treats this id as monotonic for the full user/client id: it only updates the managed write checkpoint when the supplied value is greater than the stored value. The response `checkpoint_request_id` is always the request id storage is actually at after handling the request. If a previous request already advanced storage to a larger value, the stale request does not update storage and the response returns that larger stored value so the client can detect that its request id was stale.
+`/sync/checkpoint-request` accepts a client-supplied `checkpoint_request_id`. Storage treats this id as monotonic for the full user/client id: it only updates the managed write checkpoint mapping when the supplied value is greater than the stored value. The response `checkpoint_request_id` is always the request id storage is actually at after handling the request. If a previous request already advanced storage to a larger value, the stale request does not update storage and the response returns that larger stored value so the client can detect that its request id was stale.
 
 Stale requests are normal behaviour for this mode, not an error. A client that lost track of its last request id - for example after clearing local state - simply starts again at `1`. When storage already holds a larger checkpoint for that user/client, the request is a no-op and the response returns the stored value, so the client resynchronizes its counter from the response and resumes with the next id. No special recovery request is needed.
 
-Managed write checkpoints require a comparable source head. The source adapter reads a position that should include the client's write, stores it with the generated write checkpoint id, and then ensures replication observes that position or a later one. Postgres uses `pg_current_wal_lsn()` and emits a logical message; MongoDB uses cluster time and writes to `_powersync_checkpoints`; other sources use their equivalent source position and marker behavior.
+Checkpoint requests require a comparable source head. The source adapter reads a position that should include the client's write, stores it with the checkpoint request id, and then ensures replication observes that position or a later one. Postgres uses `pg_current_wal_lsn()` and emits a logical message; MongoDB uses cluster time and writes to `_powersync_checkpoints`; other sources use their equivalent source position and marker behavior.
 
 ### Source-Side Checkpoint Markers
 
-A source-side checkpoint marker is a source-visible event whose job is to make the replication stream advance after PowerSync has stored a managed write checkpoint mapping. It may be a logical replication message, a write to a `_powersync_checkpoints` or `powersync_checkpoints` table or collection, or another source-specific no-op event.
+A source-side checkpoint marker is a source-visible event whose job is to make the replication stream advance after PowerSync has stored a checkpoint request mapping. It may be a logical replication message, a write to a `_powersync_checkpoints` or `powersync_checkpoints` table or collection, or another source-specific no-op event.
 
-Use a marker table or collection when the connector cannot otherwise guarantee that a later ordered event will appear in the replication stream after storage persists a managed write checkpoint for a source head. This is common when:
+Use a marker table or collection when the connector cannot otherwise guarantee that a later ordered event will appear in the replication stream after storage persists a checkpoint request for a source head. This is common when:
 
 - The source stream only advances when source data changes, so idle databases can stop producing new positions.
 - The source stream is filtered and a valid database head may include writes that are not visible to the stream.
 - The source has no logical keepalive or barrier message that appears in the replication stream.
-- Custom write checkpoints are implemented by writing backend-owned checkpoint ids into the source.
+- Custom checkpoint requests are implemented by writing backend-owned checkpoint ids into the source.
 
-Do not add a marker table solely because PowerSync needs to replicate marker rows as user data. Marker rows should usually be ignored by row replication and should instead produce `keepalive(lsn)` or an equivalent checkpoint-position advance. A marker table is also unnecessary when the source already provides a reliable ordered barrier, heartbeat, or logical message that the replication stream observes after the managed write checkpoint mapping exists.
+Do not add a marker table solely because PowerSync needs to replicate marker rows as user data. Marker rows should usually be ignored by row replication and should instead produce `keepalive(lsn)` or an equivalent checkpoint-position advance. A marker table is also unnecessary when the source already provides a reliable ordered barrier, heartbeat, or logical message that the replication stream observes after the checkpoint request mapping exists.
 
-The stored managed write checkpoint head is usually the position read before the marker is written. The marker's role is to create a later observable stream position at or beyond that stored head. Writing the marker before the callback stores the mapping can recreate the same idle-source race because replication may process the marker before the sync API knows about the write checkpoint.
+The stored checkpoint request head is usually the position read before the marker is written. The marker's role is to create a later observable stream position at or beyond that stored head. Writing the marker before the callback stores the mapping can recreate the same idle-source race because replication may process the marker before the sync API knows about the checkpoint request.
 
 See [convex-write-checkpoints.md](../modules/convex/convex-write-checkpoints.md) for a detailed example of why Convex uses a `powersync_checkpoints` collection, and why the collection is about observable stream progress rather than syncing marker documents to clients.
 
-## Custom Write Checkpoints
+## Custom Checkpoint Requests
 
-Custom write checkpoint mode lets a source or integration provide its own increasing write checkpoint value. Replication queues these through `addCustomWriteCheckpoint()` on the batch and storage exposes the latest matching checkpoint for the user.
+Custom checkpoint request mode lets a source or integration provide its own increasing acknowledgement value. This is still named custom write checkpoint mode in storage APIs for backwards compatibility. Replication queues these through `addCustomWriteCheckpoint()` on the batch and storage exposes the latest matching checkpoint for the user.
 
-Custom write checkpoints are useful when the source write is asynchronous or when an integration wants to own the acknowledgement id. In that mode, a custom backend writes an increasing checkpoint id into the source stream, and PowerSync forwards it when replication observes it. This avoids needing a database-specific comparable source position for acknowledgement, but it requires a custom source-side marker table or equivalent write path.
+Custom checkpoint requests are useful when the source write is asynchronous or when an integration wants to own the acknowledgement id. In that mode, a custom backend writes an increasing checkpoint id into the source stream, and PowerSync forwards it when replication observes it. This avoids needing a database-specific comparable source position for acknowledgement, but it requires a custom source-side marker table or equivalent write path.
 
-Custom write checkpoint ids continue to use `checkpoint` as the supplied id. Callers that queue request-derived custom checkpoints can also pass optional `checkpoint_requested_at` metadata to `addCustomWriteCheckpoint()`. Storage keeps that nullable timestamp on custom checkpoint rows, just like managed checkpoint requests, so compact jobs can remove expired request-derived rows without deleting persistent custom write checkpoint rows.
+Custom checkpoint request ids continue to use `checkpoint` as the supplied id in the legacy storage API. Callers that queue request-derived custom checkpoints should pass `checkpoint_requested_at` to `addCustomWriteCheckpoint()`. Storage keeps that nullable timestamp on custom checkpoint rows, just like managed checkpoint requests, so compact jobs can remove expired request-derived rows without deleting persistent custom checkpoint request rows. Omit or clear `checkpoint_requested_at` for persistent custom checkpoints owned by the source or integration.
 
 Managed mode is the default.
 
 ## Idle Sources
 
-Idle sources are a correctness concern for write checkpoints. If a write checkpoint mapping is stored after replication has already emitted the checkpoint for that head, and no later source event occurs, the connected client may never see the acknowledgement.
+Idle sources are a correctness concern for checkpoint requests. If a checkpoint request mapping is stored after replication has already emitted the checkpoint for that head, and no later source event occurs, the connected client may never see the acknowledgement.
 
-For that reason, source adapters should create a source-visible marker or logical message after the managed write checkpoint callback completes.
+For that reason, source adapters should create a source-visible marker or logical message after the checkpoint request callback completes.

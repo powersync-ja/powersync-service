@@ -74,10 +74,9 @@ export interface RouteAPI {
    * The position is provided to the callback so the caller can persist its
    * write-checkpoint mapping before the source adapter forces any required
    * source-side marker or keepalive. The callback returns whether storage
-   * actually advanced a managed write checkpoint: when `shouldAdvance` is true
-   * the adapter must ensure that the replication stream will observe this
-   * position or a greater one, even when the source is otherwise idle. When it
-   * is false (e.g. only stale client-supplied requests were processed), the
+   * actually needs a source marker: when `shouldAdvance` is true the adapter
+   * must ensure that the replication stream will observe this position or a
+   * greater one, even when the source is otherwise idle. When it is false, the
    * adapter may skip the source marker.
    *
    * Reading the head and forcing the marker happen within a single source
@@ -121,10 +120,8 @@ export interface RouteAPI {
 export interface ReplicationHeadResult<T> {
   response: T;
   /**
-   * True when storage created or advanced a managed write checkpoint, so the
-   * source must force a later observable position. False when nothing changed
-   * (e.g. only stale client-supplied requests), in which case the source
-   * marker can be skipped.
+   * True when storage needs the source to force a later observable position.
+   * False when storage can prove no marker is needed.
    */
   shouldAdvance: boolean;
 }
