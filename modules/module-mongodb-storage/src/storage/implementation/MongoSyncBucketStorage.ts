@@ -174,10 +174,14 @@ export abstract class MongoSyncBucketStorage
       }
 
       const snapshotTime = (session as any).snapshotTime as bson.Timestamp | undefined;
+      const clusterTime = session.clusterTime;
       if (snapshotTime == null) {
         throw new ServiceAssertionError('Missing snapshotTime in getCheckpoint()');
       }
-      return new MongoReplicationCheckpoint(this, state.checkpoint, state.lsn, snapshotTime);
+      if (clusterTime == null) {
+        throw new ServiceAssertionError('Missing clusterTime in getCheckpoint()');
+      }
+      return new MongoReplicationCheckpoint(this, state.checkpoint, state.lsn, snapshotTime, clusterTime);
     });
   }
 
@@ -273,6 +277,7 @@ export abstract class MongoSyncBucketStorage
     const snapshotTime = mongoCheckpoint.snapshotTime; // May be undefined in tests
     return this.checksums.getChecksums(checkpoint.checkpoint, buckets, {
       snapshotTime,
+      clusterTime: mongoCheckpoint.clusterTime,
       readPreference: options?.requestHint == 'bulk' ? this.readPreference : undefined
     });
   }
@@ -630,7 +635,8 @@ class MongoReplicationCheckpoint implements ReplicationCheckpoint {
     storage: MongoSyncBucketStorage,
     public readonly checkpoint: InternalOpId,
     public readonly lsn: string | null,
-    public snapshotTime: mongo.Timestamp
+    public snapshotTime: mongo.Timestamp,
+    public clusterTime: mongo.ClusterTime
   ) {
     this.#storage = storage;
   }
