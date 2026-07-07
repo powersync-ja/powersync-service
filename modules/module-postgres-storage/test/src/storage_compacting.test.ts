@@ -17,6 +17,7 @@ bucket_definitions:
       `)
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const syncRulesContent = syncRules.syncConfigContent[0];
 
     const result = await (async () => {
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -44,12 +45,14 @@ bucket_definitions:
     // Compact with an explicit bucket name — exercises the this.buckets
     // iteration path, NOT the compactAllBuckets discovery path.
     await bucketStorage.compact({
-      compactBuckets: [bucketRequest(syncRules, 'global[]').bucket],
+      compactBuckets: [bucketRequest(syncRulesContent, 'global[]').bucket],
       minBucketChanges: 1
     });
 
     const batch = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules, 'global[]', 0n)])
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [
+        bucketRequest(syncRulesContent, 'global[]', 0n)
+      ])
     );
 
     expect(batch.chunkData.data).toMatchObject([
@@ -70,7 +73,8 @@ bucket_definitions:
       `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const request = bucketRequest(syncRules, 'global[]');
+    const syncRulesContent = syncRules.syncConfigContent[0];
+    const request = bucketRequest(syncRulesContent, 'global[]');
 
     const result = await (async () => {
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -106,18 +110,22 @@ bucket_definitions:
     })();
 
     const checkpoint = result!.flushed_op;
-    const rowsBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const rowsBefore = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
+    );
     const dataBefore = test_utils.getBatchData(rowsBefore);
     const clearToOpId = BigInt(dataBefore[2].op_id);
 
-    const compactor = new PostgresCompactor(factory.db, bucketStorage.group_id, {});
+    const compactor = new PostgresCompactor(factory.db, bucketStorage.replicationStreamId, {});
     // Trigger the private method directly
     await expect(compactor.clearBucketForTests(request.bucket, clearToOpId)).rejects.toThrow(
       /Unexpected PUT operation/
     );
 
     // The method wraps in a transaction; on assertion error the bucket must remain unchanged.
-    const rowsAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const rowsAfter = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
+    );
     expect(test_utils.getBatchData(rowsAfter)).toEqual(dataBefore);
   });
 });

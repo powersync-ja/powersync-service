@@ -166,8 +166,8 @@ export class WalStream {
     this.storage = options.storage;
     this.metrics = options.metrics;
     this.sync_rules = options.storage.getParsedSyncRules({ defaultSchema: POSTGRES_DEFAULT_SCHEMA });
-    this.group_id = options.storage.group_id;
-    this.slot_name = options.storage.slot_name;
+    this.group_id = options.storage.replicationStreamId;
+    this.slot_name = options.storage.replicationStreamName;
     this.connections = options.connections;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
     this.onSnapshotChunkFlushed = options.onSnapshotChunkFlushed;
@@ -311,7 +311,7 @@ export class WalStream {
     const slotName = this.slot_name;
 
     const status = await this.storage.getStatus();
-    const snapshotDone = status.snapshot_done && status.checkpoint_lsn != null;
+    const snapshotDone = status.snapshotDone;
     if (snapshotDone) {
       // Snapshot is done, but we still need to check the replication slot status
       this.logger.info(`Initial replication already done`);

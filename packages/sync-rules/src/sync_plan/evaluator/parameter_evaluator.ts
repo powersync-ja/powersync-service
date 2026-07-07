@@ -532,7 +532,7 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
 
       const outputs = await this.input.source.getParameterSets(
         [...lookupsToProvenance.keys()],
-        `Stream ${this.evaluators.stream.name} evaluating parameter on ${resolvedLookup.sourceTable.name}`
+        `Stream ${this.evaluators.stream.name} evaluating parameter on ${resolvedLookup.sourceTable.tablePattern}`
       );
 
       // Stream parameters generate an output row like {0: <expr>, 1: <expr>, ...}.

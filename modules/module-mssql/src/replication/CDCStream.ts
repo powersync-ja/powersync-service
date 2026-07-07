@@ -139,7 +139,7 @@ export class CDCStream {
   }
 
   get groupId() {
-    return this.options.storage.group_id;
+    return this.options.storage.replicationStreamId;
   }
 
   get connectionId() {
@@ -571,7 +571,7 @@ export class CDCStream {
   private async checkSnapshotStatus(): Promise<SnapshotStatusResult> {
     const status = await this.storage.getStatus();
 
-    if (status.snapshot_done && status.checkpoint_lsn) {
+    if (status.snapshotDone) {
       const additionalTablesToSnapshot: Set<MSSQLSourceTable> = new Set();
       const newTables = this.tableCache
         .getAll()
@@ -583,26 +583,26 @@ export class CDCStream {
         newTables.forEach((table) => additionalTablesToSnapshot.add(table));
       }
 
-      // Snapshot is done, but we still need to check that the last known checkpoint LSN is still
+      // Snapshot is done, but we still need to check that the last known resume LSN is still
       // within the retention threshold of the CDC tables
 
-      const lastCheckpointLSN = LSN.fromString(status.checkpoint_lsn);
+      const lastResumeLSN = LSN.fromString(status.resumeLsn!);
       // Check that the CDC tables still have valid data
       const tablesOutsideRetentionThreshold = await checkRetentionThresholds({
-        checkpointLSN: lastCheckpointLSN,
+        checkpointLSN: lastResumeLSN,
         tables: this.tableCache.getAll(),
         connectionManager: this.connections
       });
       if (tablesOutsideRetentionThreshold.length > 0) {
         this.logger.warn(
-          `Updates from the last checkpoint are no longer available in the CDC instances of the following table(s): ${tablesOutsideRetentionThreshold.map((table) => table.toQualifiedName()).join(', ')}.`
+          `Updates from the last resume LSN are no longer available in the CDC instances of the following table(s): ${tablesOutsideRetentionThreshold.map((table) => table.toQualifiedName()).join(', ')}.`
         );
         tablesOutsideRetentionThreshold.forEach((table) => additionalTablesToSnapshot.add(table));
       }
       if (additionalTablesToSnapshot.size > 0) {
         return {
           status: SnapshotStatus.LIMITED_RESNAPSHOT,
-          snapshotLSN: status.checkpoint_lsn,
+          snapshotLSN: status.resumeLsn,
           specificTablesToResnapshot: Array.from(additionalTablesToSnapshot)
         };
       } else {
@@ -613,8 +613,8 @@ export class CDCStream {
       }
     } else {
       return {
-        status: status.snapshot_lsn != null ? SnapshotStatus.RESUME : SnapshotStatus.INITIAL,
-        snapshotLSN: status.snapshot_lsn
+        status: status.resumeLsn != null ? SnapshotStatus.RESUME : SnapshotStatus.INITIAL,
+        snapshotLSN: status.resumeLsn
       };
     }
   }

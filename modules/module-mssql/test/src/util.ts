@@ -1,6 +1,6 @@
 import * as types from '@module/types/types.js';
 import { logger } from '@powersync/lib-services-framework';
-import { BucketStorageFactory, InternalOpId, ReplicationCheckpoint, TestStorageConfig } from '@powersync/service-core';
+import { BucketStorageFactory, ReplicationCheckpoint, TestStorageConfig } from '@powersync/service-core';
 
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
@@ -194,7 +194,7 @@ export async function getClientCheckpoint(
   connectionManager: MSSQLConnectionManager,
   storageFactory: BucketStorageFactory,
   options?: { timeout?: number }
-): Promise<InternalOpId> {
+): Promise<ReplicationCheckpoint> {
   const start = Date.now();
 
   const lsn = await getLatestLSN(connectionManager);
@@ -208,13 +208,13 @@ export async function getClientCheckpoint(
 
   logger.info(`Test Assertion: Waiting for LSN checkpoint: ${lsn}`);
   while (Date.now() - start < timeout) {
-    const storage = await storageFactory.getActiveStorage();
+    const storage = (await storageFactory.getActiveSyncConfig())?.storage;
     const cp = await storage?.getCheckpoint();
     if (cp != null) {
       lastCp = cp;
       if (cp.lsn != null && cp.lsn >= lsn.toString()) {
         logger.info(`Test Assertion: Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
-        return cp.checkpoint;
+        return cp;
       }
     }
 

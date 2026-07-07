@@ -4,19 +4,28 @@ import { ChangeStreamBatch, namespaceCollection, rawChangeStream } from '@module
 import { getCursorBatchBytes } from '@module/replication/replication-index.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { bson } from '@powersync/service-core';
+import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
+import { testTimeout } from './test-timeouts.js';
 import { clearTestDb, connectMongoData, requireFailCommand } from './util.js';
 
+// DocumentDB only supports cluster-level change streams — collection- and
+// database-level streams fail with NamespaceNotFound ("Collection not found"),
+// which is why production always uses cluster-level streams on DocumentDB.
+// The cluster-level size tracking test is also skipped: its strict batching
+// assertions (exact batch counts, immediate event delivery per readAll pass)
+// are racy against a remote DocumentDB cluster with multi-second event latency.
+// Byte tracking on DocumentDB is exercised indirectly by documentdb_mode.test.ts.
 describe('internal mongodb utils', () => {
   // The implementation relies on internal APIs, so we verify this works as expected for various types of change streams.
-  test('collection change stream size tracking', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('collection change stream size tracking', async () => {
     await testChangeStreamBsonBytes('collection');
   });
 
-  test('db change stream size tracking', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('db change stream size tracking', async () => {
     await testChangeStreamBsonBytes('db');
   });
 
-  test('cluster change stream size tracking', async () => {
+  test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('cluster change stream size tracking', async () => {
     await testChangeStreamBsonBytes('cluster');
   });
 
@@ -44,144 +53,215 @@ describe('internal mongodb utils', () => {
     expect(totalBytes).toBeLessThan(1200);
   });
 
-  test('uses separate aggregate and getMore command options', async () => {
-    const { db, client } = await connectMongoData({ monitorCommands: true });
-    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
-    await clearTestDb(db);
-    const collection = db.collection('test_data');
+  // DocumentDB does not support database-level change streams (rawChangeStream on a db); only cluster-level.
+  test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)(
+    'uses separate aggregate and getMore command options',
+    async () => {
+      const { db, client } = await connectMongoData({ monitorCommands: true });
+      await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+      await clearTestDb(db);
+      const collection = db.collection('test_data');
 
-    const started: any[] = [];
-    client.on('commandStarted', (event) => {
-      if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
-        started.push(event);
+      const started: any[] = [];
+      client.on('commandStarted', (event) => {
+        if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
+          started.push(event);
+        }
+      });
+
+      const stream = rawChangeStream(
+        db,
+        [
+          {
+            $changeStream: {
+              fullDocument: 'updateLookup'
+            }
+          }
+        ],
+        {
+          batchSize: 10,
+          maxAwaitTimeMS: 50,
+          maxTimeMS: 1_000
+        }
+      );
+
+      await stream.next();
+      await collection.insertOne({ test: 1 });
+      const nextBatch = await readUntilNonEmptyBatch(stream);
+      await stream.return?.();
+
+      expect(nextBatch.events).toHaveLength(1);
+
+      const aggregate = started.find((event) => event.commandName == 'aggregate');
+      const getMore = started.find((event) => event.commandName == 'getMore');
+
+      expect(aggregate?.command.cursor?.batchSize).toEqual(1);
+      expect(aggregate?.command.maxTimeMS).toEqual(1_000);
+      expect(getMore?.command.batchSize).toEqual(10);
+      expect(getMore?.command.maxTimeMS).toEqual(50);
+    }
+  );
+
+  test(
+    'keeps getMore maxTimeMS when client-side maxAwaitTimeMS is enabled',
+    { timeout: testTimeout(30_000, { cloudOverride: 150_000 }) },
+    async () => {
+      const { db, client } = await connectMongoData({ monitorCommands: true });
+      await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+      await clearTestDb(db);
+      const collection = db.collection('test_data');
+      // Keep the local Mongo path fast, but give Azure DocumentDB enough time
+      // for slow cloud change-stream delivery when maxTimeMS is sent to getMore.
+      const maxAwaitTimeMS = testTimeout(50, { cloudOverride: 10_000 });
+
+      const started: any[] = [];
+      client.on('commandStarted', (event) => {
+        if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
+          started.push(event);
+        }
+      });
+
+      const stream = rawChangeStream(
+        DATABASE_TYPE == DatabaseType.DOCUMENTDB ? client.db('admin') : db,
+        [
+          {
+            $changeStream: {
+              fullDocument: 'updateLookup',
+              ...(DATABASE_TYPE == DatabaseType.DOCUMENTDB ? { allChangesForCluster: true } : {})
+            }
+          },
+          ...(DATABASE_TYPE == DatabaseType.DOCUMENTDB
+            ? [
+                {
+                  $match: {
+                    'ns.db': db.databaseName,
+                    'ns.coll': collection.collectionName
+                  }
+                }
+              ]
+            : [])
+        ],
+        {
+          batchSize: 10,
+          maxAwaitTimeMS,
+          clientSideMaxAwaitTimeMS: true,
+          maxTimeMS: 1_000
+        }
+      );
+
+      await stream.next();
+      await collection.insertOne({ test: 1 });
+      const nextBatch = await readUntilNonEmptyBatch(stream);
+      await stream.return?.();
+
+      expect(nextBatch.events).toHaveLength(1);
+
+      const aggregate = started.find((event) => event.commandName == 'aggregate');
+      const getMore = started.find((event) => event.commandName == 'getMore');
+
+      expect(aggregate?.command.maxTimeMS).toEqual(1_000);
+      expect(getMore?.command.maxTimeMS).toEqual(maxAwaitTimeMS);
+    }
+  );
+
+  // This test uses configureFailPoint to inject a getMore timeout. Azure
+  // DocumentDB does not support configureFailPoint.
+  test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)(
+    'should resume on MaxTimeMSExpired from getMore',
+    async (ctx) => {
+      const { db, client } = await connectMongoData({ monitorCommands: true });
+      await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+      await using failCommand = await requireFailCommand(client, ctx);
+
+      await clearTestDb(db);
+      const collection = db.collection('test_data');
+
+      const started: any[] = [];
+      client.on('commandStarted', (event) => {
+        if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
+          started.push(event);
+        }
+      });
+
+      const stream = rawChangeStream(
+        db,
+        [
+          {
+            $changeStream: {
+              fullDocument: 'updateLookup'
+            }
+          }
+        ],
+        {
+          batchSize: 3,
+          maxAwaitTimeMS: 50,
+          maxTimeMS: 1_000
+          // To get more details when debugging, enable the logger:
+          // logger: logger
+        }
+      );
+
+      await stream.next();
+
+      await failCommand.configure({
+        mode: { times: 1 },
+        data: {
+          failCommands: ['getMore'],
+          errorCode: 50 // MaxTimeMSExpired
+        }
+      });
+
+      for (let i = 1; i <= 8; i++) {
+        await collection.insertOne({ test: i });
       }
-    });
 
-    const stream = rawChangeStream(
-      db,
-      [
+      // Test the exponentially-increasing batch size after the retry
+      {
+        // This will fail the getMore, then retry with aggregate with batchSize 1
+        const batch = await readUntilNonEmptyBatch(stream, 10);
+        expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+          { test: 1 }
+        ]);
+      }
+      {
+        // This will be a getMore with batchSize 2
+        const batch = await readUntilNonEmptyBatch(stream, 10);
+        expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+          { test: 2 },
+          { test: 3 }
+        ]);
+      }
+      {
+        // At this point, this batch size is at the original size of 3 again.
+        const batch = await readUntilNonEmptyBatch(stream, 10);
+        expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+          { test: 4 },
+          { test: 5 },
+          { test: 6 }
+        ]);
+      }
+      {
+        const batch = await readUntilNonEmptyBatch(stream, 10);
+        expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+          { test: 7 },
+          { test: 8 }
+        ]);
+      }
+
+      const aggregateCommands = started.filter((event) => event.commandName == 'aggregate');
+      expect(aggregateCommands.length).toBeGreaterThanOrEqual(2);
+      expect(aggregateCommands[0].command.pipeline).toEqual([
         {
           $changeStream: {
             fullDocument: 'updateLookup'
           }
         }
-      ],
-      {
-        batchSize: 10,
-        maxAwaitTimeMS: 50,
-        maxTimeMS: 1_000
-      }
-    );
-
-    await stream.next();
-    await collection.insertOne({ test: 1 });
-    const nextBatch = await readUntilNonEmptyBatch(stream);
-    await stream.return?.();
-
-    expect(nextBatch.events).toHaveLength(1);
-
-    const aggregate = started.find((event) => event.commandName == 'aggregate');
-    const getMore = started.find((event) => event.commandName == 'getMore');
-
-    expect(aggregate?.command.cursor?.batchSize).toEqual(1);
-    expect(aggregate?.command.maxTimeMS).toEqual(1_000);
-    expect(getMore?.command.batchSize).toEqual(10);
-    expect(getMore?.command.maxTimeMS).toEqual(50);
-  });
-
-  test('should resume on MaxTimeMSExpired from getMore', async (ctx) => {
-    const { db, client } = await connectMongoData({ monitorCommands: true });
-    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
-    await using failCommand = await requireFailCommand(client, ctx);
-
-    await clearTestDb(db);
-    const collection = db.collection('test_data');
-
-    const started: any[] = [];
-    client.on('commandStarted', (event) => {
-      if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
-        started.push(event);
-      }
-    });
-
-    const stream = rawChangeStream(
-      db,
-      [
-        {
-          $changeStream: {
-            fullDocument: 'updateLookup'
-          }
-        }
-      ],
-      {
-        batchSize: 3,
-        maxAwaitTimeMS: 50,
-        maxTimeMS: 1_000
-        // To get more details when debugging, enable the logger:
-        // logger: logger
-      }
-    );
-
-    await stream.next();
-
-    await failCommand.configure({
-      mode: { times: 1 },
-      data: {
-        failCommands: ['getMore'],
-        errorCode: 50 // MaxTimeMSExpired
-      }
-    });
-
-    for (let i = 1; i <= 8; i++) {
-      await collection.insertOne({ test: i });
-    }
-
-    // Test the exponentially-increasing batch size after the retry
-    {
-      // This will fail the getMore, then retry with aggregate with batchSize 1
-      const batch = await readUntilNonEmptyBatch(stream, 10);
-      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
-        { test: 1 }
       ]);
-    }
-    {
-      // This will be a getMore with batchSize 2
-      const batch = await readUntilNonEmptyBatch(stream, 10);
-      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
-        { test: 2 },
-        { test: 3 }
-      ]);
-    }
-    {
-      // At this point, this batch size is at the original size of 3 again.
-      const batch = await readUntilNonEmptyBatch(stream, 10);
-      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
-        { test: 4 },
-        { test: 5 },
-        { test: 6 }
-      ]);
-    }
-    {
-      const batch = await readUntilNonEmptyBatch(stream, 10);
-      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
-        { test: 7 },
-        { test: 8 }
-      ]);
-    }
+      expect(aggregateCommands[1].command.pipeline[0]?.$changeStream?.resumeAfter).toBeDefined();
 
-    const aggregateCommands = started.filter((event) => event.commandName == 'aggregate');
-    expect(aggregateCommands.length).toBeGreaterThanOrEqual(2);
-    expect(aggregateCommands[0].command.pipeline).toEqual([
-      {
-        $changeStream: {
-          fullDocument: 'updateLookup'
-        }
-      }
-    ]);
-    expect(aggregateCommands[1].command.pipeline[0]?.$changeStream?.resumeAfter).toBeDefined();
-
-    await stream?.return().catch(() => {});
-  });
+      await stream?.return().catch(() => {});
+    }
+  );
 
   async function testChangeStreamBsonBytes(type: 'db' | 'collection' | 'cluster') {
     const { db, client } = await connectMongoData();
@@ -260,7 +340,8 @@ describe('internal mongodb utils', () => {
     expect(totalBytes).toBeLessThan(8000);
   }
 
-  test('should resume on missing cursor (1)', async () => {
+  // DocumentDB: database-level change streams and $currentOp are not supported
+  test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('should resume on missing cursor (1)', async () => {
     // Many resumable errors are difficult to simulate, but CursorNotFound is easy.
 
     const { db, client } = await connectMongoData();
@@ -313,7 +394,8 @@ describe('internal mongodb utils', () => {
     expect(readDocs.map((doc) => doc.fullDocument)).toMatchObject([{ test: 1 }, { test: 2 }, { test: 3 }, { test: 4 }]);
   });
 
-  test('should resume on missing cursor (2)', async () => {
+  // DocumentDB: database-level change streams and $currentOp are not supported
+  test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('should resume on missing cursor (2)', async () => {
     const { db, client } = await connectMongoData();
     await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
     await clearTestDb(db);
@@ -387,7 +469,8 @@ describe('internal mongodb utils', () => {
     expect(readDocs.map((doc) => doc.fullDocument)).toMatchObject([{ test: 1 }, { test: 2 }, { test: 3 }, { test: 4 }]);
   });
 
-  test('should cleanly abort a stream between events', async () => {
+  // DocumentDB: database-level change streams are not supported
+  test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('should cleanly abort a stream between events', async () => {
     const { db, client } = await connectMongoData();
     const abortController = new AbortController();
     await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
@@ -437,7 +520,8 @@ describe('internal mongodb utils', () => {
     expect(readDocs.map((doc) => doc.fullDocument)).toMatchObject([{ test: 1 }, { test: 2 }]);
   });
 
-  test('should cleanly abort a stream in an event', async () => {
+  // DocumentDB: database-level change streams are not supported
+  test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('should cleanly abort a stream in an event', async () => {
     const { db, client } = await connectMongoData();
     const abortController = new AbortController();
     await using _ = { [Symbol.asyncDispose]: async () => await client.close() };

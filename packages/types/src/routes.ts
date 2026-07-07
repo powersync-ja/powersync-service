@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import { ConnectionStatus, InstanceSchema, SyncRulesStatus } from './definitions';
+import { ConnectionStatus, InstanceSchema, SyncRulesStatus } from './definitions.js';
 
 export const GetSchemaRequest = t.object({});
 export type GetSchemaRequest = t.Encoded<typeof GetSchemaRequest>;

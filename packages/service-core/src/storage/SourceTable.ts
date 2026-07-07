@@ -1,6 +1,8 @@
 import {
   BucketDataSource,
+  BucketDefinitionId,
   DEFAULT_TAG,
+  ParameterIndexId,
   ParameterIndexLookupCreator,
   SourceTableRef
 } from '@powersync/service-sync-rules';
@@ -21,6 +23,8 @@ export interface SourceTableOptions {
   snapshotComplete: boolean;
   bucketDataSources: BucketDataSource[];
   parameterLookupSources: ParameterIndexLookupCreator[];
+  bucketDataSourceIds?: Set<BucketDefinitionId>;
+  parameterLookupSourceIds?: Set<ParameterIndexId>;
 }
 
 export interface TableSnapshotStatus {
@@ -57,9 +61,11 @@ export class SourceTable {
   public syncParameters = true;
 
   /**
-   * True if the table is used in sync config for events.
+   * True if this table should fire events for row changes.
    *
-   * This value is resolved externally, and cached here.
+   * This value is resolved externally, and cached here. When multiple SourceTables exist
+   * for the same SourceTableRef (v3 storage), resolveTables designates exactly one of them
+   * as the event carrier, so that a row change saved once per table fires each event once.
    *
    * Defaults to true for tests.
    */
@@ -122,6 +128,14 @@ export class SourceTable {
     return this.options.parameterLookupSources;
   }
 
+  get bucketDataSourceIds() {
+    return this.options.bucketDataSourceIds;
+  }
+
+  get parameterLookupSourceIds() {
+    return this.options.parameterLookupSourceIds;
+  }
+
   /**
    * Sanitized name of the entity in the format of "{schema}.{entity name}".
    * Suitable for safe use in Postgres queries.
@@ -145,7 +159,10 @@ export class SourceTable {
       replicaIdColumns: this.replicaIdColumns,
       snapshotComplete: this.snapshotComplete,
       bucketDataSources: this.bucketDataSources,
-      parameterLookupSources: this.parameterLookupSources
+      parameterLookupSources: this.parameterLookupSources,
+      bucketDataSourceIds: this.bucketDataSourceIds == null ? undefined : new Set(this.bucketDataSourceIds),
+      parameterLookupSourceIds:
+        this.parameterLookupSourceIds == null ? undefined : new Set(this.parameterLookupSourceIds)
     });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;

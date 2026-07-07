@@ -41,9 +41,10 @@ import { PostgresCompactor } from './PostgresCompactor.js';
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
   db: lib_postgres.DatabaseClient;
-  sync_rules: storage.PersistedSyncRulesContent;
+  replicationStream: storage.PersistedReplicationStream;
   write_checkpoint_mode?: storage.WriteCheckpointMode;
   batchLimits: RequiredOperationBatchLimits;
+  checksumCacheTtlMs?: number;
 };
 
 export class PostgresSyncRulesStorage
@@ -52,9 +53,10 @@ export class PostgresSyncRulesStorage
 {
   [framework.DO_NOT_LOG] = true;
 
-  public readonly group_id: number;
-  public readonly sync_rules: storage.PersistedSyncRulesContent;
-  public readonly slot_name: string;
+  public readonly replicationStreamId: number;
+  public readonly replicationStream: storage.PersistedReplicationStream;
+  public readonly sync_rules: storage.PersistedSyncConfigContent;
+  public readonly replicationStreamName: string;
   public readonly factory: PostgresBucketStorageFactory;
   public readonly storageConfig: StorageVersionConfig;
   public readonly logger: framework.Logger;
@@ -65,22 +67,27 @@ export class PostgresSyncRulesStorage
   protected writeCheckpointAPI: PostgresWriteCheckpointAPI;
   private readonly currentDataStore: PostgresCurrentDataStore;
 
-  //   TODO we might be able to share this in an abstract class
-  private parsedSyncRulesCache:
-    | { parsed: sync_rules.HydratedSyncConfig; options: storage.ParseSyncRulesOptions }
-    | undefined;
+  /**
+   * Canonical parsed sync config sets, keyed by defaultSchema. Entries are never evicted,
+   * so each parse options value maps to exactly one parsed set for the lifetime of this
+   * storage instance.
+   *
+   * TODO we might be able to share this in an abstract class
+   */
+  private readonly parsedSyncConfigSets = new Map<string, storage.ParsedSyncConfigSet>();
   private _checksumCache: storage.ChecksumCache | undefined;
 
   constructor(protected options: PostgresSyncRulesStorageOptions) {
     super();
-    this.group_id = options.sync_rules.id;
+    this.replicationStream = options.replicationStream;
+    this.replicationStreamId = options.replicationStream.replicationStreamId;
     this.db = options.db;
-    this.sync_rules = options.sync_rules;
-    this.slot_name = options.sync_rules.slot_name;
+    this.sync_rules = options.replicationStream.syncConfigContent[0];
+    this.replicationStreamName = options.replicationStream.replicationStreamName;
     this.factory = options.factory;
-    this.storageConfig = options.sync_rules.getStorageConfig();
+    this.storageConfig = options.replicationStream.getStorageConfig();
     this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
-    this.logger = options.sync_rules.logger;
+    this.logger = options.replicationStream.logger;
 
     this.writeCheckpointAPI = new PostgresWriteCheckpointAPI({
       db: this.db,
@@ -95,6 +102,7 @@ export class PostgresSyncRulesStorage
    */
   private get checksumCache(): storage.ChecksumCache {
     this._checksumCache ??= new storage.ChecksumCache({
+      ttlMs: this.options.checksumCacheTtlMs,
       fetchChecksums: (batch) => {
         return this.getChecksumsInternal(batch);
       }
@@ -106,18 +114,17 @@ export class PostgresSyncRulesStorage
     return this.writeCheckpointAPI.writeCheckpointMode;
   }
 
-  //   TODO we might be able to share this in an abstract class
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): sync_rules.HydratedSyncConfig {
-    const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
-    /**
-     * Check if the cached sync config, if present, had the same options.
-     * Parse sync config if the options are different or if there is no cached value.
-     */
-    if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncConfig(), options };
+  getParsedSyncConfigSet(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
+    let parsed = this.parsedSyncConfigSets.get(options.defaultSchema);
+    if (parsed == null) {
+      parsed = this.replicationStream.parsed(options);
+      this.parsedSyncConfigSets.set(options.defaultSchema, parsed);
     }
+    return parsed;
+  }
 
-    return this.parsedSyncRulesCache!.parsed;
+  getParsedSyncRules(options: storage.ParseSyncConfigOptions): sync_rules.HydratedSyncConfig {
+    return this.getParsedSyncConfigSet(options).hydratedSyncConfig;
   }
 
   async reportError(e: any): Promise<void> {
@@ -127,7 +134,7 @@ export class PostgresSyncRulesStorage
       SET
         last_fatal_error = ${{ type: 'varchar', value: message }}
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }};
+        id = ${{ type: 'int4', value: this.replicationStreamId }};
     `.execute();
   }
 
@@ -139,7 +146,7 @@ export class PostgresSyncRulesStorage
       maxOpId = checkpoint.checkpoint;
     }
 
-    return new PostgresCompactor(this.db, this.group_id, {
+    return new PostgresCompactor(this.db, this.replicationStreamId, {
       ...options,
       maxOpId,
       logger: this.logger
@@ -154,7 +161,7 @@ export class PostgresSyncRulesStorage
   lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {
     return this.writeCheckpointAPI.lastWriteCheckpoint({
       ...filters,
-      sync_rules_id: this.group_id
+      sync_rules_id: this.replicationStreamId
     });
   }
 
@@ -162,8 +169,8 @@ export class PostgresSyncRulesStorage
     return this.writeCheckpointAPI.setWriteCheckpointMode(mode);
   }
 
-  createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
-    return this.writeCheckpointAPI.createManagedWriteCheckpoint(checkpoint);
+  createManagedWriteCheckpoints(checkpoints: storage.ManagedWriteCheckpointOptions[]): Promise<Map<string, bigint>> {
+    return this.writeCheckpointAPI.createManagedWriteCheckpoints(checkpoints);
   }
 
   async getCheckpoint(): Promise<storage.ReplicationCheckpoint> {
@@ -174,7 +181,7 @@ export class PostgresSyncRulesStorage
       FROM
         sync_rules
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `
       .decoded(pick(models.SyncRules, ['last_checkpoint', 'last_checkpoint_lsn']))
       .first();
@@ -196,7 +203,7 @@ export class PostgresSyncRulesStorage
       FROM
         sync_rules
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `
       .decoded(pick(models.SyncRules, ['last_checkpoint_lsn', 'no_checkpoint_before', 'keepalive_op', 'snapshot_lsn']))
       .first();
@@ -206,9 +213,9 @@ export class PostgresSyncRulesStorage
     const writer = new PostgresBucketBatch({
       logger: options.logger ?? this.logger,
       db: this.db,
-      sync_rules: this.sync_rules.parsed(options).hydratedSyncConfig(),
-      group_id: this.group_id,
-      slot_name: this.slot_name,
+      sync_rules: this.getParsedSyncRules(options),
+      replicationStreamId: this.replicationStreamId,
+      replicationStreamName: this.replicationStreamName,
       last_checkpoint_lsn: checkpoint_lsn,
       keep_alive_op: syncRules?.keepalive_op,
       resumeFromLsn: maxLsn(syncRules?.snapshot_lsn, checkpoint_lsn),
@@ -254,7 +261,7 @@ export class PostgresSyncRulesStorage
         value: lookups.map((l) => storage.serializeLookupBuffer(l).toString('hex'))
       }}) WITH ORDINALITY AS requested (value, index)
           WHERE
-            group_id = ${{ type: 'int4', value: this.group_id }}
+            group_id = ${{ type: 'int4', value: this.replicationStreamId }}
             AND lookup = decode((requested.value ->> 0)::text, 'hex') -- Decode the hex string to bytea
             AND id <= ${{ type: 'int8', value: checkpoint.checkpoint }}
           ORDER BY
@@ -304,7 +311,7 @@ export class PostgresSyncRulesStorage
   }
 
   async *getBucketDataBatch(
-    checkpoint: InternalOpId,
+    checkpoint: storage.ReplicationCheckpoint,
     dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
@@ -319,7 +326,7 @@ export class PostgresSyncRulesStorage
     // Each batch query batch are streamed in separate sets of rows, which may or may
     // not match up with chunks.
 
-    const end = checkpoint ?? BIGINT_MAX;
+    const end = checkpoint.checkpoint ?? BIGINT_MAX;
     const filters = dataBuckets.map((request) => ({ bucket_name: request.bucket, start: request.start }));
     const startOpByBucket = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
 
@@ -381,7 +388,7 @@ export class PostgresSyncRulesStorage
           LIMIT
             $3;`,
       params: [
-        { type: 'int4', value: this.group_id },
+        { type: 'int4', value: this.replicationStreamId },
         { type: 'int8', value: end },
         { type: 'int4', value: batchRowLimit },
         ...filters.flatMap((f) => [
@@ -477,10 +484,11 @@ export class PostgresSyncRulesStorage
   }
 
   async getChecksums(
-    checkpoint: utils.InternalOpId,
-    buckets: storage.BucketChecksumRequest[]
+    checkpoint: storage.ReplicationCheckpoint,
+    buckets: storage.BucketChecksumRequest[],
+    _options?: storage.BucketChecksumOptions
   ): Promise<utils.ChecksumMap> {
-    return this.checksumCache.getChecksumMap(checkpoint, buckets);
+    return this.checksumCache.getChecksumMap(checkpoint.checkpoint, buckets);
   }
 
   clearChecksumCache() {
@@ -497,26 +505,23 @@ export class PostgresSyncRulesStorage
         state = ${{ type: 'varchar', value: storage.SyncRuleState.TERMINATED }},
         snapshot_done = ${{ type: 'bool', value: false }}
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
   }
 
-  async getStatus(): Promise<storage.SyncRuleStatus> {
+  async getStatus(): Promise<storage.ReplicationStreamStatus> {
     const syncRulesRow = await this.db.sql`
       SELECT
         snapshot_done,
         snapshot_lsn,
         last_checkpoint_lsn,
-        state,
-        keepalive_op
+        state
       FROM
         sync_rules
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `
-      .decoded(
-        pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'state', 'snapshot_lsn', 'keepalive_op'])
-      )
+      .decoded(pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'snapshot_lsn']))
       .first();
 
     if (syncRulesRow == null) {
@@ -524,11 +529,8 @@ export class PostgresSyncRulesStorage
     }
 
     return {
-      snapshot_done: syncRulesRow.snapshot_done,
-      active: syncRulesRow.state == storage.SyncRuleState.ACTIVE,
-      checkpoint_lsn: syncRulesRow.last_checkpoint_lsn ?? null,
-      snapshot_lsn: syncRulesRow.snapshot_lsn ?? null,
-      keepalive_op: syncRulesRow.keepalive_op ?? null
+      snapshotDone: syncRulesRow.snapshot_done && syncRulesRow.last_checkpoint_lsn != null,
+      resumeLsn: maxLsn(syncRulesRow.snapshot_lsn, syncRulesRow.last_checkpoint_lsn)
     };
   }
 
@@ -542,27 +544,27 @@ export class PostgresSyncRulesStorage
         last_checkpoint = NULL,
         no_checkpoint_before = NULL
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
 
     await this.db.sql`
       DELETE FROM bucket_data
       WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
+        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
 
     await this.db.sql`
       DELETE FROM bucket_parameters
       WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
+        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
 
-    await this.currentDataStore.deleteGroupRows(this.db, { groupId: this.group_id });
+    await this.currentDataStore.deleteGroupRows(this.db, { groupId: this.replicationStreamId });
 
     await this.db.sql`
       DELETE FROM source_tables
       WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
+        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
   }
 
@@ -603,7 +605,7 @@ export class PostgresSyncRulesStorage
         AND b.op_id > f.start_op_id
         AND b.op_id <= f.end_op_id
       WHERE
-        b.group_id = ${{ type: 'int4', value: this.group_id }}
+        b.group_id = ${{ type: 'int4', value: this.replicationStreamId }}
       GROUP BY
         b.bucket_name;
     `.rows<{ bucket: string; checksum_total: bigint; total: bigint; has_clear_op: number }>();

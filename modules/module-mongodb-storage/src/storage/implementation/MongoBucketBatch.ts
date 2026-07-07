@@ -12,6 +12,7 @@ import {
   ServiceError
 } from '@powersync/lib-services-framework';
 import {
+  BucketDefinitionMapping,
   BucketStorageMarkRecordUnavailable,
   deserializeBson,
   InternalOpId,
@@ -23,12 +24,12 @@ import {
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../utils/util.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PersistedBatch } from './common/PersistedBatch.js';
 import { LoadedSourceRecord, SourceRecordStore } from './common/SourceRecordStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
+import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
 
@@ -41,15 +42,25 @@ const replicationMutex = new utils.Mutex();
 
 export interface MongoBucketBatchOptions {
   db: VersionedPowerSyncMongo;
-  syncRules: HydratedSyncConfig;
-  groupId: number;
-  slotName: string;
-  syncConfigId?: bson.ObjectId | null;
-  lastCheckpointLsn: string | null;
-  keepaliveOp: InternalOpId | null;
+  /**
+   * The parsed sync config set for this batch.
+   *
+   * The batch derives both the hydrated sync rules and the bucket definition mapping from
+   * this single set, so they always come from the same parse. Do not add separate
+   * syncRules/mapping options - pairing values from different parses is exactly the bug
+   * this shape prevents.
+   */
+  parsedSyncConfig: MongoParsedSyncConfigSet;
+  replicationStreamId: number;
+  replicationStreamName: string;
+  syncConfigIds?: bson.ObjectId[];
+  /**
+   * Seeds the in-memory persisted-op tracking for v1 storage. Not used by v3 storage, which
+   * tracks the persisted-op head durably on the replication stream document instead.
+   */
+  keepaliveOp?: InternalOpId | null;
   resumeFromLsn: string | null;
   storeCurrentData: boolean;
-  mapping: BucketDefinitionMapping;
   /**
    * Set to true for initial replication.
    */
@@ -70,13 +81,13 @@ export abstract class MongoBucketBatch
   protected logger: Logger;
 
   private readonly client: mongo.MongoClient;
-  public readonly db: VersionedPowerSyncMongo;
+  readonly db: VersionedPowerSyncMongo;
   public readonly session: mongo.ClientSession;
   protected readonly sync_rules: HydratedSyncConfig;
 
-  protected readonly group_id: number;
+  protected readonly replicationStreamId: number;
 
-  private readonly slot_name: string;
+  private readonly replicationStreamName: string;
   /**
    * Source-level setting for whether raw row data should be stored in current_data.
    *
@@ -96,18 +107,7 @@ export abstract class MongoBucketBatch
   private hooks: storage.StorageHooks | undefined;
   private clearedError = false;
 
-  private tracer: PerformanceTracer<'storage' | 'evaluate'>;
-
-  /**
-   * Last LSN received associated with a checkpoint.
-   *
-   * This could be either:
-   * 1. A commit LSN.
-   * 2. A keepalive message LSN.
-   */
-  protected last_checkpoint_lsn: string | null = null;
-
-  protected persisted_op: InternalOpId | null = null;
+  protected tracer: PerformanceTracer<'storage' | 'evaluate'>;
 
   /**
    * Last written op, if any. This may not reflect a consistent checkpoint.
@@ -115,9 +115,9 @@ export abstract class MongoBucketBatch
   public last_flushed_op: InternalOpId | null = null;
 
   /**
-   * lastCheckpointLsn is the last consistent commit.
+   * LSN to resume replication from.
    *
-   * While that is generally a "safe" point to resume from, there are cases where we may want to resume from a different point:
+   * This is typically the last commit LSN, but there are cases where it differs:
    * 1. After an initial snapshot, we don't have a consistent commit yet, but need to resume from the snapshot LSN.
    * 2. If "no_checkpoint_before_lsn" is set far in advance, it may take a while to reach that point. We
    *    may want to resume at incremental points before that.
@@ -132,32 +132,26 @@ export abstract class MongoBucketBatch
     this.options = options;
     this.client = options.db.client;
     this.db = options.db;
-    this.group_id = options.groupId;
-    this.last_checkpoint_lsn = options.lastCheckpointLsn;
+    this.replicationStreamId = options.replicationStreamId;
     this.resumeFromLsn = options.resumeFromLsn;
     this.session = this.client.startSession();
-    this.slot_name = options.slotName;
-    this.sync_rules = options.syncRules;
+    this.replicationStreamName = options.replicationStreamName;
+    this.sync_rules = options.parsedSyncConfig.hydratedSyncConfig;
     this.storeCurrentData = options.storeCurrentData;
-    this.mapping = options.mapping;
+    this.mapping = options.parsedSyncConfig.mapping;
     this.skipExistingRows = options.skipExistingRows;
     this.markRecordUnavailable = options.markRecordUnavailable;
     this.hooks = options.hooks;
     this.batch = new OperationBatch();
 
-    this.persisted_op = options.keepaliveOp ?? null;
     this.tracer = options.tracer ?? new PerformanceTracer('MongoDB storage');
   }
 
   addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
     this.write_checkpoint_batch.push({
       ...checkpoint,
-      sync_rules_id: this.group_id
+      sync_rules_id: this.replicationStreamId
     });
-  }
-
-  get lastCheckpointLsn() {
-    return this.last_checkpoint_lsn;
   }
 
   abstract resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult>;
@@ -204,14 +198,18 @@ export abstract class MongoBucketBatch
     const batch = this.batch;
     let last_op: InternalOpId | null = null;
     let resumeBatch: OperationBatch | null = null;
+    let clearedError = false;
 
     using _ = this.tracer.span('storage', 'flush');
 
     await this.hooks?.beforeBatchFlush?.(this);
 
     await this.withReplicationTransaction(`Flushing ${batch?.length ?? 0} ops`, async (session, opSeq) => {
+      clearedError = false;
       if (batch != null) {
-        resumeBatch = await this.replicateBatch(session, batch, opSeq, options);
+        const result = await this.replicateBatch(session, batch, opSeq, options);
+        resumeBatch = result.resumeBatch;
+        clearedError ||= result.clearedError;
       }
 
       if (this.write_checkpoint_batch.length > 0) {
@@ -223,6 +221,10 @@ export abstract class MongoBucketBatch
       last_op = opSeq.last();
     });
 
+    if (clearedError) {
+      this.clearedError = true;
+    }
+
     // null if done, set if we need another flush
     this.batch = resumeBatch;
 
@@ -230,7 +232,7 @@ export abstract class MongoBucketBatch
       throw new ReplicationAssertionError('Unexpected last_op == null');
     }
 
-    this.persisted_op = last_op;
+    this.recordPersistedOp(last_op);
     this.last_flushed_op = last_op;
     await this.hooks?.afterBatchFlush?.(this);
     return { flushed_op: last_op };
@@ -241,7 +243,7 @@ export abstract class MongoBucketBatch
     batch: OperationBatch,
     op_seq: MongoIdSequence,
     options?: storage.BucketBatchCommitOptions
-  ): Promise<OperationBatch | null> {
+  ): Promise<{ resumeBatch: OperationBatch | null; clearedError: boolean }> {
     let sizes: Map<string, number> | undefined = undefined;
     using _ = this.tracer.span('storage', 'replicate_batch');
     // Only look up current_data sizes if the batch stores current_data and at least one
@@ -346,12 +348,17 @@ export abstract class MongoBucketBatch
       }
     }
 
-    if (didFlush) {
+    const clearedError = didFlush && !this.clearedError;
+    if (clearedError) {
+      // No need to clear an error more than once per batch, since an error would always result in restarting the batch.
       using _ = this.tracer.span('storage', 'clear_error');
-      await this.clearError();
+      await this.clearError(this.session);
     }
 
-    return resumeBatch?.hasData() ? resumeBatch : null;
+    return {
+      resumeBatch: resumeBatch?.hasData() ? resumeBatch : null,
+      clearedError
+    };
   }
 
   private saveOperation(
@@ -462,7 +469,7 @@ export abstract class MongoBucketBatch
           {
             level: errors.ErrorSeverity.WARNING,
             metadata: {
-              replication_slot: this.slot_name,
+              replication_slot: this.replicationStreamName,
               table: record.sourceTable.qualifiedName
             }
           }
@@ -521,7 +528,7 @@ export abstract class MongoBucketBatch
             {
               level: errors.ErrorSeverity.WARNING,
               metadata: {
-                replication_slot: this.slot_name,
+                replication_slot: this.replicationStreamName,
                 table: record.sourceTable.qualifiedName
               }
             }
@@ -556,7 +563,7 @@ export abstract class MongoBucketBatch
             {
               level: errors.ErrorSeverity.WARNING,
               metadata: {
-                replication_slot: this.slot_name,
+                replication_slot: this.replicationStreamName,
                 table: record.sourceTable.qualifiedName
               }
             }
@@ -691,7 +698,7 @@ export abstract class MongoBucketBatch
 
       await this.db.sync_rules.updateOne(
         {
-          _id: this.group_id
+          _id: this.replicationStreamId
         },
         {
           $set: {
@@ -700,12 +707,41 @@ export abstract class MongoBucketBatch
         },
         { session }
       );
+
+      // Allow subclasses to persist additional flush-time state in the same transaction
+      // (e.g. v3 advances the stream-level last_persisted_op).
+      await this.onReplicationTransactionFlush(session, opSeq.last());
       // We don't notify checkpoint here - we don't make any checkpoint updates directly
     });
   }
 
+  /**
+   * Hook called inside the replication flush transaction, after ops have been persisted.
+   *
+   * The base implementation does nothing; v3 storage overrides this to `$max` the stream-level
+   * `last_persisted_op` durably within the same transaction.
+   */
+  protected async onReplicationTransactionFlush(_session: mongo.ClientSession, _lastOp: InternalOpId): Promise<void> {
+    // No-op by default (v1 behaviour unchanged).
+  }
+
+  /**
+   * Called after a replication transaction has successfully committed, with the last persisted op id.
+   *
+   * v1 storage tracks this in memory to fold into the next checkpoint. v3 storage does not need it:
+   * the stream-level `last_persisted_op` is already advanced durably by
+   * {@link onReplicationTransactionFlush} within the same transaction, and checkpoints read it
+   * from the document.
+   *
+   * Keep calls to this adjacent to {@link withReplicationTransaction} usage - both must observe
+   * every path that persists ops.
+   */
+  protected recordPersistedOp(_lastOp: InternalOpId): void {
+    // No-op by default.
+  }
+
   async [Symbol.asyncDispose]() {
-    if (this.batch != null || this.write_checkpoint_batch.length > 0) {
+    if (this.batch?.hasData() || this.write_checkpoint_batch.length > 0) {
       // We don't error here, since:
       // 1. In error states, this is expected (we can't distinguish between disposing after success or error).
       // 2. SuppressedError is messy to deal with.
@@ -722,19 +758,24 @@ export abstract class MongoBucketBatch
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
-    for (const event of this.getTableEvents(sourceTable)) {
-      this.iterateListeners((cb) =>
-        cb.replicationEvent?.({
-          batch: this,
-          table: sourceTable,
-          data: {
-            op: tag,
-            after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
-            before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
-          },
-          event
-        })
-      );
+    // syncEvent is the per-table designation from resolveTables. With v3 storage, multiple
+    // SourceTables can exist for the same ref, with a row change saved once per table -
+    // only the designated event carrier may fire events, so each event fires once per row.
+    if (sourceTable.syncEvent) {
+      for (const event of this.getTableEvents(sourceTable)) {
+        this.iterateListeners((cb) =>
+          cb.replicationEvent?.({
+            batch: this,
+            table: sourceTable,
+            data: {
+              op: tag,
+              after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
+              before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
+            },
+            event
+          })
+        );
+      }
     }
 
     /**
@@ -767,7 +808,7 @@ export abstract class MongoBucketBatch
 
     await this.withTransaction(async () => {
       for (let table of sourceTables) {
-        await this.db.commonSourceTables(this.group_id).deleteOne({ _id: mongoTableId(table.id) });
+        await this.db.commonSourceTables(this.replicationStreamId).deleteOne({ _id: mongoTableId(table.id) });
       }
     });
 
@@ -784,7 +825,7 @@ export abstract class MongoBucketBatch
     }
 
     if (last_op) {
-      this.persisted_op = last_op;
+      this.recordPersistedOp(last_op);
       return {
         flushed_op: last_op
       };
@@ -853,7 +894,7 @@ export abstract class MongoBucketBatch
     copy.snapshotStatus = snapshotStatus;
 
     await this.withTransaction(async () => {
-      await this.db.commonSourceTables(this.group_id).updateOne(
+      await this.db.commonSourceTables(this.replicationStreamId).updateOne(
         { _id: mongoTableId(table.id) },
         {
           $set: {
@@ -871,24 +912,21 @@ export abstract class MongoBucketBatch
     return copy;
   }
 
-  protected async clearError(): Promise<void> {
-    // No need to clear an error more than once per batch, since an error would always result in restarting the batch.
-    if (this.clearedError) {
-      return;
-    }
-
+  protected async clearError(session: mongo.ClientSession): Promise<void> {
     await this.db.sync_rules.updateOne(
       {
-        _id: this.group_id
+        _id: this.replicationStreamId
       },
       {
         $set: {
           last_fatal_error: null,
           last_fatal_error_ts: null
         }
+      },
+      {
+        session
       }
     );
-    this.clearedError = true;
   }
 
   /**

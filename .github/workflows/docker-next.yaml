@@ -1,0 +1,98 @@
+name: Docker Next Release
+
+on: workflow_dispatch
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: read
+
+jobs:
+  release-docker-image:
+    name: Build and release powersync-service next Docker image
+    runs-on: ubuntu-latest
+    environment: dockerhub
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # check out full history
+          # Temporarily needed for changesets
+          fetch-depth: 0
+
+      # This uses the service's package.json version for the Docker Image tag
+      - name: Validate release tag
+        id: version
+        run: |
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "This workflow must be run against a git tag, e.g. gh workflow run docker-next --ref v1.21.0" >&2
+            exit 1
+          fi
+
+          version="$(node -p "require('./service/package.json').version")"
+          tag="$GITHUB_REF_NAME"
+
+          if [ "$tag" != "v$version" ]; then
+            echo "Git tag $tag does not match service package version $version" >&2
+            exit 1
+          fi
+
+          node -e "const parts = process.argv[1].split('.'); if (parts.length !== 3 || parts.some((part) => !/^\\d+$/.test(part))) process.exit(1)" "$version"
+
+          major="${version%%.*}"
+          minor_patch="${version#*.}"
+          minor="${minor_patch%%.*}"
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "major=$major" >> "$GITHUB_OUTPUT"
+          echo "minor=$minor" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata for the image
+        uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ vars.DOCKER_REGISTRY }}
+          labels: |
+            org.opencontainers.image.licenses=FSL-1.1-ALv2
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.vendor=Journey Mobile, Inc
+          annotations: |
+            org.opencontainers.image.licenses=FSL-1.1-ALv2
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.vendor=Journey Mobile, Inc
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+
+      - name: Build Image and Push
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/arm64,linux/amd64
+          cache-from: type=registry,ref=${{ vars.DOCKER_REGISTRY }}:latest
+          context: .
+          tags: |
+            ${{ vars.DOCKER_REGISTRY }}:${{ steps.version.outputs.version }}-next
+            ${{ vars.DOCKER_REGISTRY }}:${{ steps.version.outputs.major }}.${{ steps.version.outputs.minor }}-next
+            ${{ vars.DOCKER_REGISTRY }}:${{ steps.version.outputs.major }}-next
+          push: true
+          file: ./service/Dockerfile
+
+          # Add labels and annotations from metadata-action above.
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          # Note: This includes build args in the published provenance.
+          # Do not use this if secrets are passed in as args.
+          provenance: mode=max
+          # Pre-generate an SBOM file, which can be used for vulnerability scanning or listing licenses.
+          sbom: true

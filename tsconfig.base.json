@@ -11,6 +11,7 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "sourceMap": true,
+    "esModuleInterop": true,
     "useUnknownInCatchVariables": false
   }
 }

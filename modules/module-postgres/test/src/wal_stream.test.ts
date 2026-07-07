@@ -303,7 +303,10 @@ bucket_definitions:
         })
       ]);
 
-      expect(await context.storage!.getStatus()).toMatchObject({ active: true, snapshot_done: true });
+      expect(await context.storage!.getStatus()).toMatchObject({ snapshotDone: true });
+      expect((await context.factory.getActiveSyncConfig())?.replicationStream.replicationStreamId).toBe(
+        context.storage!.replicationStreamId
+      );
     }
 
     {
@@ -364,18 +367,21 @@ bucket_definitions:
         })
       ]);
 
-      expect(await context.storage!.getStatus()).toMatchObject({ active: true, snapshot_done: true });
+      expect(await context.storage!.getStatus()).toMatchObject({ snapshotDone: true });
+      expect((await context.factory.getActiveSyncConfig())?.replicationStream.replicationStreamId).toBe(
+        context.storage!.replicationStreamId
+      );
     }
 
     {
       await using context = await openContext({ doNotClear: true });
       const { pool } = context;
-      const storage = await context.factory.getActiveStorage();
+      const storage = (await context.factory.getActiveSyncConfig())?.storage;
 
       // Here we explicitly drop the replication slot, which should always be handled.
       await pool.query({
         statement: `SELECT pg_drop_replication_slot($1)`,
-        params: [{ type: 'varchar', value: storage?.slot_name! }]
+        params: [{ type: 'varchar', value: storage?.replicationStreamName! }]
       });
 
       await context.loadActiveSyncRules();
@@ -426,14 +432,17 @@ bucket_definitions:
         })
       ]);
 
-      expect(await context.storage!.getStatus()).toMatchObject({ active: true, snapshot_done: true });
+      expect(await context.storage!.getStatus()).toMatchObject({ snapshotDone: true });
+      expect((await context.factory.getActiveSyncConfig())?.replicationStream.replicationStreamId).toBe(
+        context.storage!.replicationStreamId
+      );
     }
 
     {
       await using context = await openContext({ doNotClear: true });
       const { pool } = context;
-      const storage = await context.factory.getActiveStorage();
-      const slotName = storage?.slot_name!;
+      const storage = (await context.factory.getActiveSyncConfig())?.storage;
+      const slotName = storage?.replicationStreamName!;
 
       // Here, we write data to the WAL until the replication slot is lost.
       const TRIES = 100;
@@ -514,7 +523,7 @@ bucket_definitions:
 
     // Snapshot should NOT be marked as complete
     const status = await context.storage!.getStatus();
-    expect(status.snapshot_done).toBe(false);
+    expect(status.snapshotDone).toBe(false);
   });
 
   test('slot invalidation error carries diagnostic context', { timeout: 120_000 }, async () => {
@@ -618,7 +627,7 @@ bucket_definitions:
 
         // Confirm snapshot_done is false — the snapshot was interrupted.
         const status = await context.storage!.getStatus();
-        expect(status.snapshot_done).toBe(false);
+        expect(status.snapshotDone).toBe(false);
       }
 
       // Phase 2: Open a new context on the same storage (doNotClear: true).

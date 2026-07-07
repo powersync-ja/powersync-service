@@ -14,7 +14,9 @@ import {
 } from '@powersync/service-sync-rules';
 
 import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
+import { ObjectId } from 'bson';
 import { MongoLSN } from '../common/MongoLSN.js';
+import { SentinelLSN } from '../common/SentinelLSN.js';
 
 export function getMongoRelation(
   source: mongo.ChangeStreamNameSpace,
@@ -173,15 +175,24 @@ function filterJsonData(data: any, context: CompatibilityContext, depth = 0): an
  */
 export const STANDALONE_CHECKPOINT_ID = '_standalone_checkpoint';
 
-export async function createCheckpoint(
-  client: mongo.MongoClient,
-  db: mongo.Db,
-  id: mongo.ObjectId | string
-): Promise<string> {
+/**
+ * Id for checkpoint records managed by the {@link SentinelCheckpointImplementation} implementation.
+ */
+export const SENTINEL_CHECKPOINT_ID = '_sentinel_checkpoint';
+
+/**
+ * Create a checkpoint by upserting a document in _powersync_checkpoints, and
+ * return a comparable LSN string derived from the write's operationTime.
+ *
+ * Standard MongoDB only: this requires session.operationTime, which DocumentDB
+ * does not provide (it throws PSYNC_S1004 when it is missing). The DocumentDB /
+ * sentinel path builds LSNs via {@link createSentinelCheckpointLsn} instead.
+ */
+export async function createCheckpoint(db: mongo.Db, id: mongo.ObjectId | string): Promise<string> {
   const TRIES = 2;
   for (let i = 0; i < TRIES; i++) {
     try {
-      return await createCheckpointInner(client, db, id);
+      return await createCheckpointInner(db, id);
     } catch (e) {
       if (i < TRIES - 1) {
         logger.warn(`Failed to create checkpoint on attempt ${i + 1}`, e);
@@ -193,11 +204,7 @@ export async function createCheckpoint(
   throw new ServiceAssertionError(`Unreachable code`);
 }
 
-async function createCheckpointInner(
-  client: mongo.MongoClient,
-  db: mongo.Db,
-  id: mongo.ObjectId | string
-): Promise<string> {
+async function createCheckpointInner(db: mongo.Db, id: mongo.ObjectId | string): Promise<string> {
   // We use an unique id per process, and clear documents on startup.
   // This is so that we can filter events for our own process only, and ignore
   // events from other processes.
@@ -208,6 +215,8 @@ async function createCheckpointInner(
   // Instead, we do manual retries, which does not have the same write de-duplication logic.
   // A sentinal-based approach would be better here, but that is a much bigger change.
 
+  const update: mongo.Document = { $inc: { i: 1 } };
+
   const response = await db.command({
     findAndModify: '_powersync_checkpoints',
     query: {
@@ -215,9 +224,7 @@ async function createCheckpointInner(
     },
     new: true,
     upsert: true,
-    update: {
-      $inc: { i: 1 }
-    }
+    update
   });
 
   const time = response.operationTime as mongo.Timestamp | undefined;
@@ -225,6 +232,109 @@ async function createCheckpointInner(
     throw new ServiceError(ErrorCode.PSYNC_S1004, `clusterTime not available for checkpoint`);
   }
   return new MongoLSN({ timestamp: time }).comparable;
+}
+
+/**
+ * Create a DocumentDB comparable LSN by advancing the shared sentinel checkpoint
+ * document ({@link SENTINEL_CHECKPOINT_ID}). The returned LSN encodes the
+ * checkpoint counter in the same 16-hex shape as a MongoDB timestamp LSN (see
+ * {@link SentinelLSN}), so the two formats are directly comparable. The counter is
+ * seeded in the epoch-seconds range (see below), so a sentinel LSN always sorts
+ * above any real-timestamp LSN issued in the past.
+ *
+ * This counter is intentionally global to the source database. It is used for
+ * storage/client checkpoint comparisons and write checkpoint heads, so it must
+ * not reset when a new ChangeStream instance or new sync rules start.
+ *
+ * The document is a single shared record whose `stream_id` field alternates:
+ * batch/keepalive bumps stamp it with the calling stream's id (so a stream can
+ * recognise its own private barriers), while standalone bumps (write checkpoint
+ * heads, snapshot markers) clear it to null. `i` advances globally regardless.
+ *
+ * @param changeStreamId
+ *   When provided, the bump is attributed to this stream (a private barrier).
+ *   When omitted, it is a standalone bump and stream_id is cleared to null.
+ */
+export async function createSentinelCheckpointLsn(
+  client: mongo.MongoClient,
+  db: mongo.Db,
+  changeStreamId?: ObjectId
+): Promise<string> {
+  const session = client.startSession();
+  try {
+    const collection = db.collection('_powersync_checkpoints');
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      // Common path: increment the existing counter.
+      const result = await collection.findOneAndUpdate(
+        {
+          _id: SENTINEL_CHECKPOINT_ID as any,
+          i: { $exists: true }
+        },
+        {
+          $inc: { i: 1 },
+          // Standalone bumps (no changeStreamId) must explicitly clear the
+          // stream_id left by a previous batch bump — this is a single shared
+          // document whose stream_id alternates. Write null rather than relying
+          // on `undefined` being serialized (which depends on the driver's
+          // ignoreUndefined option, and collapses to an empty $set if enabled).
+          $set: {
+            stream_id: changeStreamId ?? null
+          }
+        },
+        {
+          returnDocument: 'after',
+          session
+        }
+      );
+
+      if (result != null) {
+        // `i` is a bigint: the client is configured with useBigInt64, and the
+        // seed exceeds 2^53 so it could not be safely represented as a number.
+        return new SentinelLSN({ sentinel: result.i }).comparable;
+      }
+
+      // The counter document does not exist: first run, or a consumer deleted
+      // it in their source database. Seed the counter in the epoch-SECONDS range
+      // (seconds in the high 32 bits, mirroring a MongoDB timestamp) rather than
+      // starting at 1. Two properties follow:
+      //
+      // - A sentinel LSN sorts above any real-timestamp LSN issued in the past,
+      //   because its high 32 bits are the current epoch seconds.
+      // - A re-created counter jumps forward instead of backward across deletion:
+      //   the seed advances by 2^32 each wall-clock second, while checkpoints add
+      //   1 each, so any later re-seed exceeds the previously issued coordinate
+      //   (keeping the LSN domain monotonic; otherwise new write checkpoint heads
+      //   could resolve against old, higher committed LSNs).
+      //
+      // $setOnInsert cannot be combined with $inc on the same field, so this
+      // is a separate upsert; the loop then retries the increment. The
+      // $setOnInsert is a no-op if another process created the document
+      // concurrently.
+      await collection.updateOne(
+        {
+          _id: SENTINEL_CHECKPOINT_ID as any
+        },
+        {
+          $setOnInsert: {
+            i: BigInt(Math.floor(Date.now() / 1000)) << 32n,
+            stream_id: changeStreamId ?? null
+          }
+        },
+        {
+          upsert: true,
+          session
+        }
+      );
+    }
+
+    throw new ServiceError(
+      ErrorCode.PSYNC_S1301,
+      `Failed to increment the sentinel checkpoint counter - the checkpoint document may be getting deleted concurrently.`
+    );
+  } finally {
+    await session.endSession();
+  }
 }
 
 const mongoTimeOptions: DateTimeSourceOptions = {

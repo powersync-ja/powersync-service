@@ -1,5 +1,52 @@
 # @powersync/service-module-postgres-storage
 
+## 0.16.2
+
+### Patch Changes
+
+- e4f683d: [MongoDB Storage] Add experimental option to allow reading data from secondaries.
+- c2edf86: Add `api.parameters.bucket_count_cache_ttl_minutes` configuration option.
+- df9ab1e: Batch concurrent write checkpoint requests and increase request limits to improve throughput.
+- Updated dependencies [71d4a0a]
+- Updated dependencies [e4f683d]
+- Updated dependencies [71d4a0a]
+- Updated dependencies [a6ae678]
+- Updated dependencies [c2edf86]
+- Updated dependencies [df9ab1e]
+  - @powersync/service-core@1.23.2
+  - @powersync/service-sync-rules@0.38.1
+  - @powersync/service-types@0.16.1
+  - @powersync/lib-services-framework@0.9.7
+  - @powersync/lib-service-postgres@0.5.1
+
+## 0.16.1
+
+### Patch Changes
+
+- 7e65360: Restructure replication locks for updated sync config.
+- Updated dependencies [7e65360]
+  - @powersync/service-core@1.23.1
+
+## 0.16.0
+
+### Minor Changes
+
+- a91a08f: [Experimental] Enable incremental reprocessing for MongoDB source + MongoDB storage. This includes significant changes to the v3 storage format.
+
+### Patch Changes
+
+- 101ea67: Include table names in "Cannot mark snapshot done while source tables still require snapshotting" error.
+- Updated dependencies [a91a08f]
+- Updated dependencies [184c39f]
+- Updated dependencies [c3f75df]
+- Updated dependencies [4bd35ea]
+  - @powersync/service-core@1.23.0
+  - @powersync/lib-service-postgres@0.5.0
+  - @powersync/service-types@0.16.0
+  - @powersync/service-sync-rules@0.38.0
+  - @powersync/lib-services-framework@0.9.6
+  - @powersync/service-jpgwire@0.21.20
+
 ## 0.15.0
 
 ### Minor Changes

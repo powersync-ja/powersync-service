@@ -16,14 +16,15 @@ type ParameterCompactionReadDocument = {
  *
  * This scans through the entire collection to find data to compact.
  *
- * For background, see the `/docs/parameters-lookups.md` file.
+ * For background, see the `/docs/storage/parameter-lookups.md` file.
  */
-export abstract class MongoParameterCompactor {
+export class MongoParameterCompactor {
   constructor(
     protected readonly db: VersionedPowerSyncMongo,
     protected readonly group_id: number,
     protected readonly checkpoint: InternalOpId,
-    protected readonly options: CompactOptions
+    protected readonly options: CompactOptions,
+    protected readonly getCollectionsCb?: () => Promise<mongo.Collection<mongo.Document>[]>
   ) {}
 
   async compact() {
@@ -33,11 +34,27 @@ export abstract class MongoParameterCompactor {
     }
   }
 
-  protected abstract getCollections(): Promise<mongo.Collection<mongo.Document>[]>;
+  protected async getCollections(): Promise<mongo.Collection<mongo.Document>[]> {
+    if (this.getCollectionsCb == null) {
+      throw new Error('getCollections callback not provided');
+    }
+    const collections = await this.getCollectionsCb();
+    // Cast from the version-specific collection type to the generic Document type
+    // used by the parameter compactor base class.
+    return collections.map((collection) => collection as unknown as mongo.Collection<mongo.Document>);
+  }
 
-  protected abstract collectionFilter(): mongo.Document;
+  protected collectionFilter(): mongo.Document {
+    return {};
+  }
 
-  protected abstract deleteFilter(doc: mongo.Document): mongo.Document;
+  protected deleteFilter(doc: mongo.Document): mongo.Document {
+    return {
+      lookup: doc.lookup,
+      _id: { $lte: doc._id },
+      key: doc.key
+    };
+  }
 
   protected async compactCollection(collection: mongo.Collection<mongo.Document>) {
     // This is the currently-active checkpoint.
@@ -68,6 +85,7 @@ export abstract class MongoParameterCompactor {
 
     const flush = async (force: boolean) => {
       if (removeIds.length >= 1000 || (force && removeIds.length > 0)) {
+        // MongoDB Filter<T> doesn't fully match our dynamic delete filter shape here.
         const results = await collection.deleteMany({ _id: { $in: removeIds } } as any);
         logger.info(`Removed ${results.deletedCount} (${removeIds.length}) superseded parameter entries`);
         removeIds = [];
@@ -81,6 +99,7 @@ export abstract class MongoParameterCompactor {
     };
 
     while (await cursor.hasNext()) {
+      // readBufferedDocuments returns a generic type; we know the shape from our projection.
       const batch = cursor.readBufferedDocuments() as unknown as ParameterCompactionReadDocument[];
       checkedEntries += batch.length;
       const now = Date.now();

@@ -1,13 +1,17 @@
 import { logger } from '@powersync/lib-services-framework';
 import winston from 'winston';
-import { PersistedSyncRulesContent } from '../storage/storage-index.js';
+import { PersistedReplicationStream } from '../storage/storage-index.js';
 import { ServiceContextContainer } from '../system/ServiceContext.js';
 
 export interface TearDownOptions {
   /**
    *  If required, tear down any configuration/state for the specific replication stream
    */
-  syncRules?: PersistedSyncRulesContent[];
+  replicationStreams?: PersistedReplicationStream[];
+  /**
+   * @deprecated Use replicationStreams.
+   */
+  syncRules?: PersistedReplicationStream[];
 }
 
 export interface AbstractModuleOptions {

@@ -4,7 +4,7 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger } from '@powersync/lib-services-framework';
 import {
   BucketStorageFactory,
-  InternalOpId,
+  ReplicationCheckpoint,
   SUPPORTED_STORAGE_VERSIONS,
   TestStorageConfig,
   TestStorageFactory
@@ -121,7 +121,7 @@ export async function getClientCheckpoint(
   db: pgwire.PgClient,
   storageFactory: BucketStorageFactory,
   options?: { timeout?: number }
-): Promise<InternalOpId> {
+): Promise<ReplicationCheckpoint> {
   const start = Date.now();
 
   const api = new PostgresRouteAPIAdapter(db);
@@ -134,12 +134,12 @@ export async function getClientCheckpoint(
 
   logger.info(`Waiting for LSN checkpoint: ${lsn}`);
   while (Date.now() - start < timeout) {
-    const storage = await storageFactory.getActiveStorage();
+    const storage = (await storageFactory.getActiveSyncConfig())?.storage;
     const cp = await storage?.getCheckpoint();
 
     if (cp?.lsn != null && cp.lsn >= lsn) {
       logger.info(`Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
-      return cp.checkpoint;
+      return cp;
     }
 
     await new Promise((resolve) => setTimeout(resolve, 5));

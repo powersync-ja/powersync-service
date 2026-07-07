@@ -1,8 +1,9 @@
 import {
   InternalOpId,
   OplogEntry,
-  PersistedSyncRules,
-  PersistedSyncRulesContent,
+  ParsedSyncConfigSet,
+  PersistedSyncConfigContent,
+  ReplicationCheckpoint,
   SyncRulesBucketStorage
 } from '@powersync/service-core';
 import { bucketRequest } from './general-utils.js';
@@ -10,14 +11,14 @@ import { fromAsync } from './stream_utils.js';
 
 export class StorageDataHelpers {
   storage: SyncRulesBucketStorage;
-  syncRules: PersistedSyncRulesContent | PersistedSyncRules;
+  syncRules: PersistedSyncConfigContent | ParsedSyncConfigSet;
 
-  constructor(storage: SyncRulesBucketStorage, syncRules: PersistedSyncRulesContent | PersistedSyncRules) {
+  constructor(storage: SyncRulesBucketStorage, syncRules: PersistedSyncConfigContent | ParsedSyncConfigSet) {
     this.storage = storage;
     this.syncRules = syncRules;
   }
 
-  async getBucketData(bucket: string, checkpoint: InternalOpId, start?: InternalOpId | string | undefined) {
+  async getBucketData(bucket: string, checkpoint: ReplicationCheckpoint, start?: InternalOpId | string | undefined) {
     start ??= 0n;
     if (typeof start == 'string') {
       start = BigInt(start);
@@ -37,7 +38,7 @@ export class StorageDataHelpers {
     return data;
   }
 
-  async getBucketsDataBatch(buckets: Record<string, InternalOpId>, checkpoint: InternalOpId) {
+  async getBucketsDataBatch(buckets: Record<string, InternalOpId>, checkpoint: ReplicationCheckpoint) {
     const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(this.syncRules, bucket, start));
     return fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }

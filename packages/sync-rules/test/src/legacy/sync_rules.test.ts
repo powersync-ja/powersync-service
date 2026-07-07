@@ -1,0 +1,1265 @@
+import * as sqlite from 'node:sqlite';
+
+import { describe, expect, test } from 'vitest';
+import {
+  BucketPriority,
+  HydrateSyncConfigParams,
+  nodeSqlite,
+  ScopedParameterLookup,
+  SqlSyncRules
+} from '../../../src/index.js';
+
+import {
+  BucketDataScope,
+  DEFAULT_HYDRATION_STATE,
+  HydrationState,
+  ParameterLookupScope
+} from '../../../src/HydrationState.js';
+import { SqlBucketDescriptor } from '../../../src/legacy/SqlBucketDescriptor.js';
+import { StaticSqlParameterQuery } from '../../../src/legacy/StaticSqlParameterQuery.js';
+import {
+  ASSETS,
+  BASIC_SCHEMA,
+  findQuerierLookups,
+  lookupScope,
+  normalizeQuerierOptions,
+  PARSE_OPTIONS,
+  requestParameters,
+  TestSourceTable,
+  USERS
+} from '../util.js';
+
+describe('sync rules', () => {
+  const hydrationParams: HydrateSyncConfigParams = {
+    hydrationState: DEFAULT_HYDRATION_STATE,
+    sqlite: nodeSqlite(sqlite)
+  };
+
+  test('parse empty sync rules', () => {
+    const { config: rules } = SqlSyncRules.fromYaml('bucket_definitions: {}', PARSE_OPTIONS);
+    expect(rules.bucketParameterLookupSources).toEqual([]);
+    expect(rules.bucketDataSources).toEqual([]);
+  });
+
+  test('parse global sync rules', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT id, description FROM assets
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
+    expect(bucket.name).toEqual('mybucket');
+    expect(bucket.bucketParameters).toEqual([]);
+    const dataQuery = bucket.dataQueries[0];
+    expect(dataQuery.bucketParameters).toEqual([]);
+    expect(dataQuery.columnOutputNames()).toEqual(['id', 'description']);
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', description: 'test' }
+      })
+    ).toEqual([
+      {
+        table: 'assets',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description: 'test'
+        },
+        bucket: 'mybucket[]'
+      }
+    ]);
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
+      staticBuckets: [{ bucket: 'mybucket[]', priority: 3 }],
+      hasDynamicBuckets: false
+    });
+  });
+
+  test('tracks source metadata on rows, lookups and bucket descriptions', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters:
+      - SELECT token_parameters.user_id as user_id
+      - SELECT users.id as user_id FROM users WHERE users.id = token_parameters.user_id
+    data:
+      - SELECT id FROM assets WHERE assets.user_id = bucket.user_id
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+
+    const staticBuckets = hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'user1' })).querier
+      .staticBuckets;
+    expect(staticBuckets).toHaveLength(1);
+    expect(staticBuckets[0].source).toBe(rules.bucketDataSources[0]);
+
+    const dataResults = hydrated.evaluateRow({
+      sourceTable: ASSETS,
+      record: { id: 'asset1', user_id: 'user1' }
+    });
+    expect(dataResults).toHaveLength(1);
+    expect(dataResults[0].source).toBe(rules.bucketDataSources[0]);
+
+    const parameterResults = hydrated.evaluateParameterRow(USERS, { id: 'user1' });
+    expect(parameterResults).toHaveLength(1);
+    expect(parameterResults[0].lookup.source).toBe(rules.bucketParameterLookupSources[0]);
+  });
+
+  test('parse global sync rules with filter', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT WHERE token_parameters.is_admin
+    data: []
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+    expect(rules.bucketParameterLookupSources).toEqual([]);
+
+    // Internal API, subject to change
+    const parameterQuery = (rules.bucketSources[0] as SqlBucketDescriptor)
+      .globalParameterQueries[0] as StaticSqlParameterQuery;
+    expect(parameterQuery.filter!.lookupParameterValue(requestParameters({ parameters: { is_admin: 1 } }))).toEqual(1n);
+    expect(parameterQuery.filter!.lookupParameterValue(requestParameters({ parameters: { is_admin: 0 } }))).toEqual(0n);
+
+    expect(
+      hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ parameters: { is_admin: true } })).querier
+    ).toMatchObject({
+      staticBuckets: [{ bucket: 'mybucket[]', priority: 3 }],
+      hasDynamicBuckets: false
+    });
+    expect(
+      hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ parameters: { is_admin: false } })).querier
+    ).toMatchObject({
+      staticBuckets: [],
+      hasDynamicBuckets: false
+    });
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
+      staticBuckets: [],
+      hasDynamicBuckets: false
+    });
+  });
+
+  test('parse global sync rules with table filter', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT FROM users WHERE users.id = token_parameters.user_id AND users.is_admin
+    data: []
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+    expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
+      {
+        bucketParameters: [{}],
+        lookup: ScopedParameterLookup.direct(lookupScope('mybucket', '1'), ['user1'])
+      }
+    ]);
+    expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 0 })).toEqual([]);
+  });
+
+  test('parse bucket with parameters', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT token_parameters.user_id, user_parameters.device_id
+    data:
+      - SELECT id, description FROM assets WHERE assets.user_id = bucket.user_id AND assets.device_id = bucket.device_id AND NOT assets.archived
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+    const bucketData = rules.bucketDataSources[0];
+    expect(bucketData.bucketParameters).toEqual(['user_id', 'device_id']);
+    expect(
+      hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'user1' }, { device_id: 'device1' })).querier
+        .staticBuckets
+    ).toEqual([
+      { bucket: 'mybucket["user1","device1"]', definition: 'mybucket', inclusion_reasons: ['default'], priority: 3 }
+    ]);
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', description: 'test', user_id: 'user1', device_id: 'device1' }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket["user1","device1"]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description: 'test'
+        },
+        table: 'assets'
+      }
+    ]);
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', description: 'test', user_id: 'user1', archived: 1, device_id: 'device1' }
+      })
+    ).toEqual([]);
+  });
+
+  test('bucket with parameters with custom hydrationState', async () => {
+    // "end-to-end" test with custom hydrationState.
+    // We don't test complex details here, but do cover bucket names and parameter lookup scope.
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 2
+bucket_definitions:
+  mybucket:
+    parameters:
+      - SELECT token_parameters.user_id as user_id
+      - SELECT users.id as user_id FROM users WHERE users.id = token_parameters.user_id AND users.is_admin
+    data:
+      - SELECT id, description FROM assets WHERE assets.user_id = bucket.user_id AND NOT assets.archived
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrationState: HydrationState = {
+      getBucketSourceScope(source): BucketDataScope {
+        return { bucketPrefix: `${source.uniqueName}-test`, source };
+      },
+      getParameterIndexLookupScope(source): ParameterLookupScope {
+        return {
+          lookupName: `${source.sourceId.lookupName}.test`,
+          queryId: `${source.sourceId.queryId}.test`,
+          source
+        };
+      }
+    };
+    const hydrated = rules.hydrate({ hydrationState, sqlite: nodeSqlite(sqlite) });
+    const { querier, errors } = hydrated.getBucketParameterQuerier(
+      normalizeQuerierOptions({ sub: 'user1' }, { device_id: 'device1' })
+    );
+    expect(errors).toEqual([]);
+    expect(querier.staticBuckets).toEqual([
+      {
+        bucket: 'mybucket-test["user1"]',
+        definition: 'mybucket',
+        inclusion_reasons: ['default'],
+        priority: 3
+      }
+    ]);
+    expect(await findQuerierLookups(querier)).toEqual([
+      ScopedParameterLookup.direct(lookupScope('mybucket.test', '2.test'), ['user1'])
+    ]);
+
+    expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
+      {
+        bucketParameters: [{ user_id: 'user1' }],
+        lookup: ScopedParameterLookup.direct(lookupScope('mybucket.test', '2.test'), ['user1'])
+      }
+    ]);
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', description: 'test', user_id: 'user1', device_id: 'device1' }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket-test["user1"]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description: 'test'
+        },
+        table: 'assets'
+      }
+    ]);
+  });
+
+  test('parse bucket with parameters and OR condition', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT token_parameters.user_id
+    data:
+      - SELECT id, description FROM assets WHERE assets.user_id = bucket.user_id OR assets.owner_id = bucket.user_id
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+    const bucketData = rules.bucketDataSources[0];
+    expect(bucketData.bucketParameters).toEqual(['user_id']);
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'user1' })).querier.staticBuckets).toEqual(
+      [{ bucket: 'mybucket["user1"]', definition: 'mybucket', inclusion_reasons: ['default'], priority: 3 }]
+    );
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', description: 'test', user_id: 'user1' }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket["user1"]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description: 'test'
+        },
+        table: 'assets'
+      }
+    ]);
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', description: 'test', owner_id: 'user1' }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket["user1"]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description: 'test'
+        },
+        table: 'assets'
+      }
+    ]);
+  });
+
+  test('parse bucket with parameters and invalid OR condition', () => {
+    expect(() => {
+      const rules = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT token_parameters.user_id
+    data:
+      - SELECT id, description FROM assets WHERE assets.user_id = bucket.user_id AND (assets.user_id = bucket.foo OR assets.other_id = bucket.bar)
+    `,
+        PARSE_OPTIONS
+      );
+    }).toThrowError(/must use the same parameters/);
+  });
+
+  test('reject unsupported queries', () => {
+    expect(
+      SqlSyncRules.validate(
+        `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT token_parameters.user_id LIMIT 1
+    data: []
+    `,
+        PARSE_OPTIONS
+      )
+    ).toMatchObject([{ message: 'LIMIT is not supported' }]);
+
+    expect(
+      SqlSyncRules.validate(
+        `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT DISTINCT id, description FROM assets
+    `,
+        PARSE_OPTIONS
+      )
+    ).toMatchObject([{ message: 'DISTINCT is not supported' }]);
+
+    expect(
+      SqlSyncRules.validate(
+        `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT token_parameters.user_id OFFSET 10
+    data: []
+    `,
+        PARSE_OPTIONS
+      )
+    ).toMatchObject([{ message: 'LIMIT is not supported' }]);
+
+    expect(() => {
+      const rules = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT token_parameters.user_id FOR UPDATE SKIP LOCKED
+    data: []
+    `,
+        PARSE_OPTIONS
+      );
+    }).toThrowError(/SKIP is not supported/);
+
+    expect(() => {
+      const rules = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT token_parameters.user_id FOR UPDATE
+    data: []
+    `,
+        PARSE_OPTIONS
+      );
+    }).toThrowError(/FOR is not supported/);
+
+    expect(() => {
+      const rules = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT id, description FROM assets ORDER BY id
+    `,
+        PARSE_OPTIONS
+      );
+    }).toThrowError(/ORDER BY is not supported/);
+  });
+
+  test('transforming things', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT upper(token_parameters.user_id) AS user_id
+    data:
+      - SELECT id, upper(description) AS description_upper FROM assets WHERE upper(assets.user_id) = bucket.user_id AND NOT assets.archived
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+    const bucketData = rules.bucketDataSources[0];
+    expect(bucketData.bucketParameters).toEqual(['user_id']);
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'user1' })).querier).toMatchObject({
+      staticBuckets: [{ bucket: 'mybucket["USER1"]', priority: 3 }],
+      hasDynamicBuckets: false
+    });
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', description: 'test', user_id: 'user1' }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket["USER1"]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description_upper: 'TEST'
+        },
+        table: 'assets'
+      }
+    ]);
+  });
+
+  test('transforming things with upper-case functions', () => {
+    // Testing that we can use different case for the function names
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT UPPER(token_parameters.user_id) AS user_id
+    data:
+      - SELECT id, UPPER(description) AS description_upper FROM assets WHERE UPPER(assets.user_id) = bucket.user_id AND NOT assets.archived
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+    const bucketData = rules.bucketDataSources[0];
+    expect(bucketData.bucketParameters).toEqual(['user_id']);
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'user1' })).querier).toMatchObject({
+      staticBuckets: [{ bucket: 'mybucket["USER1"]', priority: 3 }],
+      hasDynamicBuckets: false
+    });
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', description: 'test', user_id: 'user1' }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket["USER1"]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description_upper: 'TEST'
+        },
+        table: 'assets'
+      }
+    ]);
+  });
+
+  test('transforming json', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT id, data ->> 'count' AS count, data -> 'bool' AS bool1, data ->> 'bool' AS bool2, 'true' ->> '$' as bool3, json_extract(data, '$.bool') AS bool4 FROM assets
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', data: JSON.stringify({ count: 5, bool: true }) }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket[]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          count: 5n,
+          bool1: 'true',
+          bool2: 1n,
+          bool3: 1n,
+          bool4: 1n
+        },
+        table: 'assets'
+      }
+    ]);
+  });
+
+  test('IN json', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT token_parameters.region_id
+    data:
+      - SELECT id, description FROM assets WHERE bucket.region_id IN assets.region_ids
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: {
+          id: 'asset1',
+          description: 'test',
+          region_ids: JSON.stringify(['region1', 'region2'])
+        }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket["region1"]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description: 'test'
+        },
+        table: 'assets'
+      },
+      {
+        bucket: 'mybucket["region2"]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description: 'test'
+        },
+        table: 'assets'
+      }
+    ]);
+  });
+
+  test('direct boolean param', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT token_parameters.is_admin
+    data:
+      - SELECT id, description, role, 'admin' as rule FROM assets WHERE bucket.is_admin
+      - SELECT id, description, role, 'normal' as rule FROM assets WHERE (bucket.is_admin OR bucket.is_admin = false) AND assets.role != 'admin'
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', description: 'test', role: 'admin' }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket[1]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description: 'test',
+          role: 'admin',
+          rule: 'admin'
+        },
+        table: 'assets'
+      }
+    ]);
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset2', description: 'test', role: 'normal' }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket[1]',
+        id: 'asset2',
+        data: {
+          id: 'asset2',
+          description: 'test',
+          role: 'normal',
+          rule: 'admin'
+        },
+        table: 'assets'
+      },
+      {
+        bucket: 'mybucket[1]',
+        id: 'asset2',
+        data: {
+          id: 'asset2',
+          description: 'test',
+          role: 'normal',
+          rule: 'normal'
+        },
+        table: 'assets'
+      },
+      {
+        bucket: 'mybucket[0]',
+        id: 'asset2',
+        data: {
+          id: 'asset2',
+          description: 'test',
+          role: 'normal',
+          rule: 'normal'
+        },
+        table: 'assets'
+      }
+    ]);
+
+    expect(
+      hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ parameters: { is_admin: true } })).querier
+        .staticBuckets
+    ).toEqual([{ bucket: 'mybucket[1]', definition: 'mybucket', inclusion_reasons: ['default'], priority: 3 }]);
+  });
+
+  test('some math', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT id, (5 / 2) AS int, (5 / 2.0) AS float, (CAST(5 AS real) / 2) AS float2 FROM assets
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+
+    expect(hydrated.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1' } })).toEqual([
+      {
+        bucket: 'mybucket[]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          int: 2n,
+          float: 2.5,
+          float2: 2.5
+        },
+        table: 'assets'
+      }
+    ]);
+  });
+
+  test('bucket with static numeric parameters', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT token_parameters.int1, token_parameters.float1, token_parameters.float2
+    data:
+      - SELECT id FROM assets WHERE assets.int1 = bucket.int1 AND assets.float1 = bucket.float1 AND assets.float2 = bucket.float2
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+    expect(
+      hydrated.getBucketParameterQuerier(
+        normalizeQuerierOptions({ parameters: { int1: 314, float1: 3.14, float2: 314 } })
+      ).querier
+    ).toMatchObject({ staticBuckets: [{ bucket: 'mybucket[314,3.14,314]', priority: 3 }] });
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', int1: 314n, float1: 3.14, float2: 314 }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket[314,3.14,314]',
+        id: 'asset1',
+        data: {
+          id: 'asset1'
+        },
+        table: 'assets'
+      }
+    ]);
+  });
+
+  test('static parameter query with function on token_parameter', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT upper(token_parameters.user_id) as upper
+    data: []
+    `,
+      PARSE_OPTIONS
+    );
+    expect(errors).toEqual([]);
+    const hydrated = rules.hydrate(hydrationParams);
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'test' })).querier).toMatchObject({
+      staticBuckets: [{ bucket: 'mybucket["TEST"]', priority: 3 }],
+      hasDynamicBuckets: false
+    });
+  });
+
+  test('custom table and id', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT client_id AS id, description, '1' as rule FROM assets_123 as assets WHERE assets.archived = false
+      - SELECT other_id AS id, description, '2' as rule FROM assets_123 as assets
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: new TestSourceTable('assets_123'),
+        record: { client_id: 'asset1', description: 'test', archived: 0n, other_id: 'other1' }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket[]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description: 'test',
+          rule: '1'
+        },
+        table: 'assets'
+      },
+      {
+        bucket: 'mybucket[]',
+        id: 'other1',
+        data: {
+          id: 'other1',
+          description: 'test',
+          rule: '2'
+        },
+        table: 'assets'
+      }
+    ]);
+  });
+
+  test('wildcard table', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT client_id AS id, description, _table_suffix as suffix, * FROM "assets_%" as assets WHERE assets.archived = false AND _table_suffix > '100'
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: new TestSourceTable('assets_123'),
+        record: { client_id: 'asset1', description: 'test', archived: 0n, other_id: 'other1' }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket[]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description: 'test',
+          suffix: '123',
+          archived: 0n,
+          client_id: 'asset1',
+          other_id: 'other1'
+        },
+        table: 'assets'
+      }
+    ]);
+  });
+
+  test('wildcard without alias', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT *, _table_suffix as suffix, * FROM "%" WHERE archived = false
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', description: 'test', archived: 0n }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket[]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description: 'test',
+          suffix: 'assets',
+          archived: 0n
+        },
+        table: 'assets'
+      }
+    ]);
+  });
+
+  test('should filter schemas', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT id FROM "assets" as assets1 # Yes
+      - SELECT id FROM "test_schema"."assets" as assets2 # yes
+      - SELECT id FROM "default.test_schema"."assets" as assets3 # yes
+      - SELECT id FROM "other"."assets" as assets4 # no
+      - SELECT id FROM "other.test_schema"."assets" as assets5 # no
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1' }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket[]',
+        id: 'asset1',
+        data: {
+          id: 'asset1'
+        },
+        table: 'assets1'
+      },
+      {
+        bucket: 'mybucket[]',
+        id: 'asset1',
+        data: {
+          id: 'asset1'
+        },
+        table: 'assets2'
+      },
+      {
+        bucket: 'mybucket[]',
+        id: 'asset1',
+        data: {
+          id: 'asset1'
+        },
+        table: 'assets3'
+      }
+    ]);
+  });
+
+  test('propagate parameter schema errors', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT id FROM assets WHERE other_id = token_parameters.user_id
+    data: []
+    `,
+      { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
+    );
+
+    expect(rules.errors).toMatchObject([
+      {
+        message: 'Column not found: other_id',
+        type: 'warning'
+      }
+    ]);
+  });
+
+  test('null bucket definition', () => {
+    const rules = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    `,
+      { schema: BASIC_SCHEMA, ...PARSE_OPTIONS, throwOnError: false }
+    );
+
+    expect(rules.errors).toMatchObject([
+      {
+        message: "'mybucket' bucket definition must be an object",
+        type: 'fatal'
+      }
+    ]);
+  });
+
+  test('dangerous query errors', () => {
+    const { errors } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters: SELECT request.parameters() ->> 'project_id' as project_id
+    data: []
+    `,
+      { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
+    );
+
+    expect(errors).toMatchObject([
+      {
+        message:
+          "Potentially dangerous query based on parameters set by the client. The client can send any value for these parameters so it's not a good place to do authorization.",
+        type: 'warning'
+      }
+    ]);
+  });
+
+  test('dangerous query errors - ignored', () => {
+    const { errors } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    accept_potentially_dangerous_queries: true
+    parameters: SELECT request.parameters() ->> 'project_id' as project_id
+    data: []
+    `,
+      { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
+    );
+
+    expect(errors).toEqual([]);
+  });
+
+  test('priorities on queries', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  highprio:
+    parameters: SELECT 0 as _priority;
+    data:
+      - SELECT * FROM assets WHERE count <= 10;
+  defaultprio:
+    data:
+      - SELECT * FROM assets WHERE count > 10;
+    `,
+      { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
+    );
+
+    expect(errors).toEqual([]);
+
+    const hydrated = rules.hydrate(hydrationParams);
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
+      staticBuckets: [
+        { bucket: 'highprio[]', priority: 0 },
+        { bucket: 'defaultprio[]', priority: 3 }
+      ]
+    });
+  });
+
+  test('priorities on bucket', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  highprio:
+    priority: 0
+    data:
+      - SELECT * FROM assets WHERE count <= 10;
+  defaultprio:
+    data:
+      - SELECT * FROM assets WHERE count > 10;
+    `,
+      { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
+    );
+
+    expect(errors).toEqual([]);
+
+    const hydrated = rules.hydrate(hydrationParams);
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
+      staticBuckets: [
+        { bucket: 'highprio[]', priority: 0 },
+        { bucket: 'defaultprio[]', priority: 3 }
+      ]
+    });
+  });
+
+  test(`invalid priority on bucket`, () => {
+    expect(() =>
+      SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  highprio:
+    priority: instant
+    data:
+      - SELECT * FROM assets WHERE count <= 10;
+    `,
+        { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
+      )
+    ).toThrowError(/Invalid priority/);
+  });
+
+  test(`can't duplicate priority`, () => {
+    expect(() =>
+      SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  highprio:
+    priority: 1
+    parameters: SELECT 0 as _priority;
+    data:
+      - SELECT * FROM assets WHERE count <= 10;
+    `,
+        { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
+      )
+    ).toThrowError(/Cannot set priority multiple times/);
+  });
+
+  test('dynamic bucket definitions list', async () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters:
+      - SELECT request.user_id() as user_id
+      - SELECT id as user_id FROM users WHERE id = request.user_id()
+    data: []
+
+  by_list:
+    parameters:
+      - SELECT id as list_id FROM lists WHERE owner_id = request.user_id()
+    data: []
+
+  admin_only:
+    parameters:
+      - SELECT id as list_id FROM lists WHERE (request.jwt() ->> 'is_admin' IS NULL)
+    data: []
+    `,
+      PARSE_OPTIONS
+    );
+    const bucket1data = rules.bucketDataSources[0];
+    expect(bucket1data.bucketParameters).toEqual(['user_id']);
+
+    const hydrated = rules.hydrate(hydrationParams);
+
+    const hydratedQuerier = hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'user1' })).querier;
+    expect(hydratedQuerier).toMatchObject({
+      hasDynamicBuckets: true,
+      staticBuckets: [
+        {
+          bucket: 'mybucket["user1"]',
+          priority: 3
+        }
+      ]
+    });
+
+    expect(await findQuerierLookups(hydratedQuerier)).toEqual([
+      ScopedParameterLookup.direct(lookupScope('admin_only', '1'), [1])
+    ]);
+  });
+
+  test('event definition smoke test', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  bkt:
+    data:
+      - SELECT * FROM users
+
+event_definitions:
+  write_checkpoints:
+    payloads:
+      - SELECT user_id, checkpoint, client_id FROM checkpoints
+    `,
+      PARSE_OPTIONS
+    );
+    expect(errors).toStrictEqual([]);
+    expect(rules.eventDescriptors).toHaveLength(1);
+  });
+
+  test('suggests upgrading for streams on edition 2', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 2
+
+streams:
+  a:
+    query: SELECT * FROM users
+    `,
+      {
+        ...PARSE_OPTIONS,
+        // Should not throw, this is a suggestion.
+        throwOnError: true
+      }
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('This is using an alpha version of Sync Streams. We recommend upgrading');
+  });
+
+  test('does not support CTEs', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 2
+
+with:
+  foo: SELECT 1 AS id
+
+streams:
+  a:
+    with:
+      bar: SELECT 1 AS id
+    query: SELECT * FROM users
+    `,
+      {
+        ...PARSE_OPTIONS,
+        throwOnError: false
+      }
+    );
+    expect(errors[0].message).toContain('Common table expressions are not supported');
+    expect(errors[2].message).toContain('Common table expressions are not supported');
+  });
+
+  test('applies subscription priorities', () => {
+    for (const edition of [2, 3]) {
+      const { config: rules, errors } = SqlSyncRules.fromYaml(
+        `
+config:
+  edition: ${edition}
+
+streams:
+  a:
+    priority: 3
+    query: SELECT * FROM users
+    `,
+        {
+          ...PARSE_OPTIONS
+        }
+      );
+
+      for (const priority of [null, 0, 1, 2]) {
+        const { querier } = rules.hydrate(hydrationParams).getBucketParameterQuerier(
+          normalizeQuerierOptions(
+            {},
+            {},
+            {
+              a: [{ priorityOverride: priority as BucketPriority | null, opaque_id: 1, parameters: {} }]
+            }
+          )
+        );
+        expect(querier.staticBuckets).toMatchObject([
+          {
+            priority: priority ?? 3
+          }
+        ]);
+      }
+    }
+  });
+
+  test('parse storage version', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+  storage_version: 2
+
+streams: {}`,
+      { ...PARSE_OPTIONS, throwOnError: true }
+    );
+    expect(rules.storageVersion).toEqual(2);
+  });
+
+  test('warns on unstable storage version', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+  storage_version: 3
+
+streams: []`,
+      { ...PARSE_OPTIONS, throwOnError: false }
+    );
+    expect(rules.storageVersion).toEqual(3);
+    expect(errors[0].message).toContain('Storage version 3 is unstable');
+    expect(errors[0].type).toBe('warning');
+  });
+
+  test('errors on unsupported storage version', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+  storage_version: 1
+
+streams: []`,
+      { ...PARSE_OPTIONS, throwOnError: false }
+    );
+    expect(rules.storageVersion).toBeUndefined();
+    expect(errors[0].message).toContain('Storage version 1 is not supported');
+    expect(errors[0].type).toBe('fatal');
+  });
+
+  test(`can't use sqlite_expression_engine in old config edition`, () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  unstable_sqlite_expression_engine: true
+
+bucket_definitions:`,
+      { ...PARSE_OPTIONS, throwOnError: false }
+    );
+
+    expect(errors[0].message).toContain('Enabling unstable_sqlite_expression_engine requires edition: 3');
+  });
+
+  test(`can't use sqlite_expression_engine without json compatibility`, () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+  unstable_sqlite_expression_engine: true
+  fixed_json_extract: false
+
+streams:`,
+      { ...PARSE_OPTIONS, throwOnError: false }
+    );
+
+    expect(errors[0].message).toContain('Enabling unstable_sqlite_expression_engine requires fixed_json_extract');
+  });
+});

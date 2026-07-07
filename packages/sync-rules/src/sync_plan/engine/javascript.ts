@@ -1,18 +1,9 @@
-import {
-  cast,
-  compare,
-  CompatibilityContext,
-  ExpressionType,
-  generateSqlFunctions,
-  SQLITE_FALSE,
-  SQLITE_TRUE,
-  sqliteBool,
-  sqliteNot
-} from '../../index.js';
+import { cast, compare, CompatibilityContext, ExpressionType, generateSqlFunctions } from '../../index.js';
 import { evaluateOperator, SqlFunction } from '../../sql_functions.js';
-import { cartesianProduct } from '../../streams/utils.js';
+import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from '../../sqliteBool.js';
 import { generateTableValuedFunctions } from '../../TableValuedFunctions.js';
 import { SqliteRow, SqliteValue } from '../../types.js';
+import { cartesianProduct } from '../../utils.js';
 import {
   BetweenExpression,
   BinaryExpression,

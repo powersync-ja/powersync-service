@@ -687,7 +687,7 @@ bucket_definitions:
           receivedCompletions++;
           if (receivedCompletions == 1) {
             // Trigger an empty bucket update.
-            await bucketStorage.createManagedWriteCheckpoint({ user_id: '', heads: { '1': '1/0' } });
+            await bucketStorage.createManagedWriteCheckpoints([{ user_id: '', heads: { '1': '1/0' } }]);
             await writer.commit('1/0');
           } else {
             break;
@@ -892,7 +892,8 @@ bucket_definitions:
 
     const checkpoint2 = await getCheckpointLines(iter);
 
-    const { bucket } = test_utils.bucketRequest(syncRules, 'by_user["user1"]');
+    const syncRulesContent = syncRules.syncConfigContent[0];
+    const { bucket } = test_utils.bucketRequest(syncRulesContent, 'by_user["user1"]');
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
     ).toEqual([bucket]);
@@ -947,7 +948,8 @@ bucket_definitions:
       iter.return?.();
     });
 
-    const { bucket } = bucketRequest(syncRules, 'by_user["user1"]');
+    const syncRulesContent = syncRules.syncConfigContent[0];
+    const { bucket } = bucketRequest(syncRulesContent, 'by_user["user1"]');
     const checkpoint1 = await getCheckpointLines(iter);
 
     expect((checkpoint1[0] as StreamingSyncCheckpoint).checkpoint?.buckets?.map((b) => b.bucket)).toEqual([bucket]);
@@ -1038,7 +1040,8 @@ bucket_definitions:
 
     await writer.commit('0/1');
 
-    const { bucket } = test_utils.bucketRequest(syncRules, 'by_user["user1"]');
+    const syncRulesContent = syncRules.syncConfigContent[0];
+    const { bucket } = test_utils.bucketRequest(syncRulesContent, 'by_user["user1"]');
 
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
@@ -1235,6 +1238,150 @@ bucket_definitions:
     });
   });
 
+  test('compacting high-priority data invalidates checkpoint before lower priorities', async (context) => {
+    // Scenario:
+    // 1. Bucket priorities are used.
+    // 2. Client syncs a high-priority bucket.
+    // 3. Due to a concurrent compaction, the checkpoint is invalidated (via target_op).
+    // 4. The service picks up that invalidation, and the batch stops, without emitting a "partial_checkpoint_complete". The intention is continuing with the next checkpoint.
+    // 5. However, the loop handling priorities does not see that invalidation, it only sees "bucket data for this priority is done".
+    // 6. The priority loop incorrectly continues with the next priority.
+    // 7. The service emits the data, as well as a final checkpoint_complete.
+    // 8. The client now received a checkpoint_complete without the full data for that checkpoint. It would pick up the missing data in the checksum check, requiring a full re-download of the affected buckets.
+    await using f = await factory();
+
+    const syncRules = await updateSyncRules(f, {
+      content: `
+bucket_definitions:
+  high_priority:
+    priority: 1
+    data:
+      - SELECT * FROM test WHERE substring(id, 1, 4) = 'high';
+  low_priority:
+    priority: 2
+    data:
+      - SELECT * FROM test WHERE id = 'low';
+    `
+    });
+
+    const bucketStorage = await f.getInstance(syncRules);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
+    await writer.markAllSnapshotDone('0/1');
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'high1',
+        description: 'High priority 1'
+      },
+      afterReplicaId: 'high1'
+    });
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'high2',
+        description: 'High priority 2'
+      },
+      afterReplicaId: 'high2'
+    });
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'low',
+        description: 'Low priority'
+      },
+      afterReplicaId: 'low'
+    });
+    await writer.commit('0/1');
+
+    const stream = sync.streamResponse({
+      syncContext,
+      bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      params: {
+        buckets: [],
+        include_checksum: true,
+        raw_data: true
+      },
+      tracker,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
+      isEncodingAsBson: false
+    });
+
+    const iter = stream[Symbol.asyncIterator]();
+    await using _ = {
+      async [Symbol.asyncDispose]() {
+        await iter.return?.();
+      }
+    };
+
+    const checkpoint = await consumeIterator(iter, {
+      consume: false,
+      isDone: (line) => (line as any)?.checkpoint != null
+    });
+    expect(checkpoint[0]).toEqual({
+      checkpoint: expect.objectContaining({
+        last_op_id: '3'
+      })
+    });
+
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.UPDATE,
+      after: {
+        id: 'high1',
+        description: 'Updated high priority 1'
+      },
+      afterReplicaId: 'high1'
+    });
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.UPDATE,
+      after: {
+        id: 'high2',
+        description: 'Updated high priority 2'
+      },
+      afterReplicaId: 'high2'
+    });
+    await writer.commit('0/2');
+
+    await bucketStorage.compact({
+      minBucketChanges: 1,
+      minChangeRatio: 0
+    });
+
+    const lines = await getCheckpointLines(iter, { consume: true });
+    const nextCheckpointIndex = lines.findIndex((line) => (line as any)?.checkpoint_diff != null);
+    expect(nextCheckpointIndex).toBeGreaterThan(0);
+
+    const invalidatedCheckpointLines = lines.slice(0, nextCheckpointIndex);
+    expect(invalidatedCheckpointLines).not.toContainEqual(
+      expect.objectContaining({ checkpoint_complete: expect.anything() })
+    );
+    expect(invalidatedCheckpointLines).not.toContainEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          bucket: expect.stringContaining('low_priority')
+        })
+      })
+    );
+
+    expect(lines[nextCheckpointIndex]).toEqual({
+      checkpoint_diff: expect.objectContaining({
+        last_op_id: '5'
+      })
+    });
+    expect(lines.at(-1)).toEqual({
+      checkpoint_complete: expect.objectContaining({
+        last_op_id: '5'
+      })
+    });
+  });
+
   test('write checkpoint', async () => {
     await using f = await factory();
 
@@ -1249,10 +1396,14 @@ bucket_definitions:
     // <= the managed write checkpoint LSN below
     await writer.commit('0/1');
 
-    const checkpoint = await bucketStorage.createManagedWriteCheckpoint({
-      user_id: 'test',
-      heads: { '1': '1/0' }
-    });
+    const checkpoint = (
+      await bucketStorage.createManagedWriteCheckpoints([
+        {
+          user_id: 'test',
+          heads: { '1': '1/0' }
+        }
+      ])
+    ).get('test')!;
 
     const params: sync.SyncStreamParameters = {
       syncContext,

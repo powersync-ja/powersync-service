@@ -30,7 +30,7 @@ export const writeCheckpoint = routeDefinition({
 
     logger.info(`Waiting for LSN checkpoint: ${head}`);
     while (Date.now() - start < timeout) {
-      const bucketStorage = await service_context.storageEngine.activeBucketStorage.getActiveStorage();
+      const bucketStorage = (await service_context.storageEngine.activeBucketStorage.getActiveSyncConfig())?.storage;
       const cp = await bucketStorage?.getCheckpoint();
       if (cp == null) {
         throw new Error('No sync config available');
@@ -54,13 +54,10 @@ export const writeCheckpoint2 = routeDefinition({
   handler: async (payload) => {
     const { token_payload, service_context } = payload.context;
 
-    const apiHandler = service_context.routerEngine.getAPI();
-
     const { replicationHead, writeCheckpoint } = await util.createWriteCheckpoint({
       userId: token_payload!.userIdString,
       clientId: payload.params.client_id,
-      api: apiHandler,
-      storage: service_context.storageEngine.activeBucketStorage
+      batcher: service_context.writeCheckpointBatcher
     });
 
     logger.info(

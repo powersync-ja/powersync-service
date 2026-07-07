@@ -34,7 +34,8 @@ function registerStorageVersionTests(storageVersion: number) {
         )
       );
       const bucketStorage = factory.getInstance(syncRules);
-      const globalBucket = bucketRequest(syncRules, 'global[]');
+      const syncRulesContent = syncRules.syncConfigContent[0];
+      const globalBucket = bucketRequest(syncRulesContent, 'global[]');
 
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
@@ -89,7 +90,9 @@ function registerStorageVersionTests(storageVersion: number) {
 
       const options: storage.BucketDataBatchOptions = {};
 
-      const batch1 = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [globalBucket], options));
+      const batch1 = await test_utils.fromAsync(
+        bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [globalBucket], options)
+      );
       expect(test_utils.getBatchData(batch1)).toEqual([
         { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
       ]);
@@ -101,7 +104,7 @@ function registerStorageVersionTests(storageVersion: number) {
 
       const batch2 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
-          checkpoint,
+          test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch1[0].chunkData.next_after) }],
           options
         )
@@ -117,7 +120,7 @@ function registerStorageVersionTests(storageVersion: number) {
 
       const batch3 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
-          checkpoint,
+          test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch2[0].chunkData.next_after) }],
           options
         )
@@ -133,7 +136,7 @@ function registerStorageVersionTests(storageVersion: number) {
 
       const batch4 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
-          checkpoint,
+          test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch3[0].chunkData.next_after) }],
           options
         )

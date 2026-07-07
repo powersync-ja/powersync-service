@@ -19,9 +19,15 @@ import {
 } from '@powersync/service-core';
 import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
+import { SentinelLSN } from '@module/common/SentinelLSN.js';
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
 import { MongoManager } from '@module/replication/MongoManager.js';
-import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
+import {
+  createCheckpoint,
+  createSentinelCheckpointLsn,
+  STANDALONE_CHECKPOINT_ID
+} from '@module/replication/MongoRelation.js';
+import { detectDocumentDb } from '@module/replication/replication-utils.js';
 import { NormalizedMongoConnectionConfig } from '@module/types/types.js';
 
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
@@ -30,7 +36,7 @@ export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
   private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
-  private syncRulesContent?: storage.PersistedSyncRulesContent;
+  private syncRulesContent?: storage.PersistedSyncConfigContent;
   public storage?: SyncRulesBucketStorage;
 
   /**
@@ -46,6 +52,11 @@ export class ChangeStreamTestContext {
       storageVersion?: number;
       mongoOptions?: Partial<NormalizedMongoConnectionConfig>;
       streamOptions?: Partial<ChangeStreamOptions>;
+      /**
+       * Optional override for tests that need to force a mode. By default the
+       * test context detects DocumentDB from the hello response.
+       */
+      documentDbMode?: boolean;
     }
   ) {
     const f = await factory({ doNotClear: options?.doNotClear });
@@ -56,15 +67,17 @@ export class ChangeStreamTestContext {
     }
 
     const storageVersion = options?.storageVersion ?? LEGACY_STORAGE_VERSION;
+    const documentDbMode = options?.documentDbMode ?? (await detectDocumentDb(connectionManager.db));
 
-    return new ChangeStreamTestContext(f, connectionManager, options?.streamOptions, storageVersion);
+    return new ChangeStreamTestContext(f, connectionManager, options?.streamOptions, storageVersion, documentDbMode);
   }
 
   constructor(
     public factory: BucketStorageFactory,
     public connectionManager: MongoManager,
     private streamOptions: Partial<ChangeStreamOptions> = {},
-    private storageVersion: number = LEGACY_STORAGE_VERSION
+    private storageVersion: number = LEGACY_STORAGE_VERSION,
+    private documentDbMode: boolean = false
   ) {
     createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
     initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
@@ -101,26 +114,37 @@ export class ChangeStreamTestContext {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules(
+    const replicationStream = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
     );
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = replicationStream.syncConfigContent[0];
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
   async loadNextSyncRules() {
-    const syncRules = await this.factory.getNextSyncRulesContent();
-    if (syncRules == null) {
+    const syncConfig = await this.factory.getDeployingSyncConfig();
+    if (syncConfig == null) {
       throw new Error(`Next sync config not available`);
     }
 
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = syncConfig.content;
+    this.storage = syncConfig.storage;
     return this.storage!;
   }
 
-  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+  async loadActiveSyncRules() {
+    const syncConfig = await this.factory.getActiveSyncConfig();
+    if (syncConfig == null) {
+      throw new Error(`Active sync config not found`);
+    }
+
+    this.syncRulesContent = syncConfig.content;
+    this.storage = syncConfig.storage;
+    return this.storage!;
+  }
+
+  private getSyncConfigContent(): storage.PersistedSyncConfigContent {
     if (this.syncRulesContent == null) {
       throw new Error('Sync config not configured - call updateSyncRules() first');
     }
@@ -143,6 +167,7 @@ export class ChangeStreamTestContext {
       // a long time to abort the stream.
       maxAwaitTimeMS: this.streamOptions?.maxAwaitTimeMS ?? 200,
       snapshotChunkLength: this.streamOptions?.snapshotChunkLength,
+      keepaliveIntervalMs: this.streamOptions?.keepaliveIntervalMs,
       storageHooks: this.streamOptions?.storageHooks,
       snapshotHooks: this.streamOptions?.snapshotHooks,
       logger: this.streamOptions?.logger
@@ -170,7 +195,24 @@ export class ChangeStreamTestContext {
    * would result in inconsistent data.
    */
   async markSnapshotConsistent() {
-    const checkpoint = await createCheckpoint(this.client, this.db, STANDALONE_CHECKPOINT_ID);
+    let checkpoint: string;
+    if (this.documentDbMode) {
+      const sentinelCheckpoint = SentinelLSN.fromSerialized(await createSentinelCheckpointLsn(this.client, this.db));
+      const status = await this.storage!.getStatus();
+      const resumeFrom = status.resumeLsn;
+      const resumeToken = resumeFrom ? SentinelLSN.fromSerialized(resumeFrom).resumeToken : null;
+
+      // This helper artificially marks the snapshot as consistent without
+      // waiting for the stream to observe the sentinel. Keep the sentinel as the
+      // comparable position, but carry forward the existing snapshot resume
+      // token so later DocumentDB streaming still resumes from a real token.
+      checkpoint = new SentinelLSN({
+        sentinel: sentinelCheckpoint.sentinel,
+        resume_token: resumeToken
+      }).comparable;
+    } else {
+      checkpoint = await createCheckpoint(this.db, STANDALONE_CHECKPOINT_ID);
+    }
 
     await using writer = await this.storage!.createWriter(test_utils.BATCH_OPTIONS);
     await writer.keepalive(checkpoint);
@@ -197,19 +239,36 @@ export class ChangeStreamTestContext {
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.getSyncRulesContent();
-    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
+    const syncConfigContent = this.getSyncConfigContent();
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncConfigContent, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
   async getBucketData(bucket: string, start?: ProtocolOpId | InternalOpId | undefined, options?: { timeout?: number }) {
+    const checkpoint = await this.getCheckpoint(options);
+    return this.getBucketDataAtCheckpoint(bucket, checkpoint, start);
+  }
+
+  async getBucketDataAtLatestCheckpoint(bucket: string, start?: ProtocolOpId | InternalOpId | undefined) {
+    if (this.storage == null) {
+      throw new Error('updateSyncRules() first');
+    }
+
+    const checkpoint = await this.storage.getCheckpoint();
+    return this.getBucketDataAtCheckpoint(bucket, checkpoint, start);
+  }
+
+  async getBucketDataAtCheckpoint(
+    bucket: string,
+    checkpoint: ReplicationCheckpoint,
+    start?: ProtocolOpId | InternalOpId | undefined
+  ) {
     start ??= 0n;
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const syncRules = this.getSyncRulesContent();
-    const checkpoint = await this.getCheckpoint(options);
-    let map = [bucketRequest(syncRules, bucket, start)];
+    const syncConfigContent = this.getSyncConfigContent();
+    let map = [bucketRequest(syncConfigContent, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
@@ -219,15 +278,15 @@ export class ChangeStreamTestContext {
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map = [bucketRequest(syncRules, bucket, BigInt(batches[0]!.chunkData.next_after))];
+      map = [bucketRequest(syncConfigContent, bucket, BigInt(batches[0]!.chunkData.next_after))];
     }
     return data;
   }
 
   async getChecksums(buckets: string[], options?: { timeout?: number }): Promise<utils.ChecksumMap> {
     let checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.getSyncRulesContent();
-    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncRules, bucket, 0n));
+    const syncConfigContent = this.getSyncConfigContent();
+    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncConfigContent, bucket, 0n));
     const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
 
     const unversioned: utils.ChecksumMap = new Map();
@@ -247,25 +306,42 @@ export async function getClientCheckpoint(
   client: mongo.MongoClient,
   db: mongo.Db,
   storageFactory: BucketStorageFactory,
-  options?: { timeout?: number }
-): Promise<InternalOpId> {
+  options?: { timeout?: number; documentDbMode?: boolean; storage?: SyncRulesBucketStorage }
+): Promise<ReplicationCheckpoint> {
   const start = Date.now();
-  const lsn = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID);
+  const documentDbMode = options?.documentDbMode ?? (await detectDocumentDb(db));
+
+  const lsn = documentDbMode
+    ? await createSentinelCheckpointLsn(client, db)
+    : await createCheckpoint(db, STANDALONE_CHECKPOINT_ID);
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 
   const timeout = options?.timeout ?? 50_000;
+  // DocumentDB: the streaming loop skips standalone checkpoint events while a
+  // batch barrier is pending (see ChangeStream.ts), so a single sentinel bump
+  // can be missed on an idle stream with no later event to advance the
+  // checkpoint. Periodically re-bump the sentinel so a standalone event
+  // eventually commits past `lsn`, mirroring getSnapshotLsn's retry loop.
+  const NUDGE_INTERVAL_MS = 1000;
+  let lastNudge = Date.now();
   let lastCp: ReplicationCheckpoint | null = null;
 
   while (Date.now() - start < timeout) {
-    const storage = await storageFactory.getActiveStorage();
+    const storage = (await storageFactory.getActiveSyncConfig())?.storage;
     const cp = await storage?.getCheckpoint();
     if (cp != null) {
       lastCp = cp;
       if (cp.lsn && cp.lsn >= lsn) {
-        return cp.checkpoint;
+        return cp;
       }
     }
+
+    if (documentDbMode && Date.now() - lastNudge >= NUDGE_INTERVAL_MS) {
+      await createSentinelCheckpointLsn(client, db);
+      lastNudge = Date.now();
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 30));
   }
 

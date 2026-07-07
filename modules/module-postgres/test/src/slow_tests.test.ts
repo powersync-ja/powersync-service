@@ -94,10 +94,11 @@ bucket_definitions:
   global:
     data:
       - SELECT * FROM "test_data"
-`;
+    `;
     const syncRules = await f.updateSyncRules(updateSyncRulesFromYaml(syncRuleContent, { storageVersion }));
     const storage = f.getInstance(syncRules);
-    const helpers = new StorageDataHelpers(storage, syncRules);
+    const syncRulesContent = syncRules.syncConfigContent[0];
+    const helpers = new StorageDataHelpers(storage, syncRulesContent);
     abortController = new AbortController();
     const options: WalStreamOptions = {
       abort_signal: abortController.signal,
@@ -182,9 +183,9 @@ bucket_definitions:
             break;
           }
 
-          const checkpoint = (await storage.getCheckpoint()).checkpoint;
+          const checkpoint = await storage.getCheckpoint();
           const opsBefore = await helpers.getBucketData('global[]', checkpoint);
-          await storage.compact({ maxOpId: checkpoint });
+          await storage.compact({ maxOpId: checkpoint.checkpoint });
           const opsAfter = await helpers.getBucketData('global[]', checkpoint);
 
           test_utils.validateCompactedBucket(opsBefore, opsAfter);
@@ -251,7 +252,7 @@ bucket_definitions:
       }
 
       // Check that each PUT has a REMOVE
-      const checkpoint = (await storage.getCheckpoint()).checkpoint;
+      const checkpoint = await storage.getCheckpoint();
       const ops = await helpers.getBucketData('global[]', checkpoint);
 
       const reduced = test_utils.reduceBucket(ops);

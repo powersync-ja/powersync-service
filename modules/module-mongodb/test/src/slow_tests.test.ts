@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ChangeStreamTestContext, setSnapshotHistorySeconds } from './change_stream_utils.js';
+import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
 import { env } from './env.js';
 import { describeWithStorage, StorageVersionTestContext } from './util.js';
 
@@ -15,7 +16,9 @@ function defineSlowTests({ factory, storageVersion }: StorageVersionTestContext)
     return ChangeStreamTestContext.open(factory, { ...options, storageVersion });
   };
 
-  test('replicating snapshot with lots of data', async () => {
+  // This test uses getParameter/setParameter for minSnapshotHistoryWindowInSeconds,
+  // which Azure DocumentDB does not support.
+  test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('replicating snapshot with lots of data', async () => {
     await using context = await openContext();
     // Test with low minSnapshotHistoryWindowInSeconds, to trigger:
     // > Read timestamp .. is older than the oldest available timestamp.

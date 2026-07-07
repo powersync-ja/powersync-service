@@ -6,6 +6,7 @@ import {
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
   LEGACY_STORAGE_VERSION,
+  ReplicationCheckpoint,
   storage
 } from '@powersync/service-core';
 import { AbstractStreamTestContext, METRICS_HELPER } from '@powersync/service-core-tests';
@@ -89,7 +90,7 @@ export class ConvexStreamTestContext extends AbstractStreamTestContext {
     return this.stream.waitForInitialSnapshot();
   }
 
-  async getClientCheckpoint(options?: { timeout?: number }): Promise<bigint> {
+  async getClientCheckpoint(options?: { timeout?: number }): Promise<ReplicationCheckpoint> {
     const start = Date.now();
 
     const lsn = await this.connectionManager.client.getHeadCursor();
@@ -102,12 +103,12 @@ export class ConvexStreamTestContext extends AbstractStreamTestContext {
 
     logger.info(`Waiting for LSN checkpoint: ${lsn}`);
     while (Date.now() - start < timeout) {
-      const storage = await this.factory.getActiveStorage();
+      const storage = (await this.factory.getActiveSyncConfig())?.storage;
       const cp = await storage?.getCheckpoint();
 
       if (cp?.lsn != null && cp.lsn >= lsn) {
         logger.info(`Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
-        return cp.checkpoint;
+        return cp;
       }
 
       await new Promise((resolve) => setTimeout(resolve, 5));

@@ -11,6 +11,7 @@ export type RouterSetupResponse = {
 
 export type RouterEngineRoutes = {
   api_routes: RouteDefinition[];
+  checkpointing_routes: RouteDefinition[];
   stream_routes: RouteDefinition[];
   socket_routes: SocketRouteGenerator[];
 };
@@ -42,6 +43,7 @@ export class RouterEngine {
 
     this.routes = {
       api_routes: [],
+      checkpointing_routes: [],
       stream_routes: [],
       socket_routes: []
     };
@@ -49,13 +51,17 @@ export class RouterEngine {
 
   public registerRoutes(routes: Partial<RouterEngineRoutes>) {
     this.routes.api_routes.push(...(routes.api_routes ?? []));
+    this.routes.checkpointing_routes.push(...(routes.checkpointing_routes ?? []));
     this.routes.stream_routes.push(...(routes.stream_routes ?? []));
     this.routes.socket_routes.push(...(routes.socket_routes ?? []));
   }
 
   public get hasRoutes() {
     return (
-      this.routes.api_routes.length > 0 || this.routes.stream_routes.length > 0 || this.routes.socket_routes.length > 0
+      this.routes.api_routes.length > 0 ||
+      this.routes.checkpointing_routes.length > 0 ||
+      this.routes.stream_routes.length > 0 ||
+      this.routes.socket_routes.length > 0
     );
   }
 

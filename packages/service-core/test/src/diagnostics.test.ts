@@ -1,6 +1,6 @@
 import { DiagnosticsOptions, getSyncRulesStatus } from '@/api/diagnostics.js';
 import { RouteAPI, SlotWalBudgetInfo } from '@/api/RouteAPI.js';
-import { BucketStorageFactory, PersistedSyncRules, storage } from '@/index.js';
+import { ParsedSyncConfigSet, storage } from '@/index.js';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
@@ -13,53 +13,57 @@ bucket_definitions:
       - SELECT id FROM test_table
 `;
 
-function makeSyncRulesContent(overrides?: { slot_name?: string }): storage.PersistedSyncRulesContent {
+function makeSyncRulesContent(overrides?: {
+  slot_name?: string;
+  status?: storage.PersistedSyncConfigStatus;
+}): storage.PersistedSyncConfigContent {
   // We don't implement the entire interface correctly here - just enough to test the diagnostics logic.
-  return {
-    id: 1,
-    slot_name: overrides?.slot_name ?? 'test_slot',
-    sync_rules_content: MINIMAL_SYNC_RULES,
-    compiled_plan: null,
-    active: true,
-    storageVersion: 1,
+  const status = overrides?.status ?? {
+    id: '1',
+    replicationStreamId: 1,
+    state: storage.SyncRuleState.ACTIVE,
     last_checkpoint_lsn: 'some_lsn',
     last_fatal_error: null,
     last_fatal_error_ts: null,
     last_keepalive_ts: new Date(),
-    last_checkpoint_ts: new Date(),
+    last_checkpoint_ts: new Date()
+  };
+
+  return {
+    replicationStreamId: 1,
+    syncConfigId: null,
+    replicationStreamName: overrides?.slot_name ?? 'test_slot',
+    sync_rules_content: MINIMAL_SYNC_RULES,
+    compiled_plan: null,
+    storageVersion: 1,
+    syncConfigState: status.state,
     parsed(options?: any) {
       const syncRules = SqlSyncRules.fromYaml(MINIMAL_SYNC_RULES, {
         ...options,
         defaultSchema: 'public'
       });
       return {
-        syncConfigWithErrors: syncRules
-      } as PersistedSyncRules;
+        syncConfigs: [syncRules]
+      } as ParsedSyncConfigSet;
     },
-    lock() {
-      throw new Error('Not implemented in mock');
-    },
-    current_lock: null,
     logger: null as any,
     asUpdateOptions: null as any,
-    getStorageConfig: null as any
-  } as storage.PersistedSyncRulesContent;
+    getStorageConfig: null as any,
+    async getSyncConfigStatus() {
+      return status;
+    }
+  } as storage.PersistedSyncConfigContent;
 }
 
-function makeBucketStorage() {
+function makeSystemStorage() {
   return {
-    getInstance() {
+    async getStatus() {
       return {
-        async getStatus() {
-          return {
-            snapshot_done: true,
-            checkpoint_lsn: 'some_lsn',
-            active: true
-          };
-        }
+        snapshotDone: true,
+        resumeLsn: 'some_lsn'
       };
     }
-  } as unknown as BucketStorageFactory;
+  } as storage.SyncRulesBucketStorage;
 }
 
 function makeRouteAPI(walBudget?: SlotWalBudgetInfo | undefined): RouteAPI {
@@ -92,7 +96,8 @@ function makeRouteAPI(walBudget?: SlotWalBudgetInfo | undefined): RouteAPI {
 const OPTIONS: DiagnosticsOptions = {
   live_status: true,
   check_connection: true,
-  include_content: false
+  include_content: false,
+  active: true
 };
 
 describe('getSyncRulesStatus WAL budget warnings', () => {
@@ -102,7 +107,7 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
       safe_wal_size: 4 * GB,
       max_slot_wal_keep_size: 10 * GB
     });
-    const result = await getSyncRulesStatus(makeBucketStorage(), api, makeSyncRulesContent(), OPTIONS);
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
     const walWarnings = result!.errors.filter((e) => e.message.includes('WAL budget'));
     expect(walWarnings).toHaveLength(1);
     expect(walWarnings[0].level).toBe('warning');
@@ -115,7 +120,7 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
       safe_wal_size: 8 * GB,
       max_slot_wal_keep_size: 10 * GB
     });
-    const result = await getSyncRulesStatus(makeBucketStorage(), api, makeSyncRulesContent(), OPTIONS);
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
     const walWarnings = result!.errors.filter((e) => e.message.includes('WAL budget'));
     expect(walWarnings).toHaveLength(0);
   });
@@ -126,7 +131,7 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
       safe_wal_size: -2.4 * GB,
       max_slot_wal_keep_size: 1 * 1024 * 1024 // 1MB
     });
-    const result = await getSyncRulesStatus(makeBucketStorage(), api, makeSyncRulesContent(), OPTIONS);
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
     const walWarnings = result!.errors.filter((e) => e.message.includes('WAL budget'));
     expect(walWarnings).toHaveLength(1);
     expect(walWarnings[0].message).toContain('0%');
@@ -137,7 +142,7 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
     const api = makeRouteAPI({
       wal_status: 'lost'
     });
-    const result = await getSyncRulesStatus(makeBucketStorage(), api, makeSyncRulesContent(), OPTIONS);
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
     const walErrors = result!.errors.filter(
       (e) => e.message.includes('WAL budget') || e.message.includes('PSYNC_S1146')
     );
@@ -146,10 +151,33 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
 
   test('no WAL error when getSlotWalBudget is not defined', async () => {
     const api = makeRouteAPI();
-    const result = await getSyncRulesStatus(makeBucketStorage(), api, makeSyncRulesContent(), OPTIONS);
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
     const walErrors = result!.errors.filter(
       (e) => e.message.includes('WAL budget') || e.message.includes('PSYNC_S1146')
     );
     expect(walErrors).toHaveLength(0);
+  });
+
+  test('uses sync config status for status-derived diagnostics fields', async () => {
+    const configStatus: storage.PersistedSyncConfigStatus = {
+      id: 'config-a',
+      replicationStreamId: 1,
+      state: storage.SyncRuleState.ACTIVE,
+      last_checkpoint_lsn: 'config_lsn',
+      last_fatal_error: 'config failed',
+      last_fatal_error_ts: new Date('2026-01-01T00:00:00.000Z'),
+      last_keepalive_ts: new Date('2026-01-01T00:01:00.000Z'),
+      last_checkpoint_ts: new Date('2026-01-01T00:02:00.000Z')
+    };
+    const result = await getSyncRulesStatus(
+      makeRouteAPI(),
+      makeSyncRulesContent({ status: configStatus }),
+      OPTIONS,
+      makeSystemStorage()
+    );
+
+    expect(result!.connections[0].last_checkpoint_ts).toBe('2026-01-01T00:02:00.000Z');
+    expect(result!.connections[0].last_keepalive_ts).toBe('2026-01-01T00:01:00.000Z');
+    expect(result!.errors.some((error) => error.message == 'config failed')).toBe(true);
   });
 });

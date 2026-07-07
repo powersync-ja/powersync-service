@@ -62,7 +62,7 @@ export const syncStreamed = routeDefinition({
       });
     }
 
-    const bucketStorage = await storageEngine.activeBucketStorage.getActiveStorage();
+    const bucketStorage = (await storageEngine.activeBucketStorage.getActiveSyncConfig())?.storage;
 
     if (bucketStorage == null) {
       throw new errors.ServiceError({

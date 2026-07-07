@@ -70,6 +70,11 @@ export interface QuerierError {
   message: string;
 }
 
+export interface GetBucketParameterQuerierResult {
+  querier: BucketParameterQuerier;
+  errors: QuerierError[];
+}
+
 export interface PendingQueriers {
   queriers: BucketParameterQuerier[];
   errors: QuerierError[];

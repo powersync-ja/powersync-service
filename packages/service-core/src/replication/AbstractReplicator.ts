@@ -1,6 +1,7 @@
 import { container, ErrorCode, logger } from '@powersync/lib-services-framework';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
+import { setTimeout as sleep } from 'node:timers/promises';
 import winston from 'winston';
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
 import * as storage from '../storage/storage-index.js';
@@ -12,6 +13,12 @@ import { ConnectionTestResult } from './ReplicationModule.js';
 
 // 1 minute
 const PING_INTERVAL = 1_000_000_000n * 60n;
+
+// In the initial startup period, we use a short refresh interval. This helps to take over replication quickly in the case
+// of rolling deploys. After the initial period, we switch to a longer refresh interval to reduce load.
+const FAST_REFRESH_INTERVAL_MS = 500;
+const FAST_REFRESH_TIMEOUT_MS = 120_000;
+const REFRESH_INTERVAL_MS = 5_000;
 
 export interface CreateJobOptions {
   lock: storage.ReplicationLock;
@@ -36,12 +43,12 @@ export interface AbstractReplicatorOptions {
  */
 export abstract class AbstractReplicator<T extends AbstractReplicationJob = AbstractReplicationJob> {
   protected logger: winston.Logger;
-  private lockAlerted: boolean = false;
+  private lastReplicationStreamInfoLogs = new Map<string, string>();
   /**
-   *  Map of replication jobs by replication stream id. Usually there is only one running job, but there could be two when
-   *  transitioning to a new replication stream.
+   *  Map of replication jobs by replication stream job id. Usually there is only one running job, but there could be two
+   *  when transitioning to a new replication stream.
    */
-  private replicationJobs = new Map<number, T>();
+  private replicationJobs = new Map<string, T>();
 
   /**
    * Map of replciation stream ids to promises that are clearing the replication stream.
@@ -65,6 +72,11 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     this.logger = logger.child({ name: `Replicator:${options.id}` });
   }
 
+  /**
+   * Create the source-specific replication job for a locked storage stream.
+   *
+   * The job owns the per-stream snapshot and streaming work for this attempt.
+   */
   abstract createJob(options: CreateJobOptions): T;
 
   /**
@@ -131,17 +143,20 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   }
 
   private async runLoop() {
-    const syncRules = await this.syncRuleProvider.get();
+    const loadedSyncConfig = await this.syncRuleProvider.get();
 
     let configuredLock: storage.ReplicationLock | undefined = undefined;
-    if (syncRules != null) {
+    if (loadedSyncConfig != null) {
       this.logger.info('Loaded sync config');
       try {
         // Configure new sync config, if they have changed.
         // In that case, also immediately take out a lock, so that another process doesn't start replication on it.
+        // This upfront lock is mostly superseded by the replicationStreamLoadedSyncConfigMatch() check. However, that doesn't cover old
+        // versions before that check was added, so we keep the lock for now - for where te service version and sync config is updated at
+        // the same time.
 
         const { lock } = await this.storage.configureSyncRules(
-          storage.updateSyncRulesFromYaml(syncRules, { lock: true, validate: this.syncRuleProvider.exitOnError })
+          storage.updateSyncRulesFromYaml(loadedSyncConfig, { lock: true, validate: this.syncRuleProvider.exitOnError })
         );
         if (lock) {
           configuredLock = lock;
@@ -155,10 +170,15 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     } else {
       this.logger.info('No sync streams or rules configured - configure via API');
     }
+    let useFastRefresh = true;
+    const fastRefreshDeadline = Date.now() + FAST_REFRESH_TIMEOUT_MS;
     while (!this.stopped) {
       await container.probes.touch();
       try {
-        await this.refresh({ configured_lock: configuredLock });
+        const refreshResult = await this.refresh({ configuredLock, loadedSyncConfig });
+        if (refreshResult.replicationJobStarted || Date.now() >= fastRefreshDeadline) {
+          useFastRefresh = false;
+        }
         // The lock is only valid on the first refresh.
         configuredLock = undefined;
 
@@ -177,77 +197,59 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       } catch (e) {
         this.logger.error('Failed to refresh replication jobs', e);
       }
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+      if (Date.now() >= fastRefreshDeadline) {
+        useFastRefresh = false;
+      }
+      await sleep(useFastRefresh ? FAST_REFRESH_INTERVAL_MS : REFRESH_INTERVAL_MS);
     }
   }
 
-  private async refresh(options?: { configured_lock?: storage.ReplicationLock }) {
+  private async refresh(options?: {
+    configuredLock?: storage.ReplicationLock;
+    loadedSyncConfig?: string;
+  }): Promise<{ replicationJobStarted: boolean }> {
     if (this.stopped) {
-      return;
+      return { replicationJobStarted: false };
     }
 
-    let configuredLock = options?.configured_lock;
+    let configuredLock = options?.configuredLock;
+    let replicationJobStarted = false;
 
-    const existingJobs = new Map<number, T>(this.replicationJobs.entries());
-    const replicatingSyncRules = await this.storage.getReplicatingSyncRules();
-    const newJobs = new Map<number, T>();
+    const existingJobs = new Map<string, T>(this.replicationJobs.entries());
+    const replicatingStreams = await this.storage.getReplicatingReplicationStreams();
+    const newJobs = new Map<string, T>();
+    const streamsToStart: storage.PersistedReplicationStream[] = [];
     let activeJob: T | undefined = undefined;
-    for (let syncRules of replicatingSyncRules) {
-      const existingJob = existingJobs.get(syncRules.id);
-      if (syncRules.active && activeJob == null) {
+    for (let replicationStream of replicatingStreams) {
+      const jobId = replicationStream.replicationJobId;
+      const existingJob = existingJobs.get(jobId);
+      const syncConfigMismatchMessage = 'Ignoring replication stream for sync config not loaded by this process';
+      if (!this.shouldHandleReplicationStream(replicationStream, options?.loadedSyncConfig)) {
+        this.logReplicationStreamInfoOnce(replicationStream, 'sync-config-mismatch', () => {
+          replicationStream.logger.info(syncConfigMismatchMessage);
+        });
+        continue;
+      }
+      this.clearReplicationStreamInfoLog(replicationStream, 'sync-config-mismatch');
+      if (replicationStream.state == storage.SyncRuleState.ACTIVE && activeJob == null) {
         activeJob = existingJob;
       }
       if (existingJob && !existingJob.isStopped) {
         // No change
-        existingJobs.delete(syncRules.id);
-        newJobs.set(syncRules.id, existingJob);
+        existingJobs.delete(jobId);
+        newJobs.set(jobId, existingJob);
       } else if (existingJob && existingJob.isStopped) {
         // Stopped (e.g. fatal error).
         // Remove from the list. Next refresh call will restart the job.
-        existingJobs.delete(syncRules.id);
+        existingJobs.delete(jobId);
       } else {
         // New sync config was found (or resume after restart)
-        try {
-          let lock: storage.ReplicationLock;
-          if (configuredLock?.sync_rules_id == syncRules.id) {
-            lock = configuredLock;
-          } else {
-            lock = await syncRules.lock();
-          }
-          const storage = this.storage.getInstance(syncRules);
-          const newJob = this.createJob({
-            lock: lock,
-            storage: storage
-          });
-
-          newJobs.set(syncRules.id, newJob);
-          newJob.start();
-          if (syncRules.active) {
-            activeJob = newJob;
-          }
-          this.lockAlerted = false;
-        } catch (e) {
-          if (e?.errorData?.code === ErrorCode.PSYNC_S1003) {
-            if (!this.lockAlerted) {
-              syncRules.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
-              this.lockAlerted = true;
-            }
-          } else {
-            // Could be a sync config parse error,
-            // for example from stricter validation that was added.
-            // This will be retried every couple of seconds.
-            // When new (valid) sync config is deployed and processed, this one be disabled.
-            syncRules.logger.error('Failed to start replication for new sync config', e);
-          }
-        }
+        streamsToStart.push(replicationStream);
       }
     }
 
-    this.replicationJobs = newJobs;
-    this.activeReplicationJob = activeJob;
-
-    // Stop any orphaned jobs that no longer have a replication stream.
-    // Termination happens below
+    // Stop any orphaned jobs that no longer have a replication stream before starting replacements.
+    // Termination happens below.
     for (let job of existingJobs.values()) {
       // Old - stop and clean up
       try {
@@ -258,10 +260,50 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       }
     }
 
+    for (let replicationStream of streamsToStart) {
+      const jobId = replicationStream.replicationJobId;
+      try {
+        let lock: storage.ReplicationLock;
+        if (configuredLock?.sync_rules_id == replicationStream.replicationStreamId) {
+          lock = configuredLock;
+        } else {
+          lock = await replicationStream.lock();
+        }
+        const syncRuleStorage = this.storage.getInstance(replicationStream);
+        const newJob = this.createJob({
+          lock: lock,
+          storage: syncRuleStorage
+        });
+
+        newJobs.set(jobId, newJob);
+        newJob.start();
+        replicationJobStarted = true;
+        if (replicationStream.state == storage.SyncRuleState.ACTIVE) {
+          activeJob = newJob;
+        }
+        this.lastReplicationStreamInfoLogs.delete(replicationStream.replicationStreamName);
+      } catch (e) {
+        if (e?.errorData?.code === ErrorCode.PSYNC_S1003) {
+          this.logReplicationStreamInfoOnce(replicationStream, 'replication-stream-locked', () => {
+            replicationStream.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
+          });
+        } else {
+          // Could be a sync config parse error,
+          // for example from stricter validation that was added.
+          // This will be retried every couple of seconds.
+          // When new (valid) sync config is deployed and processed, this one be disabled.
+          replicationStream.logger.error('Failed to start replication for new sync config', e);
+        }
+      }
+    }
+
+    this.replicationJobs = newJobs;
+    this.activeReplicationJob = activeJob;
+
     // Replication stream stopped previously, including by a different process.
-    const stopped = await this.storage.getStoppedSyncRules();
-    for (let syncRules of stopped) {
-      if (this.clearingJobs.has(syncRules.id)) {
+    const stopped = await this.storage.getStoppedReplicationStreams();
+    for (let replicationStream of stopped) {
+      if (this.clearingJobs.has(replicationStream.replicationStreamId)) {
         // Already in progress
         continue;
       }
@@ -269,16 +311,59 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       // We clear storage asynchronously.
       // It is important to be able to continue running the refresh loop, otherwise we cannot
       // retry locked replication stream, for example.
-      const syncRuleStorage = this.storage.getInstance(syncRules, { skipLifecycleHooks: true });
+      const syncRuleStorage = this.storage.getInstance(replicationStream, { skipLifecycleHooks: true });
       const promise = this.terminateSyncRules(syncRuleStorage)
         .catch((e) => {
           syncRuleStorage.logger.warn(`Failed clean up replication config`, e);
         })
         .finally(() => {
-          this.clearingJobs.delete(syncRules.id);
+          this.clearingJobs.delete(replicationStream.replicationStreamId);
         });
-      this.clearingJobs.set(syncRules.id, promise);
+      this.clearingJobs.set(replicationStream.replicationStreamId, promise);
     }
+
+    return { replicationJobStarted };
+  }
+
+  private logReplicationStreamInfoOnce(
+    replicationStream: storage.PersistedReplicationStream,
+    category: string,
+    log: () => void
+  ) {
+    if (this.lastReplicationStreamInfoLogs.get(replicationStream.replicationStreamName) == category) {
+      return;
+    }
+
+    log();
+    this.lastReplicationStreamInfoLogs.set(replicationStream.replicationStreamName, category);
+  }
+
+  private clearReplicationStreamInfoLog(replicationStream: storage.PersistedReplicationStream, category: string) {
+    if (this.lastReplicationStreamInfoLogs.get(replicationStream.replicationStreamName) == category) {
+      this.lastReplicationStreamInfoLogs.delete(replicationStream.replicationStreamName);
+    }
+  }
+
+  /**
+   * When we load sync config from the filesystem/config source, we ignore any config loaded by other processes.
+   * The idea is that if a different process loads updated config, that process should process it, not this one.
+   *
+   * This specifically helps for cases with rolling deploys.
+   *
+   * This does not apply when sync config is loaded from the database/API, instead of in the config.
+   */
+  private shouldHandleReplicationStream(
+    replicationStream: storage.PersistedReplicationStream,
+    loadedSyncRules: string | undefined
+  ) {
+    if (loadedSyncRules == null) {
+      return true;
+    }
+
+    const processingConfig = replicationStream.syncConfigContent.find(
+      (syncConfig) => syncConfig.syncConfigState == storage.SyncRuleState.PROCESSING
+    );
+    return processingConfig == null || processingConfig.sync_rules_content == loadedSyncRules;
   }
 
   protected createJobId(syncRuleId: number) {
@@ -294,6 +379,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     syncRuleStorage.logger.info(`Successfully terminated replication stream`);
   }
 
+  /**
+   * Check source connectivity using the replicator's decoded connection config.
+   */
   abstract testConnection(): Promise<ConnectionTestResult>;
 
   /**

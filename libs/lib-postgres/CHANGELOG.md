@@ -1,5 +1,26 @@
 # @powersync/lib-service-postgres
 
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [c2edf86]
+  - @powersync/service-types@0.16.1
+  - @powersync/lib-services-framework@0.9.7
+
+## 0.5.0
+
+### Minor Changes
+
+- a91a08f: [Experimental] Enable incremental reprocessing for MongoDB source + MongoDB storage. This includes significant changes to the v3 storage format.
+
+### Patch Changes
+
+- Updated dependencies [a91a08f]
+  - @powersync/service-types@0.16.0
+  - @powersync/lib-services-framework@0.9.6
+  - @powersync/service-jpgwire@0.21.20
+
 ## 0.4.28
 
 ### Patch Changes
