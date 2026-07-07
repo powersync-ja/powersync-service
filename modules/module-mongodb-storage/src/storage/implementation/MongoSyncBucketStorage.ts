@@ -590,6 +590,9 @@ export abstract class MongoSyncBucketStorage
   >({
     max: 50,
     maxSize: 12 * 1024 * 1024,
+    // When we have more fetches than the cache size, complete the fetches instead
+    // of failing with Error('evicted').
+    ignoreFetchAbort: true,
     sizeCalculation: (value: InternalCheckpointChanges) => {
       const paramSize = [...value.updatedParameterLookups].reduce<number>((a, b) => a + b.length, 0);
       const bucketSize = [...value.updatedDataBuckets].reduce<number>((a, b) => a + b.length, 0);
