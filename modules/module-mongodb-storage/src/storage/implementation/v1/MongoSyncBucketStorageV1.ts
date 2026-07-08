@@ -389,6 +389,7 @@ export async function* getBucketDataBatchV1(
 
   if (session != null) {
     session.advanceOperationTime(checkpoint.snapshotTime);
+    session.advanceClusterTime(checkpoint.clusterTime);
   }
 
   let filters: mongo.Filter<BucketDataDocumentV1>[] = [];

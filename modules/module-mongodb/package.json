@@ -1,7 +1,7 @@
 {
   "name": "@powersync/service-module-mongodb",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.18.2",
+  "version": "0.19.0",
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "publishConfig": {
