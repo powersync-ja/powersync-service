@@ -136,10 +136,9 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         const { user_id, heads: lsns } = checkpoint;
         const checkpointRequestId = checkpoint.checkpoint_request_id!;
 
-        // Supplied request ids are monotonic: only a value greater than the
-        // stored client_id may update the checkpoint id and heads. Stale or
-        // duplicate requests keep the stored values, but the caller still gets
-        // the current stored id back from the fetch below.
+        // Supplied request ids are monotonic. updateMany preserves the existing
+        // upsert behavior for first checkpoint requests, while also advancing
+        // every duplicate row for the user_id that is lower than this request id.
         const shouldApplyRequestId = {
           $or: [
             { $eq: [{ $ifNull: ['$client_id', null] }, null] },
@@ -148,7 +147,7 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         };
 
         return {
-          updateOne: {
+          updateMany: {
             filter: { user_id },
             update: [
               {
@@ -176,12 +175,9 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     );
 
     // Fetch the final ids separately so stale requests can still return the
-    // checkpoint currently stored. We also read processed_at_lsn to decide
-    // whether the source marker must be forced: any checkpoint that has not yet
-    // been processed by replication (processed_at_lsn == null) still needs a
-    // marker, including stale/duplicate requests whose stored checkpoint is
-    // pending. This keeps retries correct when a previous attempt persisted the
-    // checkpoint but failed to force the marker.
+    // checkpoint currently stored. If duplicate rows already exist for a
+    // user_id, use the highest stored id instead of whichever document MongoDB
+    // happens to return first.
     const userIds = checkpoints.map((checkpoint) => checkpoint.user_id);
     const docs = await this.db.write_checkpoints
       .find(
@@ -197,10 +193,21 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         }
       )
       .toArray();
+    const maxDocsByUser = new Map<string, (typeof docs)[number]>();
+    for (const doc of docs) {
+      const existing = maxDocsByUser.get(doc.user_id);
+      if (
+        existing == null ||
+        doc.client_id > existing.client_id ||
+        (doc.client_id == existing.client_id && existing.processed_at_lsn != null && doc.processed_at_lsn == null)
+      ) {
+        maxDocsByUser.set(doc.user_id, doc);
+      }
+    }
 
     return {
-      writeCheckpoints: new Map(docs.map((doc) => [doc.user_id, doc.client_id])),
-      shouldAdvance: docs.some((doc) => doc.processed_at_lsn == null)
+      writeCheckpoints: new Map([...maxDocsByUser].map(([userId, doc]) => [userId, doc.client_id])),
+      shouldAdvance: [...maxDocsByUser.values()].some((doc) => doc.processed_at_lsn == null)
     };
   }
 
