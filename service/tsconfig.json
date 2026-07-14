@@ -34,6 +34,9 @@
       "path": "../modules/module-postgres-storage"
     },
     {
+      "path": "../modules/module-drizzle-storage"
+    },
+    {
       "path": "../modules/module-mysql"
     },
     {

@@ -33,6 +33,7 @@
     "@powersync/service-module-mongodb": "workspace:*",
     "@powersync/service-module-mongodb-storage": "workspace:*",
     "@powersync/service-module-mikroorm-storage": "workspace:*",
+    "@powersync/service-module-drizzle-storage": "workspace:*",
     "@powersync/service-module-convex": "workspace:*",
     "@powersync/service-module-mysql": "workspace:*",
     "@powersync/service-module-mssql": "workspace:*",
