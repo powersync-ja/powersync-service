@@ -11,5 +11,7 @@ export const env = utils.collectEnvironmentVariables({
   TEST_MONGO_STORAGE: utils.type.boolean.default('false'),
   TEST_POSTGRES_STORAGE: utils.type.boolean.default('false'),
   TEST_MIKROORM_SQLITE_STORAGE: utils.type.boolean.default('true'),
-  MIKROORM_SQLITE_STORAGE_TEST_FILENAME: utils.type.string.default('')
+  MIKROORM_SQLITE_STORAGE_TEST_FILENAME: utils.type.string.default(''),
+  TEST_DRIZZLE_SQLITE_STORAGE: utils.type.boolean.default('false'),
+  DRIZZLE_SQLITE_STORAGE_TEST_FILENAME: utils.type.string.default('')
 });

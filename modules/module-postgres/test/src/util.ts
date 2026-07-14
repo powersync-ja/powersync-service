@@ -10,13 +10,14 @@ import {
   TestStorageFactory
 } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
+import * as drizzle_storage from '@powersync/service-module-drizzle-storage';
 import * as mikroorm_storage from '@powersync/service-module-mikroorm-storage';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import { existsSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, TestOptions } from 'vitest';
 import { env } from './env.js';
 
@@ -39,6 +40,13 @@ const DEFAULT_MIKROORM_SQLITE_STORAGE_FILENAME = join(
 const MIKROORM_SQLITE_STORAGE_FILENAME =
   env.MIKROORM_SQLITE_STORAGE_TEST_FILENAME || DEFAULT_MIKROORM_SQLITE_STORAGE_FILENAME;
 
+const DEFAULT_DRIZZLE_SQLITE_STORAGE_FILENAME = join(
+  tmpdir(),
+  `powersync-postgres-replication-drizzle-storage-${process.pid}-${process.env.VITEST_WORKER_ID ?? '0'}.sqlite`
+);
+const DRIZZLE_SQLITE_STORAGE_FILENAME =
+  env.DRIZZLE_SQLITE_STORAGE_TEST_FILENAME || DEFAULT_DRIZZLE_SQLITE_STORAGE_FILENAME;
+
 export const INITIALIZED_MIKROORM_SQLITE_STORAGE_FACTORY: TestStorageConfig = {
   tableIdStrings: true,
   factory: async (options) => {
@@ -55,6 +63,24 @@ export const INITIALIZED_MIKROORM_SQLITE_STORAGE_FACTORY: TestStorageConfig = {
       slotNamePrefix: 'test_'
     });
     await factory.orm.schema.update();
+    return factory;
+  }
+};
+
+export const INITIALIZED_DRIZZLE_SQLITE_STORAGE_FACTORY: TestStorageConfig = {
+  tableIdStrings: true,
+  factory: async (options) => {
+    if (!options?.doNotClear && existsSync(DRIZZLE_SQLITE_STORAGE_FILENAME)) {
+      await unlink(DRIZZLE_SQLITE_STORAGE_FILENAME);
+    }
+    const factory = drizzle_storage.createSqliteDrizzleStorageFactory({
+      config: drizzle_storage.normalizeDrizzleSqliteStorageConfig({
+        type: drizzle_storage.DRIZZLE_SQLITE_STORAGE_TYPE,
+        filename: DRIZZLE_SQLITE_STORAGE_FILENAME
+      }),
+      slotNamePrefix: 'test_'
+    });
+    drizzle_storage.runSqliteDrizzleMigrations(factory.runtime);
     return factory;
   }
 };
@@ -94,6 +120,10 @@ export function describeWithStorage(
 
   if (env.TEST_MIKROORM_SQLITE_STORAGE) {
     describeFactory('mikroorm sqlite', INITIALIZED_MIKROORM_SQLITE_STORAGE_FACTORY);
+  }
+
+  if (env.TEST_DRIZZLE_SQLITE_STORAGE) {
+    describeFactory('drizzle sqlite', INITIALIZED_DRIZZLE_SQLITE_STORAGE_FACTORY);
   }
 }
 

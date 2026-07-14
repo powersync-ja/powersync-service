@@ -1,4 +1,5 @@
 import { ConvexConnectionConfig } from '@powersync/service-module-convex/types';
+import { DrizzleStorageConfig } from '@powersync/service-module-drizzle-storage/types';
 import { MikroOrmStorageConfig } from '@powersync/service-module-mikroorm-storage/types';
 import { MongoStorageConfig } from '@powersync/service-module-mongodb-storage/types';
 import { MongoConnectionConfig } from '@powersync/service-module-mongodb/types';
@@ -28,7 +29,8 @@ const mergedDataSourceConfig = configFile.genericDataSourceConfig
 
 const mergedStorageConfig = configFile.GenericStorageConfig.or(PostgresStorageConfig)
   .or(MongoStorageConfig)
-  .or(MikroOrmStorageConfig);
+  .or(MikroOrmStorageConfig)
+  .or(DrizzleStorageConfig);
 
 const mergedConfig = t.object({
   ...baseShape,
