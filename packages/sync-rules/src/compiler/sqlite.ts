@@ -617,5 +617,6 @@ const forbiddenFunctions: Record<string, string> = {
 
 const rowMetadataFunctions: Record<string, RowMetadataKind> = {
   schema: 'schema',
+  table_name: 'table_name',
   table_suffix: 'table_suffix'
 };

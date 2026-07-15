@@ -46,6 +46,8 @@ export function resolveRowMetadata(
   switch (value.metadata) {
     case 'schema':
       return table.schema;
+    case 'table_name':
+      return table.name;
     case 'table_suffix':
       return pattern.isWildcard ? pattern.suffix(table.name) : '';
   }

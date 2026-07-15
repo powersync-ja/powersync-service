@@ -218,11 +218,12 @@ export interface ColumnSqlParameterValue {
   column: string;
 }
 
-export type RowMetadataKind = 'schema' | 'table_suffix';
+export type RowMetadataKind = 'schema' | 'table_name' | 'table_suffix';
 
 /**
  * A value that resolves to metadata about the source table of the row being processed: the schema containing the
- * table (`schema()`) or, for wildcard table patterns, the matched suffix of the table name (`table_suffix()`).
+ * table (`schema()`), the name of the table (`table_name()`) or, for wildcard table patterns, the matched
+ * suffix of the table name (`table_suffix()`).
  */
 export interface RowMetadataSqlValue {
   metadata: RowMetadataKind;

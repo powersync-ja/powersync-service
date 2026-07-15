@@ -123,11 +123,12 @@ export class ColumnInRow extends RowReference {
   }
 }
 
-export type RowMetadataKind = 'schema' | 'table_suffix';
+export type RowMetadataKind = 'schema' | 'table_name' | 'table_suffix';
 
 /**
- * A reference to metadata of the row's source table (`users.schema()` or `users.table_suffix()`) instead of an
- * actual column, resolved against the concrete table a row was replicated from.
+ * A reference to metadata of the row's source table (`users.schema()`, `users.table_name()` or
+ * `users.table_suffix()`) instead of an actual column, resolved against the concrete table a row was
+ * replicated from.
  */
 export class RowMetadata extends RowReference {
   constructor(

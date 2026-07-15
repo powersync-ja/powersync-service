@@ -850,6 +850,12 @@ describe('table metadata', () => {
     expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE users.schema() = 'a'`)).toStrictEqual([]);
   });
 
+  test('compiles table_name() without diagnostics on non-wildcard tables', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE users.table_name() = 'users'`)).toStrictEqual(
+      []
+    );
+  });
+
   test('table qualifier not in scope', () => {
     expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE other.schema() = 'a'`)).toStrictEqual([
       { message: "Table 'other' has not been added in a FROM clause here.", source: 'other.schema()' }

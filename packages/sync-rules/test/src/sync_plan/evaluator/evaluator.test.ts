@@ -1395,6 +1395,28 @@ streams:
     ]);
   });
 
+  syncTest('table_name() as a column', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT id, u.table_name() AS source_table FROM "user%" u
+`);
+
+    // Unlike the output table name (which uses the alias), table_name() returns the name of the
+    // replicated table.
+    expect(desc.evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })).toStrictEqual([
+      {
+        bucket: 'stream|0[]',
+        id: 'foo',
+        data: { id: 'foo', source_table: 'users' },
+        table: 'u'
+      }
+    ]);
+  });
+
   syncTest('table_suffix() as a column', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
