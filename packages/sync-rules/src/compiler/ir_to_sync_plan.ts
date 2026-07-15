@@ -4,7 +4,7 @@ import * as plan from '../sync_plan/plan.js';
 import * as resolver from './bucket_resolver.js';
 import { CompiledStreamQueries } from './compiler.js';
 import { Equality, HashMap, StableHasher, unorderedEquality } from './equality.js';
-import { ColumnInRow, ExpressionInput, SyncExpression } from './expression.js';
+import { ColumnInRow, ExpressionInput, RowMetadata, SyncExpression } from './expression.js';
 import * as rows from './rows.js';
 import { SourceResultSet } from './table.js';
 
@@ -197,6 +197,12 @@ export class CompilerModelToSyncPlan {
         }
 
         throw new Error('Referenced table not in context');
+      } else if (value instanceof RowMetadata) {
+        if (table == null || value.resultSet !== table) {
+          throw new Error('Row metadata reference without table context');
+        }
+
+        return { metadata: value.kind } satisfies plan.RowMetadataSqlValue as unknown as T;
       } else {
         return { request: value.source } satisfies plan.RequestSqlParameterValue as unknown as T;
       }

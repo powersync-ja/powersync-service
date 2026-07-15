@@ -832,3 +832,43 @@ streams:
     ]);
   });
 });
+
+describe('table metadata', () => {
+  test('unknown function with table qualifier', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE users.unknown() = 1`)).toStrictEqual([
+      { message: 'Invalid schema in function name', source: 'users.unknown' }
+    ]);
+  });
+
+  test('arguments to table metadata functions', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE users.schema('x') = 'a'`)).toStrictEqual([
+      { message: 'Expected no arguments here', source: 'users.schema' }
+    ]);
+  });
+
+  test('compiles schema() without diagnostics', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE users.schema() = 'a'`)).toStrictEqual([]);
+  });
+
+  test('compiles table_name() without diagnostics on non-wildcard tables', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE users.table_name() = 'users'`)).toStrictEqual(
+      []
+    );
+  });
+
+  test('table qualifier not in scope', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE other.schema() = 'a'`)).toStrictEqual([
+      { message: "Table 'other' has not been added in a FROM clause here.", source: 'other.schema()' }
+    ]);
+  });
+
+  test('warns for table_suffix on tables without a wildcard name', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE users.table_suffix() = 's'`)).toStrictEqual([
+      {
+        message: 'table_suffix() is always empty because this table is not selected with a wildcard name.',
+        source: 'users.table_suffix',
+        isWarning: true
+      }
+    ]);
+  });
+});
