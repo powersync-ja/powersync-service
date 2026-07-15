@@ -1,5 +1,16 @@
 # @powersync/service-core
 
+## 1.23.3
+
+### Patch Changes
+
+- ea31f64: Potential fix and improved stack trace for 'evicted' errors.
+- Updated dependencies [ea71bf3]
+- Updated dependencies [edc6ed4]
+  - @powersync/service-sync-rules@0.39.0
+  - @powersync/lib-services-framework@0.9.8
+  - @powersync/service-rsocket-router@0.2.24
+
 ## 1.23.2
 
 ### Patch Changes

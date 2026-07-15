@@ -34,11 +34,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Update npm
-        run: |
-          npm install -g npm@latest
-          npm --version
-
       - name: Build
         run: pnpm build:production
 

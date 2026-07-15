@@ -4,7 +4,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.21.2",
+  "version": "0.21.3",
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "files": [
