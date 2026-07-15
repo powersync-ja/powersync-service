@@ -32,17 +32,20 @@ import {
  * queriers to bucket creators. To represent this efficiently, we assign numbers to referenced elements while
  * serializing instead of duplicating definitions.
  */
-export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanV1 {
+export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
   const dataSourceIndex = new Map<StreamDataSource, number>();
   const bucketIndex = new Map<StreamBucketDataSource, number>();
   const parameterIndex = new Map<StreamParameterIndexLookupCreator, number>();
   const expandingLookups = new Map<ExpandingLookup, LookupReference>();
   const addedTableValuedFunctions = new Map<TableProcessorTableValuedFunction, number>();
+  let usesRowMetadataSqlValue = false;
 
   const replaceFunctionReferenceWithIndex = new MapSourceVisitor<
     ColumnSqlParameterValue | RowMetadataSqlValue | TableProcessorTableValuedFunctionOutput,
     ColumnSqlParameterValue | RowMetadataSqlValue | SerializedTableProcessorTableValuedFunctionOutput
   >((value) => {
+    usesRowMetadataSqlValue ||= 'metadata' in value;
+
     if ('function' in value) {
       return { function: addedTableValuedFunctions.get(value.function)!, outputName: value.outputName };
     } else {
@@ -168,7 +171,6 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanV1 {
   }
 
   return {
-    version: 1,
     dataSources: serializeDataSources(),
     buckets: plan.buckets.map((bkt, index) => {
       bucketIndex.set(bkt, index);
@@ -182,13 +184,20 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanV1 {
     streams: plan.streams.map((s) => ({
       stream: s.stream,
       queriers: s.queriers.map(serializeStreamQuerier)
-    }))
+    })),
+    version: usesRowMetadataSqlValue ? 2 : 1
   };
 }
 
 export function deserializeSyncPlan(serialized: unknown): SyncPlan {
-  if ((serialized as SerializedSyncPlanV1).version != 1) {
+  const { version } = serialized as SerializedSyncPlan;
+  if (version < 1) {
     throw new Error('Unknown sync plan version passed to deserializeSyncPlan()');
+  }
+  if (version > maxSupportedSyncPlanVersion) {
+    throw new Error(
+      `Encountered a sync plan with version ${version}, the maximum supported version is ${maxSupportedSyncPlanVersion}. This can happen when the PowerSync service version is downgraded after deploying Sync Streams, consider upgrading or re-deploying.`
+    );
   }
 
   function deserializeTablePattern(pattern: SerializedTablePattern): ImplicitSchemaTablePattern {
@@ -224,7 +233,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
     });
   }
 
-  const plan = serialized as SerializedSyncPlanV1;
+  const plan = serialized as SerializedSyncPlan;
   const dataSources = plan.dataSources.map((source): StreamDataSource => {
     const functions = (tableValuedFunctionsInScope = source.tableValuedFunctions);
 
@@ -333,8 +342,28 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   };
 }
 
-export interface SerializedSyncPlanV1 {
-  version: number;
+/**
+ * Every change to the format of {@link SerializedSyncPlan} needs a version bump and a changelog entry in this
+ * documentation comment. Even for seemingly backward-compatible changes, like adding new fields, older services would
+ * be unaware of them and thus interpret the sync plan incorrectly. Increasing this version ensures that older services
+ * wouldn't even try to deserialize sync plans.
+ *
+ * ### Version 2
+ *
+ * - Add {@link RowMetadataSqlValue} to data for row and parameter evaluators, exposing the exact table and schema name
+ *   when matching on wildcard table patterns.
+ *   The deserialization logic can remain the same for v1 and v2.
+ *
+ * ### Version 1
+ *
+ * - Initial version
+ */
+export type SerializedSyncPlanVersion = 1 | 2;
+
+export const maxSupportedSyncPlanVersion: SerializedSyncPlanVersion = 2;
+
+export interface SerializedSyncPlan {
+  version: SerializedSyncPlanVersion;
   dataSources: SerializedDataSource[];
   buckets: SerializedBucketDataSource[];
   parameterIndexes: SerializedParameterIndexLookupCreator[];
