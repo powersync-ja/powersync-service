@@ -67,7 +67,7 @@ export class DrizzleBucketBatch
   }
 
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
-    const syncRules = options.syncRules ?? this.options.syncRules;
+    const syncRules = options.parsedSyncConfig?.hydratedSyncConfig ?? this.options.syncRules;
     const { connection_id, source } = options;
     const { schema, name: table, objectId, replicaIdColumns, connectionTag, sendsCompleteRows } = source;
     const normalizedReplicaIdColumns = normalizeReplicaIdColumns(replicaIdColumns);

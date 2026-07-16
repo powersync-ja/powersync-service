@@ -20,14 +20,12 @@ bucket_definitions:
     const stream = await factory.updateSyncRules(syncRules);
     const bucketStorage = factory.getInstance(stream);
 
-    const first = await bucketStorage.createManagedWriteCheckpoint({
-      user_id: 'user1',
-      heads: { '1': '5/0' }
-    });
-    const second = await bucketStorage.createManagedWriteCheckpoint({
-      user_id: 'user1',
-      heads: { '1': '6/0' }
-    });
+    const first = (
+      await bucketStorage.createManagedWriteCheckpoints([{ user_id: 'user1', heads: { '1': '5/0' } }])
+    ).get('user1')!;
+    const second = (
+      await bucketStorage.createManagedWriteCheckpoints([{ user_id: 'user1', heads: { '1': '6/0' } }])
+    ).get('user1')!;
 
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '4/0' } })).resolves.toBeNull();
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '5/0' } })).resolves.toBe(first);
@@ -45,10 +43,9 @@ bucket_definitions:
         .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
         [Symbol.asyncIterator]();
 
-      const writeCheckpoint = await bucketStorage.createManagedWriteCheckpoint({
-        user_id: 'user1',
-        heads: { '1': '5/0' }
-      });
+      const writeCheckpoint = (
+        await bucketStorage.createManagedWriteCheckpoints([{ user_id: 'user1', heads: { '1': '5/0' } }])
+      ).get('user1')!;
 
       const em = factory.orm.em.fork();
       const row = await em.findOneOrFail(factory.dialect.syncRulesEntity, {

@@ -43,9 +43,7 @@ export class DrizzleSyncRulesStorage
   readonly factory: DrizzleBucketStorageFactory;
   readonly logger: Logger;
 
-  private parsedSyncRulesCache:
-    | { parsed: sync_rules.HydratedSyncConfig; options: storage.ParseSyncConfigOptions }
-    | undefined;
+  private readonly parsedSyncConfigSets = new Map<string, storage.ParsedSyncConfigSet>();
 
   private writeCheckpointModeValue = storage.WriteCheckpointMode.MANAGED;
   private checksumCacheValue: storage.ChecksumCache | undefined;
@@ -74,38 +72,48 @@ export class DrizzleSyncRulesStorage
     return this.checksumCacheValue;
   }
 
-  async createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
+  async createManagedWriteCheckpoints(
+    checkpoints: storage.ManagedWriteCheckpointOptions[]
+  ): Promise<Map<string, bigint>> {
     if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
       throw new errors.ValidationError(
         `Attempting to create a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
       );
     }
 
+    const uniqueCheckpoints = [...new Map(checkpoints.map((checkpoint) => [checkpoint.user_id, checkpoint])).values()];
+    if (uniqueCheckpoints.length == 0) {
+      return new Map();
+    }
     const table = this.options.dialect.tables.writeCheckpoints;
-    const createdCheckpoint = this.options.dialect.transaction((tx) => {
-      const latest = tx
-        .select()
-        .from(table)
-        .where(and(eq(table.userId, checkpoint.user_id), isNull(table.syncRulesId)))
-        .orderBy(desc(table.checkpoint))
-        .limit(1)
-        .get();
-      const value = (latest?.checkpoint ?? 0n) + 1n;
-      tx.insert(table)
-        .values({
-          id: uuid.v4(),
-          syncRulesId: null,
-          userId: checkpoint.user_id,
-          checkpoint: value,
-          heads: checkpoint.heads,
-          createdAt: new Date()
-        })
-        .run();
-      return value;
+    const createdCheckpoints = this.options.dialect.transaction((tx) => {
+      const result = new Map<string, bigint>();
+      for (const checkpoint of uniqueCheckpoints) {
+        const latest = tx
+          .select()
+          .from(table)
+          .where(and(eq(table.userId, checkpoint.user_id), isNull(table.syncRulesId)))
+          .orderBy(desc(table.checkpoint))
+          .limit(1)
+          .get();
+        const value = (latest?.checkpoint ?? 0n) + 1n;
+        tx.insert(table)
+          .values({
+            id: uuid.v4(),
+            syncRulesId: null,
+            userId: checkpoint.user_id,
+            checkpoint: value,
+            heads: checkpoint.heads,
+            createdAt: new Date()
+          })
+          .run();
+        result.set(checkpoint.user_id, value);
+      }
+      return result;
     });
 
     this.factory.checkpointWatcher.notify();
-    return createdCheckpoint;
+    return createdCheckpoints;
   }
 
   async lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {
@@ -157,16 +165,17 @@ export class DrizzleSyncRulesStorage
     return writer.last_flushed_op != null ? { flushed_op: writer.last_flushed_op } : null;
   }
 
-  getParsedSyncRules(options: storage.ParseSyncConfigOptions): sync_rules.HydratedSyncConfig {
-    const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
-    if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = {
-        parsed: this.options.replicationStream.parsed(options).hydratedSyncConfig(),
-        options
-      };
+  getParsedSyncConfigSet(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
+    let parsed = this.parsedSyncConfigSets.get(options.defaultSchema);
+    if (parsed == null) {
+      parsed = this.options.replicationStream.parsed(options);
+      this.parsedSyncConfigSets.set(options.defaultSchema, parsed);
     }
+    return parsed;
+  }
 
-    return this.parsedSyncRulesCache!.parsed;
+  getParsedSyncRules(options: storage.ParseSyncConfigOptions): sync_rules.HydratedSyncConfig {
+    return this.getParsedSyncConfigSet(options).hydratedSyncConfig;
   }
 
   async terminate(options?: storage.TerminateOptions): Promise<void> {
@@ -185,16 +194,16 @@ export class DrizzleSyncRulesStorage
     this.factory.checkpointWatcher.notify();
   }
 
-  async getStatus(): Promise<storage.SyncRuleStatus> {
+  async getStatus(): Promise<storage.ReplicationStreamStatus> {
     const { db, tables } = this.options.dialect;
     const row = db.select().from(tables.syncRules).where(eq(tables.syncRules.id, this.replicationStreamId)).get();
 
+    if (row == null) {
+      throw new Error('Cannot find replication stream status');
+    }
     return {
-      checkpoint_lsn: row?.lastCheckpointLsn ?? null,
-      active: row?.state == storage.SyncRuleState.ACTIVE,
-      snapshot_done: row?.snapshotDone ?? false,
-      snapshot_lsn: row?.snapshotLsn ?? null,
-      keepalive_op: row?.keepaliveOp ?? null
+      snapshotDone: row.snapshotDone && row.lastCheckpointLsn != null,
+      resumeLsn: utils.maxLsn(row.snapshotLsn, row.lastCheckpointLsn)
     };
   }
 
@@ -330,7 +339,7 @@ export class DrizzleSyncRulesStorage
   }
 
   async *getBucketDataBatch(
-    checkpoint: bigint,
+    checkpoint: ReplicationCheckpoint,
     dataBuckets: BucketDataRequest[],
     options?: BucketDataBatchOptions
   ): AsyncIterable<SyncBucketDataChunk> {
@@ -343,7 +352,7 @@ export class DrizzleSyncRulesStorage
     const startOpByBucket = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
     const rows = this.options.dialect.streamBucketDataRows({
       groupId: this.replicationStreamId,
-      checkpoint,
+      checkpoint: checkpoint.checkpoint,
       dataBuckets,
       limit: batchRowLimit
     });
@@ -411,8 +420,8 @@ export class DrizzleSyncRulesStorage
     }
   }
 
-  async getChecksums(checkpoint: bigint, buckets: BucketChecksumRequest[]): Promise<utils.ChecksumMap> {
-    return this.checksumCache.getChecksumMap(checkpoint, buckets);
+  async getChecksums(checkpoint: ReplicationCheckpoint, buckets: BucketChecksumRequest[]): Promise<utils.ChecksumMap> {
+    return this.checksumCache.getChecksumMap(checkpoint.checkpoint, buckets);
   }
 
   clearChecksumCache(): void {

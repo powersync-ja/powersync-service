@@ -15,7 +15,8 @@ export class DrizzlePersistedSyncConfigContent extends storage.PersistedSyncConf
       compiled_plan: row.syncPlan,
       replicationStreamName: row.slotName,
       storageVersion: row.storageVersion ?? storage.LEGACY_STORAGE_VERSION,
-      syncConfigId: String(row.id)
+      syncConfigId: String(row.id),
+      syncConfigState: row.state as storage.SyncRuleState
     });
   }
 

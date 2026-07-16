@@ -44,9 +44,7 @@ export class MikroOrmSyncRulesStorage
   readonly factory: MikroOrmBucketStorageFactory;
   readonly logger: Logger;
 
-  private parsedSyncRulesCache:
-    | { parsed: sync_rules.HydratedSyncConfig; options: storage.ParseSyncConfigOptions }
-    | undefined;
+  private readonly parsedSyncConfigSets = new Map<string, storage.ParsedSyncConfigSet>();
 
   private writeCheckpointModeValue = storage.WriteCheckpointMode.MANAGED;
 
@@ -67,43 +65,51 @@ export class MikroOrmSyncRulesStorage
     this.writeCheckpointModeValue = mode;
   }
 
-  async createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
+  async createManagedWriteCheckpoints(
+    checkpoints: storage.ManagedWriteCheckpointOptions[]
+  ): Promise<Map<string, bigint>> {
     if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
       throw new errors.ValidationError(
         `Attempting to create a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
       );
     }
 
-    let createdCheckpoint: bigint | null = null;
+    const uniqueCheckpoints = [...new Map(checkpoints.map((checkpoint) => [checkpoint.user_id, checkpoint])).values()];
+    if (uniqueCheckpoints.length == 0) {
+      return new Map();
+    }
+    const createdCheckpoints = new Map<string, bigint>();
     const em = this.options.orm.em.fork();
     await em.transactional(async (transactionalEntityManager) => {
-      const [latest] = await transactionalEntityManager.find(
-        this.options.dialect.writeCheckpointEntity,
-        {
+      for (const checkpoint of uniqueCheckpoints) {
+        const [latest] = await transactionalEntityManager.find(
+          this.options.dialect.writeCheckpointEntity,
+          {
+            userId: checkpoint.user_id,
+            syncRulesId: null
+          },
+          {
+            orderBy: { checkpoint: 'DESC' },
+            limit: 1
+          }
+        );
+        const value = (latest?.checkpoint ?? 0n) + 1n;
+        const row = transactionalEntityManager.create(this.options.dialect.writeCheckpointEntity, {
+          id: uuid.v4(),
+          syncRulesId: null,
           userId: checkpoint.user_id,
-          syncRulesId: null
-        },
-        {
-          orderBy: { checkpoint: 'DESC' },
-          limit: 1
-        }
-      );
-      createdCheckpoint = (latest?.checkpoint ?? 0n) + 1n;
-      const row = transactionalEntityManager.create(this.options.dialect.writeCheckpointEntity, {
-        id: uuid.v4(),
-        syncRulesId: null,
-        userId: checkpoint.user_id,
-        checkpoint: createdCheckpoint,
-        heads: checkpoint.heads,
-        createdAt: new Date()
-      });
-
-      transactionalEntityManager.persist(row);
+          checkpoint: value,
+          heads: checkpoint.heads,
+          createdAt: new Date()
+        });
+        transactionalEntityManager.persist(row);
+        createdCheckpoints.set(checkpoint.user_id, value);
+      }
       await transactionalEntityManager.flush();
     });
 
     this.factory.checkpointWatcher.notify();
-    return createdCheckpoint!;
+    return createdCheckpoints;
   }
 
   async lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {
@@ -158,16 +164,17 @@ export class MikroOrmSyncRulesStorage
     return writer.last_flushed_op != null ? { flushed_op: writer.last_flushed_op } : null;
   }
 
-  getParsedSyncRules(options: storage.ParseSyncConfigOptions): sync_rules.HydratedSyncConfig {
-    const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
-    if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = {
-        parsed: this.options.replicationStream.parsed(options).hydratedSyncConfig(),
-        options
-      };
+  getParsedSyncConfigSet(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
+    let parsed = this.parsedSyncConfigSets.get(options.defaultSchema);
+    if (parsed == null) {
+      parsed = this.options.replicationStream.parsed(options);
+      this.parsedSyncConfigSets.set(options.defaultSchema, parsed);
     }
+    return parsed;
+  }
 
-    return this.parsedSyncRulesCache!.parsed;
+  getParsedSyncRules(options: storage.ParseSyncConfigOptions): sync_rules.HydratedSyncConfig {
+    return this.getParsedSyncConfigSet(options).hydratedSyncConfig;
   }
 
   async terminate(options?: storage.TerminateOptions): Promise<void> {
@@ -187,18 +194,18 @@ export class MikroOrmSyncRulesStorage
     this.factory.checkpointWatcher.notify();
   }
 
-  async getStatus(): Promise<storage.SyncRuleStatus> {
+  async getStatus(): Promise<storage.ReplicationStreamStatus> {
     const em = this.options.orm.em.fork();
     const row = await em.findOne(this.options.dialect.syncRulesEntity, {
       id: this.replicationStreamId
     });
 
+    if (row == null) {
+      throw new Error('Cannot find replication stream status');
+    }
     return {
-      checkpoint_lsn: row?.lastCheckpointLsn ?? null,
-      active: row?.state == storage.SyncRuleState.ACTIVE,
-      snapshot_done: row?.snapshotDone ?? false,
-      snapshot_lsn: row?.snapshotLsn ?? null,
-      keepalive_op: row?.keepaliveOp ?? null
+      snapshotDone: row.snapshotDone && row.lastCheckpointLsn != null,
+      resumeLsn: utils.maxLsn(row.snapshotLsn, row.lastCheckpointLsn)
     };
   }
 
@@ -343,7 +350,7 @@ export class MikroOrmSyncRulesStorage
   }
 
   async *getBucketDataBatch(
-    checkpoint: bigint,
+    checkpoint: ReplicationCheckpoint,
     dataBuckets: BucketDataRequest[],
     options?: BucketDataBatchOptions
   ): AsyncIterable<SyncBucketDataChunk> {
@@ -357,7 +364,7 @@ export class MikroOrmSyncRulesStorage
     const rows = this.options.dialect.streamBucketDataRows({
       em: this.options.orm.em.fork(),
       groupId: this.replicationStreamId,
-      checkpoint,
+      checkpoint: checkpoint.checkpoint,
       dataBuckets,
       limit: batchRowLimit
     });
@@ -425,7 +432,7 @@ export class MikroOrmSyncRulesStorage
     }
   }
 
-  async getChecksums(checkpoint: bigint, buckets: BucketChecksumRequest[]): Promise<utils.ChecksumMap> {
+  async getChecksums(checkpoint: ReplicationCheckpoint, buckets: BucketChecksumRequest[]): Promise<utils.ChecksumMap> {
     const result: utils.ChecksumMap = new Map();
     for (const bucket of buckets) {
       const rows = await this.options.orm.em.fork().find(
@@ -433,7 +440,7 @@ export class MikroOrmSyncRulesStorage
         {
           groupId: this.replicationStreamId,
           bucketName: bucket.bucket,
-          opId: { $lte: checkpoint }
+          opId: { $lte: checkpoint.checkpoint }
         },
         {
           orderBy: { opId: 'ASC' }
