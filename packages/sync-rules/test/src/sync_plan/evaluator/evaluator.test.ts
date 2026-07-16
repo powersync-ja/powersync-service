@@ -2,6 +2,7 @@ import * as sqlite from 'node:sqlite';
 import { describe, expect } from 'vitest';
 import {
   DEFAULT_HYDRATION_STATE,
+  DEFAULT_TAG,
   HydratedSyncConfig,
   nodeSqlite,
   ParameterLookupRows,
@@ -206,6 +207,43 @@ streams:
 `);
     expect(evaluateBucketIds(desc, USERS, { id: 'foo' })).toStrictEqual(['stream|0[]']);
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo2' })).toStrictEqual(['stream|0[]']);
+  });
+
+  syncTest('aliased column and star precedence', ({ sync }) => {
+    const aliasFirst = sync.prepareSyncStreams(
+      `
+config:
+  edition: 3
+  
+streams:
+  stream:
+    query: SELECT user_id as id, * FROM users
+`,
+      undefined,
+      { allowWarnings: true }
+    );
+    const aliasLast = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  
+streams:
+  stream:
+    query: SELECT *, user_id as id FROM users
+`);
+
+    const sourceRecord = { user_id: 'uid', id: 'internal_id', name: 'username' };
+
+    {
+      const [row] = aliasFirst.evaluateRow({ sourceTable: USERS, record: sourceRecord });
+      expect(row.id).toStrictEqual('internal_id');
+      expect(row.data).toStrictEqual({ id: 'internal_id', user_id: 'uid', name: 'username' });
+    }
+
+    {
+      const [row] = aliasLast.evaluateRow({ sourceTable: USERS, record: sourceRecord });
+      expect(row.id).toStrictEqual('uid');
+      expect(row.data).toStrictEqual({ id: 'uid', user_id: 'uid', name: 'username' });
+    }
   });
 });
 
@@ -518,7 +556,7 @@ streams:
   stream:
       auto_subscribe: true
       query: |
-        SELECT c.* FROM comments c
+        SELECT c.* FROM comments AS "c"
           INNER JOIN issues i ON c.issue = i.id
           INNER JOIN users owner ON owner.name = i.owned_by
         WHERE owner.id = auth.user_id()
@@ -551,6 +589,48 @@ streams:
       }
     });
     expect(buckets.map((b) => b.bucket)).toStrictEqual(['stream|0["issue"]']);
+  });
+
+  syncTest('wildcard table in parameter query', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  
+streams:
+  stream:
+    auto_subscribe: true
+    query: SELECT * FROM comments WHERE list IN (SELECT id FROM "li%" AS lists)
+`);
+
+    const list0 = new TestSourceTable('lists0');
+    const list1 = new TestSourceTable('lists1');
+
+    expect(desc.tableSyncsParameters(list0)).toBeTruthy();
+    expect(desc.tableSyncsParameters(list1)).toBeTruthy();
+    expect(desc.tableSyncsParameters(COMMENTS)).toBeFalsy();
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user' }),
+      hasDefaultStreams: true,
+      streams: {}
+    });
+    expect(errors).toStrictEqual([]);
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      getParameterSets: async function (
+        lookups: ScopedParameterLookup[],
+        debugDefinition: string
+      ): Promise<ParameterLookupRows[]> {
+        expect(debugDefinition).toContain('evaluating parameter on li%');
+        expect(lookups).toHaveLength(1);
+        return [
+          {
+            lookup: lookups[0],
+            rows: [{ '0': 'list' }]
+          }
+        ];
+      }
+    });
+    expect(buckets.map((b) => b.bucket)).toStrictEqual(['stream|0["list"]']);
   });
 
   syncTest('preserves correlation across lookup output columns', async ({ sync }) => {
@@ -1240,6 +1320,145 @@ streams:
   expect(() => desc.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: null })).toThrow(
     'sqlite_expression_engine is unsupported on this target.'
   );
+});
+
+describe('table metadata', () => {
+  const tenantTable = (schema: string, name: string): SourceTableRef => ({
+    connectionTag: DEFAULT_TAG,
+    schema,
+    name
+  });
+
+  syncTest('buckets by schema for wildcard-schema patterns', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT * FROM "%".comments WHERE comments.schema() = auth.parameter('tenant_schema')
+`);
+
+    expect(desc.evaluateRow({ sourceTable: tenantTable('tenant_a', 'comments'), record: { id: 'c1' } })).toStrictEqual([
+      {
+        bucket: 'stream|0["tenant_a"]',
+        id: 'c1',
+        data: { id: 'c1' },
+        table: 'comments'
+      }
+    ]);
+    expect(evaluateBucketIds(desc, tenantTable('tenant_b', 'comments'), { id: 'c2' })).toStrictEqual([
+      'stream|0["tenant_b"]'
+    ]);
+    // Tables not matching the wildcard-schema pattern's name are not processed.
+    expect(desc.evaluateRow({ sourceTable: tenantTable('tenant_a', 'users'), record: { id: 'u1' } })).toHaveLength(0);
+  });
+
+  syncTest('resolves static buckets from the request', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT * FROM "%".comments WHERE comments.schema() = auth.parameter('tenant_schema')
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ tenant_schema: 'tenant_a' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+    expect(querier.staticBuckets.map((b) => b.bucket)).toStrictEqual(['stream|0["tenant_a"]']);
+  });
+
+  syncTest('schema() as a column', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT id, users.schema() AS tenant FROM users
+`);
+
+    expect(desc.evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })).toStrictEqual([
+      {
+        bucket: 'stream|0[]',
+        id: 'foo',
+        data: { id: 'foo', tenant: 'test_schema' },
+        table: 'users'
+      }
+    ]);
+  });
+
+  syncTest('table_name() as a column', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT id, u.table_name() AS source_table FROM "user%" u
+`);
+
+    // Unlike the output table name (which uses the alias), table_name() returns the name of the
+    // replicated table.
+    expect(desc.evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })).toStrictEqual([
+      {
+        bucket: 'stream|0[]',
+        id: 'foo',
+        data: { id: 'foo', source_table: 'users' },
+        table: 'u'
+      }
+    ]);
+  });
+
+  syncTest('table_suffix() as a column', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT id, users.table_suffix() AS suffix FROM "user%" users
+`);
+
+    expect(desc.evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })).toStrictEqual([
+      {
+        bucket: 'stream|0[]',
+        id: 'foo',
+        data: { id: 'foo', suffix: 's' },
+        table: 'users'
+      }
+    ]);
+  });
+
+  syncTest('table metadata in parameter lookups', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM "%".issues WHERE issues.schema() = auth.parameter('tenant_schema'))
+`);
+
+    expect(desc.tableSyncsParameters(tenantTable('tenant_a', 'issues'))).toBeTruthy();
+    expect(desc.evaluateParameterRow(tenantTable('tenant_a', 'issues'), { id: 'i1' })).toStrictEqual([
+      {
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['tenant_a']),
+        bucketParameters: [
+          {
+            '0': 'i1'
+          }
+        ]
+      }
+    ]);
+  });
 });
 
 function evaluateBucketIds(source: HydratedSyncConfig, sourceTable: SourceTableRef, record: SqliteRow) {

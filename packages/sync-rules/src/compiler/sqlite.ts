@@ -3,7 +3,6 @@ import {
   Expr,
   ExprBinary,
   ExprCall,
-  ExprRef,
   nil,
   NodeLocation,
   PGNode,
@@ -24,6 +23,8 @@ import {
   ConnectionParameter,
   ExpressionInput,
   NodeLocations,
+  RowMetadata,
+  RowMetadataKind,
   SourceLocation,
   SyncExpression
 } from './expression.js';
@@ -71,7 +72,7 @@ export interface PostgresToSqliteOptions {
    *
    * Should report an error if resolving the table failed, using `node` as the source location for the error.
    */
-  resolveTableName(node: ExprRef, name: string | nil): SourceResultSet | PreparedSubquery | null;
+  resolveTableName(node: Expr, name: string | nil): SourceResultSet | PreparedSubquery | null;
 
   /**
    * Generates a table alias for synthetic subqueries like those generated to desugar `IN` expressions to `json_each`
@@ -198,9 +199,14 @@ export class PostgresToSqlite {
         if (schemaName) {
           if (source) {
             return this.translateRequestParameter(source, expr);
-          } else {
-            return this.invalidExpression(expr.function, 'Invalid schema in function name');
           }
+
+          // Calls qualified by a table in scope resolve to metadata of that table, e.g. `users.schema()`.
+          const metadata = rowMetadataFunctions[expr.function.name.toLowerCase()];
+          if (metadata != null) {
+            return this.translateRowMetadata(metadata, expr);
+          }
+          return this.invalidExpression(expr.function, 'Invalid schema in function name');
         }
 
         if (expr.distinct != null || expr.orderBy != null || expr.filter != null || expr.over != null) {
@@ -549,6 +555,36 @@ export class PostgresToSqlite {
     }
   }
 
+  private translateRowMetadata(kind: RowMetadataKind, expr: ExprCall): SqlExpression<ExpressionInput> {
+    if (expr.args.length != 0) {
+      return this.invalidExpression(expr.function, 'Expected no arguments here');
+    }
+
+    const resultSet = this.options.resolveTableName(expr, expr.function.schema);
+    if (resultSet == null) {
+      // resolveTableName will have logged an error, transform with a bogus value to keep going.
+      return { type: 'lit_null' };
+    }
+    if (!(resultSet instanceof BaseSourceResultSet)) {
+      return this.invalidExpression(expr.function, `${kind}() is not supported on subqueries`);
+    }
+
+    if (kind == 'table_suffix' && resultSet instanceof PhysicalSourceResultSet && !resultSet.tablePattern.isWildcard) {
+      this.options.errors.report(
+        'table_suffix() is always empty because this table is not selected with a wildcard name.',
+        expr.function,
+        { isWarning: true }
+      );
+    }
+
+    const replacement: SqlExpression<ExpressionInput> = {
+      type: 'data',
+      source: new RowMetadata(expr, resultSet, kind)
+    };
+    this.options.locations.sourceForNode.set(replacement, this.sourceLocation(expr.function));
+    return replacement;
+  }
+
   private sourceLocation(location: PGNode | NodeLocation): SourceLocation {
     return { location, errors: this.options.errors };
   }
@@ -577,4 +613,10 @@ const supportedBinaryOperators: Partial<Record<BinaryOperator, SupportedBinaryOp
 const forbiddenFunctions: Record<string, string> = {
   random: 'Sync definitions must be deterministic.',
   randomBlob: 'Sync definitions must be deterministic.'
+};
+
+const rowMetadataFunctions: Record<string, RowMetadataKind> = {
+  schema: 'schema',
+  table_name: 'table_name',
+  table_suffix: 'table_suffix'
 };

@@ -63,6 +63,7 @@ export interface MongoCompactOptions extends storage.CompactOptions {}
 const DEFAULT_CLEAR_BATCH_LIMIT = 5000;
 const DEFAULT_MOVE_BATCH_LIMIT = 2000;
 const DEFAULT_MOVE_BATCH_QUERY_LIMIT = 10_000;
+const DEFAULT_MOVE_BATCH_BYTE_LIMIT = 16 * 1024 * 1024;
 const DEFAULT_MIN_BUCKET_CHANGES = 10;
 const DEFAULT_MIN_CHANGE_RATIO = 0.1;
 const DIRTY_BUCKET_SCAN_BATCH_SIZE = 2_000;
@@ -83,6 +84,7 @@ export abstract class MongoCompactor {
   protected readonly idLimitBytes: number;
   protected readonly moveBatchLimit: number;
   protected readonly moveBatchQueryLimit: number;
+  protected readonly moveBatchByteLimit: number;
   protected readonly clearBatchLimit: number;
   protected readonly minBucketChanges: number;
   protected readonly minChangeRatio: number;
@@ -102,7 +104,11 @@ export abstract class MongoCompactor {
     this.idLimitBytes = (options.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
     this.moveBatchLimit = options.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
     this.moveBatchQueryLimit = options.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
+    this.moveBatchByteLimit = options.moveBatchByteLimit ?? DEFAULT_MOVE_BATCH_BYTE_LIMIT;
     this.clearBatchLimit = options.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
+    if (this.clearBatchLimit < 2) {
+      throw new ReplicationAssertionError('clearBatchLimit must be >= 2');
+    }
     this.minBucketChanges = options.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
     this.minChangeRatio = options.minChangeRatio ?? DEFAULT_MIN_CHANGE_RATIO;
     this.maxOpId = options.maxOpId ?? 0n;
@@ -114,7 +120,7 @@ export abstract class MongoCompactor {
   /**
    * Compact buckets by converting operations into MOVE and/or CLEAR operations.
    *
-   * See /docs/compacting-operations.md for details.
+   * See /docs/storage/compacting-operations.md for details.
    */
   async compact() {
     if (this.buckets) {
@@ -133,6 +139,7 @@ export abstract class MongoCompactor {
    */
   async populateChecksums(options: { minBucketChanges: number }): Promise<PopulateChecksumCacheResults> {
     let count = 0;
+    // Paginate through dirty buckets in batches until no more buckets meet the criteria.
     while (true) {
       this.signal?.throwIfAborted();
       const buckets = await this.dirtyBucketBatchForChecksums(options);
@@ -172,6 +179,7 @@ export abstract class MongoCompactor {
     },
     getDefinitionId: (state: TCollectionBucketState) => BucketDefinitionId | null
   ): AsyncGenerator<DirtyBucket[]> {
+    // Paginate through the bucket state collection using cursor-based scanning.
     while (true) {
       // To avoid timeouts from too many buckets not meeting the minBucketChanges criteria, use an aggregation pipeline
       // to scan a fixed batch of buckets at a time, but only return buckets that meet the criteria.
@@ -304,6 +312,7 @@ export abstract class MongoCompactor {
    */
   protected async compactSingleBucketRetried(bucket: string, definitionId: BucketDefinitionId | null = null) {
     let retryCount = 0;
+    // Retry with exponential backoff up to 3 times on MongoDB errors.
     while (true) {
       try {
         await this.compactSingleBucket(bucket, definitionId);
@@ -343,6 +352,7 @@ export abstract class MongoCompactor {
     // Upper bound is adjusted for each batch.
     let upperBound = bucketContext.maxId;
 
+    // Paginate through bucket data in batches to avoid cursor timeouts.
     while (true) {
       this.signal?.throwIfAborted();
 
@@ -353,11 +363,7 @@ export abstract class MongoCompactor {
             _id: {
               $gte: lowerBound,
               $lt: upperBound
-            },
-            // Workaround for a clustered collection bug where the $lt operator may include upperBound.
-            // Technically only needed for storage V3.
-            // https://jira.mongodb.org/browse/SERVER-121822
-            '_id.o': { $lt: upperBound.o }
+            }
           }
         },
         { $sort: { _id: -1 } },
@@ -488,13 +494,13 @@ export abstract class MongoCompactor {
     await this.flush(bucketContext);
   }
 
-  protected updateBucketChecksums(state: CurrentBucketState) {
+  protected collectBucketStateUpdates(state: CurrentBucketState): mongo.AnyBulkWriteOperation<BucketStateDocumentBase> {
     if (state.opCount < 0) {
       throw new ServiceAssertionError(
         `Invalid opCount: ${state.opCount} checksum ${state.checksum} opsSincePut: ${state.opsSincePut} maxOpId: ${this.maxOpId}`
       );
     }
-    this.bucketStateUpdates.push({
+    return {
       updateOne: {
         filter: this.bucketStateFilter(state.bucket, state.definitionId),
         update: {
@@ -517,7 +523,11 @@ export abstract class MongoCompactor {
         // We don't create new ones here, to avoid issues with the unique index on bucket_updates.
         upsert: false
       }
-    });
+    };
+  }
+
+  protected updateBucketChecksums(state: CurrentBucketState) {
+    this.bucketStateUpdates.push(this.collectBucketStateUpdates(state));
   }
 
   protected async flush(col: SingleBucketStore) {

@@ -21,11 +21,12 @@ import {
 import { HydratedSyncConfig } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { performance } from 'node:perf_hooks';
-import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
+import { CheckpointImplementation } from './checkpoints/CheckpointImplementation.js';
+import { createCheckpointImplementation } from './checkpoints/create-checkpoint-implementation.js';
 import { MongoManager } from './MongoManager.js';
-import { createCheckpoint, getCacheIdentifier, getMongoRelation, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
+import { getCacheIdentifier, getMongoRelation } from './MongoRelation.js';
 import { MongoSnapshotter, MongoSnapshotterHooks } from './MongoSnapshotter.js';
 import {
   ChangeStreamBatch,
@@ -33,7 +34,7 @@ import {
   ProjectedChangeStreamDocument,
   rawChangeStream
 } from './RawChangeStream.js';
-import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
+import { CHECKPOINTS_COLLECTION, detectDocumentDb, timestampToDate } from './replication-utils.js';
 import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -52,6 +53,11 @@ export interface ChangeStreamOptions {
    * Override snapshotChunkLength for testing.
    */
   snapshotChunkLength?: number;
+
+  /**
+   * Override keepalive interval for testing (defaults to 60_000ms).
+   */
+  keepaliveIntervalMs?: number;
 
   storageHooks?: storage.StorageHooks;
   snapshotHooks?: MongoSnapshotterHooks;
@@ -113,6 +119,11 @@ export class ChangeStream {
 
   private readonly sourceRowConverter: SourceRowConverter;
 
+  private keepaliveIntervalMs: number;
+
+  private isDocumentDb = false;
+  private _checkpointImplementation: CheckpointImplementation | null = null;
+
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
@@ -120,6 +131,7 @@ export class ChangeStream {
     this.connections = options.connections;
     this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
+    this.keepaliveIntervalMs = options.keepaliveIntervalMs ?? 60_000;
     this.storageHooks = options.storageHooks;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
@@ -132,11 +144,16 @@ export class ChangeStream {
     // so we use 90% of the socket timeout value.
     this.changeStreamTimeout = Math.ceil(this.client.options.socketTimeoutMS * 0.9);
 
-    this.logger = options.logger ?? this.storage.logger;
+    const baseLogger = options.logger ?? this.storage.logger;
+    // Unfortunately the Winston APIs don't have a nice way to append to the prefix,
+    // so we replace it here.
+    this.logger = baseLogger.child({ prefix: `[${this.storage.replicationStreamName}] [stream] ` });
+    const snapshotLogger = baseLogger.child({ prefix: `[${this.storage.replicationStreamName}] [snapshot] ` });
+
     this.snapshotter = new MongoSnapshotter({
       ...options,
       abortSignal: this.abortSignal,
-      logger: this.logger,
+      logger: snapshotLogger,
       checkpointStreamId: this.checkpointStreamId
     });
 
@@ -162,6 +179,37 @@ export class ChangeStream {
 
   private get configurePostImages() {
     return this.connections.options.postImages == PostImagesOption.AUTO_CONFIGURE;
+  }
+
+  /** The active checkpoint strategy. Only valid after ensureDetected(). */
+  private get checkpointImplementation(): CheckpointImplementation {
+    if (this._checkpointImplementation == null) {
+      throw new ReplicationAssertionError('Checkpoint implementation not initialized - call ensureDetected() first');
+    }
+    return this._checkpointImplementation;
+  }
+
+  /**
+   * Detect DocumentDB and select the checkpoint implementation for the streaming
+   * loop. Idempotent. The snapshotter detects independently; the two coordinate
+   * through stored LSNs, not shared in-memory state.
+   */
+  private async ensureDetected(): Promise<void> {
+    if (this._checkpointImplementation != null) {
+      return;
+    }
+    this.isDocumentDb = await detectDocumentDb(this.defaultDb);
+    if (this.isDocumentDb) {
+      this.logger.warn(
+        'Azure DocumentDB support is experimental. APIs and behavior may change, and long-term stability is not yet guaranteed.'
+      );
+    }
+    this._checkpointImplementation = createCheckpointImplementation(this.isDocumentDb, {
+      client: this.client,
+      db: this.defaultDb,
+      checkpointStreamId: this.checkpointStreamId,
+      logger: this.logger
+    });
   }
 
   private getSourceNamespaceFilters(): { $match: any; multipleDatabases: boolean } {
@@ -204,7 +252,15 @@ export class ChangeStream {
     // For details, see:
     // https://github.com/powersync-ja/powersync-service/pull/417
     // https://jira.mongodb.org/browse/SERVER-114532
-    const nsFilter = multipleDatabases
+    //
+    // DocumentDB always opens a cluster-level change stream (admin +
+    // allChangesForCluster), even in single-database mode. A coll-only filter
+    // would then match same-named collections (including _powersync_checkpoints)
+    // in other databases of the cluster, letting a foreign standalone-checkpoint
+    // event advance/resolve checkpoints against the wrong source database. So we
+    // must filter on the full namespace whenever the stream is cluster-scoped.
+    const useFullNamespaceFilter = this.isDocumentDb || multipleDatabases;
+    const nsFilter = useFullNamespaceFilter
       ? // cluster-level: filter on the entire namespace
         { ns: { $in: $inFilters } }
       : // collection-level: filter on coll only
@@ -366,6 +422,7 @@ export class ChangeStream {
   async replicate() {
     let streamPromise: Promise<void> | null = null;
     let loopPromise: Promise<void> | null = null;
+    let cleanupPromise: Promise<void> | null = null;
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
@@ -383,6 +440,11 @@ export class ChangeStream {
       if (!this.snapshotter.supportsConcurrentSnapshots) {
         await Promise.race([this.snapshotter.waitForInitialSnapshot(), loopPromise]);
       }
+      // Unlike the other two, this resolves on completion, not an indefinite loop.
+      cleanupPromise = this.cleanupStoppedSyncConfigs().catch((e) => {
+        this.abortController.abort(e);
+        throw e;
+      });
       streamPromise = this.streamChanges()
         .then(() => {
           throw new ReplicationAssertionError(`Replication stream exited unexpectedly`);
@@ -392,7 +454,7 @@ export class ChangeStream {
           throw e;
         });
 
-      const results = await Promise.allSettled([loopPromise, streamPromise]);
+      const results = await Promise.allSettled([loopPromise, streamPromise, cleanupPromise]);
       throw replicationLoopError(results);
     } catch (e) {
       await this.storage.reportError(e);
@@ -422,6 +484,15 @@ export class ChangeStream {
     }
   }
 
+  private async cleanupStoppedSyncConfigs() {
+    await this.storage.cleanupStoppedSyncConfigs?.({
+      signal: this.abortSignal,
+      logger: this.logger,
+      defaultSchema: this.defaultDb.databaseName,
+      sourceConnectionTag: this.connections.connectionTag
+    });
+  }
+
   private async streamChanges() {
     try {
       await this.streamChangesInternal();
@@ -445,15 +516,18 @@ export class ChangeStream {
     signal?: AbortSignal;
     tracer?: PerformanceTracer<'changestream'>;
   }): AsyncIterableIterator<ChangeStreamBatch> {
-    const lastLsn = options.lsn ? MongoLSN.fromSerialized(options.lsn) : null;
-    const startAfter = lastLsn?.timestamp;
-    const resumeAfter = lastLsn?.resumeToken;
+    const position = options.lsn ? this.checkpointImplementation.parseResumePosition(options.lsn) : null;
+    const startAfter = position?.startAfter ?? undefined;
+    const resumeAfter = position?.resumeAfter ?? undefined;
 
     const filters = options.filters;
 
     let fullDocument: 'required' | 'updateLookup';
 
-    if (this.usePostImages) {
+    if (this.isDocumentDb) {
+      // DocumentDB does not support changeStreamPreAndPostImages, so 'required' won't work.
+      fullDocument = 'updateLookup';
+    } else if (this.usePostImages) {
       // 'read_only' or 'auto_configure'
       // Configuration happens during snapshot, or when we see new
       // collections.
@@ -462,42 +536,56 @@ export class ChangeStream {
       fullDocument = 'updateLookup';
     }
     const streamOptions: mongo.ChangeStreamOptions & mongo.Document = {
-      showExpandedEvents: true,
       fullDocument: fullDocument
     };
+    if (!this.isDocumentDb) {
+      // DocumentDB does not support showExpandedEvents.
+      streamOptions.showExpandedEvents = true;
+    }
     const pipeline: mongo.Document[] = [
       {
         $changeStream: streamOptions
       },
       {
         $match: filters.$match
-      },
-      { $changeStreamSplitLargeEvent: {} }
+      }
     ];
+    if (!this.isDocumentDb) {
+      // DocumentDB does not support $changeStreamSplitLargeEvent.
+      pipeline.push({ $changeStreamSplitLargeEvent: {} });
+    }
 
     /**
      * Only one of these options can be supplied at a time.
      */
     if (resumeAfter) {
       streamOptions.resumeAfter = resumeAfter;
-    } else {
+    } else if (startAfter != null) {
       // Legacy: We don't persist lsns without resumeTokens anymore, but we do still handle the
       // case if we have an old one.
       // This is also relevant for getSnapshotLSN().
+      // The sentinel implementation never produces a startAfter, and a fresh DocumentDB stream
+      // opens from "now" with neither option set.
       streamOptions.startAtOperationTime = startAfter;
     }
 
     let watchDb: mongo.Db;
-    if (filters.multipleDatabases) {
+    if (this.isDocumentDb || filters.multipleDatabases) {
+      // DocumentDB only supports cluster-level change streams.
       watchDb = this.client.db('admin');
       streamOptions.allChangesForCluster = true;
     } else {
       watchDb = this.defaultDb;
     }
 
+    const maxAwaitTimeMS = options.maxAwaitTimeMS ?? this.maxAwaitTimeMS;
+
     return rawChangeStream(watchDb, pipeline, {
       batchSize: options.batchSize ?? this.snapshotChunkLength,
-      maxAwaitTimeMS: options.maxAwaitTimeMS ?? this.maxAwaitTimeMS,
+      maxAwaitTimeMS,
+      // maxAwaitTimeMS can be 0 for probe-style streams that do not want an idle wait.
+      // In that case there is no client-side wait to emulate for DocumentDB.
+      clientSideMaxAwaitTimeMS: this.isDocumentDb && maxAwaitTimeMS > 0,
       maxTimeMS: this.changeStreamTimeout,
 
       signal: options.signal,
@@ -511,6 +599,7 @@ export class ChangeStream {
   }
 
   async streamChangesInternal() {
+    await this.ensureDetected();
     const transactionsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED);
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
@@ -521,7 +610,7 @@ export class ChangeStream {
     await this.storage.startBatch(
       {
         logger: this.logger,
-        zeroLSN: MongoLSN.ZERO.comparable,
+        zeroLSN: this.checkpointImplementation.zeroLsn,
         defaultSchema: this.defaultDb.databaseName,
         // We get a complete postimage for every change, so we don't need to store the current data.
         storeCurrentData: false,
@@ -533,15 +622,14 @@ export class ChangeStream {
         if (resumeFromLsn == null) {
           throw new ReplicationAssertionError(`No LSN found to resume from`);
         }
-        const lastLsn = MongoLSN.fromSerialized(resumeFromLsn);
-        const startAfter = lastLsn?.timestamp;
+        // Seed the implementation's coordinate state from the stored LSN, and parse
+        // the legacy startAfter timestamp (timestamp implementation only) for the
+        // resume-boundary dedupe guard below.
+        this.checkpointImplementation.seedPosition(resumeFromLsn);
+        const { startAfter } = this.checkpointImplementation.parseResumePosition(resumeFromLsn);
         let outerSpan = tracer.span('batch');
 
-        // It is normal for this to be a minute or two old when there is a low volume
-        // of ChangeStream events.
-        const tokenAgeSeconds = Math.round((Date.now() - timestampToDate(startAfter).getTime()) / 1000);
-
-        this.logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}  | Token age: ${tokenAgeSeconds}s`);
+        this.checkpointImplementation.logResume(resumeFromLsn);
 
         const filters = this.getSourceNamespaceFilters();
         // This is closed when the for loop below returns/breaks/throws
@@ -555,11 +643,7 @@ export class ChangeStream {
         // Always start with a checkpoint.
         // This helps us to clear errors when restarting, even if there is
         // no data to replicate.
-        let waitForCheckpointLsn: string | null = await createCheckpoint(
-          this.client,
-          this.defaultDb,
-          this.checkpointStreamId
-        );
+        let waitForCheckpointLsn: string | null = await this.checkpointImplementation.createBatchCheckpoint();
 
         let splitDocument: ProjectedChangeStreamDocument | null = null;
 
@@ -583,22 +667,19 @@ export class ChangeStream {
             // We do this by persisting a keepalive checkpoint.
             // If we don't update it on empty events, we do keep consistency, but resuming the stream
             // with old tokens may cause connection timeouts.
-            if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > 60_000) {
-              const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(resumeToken);
-              await batch.keepalive(lsn);
+            if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > this.keepaliveIntervalMs) {
+              // The implementation persists a keepalive (timestamp) or bumps the
+              // sentinel so a later event commits (sentinel). Logging is handled
+              // inside the implementation.
+              await this.checkpointImplementation.keepalive(batch, resumeToken);
               this.touch();
               lastEmptyResume = performance.now();
-              // Log the token update. This helps as a general "replication is still active" message in the logs.
-              // This token would typically be around 10s behind.
-              this.logger.info(
-                `Idle change stream. Persisted resumeToken for ${timestampToDate(timestamp).toISOString()}`
-              );
               this.replicationLag.markStarted();
             }
 
             // If we have no changes, we can just persist the keepalive.
-            // This is throttled to once per minute.
-            if (performance.now() - lastEmptyResume < 60_000) {
+            // This is throttled to once per interval.
+            if (performance.now() - lastEmptyResume < this.keepaliveIntervalMs) {
               continue;
             }
           }
@@ -706,9 +787,12 @@ export class ChangeStream {
               // It may be useful to also throttle commits due to standalone checkpoints in the future.
               // However, these typically have a much lower rate than batch checkpoints, so we don't do that for now.
 
-              const checkpointId = changeDocument.documentKey._id as string | mongo.ObjectId;
+              const kind = this.checkpointImplementation.event.observe(changeDocument);
 
-              if (checkpointId == STANDALONE_CHECKPOINT_ID) {
+              if (kind == 'foreign') {
+                // Another stream's barrier - ignore.
+                continue;
+              } else if (kind == 'standalone') {
                 // Standalone / write checkpoint received.
                 // When we are caught up, commit immediately to keep write checkpoint latency low.
                 // Once there is already a batch checkpoint pending, or the driver has buffered more
@@ -718,7 +802,7 @@ export class ChangeStream {
                 if (hasBufferedChanges && waitForCheckpointLsn == null) {
                   // Buffered changes - create a new batch checkpoint to rate limit commits
                   using _ = tracer.span('source_checkpoint');
-                  waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+                  waitForCheckpointLsn = await this.checkpointImplementation.createBatchCheckpoint();
                   continue;
                 } else if (waitForCheckpointLsn != null) {
                   // Skip this checkpoint - wait for the batch checkpoint.
@@ -726,32 +810,22 @@ export class ChangeStream {
                 } else {
                   // No buffered changes, and no batch checkpoint pending - commit immediately.
                 }
-              } else if (!this.checkpointStreamId.equals(checkpointId)) {
-                continue;
               }
-              const { comparable: lsn } = new MongoLSN({
-                timestamp: changeDocument.clusterTime!,
-                resume_token: changeDocument._id
-              });
-              if (batch.lastCheckpointLsn != null && lsn < batch.lastCheckpointLsn) {
-                // Checkpoint out of order - should never happen with MongoDB.
-                // If it does happen, we throw an error to stop the replication - restarting should recover.
-                // Since we use batch.lastCheckpointLsn for the next resumeAfter, this should not result in an infinite loop.
-                // Originally a workaround for https://jira.mongodb.org/browse/NODE-7042.
-                // This has been fixed in the driver in the meantime, but we still keep this as a safety-check.
-                throw new ReplicationAssertionError(
-                  `Change resumeToken ${(changeDocument._id as any)._data} (${timestampToDate(changeDocument.clusterTime!).toISOString()}) is less than last checkpoint LSN ${batch.lastCheckpointLsn}. Restarting replication.`
-                );
-              }
+              // kind == 'own-barrier' falls through to commit.
 
-              if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
+              const lsn = this.checkpointImplementation.event.lsn(changeDocument);
+
+              if (
+                waitForCheckpointLsn != null &&
+                this.checkpointImplementation.event.resolvesBarrier(waitForCheckpointLsn, changeDocument)
+              ) {
                 waitForCheckpointLsn = null;
               }
-              const { checkpointBlocked } = await batch.commit(lsn, {
+              const { checkpointBlocked, checkpointCreated } = await batch.commit(lsn, {
                 oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
               });
 
-              if (!checkpointBlocked) {
+              if (!checkpointBlocked || checkpointCreated) {
                 this.replicationLag.markCommitted();
               }
             } else if (
@@ -762,7 +836,7 @@ export class ChangeStream {
             ) {
               if (waitForCheckpointLsn == null) {
                 using _ = tracer.span('source_checkpoint');
-                waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+                waitForCheckpointLsn = await this.checkpointImplementation.createBatchCheckpoint();
               }
 
               const rel = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
@@ -776,7 +850,11 @@ export class ChangeStream {
               const tablesToReplicate = tables.filter((table) => table.syncAny);
               if (tablesToReplicate.length > 0) {
                 this.replicationLag.trackUncommittedChange(
-                  changeDocument.clusterTime == null ? null : timestampToDate(changeDocument.clusterTime)
+                  // Standard MongoDB uses clusterTime, unchanged. DocumentDB has no
+                  // clusterTime, so fall back to wallTime there for the lag metric.
+                  changeDocument.clusterTime != null
+                    ? timestampToDate(changeDocument.clusterTime)
+                    : ((changeDocument as any).wallTime ?? null)
                 );
 
                 const transactionKeyValue = transactionKey(changeDocument);
@@ -831,7 +909,7 @@ export class ChangeStream {
             // Batches are generally large (64MB or 6000 events, whichever comes first),
             // so this is a good natural point to flush and mark progress.
             // We avoid this when splitDocument is set, since we cannot resume in the middle of a split event.
-            const { comparable: lsn } = MongoLSN.fromResumeToken(resumeToken);
+            const lsn = this.checkpointImplementation.lsnFromResumeToken(resumeToken);
             await batch.flush({ oldestUncommittedChange: this.replicationLag.oldestUncommittedChange });
             // TODO: We should consider making this standard behavior of flush().
             await batch.setResumeLsn(lsn);

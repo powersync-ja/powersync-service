@@ -11,7 +11,7 @@ export type MongoTestStorageOptions = {
   clientOptions?: mongo.MongoClientOptions;
   runMigrations?: boolean;
   internalOptions?: MongoBucketStorageOptions;
-};
+} & Omit<MongoBucketStorageOptions, 'replicationStreamNamePrefix'>;
 
 export function mongoTestStorageFactoryGenerator(factoryOptions: MongoTestStorageOptions) {
   return {
@@ -34,7 +34,11 @@ export function mongoTestStorageFactoryGenerator(factoryOptions: MongoTestStorag
         await db.clear();
       }
 
-      return new MongoBucketStorage(db, { slot_name_prefix: 'test_' }, factoryOptions.internalOptions);
+      return new MongoBucketStorage(db, {
+        replicationStreamNamePrefix: 'test_',
+        checksumOptions: factoryOptions.checksumOptions,
+        supportsMultipleSyncConfigs: factoryOptions.supportsMultipleSyncConfigs
+      });
     },
     tableIdStrings: false
   };

@@ -1,5 +1,79 @@
 # @powersync/service-image
 
+## 1.23.3
+
+### Patch Changes
+
+- Updated dependencies [d99c31f]
+- Updated dependencies [ea31f64]
+- Updated dependencies [1f854d3]
+  - @powersync/service-module-mongodb@0.19.0
+  - @powersync/service-module-mongodb-storage@0.18.3
+  - @powersync/service-core@1.23.3
+  - @powersync/lib-services-framework@0.9.8
+  - @powersync/service-module-convex@0.2.3
+  - @powersync/service-module-mssql@0.8.3
+  - @powersync/service-module-mysql@0.14.3
+  - @powersync/service-module-postgres@0.21.3
+  - @powersync/service-module-postgres-storage@0.16.3
+  - @powersync/service-module-core@0.2.31
+  - @powersync/service-rsocket-router@0.2.24
+
+## 1.23.2
+
+### Patch Changes
+
+- Updated dependencies [71d4a0a]
+- Updated dependencies [e4f683d]
+- Updated dependencies [71d4a0a]
+- Updated dependencies [c2edf86]
+- Updated dependencies [df9ab1e]
+- Updated dependencies [b9f6b6f]
+  - @powersync/service-core@1.23.2
+  - @powersync/service-module-postgres-storage@0.16.2
+  - @powersync/service-module-mongodb-storage@0.18.2
+  - @powersync/service-module-postgres@0.21.2
+  - @powersync/service-module-mongodb@0.18.2
+  - @powersync/service-module-convex@0.2.2
+  - @powersync/service-module-mssql@0.8.2
+  - @powersync/service-module-mysql@0.14.2
+  - @powersync/service-module-core@0.2.30
+  - @powersync/lib-services-framework@0.9.7
+  - @powersync/service-rsocket-router@0.2.23
+
+## 1.23.1
+
+### Patch Changes
+
+- Updated dependencies [7e65360]
+  - @powersync/service-module-postgres-storage@0.16.1
+  - @powersync/service-module-mongodb-storage@0.18.1
+  - @powersync/service-core@1.23.1
+  - @powersync/service-module-convex@0.2.1
+  - @powersync/service-module-mongodb@0.18.1
+  - @powersync/service-module-mssql@0.8.1
+  - @powersync/service-module-mysql@0.14.1
+  - @powersync/service-module-postgres@0.21.1
+  - @powersync/service-module-core@0.2.29
+
+## 1.23.0
+
+### Patch Changes
+
+- Updated dependencies [a91a08f]
+- Updated dependencies [101ea67]
+  - @powersync/service-module-postgres-storage@0.16.0
+  - @powersync/service-module-mongodb-storage@0.18.0
+  - @powersync/service-module-postgres@0.21.0
+  - @powersync/service-module-mongodb@0.18.0
+  - @powersync/service-module-convex@0.2.0
+  - @powersync/service-core@1.23.0
+  - @powersync/service-module-mssql@0.8.0
+  - @powersync/service-module-mysql@0.14.0
+  - @powersync/service-module-core@0.2.28
+  - @powersync/lib-services-framework@0.9.6
+  - @powersync/service-rsocket-router@0.2.22
+
 ## 1.22.0
 
 ### Minor Changes

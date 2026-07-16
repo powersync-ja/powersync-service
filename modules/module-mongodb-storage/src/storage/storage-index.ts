@@ -1,6 +1,5 @@
 export * as test_utils from '../utils/test-utils.js';
 export * from '../utils/util.js';
-export * from './implementation/BucketDefinitionMapping.js';
 export * from './implementation/common/PersistedBatch.js';
 export * from './implementation/createMongoSyncBucketStorage.js';
 export * from './implementation/db.js';
@@ -12,6 +11,15 @@ export * from './implementation/MongoStorageProvider.js';
 export * from './implementation/MongoSyncRulesLock.js';
 export * from './implementation/OperationBatch.js';
 export * from './implementation/v1/models.js';
-export * from './implementation/v3/models.js';
+export { loadBucketDataDocument, serializeBucketData } from './implementation/v3/bucket-format.js';
+export {
+  BucketDataDocumentV3,
+  BucketOperation,
+  RecordedLookupV3,
+  ReplicationStreamDocumentV3,
+  SyncConfigDefinition,
+  SyncRuleConfigStateV3,
+  taggedBucketParameterDocumentToTagged
+} from './implementation/v3/models.js';
 export * from './MongoBucketStorage.js';
 export * from './MongoReportStorage.js';

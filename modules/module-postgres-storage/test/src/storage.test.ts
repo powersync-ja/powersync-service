@@ -10,7 +10,11 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
     register.registerDataStorageParameterTests({ ...POSTGRES_STORAGE_FACTORY, storageVersion }));
 
   describe(`Postgres Sync Bucket Storage - Data - v${storageVersion}`, () =>
-    register.registerDataStorageDataTests({ ...POSTGRES_STORAGE_FACTORY, storageVersion }));
+    register.registerDataStorageDataTests({
+      ...POSTGRES_STORAGE_FACTORY,
+      storageVersion,
+      compressedBucketStorage: false
+    }));
 
   describe(`Postgres Sync Bucket Storage - Checkpoints - v${storageVersion}`, () =>
     register.registerDataStorageCheckpointTests({ ...POSTGRES_STORAGE_FACTORY, storageVersion }));
@@ -95,7 +99,9 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
 
       const options: storage.BucketDataBatchOptions = {};
 
-      const batch1 = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [globalBucket], options));
+      const batch1 = await test_utils.fromAsync(
+        bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [globalBucket], options)
+      );
       expect(test_utils.getBatchData(batch1)).toEqual([
         { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
       ]);
@@ -107,7 +113,7 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
 
       const batch2 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
-          checkpoint,
+          test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch1[0].chunkData.next_after) }],
           options
         )
@@ -123,7 +129,7 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
 
       const batch3 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
-          checkpoint,
+          test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch2[0].chunkData.next_after) }],
           options
         )
@@ -139,7 +145,7 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
 
       const batch4 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
-          checkpoint,
+          test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch3[0].chunkData.next_after) }],
           options
         )

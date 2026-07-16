@@ -129,10 +129,6 @@ export class PostgresBucketBatch
     }
   }
 
-  get lastCheckpointLsn() {
-    return this.last_checkpoint_lsn;
-  }
-
   async [Symbol.asyncDispose]() {
     if (this.batch != null || this.write_checkpoint_batch.length > 0) {
       // We don't error here, since:
@@ -148,7 +144,7 @@ export class PostgresBucketBatch
   }
 
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
-    const syncRules = options.syncRules ?? this.sync_rules;
+    const syncRules = options.parsedSyncConfig?.hydratedSyncConfig ?? this.sync_rules;
     const { connection_id, source } = options;
     const { schema, name: table, objectId, replicaIdColumns, connectionTag, sendsCompleteRows } = source;
 
@@ -362,19 +358,22 @@ export class PostgresBucketBatch
     // TODO maybe share with abstract class
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.options.store_current_data && sourceTable.storeCurrentData;
-    for (const event of this.getTableEvents(sourceTable)) {
-      this.iterateListeners((cb) =>
-        cb.replicationEvent?.({
-          batch: this,
-          table: sourceTable,
-          data: {
-            op: tag,
-            after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
-            before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
-          },
-          event
-        })
-      );
+    // Only the table designated as event carrier by resolveTables may fire events.
+    if (sourceTable.syncEvent) {
+      for (const event of this.getTableEvents(sourceTable)) {
+        this.iterateListeners((cb) =>
+          cb.replicationEvent?.({
+            batch: this,
+            table: sourceTable,
+            data: {
+              op: tag,
+              after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
+              before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
+            },
+            event
+          })
+        );
+      }
     }
     /**
      * Return if the table is just an event table
@@ -423,7 +422,9 @@ export class PostgresBucketBatch
     let processedCount = 0;
     while (lastBatchCount == BATCH_LIMIT) {
       lastBatchCount = 0;
+      let clearedError = false;
       await this.withReplicationTransaction(async (db) => {
+        clearedError = false;
         const persistedBatch = new PostgresPersistedBatch({
           group_id: this.group_id,
           storageConfig: this.storageConfig,
@@ -463,10 +464,15 @@ export class PostgresBucketBatch
           }
         }
         const { flushedAny } = await persistedBatch.flush(db);
-        if (flushedAny) {
+        clearedError = flushedAny && !this.clearedError;
+        if (clearedError) {
+          // No need to clear an error more than once per batch, since an error would always result in restarting the batch.
           await this.clearError(db);
         }
       });
+      if (clearedError) {
+        this.clearedError = true;
+      }
     }
     if (processedCount == 0) {
       // The op sequence should not have progressed
@@ -519,12 +525,20 @@ export class PostgresBucketBatch
     await this.hooks?.beforeBatchFlush?.(this);
 
     let resumeBatch: OperationBatch | null = null;
+    let clearedError = false;
 
     const lastOp = await this.withReplicationTransaction(async (db) => {
-      resumeBatch = await this.replicateBatch(db, batch);
+      clearedError = false;
+      const result = await this.replicateBatch(db, batch);
+      resumeBatch = result.resumeBatch;
+      clearedError ||= result.clearedError;
 
       return this.getLastOpIdSequence(db);
     });
+
+    if (clearedError) {
+      this.clearedError = true;
+    }
 
     // null if done, set if we need another flush
     this.batch = resumeBatch;
@@ -761,23 +775,22 @@ export class PostgresBucketBatch
 
   async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
     await this.db.transaction(async (db) => {
-      const snapshotRequiredCount = await db.sql`
+      const blockingTables = await db.sql`
         SELECT
-          COUNT(*) AS count
+          schema_name,
+          table_name
         FROM
           source_tables
         WHERE
           group_id = ${{ type: 'int4', value: this.group_id }}
           AND snapshot_done = FALSE
       `
-        .decoded(t.object({ count: bigint }))
-        .first();
-      if ((snapshotRequiredCount?.count ?? 0n) > 0n) {
+        .decoded(t.object({ schema_name: t.string, table_name: t.string }))
+        .rows();
+      if (blockingTables.length > 0) {
         if (options?.throwOnConflict ?? true) {
           throw new ReplicationAssertionError(
-            `Cannot mark snapshot done while ${snapshotRequiredCount?.count} source table${
-              snapshotRequiredCount?.count == 1n ? '' : 's'
-            } still require snapshotting`
+            `Cannot mark snapshot done while source tables still require snapshotting. Tables: ${blockingTables.map((t) => `${t.schema_name}.${t.table_name}`).join(', ')}`
           );
         } else {
           return;
@@ -893,7 +906,10 @@ export class PostgresBucketBatch
     });
   }
 
-  protected async replicateBatch(db: lib_postgres.WrappedConnection, batch: OperationBatch) {
+  protected async replicateBatch(
+    db: lib_postgres.WrappedConnection,
+    batch: OperationBatch
+  ): Promise<{ resumeBatch: OperationBatch | null; clearedError: boolean }> {
     let sizes: Map<string, number> | undefined = undefined;
     // Check if any table in this batch needs to store current_data
     const anyTableStoresCurrentData =
@@ -1017,15 +1033,16 @@ export class PostgresBucketBatch
       }
     }
 
-    if (didFlush) {
+    const clearedError = didFlush && !this.clearedError;
+    if (clearedError) {
       await this.clearError(db);
     }
 
     // Don't return empty batches
-    if (resumeBatch?.batch.length) {
-      return resumeBatch;
-    }
-    return null;
+    return {
+      resumeBatch: resumeBatch?.batch.length ? resumeBatch : null,
+      clearedError
+    };
   }
 
   protected async saveOperation(
@@ -1390,11 +1407,6 @@ export class PostgresBucketBatch
   protected async clearError(
     db: lib_postgres.AbstractPostgresConnection | lib_postgres.DatabaseClient = this.db
   ): Promise<void> {
-    // No need to clear an error more than once per batch, since an error would always result in restarting the batch.
-    if (this.clearedError) {
-      return;
-    }
-
     await db.sql`
       UPDATE sync_rules
       SET
@@ -1402,7 +1414,6 @@ export class PostgresBucketBatch
       WHERE
         id = ${{ type: 'int4', value: this.group_id }}
     `.execute();
-    this.clearedError = true;
   }
 
   private async getLastOpIdSequence(db: lib_postgres.AbstractPostgresConnection) {

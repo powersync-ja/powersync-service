@@ -1,0 +1,64 @@
+name: Azure DocumentDB Integration Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeout_multiplier:
+        description: Test timeout multiplier for cloud DocumentDB latency.
+        required: false
+        default: '6'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: documentdb-integration
+  cancel-in-progress: false
+
+jobs:
+  documentdb-integration:
+    name: DocumentDB Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      MONGO_TEST_URL: mongodb://localhost:27017/powersync_test
+      TEST_MONGO_STORAGE: 'true'
+      TEST_POSTGRES_STORAGE: 'false'
+      TEST_TIMEOUT_MULTIPLIER: ${{ inputs.timeout_multiplier || '6' }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check DocumentDB test URI secret
+        env:
+          MONGO_TEST_DATA_URL: ${{ secrets.AZURE_DOCUMENTDB_TEST_DATA_URL }}
+        run: |
+          if [ -n "${MONGO_TEST_DATA_URL}" ]; then
+            echo "::add-mask::${MONGO_TEST_DATA_URL}"
+          fi
+
+          if [ -z "${MONGO_TEST_DATA_URL}" ]; then
+            echo "::error::Set the AZURE_DOCUMENTDB_TEST_DATA_URL repository or organization secret."
+            exit 1
+          fi
+
+      - name: Start MongoDB (Storage)
+        uses: ./.github/actions/start-mongodb
+
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
+
+      - name: Mask DocumentDB hosts
+        env:
+          MONGO_TEST_DATA_URL: ${{ secrets.AZURE_DOCUMENTDB_TEST_DATA_URL }}
+        run: |
+          # Use MongoDB's connection-string parser; WHATWG URL rejects valid
+          # multi-host MongoDB URIs.
+          corepack pnpm --filter @powersync/lib-service-mongodb exec node -e "const ConnectionString = require('mongodb-connection-string-url').default || require('mongodb-connection-string-url'); const uri = new ConnectionString(process.env.MONGO_TEST_DATA_URL); for (const host of uri.hosts) console.log('::add-mask::' + host);"
+
+      - name: Test DocumentDB integration
+        env:
+          MONGO_TEST_DATA_URL: ${{ secrets.AZURE_DOCUMENTDB_TEST_DATA_URL }}
+        run: pnpm --filter='./modules/module-mongodb' test

@@ -4,37 +4,42 @@ import { InternalOpId, storage } from '@powersync/service-core';
 import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
+import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
   BucketStateUpdate,
   PersistedBatch,
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
-import { SourceTableKey } from '../models.js';
+import { SourceRecordLookupState } from '../common/SourceRecordStore.js';
+import { serializeBucketData } from './bucket-format.js';
+import { chunkBucketData } from './chunking.js';
 import {
-  BucketParameterDocumentV3,
+  BucketDataDocumentV3,
   BucketStateDocumentV3,
   CurrentDataDocumentV3,
-  serializeBucketDataV3,
+  serializeParameterLookup,
   SourceTableDocumentV3,
-  taggedBucketParameterDocumentToV3
+  taggedBucketParameterDocumentToTagged
 } from './models.js';
-import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
-  declare protected readonly db: VersionedPowerSyncMongoV3;
-
   currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
   sourceTablePendingDeletes = new Map<string, InternalOpId>();
 
-  protected checkDefinitionId(definitionId: BucketDefinitionId | null): BucketDefinitionId {
+  declare protected readonly db: VersionedPowerSyncMongoV3;
+
+  // Abstract override from PersistedBatch (V3-specific error message)
+
+  protected override checkDefinitionId(definitionId: BucketDefinitionId | null): BucketDefinitionId {
     if (definitionId == null) {
-      // This is required for V3 storage.
       throw new ReplicationAssertionError('Expected v3 bucket when incrementalReprocessing is enabled');
     }
     return definitionId;
   }
+
+  // Concrete implementations from PersistedBatchShared
 
   protected getBucketDefinitionId(bucketSource: BucketDataSource): BucketDefinitionId {
     return this.mapping.bucketSourceId(bucketSource);
@@ -42,28 +47,33 @@ export class PersistedBatchV3 extends PersistedBatch {
 
   saveParameterData(data: SaveParameterDataOptions) {
     const { sourceTable, sourceKey, evaluated } = data;
-    const remaining_lookups = new Map<string, SaveParameterDataOptions['existing_lookups'][number]>();
+    const remaining_lookups = new Map<string, SourceRecordLookupState>();
 
     for (let lookup of data.existing_lookups) {
       if (lookup.indexId == null) {
-        throw new ReplicationAssertionError('Expected v3 lookup when incrementalReprocessing is enabled');
+        throw new ReplicationAssertionError('Expected lookup when incrementalReprocessing is enabled');
+      }
+      if (sourceTable.parameterLookupSourceIds != null && !sourceTable.parameterLookupSourceIds.has(lookup.indexId)) {
+        // The parameter index is not active anymore.
+        // We don't cleanup these references upfront, but do need to ignore them after the definition is removed.
+        continue;
       }
       remaining_lookups.set(`${lookup.indexId}.${lookup.lookup.toString('base64')}`, lookup);
     }
 
     for (let result of evaluated) {
       const sourceDefinitionId = this.mapping.parameterLookupId(result.lookup.source);
-      const binLookup = serializeParameterLookupV3(result.lookup);
+      const binLookup = serializeParameterLookup(result.lookup);
       remaining_lookups.delete(`${sourceDefinitionId}.${binLookup.toString('base64')}`);
 
       const op_id = data.op_seq.next();
       this.debugLastOpId = op_id;
-      const values: BucketParameterDocumentV3 = {
+      const values = {
         _id: op_id,
         key: {
           t: mongoTableId(sourceTable.id),
           k: sourceKey
-        } satisfies SourceTableKey,
+        },
         lookup: binLookup,
         bucket_parameters: result.bucketParameters
       };
@@ -80,14 +90,14 @@ export class PersistedBatchV3 extends PersistedBatch {
       this.debugLastOpId = op_id;
       const indexId = lookup.indexId;
       if (indexId == null) {
-        throw new ReplicationAssertionError('Expected v3 lookup when incrementalReprocessing is enabled');
+        throw new ReplicationAssertionError('Expected lookup when incrementalReprocessing is enabled');
       }
-      const values: BucketParameterDocumentV3 = {
+      const values = {
         _id: op_id,
         key: {
           t: mongoTableId(sourceTable.id),
           k: sourceKey
-        } satisfies SourceTableKey,
+        },
         lookup: lookup.lookup,
         bucket_parameters: []
       };
@@ -125,8 +135,8 @@ export class PersistedBatchV3 extends PersistedBatch {
           update: {
             $set: {
               data: null,
-              buckets: [] as CurrentDataDocumentV3['buckets'],
-              lookups: [] as CurrentDataDocumentV3['lookups'],
+              buckets: [],
+              lookups: [],
               pending_delete: checkpointGreaterThan
             }
           },
@@ -146,7 +156,7 @@ export class PersistedBatchV3 extends PersistedBatch {
   upsertCurrentData(values: UpsertCurrentDataOptions) {
     const buckets = values.buckets.map((bucket) => {
       if (bucket.definitionId == null) {
-        throw new ReplicationAssertionError('Expected v3 bucket when incrementalReprocessing is enabled');
+        throw new ReplicationAssertionError('Expected bucket when incrementalReprocessing is enabled');
       }
       return {
         def: bucket.definitionId,
@@ -157,7 +167,7 @@ export class PersistedBatchV3 extends PersistedBatch {
     });
     const lookups = values.lookups.map((lookup) => {
       if (lookup.indexId == null) {
-        throw new ReplicationAssertionError('Expected v3 lookup when incrementalReprocessing is enabled');
+        throw new ReplicationAssertionError('Expected lookup when incrementalReprocessing is enabled');
       }
       return {
         i: lookup.indexId,
@@ -189,8 +199,10 @@ export class PersistedBatchV3 extends PersistedBatch {
     return this.currentData.length;
   }
 
+  // Flush methods
+
   protected async flushBucketData(session: mongo.ClientSession) {
-    const operationsByDefinition = new Map<BucketDefinitionId, typeof this.bucketData>();
+    const operationsByDefinition = new Map<BucketDefinitionId, BucketDataDoc[]>();
     for (const document of this.bucketData) {
       const existing = operationsByDefinition.get(document.bucketKey.definitionId) ?? [];
       existing.push(document);
@@ -198,17 +210,31 @@ export class PersistedBatchV3 extends PersistedBatch {
     }
 
     for (const [definitionId, documents] of operationsByDefinition.entries()) {
-      await this.db.bucketDataV3(this.group_id, definitionId).bulkWrite(
-        documents.map((document) => ({
-          insertOne: {
-            document: serializeBucketDataV3(document)
-          }
-        })),
-        {
+      const operationsByBucket = new Map<string, BucketDataDoc[]>();
+      for (const document of documents) {
+        const existing = operationsByBucket.get(document.bucketKey.bucket) ?? [];
+        existing.push(document);
+        operationsByBucket.set(document.bucketKey.bucket, existing);
+      }
+
+      const inserts: mongo.AnyBulkWriteOperation<BucketDataDocumentV3>[] = [];
+      for (const [bucket, ops] of operationsByBucket.entries()) {
+        const chunks = chunkBucketData(ops);
+        for (const chunk of chunks) {
+          inserts.push({
+            insertOne: {
+              document: serializeBucketData(bucket, chunk)
+            }
+          });
+        }
+      }
+
+      if (inserts.length > 0) {
+        await this.db.bucketData(this.group_id, definitionId).bulkWrite(inserts, {
           session,
           ordered: false
-        }
-      );
+        });
+      }
     }
   }
 
@@ -221,10 +247,10 @@ export class PersistedBatchV3 extends PersistedBatch {
     }
 
     for (const [indexId, documents] of operationsByIndex.entries()) {
-      await this.db.parameterIndexV3(this.group_id, indexId).bulkWrite(
+      await this.db.parameterIndex(this.group_id, indexId).bulkWrite(
         documents.map((document) => ({
           insertOne: {
-            document: taggedBucketParameterDocumentToV3(document)
+            document: taggedBucketParameterDocumentToTagged(document)
           }
         })),
         {
@@ -260,12 +286,12 @@ export class PersistedBatchV3 extends PersistedBatch {
     });
 
     if (sourceTableUpdates.length > 0) {
-      await this.db.sourceTablesV3(this.group_id).bulkWrite(sourceTableUpdates, { session, ordered: false });
+      await this.db.sourceTables(this.group_id).bulkWrite(sourceTableUpdates, { session, ordered: false });
     }
 
     for (const operations of operationsBySourceTable.values()) {
       const sourceTableId = operations[0]!.sourceTableId;
-      await this.db.sourceRecordsV3(this.group_id, sourceTableId).bulkWrite(
+      await this.db.sourceRecords(this.group_id, sourceTableId).bulkWrite(
         operations.map((entry) => entry.operation),
         {
           session,
@@ -276,7 +302,7 @@ export class PersistedBatchV3 extends PersistedBatch {
   }
 
   protected async flushBucketStates(session: mongo.ClientSession) {
-    await this.db.bucketStateV3(this.group_id).bulkWrite(this.getBucketStateUpdates(), {
+    await this.db.bucketState(this.group_id).bulkWrite(this.getBucketStateUpdates(), {
       session,
       ordered: false
     });

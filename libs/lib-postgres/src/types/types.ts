@@ -42,7 +42,7 @@ export const BasePostgresConnectionConfig = t.object({
   reject_ip_ranges: t.array(t.string).optional(),
 
   /**
-   * Prefix for the slot name. Defaults to "powersync_"
+   * Prefix for Postgres logical replication slot names, as well as replication stream names. Defaults to "powersync_"
    */
   slot_name_prefix: t.string.optional(),
 

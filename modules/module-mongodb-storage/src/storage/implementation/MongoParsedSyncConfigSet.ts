@@ -1,7 +1,14 @@
 import * as sqlite from 'node:sqlite';
 
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { storage } from '@powersync/service-core';
+import {
+  BucketDefinitionMapping,
+  MultiSyncConfigBucketDefinitionMapping,
+  SingleSyncConfigBucketDefinitionMapping,
+  storage,
+  SyncConfigWithMapping,
+  SyncConfigWithRequiredMapping
+} from '@powersync/service-core';
 import {
   CompatibilityOption,
   DEFAULT_HYDRATION_STATE,
@@ -11,11 +18,6 @@ import {
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
-import {
-  BucketDefinitionMapping,
-  SyncConfigWithMapping,
-  SyncConfigWithRequiredMapping
-} from './BucketDefinitionMapping.js';
 import { StorageConfig } from './models.js';
 import { MongoHydrationState } from './MongoHydrationState.js';
 
@@ -51,37 +53,36 @@ export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
       if (syncConfigs.some((c) => c.mapping == null)) {
         throw new ServiceAssertionError(`mapping is required for v3 storage`);
       }
-      if (syncConfigs.length != 1) {
-        throw new ServiceAssertionError(`multiple sync configs not supported just yet`);
-      }
-
       const mappedConfigs = syncConfigs as SyncConfigWithRequiredMapping[];
       this.hydrationState = new MongoHydrationState(mappedConfigs, this.replicationStreamId);
-      this.mapping = syncConfigs[0].mapping!;
+      this.mapping = new MultiSyncConfigBucketDefinitionMapping(mappedConfigs);
     } else if (!compatibility.isEnabled(CompatibilityOption.versionedBucketIds) && !storageConfig.versionedBuckets) {
       const [syncConfig] = syncConfigs;
       if (syncConfigs.length != 1 || syncConfig == null) {
         throw new ServiceAssertionError(`Non-incremental storage requires exactly one sync config`);
       }
       this.hydrationState = DEFAULT_HYDRATION_STATE;
-      this.mapping = syncConfig.mapping ?? new BucketDefinitionMapping();
+      this.mapping = syncConfig.mapping ?? new SingleSyncConfigBucketDefinitionMapping();
     } else {
       const [syncConfig] = syncConfigs;
       if (syncConfigs.length != 1 || syncConfig == null) {
         throw new ServiceAssertionError(`Non-incremental storage requires exactly one sync config`);
       }
       this.hydrationState = versionedHydrationState(this.replicationStreamId);
-      this.mapping = syncConfig.mapping ?? new BucketDefinitionMapping();
+      this.mapping = syncConfig.mapping ?? new SingleSyncConfigBucketDefinitionMapping();
     }
   }
 
-  hydratedSyncConfig(): HydratedSyncConfig {
-    return new HydratedSyncConfig({
+  #hydratedSyncConfig: HydratedSyncConfig | undefined;
+
+  get hydratedSyncConfig(): HydratedSyncConfig {
+    this.#hydratedSyncConfig ??= new HydratedSyncConfig({
       definitions: this.syncConfigs.map((config) => config.config),
       createParams: {
         hydrationState: this.hydrationState,
         sqlite: nodeSqlite(sqlite)
       }
     });
+    return this.#hydratedSyncConfig;
   }
 }

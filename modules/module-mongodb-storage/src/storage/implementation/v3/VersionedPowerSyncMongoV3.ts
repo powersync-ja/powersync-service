@@ -1,4 +1,4 @@
-import { isMongoServerError, mongo } from '@powersync/lib-service-mongodb';
+import { mongo } from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId, ParameterIndexId } from '@powersync/service-sync-rules';
 import { BaseVersionedPowerSyncMongo } from '../common/VersionedPowerSyncMongoBase.js';
 import { CommonSourceTableDocument } from '../models.js';
@@ -14,53 +14,80 @@ import {
 export const BUCKET_DATA_BUCKET_OP_INDEX = 'bucket_op';
 
 export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
+  constructor(
+    upstream: ConstructorParameters<typeof BaseVersionedPowerSyncMongo>[0],
+    storageConfig: ConstructorParameters<typeof BaseVersionedPowerSyncMongo>[1]
+  ) {
+    super(upstream, storageConfig);
+  }
+
   get syncConfigDefinitions() {
     return this.db.collection<SyncConfigDefinition>('sync_config');
   }
 
-  sourceRecordsV3(replicationStreamId: number, sourceTableId: mongo.ObjectId): mongo.Collection<CurrentDataDocumentV3> {
+  sourceRecords(replicationStreamId: number, sourceTableId: mongo.ObjectId): mongo.Collection<CurrentDataDocumentV3> {
     const collectionName = this.sourceRecordsCollectionName(replicationStreamId, sourceTableId);
     return this.db.collection<CurrentDataDocumentV3>(collectionName);
   }
 
-  async listSourceRecordCollectionsV3(replicationStreamId: number): Promise<mongo.Collection<CurrentDataDocumentV3>[]> {
+  async listSourceRecordCollections(replicationStreamId: number): Promise<mongo.Collection<CurrentDataDocumentV3>[]> {
     return this.listCollectionsByPrefix<CurrentDataDocumentV3>(`source_records_${replicationStreamId}_`);
   }
 
-  async initializeSourceRecordsCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
-    await this.sourceRecordsV3(replicationStreamId, sourceTableId).createIndex(
+  async initializeSourceRecordsCollection(
+    replicationStreamId: number,
+    sourceTableId: mongo.ObjectId,
+    session?: mongo.ClientSession
+  ) {
+    await this.sourceRecords(replicationStreamId, sourceTableId).createIndex(
       {
         pending_delete: 1
       },
       {
         partialFilterExpression: { pending_delete: { $exists: true } },
-        name: 'pending_delete'
+        name: 'pending_delete',
+        session
       }
     );
   }
 
   commonSourceTables(replicationStreamId: number): mongo.Collection<CommonSourceTableDocument> {
-    return this.sourceTablesV3(replicationStreamId) as mongo.Collection<CommonSourceTableDocument>;
+    return this.sourceTables(replicationStreamId) as any as mongo.Collection<CommonSourceTableDocument>;
   }
 
-  bucketStateV3(replicationStreamId: number): mongo.Collection<BucketStateDocumentV3> {
+  bucketState(replicationStreamId: number): mongo.Collection<BucketStateDocumentV3> {
     return this.db.collection(`bucket_state_${replicationStreamId}`);
   }
 
-  parameterIndexV3(
-    replicationStreamId: number,
-    indexId: ParameterIndexId
-  ): mongo.Collection<BucketParameterDocumentV3> {
+  parameterIndex(replicationStreamId: number, indexId: ParameterIndexId): mongo.Collection<BucketParameterDocumentV3> {
     return this.db.collection(`parameter_index_${replicationStreamId}_${indexId}`);
   }
 
-  sourceTablesV3(replicationStreamId: number): mongo.Collection<SourceTableDocumentV3> {
+  sourceTables(replicationStreamId: number): mongo.Collection<SourceTableDocumentV3> {
     return this.db.collection<SourceTableDocumentV3>(this.sourceTableCollectionName(replicationStreamId));
   }
 
+  bucketData(replicationStreamId: number, definitionId: BucketDefinitionId): mongo.Collection<BucketDataDocumentV3> {
+    return this.db.collection<BucketDataDocumentV3>(`bucket_data_${replicationStreamId}_${definitionId}`);
+  }
+
+  listBucketDataCollections(replicationStreamId: number) {
+    return this.listCollectionsByPrefix(`bucket_data_${replicationStreamId}_`);
+  }
+
+  async listParameterIndexCollections(replicationStreamId: number) {
+    const prefix = `parameter_index_${replicationStreamId}_`;
+    const collections = await this.listCollectionsByPrefix(prefix);
+
+    return collections.map((collection) => ({
+      collection,
+      indexId: collection.collectionName.slice(prefix.length)
+    }));
+  }
+
   async initializeStreamStorage(replicationStreamId: number) {
-    const sourceTables = this.sourceTablesV3(replicationStreamId);
-    const bucketState = this.bucketStateV3(replicationStreamId);
+    const sourceTables = this.sourceTables(replicationStreamId);
+    const bucketState = this.bucketState(replicationStreamId);
     await sourceTables.createIndex(
       {
         connection_id: 1,
@@ -93,51 +120,5 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
       },
       { name: 'dirty_count' }
     );
-  }
-
-  bucketDataV3(replicationStreamId: number, definitionId: BucketDefinitionId) {
-    return this.db.collection<BucketDataDocumentV3>(`bucket_data_${replicationStreamId}_${definitionId}`);
-  }
-
-  async initializeBucketDataCollection(replicationStreamId: number, definitionId: BucketDefinitionId) {
-    const collection = this.bucketDataV3(replicationStreamId, definitionId);
-    await this.db
-      .createCollection(collection.collectionName, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
-      .catch((error) => {
-        if (isMongoServerError(error) && error.codeName === 'NamespaceExists') {
-          return;
-        }
-        throw error;
-      });
-
-    await collection.createIndex(
-      {
-        '_id.b': 1,
-        '_id.o': 1,
-        checksum: 1,
-        op: 1
-      },
-      {
-        name: BUCKET_DATA_BUCKET_OP_INDEX
-      }
-    );
-  }
-
-  listBucketDataCollectionsV3(replicationStreamId: number) {
-    return this.upstream.listBucketDataCollectionsV3(replicationStreamId);
-  }
-
-  async listParameterIndexCollectionsV3(
-    replicationStreamId: number
-  ): Promise<{ collection: mongo.Collection<BucketParameterDocumentV3>; indexId: ParameterIndexId }[]> {
-    const prefix = `parameter_index_${replicationStreamId}_`;
-    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
-
-    return collections
-      .filter((collection) => collection.name.startsWith(prefix))
-      .map((collection) => ({
-        collection: this.db.collection<BucketParameterDocumentV3>(collection.name),
-        indexId: collection.name.slice(prefix.length)
-      }));
   }
 }

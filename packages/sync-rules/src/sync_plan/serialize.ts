@@ -12,6 +12,7 @@ import {
   ParameterValue,
   PartitionKey,
   RequestSqlParameterValue,
+  RowMetadataSqlValue,
   StreamBucketDataSource,
   StreamDataSource,
   StreamOptions,
@@ -39,8 +40,8 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanV1 {
   const addedTableValuedFunctions = new Map<TableProcessorTableValuedFunction, number>();
 
   const replaceFunctionReferenceWithIndex = new MapSourceVisitor<
-    ColumnSqlParameterValue | TableProcessorTableValuedFunctionOutput,
-    ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput
+    ColumnSqlParameterValue | RowMetadataSqlValue | TableProcessorTableValuedFunctionOutput,
+    ColumnSqlParameterValue | RowMetadataSqlValue | SerializedTableProcessorTableValuedFunctionOutput
   >((value) => {
     if ('function' in value) {
       return { function: addedTableValuedFunctions.get(value.function)!, outputName: value.outputName };
@@ -201,8 +202,8 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   let tableValuedFunctionsInScope: TableProcessorTableValuedFunction[] = [];
 
   const replaceFunctionIndexWithReference = new MapSourceVisitor<
-    ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput,
-    ColumnSqlParameterValue | TableProcessorTableValuedFunctionOutput
+    ColumnSqlParameterValue | RowMetadataSqlValue | SerializedTableProcessorTableValuedFunctionOutput,
+    ColumnSqlParameterValue | RowMetadataSqlValue | TableProcessorTableValuedFunctionOutput
   >((value) => {
     if ('function' in value) {
       return { function: tableValuedFunctionsInScope[value.function], outputName: value.outputName };
@@ -357,7 +358,10 @@ export interface SerializedTableProcessorTableValuedFunctionOutput {
   outputName: string;
 }
 
-export type SerializedTableProcessorData = ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput;
+export type SerializedTableProcessorData =
+  | ColumnSqlParameterValue
+  | RowMetadataSqlValue
+  | SerializedTableProcessorTableValuedFunctionOutput;
 
 export interface SerializedPartitionKey {
   expr: SqlExpression<SerializedTableProcessorData>;

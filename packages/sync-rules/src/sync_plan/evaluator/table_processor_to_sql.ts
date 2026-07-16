@@ -1,3 +1,5 @@
+import { SourceTableRef } from '../../SourceTableRef.js';
+import { TablePattern } from '../../TablePattern.js';
 import {
   mapExternalDataToInstantiation,
   TableValuedFunction,
@@ -13,7 +15,7 @@ import * as plan from '../plan.js';
  * separately, because their order depends on the type of table processor (data source vs. parameter lookup creator).
  */
 export class TableProcessorToSqlHelper {
-  mapper = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue>();
+  mapper = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue | plan.RowMetadataSqlValue>();
   readonly filterExpressions: SqlExpression<number | TableValuedFunctionOutput>[] = [];
 
   get tableValuedFunctions() {
@@ -33,5 +35,20 @@ export class TableProcessorToSqlHelper {
     for (const filter of source.filters) {
       this.filterExpressions.push(this.mapper.transform(filter));
     }
+  }
+}
+
+export function resolveRowMetadata(
+  value: plan.RowMetadataSqlValue,
+  pattern: TablePattern,
+  table: SourceTableRef
+): string {
+  switch (value.metadata) {
+    case 'schema':
+      return table.schema;
+    case 'table_name':
+      return table.name;
+    case 'table_suffix':
+      return pattern.isWildcard ? pattern.suffix(table.name) : '';
   }
 }

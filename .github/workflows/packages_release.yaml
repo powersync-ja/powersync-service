@@ -17,8 +17,6 @@ jobs:
   release-packages:
     name: Release Packages
     runs-on: ubuntu-latest
-    outputs:
-      imagePackageReleaseCreated: ${{ steps.check_image_package_release.outputs.release_created }}
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v5
@@ -36,11 +34,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Update npm
-        run: |
-          npm install -g npm@latest
-          npm --version
-
       - name: Build
         run: pnpm build:production
 
@@ -51,35 +44,64 @@ jobs:
         with:
           # This expects you to have a script called release which does a build for your packages and calls changeset publish
           publish: pnpm release
+          createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check if @powersync/service-image Released
-        id: check_image_package_release
-        if: ${{ github.event_name == 'push' && steps.changesets.outputs.published == 'true' }}
-        run: |
-          packages="${{ toJson(steps.changesets.outputs.publishedPackages) }}"
-          echo "Packages: $packages"  # Debugging output
-
-          # Use jq to check if the specific package is in the array
-          # Ensure the JSON is valid by echoing it into jq
-
-          set +e  # Disable immediate exit on non-zero return
-          echo "$packages" | jq -e '[.[] | select(.name == "@powersync/service-image")] | length > 0' > /dev/null
-          jq_exit_code=$?
-          set -e  # Re-enable immediate exit
-
-          if [ $jq_exit_code -eq 0 ]; then
-            echo "release_created=true" >> $GITHUB_OUTPUT
-          else
-            echo "release_created=false" >> $GITHUB_OUTPUT
-          fi
 
       - name: Debug Outputs
         if: ${{ github.event_name == 'push' }}
         run: |
           echo "Published Packages: ${{ steps.changesets.outputs.publishedPackages }}"
-          echo "Released Docker Image: ${{ steps.check_image_package_release.outputs.release_created }}"
+
+      - name: Create service version tag
+        id: service_version_tag
+        if: ${{ github.event_name == 'push' && steps.changesets.outputs.published == 'true' }}
+        run: |
+          packages="${{ toJson(steps.changesets.outputs.publishedPackages) }}"
+
+          set +e
+          echo "$packages" | jq -e '[.[] | select(.name == "@powersync/service-core")] | length > 0' > /dev/null
+          jq_exit_code=$?
+          set -e
+
+          if [ $jq_exit_code -ne 0 ]; then
+            echo "Skipping service version tag because @powersync/service-core was not released."
+            echo "create_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git fetch --tags
+
+          version="$(node -p "require('./service/package.json').version")"
+          version_tag="v$version"
+          echo "tag=$version_tag" >> "$GITHUB_OUTPUT"
+          echo "create_release=true" >> "$GITHUB_OUTPUT"
+
+          if git rev-parse --verify "refs/tags/$version_tag" >/dev/null 2>&1; then
+            echo "$version_tag already exists."
+            exit 0
+          fi
+
+          git tag "$version_tag"
+          git push origin "$version_tag"
+
+      - name: Create draft GitHub release
+        if: ${{ github.event_name == 'push' && steps.service_version_tag.outputs.create_release == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version_tag="${{ steps.service_version_tag.outputs.tag }}"
+
+          if gh release view "$version_tag" >/dev/null 2>&1; then
+            echo "GitHub release $version_tag already exists."
+            exit 0
+          fi
+
+          gh release create "$version_tag" \
+            --draft \
+            --generate-notes \
+            --title "$version_tag" \
+            --verify-tag
 
       - name: Dev publish
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -89,81 +111,3 @@ jobs:
           pnpm changeset status
           pnpm changeset version --snapshot dev
           pnpm changeset publish --tag dev
-
-  release-docker-image:
-    name: Build and Release powersync-service Docker Image
-    runs-on: ubuntu-latest
-    needs: release-packages
-    # Only run this job if the previous release job created a release for @powersync/service-image
-    if: github.event_name == 'push' && needs.release-packages.outputs.imagePackageReleaseCreated == 'true'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          # check out full history
-          # Temporarily needed for changesets
-          fetch-depth: 0
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-        # This uses the service's package.json version for the Docker Image tag
-      - name: Get Service Version from package.json
-        id: get_version
-        run: echo "SERVICE_VERSION=$(node -p "require('./service/package.json').version")" >> $GITHUB_OUTPUT
-
-      - name: Extract metadata for the image
-        uses: docker/metadata-action@v5
-        id: meta
-        with:
-          images: ${{ vars.DOCKER_REGISTRY }}
-          labels: |
-            org.opencontainers.image.licenses=FSL-1.1-ALv2
-            org.opencontainers.image.version=${{ steps.get_version.outputs.SERVICE_VERSION }}
-            org.opencontainers.image.vendor=Journey Mobile, Inc
-          annotations: |
-            org.opencontainers.image.licenses=FSL-1.1-ALv2
-            org.opencontainers.image.version=${{ steps.get_version.outputs.SERVICE_VERSION }}
-            org.opencontainers.image.vendor=Journey Mobile, Inc
-        env:
-          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
-
-      - name: Build Image and Push
-        uses: docker/build-push-action@v6
-        with:
-          platforms: linux/arm64,linux/amd64
-          cache-from: type=registry,ref=${{vars.DOCKER_REGISTRY}}:latest
-          context: .
-          tags: ${{vars.DOCKER_REGISTRY}}:latest,${{vars.DOCKER_REGISTRY}}:${{steps.get_version.outputs.SERVICE_VERSION}}
-          push: true
-          file: ./service/Dockerfile
-
-          # Add labels and annotations from metadata-action above.
-          labels: ${{ steps.meta.outputs.labels }}
-          annotations: ${{ steps.meta.outputs.annotations }}
-          # Note: This includes build args in the published provenance.
-          # Do not use this if secrets are passed in as args.
-          provenance: mode=max
-          # Pre-generate an SBOM file, which can be used for vulnerability scanning or listing licenses.
-          sbom: true
-
-      # Updates the README section on the DockerHub page
-      - name: Update repo description
-        #  Note that this 3rd party extention is recommended in the DockerHub docs:
-        #  https://docs.docker.com/build/ci/github-actions/update-dockerhub-desc/
-        uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae # v4.0.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{vars.DOCKER_REGISTRY}}
-          #   This is the contents of what will be shown on DockerHub
-          readme-filepath: ./service/README.md

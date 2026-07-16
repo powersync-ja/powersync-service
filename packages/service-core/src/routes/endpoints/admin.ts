@@ -1,7 +1,13 @@
 import * as sqlite from 'node:sqlite';
 
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { nodeSqlite, SourceSchema, SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
+import {
+  HydratedSyncConfig,
+  nodeSqlite,
+  SourceSchema,
+  SqlSyncRules,
+  StaticSchema
+} from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
 import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules';
@@ -74,7 +80,8 @@ export const diagnostics = routeDefinition({
       {
         include_content,
         check_connection: status.connected,
-        live_status: true
+        live_status: true,
+        active: true
       },
       active?.storage
     );
@@ -88,7 +95,8 @@ export const diagnostics = routeDefinition({
             {
               include_content,
               check_connection: status.connected,
-              live_status: true
+              live_status: true,
+              active: false
             },
             deploying.storage
           );
@@ -191,16 +199,18 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncConfigConte
       schema: this.schema
     });
 
+    let hydrated: HydratedSyncConfig | undefined;
     return {
       replicationStreamId: this.replicationStreamId,
       replicationStreamName: this.replicationStreamName,
       syncConfigs: [syncConfig],
       hydrationState: DEFAULT_HYDRATION_STATE,
-      hydratedSyncConfig() {
-        return syncConfig.config.hydrate({
+      get hydratedSyncConfig(): HydratedSyncConfig {
+        hydrated ??= syncConfig.config.hydrate({
           hydrationState: DEFAULT_HYDRATION_STATE,
           sqlite: nodeSqlite(sqlite)
         });
+        return hydrated;
       }
     };
   }
@@ -231,7 +241,8 @@ export const validate = routeDefinition({
       replicationStreamName: '',
       storageVersion: storage.LEGACY_STORAGE_VERSION,
       sync_rules_content: content,
-      compiled_plan: null
+      compiled_plan: null,
+      syncConfigState: storage.SyncRuleState.PROCESSING
     });
 
     const connectionStatus = await apiHandler.getConnectionStatus();
@@ -245,7 +256,8 @@ export const validate = routeDefinition({
     const status = (await api.getSyncRulesStatus(apiHandler, sync_rules, {
       include_content: false,
       check_connection: connectionStatus.connected,
-      live_status: false
+      live_status: false,
+      active: false
     }))!;
 
     if (connectionStatus == null) {

@@ -1,7 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { container, ErrorCode, Logger, ReplicationAbortedError, ServiceError } from '@powersync/lib-services-framework';
 import {
-  InternalOpId,
   MetricsEngine,
   PerformanceTracer,
   SaveOperationTag,
@@ -15,11 +14,13 @@ import { performance } from 'node:perf_hooks';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
+import { CheckpointImplementation } from './checkpoints/CheckpointImplementation.js';
+import { createCheckpointImplementation } from './checkpoints/create-checkpoint-implementation.js';
 import { MongoManager } from './MongoManager.js';
-import { createCheckpoint, getMongoRelation, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
+import { getMongoRelation } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { ChangeStreamBatch, parseChangeDocument, rawChangeStream } from './RawChangeStream.js';
-import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
+import { CHECKPOINTS_COLLECTION, detectDocumentDb } from './replication-utils.js';
 import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
 
 export interface MongoSnapshotterOptions {
@@ -71,8 +72,10 @@ export class MongoSnapshotter {
   private readonly queue = new Set<SnapshotQueueItem>();
   private initialSnapshotDone = Promise.withResolvers<void>();
   private nextItemQueued: PromiseWithResolvers<void> | null = null;
-  private lastSnapshotOpId: InternalOpId | null = null;
   private lastTouchedAt = performance.now();
+
+  private isDocumentDb = false;
+  private _checkpointImplementation: CheckpointImplementation | null = null;
 
   constructor(options: MongoSnapshotterOptions) {
     this.storage = options.storage;
@@ -110,23 +113,71 @@ export class MongoSnapshotter {
     return this.storage.storageConfig.softDeleteCurrentData;
   }
 
+  /** The active checkpoint strategy. Only valid after ensureDetected(). */
+  private get checkpointImplementation(): CheckpointImplementation {
+    if (this._checkpointImplementation == null) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1301,
+        'Checkpoint implementation not initialized - call ensureDetected() first'
+      );
+    }
+    return this._checkpointImplementation;
+  }
+
+  /**
+   * Detect DocumentDB and select the checkpoint implementation. Idempotent.
+   * Also validates server topology (sharded/standalone) for standard MongoDB.
+   */
+  private async ensureDetected(): Promise<void> {
+    if (this._checkpointImplementation != null) {
+      return;
+    }
+    this.isDocumentDb = await detectDocumentDb(this.defaultDb);
+    if (!this.isDocumentDb) {
+      const hello = await this.defaultDb.command({ hello: 1 });
+      if (hello.msg == 'isdbgrid') {
+        throw new ServiceError(
+          ErrorCode.PSYNC_S1341,
+          'Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).'
+        );
+      } else if (hello.setName == null) {
+        throw new ServiceError(
+          ErrorCode.PSYNC_S1342,
+          'Standalone MongoDB instances are not supported - use a replicaset.'
+        );
+      }
+    }
+    this._checkpointImplementation = createCheckpointImplementation(this.isDocumentDb, {
+      client: this.client,
+      db: this.defaultDb,
+      checkpointStreamId: this.checkpointStreamId,
+      logger: this.logger
+    });
+  }
+
   async checkSlot(): Promise<InitResult> {
     const status = await this.storage.getStatus();
-    if (status.snapshot_done && status.checkpoint_lsn) {
+    if (status.snapshotDone) {
       this.logger.info(`Initial replication already done`);
       return { needsInitialSync: false, snapshotLsn: null };
     }
 
-    return { needsInitialSync: true, snapshotLsn: status.snapshot_lsn };
+    return { needsInitialSync: true, snapshotLsn: status.resumeLsn };
   }
 
   async setupCheckpointsCollection() {
+    await this.ensureDetected();
     const collection = await this.getCollectionInfo(this.defaultDb.databaseName, CHECKPOINTS_COLLECTION);
     if (collection == null) {
       await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
-        changeStreamPreAndPostImages: { enabled: true }
+        // DocumentDB does not support changeStreamPreAndPostImages.
+        ...(this.isDocumentDb ? {} : { changeStreamPreAndPostImages: { enabled: true } })
       });
-    } else if (this.usePostImages && collection.options?.changeStreamPreAndPostImages?.enabled != true) {
+    } else if (
+      !this.isDocumentDb &&
+      this.usePostImages &&
+      collection.options?.changeStreamPreAndPostImages?.enabled != true
+    ) {
       // Drop + create requires less permissions than collMod,
       // and we don't care about the data in this collection.
       await this.defaultDb.dropCollection(CHECKPOINTS_COLLECTION);
@@ -137,12 +188,22 @@ export class MongoSnapshotter {
       // Clear the collection on startup, to keep it clean
       // We never query this collection directly, and don't want to keep the data around.
       // We only use this to get data into the oplog/changestream.
-      await this.defaultDb.collection(CHECKPOINTS_COLLECTION).deleteMany({});
+      //
+      // The implementation supplies the filter: the sentinel implementation must
+      // preserve the sentinel checkpoint document, since its counter is the
+      // globally-ordered component of every committed DocumentDB LSN.
+      await this.defaultDb
+        .collection(CHECKPOINTS_COLLECTION)
+        .deleteMany(this.checkpointImplementation.checkpointClearFilter);
     }
   }
 
   async queueSnapshotTables(snapshotLsn: string | null) {
     await this.client.connect();
+    // Ensure isDocumentDb is set before any getSourceNamespaceFilters() call below
+    // (notably the validateSnapshotLsn resume path, which does not go through
+    // getSnapshotLsn). Idempotent.
+    await this.ensureDetected();
     await using writer = await this.storage.createWriter({
       zeroLSN: MongoLSN.ZERO.comparable,
       defaultSchema: this.defaultDb.databaseName,
@@ -258,7 +319,7 @@ export class MongoSnapshotter {
       for (const table of tables) {
         await this.snapshotTable(batch, table);
       }
-      const noCheckpointBefore = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+      const noCheckpointBefore = await this.checkpointImplementation.createStandaloneCheckpoint();
 
       await batch.markTableSnapshotDone(tables, noCheckpointBefore);
     }
@@ -277,20 +338,16 @@ export class MongoSnapshotter {
     }
 
     const status = await this.storage.getStatus();
-    if (status.snapshot_done) {
+    if (status.snapshotDone) {
       return;
     }
 
-    const lastOp = this.lastSnapshotOpId ?? status.keepalive_op;
-    if (lastOp != null) {
-      // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
-      // Keeping snapshot_done false until this completes makes this resumable after interruption.
-      await this.storage.populatePersistentChecksumCache({
-        // No checkpoint yet, but we do have the opId.
-        maxOpId: lastOp,
-        signal: this.abortSignal
-      });
-    }
+    // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
+    // Keeping snapshot_done false until this completes makes this resumable after interruption.
+    // No checkpoint exists yet - storage defaults to its highest persisted op id.
+    await this.storage.populatePersistentChecksumCache({
+      signal: this.abortSignal
+    });
 
     if (this.queue.size != 0) {
       return;
@@ -306,7 +363,7 @@ export class MongoSnapshotter {
 
     // The checkpoint here is a marker - we need to replicate up to at least this
     // point before the data can be considered consistent.
-    const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+    const checkpoint = await this.checkpointImplementation.createStandaloneCheckpoint();
     if (this.queue.size != 0) {
       return;
     }
@@ -318,7 +375,7 @@ export class MongoSnapshotter {
     // KLUDGE: We need to create an extra checkpoint _after_ marking the snapshot done, to fix
     // issues with order of processing commits(). This is picked up by tests on postgres storage,
     // the issue may be specific to that storage engine.
-    await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+    await this.checkpointImplementation.createStandaloneCheckpoint();
   }
 
   private async replicateTable(tableRequest: SourceTable) {
@@ -342,16 +399,13 @@ export class MongoSnapshotter {
     }
 
     await this.snapshotTable(writer, table);
-    const noCheckpointBefore = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+    const noCheckpointBefore = await this.checkpointImplementation.createStandaloneCheckpoint();
     await writer.markTableSnapshotDone([table], noCheckpointBefore);
 
-    // This commit ensures we set keepalive_op.
+    // This commit durably records the persisted ops, so a later checkpoint covers them.
     const resumeLsn = writer.resumeFromLsn ?? MongoLSN.ZERO.comparable;
     await writer.commit(resumeLsn);
 
-    if (writer.last_flushed_op != null) {
-      this.lastSnapshotOpId = writer.last_flushed_op;
-    }
     this.logger.info(`Flushed snapshot at ${writer.last_flushed_op}`);
   }
 
@@ -362,6 +416,13 @@ export class MongoSnapshotter {
     const schema = tablePattern.schema;
     if (tablePattern.connectionTag != this.connections.connectionTag) {
       return [];
+    }
+
+    if (tablePattern.isSchemaWildcard) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_R2201,
+        'Schema wildcards ("%") in table patterns are not supported for MongoDB connections.'
+      );
     }
 
     const nameFilter = tablePattern.isWildcard
@@ -445,10 +506,7 @@ export class MongoSnapshotter {
       }
 
       // Important: flush before marking progress
-      const result = await batch.flush();
-      if (result?.flushed_op != null) {
-        this.lastSnapshotOpId = result.flushed_op;
-      }
+      await batch.flush();
       at += docBatch.length;
       rowsReplicatedMetric.add(docBatch.length);
 
@@ -481,10 +539,12 @@ export class MongoSnapshotter {
       // Ignore the postImages check in this case.
     }
 
+    // Note: resolveTables uses the batch's own parsed sync config set. Passing
+    // this.syncRules here would pair sources from one parse with the batch's mapping
+    // from another parse.
     const result = await batch.resolveTables({
       connection_id: this.connectionId,
-      source: descriptor,
-      syncRules: this.syncRules
+      source: descriptor
     });
 
     // Drop conflicting collections.
@@ -526,19 +586,7 @@ export class MongoSnapshotter {
   }
 
   private async getSnapshotLsn(): Promise<string> {
-    const hello = await this.defaultDb.command({ hello: 1 });
-    // Basic sanity check
-    if (hello.msg == 'isdbgrid') {
-      throw new ServiceError(
-        ErrorCode.PSYNC_S1341,
-        'Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).'
-      );
-    } else if (hello.setName == null) {
-      throw new ServiceError(
-        ErrorCode.PSYNC_S1342,
-        'Standalone MongoDB instances are not supported - use a replicaset.'
-      );
-    }
+    await this.ensureDetected();
 
     // Open a change stream just to get a resume token for later use.
     // We could use clusterTime from the hello command, but that won't tell us if the
@@ -551,14 +599,19 @@ export class MongoSnapshotter {
     // Instead, we create a new checkpoint document, and wait until we get that document back in the stream.
     // To avoid potential race conditions with the checkpoint creation, we create a new checkpoint document
     // periodically until the timeout is reached.
+    //
+    // For the sentinel implementation (DocumentDB) there is no
+    // startAtOperationTime: the stream opens from "now" (lsn null) and the
+    // retry loop below re-creates checkpoints until one is observed.
 
     const LSN_TIMEOUT_SECONDS = 60;
     const LSN_CREATE_INTERVAL_SECONDS = 1;
 
-    const firstCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+    this.checkpointImplementation.seedPosition(null);
+    const startStreamFromLsn = await this.checkpointImplementation.createFirstBarrier();
     const filters = this.getSourceNamespaceFilters();
     const iter = this.rawChangeStreamBatches({
-      lsn: firstCheckpointLsn,
+      lsn: startStreamFromLsn,
       maxAwaitTimeMS: 0,
       signal: this.abortSignal,
       filters
@@ -573,7 +626,7 @@ export class MongoSnapshotter {
         break;
       }
       if (performance.now() - lastCheckpointCreated >= LSN_CREATE_INTERVAL_SECONDS * 1000) {
-        await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+        await this.checkpointImplementation.createBatchCheckpoint();
         lastCheckpointCreated = performance.now();
       }
       batchesSeen += 1;
@@ -583,14 +636,15 @@ export class MongoSnapshotter {
         const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
 
         if (ns?.coll == CHECKPOINTS_COLLECTION && 'documentKey' in changeDocument) {
-          const checkpointId = changeDocument.documentKey._id as string | mongo.ObjectId;
-          if (!this.checkpointStreamId.equals(checkpointId)) {
+          const kind = this.checkpointImplementation.event.observe(changeDocument);
+          if (kind != 'own-barrier') {
+            // Standalone events still feed the implementation's coordinate via
+            // event.observe above; we only resolve on our own barrier.
             continue;
           }
-          return new MongoLSN({
-            timestamp: changeDocument.clusterTime!,
-            resume_token: changeDocument._id
-          }).comparable;
+          // Observing our own barrier has set the coordinate (the barrier event
+          // carries the sentinel counter directly), so the LSN is ready.
+          return this.checkpointImplementation.event.lsn(changeDocument);
         }
 
         eventsSeen += 1;
@@ -648,7 +702,12 @@ export class MongoSnapshotter {
       }
     }
 
-    const nsFilter = multipleDatabases
+    // DocumentDB always opens a cluster-level change stream, even in single-database
+    // mode, so a coll-only filter would match same-named collections in other
+    // databases of the cluster. Filter on the full namespace whenever the stream
+    // is cluster-scoped. See ChangeStream.getSourceNamespaceFilters for details.
+    const useFullNamespaceFilter = this.isDocumentDb || multipleDatabases;
+    const nsFilter = useFullNamespaceFilter
       ? { ns: { $in: inFilters } }
       : { 'ns.coll': { $in: inFilters.map((ns) => ns.coll) } };
     if (regexFilters.length > 0) {
@@ -665,12 +724,15 @@ export class MongoSnapshotter {
     signal?: AbortSignal;
     tracer?: PerformanceTracer<'changestream'>;
   }): AsyncIterableIterator<ChangeStreamBatch> {
-    const lastLsn = options.lsn ? MongoLSN.fromSerialized(options.lsn) : null;
-    const startAfter = lastLsn?.timestamp;
-    const resumeAfter = lastLsn?.resumeToken;
+    const position = options.lsn ? this.checkpointImplementation.parseResumePosition(options.lsn) : null;
+    const startAfter = position?.startAfter ?? undefined;
+    const resumeAfter = position?.resumeAfter ?? undefined;
 
     let fullDocument: 'required' | 'updateLookup';
-    if (this.usePostImages) {
+    if (this.isDocumentDb) {
+      // DocumentDB does not support changeStreamPreAndPostImages, so 'required' won't work.
+      fullDocument = 'updateLookup';
+    } else if (this.usePostImages) {
       // 'read_only' or 'auto_configure'
       // Configuration happens during snapshot, or when we see new
       // collections.
@@ -679,27 +741,32 @@ export class MongoSnapshotter {
       fullDocument = 'updateLookup';
     }
     const streamOptions: mongo.ChangeStreamOptions & mongo.Document = {
-      showExpandedEvents: true,
       fullDocument
     };
-    const pipeline: mongo.Document[] = [
-      { $changeStream: streamOptions },
-      { $match: options.filters.$match },
-      { $changeStreamSplitLargeEvent: {} }
-    ];
+    if (!this.isDocumentDb) {
+      // DocumentDB does not support showExpandedEvents.
+      streamOptions.showExpandedEvents = true;
+    }
+    const pipeline: mongo.Document[] = [{ $changeStream: streamOptions }, { $match: options.filters.$match }];
+    if (!this.isDocumentDb) {
+      // DocumentDB does not support $changeStreamSplitLargeEvent.
+      pipeline.push({ $changeStreamSplitLargeEvent: {} });
+    }
 
     // Only one of these options can be supplied at a time.
     if (resumeAfter) {
       streamOptions.resumeAfter = resumeAfter;
-    } else {
+    } else if (startAfter != null) {
       // Legacy: We don't persist lsns without resumeTokens anymore, but we do still handle the
-      // case if we have an old one.
+      // case if we have an old one. The sentinel implementation never produces a startAfter,
+      // and a fresh DocumentDB stream opens from "now" with neither option set.
       streamOptions.startAtOperationTime = startAfter;
     }
 
     let watchDb: mongo.Db;
-    if (options.filters.multipleDatabases) {
-      // Requires readAnyDatabase@admin on Atlas
+    if (this.isDocumentDb || options.filters.multipleDatabases) {
+      // DocumentDB only supports cluster-level change streams.
+      // Requires readAnyDatabase@admin on Atlas.
       watchDb = this.client.db('admin');
       streamOptions.allChangesForCluster = true;
     } else {
@@ -707,9 +774,14 @@ export class MongoSnapshotter {
       watchDb = this.defaultDb;
     }
 
+    const maxAwaitTimeMS = options.maxAwaitTimeMS ?? this.maxAwaitTimeMS;
+
     return rawChangeStream(watchDb, pipeline, {
       batchSize: options.batchSize ?? this.snapshotChunkLength,
-      maxAwaitTimeMS: options.maxAwaitTimeMS ?? this.maxAwaitTimeMS,
+      maxAwaitTimeMS,
+      // maxAwaitTimeMS can be 0 for probe-style streams that do not want an idle wait.
+      // In that case there is no client-side wait to emulate for DocumentDB.
+      clientSideMaxAwaitTimeMS: this.isDocumentDb && maxAwaitTimeMS > 0,
       maxTimeMS: this.changeStreamTimeout,
       signal: options.signal,
       logger: this.logger,

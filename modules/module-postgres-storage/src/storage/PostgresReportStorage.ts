@@ -3,7 +3,6 @@ import { logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
 import { event_types } from '@powersync/service-types';
-import { ClientConnectionResponse } from '@powersync/service-types/dist/reports.js';
 import { toInteger } from 'ix/util/tointeger.js';
 import { v4 } from 'uuid';
 import { SdkReporting, SdkReportingDecoded } from '../types/models/SdkReporting.js';
@@ -295,7 +294,7 @@ export class PostgresReportStorage implements storage.ReportStorage {
     const limit = data.limit || 100;
     const statement = this.clientsConnectionPagination(data);
 
-    const result = await this.db.queryRows<ClientConnectionResponse>(statement.mainQuery);
+    const result = await this.db.queryRows<event_types.ClientConnectionResponse>(statement.mainQuery);
     const items = result.map((item) => ({
       ...item,
       /** JS Date conversion to match document schema used for Mongo storage */

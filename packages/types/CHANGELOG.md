@@ -1,5 +1,17 @@
 # @powersync/service-types
 
+## 0.16.1
+
+### Patch Changes
+
+- c2edf86: Add `api.parameters.bucket_count_cache_ttl_minutes` configuration option.
+
+## 0.16.0
+
+### Minor Changes
+
+- a91a08f: [Experimental] Enable incremental reprocessing for MongoDB source + MongoDB storage. This includes significant changes to the v3 storage format.
+
 ## 0.15.2
 
 ### Patch Changes

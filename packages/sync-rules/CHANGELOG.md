@@ -1,5 +1,34 @@
 # @powersync/service-sync-rules
 
+## 0.39.0
+
+### Minor Changes
+
+- ea71bf3: Stop exporting legacy Sync Rules and alpha Sync Streams implementations
+
+### Patch Changes
+
+- edc6ed4: Emit a warning for Sync Streams with joins where the primary table has an alias. Adding an alias syncs the table under the changed name, which may be unintentional for joins if aliases are only added to simplify filters.
+
+  Closes #565.
+
+## 0.38.1
+
+### Patch Changes
+
+- a6ae678: Warn when using a `*` column in Sync Streams might overwrite an earlier alias.
+
+## 0.38.0
+
+### Minor Changes
+
+- c3f75df: [Internal] Add comparison methods for serialized sync plans.
+
+### Patch Changes
+
+- 184c39f: Make `lower()` and `upper()` Unicode aware even when `unstable_sqlite_expression_engine: true` is enabled.
+- 4bd35ea: Fix error responses when a Sync Stream parameter selects from a table with a wildcard pattern.
+
 ## 0.37.0
 
 ### Minor Changes
