@@ -51,6 +51,7 @@ describe('Drizzle migrations', () => {
           'bucket_data',
           'bucket_parameters',
           'current_data',
+          'op_id_sequence',
           'source_tables',
           'sync_rules',
           'write_checkpoints',
@@ -58,6 +59,9 @@ describe('Drizzle migrations', () => {
           'bucket_parameters_lookup_index'
         ])
       );
+      expect(runtime.client.prepare(`SELECT next_op_id FROM op_id_sequence WHERE id = 1`).get()).toEqual({
+        next_op_id: 1n
+      });
     } finally {
       runtime.close();
     }

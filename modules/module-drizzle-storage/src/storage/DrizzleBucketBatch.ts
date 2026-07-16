@@ -1,7 +1,7 @@
 import { BaseObserver, DO_NOT_LOG, Logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { ColumnDescriptor, storage, utils } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
-import { and, count, desc, eq, inArray, isNotNull, isNull, lte, ne } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, lte, ne } from 'drizzle-orm';
 import * as uuid from 'uuid';
 import type { SourceTableRow } from '../drivers/sqlite/schema.js';
 import type { DrizzleStorageTransaction } from '../drivers/sqlite/sqlite-config.js';
@@ -183,10 +183,12 @@ export class DrizzleBucketBatch
   async truncate(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
     await this.flush();
 
-    let nextOpId = this.getNextOpId();
-    const firstOpId = nextOpId;
+    let nextOpId = 0n;
+    let firstOpId = 0n;
 
     this.options.dialect.transaction((tx) => {
+      nextOpId = this.getNextOpId(tx);
+      firstOpId = nextOpId;
       const persistedBatch = this.createPersistedBatch(tx);
       for (const table of sourceTables) {
         if (!table.syncData && !table.syncParameters) {
@@ -235,6 +237,7 @@ export class DrizzleBucketBatch
           )
           .run();
       }
+      this.setNextOpId(tx, nextOpId);
     });
 
     if (nextOpId == firstOpId) {
@@ -275,12 +278,15 @@ export class DrizzleBucketBatch
     if (this.pendingOperations.length > 0) {
       await this.options.hooks?.beforeBatchFlush?.(this);
       const operations = this.pendingOperations.splice(0);
-      let nextOpId = this.getNextOpId();
-      const firstOpId = nextOpId;
+      let nextOpId = 0n;
+      let firstOpId: bigint | null = null;
       for (const batch of chunked(operations, MAX_OPERATION_BATCH_COUNT)) {
         this.options.dialect.transaction((tx) => {
+          nextOpId = this.getNextOpId(tx);
+          firstOpId ??= nextOpId;
           const persistedBatch = this.createPersistedBatch(tx);
           nextOpId = persistedBatch.persistOperations(batch, nextOpId);
+          this.setNextOpId(tx, nextOpId);
         });
       }
       const lastOpId = nextOpId - 1n;
@@ -289,7 +295,7 @@ export class DrizzleBucketBatch
       result = { flushed_op: lastOpId };
       this.logFlushedOperations({
         operationCount: operations.length,
-        firstOpId,
+        firstOpId: firstOpId!,
         nextOpId
       });
       await this.options.hooks?.afterBatchFlush?.(this);
@@ -571,29 +577,23 @@ export class DrizzleBucketBatch
     });
   }
 
-  private getNextOpId(): bigint {
-    const { db, tables } = this.options.dialect;
-    const bucketData = db
-      .select({ value: tables.bucketData.opId })
-      .from(tables.bucketData)
-      .orderBy(desc(tables.bucketData.opId))
-      .limit(1)
+  private getNextOpId(tx: DrizzleStorageTransaction): bigint {
+    const row = tx
+      .select()
+      .from(this.options.dialect.tables.opIdSequence)
+      .where(eq(this.options.dialect.tables.opIdSequence.id, 1))
       .get();
-    const bucketParameters = db
-      .select({ value: tables.bucketParameters.id })
-      .from(tables.bucketParameters)
-      .orderBy(desc(tables.bucketParameters.id))
-      .limit(1)
-      .get();
-    const pendingDelete = db
-      .select({ value: tables.currentData.pendingDelete })
-      .from(tables.currentData)
-      .where(isNotNull(tables.currentData.pendingDelete))
-      .orderBy(desc(tables.currentData.pendingDelete))
-      .limit(1)
-      .get();
+    if (row == null) {
+      throw new Error('Missing op ID sequence state');
+    }
+    return row.nextOpId;
+  }
 
-    return maxBigint(bucketData?.value, bucketParameters?.value, pendingDelete?.value, 0n) + 1n;
+  private setNextOpId(tx: DrizzleStorageTransaction, nextOpId: bigint): void {
+    tx.update(this.options.dialect.tables.opIdSequence)
+      .set({ nextOpId })
+      .where(eq(this.options.dialect.tables.opIdSequence.id, 1))
+      .run();
   }
 
   private logFlushedOperations(options: {

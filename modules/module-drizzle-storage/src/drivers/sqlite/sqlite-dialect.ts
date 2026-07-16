@@ -21,7 +21,7 @@ export function createSqliteDrizzleStorageDialect(runtime: SqliteDrizzleRuntime)
       const statement = db.$client
         .prepare(
           `
-        SELECT id, group_id, bucket_name, op_id, op, source_table, source_key,
+        SELECT bucket_name, op_id, op, source_table, source_key,
                table_name, row_id, checksum, data, target_op
         FROM bucket_data
         WHERE group_id = ? AND bucket_name = ? AND op_id > ? AND op_id <= ?
@@ -52,8 +52,6 @@ export function createSqliteDrizzleStorageDialect(runtime: SqliteDrizzleRuntime)
 }
 
 interface RawBucketDataRow {
-  id: string;
-  group_id: bigint;
   bucket_name: string;
   op_id: bigint;
   op: string;
@@ -68,8 +66,6 @@ interface RawBucketDataRow {
 
 function mapBucketDataRow(row: RawBucketDataRow) {
   return {
-    id: row.id,
-    groupId: Number(row.group_id),
     bucketName: row.bucket_name,
     opId: row.op_id,
     op: row.op,

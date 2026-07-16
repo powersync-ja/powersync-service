@@ -1,4 +1,4 @@
-import { storage, SUPPORTED_STORAGE_VERSIONS } from '@powersync/service-core';
+import { storage } from '@powersync/service-core';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import {
   createSqliteDrizzleStorageFactory,
@@ -24,4 +24,4 @@ export const DRIZZLE_SQLITE_STORAGE_FACTORY: storage.TestStorageConfig = {
   }
 };
 
-export const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS;
+export const TEST_STORAGE_VERSIONS = [storage.LEGACY_STORAGE_VERSION];

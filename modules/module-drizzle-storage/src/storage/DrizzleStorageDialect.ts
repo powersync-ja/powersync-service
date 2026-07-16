@@ -7,9 +7,11 @@ export interface DrizzleStorageDialect {
   readonly db: DrizzleStorageDatabase;
   readonly tables: typeof sqliteSchema;
   transaction<T>(callback: (tx: DrizzleStorageTransaction) => T): T;
-  streamBucketDataRows(options: DrizzleBucketDataStreamOptions): AsyncIterable<BucketDataRow>;
+  streamBucketDataRows(options: DrizzleBucketDataStreamOptions): AsyncIterable<BucketDataReadRow>;
   createCheckpointWatcher(): DrizzleCheckpointWatcher;
 }
+
+export type BucketDataReadRow = Omit<BucketDataRow, 'id' | 'groupId'>;
 
 export interface DrizzleBucketDataStreamOptions {
   readonly db?: DrizzleStorageDatabase;

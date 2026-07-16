@@ -17,13 +17,13 @@ import {
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
-import { and, asc, desc, eq, isNull, lte } from 'drizzle-orm';
+import { and, count, desc, eq, gt, isNull, lte, sum } from 'drizzle-orm';
 import * as uuid from 'uuid';
 import type { BucketDataRow } from '../drivers/sqlite/schema.js';
 import { DrizzleBucketBatch } from './DrizzleBucketBatch.js';
 import { DrizzleBucketStorageFactory } from './DrizzleBucketStorageFactory.js';
 import { DrizzleCompactor } from './DrizzleCompactor.js';
-import { DrizzleStorageDialect } from './DrizzleStorageDialect.js';
+import { BucketDataReadRow, DrizzleStorageDialect } from './DrizzleStorageDialect.js';
 
 export interface DrizzleSyncRulesStorageOptions {
   factory: DrizzleBucketStorageFactory;
@@ -48,6 +48,7 @@ export class DrizzleSyncRulesStorage
     | undefined;
 
   private writeCheckpointModeValue = storage.WriteCheckpointMode.MANAGED;
+  private checksumCacheValue: storage.ChecksumCache | undefined;
 
   constructor(private readonly options: DrizzleSyncRulesStorageOptions) {
     super();
@@ -64,6 +65,13 @@ export class DrizzleSyncRulesStorage
 
   setWriteCheckpointMode(mode: storage.WriteCheckpointMode): void {
     this.writeCheckpointModeValue = mode;
+  }
+
+  private get checksumCache(): storage.ChecksumCache {
+    this.checksumCacheValue ??= new storage.ChecksumCache({
+      fetchChecksums: (batch) => this.getChecksumsInternal(batch)
+    });
+    return this.checksumCacheValue;
   }
 
   async createManagedWriteCheckpoint(checkpoint: storage.ManagedWriteCheckpointOptions): Promise<bigint> {
@@ -208,6 +216,7 @@ export class DrizzleSyncRulesStorage
       tx.delete(tables.sourceTables).where(eq(tables.sourceTables.groupId, this.replicationStreamId)).run();
     });
 
+    this.clearChecksumCache();
     this.factory.checkpointWatcher.notify();
   }
 
@@ -239,6 +248,10 @@ export class DrizzleSyncRulesStorage
     if (options?.compactParameterData) {
       await compactor.compactParameterData(options);
     }
+
+    // Compaction can replace operations at an already-cached checkpoint with a
+    // CLEAR operation, invalidating any incremental checksum based on it.
+    this.clearChecksumCache();
   }
 
   async populatePersistentChecksumCache(_options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
@@ -399,34 +412,59 @@ export class DrizzleSyncRulesStorage
   }
 
   async getChecksums(checkpoint: bigint, buckets: BucketChecksumRequest[]): Promise<utils.ChecksumMap> {
-    const result: utils.ChecksumMap = new Map();
-    const { db, tables } = this.options.dialect;
-    for (const bucket of buckets) {
-      const rows = db
-        .select()
-        .from(tables.bucketData)
-        .where(
-          and(
-            eq(tables.bucketData.groupId, this.replicationStreamId),
-            eq(tables.bucketData.bucketName, bucket.bucket),
-            lte(tables.bucketData.opId, checkpoint)
-          )
-        )
-        .orderBy(asc(tables.bucketData.opId))
-        .all();
-      const entries = rows.map(bucketDataRowToOpEntry);
-      const checksum = entries.reduce((total, entry) => utils.addChecksums(total, Number(entry.checksum)), 0);
-      result.set(bucket.bucket, {
-        bucket: bucket.bucket,
-        checksum,
-        count: entries.length
-      });
-    }
-    return result;
+    return this.checksumCache.getChecksumMap(checkpoint, buckets);
   }
 
   clearChecksumCache(): void {
-    // No checksum cache exists in the initial Drizzle storage slice.
+    this.checksumCacheValue?.clear();
+  }
+
+  private async getChecksumsInternal(batch: storage.FetchPartialBucketChecksum[]): Promise<storage.PartialChecksumMap> {
+    const result: storage.PartialChecksumMap = new Map();
+    if (batch.length == 0) {
+      return result;
+    }
+
+    const { db, tables } = this.options.dialect;
+
+    for (const request of batch) {
+      const rangeFilter = and(
+        eq(tables.bucketData.groupId, this.replicationStreamId),
+        eq(tables.bucketData.bucketName, request.bucket),
+        gt(tables.bucketData.opId, request.start ?? 0n),
+        lte(tables.bucketData.opId, request.end)
+      );
+      const aggregate = db
+        .select({
+          checksum: sum(tables.bucketData.checksum),
+          count: count()
+        })
+        .from(tables.bucketData)
+        .where(rangeFilter)
+        .get();
+      const checksum = Number(BigInt(aggregate?.checksum ?? 0) & 0xffffffffn) & 0xffffffff;
+      const rowCount = aggregate?.count ?? 0;
+
+      // A CLEAR only changes how a partial result is combined with an existing
+      // cached checksum. Full requests are already combined with an empty base.
+      const hasClearOperation =
+        request.start != null &&
+        db
+          .select({ opId: tables.bucketData.opId })
+          .from(tables.bucketData)
+          .where(and(rangeFilter, eq(tables.bucketData.op, 'CLEAR')))
+          .limit(1)
+          .get() != null;
+
+      result.set(
+        request.bucket,
+        hasClearOperation
+          ? { bucket: request.bucket, checksum, count: rowCount }
+          : { bucket: request.bucket, partialChecksum: checksum, partialCount: rowCount }
+      );
+    }
+
+    return result;
   }
 
   private async lastCustomWriteCheckpoint(filters: storage.CustomWriteCheckpointFilters): Promise<bigint | null> {
@@ -510,8 +548,12 @@ export class DrizzleSyncRulesStorage
     }
 
     const { db, tables } = this.options.dialect;
+    // Luckily, we usually only have one record per user here
     const rows = db
-      .select()
+      .select({
+        checkpoint: tables.writeCheckpoints.checkpoint,
+        heads: tables.writeCheckpoints.heads
+      })
       .from(tables.writeCheckpoints)
       .where(and(eq(tables.writeCheckpoints.userId, filters.user_id), isNull(tables.writeCheckpoints.syncRulesId)))
       .orderBy(desc(tables.writeCheckpoints.checkpoint))
@@ -542,7 +584,7 @@ function parseBucketParameters(value: unknown): sync_rules.SqliteJsonRow[] {
   return Array.isArray(value) ? (value as sync_rules.SqliteJsonRow[]) : [];
 }
 
-function bucketDataRowToOpEntry(row: BucketDataRow): utils.OplogEntry {
+function bucketDataRowToOpEntry(row: BucketDataRow | BucketDataReadRow): utils.OplogEntry {
   if (row.op == 'PUT' || row.op == 'REMOVE') {
     return {
       op_id: utils.internalToExternalOpId(row.opId),

@@ -68,6 +68,11 @@ export const instance = sqliteTable('instance', {
   id: text('id').primaryKey()
 });
 
+export const opIdSequence = sqliteTable('op_id_sequence', {
+  id: integer('id').primaryKey(),
+  nextOpId: sqliteBigInt('next_op_id').notNull()
+});
+
 export const sourceTables = sqliteTable(
   'source_tables',
   {
@@ -123,6 +128,7 @@ export const sqliteSchema = {
   bucketParameters,
   currentData,
   instance,
+  opIdSequence,
   sourceTables,
   syncRules,
   writeCheckpoints
@@ -132,6 +138,7 @@ export type BucketDataRow = typeof bucketData.$inferSelect;
 export type BucketParametersRow = typeof bucketParameters.$inferSelect;
 export type CurrentDataRow = typeof currentData.$inferSelect;
 export type InstanceRow = typeof instance.$inferSelect;
+export type OpIdSequenceRow = typeof opIdSequence.$inferSelect;
 export type SourceTableRow = typeof sourceTables.$inferSelect;
 export type SyncRulesRow = typeof syncRules.$inferSelect;
 export type WriteCheckpointRow = typeof writeCheckpoints.$inferSelect;
