@@ -1,9 +1,11 @@
 import * as sqlite from 'node:sqlite';
-import { describe, expect } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import {
   DEFAULT_HYDRATION_STATE,
   DEFAULT_TAG,
+  deserializeSyncPlan,
   HydratedSyncConfig,
+  maxSupportedSyncPlanVersion,
   nodeSqlite,
   ParameterLookupRows,
   PrecompiledSyncConfig,
@@ -1459,6 +1461,11 @@ streams:
       }
     ]);
   });
+});
+
+test('refuses to load unknown sync plan versions', () => {
+  expect(() => deserializeSyncPlan({ version: 0 })).toThrow();
+  expect(() => deserializeSyncPlan({ version: maxSupportedSyncPlanVersion + 1 })).toThrow();
 });
 
 function evaluateBucketIds(source: HydratedSyncConfig, sourceTable: SourceTableRef, record: SqliteRow) {
