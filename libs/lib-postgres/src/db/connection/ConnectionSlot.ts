@@ -60,7 +60,23 @@ export class ConnectionSlot extends framework.BaseObserver<ConnectionSlotListene
      * Subscribing to notifications, even without a registered listener, should not add much overhead.
      */
     await this.configureConnectionNotifications(connection);
+    connection.whenDestroyed.then(() => this.handleConnectionDestroyed(connection));
     return connection;
+  }
+
+  protected handleConnectionDestroyed(connection: pgwire.PgConnection) {
+    if (this.connection != connection) {
+      return;
+    }
+
+    this.connection = null;
+    this.isAvailable = false;
+
+    if (this.hasNotificationListener() && !this.closed) {
+      // Notification connections need to be restored proactively. Other slots
+      // are reconnected lazily when the next connection lease is requested.
+      this.poke();
+    }
   }
 
   async [Symbol.asyncDispose]() {

@@ -725,34 +725,33 @@ export class PostgresSyncRulesStorage
       notification: (notification) => sink.write(notification.payload)
     });
 
-    signal.addEventListener('aborted', async () => {
+    try {
+      yield this.makeActiveCheckpoint(doc);
+
+      let lastOp: storage.ReplicationCheckpoint | null = null;
+      for await (const payload of sink.withSignal(signal)) {
+        if (signal.aborted) {
+          return;
+        }
+
+        const notification = models.ActiveCheckpointNotification.decode(payload);
+        if (notification.active_checkpoint == null) {
+          continue;
+        }
+        if (Number(notification.active_checkpoint.id) != doc.id) {
+          // Active replication stream changed - abort and restart the stream
+          break;
+        }
+
+        const activeCheckpoint = this.makeActiveCheckpoint(notification.active_checkpoint);
+
+        if (lastOp == null || activeCheckpoint.lsn != lastOp.lsn || activeCheckpoint.checkpoint != lastOp.checkpoint) {
+          lastOp = activeCheckpoint;
+          yield activeCheckpoint;
+        }
+      }
+    } finally {
       disposeListener();
-      sink.end();
-    });
-
-    yield this.makeActiveCheckpoint(doc);
-
-    let lastOp: storage.ReplicationCheckpoint | null = null;
-    for await (const payload of sink.withSignal(signal)) {
-      if (signal.aborted) {
-        return;
-      }
-
-      const notification = models.ActiveCheckpointNotification.decode(payload);
-      if (notification.active_checkpoint == null) {
-        continue;
-      }
-      if (Number(notification.active_checkpoint.id) != doc.id) {
-        // Active replication stream changed - abort and restart the stream
-        break;
-      }
-
-      const activeCheckpoint = this.makeActiveCheckpoint(notification.active_checkpoint);
-
-      if (lastOp == null || activeCheckpoint.lsn != lastOp.lsn || activeCheckpoint.checkpoint != lastOp.checkpoint) {
-        lastOp = activeCheckpoint;
-        yield activeCheckpoint;
-      }
     }
   }
 
