@@ -34,15 +34,25 @@ interface StorageBenchmarkScenario {
 }
 ```
 
-Default scenarios:
+Default scenarios are the cross-product of these dimensions:
 
-| Scenario | Todo Rows | List Rows | Users | Max Buckets |
-| -------- | --------: | --------: | ----: | ----------: |
-| small    |     1,000 |       100 |   100 |       1,000 |
-| medium   |    10,000 |       500 |   500 |       1,000 |
-| large    |   100,000 |       500 |   500 |       1,000 |
+| Todo Rows | Timeout |
+| --------: | ------: |
+|     1,000 |   5 min |
+|    10,000 |  10 min |
+|   100,000 |  30 min |
+| 1,000,000 |     3 h |
 
-The number of rows in buckets may grow large, but the total resolved bucket count must stay capped at 1,000 by default. All registered scenarios always run both the write phase and the sync stream drain phase.
+| Resolved Buckets | List Rows |  Users | Minimum Timeout |
+| ---------------: | --------: | -----: | --------------: |
+|              200 |       100 |    100 |               - |
+|            1,000 |       500 |    500 |               - |
+|           10,000 |     5,000 |  5,000 |          15 min |
+|           20,000 |    10,000 | 10,000 |          20 min |
+
+This produces 16 scenarios. Every row-count permutation includes the original 200- and 1,000-bucket shapes plus the
+new 10,000- and 20,000-bucket shapes. Each scenario passes its own `max_bucket_count` into the sync context for both
+bucket and parameter-result limits. All registered scenarios run both the write phase and sync stream drain phase.
 
 ## Harness Requirements
 
@@ -105,8 +115,33 @@ The summary table should include:
 - Buckets
 - Write ms
 - Write rows/s
+- Write MiB/s, based on the logical JSON size of source rows
 - Sync drain ms
 - Ops
-- MiB/s
+- Read MiB/s, based on bytes emitted by the sync stream
 
 The output is intentionally plain markdown so benchmark results can be pasted into issues, PRs, or follow-up analysis notes.
+
+## Comparing Storage Implementations
+
+Use the root comparison CLI to select and run multiple storage implementations:
+
+```sh
+pnpm benchmark:storage
+```
+
+Missing storage selections are prompted for interactively. They can also be supplied directly:
+
+```sh
+pnpm benchmark:storage --storage drizzle-sqlite,mikroorm-sqlite
+```
+
+Use `--output <path>` to retain the combined JSON results. The CLI runs each selected module in a separate Vitest
+process, collects its machine-readable output, and prints throughput relative to the fastest selected implementation
+for each scenario.
+
+The CLI also writes a self-contained grouped SVG chart to `storage-benchmark-comparison.svg`, comparing write and read
+MiB/s for every storage/version/scenario result. Use `--chart <path>` to select a different destination.
+
+A benchmark test can also write its results directly by setting `POWERSYNC_STORAGE_BENCHMARK_OUTPUT` to the desired
+JSON path. Without that environment variable, benchmark tests keep their existing console-only behavior.

@@ -1,5 +1,7 @@
 import { createCoreAPIMetrics, JwtPayload, storage, sync, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { afterAll, test } from 'vitest';
 import {
@@ -57,40 +59,62 @@ export interface StorageBenchmarkResult {
   buckets: number;
   write_ms: number;
   write_rows_per_second: number;
+  write_mebibytes_per_second: number;
   sync_drain_ms: number;
   ops: number;
-  mebibytes_per_second: number;
+  read_mebibytes_per_second: number;
 }
 
-export const DEFAULT_STORAGE_BENCHMARK_SCENARIOS: StorageBenchmarkScenario[] = [
+export interface StorageBenchmarkOutput {
+  schema_version: 1;
+  generated_at: string;
+  results: StorageBenchmarkResult[];
+}
+
+export const STORAGE_BENCHMARK_OUTPUT_PATH_ENV = 'POWERSYNC_STORAGE_BENCHMARK_OUTPUT';
+
+const STORAGE_BENCHMARK_ROW_PERMUTATIONS = [
   {
-    name: 'small',
+    name: '1k-todos',
     todo_row_count: 1_000,
-    list_row_count: 100,
-    user_count: 100,
-    flush_every: 1_000,
-    max_bucket_count: 1_000,
-    timeout_ms: 120_000
-  },
-  {
-    name: 'medium',
-    todo_row_count: 10_000,
-    list_row_count: 500,
-    user_count: 500,
-    flush_every: 1_000,
-    max_bucket_count: 1_000,
     timeout_ms: 300_000
   },
   {
-    name: 'large',
+    name: '10k-todos',
+    todo_row_count: 10_000,
+    timeout_ms: 600_000
+  },
+  {
+    name: '100k-todos',
     todo_row_count: 100_000,
-    list_row_count: 500,
-    user_count: 500,
-    flush_every: 1_000,
-    max_bucket_count: 1_000,
-    timeout_ms: 1_200_000
+    timeout_ms: 1_800_000
+  },
+  {
+    name: '1m-todos',
+    todo_row_count: 1_000_000,
+    timeout_ms: 10_800_000
   }
 ];
+
+const STORAGE_BENCHMARK_BUCKET_PERMUTATIONS = [
+  { name: '200-buckets', list_row_count: 100, bucket_count: 200, minimum_timeout_ms: 0 },
+  { name: '1k-buckets', list_row_count: 500, bucket_count: 1_000, minimum_timeout_ms: 0 },
+  { name: '10k-buckets', list_row_count: 5_000, bucket_count: 10_000, minimum_timeout_ms: 900_000 },
+  { name: '20k-buckets', list_row_count: 10_000, bucket_count: 20_000, minimum_timeout_ms: 1_200_000 }
+];
+
+export const DEFAULT_STORAGE_BENCHMARK_SCENARIOS: StorageBenchmarkScenario[] =
+  STORAGE_BENCHMARK_ROW_PERMUTATIONS.flatMap((rowPermutation) =>
+    STORAGE_BENCHMARK_BUCKET_PERMUTATIONS.map((bucketPermutation) => ({
+      name: `${rowPermutation.name}-${bucketPermutation.name}`,
+      todo_row_count: rowPermutation.todo_row_count,
+      list_row_count: bucketPermutation.list_row_count,
+      user_count: bucketPermutation.list_row_count,
+      flush_every: 1_000,
+      max_bucket_count: bucketPermutation.bucket_count,
+      timeout_ms: Math.max(rowPermutation.timeout_ms, bucketPermutation.minimum_timeout_ms)
+    }))
+  );
 
 export function registerStorageBenchmarks(
   configOrFactory: storage.TestStorageConfig | storage.TestStorageFactory,
@@ -128,19 +152,35 @@ export function registerStorageBenchmarkSummary(
   results: StorageBenchmarkResult[],
   title = 'Storage benchmark results'
 ) {
-  afterAll(() => {
+  afterAll(async () => {
     if (results.length == 0) {
       return;
     }
 
     console.log(`\n${title}\n${formatStorageBenchmarkResults(results)}`);
+
+    const outputPath = process.env[STORAGE_BENCHMARK_OUTPUT_PATH_ENV];
+    if (outputPath != null && outputPath.length > 0) {
+      await writeStorageBenchmarkResults(outputPath, results);
+      console.log(`\nWrote storage benchmark results to ${outputPath}`);
+    }
   });
+}
+
+export async function writeStorageBenchmarkResults(outputPath: string, results: StorageBenchmarkResult[]) {
+  const output: StorageBenchmarkOutput = {
+    schema_version: 1,
+    generated_at: new Date().toISOString(),
+    results
+  };
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, `${JSON.stringify(output, null, 2)}\n`, 'utf8');
 }
 
 export function formatStorageBenchmarkResults(results: StorageBenchmarkResult[]) {
   const rows = [
-    '| Storage | Version | Scenario | Source Rows | Buckets | Write ms | Write rows/s | Sync drain ms | Ops | MiB/s |',
-    '| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'
+    '| Storage | Version | Scenario | Source Rows | Buckets | Write ms | Write rows/s | Write MiB/s | Sync drain ms | Ops | Read MiB/s |',
+    '| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'
   ];
 
   for (const result of results) {
@@ -148,8 +188,8 @@ export function formatStorageBenchmarkResults(results: StorageBenchmarkResult[])
       `| ${result.storage} | ${result.version ?? ''} | ${result.scenario} | ${result.source_rows} | ${
         result.buckets
       } | ${formatNumber(result.write_ms)} | ${formatNumber(result.write_rows_per_second)} | ${formatNumber(
-        result.sync_drain_ms
-      )} | ${result.ops} | ${formatNumber(result.mebibytes_per_second)} |`
+        result.write_mebibytes_per_second
+      )} | ${formatNumber(result.sync_drain_ms)} | ${result.ops} | ${formatNumber(result.read_mebibytes_per_second)} |`
     );
   }
 
@@ -175,6 +215,7 @@ async function runStorageBenchmark(
   const bucketStorage = factory.getInstance(syncRules.stream);
   const label = benchmarkLabel(options.storageName, options.storageVersion, scenario.name);
   const sourceRows = scenario.todo_row_count + scenario.list_row_count;
+  const sourceBytes = calculateSourceBytes(scenario);
 
   const writeStarted = performance.now();
   await persistBenchmarkRows({
@@ -201,9 +242,10 @@ async function runStorageBenchmark(
     buckets: drain.buckets,
     write_ms: writeMs,
     write_rows_per_second: sourceRows / (writeMs / 1_000),
+    write_mebibytes_per_second: sourceBytes / 1024 / 1024 / (writeMs / 1_000),
     sync_drain_ms: drain.elapsedMs,
     ops: drain.ops,
-    mebibytes_per_second: drain.bytes / 1024 / 1024 / (drain.elapsedMs / 1_000)
+    read_mebibytes_per_second: drain.bytes / 1024 / 1024 / (drain.elapsedMs / 1_000)
   };
 }
 
@@ -254,28 +296,17 @@ async function persistBenchmarkRows(options: {
     await saveRow({
       sourceTable: listsTable,
       tag: storage.SaveOperationTag.INSERT,
-      after: {
-        id: listId,
-        owner_id: userId(i % scenario.user_count),
-        name: `List ${i}`
-      },
+      after: listRow(i, scenario),
       afterReplicaId: listId
     });
   }
 
   for (let i = 0; i < scenario.todo_row_count; i++) {
-    const listIndex = i % scenario.list_row_count;
     const todoId = todoRowId(i);
     await saveRow({
       sourceTable: todosTable,
       tag: storage.SaveOperationTag.INSERT,
-      after: {
-        id: todoId,
-        list_id: listRowId(listIndex),
-        owner_id: userId(listIndex % scenario.user_count),
-        description: `Todo ${i} for ${listRowId(listIndex)}`,
-        completed: i % 3 == 0 ? 1 : 0
-      },
+      after: todoRow(i, scenario),
       afterReplicaId: todoId
     });
   }
@@ -294,7 +325,7 @@ async function drainSyncStream(options: {
   const started = performance.now();
   const tracker = new sync.RequestTracker(METRICS_HELPER.metricsEngine);
   const controller = new AbortController();
-  const maxBucketCount = expectedBucketCount(scenario);
+  const maxBucketCount = configuredMaxBucketCount(scenario);
   const syncContext = new sync.SyncContext({
     maxBuckets: maxBucketCount + 10,
     maxParameterQueryResults: maxBucketCount + 10,
@@ -395,7 +426,7 @@ function validateScenario(scenario: StorageBenchmarkScenario) {
     throw new Error(`Benchmark scenario ${scenario.name} must flush at least every one row`);
   }
 
-  const maxBucketCount = scenario.max_bucket_count ?? 1_000;
+  const maxBucketCount = configuredMaxBucketCount(scenario);
   const buckets = expectedBucketCount(scenario);
   if (buckets > maxBucketCount) {
     throw new Error(
@@ -406,6 +437,40 @@ function validateScenario(scenario: StorageBenchmarkScenario) {
 
 function expectedBucketCount(scenario: StorageBenchmarkScenario) {
   return scenario.list_row_count + Math.min(scenario.list_row_count, scenario.user_count);
+}
+
+function configuredMaxBucketCount(scenario: StorageBenchmarkScenario) {
+  return scenario.max_bucket_count ?? 1_000;
+}
+
+function calculateSourceBytes(scenario: StorageBenchmarkScenario) {
+  let bytes = 0;
+  for (let i = 0; i < scenario.list_row_count; i++) {
+    bytes += Buffer.byteLength(JSONBig.stringify(listRow(i, scenario)));
+  }
+  for (let i = 0; i < scenario.todo_row_count; i++) {
+    bytes += Buffer.byteLength(JSONBig.stringify(todoRow(i, scenario)));
+  }
+  return bytes;
+}
+
+function listRow(index: number, scenario: StorageBenchmarkScenario) {
+  return {
+    id: listRowId(index),
+    owner_id: userId(index % scenario.user_count),
+    name: `List ${index}`
+  };
+}
+
+function todoRow(index: number, scenario: StorageBenchmarkScenario) {
+  const listIndex = index % scenario.list_row_count;
+  return {
+    id: todoRowId(index),
+    list_id: listRowId(listIndex),
+    owner_id: userId(listIndex % scenario.user_count),
+    description: `Todo ${index} for ${listRowId(listIndex)}`,
+    completed: index % 3 == 0 ? 1 : 0
+  };
 }
 
 function benchmarkLabel(storageName: string, storageVersion: number | undefined, scenarioName: string) {
@@ -427,9 +492,11 @@ function userId(index: number) {
 function formatStorageBenchmarkResultLine(result: StorageBenchmarkResult) {
   return `[${result.storage}/v${result.version ?? 'default'}/${result.scenario}] result write_ms=${formatNumber(
     result.write_ms
-  )} write_rows_per_second=${formatNumber(result.write_rows_per_second)} sync_drain_ms=${formatNumber(
-    result.sync_drain_ms
-  )} ops=${result.ops} buckets=${result.buckets} mebibytes_per_second=${formatNumber(result.mebibytes_per_second)}`;
+  )} write_rows_per_second=${formatNumber(result.write_rows_per_second)} write_mebibytes_per_second=${formatNumber(
+    result.write_mebibytes_per_second
+  )} sync_drain_ms=${formatNumber(result.sync_drain_ms)} ops=${result.ops} buckets=${
+    result.buckets
+  } read_mebibytes_per_second=${formatNumber(result.read_mebibytes_per_second)}`;
 }
 
 function formatNumber(value: number) {
