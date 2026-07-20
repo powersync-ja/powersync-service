@@ -70,7 +70,15 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
   function serializeTableValued(source: TableProcessor): TableProcessorTableValuedFunction[] {
     return source.tableValuedFunctions.map((fn, i) => {
       addedTableValuedFunctions.set(fn, i);
-      return fn;
+
+      return {
+        functionName: fn.functionName,
+        functionInputs: fn.functionInputs.map(
+          // Since we don't support table-valued functions as inputs to other table-valued functions, this doesn't
+          // change expressions. It ensures we track row metadata use in any input, though.
+          (s) => serializeTableProcessorDataExpr(s) as SqlExpression<ColumnSqlParameterValue>
+        )
+      };
     });
   }
 

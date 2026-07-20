@@ -10,6 +10,7 @@ import {
   ParameterLookupRows,
   PrecompiledSyncConfig,
   ScopedParameterLookup,
+  serializeSyncPlan,
   SourceTableRef,
   SqliteRow,
   SqliteValue
@@ -1434,6 +1435,37 @@ streams:
         bucket: 'stream|0[]',
         id: 'foo',
         data: { id: 'foo', suffix: 's' },
+        table: 'users'
+      }
+    ]);
+  });
+
+  syncTest('table_suffix() as a table-valued function', ({ sync }) => {
+    const config = sync.prepareWithoutHydration(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT users.id FROM "user%" users WHERE auth.parameter('p') IN users.table_suffix()
+`) as PrecompiledSyncConfig;
+
+    expect(serializeSyncPlan(config.plan)).toMatchObject({ version: 2 });
+    const hydrated = config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) });
+
+    expect(
+      hydrated.evaluateRow({ sourceTable: new TestSourceTable('user["foo","bar"]'), record: { id: 'x' } })
+    ).toStrictEqual([
+      {
+        bucket: 'stream|0["foo"]',
+        id: 'x',
+        data: { id: 'x' },
+        table: 'users'
+      },
+      {
+        bucket: 'stream|0["bar"]',
+        id: 'x',
+        data: { id: 'x' },
         table: 'users'
       }
     ]);
