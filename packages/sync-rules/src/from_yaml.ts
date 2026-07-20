@@ -20,6 +20,7 @@ import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { TablePattern } from './TablePattern.js';
 import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js';
 import { buildParsedToSourceValueMap, isBlockScalar, isQuotedScalar } from './yaml_scalar_map.js';
+import { documentState, YamlMapState, YamlState } from './yaml_validation.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -61,7 +62,9 @@ export class SyncConfigFromYaml {
       ]
     });
 
-    if (parsed.errors.length > 0) {
+    const rootState = documentState(parsed, (e) => this.#errors.push(e)).requireMap();
+
+    if (parsed.errors.length > 0 || rootState == null) {
       this.#errors.push(...parsed.errors.map((e) => new YamlError(e)));
       this.#throwOnErrorIfRequested();
 
@@ -70,23 +73,19 @@ export class SyncConfigFromYaml {
       return new SqlSyncRules(this.yaml);
     }
 
+    using declaredOptions = rootState.get('config')?.requireMap();
     let compatibility: CompatibilityContext;
     let storageVersion: number | undefined;
-    if (parsed.has('config')) {
-      const declaredOptions = parsed.get('config') as YAMLMap;
+    if (declaredOptions) {
       compatibility = this.#parseCompatibilityOptions(declaredOptions);
       storageVersion = this.#validateStorageVersion(declaredOptions);
 
       if (compatibility.isEnabled(CompatibilityOption.sqliteExpressionEngine)) {
         // Evaluating expressions with SQLite requires edition: 3, older systems always use JavaScript.
         if (compatibility.edition < CompatibilityEdition.SYNC_STREAMS) {
-          this.#errors.push(
-            this.#yamlError(declaredOptions, 'Enabling unstable_sqlite_expression_engine requires edition: 3')
-          );
+          declaredOptions.reportError('Enabling unstable_sqlite_expression_engine requires edition: 3');
         } else if (!compatibility.isEnabled(CompatibilityOption.fixedJsonExtract)) {
-          this.#errors.push(
-            this.#yamlError(declaredOptions, 'Enabling unstable_sqlite_expression_engine requires fixed_json_extract')
-          );
+          declaredOptions.reportError('Enabling unstable_sqlite_expression_engine requires fixed_json_extract');
         }
       }
     } else {
@@ -94,24 +93,17 @@ export class SyncConfigFromYaml {
     }
 
     // Bucket definitions using explicit parameter and data queries.
-    const bucketMap = parsed.get('bucket_definitions') as YAMLMap | null;
-    const streamMap = parsed.get('streams') as YAMLMap | null;
-    const globalCtes = parsed.get('with') as YAMLMap | null;
+    const bucketMap = rootState.get('bucket_definitions')?.requireMap();
+    const streamMap = rootState.get('streams')?.requireMap();
+    const globalCtes = rootState.get('with')?.requireMap();
 
     let result: SyncConfig;
     if (compatibility.edition >= CompatibilityEdition.COMPILED_STREAMS) {
       result = this.#compileSyncPlan(bucketMap, streamMap, globalCtes, compatibility);
       this.#warnOnUnusedCtes();
     } else {
-      if (globalCtes != null) {
-        // We don't support CTEs at all in this compiler implementation.
-        this.#errors.push(
-          this.#yamlError(
-            globalCtes as Node,
-            'Common table expressions are not supported without the `sync_config_compiler` option.'
-          )
-        );
-      }
+      // We don't support CTEs at all in this compiler implementation.
+      globalCtes?.reportError('Common table expressions require edition 3.');
 
       result = this.#legacyParseBucketDefinitionsAndStreams(bucketMap, streamMap, compatibility);
     }
@@ -153,38 +145,27 @@ export class SyncConfigFromYaml {
    *
    * @see https://docs.powersync.com/sync/advanced/compatibility
    */
-  #parseCompatibilityOptions(declaredOptions: YAMLMap) {
-    const edition = (declaredOptions.get('edition') ?? CompatibilityEdition.LEGACY) as CompatibilityEdition;
+  #parseCompatibilityOptions(declaredOptions: YamlMapState) {
+    const edition = (declaredOptions.get('edition')?.requireScalar()?.requireNumeric() ??
+      CompatibilityEdition.LEGACY) as CompatibilityEdition;
     const options = new Map<CompatibilityOption, boolean>();
     let maxTimeValuePrecision: TimeValuePrecision | undefined = undefined;
-    let useNewCompiler = false;
 
-    for (const entry of declaredOptions.items) {
-      const {
-        key: { value: key },
-        value: { value }
-      } = entry as { key: Scalar<string>; value: Scalar<any> };
-
-      if (key == 'timestamp_max_precision') {
-        maxTimeValuePrecision = TimeValuePrecision.byName[value];
+    for (const [key, option] of Object.entries(CompatibilityOption.byName)) {
+      const isEnabled = declaredOptions.get(key)?.requireScalar()?.requireBoolean();
+      if (isEnabled != null) {
+        options.set(option, isEnabled);
       }
+    }
 
-      if (key == 'sync_config_compiler') {
-        useNewCompiler = Boolean(value);
-        continue;
-      }
-
-      const option = CompatibilityOption.byName[key];
-      if (option) {
-        options.set(option, Boolean(value));
-      }
+    const rawMaxTimestampPrecision = declaredOptions.get('timestamp_max_precision')?.requireScalar()?.requireString();
+    if (rawMaxTimestampPrecision != null) {
+      maxTimeValuePrecision = TimeValuePrecision.byName[rawMaxTimestampPrecision];
     }
 
     const compatibility = new CompatibilityContext({ edition, overrides: options, maxTimeValuePrecision });
     if (maxTimeValuePrecision && !compatibility.isEnabled(CompatibilityOption.timestampsIso8601)) {
-      this.#errors.push(
-        new YamlError(new Error(`'timestamp_max_precision' requires 'timestamps_iso8601' to be enabled.`))
-      );
+      declaredOptions.reportError(`'timestamp_max_precision' requires 'timestamps_iso8601' to be enabled.`);
     }
 
     return compatibility;
@@ -317,8 +298,8 @@ export class SyncConfigFromYaml {
   }
 
   #legacyParseBucketDefinitionsAndStreams(
-    bucketMap: YAMLMap | null,
-    streamMap: YAMLMap | null,
+    bucketMap: YamlMapState | undefined,
+    streamMap: YamlMapState | undefined,
     compatibility: CompatibilityContext
   ) {
     const rules = new SqlSyncRules(this.yaml);
@@ -329,28 +310,21 @@ export class SyncConfigFromYaml {
       this.#throwOnErrorIfRequested();
     }
 
-    if (streamMap != null) {
-      // This is with config.edition <= 2, we want to encourage users with streams to migrate to version 3 to use
-      // compiled sync plans.
-      const error = this.#yamlError(
-        streamMap,
-        'This is using an alpha version of Sync Streams. We recommend upgrading `config.edition` to version 3 to support the latest features.'
-      );
-      error.type = 'warning';
-      this.#errors.push(error);
-    }
+    // This is with config.edition <= 2, we want to encourage users with streams to migrate to version 3 to use
+    // compiled sync plans.
+    streamMap?.reportError(
+      'This is using an alpha version of Sync Streams. We recommend upgrading `config.edition` to version 3 to support the latest features.',
+      'warning'
+    );
 
-    for (let entry of bucketMap?.items ?? []) {
-      const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
+    for (const { key, keyScalar, value: maybeMap } of bucketMap?.stringKeyedItems() ?? []) {
       const key = keyScalar.toString();
       if (!this.#checkUniqueName(key, keyScalar)) {
         continue;
       }
 
-      if (value == null || !(value instanceof YAMLMap)) {
-        this.#errors.push(this.#tokenError(keyScalar, `'${key}' bucket definition must be an object`));
-        continue;
-      }
+      using value = maybeMap.requireMap();
+      if (value == null) continue;
 
       const accept_potentially_dangerous_queries = this.#acceptPotentiallyUnsafeQueries(value);
       const parseOptionPriority = this.#parsePriority(value);
@@ -451,26 +425,22 @@ export class SyncConfigFromYaml {
     return rules;
   }
 
-  #validateStorageVersion(config: YAMLMap): number | undefined {
-    const storageScalar = config.get('storage_version', true);
+  #validateStorageVersion(config: YamlMapState): number | undefined {
+    const storageScalar = config.get('storage_version')?.requireScalar();
     if (storageScalar != null) {
-      if (typeof storageScalar.value == 'number') {
-        const rawVersion = storageScalar.value;
-        const version = validateStorageVersion(storageScalar.value);
+      const rawVersion = storageScalar.requireNumeric('Storage version must be numeric');
+
+      if (rawVersion != null) {
+        const version = validateStorageVersion(rawVersion);
         if (version == null) {
-          this.#errors.push(this.#yamlError(storageScalar, `Storage version ${storageScalar.value} is not supported`));
+          storageScalar.reportError(`Storage version ${rawVersion} is not supported`);
         } else if (!version.stable) {
-          const error = this.#yamlError(
-            storageScalar,
-            `Storage version ${version.version} is unstable, and may cause unexpected behavior or stop functioning in any release`
+          storageScalar.reportError(
+            `Storage version ${version.version} is unstable, and may cause unexpected behavior or stop functioning in any release`,
+            'warning'
           );
-          error.type = 'warning';
-          this.#errors.push(error);
         }
         return version?.version;
-      } else {
-        this.#errors.push(this.#yamlError(storageScalar, 'Storage version must be numeric'));
-        return undefined;
       }
     }
     return undefined;
@@ -511,9 +481,9 @@ export class SyncConfigFromYaml {
     return eventDescriptors;
   }
 
-  #checkUniqueName(name: string, literal: Scalar): boolean {
+  #checkUniqueName(name: string, literal: YamlState): boolean {
     if (this.#definitionNames.has(name)) {
-      this.#errors.push(this.#tokenError(literal, 'Duplicate stream or bucket definition.'));
+      literal.reportError('Duplicate stream or bucket definition.');
       return false;
     }
 
@@ -521,21 +491,22 @@ export class SyncConfigFromYaml {
     return true;
   }
 
-  #parsePriority(value: YAMLMap) {
-    if (value.has('priority')) {
-      const priorityValue = value.get('priority', true)!;
-      if (typeof priorityValue.value != 'number' || !isValidPriority(priorityValue.value)) {
-        this.#errors.push(
-          this.#tokenError(priorityValue, 'Invalid priority, expected a number between 0 and 3 (inclusive).')
-        );
-      } else {
-        return priorityValue.value;
-      }
+  #parsePriority(value: YamlMapState) {
+    const message = 'Invalid priority, expected a number between 0 and 3 (inclusive).';
+    const priorityScalar = value.get('priority')?.requireScalar();
+    const rawPriority = priorityScalar?.requireNumeric(message);
+
+    if (priorityScalar == null || rawPriority == null) return;
+    if (!isValidPriority(rawPriority)) {
+      priorityScalar.reportError(message);
+      return;
     }
+
+    return rawPriority;
   }
 
-  #acceptPotentiallyUnsafeQueries(definition: YAMLMap): boolean {
-    return definition.get('accept_potentially_dangerous_queries', true)?.value == true;
+  #acceptPotentiallyUnsafeQueries(definition: YamlMapState): boolean {
+    return definition.get('accept_potentially_dangerous_queries')?.requireScalar()?.requireBoolean() ?? false;
   }
 
   #yamlError(node: Node, message: string) {

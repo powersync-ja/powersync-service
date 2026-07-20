@@ -246,7 +246,7 @@ config:
     `,
         PARSE_OPTIONS
       );
-    }).toThrow(/must NOT have additional properties/);
+    }).toThrow(/Unknown key 'unknown_option' in 'config'/);
   });
 
   test('arrays', () => {
