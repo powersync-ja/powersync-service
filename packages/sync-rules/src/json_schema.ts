@@ -1,8 +1,11 @@
-import type { Schema } from 'ajv';
+import ajvModule from 'ajv';
 import { CompatibilityEdition, CompatibilityOption, TimeValuePrecision } from './compatibility.js';
 import { DEFAULT_STORAGE_VERSION, STORAGE_VERSIONS } from './StorageVersion.js';
+// Hack to make this work both in NodeJS and a browser
+const Ajv = ajvModule.default ?? ajvModule;
+const ajv = new Ajv({ allErrors: true, verbose: true });
 
-export const syncRulesSchema: Schema = {
+export const syncRulesSchema: ajvModule.Schema = {
   type: 'object',
   properties: {
     bucket_definitions: {
@@ -167,3 +170,5 @@ export const syncRulesSchema: Schema = {
   anyOf: [{ required: ['bucket_definitions'] }, { required: ['streams'] }],
   additionalProperties: false
 } as const;
+
+export const validateSyncRulesSchema: any = ajv.compile(syncRulesSchema);

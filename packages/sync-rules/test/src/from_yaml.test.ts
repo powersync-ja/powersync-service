@@ -23,6 +23,15 @@ bucket_definitions:
 `);
   });
 
+  test('unknown top-level key', () => {
+    checkErrors(`
+foo: bar #error "Unknown key 'foo'"
+bucket_definitions:
+  foo:
+    data: [SELECT * FROM users]
+`);
+  });
+
   test('time value precision not a string', () => {
     checkErrors(`
 config:

@@ -1,4 +1,4 @@
-import { LineCounter, parseDocument, Scalar } from 'yaml';
+import { Document, LineCounter, parseDocument, Scalar } from 'yaml';
 import { DEFAULT_BUCKET_PRIORITY, isValidPriority } from './BucketDescription.js';
 import {
   CompatibilityContext,
@@ -10,6 +10,7 @@ import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.j
 import { CommonTableExpression } from './compiler/sqlite.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
+import { validateSyncRulesSchema } from './json_schema.js';
 import { QueryParseResult, SqlBucketDescriptor } from './legacy/SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './legacy/streams/from_sql.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
@@ -61,7 +62,26 @@ export class SyncConfigFromYaml {
       ]
     });
 
-    const rootState = documentState(parsed, (e) => this.#errors.push(e)).requireMap('Sync Config must be a YAML map.');
+    const config = this.#parseConfig(parsed);
+    // #parseConfig() should have found all errors in the YAML source. As an additional check, and to ensure our sync
+    // rules schema is up-to-date, also valdiate with ajv. We do this last because errors found here don't have line
+    // numbers on them.
+    if (!this.#hasFatalError) {
+      const valid = validateSyncRulesSchema(parsed.toJSON());
+      if (!valid) {
+        this.#errors.push(
+          ...validateSyncRulesSchema.errors!.map((e: any) => {
+            return new YamlError(e);
+          })
+        );
+      }
+    }
+
+    return config;
+  }
+
+  #parseConfig(parsed: Document): SyncConfig {
+    using rootState = documentState(parsed, (e) => this.#errors.push(e)).requireMap('Sync Config must be a YAML map.');
 
     if (parsed.errors.length > 0 || rootState == null) {
       this.#errors.push(...parsed.errors.map((e) => new YamlError(e)));
