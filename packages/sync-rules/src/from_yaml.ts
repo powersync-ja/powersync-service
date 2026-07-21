@@ -1,4 +1,4 @@
-import { Document, isScalar, LineCounter, Node, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
+import { LineCounter, parseDocument, Scalar } from 'yaml';
 import { DEFAULT_BUCKET_PRIORITY, isValidPriority } from './BucketDescription.js';
 import {
   CompatibilityContext,
@@ -10,7 +10,6 @@ import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.j
 import { CommonTableExpression } from './compiler/sqlite.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
-import { validateSyncRulesSchema } from './json_schema.js';
 import { QueryParseResult, SqlBucketDescriptor } from './legacy/SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './legacy/streams/from_sql.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
@@ -20,7 +19,7 @@ import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { TablePattern } from './TablePattern.js';
 import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js';
 import { buildParsedToSourceValueMap, isBlockScalar, isQuotedScalar } from './yaml_scalar_map.js';
-import { documentState, YamlMapState, YamlState } from './yaml_validation.js';
+import { documentState, YamlMapState, YamlScalarState, YamlState } from './yaml_validation.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -110,21 +109,8 @@ export class SyncConfigFromYaml {
 
     result.storageVersion = storageVersion;
 
-    const eventDefinitions = this.#parseEventDefinitions(parsed, compatibility);
+    const eventDefinitions = this.#parseEventDefinitions(rootState, compatibility);
     result.eventDescriptors.push(...eventDefinitions);
-
-    // Validate that there are no additional properties.
-    // Since these errors don't contain line numbers, do this last.
-    if (!this.#hasFatalError) {
-      const valid = validateSyncRulesSchema(parsed.toJSON());
-      if (!valid) {
-        this.#errors.push(
-          ...validateSyncRulesSchema.errors!.map((e: any) => {
-            return new YamlError(e);
-          })
-        );
-      }
-    }
 
     this.#throwOnErrorIfRequested();
     return result;
@@ -172,51 +158,44 @@ export class SyncConfigFromYaml {
   }
 
   #compileSyncPlan(
-    bucketMap: YAMLMap | null,
-    streamMap: YAMLMap | null,
-    globalCtes: YAMLMap | null,
+    bucketMap: YamlMapState | undefined,
+    streamMap: YamlMapState | undefined,
+    globalCtes: YamlMapState | undefined,
     compatibility: CompatibilityContext
   ) {
-    if (bucketMap != null) {
-      this.#errors.push(
-        this.#yamlError(
-          bucketMap,
-          `'bucket_definitions' are not supported by the new compiler. Consider using https://powersync-community.github.io/bucket-definitions-to-sync-streams/ to translate them to streams.`
-        )
-      );
-    }
+    bucketMap?.reportError(
+      `'bucket_definitions' are not supported by the new compiler. Consider using https://powersync-community.github.io/bucket-definitions-to-sync-streams/ to translate them to streams.`
+    );
+
     if (streamMap == null) {
       this.#errors.push(new YamlError(new Error(`'streams' are required.`)));
     }
 
     const compiler = new SyncStreamsCompiler(this.options);
 
-    const parseCommonTableExpressions = (from: YAMLMap | null): Map<string, CommonTableExpression> => {
+    const parseCommonTableExpressions = (from: YamlState | undefined | null): Map<string, CommonTableExpression> => {
       const map = new Map<string, CommonTableExpression>();
-      if (from != null) {
-        for (const entry of from.items ?? []) {
-          const { key: cteNameScalar, value: cteQuery } = entry as { key: Scalar<string>; value: Node };
-          const cteName = cteNameScalar.value;
-
+      const fromMap = from?.requireMap();
+      if (fromMap != null) {
+        for (const { key: cteName, keyScalar, value } of fromMap.stringKeyedItems()) {
+          const cteQuery = value.requireScalar();
           if (this.options.schema) {
             // Emit a warning if the CTE shadows a name from the schema.
             const pattern = new TablePattern(this.options.defaultSchema, cteName);
             if (this.options.schema.getTables(pattern)?.length > 0) {
-              const error = this.#yamlError(
-                cteNameScalar,
-                'This common table expression shadows the name of a table in the source schema.'
+              keyScalar.reportError(
+                'This common table expression shadows the name of a table in the source schema.',
+                'warning'
               );
-              error.type = 'warning';
-              this.#errors.push(error);
             }
           }
 
-          if (this.#expectScalar(cteQuery)) {
-            const [sql, errorListener] = this.#scalarErrorListener(cteQuery);
+          if (cteQuery) {
+            const [sql, errorListener] = this.#scalarErrorListener(cteQuery.node);
             const parsed = compiler.commonTableExpression(sql, errorListener);
             if (parsed) {
               const cte = { subquery: parsed, used: false };
-              this.#definedCtes.push({ cte, name: cteNameScalar });
+              this.#definedCtes.push({ cte, name: keyScalar });
               map.set(cteName, cte);
             }
           }
@@ -228,21 +207,17 @@ export class SyncConfigFromYaml {
 
     const parsedGlobalCommonTableExpressions = parseCommonTableExpressions(globalCtes);
 
-    for (const entry of streamMap?.items ?? []) {
-      const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
-      if (!(value instanceof YAMLMap)) {
-        // The json schema validator will flag this later.
-        continue;
-      }
-
-      const key = keyScalar.toString();
+    for (const { key, keyScalar, value: maybeMap } of streamMap?.stringKeyedItems() ?? []) {
       if (!this.#checkUniqueName(key, keyScalar)) {
         continue;
       }
 
+      using value = maybeMap.requireMap();
+      if (value == null) continue;
+
       const streamCompiler = compiler.stream({
         name: key,
-        isSubscribedByDefault: value.get('auto_subscribe', true)?.value == true,
+        isSubscribedByDefault: value.get('auto_subscribe')?.requireScalar()?.requireBoolean() == true,
         priority: this.#parsePriority(value) ?? DEFAULT_BUCKET_PRIORITY,
         warnOnDangerousParameter: !this.#acceptPotentiallyUnsafeQueries(value)
       });
@@ -251,28 +226,30 @@ export class SyncConfigFromYaml {
       );
 
       // Add stream-local CTEs, which shadow global definitions.
-      parseCommonTableExpressions(value.get('with') as YAMLMap | null).forEach((query, name) =>
+
+      parseCommonTableExpressions(value.get('with')).forEach((query, name) =>
         streamCompiler.registerCommonTableExpression(name, query)
       );
 
-      const addQuery = (query: Node) => {
-        if (this.#expectScalar(query)) {
-          const [sql, errorListener] = this.#scalarErrorListener(query);
+      const addQuery = (query: YamlState) => {
+        const scalar = query.requireScalar();
+        if (scalar) {
+          const [sql, errorListener] = this.#scalarErrorListener(scalar.node);
           streamCompiler.addQuery(sql, errorListener);
         }
       };
 
-      const queries = value.get('queries') as YAMLSeq<Node> | null;
-      const query = value.get('query', true) as Scalar<string> | null;
+      const queries = value.get('queries');
+      const query = value.get('query');
 
       if ((queries == null) == (query == null)) {
-        this.#errors.push(this.#yamlError(value, 'One of `queries` or `query` must be given.'));
+        value.reportError('One of `queries` or `query` must be given.');
       }
       if (query) {
         addQuery(query);
       }
       if (queries) {
-        for (const queryEntry of queries.items) {
+        for (const queryEntry of queries?.requireSequence()?.items ?? []) {
           addQuery(queryEntry);
         }
       }
@@ -288,11 +265,9 @@ export class SyncConfigFromYaml {
   }
 
   #warnOnUnusedCtes() {
-    for (const cte of this.#definedCtes) {
-      if (!cte.cte.used) {
-        const error = this.#yamlError(cte.name, `This common table expression isn't referenced.`);
-        error.type = 'warning';
-        this.#errors.push(error);
+    for (const { cte, name } of this.#definedCtes) {
+      if (!cte.used) {
+        name.reportError(`This common table expression isn't referenced.`, 'warning');
       }
     }
   }
@@ -318,7 +293,6 @@ export class SyncConfigFromYaml {
     );
 
     for (const { key, keyScalar, value: maybeMap } of bucketMap?.stringKeyedItems() ?? []) {
-      const key = keyScalar.toString();
       if (!this.#checkUniqueName(key, keyScalar)) {
         continue;
       }
@@ -335,27 +309,29 @@ export class SyncConfigFromYaml {
         priority: parseOptionPriority,
         compatibility
       };
-      const parameters = value.get('parameters', true) as unknown;
-      const dataQueries = value.get('data', true) as unknown;
+      const parameters = value.get('parameters');
+      const dataQueries = value.require('data')?.requireSequence();
 
       const descriptor = new SqlBucketDescriptor(key);
 
-      if (parameters instanceof Scalar) {
+      if (parameters == null) {
+        descriptor.addParameterQuery('SELECT', queryOptions);
+      } else if (parameters.node instanceof Scalar) {
         this.#withScalar(parameters, (q) => {
           return descriptor.addParameterQuery(q, queryOptions);
         });
-      } else if (parameters instanceof YAMLSeq) {
-        for (let item of parameters.items) {
-          this.#withScalar(item, (q) => {
-            return descriptor.addParameterQuery(q, queryOptions);
-          });
-        }
       } else {
-        descriptor.addParameterQuery('SELECT', queryOptions);
+        const seq = parameters.requireSequence('Parameters must be a string or array of strings');
+        if (seq != null) {
+          for (let item of seq.items) {
+            this.#withScalar(item, (q) => {
+              return descriptor.addParameterQuery(q, queryOptions);
+            });
+          }
+        }
       }
 
-      if (!(dataQueries instanceof YAMLSeq)) {
-        this.#errors.push(this.#tokenError((dataQueries ?? value) as any, `'data' must be an array`));
+      if (dataQueries == null) {
         continue;
       }
       for (let query of dataQueries.items) {
@@ -369,43 +345,33 @@ export class SyncConfigFromYaml {
       rules.bucketParameterLookupSources.push(...descriptor.parameterIndexLookupCreators);
     }
 
-    for (const entry of streamMap?.items ?? []) {
-      const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
-      const key = keyScalar.toString();
+    for (const { key, keyScalar, value } of streamMap?.stringKeyedItems() ?? []) {
       if (!this.#checkUniqueName(key, keyScalar)) {
         continue;
       }
 
+      using map = value.requireMap();
+      if (map == null) continue;
+
       // We don't support with or multiple queries in streams, those are only supported by the new compiler.
-      const $with = value.get('with');
-      if ($with != null) {
-        this.#errors.push(
-          this.#yamlError(
-            $with as Node,
-            'Common table expressions are not supported without the `sync_config_compiler` option.'
-          )
-        );
-      }
-      const queries = value.get('queries');
-      if (queries != null) {
-        this.#errors.push(
-          this.#yamlError(queries as Node, 'Multiple queries not supported without the `sync_config_compiler` option.')
-        );
-      }
+      map
+        .get('with')
+        ?.reportError('Common table expressions are not supported without the `sync_config_compiler` option.');
+      map.get('queries')?.reportError('Multiple queries not supported without the `sync_config_compiler` option.');
 
       const accept_potentially_dangerous_queries =
-        value.get('accept_potentially_dangerous_queries', true)?.value == true;
+        map.get('accept_potentially_dangerous_queries')?.requireScalar()?.requireBoolean() == true;
 
       const queryOptions: StreamParseOptions = {
         ...this.options,
         accept_potentially_dangerous_queries,
-        priority: this.#parsePriority(value),
-        auto_subscribe: value.get('auto_subscribe', true)?.value == true,
+        priority: this.#parsePriority(map),
+        auto_subscribe: map.get('auto_subscribe')?.requireScalar()?.requireBoolean() == true,
         compatibility
       };
 
-      const data = value.get('query', true) as unknown;
-      if (data instanceof Scalar) {
+      const data = map.get('query')?.requireScalar('Must be a string');
+      if (data != null) {
         this.#withScalar(data, (q) => {
           const [parsed, errors] = syncStreamFromSql(key, q, queryOptions);
           rules.bucketSources.push(parsed);
@@ -416,9 +382,6 @@ export class SyncConfigFromYaml {
             errors
           };
         });
-      } else {
-        this.#errors.push(this.#tokenError(data as any, 'Must be a string.'));
-        continue;
       }
     }
 
@@ -446,30 +409,22 @@ export class SyncConfigFromYaml {
     return undefined;
   }
 
-  #parseEventDefinitions(parsed: Document, compatibility: CompatibilityContext) {
-    const eventMap = parsed.get('event_definitions') as YAMLMap;
+  #parseEventDefinitions(parsed: YamlMapState, compatibility: CompatibilityContext) {
+    const eventMap = parsed.get('event_definitions')?.requireMap();
     const eventDescriptors: SqlEventDescriptor[] = [];
 
-    for (const event of eventMap?.items ?? []) {
-      const { key, value } = event as { key: Scalar; value: YAMLSeq };
+    for (const { key: name, keyScalar, value: maybeMap } of eventMap?.stringKeyedItems() ?? []) {
+      using value = maybeMap.requireMap(`Event definitions must be objects.`);
+      if (value == null) continue;
 
-      if (false == value instanceof YAMLMap) {
-        this.#errors.push(new YamlError(new Error(`Event definitions must be objects.`)));
-        continue;
-      }
+      const payloads = value.get('payloads')?.requireSequence(`Event definition payloads must be an array.`);
+      if (payloads == null) continue;
 
-      const payloads = value.get('payloads') as YAMLSeq;
-      if (false == payloads instanceof YAMLSeq) {
-        this.#errors.push(new YamlError(new Error(`Event definition payloads must be an array.`)));
-        continue;
-      }
-
-      const eventDescriptor = new SqlEventDescriptor(key.toString(), compatibility);
+      const eventDescriptor = new SqlEventDescriptor(name, compatibility);
       for (let item of payloads.items) {
-        if (!isScalar(item)) {
-          this.#errors.push(new YamlError(new Error(`Payload queries for events must be scalar.`)));
-          continue;
-        }
+        const itemScalar = item.requireScalar(`Payload queries for events must be scalar.`);
+        if (itemScalar == null) continue;
+
         this.#withScalar(item, (q) => {
           return eventDescriptor.addSourceQuery(q, this.options);
         });
@@ -509,36 +464,19 @@ export class SyncConfigFromYaml {
     return definition.get('accept_potentially_dangerous_queries')?.requireScalar()?.requireBoolean() ?? false;
   }
 
-  #yamlError(node: Node, message: string) {
-    if (node.range != null) {
-      const [start, _, end] = node.range;
-      return new YamlError(new Error(message), { start, end });
-    } else {
-      return new YamlError(new Error(message));
-    }
-  }
-
   #tokenError(token: Scalar, message: string) {
     const start = token?.srcToken?.offset ?? 0;
     const end = start + 1;
     return new YamlError(new Error(message), { start, end });
   }
 
-  #expectScalar(node: Node): node is Scalar {
-    if (!(node instanceof Scalar)) {
-      this.#errors.push(this.#yamlError(node, 'Expected a scalar value here.'));
-      return false;
-    }
-
-    return true;
-  }
-
-  #withScalar(scalar: Scalar, cb: (value: string) => QueryParseResult): void {
-    if (!this.#expectScalar(scalar)) {
+  #withScalar(state: YamlState, cb: (value: string) => QueryParseResult): void {
+    const scalar = state.requireScalar();
+    if (scalar == null) {
       return;
     }
 
-    const value = scalar.toString();
+    const value = scalar.node.toString();
 
     const wrapped = (value: string): QueryParseResult => {
       try {
@@ -553,7 +491,7 @@ export class SyncConfigFromYaml {
 
     const result = wrapped(value);
     for (let err of result.errors) {
-      this.#addErrorFromScalar(scalar, value, err);
+      this.#addErrorFromScalar(scalar.node, value, err);
     }
     return;
   }
@@ -632,6 +570,6 @@ export interface SyncConfigFromYamlOptions {
 
 interface CommonTableExpressionWithName {
   // The key in a `with` map defining the CTE.
-  name: Scalar<string>;
+  name: YamlScalarState;
   cte: CommonTableExpression;
 }

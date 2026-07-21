@@ -924,10 +924,14 @@ bucket_definitions:
     );
 
     expect(rules.errors).toMatchObject([
-      {
-        message: "'mybucket' bucket definition must be an object",
-        type: 'fatal'
-      }
+      expect.objectContaining({
+        message: 'Expected a map here.',
+        type: 'fatal',
+        location: {
+          end: 32,
+          start: 32
+        }
+      })
     ]);
   });
 
@@ -1152,7 +1156,7 @@ streams:
         throwOnError: false
       }
     );
-    expect(errors[0].message).toContain('Common table expressions are not supported');
+    expect(errors[0].message).toContain('Common table expressions require edition 3.');
     expect(errors[2].message).toContain('Common table expressions are not supported');
   });
 
