@@ -131,7 +131,7 @@ export function documentState(doc: Document, report: (error: YamlError) => void)
       },
       require(item) {
         const resolved = this.get(item);
-        if (item === undefined) {
+        if (resolved === undefined) {
           missingKeys.add(item);
         }
         return resolved;

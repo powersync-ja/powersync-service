@@ -61,7 +61,7 @@ export class SyncConfigFromYaml {
       ]
     });
 
-    const rootState = documentState(parsed, (e) => this.#errors.push(e)).requireMap();
+    const rootState = documentState(parsed, (e) => this.#errors.push(e)).requireMap('Sync Config must be a YAML map.');
 
     if (parsed.errors.length > 0 || rootState == null) {
       this.#errors.push(...parsed.errors.map((e) => new YamlError(e)));
@@ -144,9 +144,16 @@ export class SyncConfigFromYaml {
       }
     }
 
-    const rawMaxTimestampPrecision = declaredOptions.get('timestamp_max_precision')?.requireScalar()?.requireString();
+    const rawMaxTimestampPrecision = declaredOptions.get('timestamp_max_precision')?.requireScalar();
     if (rawMaxTimestampPrecision != null) {
-      maxTimeValuePrecision = TimeValuePrecision.byName[rawMaxTimestampPrecision];
+      const stringValue = rawMaxTimestampPrecision?.requireString();
+      if (stringValue) {
+        maxTimeValuePrecision = TimeValuePrecision.byName[stringValue];
+        if (!maxTimeValuePrecision) {
+          const allowed = Object.keys(TimeValuePrecision.byName).join(', ');
+          rawMaxTimestampPrecision.reportError(`Unknown time precision, allowed are ${allowed}`);
+        }
+      }
     }
 
     const compatibility = new CompatibilityContext({ edition, overrides: options, maxTimeValuePrecision });
