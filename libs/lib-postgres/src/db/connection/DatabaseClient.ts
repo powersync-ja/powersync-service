@@ -25,6 +25,13 @@ export type DatabaseClientListener = NotificationListener & {
 
 export const TRANSACTION_CONNECTION_COUNT = 5;
 
+// These listeners are forwarded to the first connection slot, which owns the
+// database client's notification channels.
+const NOTIFICATION_LISTENER_KEYS = [
+  'notification',
+  'notificationChannelsRegistered'
+] as const satisfies readonly (keyof NotificationListener)[];
+
 /**
  * This provides access to Postgres via the PGWire library.
  * A connection pool is used for individual query executions while
@@ -85,15 +92,18 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
 
   registerListener(listener: Partial<DatabaseClientListener>): () => void {
     let disposeNotification: (() => void) | null = null;
-    if ('notification' in listener) {
+    if (NOTIFICATION_LISTENER_KEYS.some((key) => key in listener)) {
       // Pass this on to the first connection slot
       // It will only actively listen on the connection once a listener has been registered
-      disposeNotification = this.connections[0].registerListener({
-        notification: listener.notification
-      });
+      const notificationListener = Object.fromEntries(
+        NOTIFICATION_LISTENER_KEYS.map((key) => [key, listener[key]])
+      ) as Partial<NotificationListener>;
+      disposeNotification = this.connections[0].registerListener(notificationListener);
       this.pokeSlots();
 
-      delete listener['notification'];
+      for (const key of NOTIFICATION_LISTENER_KEYS) {
+        delete listener[key];
+      }
     }
 
     const superDispose = super.registerListener(listener);

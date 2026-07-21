@@ -2,7 +2,18 @@ import * as framework from '@powersync/lib-services-framework';
 import * as pgwire from '@powersync/service-jpgwire';
 
 export interface NotificationListener {
+  /**
+   * Called when Postgres emits a notification on one of the configured channels.
+   */
   notification?: (payload: pgwire.PgNotification) => void;
+
+  /**
+   * Called after the notification connection has successfully executed LISTEN for
+   * every configured channel. This runs after both initial connection setup and
+   * reconnection, allowing consumers to recover notifications missed while the
+   * connection was unavailable.
+   */
+  notificationChannelsRegistered?: () => Promise<void>;
 }
 
 export interface ConnectionSlotListener extends NotificationListener {
@@ -89,10 +100,15 @@ export class ConnectionSlot extends framework.BaseObserver<ConnectionSlotListene
   protected async configureConnectionNotifications(connection: pgwire.PgConnection) {
     connection.onnotification = this.handleNotification;
 
-    for (const channelName of this.options.notificationChannels ?? []) {
+    const notificationChannels = this.options.notificationChannels ?? [];
+    for (const channelName of notificationChannels) {
       await connection.query({
         statement: `LISTEN ${channelName}`
       });
+    }
+
+    if (notificationChannels.length > 0) {
+      await this.iterateAsyncListeners(async (l) => l.notificationChannelsRegistered?.());
     }
   }
 

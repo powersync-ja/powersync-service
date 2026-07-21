@@ -31,6 +31,8 @@ import * as framework from '@powersync/lib-services-framework';
 import { StatementParam } from '@powersync/service-jpgwire';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import * as t from 'ts-codec';
+import { ActiveCheckpointDecoded } from '../types/models/ActiveCheckpoint.js';
+import * as checkpointUtils from '../utils/checkpoints.js';
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
@@ -634,25 +636,8 @@ export class PostgresSyncRulesStorage
   }
 
   async getActiveCheckpoint(): Promise<storage.ReplicationCheckpoint> {
-    const activeCheckpoint = await this.db.sql`
-      SELECT
-        id,
-        last_checkpoint,
-        last_checkpoint_lsn
-      FROM
-        sync_rules
-      WHERE
-        state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
-        OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
-      ORDER BY
-        id DESC
-      LIMIT
-        1
-    `
-      .decoded(models.ActiveCheckpoint)
-      .first();
-
-    return this.makeActiveCheckpoint(activeCheckpoint);
+    const activeCheckpointDocument = await checkpointUtils.getActiveCheckpointDocument({ db: this.db });
+    return this.makeActiveCheckpoint(activeCheckpointDocument);
   }
 
   async *watchCheckpointChanges(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
@@ -698,54 +683,62 @@ export class PostgresSyncRulesStorage
   }
 
   protected async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<storage.ReplicationCheckpoint> {
-    const doc = await this.db.sql`
-      SELECT
-        id,
-        last_checkpoint,
-        last_checkpoint_lsn
-      FROM
-        sync_rules
-      WHERE
-        state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
-        OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
-      LIMIT
-        1
-    `
-      .decoded(models.ActiveCheckpoint)
-      .first();
+    const sink = new LastValueSink<string | null>(null);
 
-    if (doc == null) {
-      // Abort the connections - clients will have to retry later.
-      throw new framework.ServiceError(framework.ErrorCode.PSYNC_S2302, 'No active replication stream available');
-    }
-
-    const sink = new LastValueSink<string>(undefined);
-
+    // Listen for changes before reading the initial doc
     const disposeListener = this.db.registerListener({
-      notification: (notification) => sink.write(notification.payload)
+      notification: (notification) => sink.write(notification.payload),
+      // Add a null value to the stream, indicating the loop should query the value
+      notificationChannelsRegistered: async () => sink.write(null)
     });
 
     try {
-      yield this.makeActiveCheckpoint(doc);
+      const initialCheckpointDocument = requireActiveCheckpointDocument(
+        await checkpointUtils.getActiveCheckpointDocument({ db: this.db })
+      );
+      const initialCheckpoint = this.makeActiveCheckpoint(initialCheckpointDocument);
+      let lastOp = initialCheckpoint;
 
-      let lastOp: storage.ReplicationCheckpoint | null = null;
+      yield initialCheckpoint;
+
       for await (const payload of sink.withSignal(signal)) {
         if (signal.aborted) {
           return;
         }
 
-        const notification = models.ActiveCheckpointNotification.decode(payload);
-        if (notification.active_checkpoint == null) {
-          continue;
+        let baseActiveCheckpoint: ActiveCheckpointDecoded | null = null;
+        if (payload == null) {
+          // Manually should check the checkpoint
+          baseActiveCheckpoint = requireActiveCheckpointDocument(
+            await checkpointUtils.getActiveCheckpointDocument({ db: this.db })
+          );
+        } else {
+          const notification = models.ActiveCheckpointNotification.decode(payload);
+          if (notification.active_checkpoint == null) {
+            continue;
+          }
+          baseActiveCheckpoint = notification.active_checkpoint;
         }
-        if (Number(notification.active_checkpoint.id) != doc.id) {
+
+        if (Number(baseActiveCheckpoint.id) != initialCheckpointDocument.id) {
           // Active replication stream changed - abort and restart the stream
           break;
         }
 
-        const activeCheckpoint = this.makeActiveCheckpoint(notification.active_checkpoint);
+        const activeCheckpoint = this.makeActiveCheckpoint(baseActiveCheckpoint);
 
-        if (lastOp == null || activeCheckpoint.lsn != lastOp.lsn || activeCheckpoint.checkpoint != lastOp.checkpoint) {
+        const checkpointAdvanced = activeCheckpoint.checkpoint > lastOp.checkpoint;
+        const checkpointRegressed = activeCheckpoint.checkpoint < lastOp.checkpoint;
+        const lsnAdvanced =
+          lastOp.lsn == null
+            ? activeCheckpoint.lsn != null
+            : activeCheckpoint.lsn != null && activeCheckpoint.lsn > lastOp.lsn;
+        const lsnRegressed = lastOp.lsn != null && (activeCheckpoint.lsn == null || activeCheckpoint.lsn < lastOp.lsn);
+
+        // Notifications buffered before a query or reconnect may be stale. Neither
+        // coordinate may regress, but only one needs to advance: an empty checkpoint
+        // updates the LSN while keeping the operation checkpoint unchanged.
+        if (!checkpointRegressed && !lsnRegressed && (checkpointAdvanced || lsnAdvanced)) {
           lastOp = activeCheckpoint;
           yield activeCheckpoint;
         }
@@ -784,3 +777,12 @@ const parameterSetsRow = t.object({
   index: bigint,
   bucket_parameters: t.string
 });
+
+function requireActiveCheckpointDocument(doc: models.ActiveCheckpointDecoded | null): models.ActiveCheckpointDecoded {
+  if (doc == null) {
+    // Abort the connections - clients will have to retry later.
+    throw new framework.ServiceError(framework.ErrorCode.PSYNC_S2302, 'No active replication stream available');
+  }
+
+  return doc;
+}

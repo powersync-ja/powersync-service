@@ -1,7 +1,7 @@
 {
   "extends": "../../../tsconfig.tests.json",
   "compilerOptions": {
-    "lib": ["ES2022", "esnext.disposable"],
+    "lib": ["ES2024", "esnext.disposable"],
     "rootDir": "src"
   },
   "include": ["src"],
