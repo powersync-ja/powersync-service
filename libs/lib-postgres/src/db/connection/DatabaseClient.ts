@@ -2,7 +2,7 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import { DO_NOT_LOG } from '@powersync/lib-services-framework';
 import * as pgwire from '@powersync/service-jpgwire';
 import { AbstractPostgresConnection, sql } from './AbstractPostgresConnection.js';
-import { ConnectionLease, ConnectionSlot, NOTIFICATION_LISTENER_KEYS, NotificationListener } from './ConnectionSlot.js';
+import { ConnectionLease, ConnectionSlot, NotificationListener } from './ConnectionSlot.js';
 import { WrappedConnection } from './WrappedConnection.js';
 
 export type DatabaseClientOptions = {
@@ -85,18 +85,13 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
 
   registerListener(listener: Partial<DatabaseClientListener>): () => void {
     let disposeNotification: (() => void) | null = null;
-    if (NOTIFICATION_LISTENER_KEYS.some((key) => key in listener)) {
+    if ('notificationEvent' in listener) {
       // Pass this on to the first connection slot
       // It will only actively listen on the connection once a listener has been registered
-      const notificationListener = Object.fromEntries(
-        NOTIFICATION_LISTENER_KEYS.map((key) => [key, listener[key]])
-      ) as Partial<NotificationListener>;
-      disposeNotification = this.connections[0].registerListener(notificationListener);
+      disposeNotification = this.connections[0].registerListener({ notificationEvent: listener.notificationEvent });
       this.pokeSlots();
 
-      for (const key of NOTIFICATION_LISTENER_KEYS) {
-        delete listener[key];
-      }
+      delete listener.notificationEvent;
     }
 
     const superDispose = super.registerListener(listener);

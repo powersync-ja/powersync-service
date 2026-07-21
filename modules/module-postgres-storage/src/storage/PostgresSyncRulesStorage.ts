@@ -687,9 +687,22 @@ export class PostgresSyncRulesStorage
 
     // Listen for changes before reading the initial doc
     const disposeListener = this.db.registerListener({
-      notification: (notification) => sink.write(notification.payload),
-      // Add a null value to the stream, indicating the loop should query the value
-      notificationChannelsRegistered: async () => sink.write(null)
+      notificationEvent: (event) => {
+        switch (event.type) {
+          case 'notification':
+            sink.write(event.notification.payload);
+            break;
+          case 'channels-registered':
+            // Add a null value to the stream, indicating the loop should query the value.
+            sink.write(null);
+            break;
+          case 'connection-error':
+            // End the watcher after reconnect attempts are exhausted. Consumers will
+            // retry the watcher, which registers a new listener and pokes the slot.
+            sink.error(event.error);
+            break;
+        }
+      }
     });
 
     try {

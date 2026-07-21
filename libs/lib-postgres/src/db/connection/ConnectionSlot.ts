@@ -1,29 +1,17 @@
 import * as framework from '@powersync/lib-services-framework';
 import * as pgwire from '@powersync/service-jpgwire';
 
+export type NotificationEvent =
+  | { type: 'notification'; notification: pgwire.PgNotification }
+  | { type: 'channels-registered' }
+  | { type: 'connection-error'; error: unknown };
+
 export interface NotificationListener {
   /**
-   * Called when Postgres emits a notification on one of the configured channels.
+   * Reports notifications and notification-connection lifecycle events.
    */
-  notification?: (payload: pgwire.PgNotification) => void;
-
-  /**
-   * Called after the notification connection has successfully executed LISTEN for
-   * every configured channel. This runs after both initial connection setup and
-   * reconnection, allowing consumers to recover notifications missed while the
-   * connection was unavailable.
-   */
-  notificationChannelsRegistered?: () => Promise<void>;
+  notificationEvent?: (event: NotificationEvent) => void;
 }
-
-/**
- * Listener keys that operate on the notification connection. These are handled
- * on the dedicated notification slot rather than the general connection pool.
- */
-export const NOTIFICATION_LISTENER_KEYS = [
-  'notification',
-  'notificationChannelsRegistered'
-] as const satisfies readonly (keyof NotificationListener)[];
 
 export interface ConnectionSlotListener extends NotificationListener {
   connectionAvailable?: () => void;
@@ -121,7 +109,7 @@ export class ConnectionSlot extends framework.BaseObserver<ConnectionSlotListene
     }
 
     if (notificationChannels.length > 0) {
-      await this.iterateAsyncListeners(async (l) => l.notificationChannelsRegistered?.());
+      this.iterateListeners((l) => l.notificationEvent?.({ type: 'channels-registered' }));
     }
   }
 
@@ -129,11 +117,11 @@ export class ConnectionSlot extends framework.BaseObserver<ConnectionSlotListene
     if (!this.options.notificationChannels?.includes(payload.channel)) {
       return;
     }
-    this.iterateListeners((l) => l.notification?.(payload));
+    this.iterateListeners((l) => l.notificationEvent?.({ type: 'notification', notification: payload }));
   };
 
   protected hasNotificationListener() {
-    return !!Object.values(this.listeners).find((l) => NOTIFICATION_LISTENER_KEYS.some((key) => !!l[key]));
+    return !!Object.values(this.listeners).find((listener) => !!listener.notificationEvent);
   }
 
   /**
@@ -170,7 +158,10 @@ export class ConnectionSlot extends framework.BaseObserver<ConnectionSlotListene
           this.connection = null;
         }
         if (retryCounter >= MAX_CONNECTION_ATTEMPTS) {
-          this.iterateListeners((cb) => cb.connectionError?.(ex));
+          this.iterateListeners((cb) => {
+            cb.connectionError?.(ex);
+            cb.notificationEvent?.({ type: 'connection-error', error: ex });
+          });
         }
       }
     }

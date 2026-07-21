@@ -13,7 +13,7 @@ import { POSTGRES_STORAGE_FACTORY } from './util.js';
  * 2. Wait for Postgres to destroy that connection and verify its `whenDestroyed` callback fires.
  * 3. Pause the replacement connection immediately before it executes LISTEN, then commit 2/0 and 3/0.
  *    Those notifications cannot be received because no notification channel is registered at that point.
- * 4. Allow LISTEN to complete. The `notificationChannelsRegistered` callback writes `null` to the watcher, which
+ * 4. Allow LISTEN to complete. The `channels-registered` event writes `null` to the watcher, which
  *    must re-query storage and recover the latest missed checkpoint, 3/0.
  * 5. Commit 4/0 after the channel is restored and verify it is delivered as a normal live notification.
  *
@@ -370,7 +370,10 @@ function controlNotificationReconnect(factory: PostgresTestFactory, context: Tes
 
   context.onTestFinished(() => allowReconnectListen.resolve());
   const disposeConnectionListener = factory.db.registerListener({
-    notificationChannelsRegistered: async () => {
+    notificationEvent: (event) => {
+      if (event.type != 'channels-registered') {
+        return;
+      }
       notificationRegistrationCount++;
       if (notificationRegistrationCount === 2) {
         reconnectListenCompleted.resolve();
