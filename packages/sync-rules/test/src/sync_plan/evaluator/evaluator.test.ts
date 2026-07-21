@@ -1,13 +1,16 @@
 import * as sqlite from 'node:sqlite';
-import { describe, expect } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import {
   DEFAULT_HYDRATION_STATE,
   DEFAULT_TAG,
+  deserializeSyncPlan,
   HydratedSyncConfig,
+  maxSupportedSyncPlanVersion,
   nodeSqlite,
   ParameterLookupRows,
   PrecompiledSyncConfig,
   ScopedParameterLookup,
+  serializeSyncPlan,
   SourceTableRef,
   SqliteRow,
   SqliteValue
@@ -1437,6 +1440,37 @@ streams:
     ]);
   });
 
+  syncTest('table_suffix() as a table-valued function', ({ sync }) => {
+    const config = sync.prepareWithoutHydration(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT users.id FROM "user%" users WHERE auth.parameter('p') IN users.table_suffix()
+`) as PrecompiledSyncConfig;
+
+    expect(serializeSyncPlan(config.plan)).toMatchObject({ version: 2 });
+    const hydrated = config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) });
+
+    expect(
+      hydrated.evaluateRow({ sourceTable: new TestSourceTable('user["foo","bar"]'), record: { id: 'x' } })
+    ).toStrictEqual([
+      {
+        bucket: 'stream|0["foo"]',
+        id: 'x',
+        data: { id: 'x' },
+        table: 'users'
+      },
+      {
+        bucket: 'stream|0["bar"]',
+        id: 'x',
+        data: { id: 'x' },
+        table: 'users'
+      }
+    ]);
+  });
+
   syncTest('table metadata in parameter lookups', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
@@ -1459,6 +1493,11 @@ streams:
       }
     ]);
   });
+});
+
+test('refuses to load unknown sync plan versions', () => {
+  expect(() => deserializeSyncPlan({ version: 0 })).toThrow();
+  expect(() => deserializeSyncPlan({ version: maxSupportedSyncPlanVersion + 1 })).toThrow();
 });
 
 function evaluateBucketIds(source: HydratedSyncConfig, sourceTable: SourceTableRef, record: SqliteRow) {
