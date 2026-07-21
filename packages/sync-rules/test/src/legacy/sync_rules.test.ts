@@ -924,14 +924,10 @@ bucket_definitions:
     );
 
     expect(rules.errors).toMatchObject([
-      expect.objectContaining({
-        message: 'Expected a map here.',
-        type: 'fatal',
-        location: {
-          end: 32,
-          start: 32
-        }
-      })
+      {
+        message: "'mybucket' bucket definition must be an object",
+        type: 'fatal'
+      }
     ]);
   });
 

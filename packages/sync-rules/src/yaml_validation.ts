@@ -4,7 +4,7 @@ import { YamlError } from './errors.js';
 /**
  * A strongly-typed YAML node state used for validation.
  *
- * To inspect contents, use the `require` methods to cast this to {@link YampMapState}, {@link YampSeqState} or
+ * To inspect contents, use the `require` methods to cast this to {@link YamlMapState}, {@link YamlSequenceState} or
  * {@link YamlScalarState}.
  */
 export interface YamlState {

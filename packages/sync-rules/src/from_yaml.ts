@@ -77,6 +77,7 @@ export class SyncConfigFromYaml {
       }
     }
 
+    this.#throwOnErrorIfRequested();
     return config;
   }
 
@@ -132,7 +133,6 @@ export class SyncConfigFromYaml {
     const eventDefinitions = this.#parseEventDefinitions(rootState, compatibility);
     result.eventDescriptors.push(...eventDefinitions);
 
-    this.#throwOnErrorIfRequested();
     return result;
   }
 
@@ -324,7 +324,7 @@ export class SyncConfigFromYaml {
         continue;
       }
 
-      using value = maybeMap.requireMap();
+      using value = maybeMap.requireMap(`'${key}' bucket definition must be an object`);
       if (value == null) continue;
 
       const accept_potentially_dangerous_queries = this.#acceptPotentiallyUnsafeQueries(value);

@@ -233,8 +233,9 @@ config:
   });
 
   test('warning for unknown option', () => {
-    const { errors } = SqlSyncRules.fromYaml(
-      `
+    expect(() => {
+      SqlSyncRules.fromYaml(
+        `
 bucket_definitions:
   mybucket:
     data:
@@ -243,13 +244,9 @@ bucket_definitions:
 config:
   unknown_option: true
     `,
-      { ...PARSE_OPTIONS, throwOnError: false }
-    );
-
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatchObject({
-      message: `Unknown key 'unknown_option'.`
-    });
+        PARSE_OPTIONS
+      );
+    }).toThrow(/Unknown key 'unknown_option'/);
   });
 
   test('arrays', () => {
