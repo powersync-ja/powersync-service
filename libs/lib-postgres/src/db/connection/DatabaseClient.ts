@@ -2,7 +2,7 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import { DO_NOT_LOG } from '@powersync/lib-services-framework';
 import * as pgwire from '@powersync/service-jpgwire';
 import { AbstractPostgresConnection, sql } from './AbstractPostgresConnection.js';
-import { ConnectionLease, ConnectionSlot, NotificationListener } from './ConnectionSlot.js';
+import { ConnectionLease, ConnectionSlot, NOTIFICATION_LISTENER_KEYS, NotificationListener } from './ConnectionSlot.js';
 import { WrappedConnection } from './WrappedConnection.js';
 
 export type DatabaseClientOptions = {
@@ -24,13 +24,6 @@ export type DatabaseClientListener = NotificationListener & {
 };
 
 export const TRANSACTION_CONNECTION_COUNT = 5;
-
-// These listeners are forwarded to the first connection slot, which owns the
-// database client's notification channels.
-const NOTIFICATION_LISTENER_KEYS = [
-  'notification',
-  'notificationChannelsRegistered'
-] as const satisfies readonly (keyof NotificationListener)[];
 
 /**
  * This provides access to Postgres via the PGWire library.

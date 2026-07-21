@@ -708,19 +708,30 @@ export class PostgresSyncRulesStorage
 
         let baseActiveCheckpoint: ActiveCheckpointDecoded | null = null;
         if (payload == null) {
-          // Manually should check the checkpoint
-          baseActiveCheckpoint = requireActiveCheckpointDocument(
-            await checkpointUtils.getActiveCheckpointDocument({ db: this.db })
-          );
+          // Reconnected (or manually triggered) - re-query the current checkpoint.
+          // Unlike the initial read, a missing document here (e.g. sync rules being
+          // replaced) must not abort the stream: keep waiting for the next notification.
+          baseActiveCheckpoint = await checkpointUtils.getActiveCheckpointDocument({ db: this.db });
+          if (baseActiveCheckpoint == null) {
+            continue;
+          }
         } else {
-          const notification = models.ActiveCheckpointNotification.decode(payload);
+          let notification: models.ActiveCheckpointNotificationDecoded;
+          try {
+            notification = models.ActiveCheckpointNotification.decode(payload);
+          } catch (error) {
+            // A malformed payload must not abort the shared stream for every
+            // subscriber. Skip it and wait for the next notification.
+            this.logger.warn('Failed to decode active checkpoint notification, ignoring', error);
+            continue;
+          }
           if (notification.active_checkpoint == null) {
             continue;
           }
           baseActiveCheckpoint = notification.active_checkpoint;
         }
 
-        if (Number(baseActiveCheckpoint.id) != initialCheckpointDocument.id) {
+        if (baseActiveCheckpoint.id != initialCheckpointDocument.id) {
           // Active replication stream changed - abort and restart the stream
           break;
         }
@@ -780,7 +791,9 @@ const parameterSetsRow = t.object({
 
 function requireActiveCheckpointDocument(doc: models.ActiveCheckpointDecoded | null): models.ActiveCheckpointDecoded {
   if (doc == null) {
-    // Abort the connections - clients will have to retry later.
+    // Used for the initial checkpoint read only: with no active replication stream
+    // at stream start, fail fast so clients disconnect and retry later. Mid-stream
+    // reconnects tolerate a transiently missing document instead of aborting.
     throw new framework.ServiceError(framework.ErrorCode.PSYNC_S2302, 'No active replication stream available');
   }
 

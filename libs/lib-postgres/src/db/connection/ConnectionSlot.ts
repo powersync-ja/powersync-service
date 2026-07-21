@@ -16,6 +16,15 @@ export interface NotificationListener {
   notificationChannelsRegistered?: () => Promise<void>;
 }
 
+/**
+ * Listener keys that operate on the notification connection. These are handled
+ * on the dedicated notification slot rather than the general connection pool.
+ */
+export const NOTIFICATION_LISTENER_KEYS = [
+  'notification',
+  'notificationChannelsRegistered'
+] as const satisfies readonly (keyof NotificationListener)[];
+
 export interface ConnectionSlotListener extends NotificationListener {
   connectionAvailable?: () => void;
   connectionError?: (exception: any) => void;
@@ -71,7 +80,11 @@ export class ConnectionSlot extends framework.BaseObserver<ConnectionSlotListene
      * Subscribing to notifications, even without a registered listener, should not add much overhead.
      */
     await this.configureConnectionNotifications(connection);
-    connection.whenDestroyed.then(() => this.handleConnectionDestroyed(connection));
+    // whenDestroyed normally resolves, but guard against a rejection becoming an
+    // unhandled promise rejection. Either outcome means the connection is gone.
+    connection.whenDestroyed
+      .catch((error) => framework.logger.debug('Postgres connection destroyed with an error', error))
+      .then(() => this.handleConnectionDestroyed(connection));
     return connection;
   }
 
@@ -120,7 +133,7 @@ export class ConnectionSlot extends framework.BaseObserver<ConnectionSlotListene
   };
 
   protected hasNotificationListener() {
-    return !!Object.values(this.listeners).find((l) => !!l.notification);
+    return !!Object.values(this.listeners).find((l) => NOTIFICATION_LISTENER_KEYS.some((key) => !!l[key]));
   }
 
   /**

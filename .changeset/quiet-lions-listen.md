@@ -1,6 +1,6 @@
 ---
 '@powersync/lib-service-postgres': patch
-'@powersync/service-core': patch
+'@powersync/service-image': patch
 '@powersync/service-jpgwire': patch
 '@powersync/service-module-postgres-storage': patch
 ---
