@@ -1,7 +1,10 @@
 import { createLogger, logger as defaultLogger, transports } from '@powersync/lib-services-framework';
 import { framework, PowerSyncMigrationManager, ServiceContext, TestStorageOptions } from '@powersync/service-core';
 import { PostgresMigrationAgent } from '../migrations/PostgresMigrationAgent.js';
-import { PostgresBucketStorageFactory } from '../storage/PostgresBucketStorageFactory.js';
+import {
+  PostgresBucketStorageFactory,
+  type PostgresBucketStorageOptions
+} from '../storage/PostgresBucketStorageFactory.js';
 import { PostgresReportStorage } from '../storage/PostgresReportStorage.js';
 import { normalizePostgresStorageConfig, PostgresStorageConfigDecoded } from '../types/types.js';
 import { truncateTables } from './db.js';
@@ -13,6 +16,7 @@ export type PostgresTestStorageOptions = {
    * This allows for providing a custom PostgresMigrationAgent.
    */
   migrationAgent?: (config: PostgresStorageConfigDecoded) => PostgresMigrationAgent;
+  bucketDataQueryHook?: PostgresBucketStorageOptions['bucketDataQueryHook'];
 };
 
 export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
@@ -102,7 +106,8 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
 
         return new PostgresBucketStorageFactory({
           config: TEST_CONNECTION_OPTIONS,
-          replicationStreamNamePrefix: 'test_'
+          replicationStreamNamePrefix: 'test_',
+          bucketDataQueryHook: factoryOptions.bucketDataQueryHook
         });
       } catch (ex) {
         // Vitest does not display these errors nicely when using the `await using` syntx

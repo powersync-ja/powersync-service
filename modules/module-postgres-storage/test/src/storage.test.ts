@@ -1,6 +1,6 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
 describe('Sync Bucket Validation', register.registerBucketValidationTests);
@@ -20,6 +20,57 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
     register.registerDataStorageCheckpointTests({ ...POSTGRES_STORAGE_FACTORY, storageVersion }));
 
   describe(`Postgres Sync Bucket Storage - pg-specific - v${storageVersion}`, () => {
+    test('queries bucket data with lateral range scans', async () => {
+      await using factory = await POSTGRES_STORAGE_FACTORY.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+bucket_definitions:
+  alpha:
+    data:
+      - SELECT id, bucket FROM test WHERE bucket = 'alpha'
+  zeta:
+    data:
+      - SELECT id, bucket FROM test WHERE bucket = 'zeta'
+`,
+          { storageVersion }
+        )
+      );
+      const bucketStorage = factory.getInstance(syncRules);
+      const syncRulesContent = syncRules.syncConfigContent[0];
+      const alphaBucket = bucketRequest(syncRulesContent, 'alpha[]');
+      const zetaBucket = bucketRequest(syncRulesContent, 'zeta[]');
+
+      const result = await (async () => {
+        await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+        const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], POSTGRES_STORAGE_FACTORY);
+
+        for (const bucket of ['alpha', 'zeta']) {
+          await writer.save({
+            sourceTable,
+            tag: storage.SaveOperationTag.INSERT,
+            after: { id: bucket, bucket },
+            afterReplicaId: test_utils.rid(bucket)
+          });
+        }
+
+        return writer.flush();
+      })();
+
+      const streamRows = vi.spyOn(factory.db, 'streamRows');
+      const batch = await test_utils.fromAsync(
+        bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(result!.flushed_op), [zetaBucket, alphaBucket])
+      );
+
+      expect(batch.map((chunk) => chunk.chunkData.bucket)).toEqual([alphaBucket.bucket, zetaBucket.bucket]);
+      expect(streamRows).toHaveBeenCalledTimes(1);
+      const [query] = streamRows.mock.calls[0];
+      expect(query.statement).toContain('CROSS JOIN LATERAL');
+      expect(query.statement).toMatch(/ORDER BY\s+bucket_order ASC/);
+      expect(query.statement).toMatch(/OFFSET\s+0/);
+      expect([query.params?.[3]?.value, query.params?.[5]?.value]).toEqual([alphaBucket.bucket, zetaBucket.bucket]);
+    });
+
     /**
      * The split of returned results can vary depending on storage drivers.
      * The large rows here are 2MB large while the default chunk limit is 1mb.
