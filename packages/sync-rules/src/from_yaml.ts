@@ -64,7 +64,7 @@ export class SyncConfigFromYaml {
 
     const config = this.#parseConfig(parsed);
     // #parseConfig() should have found all errors in the YAML source. As an additional check, and to ensure our sync
-    // rules schema is up-to-date, also valdiate with ajv. We do this last because errors found here don't have line
+    // rules schema is up-to-date, also validate with ajv. We do this last because errors found here don't have line
     // numbers on them.
     if (!this.#hasFatalError) {
       const valid = validateSyncRulesSchema(parsed.toJSON());
@@ -101,7 +101,7 @@ export class SyncConfigFromYaml {
 
       if (compatibility.isEnabled(CompatibilityOption.sqliteExpressionEngine)) {
         // Evaluating expressions with SQLite requires edition: 3, older systems always use JavaScript.
-        if (compatibility.edition < CompatibilityEdition.SYNC_STREAMS) {
+        if (compatibility.edition < CompatibilityEdition.COMPILED_STREAMS) {
           declaredOptions.reportError('Enabling unstable_sqlite_expression_engine requires edition: 3');
         } else if (!compatibility.isEnabled(CompatibilityOption.fixedJsonExtract)) {
           declaredOptions.reportError('Enabling unstable_sqlite_expression_engine requires fixed_json_extract');
