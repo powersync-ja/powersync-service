@@ -28,7 +28,7 @@ import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
 
 import * as framework from '@powersync/lib-services-framework';
-import { StatementParam } from '@powersync/service-jpgwire';
+import type { Statement } from '@powersync/service-jpgwire';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import * as t from 'ts-codec';
 import { ActiveCheckpointDecoded } from '../types/models/ActiveCheckpoint.js';
@@ -329,7 +329,7 @@ export class PostgresSyncRulesStorage
     // not match up with chunks.
 
     const end = checkpoint.checkpoint ?? BIGINT_MAX;
-    const filters = dataBuckets.map((request) => ({ bucket_name: request.bucket, start: request.start }));
+    const sortedBuckets = [...dataBuckets].sort((a, b) => a.bucket.localeCompare(b.bucket));
     const startOpByBucket = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
 
     const batchRowLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
@@ -340,65 +340,66 @@ export class PostgresSyncRulesStorage
     let targetOp: InternalOpId | null = null;
     let batchRowCount = 0;
 
-    /**
-     * It is possible to perform this query with JSONB join. e.g.
-     * ```sql
-     * WITH
-     * filter_data AS (
-     * SELECT
-     * FILTER ->> 'bucket_name' AS bucket_name,
-     * (FILTER ->> 'start')::BIGINT AS start_op_id
-     * FROM
-     * jsonb_array_elements($1::jsonb) AS FILTER
-     * )
-     * SELECT
-     * b.*,
-     * octet_length(b.data) AS data_size
-     * FROM
-     * bucket_data b
-     * JOIN filter_data f ON b.bucket_name = f.bucket_name
-     * AND b.op_id > f.start_op_id
-     * AND b.op_id <= $2
-     * WHERE
-     * b.group_id = $3
-     * ORDER BY
-     * b.bucket_name ASC,
-     * b.op_id ASC
-     * LIMIT
-     * $4;
-     * ```
-     * Which might be better for large volumes of buckets, but in testing the JSON method
-     * was significantly slower than the method below. Syncing 2.5 million rows in a single
-     * bucket takes 2 minutes and 11 seconds with the method below. With the JSON method
-     * 1 million rows were only synced before a 5 minute timeout.
-     */
-    for await (const rows of this.db.streamRows({
+    const requestedBuckets = sortedBuckets
+      .map((_, index) => `($${index * 2 + 4}, $${index * 2 + 5}, ${index})`)
+      .join(', ');
+
+    // Use one round trip while keeping a parameterized index range scan per bucket. Ordering the non-flattened request
+    // subquery gives Postgres a presorted bucket key, allowing an incremental sort and the outer limit to stop the
+    // nested loop early. The inner limit cannot exclude rows needed by the outer batch because both limits are equal.
+    const query: Statement = {
       statement: `
-          SELECT
-            *
-          FROM
-            bucket_data 
-          WHERE
-            group_id = $1
-            and op_id <= $2
-            and (
-            ${filters.map((f, index) => `(bucket_name = $${index * 2 + 4} and op_id > $${index * 2 + 5})`).join(' OR ')}
-            ) 
-          ORDER BY
-            bucket_name ASC,
-            op_id ASC
-          LIMIT
-            $3;`,
+        SELECT
+          bucket_data.*
+        FROM
+          (
+            SELECT
+              *
+            FROM
+              (
+                VALUES ${requestedBuckets}
+              ) AS bucket_requests(bucket_name, start_op_id, bucket_order)
+            -- Present requests in bucket order so the final sort can be incremental.
+            ORDER BY
+              bucket_order ASC
+            -- Prevent the planner from flattening away the ordered request path.
+            OFFSET
+              0
+          ) AS requested
+          CROSS JOIN LATERAL (
+            SELECT
+              *
+            FROM
+              bucket_data
+            WHERE
+              group_id = $1
+              AND bucket_name = requested.bucket_name
+              AND op_id > requested.start_op_id
+              AND op_id <= $2
+            -- Keep each bucket's index range scan ordered and bounded.
+            ORDER BY
+              op_id ASC
+            LIMIT
+              $3
+          ) AS bucket_data
+        -- Guarantee contiguous bucket chunks while allowing the presorted bucket key to stop scans early.
+        ORDER BY
+          requested.bucket_order ASC,
+          bucket_data.op_id ASC
+        LIMIT
+          $3;`,
       params: [
         { type: 'int4', value: this.replicationStreamId },
         { type: 'int8', value: end },
         { type: 'int4', value: batchRowLimit },
-        ...filters.flatMap((f) => [
-          { type: 'varchar' as const, value: f.bucket_name },
-          { type: 'int8' as const, value: f.start } satisfies StatementParam
+        ...sortedBuckets.flatMap((request) => [
+          { type: 'varchar' as const, value: request.bucket },
+          { type: 'int8' as const, value: request.start }
         ])
       ]
-    })) {
+    };
+
+    for await (const rows of this.db.streamRows(query)) {
       const decodedRows = rows.map((r) => models.BucketData.decode(r as any));
 
       for (const row of decodedRows) {
