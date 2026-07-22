@@ -827,8 +827,8 @@ streams:
 `);
 
     expect(errors).toStrictEqual([
-      { message: 'Expected a scalar value here.', source: '- SELECT 1 as bar\n' },
-      { message: 'Expected a scalar value here.', source: '- SELECT * FROM tbl WHERE id IN foo\n' }
+      { message: 'Expected a scalar here.', source: '- SELECT 1 as bar\n' },
+      { message: 'Expected a scalar here.', source: '- SELECT * FROM tbl WHERE id IN foo\n' }
     ]);
   });
 });

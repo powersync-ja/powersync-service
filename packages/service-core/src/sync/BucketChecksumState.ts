@@ -2,6 +2,7 @@ import {
   BucketParameterQuerier,
   BucketPriority,
   BucketSource,
+  BucketSourceType,
   HydratedSyncConfig,
   mergeBuckets,
   QuerierError,
@@ -164,8 +165,9 @@ export class BucketChecksumState {
         const count = bucketsByDefinition.get(definition) ?? 0;
         bucketsByDefinition.set(definition, count + 1);
       }
-
-      const breakdown = formatBucketDefinitionBreakdown(bucketsByDefinition);
+      // Only 1 type is allowed per sync config
+      const bucketSourceType = this.parameterState.syncRules.bucketSourceDefinitions[0].type;
+      const breakdown = formatBucketDefinitionBreakdown(bucketsByDefinition, bucketSourceType);
       errorMessage += breakdown.message;
       logData.buckets_by_definition = breakdown.countsByDefinition;
 
@@ -795,30 +797,36 @@ function logCheckpoint(
 }
 
 /**
- * Format a breakdown of dynamic bucket by sync stream definition.
+ * Format a breakdown of dynamic buckets by sync stream or legacy bucket definition.
  *
- * Sorts definitions by count (descending), includes the top 10, and returns both the
+ * Sorts definitions by count (descending), includes the top 100, and returns both the
  * formatted message string and the counts record suitable for structured log data.
  */
-function formatBucketDefinitionBreakdown(bucketsByDefinition: Map<string, number>): {
+function formatBucketDefinitionBreakdown(
+  bucketsByDefinition: Map<string, number>,
+  bucketSourceType: BucketSourceType
+): {
   message: string;
   countsByDefinition: Record<string, number>;
 } {
-  // Sort definitions by count (descending) and take top 10
-  const allSorted = Array.from(bucketsByDefinition.entries()).sort((a, b) => b[1] - a[1]);
-  const sortedDefinitions = allSorted.slice(0, 10);
+  const maxLoggedDefinitions = 100;
 
-  let message = '\Buckets by definition:';
+  // Sort definitions by count (descending) and take the largest entries.
+  const allSorted = Array.from(bucketsByDefinition.entries()).sort((a, b) => b[1] - a[1]);
+  const sortedDefinitions = allSorted.slice(0, maxLoggedDefinitions);
+
+  const sourceLabel = bucketSourceType == BucketSourceType.SYNC_STREAM ? 'sync stream' : 'bucket definition';
+  let message = `\nBuckets by ${sourceLabel}:`;
   const countsByDefinition: Record<string, number> = {};
   for (const [definition, count] of sortedDefinitions) {
     message += `\n  ${definition}: ${count}`;
     countsByDefinition[definition] = count;
   }
 
-  if (allSorted.length > 10) {
-    const remainingResults = allSorted.slice(10).reduce((sum, [, count]) => sum + count, 0);
-    const remainingDefinitions = allSorted.length - 10;
-    message += `\n  ... and ${remainingResults} more results from ${remainingDefinitions} definitions`;
+  if (allSorted.length > maxLoggedDefinitions) {
+    const remainingResults = allSorted.slice(maxLoggedDefinitions).reduce((sum, [, count]) => sum + count, 0);
+    const remainingDefinitions = allSorted.length - maxLoggedDefinitions;
+    message += `\n  ... and ${remainingResults} more buckets from ${remainingDefinitions} ${sourceLabel}s`;
   }
 
   return { message, countsByDefinition };

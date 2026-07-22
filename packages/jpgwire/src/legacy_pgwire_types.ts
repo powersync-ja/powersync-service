@@ -65,6 +65,8 @@ export interface PgClient {
 }
 
 export interface PgConnection extends PgClient {
+  /** Resolves after the connection's background I/O loop has ended. */
+  readonly whenDestroyed: Promise<void>;
   logicalReplication(options: LogicalReplicationOptions): ReplicationStream;
   /** ID of postgres backend process. */
   readonly pid: number | null;
