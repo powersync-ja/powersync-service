@@ -1,0 +1,53 @@
+name: powersync-api-memory-repro
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: powersync_source
+      POSTGRES_PASSWORD: powersync
+      POSTGRES_USER: powersync
+    command: ['postgres', '-c', 'wal_level=logical']
+    ports:
+      - '5433:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U powersync -d powersync_source']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  mongo:
+    image: mongo:7.0
+    command: ['mongod', '--replSet', 'rs0', '--bind_ip_all', '--quiet']
+    ports:
+      - '27018:27017'
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  mongo-rs-init:
+    image: mongo:7.0
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: 'no'
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        mongosh --host mongo:27017 --quiet --eval
+        'try { rs.status(); } catch (error) {
+          rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongo:27017"}]});
+        }
+        while (!db.hello().isWritablePrimary) { sleep(250); }'
+
+volumes:
+  mongo_data:
+  postgres_data:

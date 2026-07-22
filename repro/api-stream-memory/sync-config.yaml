@@ -1,0 +1,10 @@
+config:
+  edition: 3
+
+# Every authenticated client automatically receives the same bucket containing
+# all 14 rows. No token parameters are needed for this reproduction.
+streams:
+  all_large_rows:
+    auto_subscribe: true
+    queries:
+      - SELECT * FROM large_rows
