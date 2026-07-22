@@ -357,6 +357,64 @@ bucket_definitions:
   }
 }, 15_000);
 
+test('active checkpoint stream closes when a new replication stream is activated', async (context) => {
+  await using factory = await POSTGRES_STORAGE_FACTORY.factory();
+
+  const initialSyncRules = await factory.configureSyncRules(
+    updateSyncRulesFromYaml(
+      `
+bucket_definitions:
+  initial:
+    data: []
+`,
+      { validate: false }
+    )
+  );
+  const initialStorage = factory.getInstance(initialSyncRules.persisted_sync_rules!);
+
+  await using initialWriter = await initialStorage.createWriter(test_utils.BATCH_OPTIONS);
+  await initialWriter.markAllSnapshotDone('1/0');
+  await initialWriter.keepalive('1/0');
+
+  const abortController = new AbortController();
+  context.onTestFinished(() => abortController.abort());
+  const iterator = (
+    initialStorage as unknown as {
+      watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<storage.ReplicationCheckpoint>;
+    }
+  )
+    .watchActiveCheckpoint(abortController.signal)
+    [Symbol.asyncIterator]();
+
+  await expect(
+    resolvesWithin({ promise: iterator.next(), description: 'Initial active checkpoint should be returned' })
+  ).resolves.toMatchObject({
+    done: false,
+    value: { checkpoint: 0n, lsn: '1/0' }
+  });
+
+  const streamClosed = iterator.next();
+  const nextSyncRules = await factory.configureSyncRules(
+    updateSyncRulesFromYaml(
+      `
+bucket_definitions:
+  replacement:
+    data: []
+`,
+      { validate: false }
+    )
+  );
+  const nextStorage = factory.getInstance(nextSyncRules.persisted_sync_rules!);
+
+  await using nextWriter = await nextStorage.createWriter(test_utils.BATCH_OPTIONS);
+  await nextWriter.markAllSnapshotDone('2/0');
+  await nextWriter.keepalive('2/0');
+
+  await expect(
+    resolvesWithin({ promise: streamClosed, description: 'Old active checkpoint stream should close on activation' })
+  ).resolves.toEqual({ done: true, value: undefined });
+}, 15_000);
+
 type PostgresTestFactory = Awaited<ReturnType<typeof POSTGRES_STORAGE_FACTORY.factory>>;
 
 function controlNotificationReconnect(factory: PostgresTestFactory, context: TestContext) {

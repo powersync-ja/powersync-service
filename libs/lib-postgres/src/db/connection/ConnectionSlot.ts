@@ -1,5 +1,6 @@
 import * as framework from '@powersync/lib-services-framework';
 import * as pgwire from '@powersync/service-jpgwire';
+import * as timers from 'node:timers/promises';
 
 export type NotificationEvent =
   | { type: 'notification'; notification: pgwire.PgNotification }
@@ -15,6 +16,7 @@ export interface NotificationListener {
 
 export interface ConnectionSlotListener extends NotificationListener {
   connectionAvailable?: () => void;
+  /** Reports that this slot exhausted its connection attempts. */
   connectionError?: (exception: any) => void;
   connectionCreated?: (connection: pgwire.PgConnection) => Promise<void>;
 }
@@ -31,22 +33,23 @@ export type ConnectionSlotOptions = {
 };
 
 export const MAX_CONNECTION_ATTEMPTS = 5;
+const CONNECTION_RETRY_DELAY_MS = 100;
 
 export class ConnectionSlot extends framework.BaseObserver<ConnectionSlotListener> {
-  isAvailable: boolean;
   isPoking: boolean;
 
   closed: boolean;
 
   protected connection: pgwire.PgConnection | null;
   protected connectingPromise: Promise<pgwire.PgConnection> | null;
+  protected activeLease: symbol | null;
 
   constructor(protected options: ConnectionSlotOptions) {
     super();
-    this.isAvailable = false;
     this.connection = null;
     this.isPoking = false;
     this.connectingPromise = null;
+    this.activeLease = null;
     this.closed = false;
   }
 
@@ -54,41 +57,8 @@ export class ConnectionSlot extends framework.BaseObserver<ConnectionSlotListene
     return !!this.connection;
   }
 
-  protected async connect() {
-    this.connectingPromise = pgwire.connectPgWire(this.options.config, {
-      type: 'standard',
-      applicationName: this.options.applicationName
-    });
-    const connection = await this.connectingPromise;
-    this.connectingPromise = null;
-    await this.iterateAsyncListeners(async (l) => l.connectionCreated?.(connection));
-
-    /**
-     * Configure the Postgres connection to listen to notifications.
-     * Subscribing to notifications, even without a registered listener, should not add much overhead.
-     */
-    await this.configureConnectionNotifications(connection);
-    // whenDestroyed normally resolves, but guard against a rejection becoming an
-    // unhandled promise rejection. Either outcome means the connection is gone.
-    connection.whenDestroyed
-      .catch((error) => framework.logger.debug('Postgres connection destroyed with an error', error))
-      .then(() => this.handleConnectionDestroyed(connection));
-    return connection;
-  }
-
-  protected handleConnectionDestroyed(connection: pgwire.PgConnection) {
-    if (this.connection != connection) {
-      return;
-    }
-
-    this.connection = null;
-    this.isAvailable = false;
-
-    if (this.hasNotificationListener() && !this.closed) {
-      // Notification connections need to be restored proactively. Other slots
-      // are reconnected lazily when the next connection lease is requested.
-      this.poke();
-    }
+  get isAvailable() {
+    return this.connection != null && this.activeLease == null && !this.closed;
   }
 
   async [Symbol.asyncDispose]() {
@@ -96,6 +66,113 @@ export class ConnectionSlot extends framework.BaseObserver<ConnectionSlotListene
     const connection = this.connection ?? (await this.connectingPromise);
     await connection?.end();
     super.clearListeners();
+  }
+
+  /**
+   * Ensure this slot has a connection and signal when it can be leased.
+   */
+  async poke() {
+    if (this.closed || this.connection || this.isPoking) {
+      return;
+    }
+
+    this.isPoking = true;
+    try {
+      for (let retryCounter = 0; retryCounter <= MAX_CONNECTION_ATTEMPTS; retryCounter++) {
+        try {
+          const connection = await this.connect();
+
+          if (this.closed) {
+            connection.destroy();
+            return;
+          }
+
+          this.connection = connection;
+
+          // Register this only after the slot owns the connection. If
+          // `whenDestroyed` has already settled, its callback runs in a later
+          // microtask and must see this exact connection assigned. Registering
+          // it before assignment could ignore the destruction and leave the
+          // slot holding an already-destroyed connection.
+          connection.whenDestroyed
+            .catch((error) => framework.logger.debug('Postgres connection destroyed with an error', error))
+            .then(() => this.handleConnectionDestroyed(connection));
+
+          if (this.activeLease == null) {
+            this.notifyConnectionAvailable();
+          }
+          break;
+        } catch (ex) {
+          if (retryCounter >= MAX_CONNECTION_ATTEMPTS) {
+            this.iterateListeners((cb) => {
+              cb.connectionError?.(ex);
+              cb.notificationEvent?.({ type: 'connection-error', error: ex });
+            });
+          } else {
+            await timers.setTimeout(CONNECTION_RETRY_DELAY_MS);
+            if (this.closed) {
+              return;
+            }
+          }
+        }
+      }
+    } finally {
+      this.isPoking = false;
+    }
+  }
+
+  protected async connect() {
+    // Only allow a single connect to run at-a-time
+    if (this.connectingPromise) {
+      return this.connectingPromise;
+    }
+
+    const connectInternal = async () => {
+      let connection: pgwire.PgConnection | null = null;
+      try {
+        const connected = await pgwire.connectPgWire(this.options.config, {
+          type: 'standard',
+          applicationName: this.options.applicationName
+        });
+        connection = connected;
+
+        await this.iterateAsyncListeners(async (l) => l.connectionCreated?.(connected));
+
+        /**
+         * Configure the Postgres connection to listen to notifications.
+         * Subscribing to notifications, even without a registered listener, should not add much overhead.
+         */
+        await this.configureConnectionNotifications(connected);
+
+        return connected;
+      } catch (error) {
+        connection?.destroy();
+        throw error;
+      }
+    };
+
+    this.connectingPromise = connectInternal();
+    try {
+      return await this.connectingPromise;
+    } finally {
+      this.connectingPromise = null;
+    }
+  }
+
+  protected handleConnectionDestroyed(connection: pgwire.PgConnection) {
+    // Guard that the closed connection is actually the one in use by the slot.
+    if (this.connection != connection) {
+      return;
+    }
+
+    // Clear the slot reference, marking the slot as unavailable
+    this.connection = null;
+
+    // Notification slots must restore their LISTEN subscriptions immediately.
+    // Other slots reconnect lazily when the next lease is requested.
+    if (!this.closed && this.options.notificationChannels?.length) {
+      this.poke().catch((error) => framework.logger.error('Failed to restore Postgres notification connection', error));
+    }
   }
 
   protected async configureConnectionNotifications(connection: pgwire.PgConnection) {
@@ -120,70 +197,37 @@ export class ConnectionSlot extends framework.BaseObserver<ConnectionSlotListene
     this.iterateListeners((l) => l.notificationEvent?.({ type: 'notification', notification: payload }));
   };
 
-  protected hasNotificationListener() {
-    return !!Object.values(this.listeners).find((listener) => !!listener.notificationEvent);
-  }
-
-  /**
-   * Test the connection if it can be reached.
-   */
-  async poke() {
-    if (this.isPoking || (this.isConnected && this.isAvailable == false) || this.closed) {
-      return;
-    }
-    this.isPoking = true;
-    for (let retryCounter = 0; retryCounter <= MAX_CONNECTION_ATTEMPTS; retryCounter++) {
-      try {
-        const connection = this.connection ?? (await this.connect());
-
-        await connection.query({
-          statement: 'SELECT 1'
-        });
-
-        if (!this.connection) {
-          this.connection = connection;
-          this.setAvailable();
-        } else if (this.isAvailable) {
-          this.iterateListeners((cb) => cb.connectionAvailable?.());
-        }
-
-        // Connection is alive and healthy
-        break;
-      } catch (ex) {
-        // Should be valid for all cases
-        this.isAvailable = false;
-        if (this.connection) {
-          this.connection.onnotification = () => {};
-          this.connection.destroy();
-          this.connection = null;
-        }
-        if (retryCounter >= MAX_CONNECTION_ATTEMPTS) {
-          this.iterateListeners((cb) => {
-            cb.connectionError?.(ex);
-            cb.notificationEvent?.({ type: 'connection-error', error: ex });
-          });
-        }
-      }
-    }
-    this.isPoking = false;
-  }
-
-  protected setAvailable() {
-    this.isAvailable = true;
+  protected notifyConnectionAvailable() {
     this.iterateListeners((l) => l.connectionAvailable?.());
   }
 
   lock(): ConnectionLease | null {
-    if (!this.isAvailable || !this.connection || this.closed) {
+    if (!this.isAvailable || !this.connection || this.activeLease != null || this.closed) {
       return null;
     }
 
-    this.isAvailable = false;
+    // Create a unique symbol to identify this lease
+    const lease = Symbol();
+    this.activeLease = lease;
 
     return {
       connection: this.connection,
       release: () => {
-        this.setAvailable();
+        // Only release if this lease is the current active lease
+        if (this.activeLease != lease) {
+          return;
+        }
+        this.activeLease = null;
+        if (this.closed) {
+          return;
+        }
+        if (this.connection) {
+          this.notifyConnectionAvailable();
+        } else {
+          // The leased connection was destroyed. Reconnect now in case a
+          // request was queued while this slot still held the lease.
+          this.poke().catch((error) => framework.logger.error('Failed to restore Postgres connection', error));
+        }
       }
     };
   }

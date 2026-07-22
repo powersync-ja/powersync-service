@@ -42,6 +42,8 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
 
   protected initialized: Promise<void>;
   protected queue: PromiseWithResolvers<ConnectionLease>[];
+  /** Latest exhausted connection attempt for each slot in the current attempt round. */
+  protected failedConnectionSlots: Map<ConnectionSlot, unknown>;
 
   constructor(protected options: DatabaseClientOptions) {
     super();
@@ -50,6 +52,7 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
       maxSize: options.config.max_pool_size,
       applicationName: options.applicationName
     });
+    this.failedConnectionSlots = new Map();
     this.connections = Array.from({ length: TRANSACTION_CONNECTION_COUNT }, (v, index) => {
       // Only listen to notifications on a single (the first) connection
       const notificationChannels = index == 0 ? options.notificationChannels : [];
@@ -59,8 +62,8 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
         applicationName: options.applicationName
       });
       slot.registerListener({
-        connectionAvailable: () => this.processConnectionQueue(),
-        connectionError: (ex) => this.handleConnectionError(ex),
+        connectionAvailable: () => this.handleConnectionAvailable(slot),
+        connectionError: (ex) => this.handleConnectionError(slot, ex),
         connectionCreated: (connection) => this.iterateAsyncListeners(async (l) => l.connectionCreated?.(connection))
       });
       return slot;
@@ -200,14 +203,23 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
     const deferred = Promise.withResolvers<ConnectionLease>();
     this.queue.push(deferred);
 
+    // Try already-connected slots first. poke() only creates missing
+    // connections and does not emit another availability event for an existing
+    // connection, so skipping this could leave the request queued indefinitely.
+    this.processConnectionQueue();
     this.pokeSlots();
 
     return deferred.promise;
   }
 
   protected pokeSlots() {
-    // Poke the slots to check if they are alive
+    // Ensure the slots have connections and notify any queued requests.
     for (const slot of this.connections) {
+      if (!slot.isConnected && !slot.isPoking) {
+        // This slot is starting a fresh attempt, so a failure from an earlier
+        // attempt must not count against the current request.
+        this.failedConnectionSlots.delete(slot);
+      }
       // No need to await this. Errors are reported asynchronously
       slot.poke();
     }
@@ -242,12 +254,26 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
     }
   }
 
+  protected handleConnectionAvailable(slot: ConnectionSlot) {
+    // This slot recovered, so its earlier failure must no longer contribute to
+    // deciding whether the shared lease queue is unreachable.
+    this.failedConnectionSlots.delete(slot);
+    this.processConnectionQueue();
+  }
+
   /**
-   * Reports connection errors which might occur from bad configuration or
-   * a server which is no longer available.
-   * This fails all pending requests.
+   * Lease requests wait in one shared queue and are not assigned to a slot
+   * until that slot becomes available. A failure from one slot therefore
+   * cannot fail a particular request: another slot may still serve it.
    */
-  protected handleConnectionError(exception: any) {
+  protected handleConnectionError(slot: ConnectionSlot, exception: any) {
+    this.failedConnectionSlots.set(slot, exception);
+    if (this.failedConnectionSlots.size < this.connections.length) {
+      return;
+    }
+
+    // Every slot has exhausted its attempts, so no slot can currently make
+    // progress on the shared queue.
     for (const q of this.queue) {
       q.reject(exception);
     }
