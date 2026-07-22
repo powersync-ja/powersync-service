@@ -60,7 +60,6 @@ export interface PostgresBucketBatchOptions {
  * via the Postgres NOTIFY protocol.
  */
 const StatefulCheckpoint = models.ActiveCheckpoint.and(t.object({ state: t.Enum(storage.SyncRuleState) }));
-type StatefulCheckpointDecoded = t.Decoded<typeof StatefulCheckpoint>;
 
 const CheckpointWithStatus = StatefulCheckpoint.and(
   t.object({
@@ -562,136 +561,144 @@ export class PostgresBucketBatch
 
     const persisted_op = this.persisted_op ?? null;
 
-    const result = await this.db.sql`
-      WITH
-        selected AS (
-          SELECT
-            id,
-            state,
-            last_checkpoint,
-            last_checkpoint_lsn,
-            snapshot_done,
-            no_checkpoint_before,
-            keepalive_op,
-            (
-              snapshot_done = TRUE
+    // Transaction failures restart replication from the last durable checkpoint.
+    const result = await this.db.transaction(async (db) => {
+      const checkpoint = await db.sql`
+        WITH
+          selected AS (
+            SELECT
+              id,
+              state,
+              last_checkpoint,
+              last_checkpoint_lsn,
+              snapshot_done,
+              no_checkpoint_before,
+              keepalive_op,
+              (
+                snapshot_done = TRUE
+                AND (
+                  last_checkpoint_lsn IS NULL
+                  OR last_checkpoint_lsn <= ${{ type: 'varchar', value: lsn }}
+                )
+                AND (
+                  no_checkpoint_before IS NULL
+                  OR no_checkpoint_before <= ${{ type: 'varchar', value: lsn }}
+                )
+              ) AS can_checkpoint
+            FROM
+              sync_rules
+            WHERE
+              id = ${{ type: 'int4', value: this.group_id }}
+            FOR UPDATE
+          ),
+          computed AS (
+            SELECT
+              selected.*,
+              CASE
+                WHEN selected.can_checkpoint THEN GREATEST(
+                  selected.last_checkpoint,
+                  ${{ type: 'int8', value: persisted_op }},
+                  selected.keepalive_op,
+                  0
+                )
+                ELSE selected.last_checkpoint
+              END AS new_last_checkpoint,
+              CASE
+                WHEN selected.can_checkpoint THEN NULL
+                ELSE GREATEST(
+                  selected.keepalive_op,
+                  ${{ type: 'int8', value: persisted_op }},
+                  0
+                )
+              END AS new_keepalive_op
+            FROM
+              selected
+          ),
+          updated AS (
+            UPDATE sync_rules AS sr
+            SET
+              last_checkpoint_lsn = CASE
+                WHEN computed.can_checkpoint THEN ${{ type: 'varchar', value: lsn }}
+                ELSE sr.last_checkpoint_lsn
+              END,
+              last_checkpoint_ts = CASE
+                WHEN computed.can_checkpoint THEN ${{ type: 1184, value: now }}
+                ELSE sr.last_checkpoint_ts
+              END,
+              last_keepalive_ts = ${{ type: 1184, value: now }},
+              last_fatal_error = CASE
+                WHEN computed.can_checkpoint THEN NULL
+                ELSE sr.last_fatal_error
+              END,
+              keepalive_op = computed.new_keepalive_op,
+              last_checkpoint = computed.new_last_checkpoint,
+              snapshot_lsn = CASE
+                WHEN computed.can_checkpoint THEN NULL
+                ELSE sr.snapshot_lsn
+              END
+            FROM
+              computed
+            WHERE
+              sr.id = computed.id
               AND (
-                last_checkpoint_lsn IS NULL
-                OR last_checkpoint_lsn <= ${{ type: 'varchar', value: lsn }}
+                sr.keepalive_op IS DISTINCT FROM computed.new_keepalive_op
+                OR sr.last_checkpoint IS DISTINCT FROM computed.new_last_checkpoint
+                OR ${{ type: 'bool', value: createEmptyCheckpoints }}
               )
-              AND (
-                no_checkpoint_before IS NULL
-                OR no_checkpoint_before <= ${{ type: 'varchar', value: lsn }}
-              )
-            ) AS can_checkpoint
-          FROM
-            sync_rules
-          WHERE
-            id = ${{ type: 'int4', value: this.group_id }}
-          FOR UPDATE
-        ),
-        computed AS (
-          SELECT
-            selected.*,
-            CASE
-              WHEN selected.can_checkpoint THEN GREATEST(
-                selected.last_checkpoint,
-                ${{ type: 'int8', value: persisted_op }},
-                selected.keepalive_op,
-                0
-              )
-              ELSE selected.last_checkpoint
-            END AS new_last_checkpoint,
-            CASE
-              WHEN selected.can_checkpoint THEN NULL
-              ELSE GREATEST(
-                selected.keepalive_op,
-                ${{ type: 'int8', value: persisted_op }},
-                0
-              )
-            END AS new_keepalive_op
-          FROM
-            selected
-        ),
-        updated AS (
-          UPDATE sync_rules AS sr
-          SET
-            last_checkpoint_lsn = CASE
-              WHEN computed.can_checkpoint THEN ${{ type: 'varchar', value: lsn }}
-              ELSE sr.last_checkpoint_lsn
-            END,
-            last_checkpoint_ts = CASE
-              WHEN computed.can_checkpoint THEN ${{ type: 1184, value: now }}
-              ELSE sr.last_checkpoint_ts
-            END,
-            last_keepalive_ts = ${{ type: 1184, value: now }},
-            last_fatal_error = CASE
-              WHEN computed.can_checkpoint THEN NULL
-              ELSE sr.last_fatal_error
-            END,
-            keepalive_op = computed.new_keepalive_op,
-            last_checkpoint = computed.new_last_checkpoint,
-            snapshot_lsn = CASE
-              WHEN computed.can_checkpoint THEN NULL
-              ELSE sr.snapshot_lsn
-            END
-          FROM
-            computed
-          WHERE
-            sr.id = computed.id
-            AND (
-              sr.keepalive_op IS DISTINCT FROM computed.new_keepalive_op
-              OR sr.last_checkpoint IS DISTINCT FROM computed.new_last_checkpoint
-              OR ${{ type: 'bool', value: createEmptyCheckpoints }}
-            )
-          RETURNING
-            sr.id,
-            sr.state,
-            sr.last_checkpoint,
-            sr.last_checkpoint_lsn,
-            sr.snapshot_done,
-            sr.no_checkpoint_before,
-            computed.can_checkpoint,
-            computed.keepalive_op,
-            computed.new_last_checkpoint
-        )
-      SELECT
-        id,
-        state,
-        last_checkpoint,
-        last_checkpoint_lsn,
-        snapshot_done,
-        no_checkpoint_before,
-        can_checkpoint,
-        keepalive_op,
-        new_last_checkpoint,
-        TRUE AS created_checkpoint
-      FROM
-        updated
-      UNION ALL
-      SELECT
-        id,
-        state,
-        new_last_checkpoint AS last_checkpoint,
-        last_checkpoint_lsn,
-        snapshot_done,
-        no_checkpoint_before,
-        can_checkpoint,
-        keepalive_op,
-        new_last_checkpoint,
-        FALSE AS created_checkpoint
-      FROM
-        computed
-      WHERE
-        NOT EXISTS (
-          SELECT
-            1
-          FROM
-            updated
-        )
-    `
-      .decoded(CheckpointWithStatus)
-      .first();
+            RETURNING
+              sr.id,
+              sr.state,
+              sr.last_checkpoint,
+              sr.last_checkpoint_lsn,
+              sr.snapshot_done,
+              sr.no_checkpoint_before,
+              computed.can_checkpoint,
+              computed.keepalive_op,
+              computed.new_last_checkpoint
+          )
+        SELECT
+          id,
+          state,
+          last_checkpoint,
+          last_checkpoint_lsn,
+          snapshot_done,
+          no_checkpoint_before,
+          can_checkpoint,
+          keepalive_op,
+          new_last_checkpoint,
+          TRUE AS created_checkpoint
+        FROM
+          updated
+        UNION ALL
+        SELECT
+          id,
+          state,
+          new_last_checkpoint AS last_checkpoint,
+          last_checkpoint_lsn,
+          snapshot_done,
+          no_checkpoint_before,
+          can_checkpoint,
+          keepalive_op,
+          new_last_checkpoint,
+          FALSE AS created_checkpoint
+        FROM
+          computed
+        WHERE
+          NOT EXISTS (
+            SELECT
+              1
+            FROM
+              updated
+          )
+      `
+        .decoded(CheckpointWithStatus)
+        .first();
+
+      if (checkpoint?.can_checkpoint && checkpoint.state == storage.SyncRuleState.ACTIVE) {
+        await notifySyncRulesUpdate(db, checkpoint);
+      }
+      return checkpoint;
+    });
 
     if (result == null) {
       throw new ReplicationAssertionError('Failed to update sync_rules during checkpoint');
@@ -723,10 +730,8 @@ export class PostgresBucketBatch
         });
       }
     }
-    await this.autoActivate(lsn);
-    await notifySyncRulesUpdate(this.db, {
+    await this.autoActivate(lsn, {
       id: result.id,
-      state: result.state,
       last_checkpoint: result.last_checkpoint,
       last_checkpoint_lsn: result.last_checkpoint_lsn
     });
@@ -1305,14 +1310,13 @@ export class PostgresBucketBatch
    *
    * Called on new commits.
    */
-  private async autoActivate(lsn: string): Promise<void> {
+  private async autoActivate(lsn: string, checkpoint: models.ActiveCheckpointDecoded): Promise<void> {
     if (!this.needsActivation) {
       // Already activated
       return;
     }
 
-    let didActivate = false;
-    await this.db.transaction(async (db) => {
+    const activationResult = await this.db.transaction(async (db) => {
       const syncRulesRow = await db.sql`
         SELECT
           state,
@@ -1346,13 +1350,18 @@ export class PostgresBucketBatch
             )
             AND id != ${{ type: 'int4', value: this.group_id }}
         `.execute();
-        didActivate = true;
-        this.needsActivation = false;
+        await notifySyncRulesUpdate(db, checkpoint);
+        return 'activated';
       } else if (syncRulesRow?.state != storage.SyncRuleState.PROCESSING) {
-        this.needsActivation = false;
+        return 'not-processing';
       }
+      return 'pending';
     });
-    if (didActivate) {
+
+    if (activationResult != 'pending') {
+      this.needsActivation = false;
+    }
+    if (activationResult == 'activated') {
       this.logger.info(`Activated new replication stream at ${lsn}`);
     }
   }
@@ -1438,12 +1447,17 @@ export class PostgresBucketBatch
  * Uses Postgres' NOTIFY functionality to update different processes when the
  * active checkpoint has been updated.
  */
-export const notifySyncRulesUpdate = async (db: lib_postgres.DatabaseClient, update: StatefulCheckpointDecoded) => {
-  if (update.state != storage.SyncRuleState.ACTIVE) {
-    return;
-  }
+export const notifySyncRulesUpdate = async (
+  db: lib_postgres.AbstractPostgresConnection,
+  update: models.ActiveCheckpointDecoded
+) => {
+  const payload = models.ActiveCheckpointNotification.encode({ active_checkpoint: update });
 
-  await db.query({
-    statement: `NOTIFY ${NOTIFICATION_CHANNEL}, '${models.ActiveCheckpointNotification.encode({ active_checkpoint: update })}'`
-  });
+  await db.sql`
+    SELECT
+      pg_notify (
+        ${{ type: 'varchar', value: NOTIFICATION_CHANNEL }},
+        ${{ type: 'varchar', value: payload }}
+      )
+  `.execute();
 };
