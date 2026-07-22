@@ -28,7 +28,9 @@ const parseChunk = (chunk: any) => {
 for await (let chunk of openStream(request)) {
   if ('error' in chunk) {
     // Retried automatically
-    console.error(new Date().toISOString(), i, `Error in stream: ${chunk.error}`);
+    // Pass the error as a separate argument so Node prints its stack, custom
+    // properties and nested cause instead of reducing it to Error#toString().
+    console.error(new Date().toISOString(), i, 'Error in stream:', chunk.error);
   } else if ('checkpoint_complete' in chunk) {
     const duration = performance.now() - lastCheckpointStart;
     let message = `checkpoint_complete op_id: ${chunk.checkpoint_complete.last_op_id}, ops: ${numOperations}, bytes: ${size}, duration: ${duration.toFixed(0)}ms`;
