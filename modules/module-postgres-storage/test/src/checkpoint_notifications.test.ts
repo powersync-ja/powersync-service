@@ -22,6 +22,7 @@ import { POSTGRES_STORAGE_FACTORY } from './util.js';
  */
 test('checkpoint stream catches up in order after the notification connection is recreated', async (context) => {
   await using factory = await POSTGRES_STORAGE_FACTORY.factory();
+  await requireIdleSessionTimeout(factory, context);
   const reconnect = controlNotificationReconnect(factory, context);
 
   const syncRules = await factory.configureSyncRules(
@@ -126,6 +127,7 @@ bucket_definitions:
  */
 test('checkpoint stream emits the latest value when the checkpoint advances during the reconnect query', async (context) => {
   await using factory = await POSTGRES_STORAGE_FACTORY.factory();
+  await requireIdleSessionTimeout(factory, context);
   const reconnect = controlNotificationReconnect(factory, context);
 
   const syncRules = await factory.configureSyncRules(
@@ -257,6 +259,7 @@ bucket_definitions:
  */
 test('active checkpoint stream does not duplicate an unchanged checkpoint after reconnect', async (context) => {
   await using factory = await POSTGRES_STORAGE_FACTORY.factory();
+  await requireIdleSessionTimeout(factory, context);
   const reconnect = controlNotificationReconnect(factory, context);
 
   const syncRules = await factory.configureSyncRules(
@@ -416,6 +419,14 @@ bucket_definitions:
 }, 15_000);
 
 type PostgresTestFactory = Awaited<ReturnType<typeof POSTGRES_STORAGE_FACTORY.factory>>;
+
+async function requireIdleSessionTimeout(factory: PostgresTestFactory, context: TestContext) {
+  const result = await factory.db.query('SHOW server_version_num');
+  const serverVersionNumber = Number(result.rows[0].decodeWithoutCustomTypes(0));
+  if (serverVersionNumber < 140_000) {
+    context.skip('idle_session_timeout requires PostgreSQL 14 or newer');
+  }
+}
 
 function controlNotificationReconnect(factory: PostgresTestFactory, context: TestContext) {
   const firstListen = Promise.withResolvers<pgwire.PgConnection>();
