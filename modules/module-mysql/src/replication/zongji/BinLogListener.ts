@@ -113,7 +113,8 @@ export class BinLogListener {
     this.logger = options.logger ?? defaultLogger;
     this.connectionManager = options.connectionManager;
     this.eventHandler = options.eventHandler;
-    this.binLogPosition = options.startGTID.position;
+    // Copy the position: the listener mutates it as events are processed, and the caller's startGTID must not change
+    this.binLogPosition = { ...options.startGTID.position };
     this.currentGTID = options.startGTID;
     this.sqlParser = new Parser();
     this.processingQueue = this.createProcessingQueue();
@@ -359,11 +360,7 @@ export class BinLogListener {
           break;
         case zongji_utils.eventIsXid(evt):
           this.isTransactionOpen = false;
-          this.binLogPosition.offset = evt.nextPosition;
-          const LSN = new common.ReplicatedGTID({
-            raw_gtid: this.currentGTID.raw,
-            position: this.binLogPosition
-          }).comparable;
+          const LSN = this.advanceCommitPosition(evt.nextPosition);
           await this.eventHandler.onCommit(LSN);
           this.logger.info(`Processed Xid event - transaction complete. LSN: ${LSN}.`);
           break;
@@ -374,6 +371,22 @@ export class BinLogListener {
 
       this.queueMemoryUsage -= evt.size;
     };
+  }
+
+  /**
+   *  Advances the binlog position to the end of a committed transaction and updates the currentGTID to match.
+   *  This ensures subsequent heartbeat keepalives report an LSN that is not behind the last commit LSN,
+   *  which would otherwise block checkpoint creation until the next transaction arrives.
+   *  Returns the commit LSN.
+   */
+  private advanceCommitPosition(nextPosition: number): string {
+    this.binLogPosition.offset = nextPosition;
+    this.currentGTID = new common.ReplicatedGTID({
+      raw_gtid: this.currentGTID.raw,
+      // Copy the position: this.binLogPosition is mutated by subsequent events
+      position: { ...this.binLogPosition }
+    });
+    return this.currentGTID.comparable;
   }
 
   private async processQueryEvent(event: BinLogQueryEvent): Promise<void> {
@@ -398,11 +411,7 @@ export class BinLogListener {
       // DDL queries are auto commited, but do not come with a corresponding Xid event, in those cases we trigger a manual commit if we are not already in a transaction.
       // Some DDL queries include row events, and in those cases will include a Xid event.
       if (!this.isTransactionOpen) {
-        this.binLogPosition.offset = nextPosition;
-        const LSN = new common.ReplicatedGTID({
-          raw_gtid: this.currentGTID.raw,
-          position: this.binLogPosition
-        }).comparable;
+        const LSN = this.advanceCommitPosition(nextPosition);
         await this.eventHandler.onCommit(LSN);
       }
 
@@ -419,11 +428,7 @@ export class BinLogListener {
         await this.restartZongji();
       }
     } else if (!this.isTransactionOpen) {
-      this.binLogPosition.offset = nextPosition;
-      const LSN = new common.ReplicatedGTID({
-        raw_gtid: this.currentGTID.raw,
-        position: this.binLogPosition
-      }).comparable;
+      const LSN = this.advanceCommitPosition(nextPosition);
       await this.eventHandler.onCommit(LSN);
     }
   }

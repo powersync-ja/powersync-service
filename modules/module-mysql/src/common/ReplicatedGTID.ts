@@ -37,15 +37,20 @@ export class ReplicatedGTID {
 
   private static deserialize(comparable: string): ReplicatedGTIDSpecification {
     const components = comparable.split('|');
-    if (components.length < 3) {
+    if (components.length < 4) {
       throw new Error(`Invalid serialized GTID: ${comparable}`);
+    }
+
+    const offset = parseInt(components[3], 10);
+    if (Number.isNaN(offset)) {
+      throw new Error(`Invalid BinLog offset in serialized GTID: ${comparable}`);
     }
 
     return {
       raw_gtid: components[1],
       position: {
         filename: components[2],
-        offset: parseInt(components[3])
+        offset: offset
       } satisfies BinLogPosition
     };
   }
@@ -86,26 +91,47 @@ export class ReplicatedGTID {
 
   /**
    * Transforms a GTID into a comparable string format, ensuring lexicographical
-   * order aligns with the GTID's relative age. This assumes that all GTIDs
-   * have the same server ID.
+   * order aligns with the GTID's relative age.
+   *
+   * The raw GTID can be a full GTID set consisting of multiple comma-separated
+   * (optionally whitespace/newline padded) UUID sets, each of the form
+   * `server_uuid:interval[:interval...]` where an interval is `n` or `n-m`.
+   * The maximum transaction id across all UUID sets is used for ordering.
+   *
+   * Note: this assumes the currently writing server has the highest transaction
+   * counter in the set. If a stale server UUID in the set has a higher counter
+   * than the active server (e.g. after a restore to a new server), checkpoints
+   * can be delayed until the active server's counter catches up.
    *
    * @returns A comparable string in the format
    *   `padded_end_transaction|raw_gtid|binlog_filename|binlog_position`
    */
   get comparable(): string {
     const { raw, position } = this;
-    const [, transactionRanges] = this.raw.split(':');
-
-    // This means no transactions have been executed on the database yet
-    if (!transactionRanges) {
-      return ReplicatedGTID.ZERO.comparable;
-    }
 
     let maxTransactionId = 0;
+    let hasTransactions = false;
 
-    for (const range of transactionRanges.split(',')) {
-      const [start, end] = range.split('-');
-      maxTransactionId = Math.max(maxTransactionId, parseInt(start, 10), parseInt(end || start, 10));
+    for (const uuidSet of raw.split(',')) {
+      const [, ...intervals] = uuidSet.trim().split(':');
+      for (const interval of intervals) {
+        const [start, end] = interval.split('-');
+        const startId = parseInt(start, 10);
+        const endId = end !== undefined ? parseInt(end, 10) : startId;
+        if (!Number.isNaN(startId)) {
+          hasTransactions = true;
+          maxTransactionId = Math.max(maxTransactionId, startId);
+        }
+        if (!Number.isNaN(endId)) {
+          hasTransactions = true;
+          maxTransactionId = Math.max(maxTransactionId, endId);
+        }
+      }
+    }
+
+    // This means no transactions have been executed on the database yet
+    if (!hasTransactions) {
+      return ReplicatedGTID.ZERO.comparable;
     }
 
     const paddedTransactionId = maxTransactionId.toString().padStart(16, '0');
