@@ -3,7 +3,7 @@ set -euo pipefail
 
 repro_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd "$repro_dir/../.." && pwd)"
-config_path="$repro_dir/powersync.yaml"
+config_path="$repro_dir/service-config.yaml"
 compose_file="$repro_dir/compose.yaml"
 
 usage() {

@@ -1,0 +1,43 @@
+# Local-only configuration for the API streaming memory reproduction.
+migrations:
+  disable_auto_migration: false
+
+replication:
+  connections:
+    - type: postgresql
+      uri: postgresql://powersync:powersync@127.0.0.1:5433/powersync_source
+      sslmode: disable
+
+storage:
+  type: mongodb
+  uri: mongodb://127.0.0.1:27018/powersync_memory?replicaSet=rs0&directConnection=true
+
+port: 8080
+
+sync_config:
+  path: sync-config.yaml
+
+client_auth:
+  audience: [powersync-memory-repro]
+  jwks:
+    keys:
+      - kty: oct
+        kid: memory-repro-key
+        alg: HS256
+        use: sig
+        # Base64url-encoded local test secret. Never use this key outside this harness.
+        k: cG93ZXJzeW5jLW1lbW9yeS1yZXByby1sb2NhbC1zZWNyZXQ
+
+api:
+  tokens: [memory-repro-admin-token]
+  parameters:
+    max_concurrent_connections: 200
+    max_data_fetch_concurrency: 10
+
+telemetry:
+  disable_telemetry_sharing: true
+
+system:
+  logging:
+    level: info
+    format: text
