@@ -268,18 +268,23 @@ export abstract class MongoCompactor {
           compacted_state: 1
         },
         sort: {
-          'estimate_since_compact.count': -1
+          'estimate_since_compact.bytes': -1
         },
-        limit: 200,
+        limit: 50,
         maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
       })
       .toArray();
 
-    return dirtyBuckets.map((bucket) => ({
-      bucket: bucket._id.b,
-      definitionId: getDefinitionId(bucket),
-      estimatedCount: Number(bucket.estimate_since_compact!.count) + Number(bucket.compacted_state?.count ?? 0)
-    }));
+    return (
+      dirtyBuckets
+        .map((bucket) => ({
+          bucket: bucket._id.b,
+          definitionId: getDefinitionId(bucket),
+          estimatedCount: Number(bucket.estimate_since_compact!.count) + Number(bucket.compacted_state?.count ?? 0)
+        }))
+        // Pick a random 20% of the top 50 buckets
+        .filter((_) => Math.random() < 0.2)
+    );
   }
 
   public abstract dirtyBucketBatches(options: {
@@ -290,14 +295,15 @@ export abstract class MongoCompactor {
   public abstract dirtyBucketBatchForChecksums(options: { minBucketChanges: number }): Promise<DirtyBucket[]>;
 
   protected async compactDirtyBuckets() {
-    for await (const buckets of this.dirtyBucketBatches({
-      minBucketChanges: this.minBucketChanges,
-      minChangeRatio: this.minChangeRatio
-    })) {
+    while (true) {
       this.signal?.throwIfAborted();
+      const buckets = await this.dirtyBucketBatchForChecksums({
+        minBucketChanges: this.minBucketChanges
+      });
       if (buckets.length == 0) {
-        continue;
+        break;
       }
+      this.signal?.throwIfAborted();
 
       for (const { bucket, definitionId } of buckets) {
         await this.compactSingleBucketRetried(bucket, definitionId);
