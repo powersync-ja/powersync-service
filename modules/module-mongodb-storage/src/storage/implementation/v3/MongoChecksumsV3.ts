@@ -236,9 +236,6 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
           $or: filters
         }
       },
-      // Keep documents in bucket/op order. Sorting by the complete compound
-      // key allows MongoDB to satisfy this from the _id index.
-      { $sort: { _id: 1 } },
       {
         $addFields: {
           bucket_start: {
@@ -280,6 +277,33 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
             $gt: ['$_id.o', '$bucket_end']
           }
         }
+      },
+      // Aggregate document metadata per bucket. A CLEAR makes the result a full
+      // checksum that replaces any cached prefix; storage guarantees that
+      // documents preceding the CLEAR have already been removed.
+      {
+        $group: {
+          _id: '$_id.b',
+          checksum_total: { $sum: '$checksum' },
+          count_total: { $sum: '$count' },
+          has_clear_op: {
+            $max: { $cond: ['$has_clear_op', 1, 0] }
+          },
+          has_start_straddle: {
+            $max: { $cond: ['$is_start_straddle', 1, 0] }
+          },
+          has_end_straddle: {
+            $max: { $cond: ['$is_end_straddle', 1, 0] }
+          },
+          invalid_end_straddle: {
+            $max: {
+              $cond: ['$is_end_straddle', { $cond: [{ $gt: ['$target_op', '$bucket_end'] }, 0, 1] }, 0]
+            }
+          },
+          end_straddle_doc_op: {
+            $max: { $cond: ['$is_end_straddle', '$_id.o', null] }
+          }
+        }
       }
     ];
   }
@@ -292,40 +316,37 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
     const startStraddledBuckets = new Set<string>();
     const partialChecksums = new Map<string, PartialOrFullChecksum>();
 
-    for (let doc of aggregate) {
-      const bucket = doc._id.b as string;
+    for (const doc of aggregate) {
+      const bucket = doc._id as string;
       const request = requests.get(bucket)!;
 
-      if (doc.is_end_straddle) {
-        const targetOp = doc.target_op as bigint | null | undefined;
-        if (targetOp == null || targetOp <= request.end) {
-          throw new ServiceAssertionError(
-            `V3 bucket-data document ${bucket}/${doc._id.o} straddles checkpoint ${request.end} without target_op > checkpoint`
-          );
-        }
+      if (doc.invalid_end_straddle) {
+        throw new ServiceAssertionError(
+          `V3 bucket-data document ${bucket}/${doc.end_straddle_doc_op} straddles checkpoint ${request.end} without target_op > checkpoint`
+        );
+      }
+      if (doc.has_end_straddle) {
         throw new CheckpointChecksumInvalidatedError(request.end, bucket);
       }
-      if (doc.is_start_straddle) {
+      if (doc.has_start_straddle) {
         startStraddledBuckets.add(bucket);
         continue;
       }
 
-      const previous = partialChecksums.get(bucket);
-      const checksum = normalizeDocumentChecksum(doc.checksum);
+      const checksum = normalizeDocumentChecksum(doc.checksum_total);
       const current: PartialOrFullChecksum = doc.has_clear_op
         ? {
             bucket,
             checksum,
-            count: Number(doc.count)
+            count: Number(doc.count_total)
           }
         : {
             bucket,
             partialChecksum: checksum,
-            partialCount: Number(doc.count)
+            partialCount: Number(doc.count_total)
           };
 
-      const merged = previous == null ? current : mergeDocumentChecksums(bucket, previous, current);
-      partialChecksums.set(bucket, merged);
+      partialChecksums.set(bucket, current);
     }
 
     const checksums = new Map<string, PartialOrFullChecksum>(
@@ -374,26 +395,4 @@ function createBucketFilter(request: Pick<FetchPartialBucketChecksumByBucket, 'b
 
 function normalizeDocumentChecksum(value: bigint): number {
   return addChecksums(0, Number(value));
-}
-
-function mergeDocumentChecksums(
-  bucket: string,
-  previous: PartialOrFullChecksum,
-  current: PartialOrFullChecksum
-): PartialOrFullChecksum {
-  if (!isPartialChecksum(current)) {
-    return current;
-  }
-  if (!isPartialChecksum(previous)) {
-    return {
-      bucket,
-      checksum: addChecksums(previous.checksum, current.partialChecksum),
-      count: previous.count + current.partialCount
-    };
-  }
-  return {
-    bucket,
-    partialChecksum: addChecksums(previous.partialChecksum, current.partialChecksum),
-    partialCount: previous.partialCount + current.partialCount
-  };
 }

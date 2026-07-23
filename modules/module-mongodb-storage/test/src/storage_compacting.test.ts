@@ -937,19 +937,25 @@ bucket_definitions:
     const clear = { ...makeOp(20, 'clear', '', ctx, sourceTableId), op: 'CLEAR' as const, checksum: 101n, data: null };
     const afterClear = makeOp(30, 'B', 'b1', ctx, sourceTableId);
 
-    await collection.insertMany([
-      serializeBucketData(BUCKET, [beforeClear]),
-      serializeBucketData(BUCKET, [clear, afterClear])
-    ]);
+    await collection.insertOne(serializeBucketData(BUCKET, [beforeClear]));
     await bucketStateCollection.insertOne({
       _id: { d: definitionId, b: BUCKET },
-      last_op: 30n,
-      estimate_since_compact: { count: 3, bytes: 100 }
+      last_op: 10n,
+      estimate_since_compact: { count: 1, bytes: 100 }
     });
 
     const request = checksumRequest();
     const before = await bucketStorage.getChecksums(test_utils.testCheckpoint(10n), [request]);
     expect(before.get(BUCKET)).toEqual({ bucket: BUCKET, checksum: 70, count: 1 });
+
+    // Compaction replaces everything preceding CLEAR, while the checksum cache
+    // still contains the old checkpoint.
+    await collection.deleteMany({});
+    await collection.insertOne(serializeBucketData(BUCKET, [clear, afterClear]));
+    await bucketStateCollection.updateOne(
+      { _id: { d: definitionId, b: BUCKET } },
+      { $set: { last_op: 30n, 'estimate_since_compact.count': 2 } }
+    );
 
     const after = await bucketStorage.getChecksums(test_utils.testCheckpoint(30n), [request]);
     expect(after.get(BUCKET)).toEqual({
