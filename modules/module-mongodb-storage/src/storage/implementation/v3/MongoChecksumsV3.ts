@@ -236,9 +236,6 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
           $or: filters
         }
       },
-      // Sort on the complete _id so the _id index can satisfy it, and so the
-      // grouped boundary metadata comes from each bucket's first and last documents.
-      { $sort: { _id: 1 } },
       // Only document-level metadata is used below. Bucket-data operations may
       // be offloaded, and checksum queries must never inspect the ops array.
       {
@@ -261,8 +258,8 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
           has_clear_op: {
             $max: { $cond: ['$has_clear_op', 1, 0] }
           },
-          first_min_op: { $first: '$min_op' },
-          last_op: { $last: '$_id.o' }
+          min_op: { $min: '$min_op' },
+          max_op: { $max: '$_id.o' }
         }
       }
     ];
@@ -280,16 +277,15 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
       const bucket = doc._id as string;
       const request = requests.get(bucket)!;
 
-      // By the ordered, disjoint range invariants on BucketDataDocumentV3,
-      // only the last matched document can straddle the end boundary. Its
-      // document-level checksum includes operations after the checkpoint, so
-      // this checkpoint cannot be calculated from document metadata.
-      if (doc.last_op > request.end) {
+      // A maximum beyond end means a matched document straddles the checkpoint.
+      // Its document-level checksum includes later operations, so this checkpoint
+      // cannot be calculated from document metadata.
+      if (doc.max_op > request.end) {
         throw new CheckpointChecksumInvalidatedError(request.end, bucket);
       }
-      // The _id filter excludes documents ending at or before start. By the
-      // same range invariants, only the first matched document can contain it.
-      if (request.start != null && doc.first_min_op <= request.start) {
+      // The _id filter excludes documents ending at or before start. A minimum
+      // at or below start therefore means a matched document straddles it.
+      if (request.start != null && doc.min_op <= request.start) {
         startStraddledBuckets.add(bucket);
         continue;
       }
