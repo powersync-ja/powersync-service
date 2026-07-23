@@ -153,6 +153,8 @@ async function* streamResponseInner(
         // The checksum was not usable, so buildNextCheckpointLine has not advanced
         // the connection state. Drop this candidate and wait for a checkpoint that
         // is not split by a compaction-produced bucket-data document.
+        // This is different from other checkpoint_invalidated cases in that we hit
+        // this during checksum calculation, instead of on data read.
         trace.span.end();
         logger.info(`checkpoint_invalidated: ${cp.checkpoint}`, {
           reason: 'compacted_before_checkpoint_line',

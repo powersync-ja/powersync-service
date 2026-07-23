@@ -1,7 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
-  addChecksums,
   bson,
   BucketChecksum,
   CheckpointChecksumInvalidatedError,
@@ -13,6 +12,7 @@ import {
   SingleSyncConfigBucketDefinitionMapping
 } from '@powersync/service-core';
 import {
+  checksumFromAggregate,
   emptyChecksumForRequest,
   FetchPartialBucketChecksumByBucket,
   FetchPartialBucketChecksumByDefinition,
@@ -285,7 +285,7 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
         $group: {
           _id: '$_id.b',
           checksum_total: { $sum: '$checksum' },
-          count_total: { $sum: '$count' },
+          count: { $sum: '$count' },
           has_clear_op: {
             $max: { $cond: ['$has_clear_op', 1, 0] }
           },
@@ -333,20 +333,7 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
         continue;
       }
 
-      const checksum = normalizeDocumentChecksum(doc.checksum_total);
-      const current: PartialOrFullChecksum = doc.has_clear_op
-        ? {
-            bucket,
-            checksum,
-            count: Number(doc.count_total)
-          }
-        : {
-            bucket,
-            partialChecksum: checksum,
-            partialCount: Number(doc.count_total)
-          };
-
-      partialChecksums.set(bucket, current);
+      partialChecksums.set(bucket, checksumFromAggregate(doc));
     }
 
     const checksums = new Map<string, PartialOrFullChecksum>(
@@ -391,8 +378,4 @@ function createBucketFilter(request: Pick<FetchPartialBucketChecksumByBucket, 'b
       $lte: request.end
     }
   };
-}
-
-function normalizeDocumentChecksum(value: bigint): number {
-  return addChecksums(0, Number(value));
 }
