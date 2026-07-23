@@ -12,7 +12,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import path from 'path';
 import * as timers from 'timers/promises';
 import { fileURLToPath } from 'url';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest, METRICS_HELPER } from '../test-utils/test-utils-index.js';
 
@@ -1088,6 +1088,92 @@ bucket_definitions:
 
     const expLines = await getCheckpointLines(iter);
     expect(expLines).toMatchSnapshot();
+  });
+
+  test('checksum invalidation skips the candidate checkpoint', async (context) => {
+    await using f = await factory();
+
+    const syncRules = await updateSyncRules(f, {
+      content: BASIC_SYNC_RULES
+    });
+
+    const bucketStorage = await f.getInstance(syncRules);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
+    await writer.markAllSnapshotDone('0/1');
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't1',
+        description: 'Test 1'
+      },
+      afterReplicaId: 't1'
+    });
+    await writer.commit('0/1');
+
+    let resolveInvalidatedChecksum!: () => void;
+    const invalidatedChecksum = new Promise<void>((resolve) => {
+      resolveInvalidatedChecksum = resolve;
+    });
+    const checksumSpy = vi.spyOn(bucketStorage, 'getChecksums').mockImplementationOnce(async (checkpoint, buckets) => {
+      resolveInvalidatedChecksum();
+      throw new storage.CheckpointChecksumInvalidatedError(checkpoint.checkpoint, buckets[0].bucket);
+    });
+
+    const stream = sync.streamResponse({
+      syncContext,
+      bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      params: {
+        buckets: [],
+        include_checksum: true,
+        raw_data: true
+      },
+      tracker,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
+      isEncodingAsBson: false
+    });
+
+    const iter = stream[Symbol.asyncIterator]();
+    context.onTestFinished(() => {
+      iter.return?.();
+    });
+
+    const linesPromise = getCheckpointLines(iter, { consume: true });
+    await invalidatedChecksum;
+
+    // The first candidate was discarded before CheckpointLine.advance(). A later
+    // checkpoint must therefore be calculated from the original connection state.
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't2',
+        description: 'Test 2'
+      },
+      afterReplicaId: 't2'
+    });
+    await writer.commit('0/2');
+
+    const lines = await linesPromise;
+    expect(checksumSpy).toHaveBeenCalledTimes(2);
+    expect(lines[0]).toEqual({
+      checkpoint: expect.objectContaining({
+        last_op_id: '2'
+      })
+    });
+    expect(lines).not.toContainEqual({
+      checkpoint: expect.objectContaining({
+        last_op_id: '1'
+      })
+    });
+    expect(lines.at(-1)).toEqual({
+      checkpoint_complete: expect.objectContaining({
+        last_op_id: '2'
+      })
+    });
   });
 
   test('compacting data - invalidate checkpoint', async (context) => {

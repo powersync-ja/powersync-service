@@ -156,6 +156,7 @@ async function* streamResponseInner(
         // This is different from other checkpoint_invalidated cases in that we hit
         // this during checksum calculation, instead of on data read.
         trace.span.end();
+        checksumState.invalidateChecksumBaseline();
         logger.info(`checkpoint_invalidated: ${cp.checkpoint}`, {
           reason: 'compacted_before_checkpoint_line',
           bucket: e.bucket,
