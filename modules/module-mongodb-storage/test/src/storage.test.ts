@@ -107,7 +107,19 @@ bucket_definitions:
         compactBuckets: [],
         deleteCheckpointRequestsBefore: new Date('2024-02-01T00:00:00.000Z')
       });
-      // Compaction removes expired requests based on the refreshed timestamp.
+      // The request is expired but still pending, so compaction must retain it.
+      await expect(factory.db.write_checkpoints.findOne({ user_id: 'user2' })).resolves.not.toBeNull();
+
+      // Advancing replication to the request head sets processed_at_lsn.
+      await using managedWriter = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      await managedWriter.markAllSnapshotDone('1/1');
+      await managedWriter.keepalive('8/0');
+
+      await bucketStorage.compact({
+        compactBuckets: [],
+        deleteCheckpointRequestsBefore: new Date('2024-02-01T00:00:00.000Z')
+      });
+      // The request is now both expired and processed, so it can be removed.
       await expect(factory.db.write_checkpoints.findOne({ user_id: 'user2' })).resolves.toBeNull();
 
       bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);

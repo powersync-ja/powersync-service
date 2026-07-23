@@ -146,8 +146,11 @@ export abstract class MongoCompactor {
     this.signal?.throwIfAborted();
     // The explicit $exists guarantees the query is a subset of the
     // checkpoint_requested_at partial index's filter, so the planner can use it.
+    // Keep pending requests during replication lag so a retry doesn't advance the associated
+    // LSN even further.
     await this.db.write_checkpoints.deleteMany({
-      checkpoint_requested_at: { $exists: true, $lt: this.deleteCheckpointRequestsBefore }
+      checkpoint_requested_at: { $exists: true, $lt: this.deleteCheckpointRequestsBefore },
+      processed_at_lsn: { $ne: null }
     });
     await this.db.custom_write_checkpoints.deleteMany({
       checkpoint_requested_at: { $exists: true, $lt: this.deleteCheckpointRequestsBefore }
