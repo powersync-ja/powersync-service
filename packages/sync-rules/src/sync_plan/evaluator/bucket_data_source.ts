@@ -22,7 +22,7 @@ import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';
 import { SyncPlanSchemaAnalyzer } from '../schema_inference.js';
 import { StreamEvaluationContext } from './index.js';
-import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
+import { resolveRowMetadata, TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables = new Set<TablePattern>();
@@ -110,7 +110,7 @@ class PendingStreamDataSource {
   private readonly outputs: ('star' | { index: number; alias: string })[] = [];
   private readonly numberOfOutputExpressions: number;
   private readonly numberOfParameters: number;
-  private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
+  private readonly evaluatorInputs: (plan.ColumnSqlParameterValue | plan.RowMetadataSqlValue)[];
   private readonly statement: ScalarStatement;
   readonly fixedOutputTableName?: string;
 
@@ -150,10 +150,13 @@ class PendingStreamDataSource {
 
   instantiate(engine: ScalarExpressionEngine) {
     const evaluator = engine.prepareEvaluator(this.statement);
+    const pattern = this.tablePattern;
 
     return (options: EvaluateRowOptions, results: UnscopedEvaluationResult[]) => {
       try {
-        const inputInstantiation = this.evaluatorInputs.map((input) => options.record[input.column]);
+        const inputInstantiation = this.evaluatorInputs.map((input) =>
+          'column' in input ? options.record[input.column] : resolveRowMetadata(input, pattern, options.sourceTable)
+        );
         row: for (const source of evaluator.evaluate(inputInstantiation)) {
           const record: SqliteJsonRow = {};
           for (const output of this.outputs) {

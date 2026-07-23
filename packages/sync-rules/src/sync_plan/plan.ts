@@ -94,10 +94,13 @@ export interface TableProcessorTableValuedFunctionOutput {
 /**
  * External data that can be used in expressions for {@link TableProcessor}s.
  *
- * This allows references to the row in the table being processed, and references to outputs of joined
- * {@link TableProcessor#tableValuedFunctions}.
+ * This allows references to the row in the table being processed, metadata about the row's source table, and
+ * references to outputs of joined {@link TableProcessor#tableValuedFunctions}.
  */
-export type TableProcessorData = ColumnSqlParameterValue | TableProcessorTableValuedFunctionOutput;
+export type TableProcessorData =
+  | ColumnSqlParameterValue
+  | RowMetadataSqlValue
+  | TableProcessorTableValuedFunctionOutput;
 
 /**
  * A scalar partition key evaluates to a single value in the source or parameter row. For instance, a stream definition
@@ -215,6 +218,17 @@ export interface ColumnSqlParameterValue {
   column: string;
 }
 
+export type RowMetadataKind = 'schema' | 'table_name' | 'table_suffix';
+
+/**
+ * A value that resolves to metadata about the source table of the row being processed: the schema containing the
+ * table (`schema()`), the name of the table (`table_name()`) or, for wildcard table patterns, the matched
+ * suffix of the table name (`table_suffix()`).
+ */
+export interface RowMetadataSqlValue {
+  metadata: RowMetadataKind;
+}
+
 export type ConnectionParameterSource = 'auth' | 'subscription' | 'connection';
 
 /**
@@ -227,6 +241,7 @@ export interface RequestSqlParameterValue {
 
 export type SqlParameterValue =
   | ColumnSqlParameterValue
+  | RowMetadataSqlValue
   | RequestSqlParameterValue
   | TableProcessorTableValuedFunctionOutput;
 
