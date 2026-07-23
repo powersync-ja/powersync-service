@@ -199,7 +199,8 @@ export interface BucketDataDocumentV3 {
   size: number;
   /**
    * The greatest operation boundary that influenced this document's contents.
-   * A checkpoint below this value is invalid if the document straddles it.
+   * Bucket-data reads propagate it so serving an earlier checkpoint can be
+   * invalidated when compaction changed the operations being returned.
    */
   target_op?: bigint | null;
   /**

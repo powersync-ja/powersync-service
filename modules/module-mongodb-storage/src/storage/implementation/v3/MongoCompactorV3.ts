@@ -726,8 +726,8 @@ export class MongoCompactorV3 extends MongoCompactor {
 
   /**
    * Compaction may combine operations that were visible at different checkpoints.
-   * target_op marks the resulting document's upper bound so checkpoints inside it
-   * are invalidated rather than returning a partial document checksum.
+   * target_op marks the resulting document's upper bound so bucket-data reads for
+   * checkpoints inside it are invalidated.
    */
   private serializeCompactedBucketData(bucket: string, operations: BucketDataDoc[]): BucketDataDocumentV3 {
     return serializeBucketData(bucket, operations, {

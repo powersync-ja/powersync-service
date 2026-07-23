@@ -872,7 +872,7 @@ bucket_definitions:
     expect(cached.get(BUCKET)).toMatchObject({ count: 3 });
 
     // Compaction rechunks the bucket into one document spanning the cached
-    // checkpoint. Its target_op makes the current endpoint valid.
+    // checkpoint. The requested endpoint is the end of the new document.
     await collection.deleteMany({});
     await collection.insertOne(serializeBucketData(BUCKET, ops, { compactionTargetOp: 60n }));
 
@@ -915,7 +915,7 @@ bucket_definitions:
     expect(result.get(BUCKET)).toEqual({ bucket: BUCKET, checksum: checksumAllOps, count: 3 });
   });
 
-  test('end straddle without a future target_op fails its storage invariant', async () => {
+  test('end straddle without target_op also invalidates the old checkpoint', async () => {
     const { bucketStorage, collection, bucketStateCollection, definitionId, sourceTableId, ctx } = await setup();
     const ops = [makeOp(40, 'D', 'd1', ctx, sourceTableId), makeOp(60, 'F', 'f1', ctx, sourceTableId)];
     await collection.insertOne(serializeBucketData(BUCKET, ops));
@@ -926,8 +926,8 @@ bucket_definitions:
     });
 
     const request = checksumRequest();
-    await expect(bucketStorage.getChecksums(test_utils.testCheckpoint(45n), [request])).rejects.toThrow(
-      'straddles checkpoint 45 without target_op > checkpoint'
+    await expect(bucketStorage.getChecksums(test_utils.testCheckpoint(45n), [request])).rejects.toBeInstanceOf(
+      CheckpointChecksumInvalidatedError
     );
   });
 

@@ -247,7 +247,6 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
           min_op: 1,
           checksum: 1,
           count: 1,
-          target_op: 1,
           has_clear_op: 1
         }
       },
@@ -263,8 +262,7 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
             $max: { $cond: ['$has_clear_op', 1, 0] }
           },
           first_min_op: { $first: '$min_op' },
-          last_op: { $last: '$_id.o' },
-          last_target_op: { $last: '$target_op' }
+          last_op: { $last: '$_id.o' }
         }
       }
     ];
@@ -283,15 +281,10 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
       const request = requests.get(bucket)!;
 
       // By the ordered, disjoint range invariants on BucketDataDocumentV3,
-      // only the last matched document can straddle the end boundary. Original
-      // append-only documents cannot contain a valid checkpoint boundary, so a
-      // straddle must carry a compaction target beyond the invalid checkpoint.
+      // only the last matched document can straddle the end boundary. Its
+      // document-level checksum includes operations after the checkpoint, so
+      // this checkpoint cannot be calculated from document metadata.
       if (doc.last_op > request.end) {
-        if (doc.last_target_op == null || doc.last_target_op <= request.end) {
-          throw new ServiceAssertionError(
-            `V3 bucket-data document ${bucket}/${doc.last_op} straddles checkpoint ${request.end} without target_op > checkpoint`
-          );
-        }
         throw new CheckpointChecksumInvalidatedError(request.end, bucket);
       }
       // The _id filter excludes documents ending at or before start. By the
