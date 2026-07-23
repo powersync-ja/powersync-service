@@ -236,28 +236,9 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
           $or: filters
         }
       },
-      {
-        $addFields: {
-          bucket_start: {
-            $switch: {
-              branches: Array.from(requests.entries()).map(([bucket, req]) => ({
-                case: { $eq: ['$_id.b', bucket] },
-                then: req.start ?? new bson.MinKey()
-              })),
-              default: new bson.MinKey()
-            }
-          },
-          bucket_end: {
-            $switch: {
-              branches: Array.from(requests.entries()).map(([bucket, req]) => ({
-                case: { $eq: ['$_id.b', bucket] },
-                then: req.end
-              })),
-              default: new bson.MaxKey()
-            }
-          }
-        }
-      },
+      // Sort on the complete _id so the _id index can satisfy it, and so the
+      // grouped boundary metadata comes from each bucket's first and last documents.
+      { $sort: { _id: 1 } },
       // Only document-level metadata is used below. Bucket-data operations may
       // be offloaded, and checksum queries must never inspect the ops array.
       {
@@ -267,15 +248,7 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
           checksum: 1,
           count: 1,
           target_op: 1,
-          has_clear_op: 1,
-          bucket_start: 1,
-          bucket_end: 1,
-          is_start_straddle: {
-            $and: [{ $lte: ['$min_op', '$bucket_start'] }, { $gt: ['$_id.o', '$bucket_start'] }]
-          },
-          is_end_straddle: {
-            $gt: ['$_id.o', '$bucket_end']
-          }
+          has_clear_op: 1
         }
       },
       // Aggregate document metadata per bucket. A CLEAR makes the result a full
@@ -289,20 +262,9 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
           has_clear_op: {
             $max: { $cond: ['$has_clear_op', 1, 0] }
           },
-          has_start_straddle: {
-            $max: { $cond: ['$is_start_straddle', 1, 0] }
-          },
-          has_end_straddle: {
-            $max: { $cond: ['$is_end_straddle', 1, 0] }
-          },
-          invalid_end_straddle: {
-            $max: {
-              $cond: ['$is_end_straddle', { $cond: [{ $gt: ['$target_op', '$bucket_end'] }, 0, 1] }, 0]
-            }
-          },
-          end_straddle_doc_op: {
-            $max: { $cond: ['$is_end_straddle', '$_id.o', null] }
-          }
+          first_min_op: { $first: '$min_op' },
+          last_op: { $last: '$_id.o' },
+          last_target_op: { $last: '$target_op' }
         }
       }
     ];
@@ -320,15 +282,15 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
       const bucket = doc._id as string;
       const request = requests.get(bucket)!;
 
-      if (doc.invalid_end_straddle) {
-        throw new ServiceAssertionError(
-          `V3 bucket-data document ${bucket}/${doc.end_straddle_doc_op} straddles checkpoint ${request.end} without target_op > checkpoint`
-        );
-      }
-      if (doc.has_end_straddle) {
+      if (doc.last_op > request.end) {
+        if (doc.last_target_op == null || doc.last_target_op <= request.end) {
+          throw new ServiceAssertionError(
+            `V3 bucket-data document ${bucket}/${doc.last_op} straddles checkpoint ${request.end} without target_op > checkpoint`
+          );
+        }
         throw new CheckpointChecksumInvalidatedError(request.end, bucket);
       }
-      if (doc.has_start_straddle) {
+      if (request.start != null && doc.first_min_op <= request.start) {
         startStraddledBuckets.add(bucket);
         continue;
       }
