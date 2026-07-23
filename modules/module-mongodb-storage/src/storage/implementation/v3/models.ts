@@ -183,6 +183,8 @@ export interface BucketDataDocumentV3 {
   count: number;
   size: number;
   target_op?: bigint | null;
+  /** Present and true when this document contains a CLEAR operation. */
+  has_clear_op?: true;
   ops: BucketOperation[];
 }
 

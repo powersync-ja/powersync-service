@@ -1,7 +1,10 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
+  addChecksums,
   bson,
   BucketChecksum,
+  CheckpointChecksumInvalidatedError,
   FetchPartialBucketChecksum,
   InternalOpId,
   isPartialChecksum,
@@ -10,7 +13,6 @@ import {
   SingleSyncConfigBucketDefinitionMapping
 } from '@powersync/service-core';
 import {
-  checksumFromAggregate,
   emptyChecksumForRequest,
   FetchPartialBucketChecksumByBucket,
   FetchPartialBucketChecksumByDefinition,
@@ -179,9 +181,42 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
       requests.set(request.bucket, request);
     }
 
-    const pipeline = this.buildPartialChecksumPipeline(requests);
-    const aggregate = await collection
-      .aggregate(pipeline, {
+    const aggregate = await this.aggregatePartialChecksums(collection, requests, context);
+    const { checksums, startStraddledBuckets } = this.normalizePartialChecksumResults(batch, aggregate);
+
+    if (startStraddledBuckets.size == 0) {
+      return checksums;
+    }
+
+    // A cached base ends inside a compaction-produced document. Its checksum cannot
+    // be safely combined with the document-level checksum, so recalculate this
+    // bucket from the beginning. A full result replaces the cached base upstream.
+    const fullRequests = batch
+      .filter((request) => startStraddledBuckets.has(request.bucket))
+      .map((request) => ({ ...request, start: undefined }));
+    const fullRequestMap = new Map(fullRequests.map((request) => [request.bucket, request]));
+    const fullAggregate = await this.aggregatePartialChecksums(collection, fullRequestMap, context);
+    const fullResults = this.normalizePartialChecksumResults(fullRequests, fullAggregate);
+
+    if (fullResults.startStraddledBuckets.size > 0) {
+      throw new ServiceAssertionError(
+        `Unexpected start-boundary straddle while recalculating bucket(s) ${[...fullResults.startStraddledBuckets].join(', ')}`
+      );
+    }
+    for (const [bucket, checksum] of fullResults.checksums) {
+      checksums.set(bucket, checksum);
+    }
+
+    return checksums;
+  }
+
+  private async aggregatePartialChecksums(
+    collection: lib_mongo.mongo.Collection<BucketDataDocumentV3>,
+    requests: Map<string, FetchPartialBucketChecksumByBucket>,
+    context: MongoChecksumSessionContext
+  ): Promise<bson.Document[]> {
+    return collection
+      .aggregate(this.buildPartialChecksumPipeline(requests), {
         ...context.readOptions,
         maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS
       })
@@ -189,8 +224,6 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
       .catch((e) => {
         throw lib_mongo.mapQueryError(e, 'while reading checksums');
       });
-
-    return this.normalizePartialChecksumResults(batch, aggregate);
   }
 
   private buildPartialChecksumPipeline(requests: Map<string, FetchPartialBucketChecksumByBucket>): bson.Document[] {
@@ -203,6 +236,9 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
           $or: filters
         }
       },
+      // Keep documents in bucket/op order. Sorting by the complete compound
+      // key allows MongoDB to satisfy this from the _id index.
+      { $sort: { _id: 1 } },
       {
         $addFields: {
           bucket_start: {
@@ -225,106 +261,74 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
           }
         }
       },
-      // Determine if document is fully included within [start, end] range
+      // Only document-level metadata is used below. Bucket-data operations may
+      // be offloaded, and checksum queries must never inspect the ops array.
       {
         $project: {
           _id: 1,
           min_op: 1,
           checksum: 1,
           count: 1,
-          ops: 1,
+          target_op: 1,
+          has_clear_op: 1,
           bucket_start: 1,
           bucket_end: 1,
-          is_fully_included: {
-            $and: [{ $gt: ['$min_op', '$bucket_start'] }, { $lte: ['$_id.o', '$bucket_end'] }]
+          is_start_straddle: {
+            $and: [{ $lte: ['$min_op', '$bucket_start'] }, { $gt: ['$_id.o', '$bucket_start'] }]
+          },
+          is_end_straddle: {
+            $gt: ['$_id.o', '$bucket_end']
           }
         }
-      },
-      // Compute included checksum, count, and clear op detection
-      {
-        $project: {
-          _id: 1,
-          checksum_total: {
-            $cond: {
-              if: '$is_fully_included',
-              then: '$checksum',
-              else: {
-                $sum: {
-                  $map: {
-                    input: {
-                      $filter: {
-                        input: '$ops',
-                        cond: {
-                          $and: [{ $gt: ['$$this.o', '$bucket_start'] }, { $lte: ['$$this.o', '$bucket_end'] }]
-                        }
-                      }
-                    },
-                    in: '$$this.checksum'
-                  }
-                }
-              }
-            }
-          },
-          count_total: {
-            $cond: {
-              if: '$is_fully_included',
-              then: '$count',
-              else: {
-                $size: {
-                  $filter: {
-                    input: '$ops',
-                    cond: {
-                      $and: [{ $gt: ['$$this.o', '$bucket_start'] }, { $lte: ['$$this.o', '$bucket_end'] }]
-                    }
-                  }
-                }
-              }
-            }
-          },
-          has_clear_op: {
-            $max: {
-              $map: {
-                input: {
-                  $filter: {
-                    input: '$ops',
-                    cond: {
-                      $and: [{ $gt: ['$$this.o', '$bucket_start'] }, { $lte: ['$$this.o', '$bucket_end'] }]
-                    }
-                  }
-                },
-                in: { $cond: [{ $eq: ['$$this.op', 'CLEAR'] }, 1, 0] }
-              }
-            }
-          },
-          last_op: { $max: '$_id.o' }
-        }
-      },
-      // Group by bucket
-      {
-        $group: {
-          _id: '$_id.b',
-          checksum_total: { $sum: '$checksum_total' },
-          count: { $sum: '$count_total' },
-          has_clear_op: { $max: '$has_clear_op' },
-          last_op: { $max: '$last_op' }
-        }
-      },
-      // $sort results
-      { $sort: { _id: 1 } }
+      }
     ];
   }
 
   private normalizePartialChecksumResults(
     batch: FetchPartialBucketChecksumByBucket[],
     aggregate: bson.Document[]
-  ): PartialChecksumMap {
+  ): { checksums: PartialChecksumMap; startStraddledBuckets: Set<string> } {
+    const requests = new Map(batch.map((request) => [request.bucket, request]));
+    const startStraddledBuckets = new Set<string>();
     const partialChecksums = new Map<string, PartialOrFullChecksum>();
+
     for (let doc of aggregate) {
-      const bucket = doc._id;
-      partialChecksums.set(bucket, checksumFromAggregate(doc));
+      const bucket = doc._id.b as string;
+      const request = requests.get(bucket)!;
+
+      if (doc.is_end_straddle) {
+        const targetOp = doc.target_op as bigint | null | undefined;
+        if (targetOp == null || targetOp <= request.end) {
+          throw new ServiceAssertionError(
+            `V3 bucket-data document ${bucket}/${doc._id.o} straddles checkpoint ${request.end} without target_op > checkpoint`
+          );
+        }
+        throw new CheckpointChecksumInvalidatedError(request.end, bucket);
+      }
+      if (doc.is_start_straddle) {
+        startStraddledBuckets.add(bucket);
+        continue;
+      }
+
+      const previous = partialChecksums.get(bucket);
+      const checksum = normalizeDocumentChecksum(doc.checksum);
+      const current: PartialOrFullChecksum = doc.has_clear_op
+        ? {
+            bucket,
+            checksum,
+            count: Number(doc.count)
+          }
+        : {
+            bucket,
+            partialChecksum: checksum,
+            partialCount: Number(doc.count)
+          };
+
+      const merged = previous == null ? current : mergeDocumentChecksums(bucket, previous, current);
+      partialChecksums.set(bucket, merged);
     }
 
-    return new Map<string, PartialOrFullChecksum>(
+    const checksums = new Map<string, PartialOrFullChecksum>(
       batch.map((request) => {
         const bucket = request.bucket;
         let partialChecksum = partialChecksums.get(bucket);
@@ -346,6 +350,7 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
         return [bucket, partialChecksum];
       })
     );
+    return { checksums, startStraddledBuckets };
   }
 }
 
@@ -364,5 +369,31 @@ function createBucketFilter(request: Pick<FetchPartialBucketChecksumByBucket, 'b
     min_op: {
       $lte: request.end
     }
+  };
+}
+
+function normalizeDocumentChecksum(value: bigint): number {
+  return addChecksums(0, Number(value));
+}
+
+function mergeDocumentChecksums(
+  bucket: string,
+  previous: PartialOrFullChecksum,
+  current: PartialOrFullChecksum
+): PartialOrFullChecksum {
+  if (!isPartialChecksum(current)) {
+    return current;
+  }
+  if (!isPartialChecksum(previous)) {
+    return {
+      bucket,
+      checksum: addChecksums(previous.checksum, current.partialChecksum),
+      count: previous.count + current.partialCount
+    };
+  }
+  return {
+    bucket,
+    partialChecksum: addChecksums(previous.partialChecksum, current.partialChecksum),
+    partialCount: previous.partialCount + current.partialCount
   };
 }

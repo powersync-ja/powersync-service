@@ -312,7 +312,7 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       // --- Rechunk survivors into new V3 documents ---
       const chunks = chunkBucketData(surviving);
-      const newDocs = chunks.map((chunk) => serializeBucketData(bucket, chunk));
+      const newDocs = chunks.map((chunk) => this.serializeCompactedBucketData(bucket, chunk));
 
       if (lastNotPut == null) {
         clearBoundaryDocId = null;
@@ -589,7 +589,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           data: null,
           target_op: maxTargetOp
         } satisfies BucketDataDoc;
-        await collection.insertOne(serializeBucketData(bucket, [clearOp]), { session });
+        await collection.insertOne(this.serializeCompactedBucketData(bucket, [clearOp]), { session });
 
         opCountDiff = -clearedOpCount + 1;
       },
@@ -704,10 +704,12 @@ export class MongoCompactorV3 extends MongoCompactor {
           data: null,
           target_op: maxTargetOp
         } satisfies BucketDataDoc;
-        await collection.insertOne(serializeBucketData(bucket, [clearOp]), { session });
+        await collection.insertOne(this.serializeCompactedBucketData(bucket, [clearOp]), { session });
 
         if (boundarySurvivors.length > 0) {
-          const survivingDocs = chunkBucketData(boundarySurvivors).map((chunk) => serializeBucketData(bucket, chunk));
+          const survivingDocs = chunkBucketData(boundarySurvivors).map((chunk) =>
+            this.serializeCompactedBucketData(bucket, chunk)
+          );
           await collection.insertMany(survivingDocs, { session });
         }
 
@@ -720,5 +722,16 @@ export class MongoCompactorV3 extends MongoCompactor {
     );
 
     return opCountDiff;
+  }
+
+  /**
+   * Compaction may combine operations that were visible at different checkpoints.
+   * target_op marks the resulting document's upper bound so checkpoints inside it
+   * are invalidated rather than returning a partial document checksum.
+   */
+  private serializeCompactedBucketData(bucket: string, operations: BucketDataDoc[]): BucketDataDocumentV3 {
+    return serializeBucketData(bucket, operations, {
+      compactionTargetOp: operations[operations.length - 1].o
+    });
   }
 }

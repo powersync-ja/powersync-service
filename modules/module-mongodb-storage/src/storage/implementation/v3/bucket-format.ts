@@ -2,18 +2,26 @@ import { bson } from '@powersync/service-core';
 import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
 import { BucketDataDocumentV3, BucketOperation } from './models.js';
 
-export function serializeBucketData(bucket: string, operations: BucketDataDoc[]): BucketDataDocumentV3 {
+export function serializeBucketData(
+  bucket: string,
+  operations: BucketDataDoc[],
+  options?: { compactionTargetOp?: bigint }
+): BucketDataDocumentV3 {
   const minOp = operations[0].o;
   const maxOp = operations[operations.length - 1].o;
 
   let totalChecksum = 0n;
-  let maxTargetOp: bigint | null = null;
+  let maxTargetOp: bigint | null = options?.compactionTargetOp ?? null;
+  let hasClearOp = false;
 
   const ops: BucketOperation[] = operations.map((op) => {
     totalChecksum += op.checksum;
 
     if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
       maxTargetOp = op.target_op;
+    }
+    if (op.op == 'CLEAR') {
+      hasClearOp = true;
     }
 
     return {
@@ -40,6 +48,7 @@ export function serializeBucketData(bucket: string, operations: BucketDataDoc[])
     count: operations.length,
     size,
     target_op: maxTargetOp,
+    ...(hasClearOp ? { has_clear_op: true as const } : {}),
     ops
   };
 }
