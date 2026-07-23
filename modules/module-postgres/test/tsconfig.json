@@ -20,6 +20,12 @@
       "path": "../../module-mongodb-storage"
     },
     {
+      "path": "../../module-mikroorm-storage"
+    },
+    {
+      "path": "../../module-drizzle-storage"
+    },
+    {
       "path": "../../module-postgres-storage"
     }
   ]

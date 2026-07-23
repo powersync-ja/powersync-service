@@ -11,6 +11,8 @@ import {
   SyncConfigDefinition
 } from './models.js';
 
+export const BUCKET_DATA_BUCKET_OP_INDEX = 'bucket_op';
+
 export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
   constructor(
     upstream: ConstructorParameters<typeof BaseVersionedPowerSyncMongo>[0],

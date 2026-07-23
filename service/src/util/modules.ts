@@ -11,6 +11,12 @@ export const DYNAMIC_MODULES: core.ModuleLoaders = {
   storage: {
     mongodb: () =>
       import('@powersync/service-module-mongodb-storage').then((module) => new module.MongoStorageModule()),
+    'mikroorm:sqlite': () =>
+      import('@powersync/service-module-mikroorm-storage').then((module) => new module.MikroOrmStorageModule()),
+    'mikroorm:mysql': () =>
+      import('@powersync/service-module-mikroorm-storage').then((module) => new module.MikroOrmStorageModule()),
+    'drizzle:sqlite': () =>
+      import('@powersync/service-module-drizzle-storage').then((module) => new module.DrizzleStorageModule()),
     postgresql: () =>
       import('@powersync/service-module-postgres-storage').then((module) => new module.PostgresStorageModule())
   }

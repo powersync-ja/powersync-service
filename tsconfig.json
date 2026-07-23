@@ -35,6 +35,12 @@
       "path": "./modules/module-postgres-storage"
     },
     {
+      "path": "./modules/module-mikroorm-storage"
+    },
+    {
+      "path": "./modules/module-drizzle-storage"
+    },
+    {
       "path": "./modules/module-mssql"
     },
     {
@@ -96,6 +102,12 @@
     },
     {
       "path": "./modules/module-postgres-storage/test"
+    },
+    {
+      "path": "./modules/module-mikroorm-storage/test"
+    },
+    {
+      "path": "./modules/module-drizzle-storage/test"
     },
     {
       "path": "./modules/module-mssql/test"

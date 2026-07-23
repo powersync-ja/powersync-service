@@ -8,6 +8,7 @@
   "author": "PowerSync",
   "scripts": {
     "check-updates": "ncu -u --deep",
+    "benchmark:storage": "node scripts/compare-storage-benchmarks.mts",
     "validate:tsconfig-references": "node scripts/validate-tsconfig-references.mts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
