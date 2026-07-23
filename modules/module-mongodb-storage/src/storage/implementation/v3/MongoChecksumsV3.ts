@@ -282,6 +282,10 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
       const bucket = doc._id as string;
       const request = requests.get(bucket)!;
 
+      // By the ordered, disjoint range invariants on BucketDataDocumentV3,
+      // only the last matched document can straddle the end boundary. Original
+      // append-only documents cannot contain a valid checkpoint boundary, so a
+      // straddle must carry a compaction target beyond the invalid checkpoint.
       if (doc.last_op > request.end) {
         if (doc.last_target_op == null || doc.last_target_op <= request.end) {
           throw new ServiceAssertionError(
@@ -290,6 +294,8 @@ export class MongoChecksumsV3 extends MongoChecksums implements DefinitionChecks
         }
         throw new CheckpointChecksumInvalidatedError(request.end, bucket);
       }
+      // The _id filter excludes documents ending at or before start. By the
+      // same range invariants, only the first matched document can contain it.
       if (request.start != null && doc.first_min_op <= request.start) {
         startStraddledBuckets.add(bucket);
         continue;

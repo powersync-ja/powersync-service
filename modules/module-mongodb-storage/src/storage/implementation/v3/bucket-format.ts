@@ -2,6 +2,11 @@ import { bson } from '@powersync/service-core';
 import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
 import { BucketDataDocumentV3, BucketOperation } from './models.js';
 
+/**
+ * Serialize a non-empty list of operations in strictly ascending `o` order.
+ * Preserving that order establishes the {@link BucketDataDocumentV3} range
+ * invariants used by metadata-only queries.
+ */
 export function serializeBucketData(
   bucket: string,
   operations: BucketDataDoc[],
