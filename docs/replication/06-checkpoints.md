@@ -98,6 +98,8 @@ The source marker does not need to be replicated as user data. It only needs to 
 
 Stale requests are normal behaviour for this mode, not an error. A client that lost track of its last request id - for example after clearing local state - simply starts again at `1`. When storage already holds a larger checkpoint for that user/client, the request is a no-op and the response returns the stored value, so the client resynchronizes its counter from the response and resumes with the next id. No special recovery request is needed.
 
+Client-requested checkpoint mappings are temporary. Compact jobs may remove them after the configured retention period. Retrying the current checkpoint request refreshes its retention timestamp without replacing its original source head, giving replication more time to reach that head. Stale requests with a lower id do not refresh the timestamp.
+
 Checkpoint requests require a comparable source head. The source adapter reads a position that should include the client's write, stores it with the checkpoint request id, and then ensures replication observes that position or a later one. Postgres uses `pg_current_wal_lsn()` and emits a logical message; MongoDB uses cluster time and writes to `_powersync_checkpoints`; other sources use their equivalent source position and marker behavior.
 
 ### Source-Side Checkpoint Markers

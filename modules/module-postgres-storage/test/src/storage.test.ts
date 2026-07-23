@@ -63,6 +63,34 @@ bucket_definitions:
       ]);
       await expect(requestedAt()).resolves.toEqual(requested);
 
+      const expiredRequestedAt = new Date('2024-01-01T00:00:00.000Z');
+      await factory.db.sql`
+        UPDATE write_checkpoints
+        SET
+          checkpoint_requested_at = ${{ type: 1184, value: expiredRequestedAt.toISOString() }}
+        WHERE
+          user_id = 'user1'
+      `.execute();
+      await bucketStorage.createManagedWriteCheckpoints([
+        { user_id: 'user1', heads: { '1': '6/0' }, checkpoint_request_id: 42n }
+      ]);
+      // Retrying the current id refreshes its retention timestamp. The shared
+      // checkpoint tests verify that the original source head is preserved.
+      expect((await requestedAt())!.getTime()).toBeGreaterThan(expiredRequestedAt.getTime());
+
+      await factory.db.sql`
+        UPDATE write_checkpoints
+        SET
+          checkpoint_requested_at = ${{ type: 1184, value: expiredRequestedAt.toISOString() }}
+        WHERE
+          user_id = 'user1'
+      `.execute();
+      await bucketStorage.createManagedWriteCheckpoints([
+        { user_id: 'user1', heads: { '1': '6/0' }, checkpoint_request_id: 43n }
+      ]);
+      // A greater id refreshes retention while advancing the stored checkpoint.
+      expect((await requestedAt())!.getTime()).toBeGreaterThan(expiredRequestedAt.getTime());
+
       await bucketStorage.createManagedWriteCheckpoints([{ user_id: 'user1', heads: { '1': '7/0' } }]);
       await expect(requestedAt()).resolves.toBeNull();
 
@@ -80,6 +108,7 @@ bucket_definitions:
         compactBuckets: [],
         deleteCheckpointRequestsBefore: new Date('2024-02-01T00:00:00.000Z')
       });
+      // Compaction removes expired requests based on the refreshed timestamp.
       await expect(requestedAt('user2')).resolves.toBeUndefined();
 
       const customRequestedAt = async (userId = 'custom1') =>

@@ -53,7 +53,7 @@ export type ResolvedPowerSyncConfig = {
     max_data_fetch_concurrency: number;
     max_buckets_per_connection: number;
     max_parameter_query_results: number;
-    checkpoint_request_retention_days: number;
+    checkpoint_request_retention_minutes: number;
     bucket_count_cache_ttl_minutes: number;
   };
 

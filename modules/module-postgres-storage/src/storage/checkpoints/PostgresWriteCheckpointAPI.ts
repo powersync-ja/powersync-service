@@ -97,9 +97,9 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     }
 
     if (suppliedCheckpoints.length > 0) {
-      // Supplied request ids are monotonic: only a value greater than the stored
-      // write_checkpoint may update the checkpoint id and heads. Stale or
-      // duplicate requests return the stored id.
+      // Supplied request ids are monotonic. Greater values update the checkpoint
+      // id and heads, while equal retries only refresh the retention timestamp.
+      // Stale requests return the stored id without changing the row.
       const mappedCheckpoints = suppliedCheckpoints.map((checkpoint) => ({
         user_id: checkpoint.user_id,
         lsns: checkpoint.heads,
@@ -135,11 +135,17 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
           json_data
         ON CONFLICT (user_id) DO UPDATE
         SET
-          write_checkpoint = EXCLUDED.write_checkpoint,
-          lsns = EXCLUDED.lsns,
+          write_checkpoint = CASE
+            WHEN EXCLUDED.write_checkpoint > write_checkpoints.write_checkpoint THEN EXCLUDED.write_checkpoint
+            ELSE write_checkpoints.write_checkpoint
+          END,
+          lsns = CASE
+            WHEN EXCLUDED.write_checkpoint > write_checkpoints.write_checkpoint THEN EXCLUDED.lsns
+            ELSE write_checkpoints.lsns
+          END,
           checkpoint_requested_at = NOW()
         WHERE
-          EXCLUDED.write_checkpoint > write_checkpoints.write_checkpoint
+          EXCLUDED.write_checkpoint >= write_checkpoints.write_checkpoint
         RETURNING
           *;
       `
@@ -150,8 +156,8 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
         writeCheckpoints.set(row.user_id, row.write_checkpoint);
       }
 
-      // RETURNING only includes inserted rows and rows updated by the monotonic
-      // conflict condition. Stale/duplicate requests still need the stored id.
+      // RETURNING only excludes stale requests rejected by the monotonic
+      // conflict condition. Those requests still need the stored id.
       const returnedSuppliedUserIds = new Set(suppliedRows.map((row) => row.user_id));
       const unchangedUserIds = suppliedCheckpoints
         .map((checkpoint) => checkpoint.user_id)

@@ -36,6 +36,7 @@ bucket_definitions:
       const bucketStorage = factory.getInstance(syncRules);
 
       // user1 has no existing row, so this covers updateMany with upsert.
+      // The initial request stores checkpoint id 42 at source head 5/0.
       const requestedResult = await bucketStorage.createManagedWriteCheckpoints([
         { user_id: 'user1', heads: { '1': '5/0' }, checkpoint_request_id: 42n }
       ]);
@@ -48,11 +49,45 @@ bucket_definitions:
       expect(requested?.processed_at_lsn).toBeNull();
       expect(requested?.checkpoint_requested_at).toBeInstanceOf(Date);
 
+      // Request id 41 is lower than the stored id 42, so the entire stale
+      // request is ignored, including its newer 6/0 source head.
       await bucketStorage.createManagedWriteCheckpoints([
         { user_id: 'user1', heads: { '1': '6/0' }, checkpoint_request_id: 41n }
       ]);
       const stale = await factory.db.write_checkpoints.findOne({ user_id: 'user1' });
       expect(stale?.checkpoint_requested_at).toEqual(requested?.checkpoint_requested_at);
+
+      const expiredRequestedAt = new Date('2024-01-01T00:00:00.000Z');
+      await factory.db.write_checkpoints.updateOne(
+        { user_id: 'user1' },
+        { $set: { checkpoint_requested_at: expiredRequestedAt } }
+      );
+      // Although the previous incoming request was 41, the stored id is still
+      // 42. This is therefore an equal-id retry of the original request.
+      await bucketStorage.createManagedWriteCheckpoints([
+        { user_id: 'user1', heads: { '1': '6/0' }, checkpoint_request_id: 42n }
+      ]);
+      const retried = await factory.db.write_checkpoints.findOne({ user_id: 'user1' });
+      // Retrying the current id refreshes its retention timestamp without
+      // replacing the original source head or resetting its processed state.
+      expect(retried?.checkpoint_requested_at).toBeInstanceOf(Date);
+      expect(retried!.checkpoint_requested_at!.getTime()).toBeGreaterThan(expiredRequestedAt.getTime());
+      expect(retried?.lsns).toEqual({ '1': '5/0' });
+      expect(retried?.processed_at_lsn).toBeNull();
+
+      await factory.db.write_checkpoints.updateOne(
+        { user_id: 'user1' },
+        { $set: { checkpoint_requested_at: expiredRequestedAt } }
+      );
+      await bucketStorage.createManagedWriteCheckpoints([
+        { user_id: 'user1', heads: { '1': '6/0' }, checkpoint_request_id: 43n }
+      ]);
+      const advanced = await factory.db.write_checkpoints.findOne({ user_id: 'user1' });
+      // A greater id refreshes retention and advances the stored checkpoint.
+      expect(advanced?.checkpoint_requested_at).toBeInstanceOf(Date);
+      expect(advanced!.checkpoint_requested_at!.getTime()).toBeGreaterThan(expiredRequestedAt.getTime());
+      expect(advanced?.client_id).toEqual(43n);
+      expect(advanced?.lsns).toEqual({ '1': '6/0' });
 
       await bucketStorage.createManagedWriteCheckpoints([{ user_id: 'user1', heads: { '1': '7/0' } }]);
       const generated = await factory.db.write_checkpoints.findOne({ user_id: 'user1' });
@@ -72,6 +107,7 @@ bucket_definitions:
         compactBuckets: [],
         deleteCheckpointRequestsBefore: new Date('2024-02-01T00:00:00.000Z')
       });
+      // Compaction removes expired requests based on the refreshed timestamp.
       await expect(factory.db.write_checkpoints.findOne({ user_id: 'user2' })).resolves.toBeNull();
 
       bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);

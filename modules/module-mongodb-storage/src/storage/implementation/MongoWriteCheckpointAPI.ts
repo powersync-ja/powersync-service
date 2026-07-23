@@ -145,6 +145,13 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
             { $lt: ['$client_id', { $literal: checkpointRequestId }] }
           ]
         };
+        // Equal retries keep their original source head but refresh retention.
+        const shouldRefreshRequest = {
+          $or: [
+            { $eq: [{ $ifNull: ['$client_id', null] }, null] },
+            { $lte: ['$client_id', { $literal: checkpointRequestId }] }
+          ]
+        };
 
         return {
           updateMany: {
@@ -163,7 +170,7 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
                     $cond: [shouldApplyRequestId, null, '$processed_at_lsn']
                   },
                   checkpoint_requested_at: {
-                    $cond: [shouldApplyRequestId, { $literal: checkpointRequestedAt }, '$checkpoint_requested_at']
+                    $cond: [shouldRefreshRequest, { $literal: checkpointRequestedAt }, '$checkpoint_requested_at']
                   }
                 }
               }
