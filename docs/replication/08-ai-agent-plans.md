@@ -8,7 +8,7 @@ The plans describe phase goals, responsibilities, and acceptance checks. Use the
 
 Integration tests should move with the implementation phases. Do not defer the first real source test until the final hardening pass. Each phase should add or extend the smallest integration test that proves the new contract boundary works against a real or high-fidelity source fixture. The final hardening phase is for broad failure coverage, not for discovering whether the basic phase behavior works.
 
-Most replication modules use a stream test context to make those integration tests manageable. Existing examples include `WalStreamTestContext`, `ChangeStreamTestContext`, `BinlogStreamTestContext`, `CDCStreamTestContext`, and `ConvexStreamTestContext`. A new module should add the equivalent helper early, before later snapshot, streaming, and write-checkpoint tests depend on it.
+Most replication modules use a stream test context to make those integration tests manageable. Existing examples include `WalStreamTestContext`, `ChangeStreamTestContext`, `BinlogStreamTestContext`, `CDCStreamTestContext`, and `ConvexStreamTestContext`. A new module should add the equivalent helper early, before later snapshot, streaming, and checkpoint request tests depend on it.
 
 Replication integration tests should prefer real bucket storage implementations for real-world verification. Existing modules import test storage factories from storage modules, such as `@powersync/service-module-mongodb-storage` and `@powersync/service-module-postgres-storage`, and run the same source tests through `describeWithStorage` where practical. For when to use spies versus mocks, follow the General Workflow testing guidance in [`AGENTS.md`](../../AGENTS.md).
 
@@ -39,12 +39,12 @@ Then write down source-specific decisions before editing code:
 - How to extract schema for sync config validation and client schema generation.
 - Source entity identity, including stable object ids, schema/table names, and replica identity columns.
 - Replication stream capability. Confirm that the source has an ordered stream, CDC feed, operation log, export cursor, polling boundary, or equivalent positional mechanism.
-- Replication position encoding. The stored `lsn` must be a string and must preserve ordering wherever the module compares source heads or write checkpoint positions.
+- Replication position encoding. The stored `lsn` must be a string and must preserve ordering wherever the module compares source heads or checkpoint request positions.
 - Snapshot boundary. Decide how the module records a source position before or at snapshot start.
 - Resume state ownership. Define where the restart cursor lives. If the source owns it, describe the source-side state, such as a replication slot or server cursor, and how reconnect resumes from it. If PowerSync owns it, define the token stored in bucket storage and how that differs from committing a visible checkpoint.
 - Schema change policy. Decide whether streaming detects metadata changes automatically or whether users must deploy a new sync config after source schema changes.
 - History loss behavior. Decide what source error means the module must restart replication from a fresh stream.
-- Managed write checkpoint behavior. Decide how the route adapter reads a comparable source head and forces a later observable source event when the source is idle.
+- Checkpoint request behavior. Decide how the route adapter reads a comparable source head and forces a later observable source event when the source is idle. Older code and storage APIs call these managed write checkpoints.
 - Checkpoint marker strategy. Decide whether the source needs a `_powersync_checkpoints` or equivalent marker table/collection, logical message, heartbeat, or no marker at all.
 - Integration test context. Decide what helper will own source setup, storage setup, sync config deployment, stream startup, checkpoint waits, aborts, and cleanup.
 - Test storage coverage. Decide which real storage factories the integration tests will import and run against, and which environment flags will enable or skip each backend.
@@ -66,9 +66,9 @@ Steps:
 6. If resume is PowerSync-managed, define the exact token stored in bucket storage, when it is safe to update, and why that token is safe to resume from after a crash.
 7. Confirm that the stream contains all changes relevant to PowerSync inside the chosen boundary. If the stream is filtered, identify source-head changes that might not be visible in the stream.
 8. Confirm that the source can either snapshot existing data or replay enough history to rebuild current state.
-9. Define the source position string format and compare semantics. This does not have to be a native LSN, but it must satisfy the module's resume, snapshot, and write-checkpoint requirements.
+9. Define the source position string format and compare semantics. This does not have to be a native LSN, but it must satisfy the module's resume, snapshot, and checkpoint request requirements.
 10. Define how the source detects missing or expired history.
-11. Define how managed write checkpoints will work on an idle database.
+11. Define how checkpoint requests will work on an idle database.
 12. Decide whether a checkpoint marker is required, such as a `_powersync_checkpoints` collection, support table, logical replication message, heartbeat, or source API barrier.
 13. Define whether schema changes are detected during streaming or require a new sync config deploy.
 14. Define the integration test fixture and test context strategy for this source, including how tests will start the source, create schema/data, reset state, configure storage, deploy sync rules, run the stream, wait for checkpoints, and skip when the fixture is unavailable.
@@ -83,7 +83,7 @@ Acceptance checks:
 - The design states whether checkpoints can advance at true source transaction boundaries or only at page/poll boundaries.
 - The design explains the initial snapshot consistency boundary.
 - The design explains resume state ownership, including when the restart cursor is persisted and how history loss is detected.
-- The design explains managed write checkpoint behavior.
+- The design explains checkpoint request behavior.
 - The design explains when a source-side checkpoint marker is required and what stream event it produces.
 - The design documents the schema change policy and operator action required after source schema changes.
 - The design describes the test context API that later integration tests will use.
@@ -219,7 +219,7 @@ Acceptance checks:
 - Streaming integration tests cover the storage or sync API outputs that clients rely on.
 - If schema changes are not detected during streaming, the stream behavior and source docs clearly require a new sync config deploy after source schema changes.
 
-## Plan 6: Managed And Custom Write Checkpoints
+## Plan 6: Managed And Custom Checkpoint Requests
 
 Use this plan once streaming can advance checkpoints.
 
@@ -227,23 +227,23 @@ Goal: allow clients to wait until their backend write has round-tripped through 
 
 Steps:
 
-1. Implement managed write checkpoint head creation through the route adapter.
+1. Implement checkpoint request head creation through the route adapter.
 2. Read the current comparable source head after the application's write should be visible to the source.
-3. Call the callback with that source head so bucket storage can persist the managed write checkpoint mapping.
+3. Call the callback with that source head so bucket storage can persist the checkpoint request mapping.
 4. After the callback completes, force a later observable source event when the source may otherwise be idle.
 5. Ensure the source stream advances a checkpoint or keepalive boundary when it observes the marker or a later source position.
-6. Add a custom write checkpoint path only if the source or integration needs a backend-owned increasing checkpoint id instead of a source-position-based acknowledgement.
-7. Add an integration test through the module test context for managed write checkpoints on an active source.
-8. Add an integration test through the module test context for managed write checkpoints on an idle source where the marker is required.
-9. Add custom write checkpoint integration tests in the same phase if custom mode is implemented.
+6. Add a custom checkpoint request path only if the source or integration needs a backend-owned increasing checkpoint id instead of a source-position-based acknowledgement.
+7. Add an integration test through the module test context for checkpoint requests on an active source.
+8. Add an integration test through the module test context for checkpoint requests on an idle source where the marker is required.
+9. Add custom checkpoint request integration tests in the same phase if custom mode is implemented.
 
 Acceptance checks:
 
-- On an idle source, `/write-checkpoint2.json` eventually produces a checkpoint line containing the write checkpoint id.
+- On an idle source, `/sync/checkpoint-request` eventually produces a checkpoint line containing the checkpoint request id. The legacy `/write-checkpoint2.json` route should keep working while it is supported.
 - The marker used to advance the stream is not exposed as replicated user data.
 - The source head ordering matches the stored `lsn` ordering used by checkpoint comparisons.
-- Custom write checkpoints, if implemented, are monotonic per user/client contract and are emitted only after the source stream observes them.
-- Write checkpoint tests observe the acknowledgement through the same checkpoint path a client uses.
+- Custom checkpoint requests, if implemented, are monotonic per user/client contract and are emitted only after the source stream observes them.
+- Checkpoint request tests observe the acknowledgement through the same checkpoint path a client uses.
 
 ## Plan 7: Cross-Cutting Hardening
 
@@ -260,7 +260,7 @@ Steps:
 5. Test missing or expired source history and verify replication restarts with a fresh stream.
 6. Test cleanup of stopped streams and idempotent cleanup after source-side state is already gone.
 7. Test lag metrics, connection status, retry/backoff behavior, and shutdown through the job abort signal.
-8. Add docs in [source-modules.md](./07-source-modules.md) describing the source position, stream mechanism, snapshot approach, write checkpoint barrier, schema-change policy, and history loss handling.
+8. Add docs in [source-modules.md](./07-source-modules.md) describing the source position, stream mechanism, snapshot approach, checkpoint request barrier, schema-change policy, and history loss handling.
 
 Acceptance checks:
 
@@ -290,7 +290,7 @@ Source-specific decisions:
 - Resume state ownership and token:
 - Schema change policy:
 - Transaction/page boundary:
-- Managed write checkpoint marker:
+- Checkpoint request marker (legacy managed write checkpoint marker):
 - Positional stream and history retention:
 - History loss signal:
 - Integration test fixture:

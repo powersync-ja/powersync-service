@@ -61,16 +61,18 @@ The `RouteAPI` adapter bridges API routes to source-specific capabilities.
 The most replication-sensitive method is:
 
 ```ts
-createReplicationHead<T>(callback: (head: string) => Promise<T>): Promise<T>
+createReplicationHead<T>(callback: (head: string) => Promise<{ response: T; shouldAdvance: boolean }>): Promise<T>
 ```
 
-The adapter must:
+For checkpoint requests, previously called managed write checkpoints, the source adapter must:
 
 1. Read the current source replication head.
-2. Call the callback with that head.
-3. Ensure that the replication stream will later observe the head or a greater source position.
+2. Call the callback with that head so storage can persist its checkpoint request mapping.
+3. If the callback returns `shouldAdvance: true`, ensure that the replication stream will later observe the head or a greater source position. If it returns `shouldAdvance: false`, storage has determined that the source marker can be skipped.
 
-Step 3 is important for managed write checkpoints. If the source database is idle, the mapping can be stored correctly but never become visible to a connected client unless replication observes a later checkpoint update.
+Reading the head and forcing the marker happen within a single source session/connection where applicable, so the marker is causally ordered after the head handed to the callback.
+
+Step 3 is important for checkpoint requests. If the source database is idle, the mapping can be stored correctly but never become visible to a connected client unless replication observes a later checkpoint update.
 
 Current source examples:
 
@@ -97,10 +99,10 @@ The stream position does not need to be a database-native LSN. It can be a WAL L
 - Resume from a specific point, or rely on source-managed state that resumes from the correct point.
 - Record a source boundary before or at initial snapshot start.
 - Consume all source changes relevant to PowerSync between that boundary and a later checkpoint.
-- Compare source heads for managed write checkpoint acknowledgement when managed write checkpoints are supported.
+- Compare source heads for checkpoint request acknowledgement when checkpoint requests are supported.
 - Detect when required source history has expired or become unavailable.
 
-If the source stream is filtered, the connector must account for changes that can advance the source head without appearing in the stream. A managed write checkpoint stored at such a head can stall forever unless the connector can force a later event that is guaranteed to appear in the replication stream.
+If the source stream is filtered, the connector must account for changes that can advance the source head without appearing in the stream. A checkpoint request stored at such a head can stall forever unless the connector can force a later event that is guaranteed to appear in the replication stream.
 
 Resume state ownership must be explicit. Some sources keep the restart cursor in source-side state, such as a logical replication slot, and reconnecting to that source-side state resumes the stream. Other sources require PowerSync to persist a resume token in bucket storage and later read it back on restart. That persisted resume token is a restart cursor; it is not a visible checkpoint unless the stream also advances the committed source position at a valid checkpoint or keepalive boundary.
 

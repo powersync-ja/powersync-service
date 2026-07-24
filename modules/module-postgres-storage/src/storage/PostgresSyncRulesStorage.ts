@@ -171,7 +171,9 @@ export class PostgresSyncRulesStorage
     return this.writeCheckpointAPI.setWriteCheckpointMode(mode);
   }
 
-  createManagedWriteCheckpoints(checkpoints: storage.ManagedWriteCheckpointOptions[]): Promise<Map<string, bigint>> {
+  createManagedWriteCheckpoints(
+    checkpoints: storage.ManagedWriteCheckpointOptions[]
+  ): Promise<storage.CreateManagedWriteCheckpointsResult> {
     return this.writeCheckpointAPI.createManagedWriteCheckpoints(checkpoints);
   }
 

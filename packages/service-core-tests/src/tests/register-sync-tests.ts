@@ -1489,7 +1489,7 @@ bucket_definitions:
           heads: { '1': '1/0' }
         }
       ])
-    ).get('test')!;
+    ).writeCheckpoints.get('test')!;
 
     const params: sync.SyncStreamParameters = {
       syncContext,

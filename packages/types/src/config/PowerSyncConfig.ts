@@ -409,6 +409,16 @@ export const powerSyncConfig = t
               })
               .optional(),
 
+            checkpoint_request_retention_minutes: t.number
+              .meta({
+                description: dedent`
+              Number of minutes to keep client-requested write checkpoint records.
+              Expired records are removed by the compact job.
+              Must be a positive integer. Default of 60.
+            `
+              })
+              .optional(),
+
             bucket_count_cache_ttl_minutes: t.number
               .meta({
                 description: dedent`

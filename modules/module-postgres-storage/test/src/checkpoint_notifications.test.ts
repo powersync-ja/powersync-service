@@ -494,7 +494,7 @@ async function createManagedWriteCheckpoint(
       user_id: 'user'
     }
   ]);
-  const checkpoint = checkpoints.get('user');
+  const checkpoint = checkpoints.writeCheckpoints.get('user');
   expect(checkpoint).toBeDefined();
   return checkpoint!;
 }
