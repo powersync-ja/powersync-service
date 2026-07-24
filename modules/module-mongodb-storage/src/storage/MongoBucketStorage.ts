@@ -98,7 +98,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         checksumOptions: this.options.checksumOptions,
         readPreference: this.options.readPreference,
         checksumCacheTtlMs: this.options.checksumCacheTtlMs,
-        storageConfig
+        storageConfig,
+        objectStorage: this.options.objectStorage,
+        inlineThresholdBytes: this.options.inlineThresholdBytes
       }
     );
     if (!options?.skipLifecycleHooks) {
