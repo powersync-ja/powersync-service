@@ -1,5 +1,30 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.19.0
+
+### Minor Changes
+
+- 2189250: Add `/sync/checkpoint-request` for client-supplied checkpoint request ids, previously called write checkpoint ids. The route returns the stored `checkpoint_request_id`, storage now treats managed request ids as monotonic per user/client, custom checkpoint request ids continue to use the existing `checkpoint` field for backwards compatibility, and `checkpoint_requested_at` metadata lets compact jobs remove expired request-derived checkpoint records.
+
+  This release includes storage migrations for the checkpoint request metadata. Self-hosters should run migrations as part of the upgrade.
+
+### Patch Changes
+
+- be14bfe: [MongoDB Storage V3] Tweak size estimates and chunking to use actual BSON sizes.
+- aab068b: [MongoDB Storage V3] Add has_clear_op field and simplify checksum queries.
+- Updated dependencies [2189250]
+- Updated dependencies [c4860c9]
+- Updated dependencies [483415d]
+- Updated dependencies [8daa300]
+- Updated dependencies [aab068b]
+- Updated dependencies [be42e25]
+- Updated dependencies [cb4c627]
+  - @powersync/lib-services-framework@0.10.0
+  - @powersync/service-core@1.24.0
+  - @powersync/service-types@0.17.0
+  - @powersync/service-sync-rules@0.40.0
+  - @powersync/lib-service-mongodb@0.6.30
+
 ## 0.18.3
 
 ### Patch Changes

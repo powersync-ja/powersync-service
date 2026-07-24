@@ -1,5 +1,32 @@
 # @powersync/service-module-postgres-storage
 
+## 0.17.0
+
+### Minor Changes
+
+- 2189250: Add `/sync/checkpoint-request` for client-supplied checkpoint request ids, previously called write checkpoint ids. The route returns the stored `checkpoint_request_id`, storage now treats managed request ids as monotonic per user/client, custom checkpoint request ids continue to use the existing `checkpoint` field for backwards compatibility, and `checkpoint_requested_at` metadata lets compact jobs remove expired request-derived checkpoint records.
+
+  This release includes storage migrations for the checkpoint request metadata. Self-hosters should run migrations as part of the upgrade.
+
+### Patch Changes
+
+- c4860c9: Improve Postgres sync throughput by reading bucket data with ordered, per-bucket index range scans that stop once the requested batch is full.
+- 123c801: Reconnect PostgreSQL notification connections and restore `LISTEN` subscriptions when the underlying connection is terminated. Harden connection-slot retries and lease handling, and publish checkpoint notifications atomically with checkpoint updates.
+- Updated dependencies [2189250]
+- Updated dependencies [c4860c9]
+- Updated dependencies [483415d]
+- Updated dependencies [8daa300]
+- Updated dependencies [aab068b]
+- Updated dependencies [123c801]
+- Updated dependencies [be42e25]
+- Updated dependencies [cb4c627]
+  - @powersync/lib-services-framework@0.10.0
+  - @powersync/service-core@1.24.0
+  - @powersync/service-types@0.17.0
+  - @powersync/service-sync-rules@0.40.0
+  - @powersync/lib-service-postgres@0.5.3
+  - @powersync/service-jpgwire@0.21.22
+
 ## 0.16.3
 
 ### Patch Changes

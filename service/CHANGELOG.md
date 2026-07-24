@@ -1,5 +1,30 @@
 # @powersync/service-image
 
+## 1.24.0
+
+### Patch Changes
+
+- 123c801: Reconnect PostgreSQL notification connections and restore `LISTEN` subscriptions when the underlying connection is terminated. Harden connection-slot retries and lease handling, and publish checkpoint notifications atomically with checkpoint updates.
+- Updated dependencies [2189250]
+- Updated dependencies [c4860c9]
+- Updated dependencies [483415d]
+- Updated dependencies [be14bfe]
+- Updated dependencies [aab068b]
+- Updated dependencies [123c801]
+- Updated dependencies [be42e25]
+- Updated dependencies [be42e25]
+  - @powersync/lib-services-framework@0.10.0
+  - @powersync/service-core@1.24.0
+  - @powersync/service-module-convex@0.3.0
+  - @powersync/service-module-mongodb@0.20.0
+  - @powersync/service-module-mongodb-storage@0.19.0
+  - @powersync/service-module-mssql@0.9.0
+  - @powersync/service-module-mysql@0.15.0
+  - @powersync/service-module-postgres@0.22.0
+  - @powersync/service-module-postgres-storage@0.17.0
+  - @powersync/service-module-core@0.2.32
+  - @powersync/service-rsocket-router@0.2.25
+
 ## 1.23.3
 
 ### Patch Changes
