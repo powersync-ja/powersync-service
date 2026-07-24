@@ -46,7 +46,7 @@ describe('V3 Compaction with object storage', () => {
     });
     await writer.commit('1/1');
 
-    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules as any, 'global[]', 0n);
     const bucket = request.bucket;
 
@@ -55,7 +55,7 @@ describe('V3 Compaction with object storage', () => {
     expect(dataBefore.length).toBe(2);
 
     await bucketStorage.compact({
-      maxOpId: checkpoint,
+      maxOpId: checkpoint.checkpoint,
       compactBuckets: [bucket],
       clearBatchLimit: 200,
       moveBatchLimit: 10,
@@ -104,11 +104,11 @@ describe('V3 Compaction with object storage', () => {
     });
     await writer.commit('1/1');
 
-    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules as any, 'global[]', 0n);
 
     await bucketStorage.compact({
-      maxOpId: checkpoint,
+      maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
       clearBatchLimit: 200,
       moveBatchLimit: 10,
@@ -146,14 +146,14 @@ describe('V3 Compaction with object storage', () => {
     }
     await writer.commit('1/1');
 
-    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules as any, 'global[]', 0n);
 
     const batchBefore = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataBefore = test_utils.getBatchData(batchBefore);
 
     await bucketStorage.compact({
-      maxOpId: checkpoint,
+      maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
       moveBatchByteLimit: 256,
       clearBatchLimit: 200,
@@ -199,11 +199,11 @@ describe('V3 Compaction with object storage', () => {
     });
     await writer.commit('1/1');
 
-    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules as any, 'global[]', 0n);
 
     await bucketStorage.compact({
-      maxOpId: checkpoint,
+      maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
       clearBatchLimit: 200,
       moveBatchLimit: 10,
@@ -254,11 +254,11 @@ describe('V3 Compaction with object storage', () => {
     }
     await writer.commit('1/1');
 
-    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules as any, 'global[]', 0n);
 
     await bucketStorage.compact({
-      maxOpId: checkpoint,
+      maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
       memoryLimitMB: 0.001,
       clearBatchLimit: 200,
@@ -322,11 +322,11 @@ describe('V3 Compaction with object storage', () => {
     const store = (memoryStorage as any).store as Map<string, Buffer>;
     const pathsBefore = new Set(store.keys());
 
-    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules as any, 'global[]', 0n);
 
     await bucketStorage.compact({
-      maxOpId: checkpoint,
+      maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
       clearBatchLimit: 200,
       moveBatchLimit: 10,
@@ -371,7 +371,7 @@ describe('V3 Compaction with object storage', () => {
       });
     }
     await writer.commit('1/1');
-    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules as any, 'global[]', 0n);
 
     // Compact with maxOpId=6. Ops 1-6 get deduped (no duplicates here,

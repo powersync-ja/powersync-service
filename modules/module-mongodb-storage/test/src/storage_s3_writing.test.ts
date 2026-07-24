@@ -75,7 +75,7 @@ describe('S3 write path (Phase 2b red tests)', () => {
 
     // Verify MongoDB document has storage_ref and no ops
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const docs = await collection.find({}).toArray();
     expect(docs.length).toBeGreaterThan(0);
@@ -122,7 +122,7 @@ describe('S3 write path (Phase 2b red tests)', () => {
 
     // Read the MongoDB document
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const docs = await collection.find({}).toArray();
     expect(docs.length).toBeGreaterThan(0);
@@ -183,7 +183,7 @@ describe('S3 write path (Phase 2b red tests)', () => {
 
     // MongoDB document should have ops array (as today)
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const docs = await collection.find({}).toArray();
     expect(docs.length).toBeGreaterThan(0);

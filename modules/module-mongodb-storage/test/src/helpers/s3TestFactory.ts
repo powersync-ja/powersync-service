@@ -32,10 +32,8 @@ export function createS3TestStorageSuite(options: S3TestFactoryOptions) {
     factoryGen: mongoTestStorageFactoryGenerator({
       url: options.url,
       isCI: options.isCI,
-      internalOptions: {
-        objectStorage,
-        inlineThresholdBytes: options.inlineThresholdBytes ?? 0
-      }
+      objectStorage,
+      inlineThresholdBytes: options.inlineThresholdBytes ?? 0
     })
   };
 }

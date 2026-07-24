@@ -72,7 +72,7 @@ describe('S3 compaction (Phase 2d red tests)', () => {
 
     // Verify MongoDB documents have storage_ref (no ops[]).
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const groupId = bucketStorage.replicationStreamId;
@@ -85,8 +85,8 @@ describe('S3 compaction (Phase 2d red tests)', () => {
     }
 
     // Get checkpoint and the bucket name.
-    const { checkpoint } = await bucketStorage.getCheckpoint();
-    expect(checkpoint).toBeGreaterThan(0n);
+    const checkpoint = await bucketStorage.getCheckpoint();
+    expect(checkpoint.checkpoint).toBeGreaterThan(0n);
 
     const request = bucketRequest(syncRules as any, 'global[]', 0n);
     const bucket = request.bucket;
@@ -108,7 +108,7 @@ describe('S3 compaction (Phase 2d red tests)', () => {
 
     // Compact the bucket.
     await bucketStorage.compact({
-      maxOpId: checkpoint,
+      maxOpId: checkpoint.checkpoint,
       compactBuckets: [bucket],
       clearBatchLimit: 200,
       moveBatchLimit: 10,

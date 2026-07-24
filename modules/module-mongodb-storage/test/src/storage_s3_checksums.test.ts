@@ -28,7 +28,7 @@ describe('V3 checksums with S3 object storage', () => {
 
     const request = bucketRequest(syncRules as any, 'global[]', 0n);
     const bucket = request.bucket;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
 
     // Write 6 ops through S3 writer — all land in one S3-backed doc
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -43,7 +43,7 @@ describe('V3 checksums with S3 object storage', () => {
       });
     }
     await writer.commit('1/1');
-    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const checkpoint = await bucketStorage.getCheckpoint();
 
     // Baseline: full checksum with no compacted_state
     const full = (await bucketStorage.getChecksums(checkpoint, [request])).get(bucket)!;
@@ -89,12 +89,12 @@ describe('V3 checksums with S3 object storage', () => {
       });
     }
     await writer.commit('1/1');
-    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const checkpoint = await bucketStorage.getCheckpoint();
 
     const full = (await bucketStorage.getChecksums(checkpoint, [request])).get(request.bucket)!;
 
     // Partial checkpoint at op 7 — some S3 docs will have _id.o > 7 but min_op <= 7
-    const partial = (await bucketStorage.getChecksums(7n, [request])).get(request.bucket)!;
+    const partial = (await bucketStorage.getChecksums(test_utils.testCheckpoint(7n), [request])).get(request.bucket)!;
     expect(partial.count).toBeGreaterThan(0);
     expect(partial.count).toBeLessThan(full.count);
   });
@@ -107,7 +107,7 @@ describe('V3 checksums with S3 object storage', () => {
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
 
     const request = bucketRequest(syncRules as any, 'global[]', 0n);
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
@@ -139,11 +139,11 @@ describe('V3 checksums with S3 object storage', () => {
       afterReplicaId: test_utils.rid('A')
     });
     await writer.commit('1/1');
-    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const checkpoint = await bucketStorage.getCheckpoint();
 
     // Compact — produces CLEAR doc from collapsed MOVEs
     await bucketStorage.compact({
-      maxOpId: checkpoint,
+      maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
       clearBatchLimit: 200,
       moveBatchLimit: 10,

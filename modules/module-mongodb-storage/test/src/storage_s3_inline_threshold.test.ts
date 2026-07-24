@@ -18,7 +18,8 @@ function s3Factory(threshold?: number) {
   const factoryGen = mongoTestStorageFactoryGenerator({
     url: env.MONGO_TEST_URL,
     isCI: env.CI,
-    internalOptions: { objectStorage: memoryStorage, inlineThresholdBytes: threshold }
+    objectStorage: memoryStorage,
+    inlineThresholdBytes: threshold
   });
   return { memoryStorage, factoryGen };
 }
@@ -47,7 +48,7 @@ describe('S3 inline threshold', () => {
       afterReplicaId: test_utils.rid('small2')
     });
     await writer.commit('1/1');
-    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules as any, 'global[]', 0n);
 
     // Verify ops were stored inline (no S3 objects created)
@@ -82,7 +83,7 @@ describe('S3 inline threshold', () => {
       });
     }
     await writer.commit('1/1');
-    const { checkpoint } = await bucketStorage.getCheckpoint();
+    const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules as any, 'global[]', 0n);
 
     // Verify ops were stored on S3

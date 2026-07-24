@@ -55,7 +55,9 @@ describe('S3 read path (Phase 2c red tests)', () => {
 
     // Read back via getBucketDataBatch.
     const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules as any, 'global[]', 0n)])
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [
+        bucketRequest(syncRules as any, 'global[]', 0n)
+      ])
     );
     const data = test_utils.getBatchData(batch);
 
@@ -95,7 +97,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
     const checkpoint = flushResult!.flushed_op;
 
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const actualBucket = bucketRequest(syncRules as any, 'global[]', 0n).bucket;
 
@@ -115,7 +117,9 @@ describe('S3 read path (Phase 2c red tests)', () => {
     // A missing S3 object should be a hard error, not silently skipped.
     await expect(
       test_utils.fromAsync(
-        bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules as any, 'global[]', 0n)])
+        bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [
+          bucketRequest(syncRules as any, 'global[]', 0n)
+        ])
       )
     ).rejects.toThrow('nonexistent/missing-object/path');
   });
@@ -161,7 +165,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
     // Directly insert an inline document (ops present, no storage_ref)
     // into the same bucket_data collection.
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const actualBucket = bucketRequest(syncRules as any, 'global[]', 0n).bucket;
 
@@ -189,7 +193,9 @@ describe('S3 read path (Phase 2c red tests)', () => {
 
     // Read back. Both S3-backed and inline ops should be returned.
     const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules as any, 'global[]', 0n)])
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [
+        bucketRequest(syncRules as any, 'global[]', 0n)
+      ])
     );
     const data = test_utils.getBatchData(batch);
 
