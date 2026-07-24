@@ -48,7 +48,13 @@ export class PgManager extends BaseObserver<PgManagerListener> {
   async replicationConnection(): Promise<pgwire.PgConnection> {
     const p = pgwire.connectPgWire(this.options, { type: 'replication', applicationName: getApplicationName() });
     this.connectionPromises.push(p);
-    return await p;
+    const connection = await p;
+
+    if (this.options.replication_socket_timeout_ms != null) {
+      (connection as any)._socket.setTimeout(this.options.replication_socket_timeout_ms);
+    }
+
+    return connection;
   }
 
   /**
