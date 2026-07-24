@@ -14,6 +14,7 @@ import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { ParseSyncConfigOptions } from './PersistedSyncConfigContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
+import { SourceTableCandidateReconciler } from './SourceTableReconciler.js';
 import { StorageVersionConfig } from './StorageVersionConfig.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
@@ -205,6 +206,18 @@ export interface ResolveTablesOptions {
    * Source table or collection metadata discovered during snapshot or streaming.
    */
   source: SourceEntityDescriptor;
+  /**
+   * Source-owned reconciliation callback.
+   *
+   * Storage queries all overlapping persisted candidates and passes them to this callback, which
+   * classifies compatibility and selects the metadata to persist for the resolution. The callback
+   * must be deterministic and free of storage mutations. It may be asynchronous, but is awaited
+   * while resolution is in progress and may execute inside a storage transaction.
+   *
+   * When omitted, storage uses {@link defaultSourceTableReconciler}, preserving legacy
+   * metadata-free identity matching.
+   */
+  reconcileSourceTables?: SourceTableCandidateReconciler;
   /**
    * For tests only - custom id generator for stable ids.
    */

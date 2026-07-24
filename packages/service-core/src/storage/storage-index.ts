@@ -12,6 +12,7 @@ export * from './ReplicationLock.js';
 export * from './ReportStorage.js';
 export * from './SourceEntity.js';
 export * from './SourceTable.js';
+export * from './SourceTableReconciler.js';
 export * from './storage-metrics.js';
 export * from './StorageEngine.js';
 export * from './StorageProvider.js';

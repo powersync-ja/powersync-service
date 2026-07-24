@@ -40,6 +40,7 @@ import {
   ResolvedTable,
   SourceTableChangeRef
 } from '../utils/schema.js';
+import { createCaptureReconciler } from './CaptureReconciler.js';
 import { CDCEventHandler, CDCPoller, SchemaChange, SchemaChangeType } from './CDCPoller.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 import { BatchedSnapshotQuery, MSSQLSnapshotQuery, SimpleSnapshotQuery } from './MSSQLSnapshotQuery.js';
@@ -113,6 +114,12 @@ export class CDCStream {
   public tableCache = new MSSQLSourceTableCache();
 
   private replicationLag = new ReplicationLagTracker();
+
+  /**
+   * Tracks, per source-table object id, the newer capture-instance object id we have already warned
+   * about for a pinned binding. Prevents repeating the same warning on every schema-check interval.
+   */
+  private warnedNewerCaptureObjectId = new Map<number, number>();
 
   constructor(private options: CDCStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -234,7 +241,7 @@ export class CDCStream {
           objectId: matchedTable.objectId,
           replicaIdColumns: replicaIdColumns.columns
         },
-        captureInstanceDetails.instances[0],
+        captureInstanceDetails.instances,
         false
       );
 
@@ -246,30 +253,36 @@ export class CDCStream {
   async processTable(
     batch: storage.BucketStorageBatch,
     table: SourceEntityDescriptor,
-    captureInstance: CaptureInstance | null,
+    availableInstances: CaptureInstance[],
     snapshot: boolean
   ): Promise<MSSQLSourceTable> {
     if (!table.objectId && typeof table.objectId != 'number') {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof table.objectId}`);
     }
+    // The source reconciler classifies compatibility and pins new bindings to a capture instance.
+    // Capture instances are loaded before resolveTables() so storage holds no source-database I/O.
     const resolved = await batch.resolveTables({
       connection_id: this.connectionId,
-      source: table
+      source: table,
+      reconcileSourceTables: createCaptureReconciler(availableInstances)
     });
     const resolvedTable = new MSSQLSourceTable(table, resolved.tables);
 
-    if (!captureInstance) {
+    const boundInstance = this.selectBoundCaptureInstance(resolvedTable, availableInstances);
+    if (!boundInstance) {
       this.logger.warn(
         `Missing capture instance for table ${resolvedTable.toQualifiedName()}. This table will not be replicated until CDC is enabled for it.`
       );
     } else {
-      resolvedTable.setCaptureInstance(captureInstance);
+      resolvedTable.setCaptureInstance(boundInstance);
     }
 
     this.tableCache.set(resolvedTable);
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(resolved.dropTables);
+    // A successful (re)resolution clears any prior "newer capture instance" warning throttle.
+    this.warnedNewerCaptureObjectId.delete(resolvedTable.objectId);
 
     // Snapshot if:
     // 1. The table is in the sync config and snapshot is requested, or not already done.
@@ -290,6 +303,24 @@ export class CDCStream {
     }
 
     return resolvedTable;
+  }
+
+  /**
+   * Select the capture instance a resolved binding must poll.
+   *
+   * Pinned bindings resolve to their persisted capture identity; legacy/metadata-free bindings use
+   * the newest available instance, matching origin/main behavior.
+   */
+  private selectBoundCaptureInstance(
+    table: MSSQLSourceTable,
+    availableInstances: CaptureInstance[]
+  ): CaptureInstance | null {
+    const pinnedObjectId = table.pinnedCaptureObjectId;
+    if (pinnedObjectId != null) {
+      // The reconciler already validated availability, but guard against unexpected state.
+      return availableInstances.find((instance) => instance.objectId === pinnedObjectId) ?? null;
+    }
+    return availableInstances[0] ?? null;
   }
 
   private async snapshotTableInTx(
@@ -497,7 +528,7 @@ export class CDCStream {
             for (const table of specificTablesToResnapshot!) {
               await batch.drop(table.getReplicatedSourceTables());
               // Update table in the table cache
-              await this.processTable(batch, table.ref, table.captureInstance, false);
+              await this.processTable(batch, table.ref, table.captureInstance ? [table.captureInstance] : [], false);
             }
             break;
           default:
@@ -749,6 +780,22 @@ export class CDCStream {
         actionedSchemaChange = false;
         break;
       case SchemaChangeType.NEW_CAPTURE_INSTANCE:
+        if (change.table!.isCaptureInstancePinned()) {
+          // Pinned bindings never silently switch capture instances. Warn (once per newer instance)
+          // that a redeploy is required, and keep polling the bound instance.
+          const newerObjectId = change.newCaptureInstance!.objectId;
+          if (this.warnedNewerCaptureObjectId.get(change.table!.objectId) !== newerObjectId) {
+            this.logger.warn(
+              `A newer CDC capture instance (object id ${newerObjectId}) is available for table ${change.table!.toQualifiedName()}, ` +
+                `but this replication stream is pinned to capture instance object id ${change.table!.pinnedCaptureObjectId}. ` +
+                `Redeploy the sync configuration as a new replication stream to adopt the new capture instance.`
+            );
+            this.warnedNewerCaptureObjectId.set(change.table!.objectId, newerObjectId);
+          }
+          // No checkpoint change is needed for a warning-only event.
+          actionedSchemaChange = false;
+          break;
+        }
         this.logger.info(
           `New CDC capture instance detected for table ${change.table!.toQualifiedName()}. Re-snapshotting table...`
         );
@@ -799,7 +846,7 @@ export class CDCStream {
         objectId: table.objectId,
         replicaIdColumns: replicaIdColumns.columns
       },
-      captureInstance,
+      [captureInstance],
       true
     );
   }
