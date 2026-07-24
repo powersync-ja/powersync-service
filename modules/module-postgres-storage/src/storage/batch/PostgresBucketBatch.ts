@@ -144,6 +144,7 @@ export class PostgresBucketBatch
 
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
     const syncRules = options.parsedSyncConfig?.hydratedSyncConfig ?? this.sync_rules;
+    const reconcile = options.reconcileSourceTables ?? storage.defaultSourceTableReconciler;
     const { connection_id, source } = options;
     const { schema, name: table, objectId, replicaIdColumns, connectionTag, sendsCompleteRows } = source;
 
@@ -154,9 +155,11 @@ export class PostgresBucketBatch
     }));
 
     return this.db.transaction(async (db) => {
-      let sourceTableRow: SourceTableDecoded | null;
+      // Single overlap query: any candidate matching (schema + name) OR relation_id. Replaces the
+      // previous exact-identity match plus separate conflict query.
+      let candidateRows: SourceTableDecoded[];
       if (objectId != null) {
-        sourceTableRow = await db.sql`
+        candidateRows = await db.sql`
           SELECT
             *
           FROM
@@ -164,91 +167,6 @@ export class PostgresBucketBatch
           WHERE
             group_id = ${{ type: 'int4', value: this.group_id }}
             AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
-            AND schema_name = ${{ type: 'varchar', value: schema }}
-            AND table_name = ${{ type: 'varchar', value: table }}
-            AND replica_id_columns = ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
-        `
-          .decoded(models.SourceTable)
-          .first();
-      } else {
-        sourceTableRow = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: this.group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND schema_name = ${{ type: 'varchar', value: schema }}
-            AND table_name = ${{ type: 'varchar', value: table }}
-            AND replica_id_columns = ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
-        `
-          .decoded(models.SourceTable)
-          .first();
-      }
-
-      if (sourceTableRow == null) {
-        const id = options.idGenerator ? postgresTableId(options.idGenerator()) : uuid.v4();
-        sourceTableRow = await db.sql`
-          INSERT INTO
-            source_tables (
-              id,
-              group_id,
-              connection_id,
-              relation_id,
-              schema_name,
-              table_name,
-              replica_id_columns
-            )
-          VALUES
-            (
-              ${{ type: 'varchar', value: id }},
-              ${{ type: 'int4', value: this.group_id }},
-              ${{ type: 'int4', value: connection_id }},
-              ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }},
-              ${{ type: 'varchar', value: schema }},
-              ${{ type: 'varchar', value: table }},
-              ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
-            )
-          RETURNING
-            *
-        `
-          .decoded(models.SourceTable)
-          .first();
-      }
-
-      const sourceTable = new storage.SourceTable({
-        id: sourceTableRow!.id,
-        ref: source,
-        objectId,
-        replicaIdColumns,
-        snapshotComplete: sourceTableRow!.snapshot_done ?? true,
-        ...syncRules.getMatchingSources(source)
-      });
-      if (!sourceTable.snapshotComplete) {
-        sourceTable.snapshotStatus = {
-          totalEstimatedCount: Number(sourceTableRow!.snapshot_total_estimated_count ?? -1n),
-          replicatedCount: Number(sourceTableRow!.snapshot_replicated_count ?? 0n),
-          lastKey: sourceTableRow!.snapshot_last_key
-        };
-      }
-      sourceTable.syncEvent = syncRules.tableTriggersEvent(source);
-      sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
-      sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
-      sourceTable.storeCurrentData = sendsCompleteRows !== true;
-
-      let truncatedTables: SourceTableDecoded[] = [];
-      if (objectId != null) {
-        truncatedTables = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: this.group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
             AND (
               relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
               OR (
@@ -260,7 +178,7 @@ export class PostgresBucketBatch
           .decoded(models.SourceTable)
           .rows();
       } else {
-        truncatedTables = await db.sql`
+        candidateRows = await db.sql`
           SELECT
             *
           FROM
@@ -268,36 +186,76 @@ export class PostgresBucketBatch
           WHERE
             group_id = ${{ type: 'int4', value: this.group_id }}
             AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
-            AND (
-              schema_name = ${{ type: 'varchar', value: schema }}
-              AND table_name = ${{ type: 'varchar', value: table }}
-            )
+            AND schema_name = ${{ type: 'varchar', value: schema }}
+            AND table_name = ${{ type: 'varchar', value: table }}
         `
           .decoded(models.SourceTable)
           .rows();
       }
 
+      // Hydrate candidates and let the source reconciler classify compatibility in JS.
+      const candidateTables = candidateRows.map((row) => {
+        const hydrated = this.sourceTableFromRow(row, connectionTag, syncRules);
+        hydrated.storeCurrentData = sendsCompleteRows !== true;
+        return hydrated;
+      });
+      const resolution = await reconcile({ source, candidates: candidateTables });
+      const compatibleTables = candidateTables.filter((candidate) =>
+        resolution.sourceCompatibleCandidateIds.has(candidate.id)
+      );
+
+      // Postgres storage resolves to a single record. When multiple candidates are compatible
+      // (unexpected duplicate/corrupt state), deterministically prefer a snapshot-complete record
+      // to preserve already-snapshotted data, and drop the rest as conflicts.
+      const reuse = compatibleTables.find((candidate) => candidate.snapshotComplete) ?? compatibleTables[0] ?? null;
+
+      let sourceTable: storage.SourceTable;
+      let resolvedId: string;
+      if (reuse != null) {
+        sourceTable = reuse;
+        resolvedId = reuse.id.toString();
+      } else {
+        const id = options.idGenerator ? postgresTableId(options.idGenerator()) : uuid.v4();
+        const insertedRow = await db.sql`
+          INSERT INTO
+            source_tables (
+              id,
+              group_id,
+              connection_id,
+              relation_id,
+              schema_name,
+              table_name,
+              replica_id_columns,
+              source_metadata
+            )
+          VALUES
+            (
+              ${{ type: 'varchar', value: id }},
+              ${{ type: 'int4', value: this.group_id }},
+              ${{ type: 'int4', value: connection_id }},
+              ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }},
+              ${{ type: 'varchar', value: schema }},
+              ${{ type: 'varchar', value: table }},
+              ${{ type: 'jsonb', value: normalizedReplicaIdColumns }},
+              ${{ type: 'jsonb', value: resolution.sourceMetadata ?? null }}
+            )
+          RETURNING
+            *
+        `
+          .decoded(models.SourceTable)
+          .first();
+        sourceTable = this.sourceTableFromRow(insertedRow!, connectionTag, syncRules);
+        sourceTable.storeCurrentData = sendsCompleteRows !== true;
+        resolvedId = id;
+      }
+
+      // All remaining overlapping candidates are drops (renames, relation-id / replica-id changes,
+      // superseded source-metadata generations, or duplicate compatible records).
+      const dropTables = candidateTables.filter((candidate) => candidate.id.toString() !== resolvedId);
+
       return {
         tables: [sourceTable],
-        dropTables: truncatedTables.map((doc) => {
-          const ref = { connectionTag, schema: doc.schema_name, name: doc.table_name };
-          const dropTable = new storage.SourceTable({
-            id: doc.id,
-            ref,
-            objectId: doc.relation_id?.object_id ?? 0,
-            replicaIdColumns:
-              doc.replica_id_columns?.map(
-                (c) => ({ name: c.name, typeId: c.typeId, type: c.type }) satisfies ColumnDescriptor
-              ) ?? [],
-            snapshotComplete: doc.snapshot_done ?? true,
-            ...syncRules.getMatchingSources(ref)
-          });
-          dropTable.syncEvent = syncRules.tableTriggersEvent(ref);
-          dropTable.syncData = dropTable.bucketDataSources.length > 0;
-          dropTable.syncParameters = dropTable.parameterLookupSources.length > 0;
-          return dropTable;
-        })
+        dropTables
       };
     });
   }
@@ -337,6 +295,7 @@ export class PostgresBucketBatch
           (c) => ({ name: c.name, typeId: c.typeId, type: c.type }) satisfies ColumnDescriptor
         ) ?? [],
       snapshotComplete: row.snapshot_done ?? true,
+      sourceMetadata: row.source_metadata ?? undefined,
       ...syncRules.getMatchingSources(ref)
     });
 

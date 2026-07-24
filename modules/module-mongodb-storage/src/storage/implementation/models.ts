@@ -105,6 +105,11 @@ export interface SourceTableDocument {
   replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
   snapshot_done: boolean | undefined;
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
+  /**
+   * Opaque, source-specific identity metadata. Persisted and hydrated verbatim; storage never
+   * interprets it. Undefined/absent for legacy records.
+   */
+  source_metadata?: storage.JsonValue;
 }
 
 export interface SourceTableDocumentSnapshotStatus {

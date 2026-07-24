@@ -8,12 +8,24 @@ import {
 } from '@powersync/service-sync-rules';
 import { bson } from '../index.js';
 import * as util from '../util/util-index.js';
-import { ColumnDescriptor } from './SourceEntity.js';
+import { ColumnDescriptor, JsonValue } from './SourceEntity.js';
 
 /**
  * Format of the id depends on the bucket storage module. It should be consistent within the module.
  */
 export type SourceTableId = string | bson.ObjectId;
+
+/**
+ * Compare source table ids without coercing between storage-specific representations.
+ *
+ * String ids only equal strings, and BSON ObjectIds only equal ObjectIds with the same value.
+ */
+export function sourceTableIdEquals(left: SourceTableId, right: SourceTableId): boolean {
+  if (typeof left === 'string' || typeof right === 'string') {
+    return typeof left === 'string' && typeof right === 'string' && left === right;
+  }
+  return left.equals(right);
+}
 
 export interface SourceTableOptions {
   id: SourceTableId;
@@ -25,6 +37,14 @@ export interface SourceTableOptions {
   parameterLookupSources: ParameterIndexLookupCreator[];
   bucketDataSourceIds?: Set<BucketDefinitionId>;
   parameterLookupSourceIds?: Set<ParameterIndexId>;
+  /**
+   * Opaque, source-specific identity metadata persisted with this record.
+   *
+   * Storage persists and hydrates this value verbatim and never interprets it. This is part
+   * of the immutable identity of the record: if it changes, a replacement record with fresh
+   * snapshot state is created rather than updating this one. Undefined for legacy records.
+   */
+  sourceMetadata?: JsonValue;
 }
 
 export interface TableSnapshotStatus {
@@ -137,6 +157,14 @@ export class SourceTable {
   }
 
   /**
+   * Opaque, source-specific identity metadata persisted with this record, or undefined
+   * for legacy metadata-free records. Storage never interprets this value.
+   */
+  get sourceMetadata() {
+    return this.options.sourceMetadata;
+  }
+
+  /**
    * Sanitized name of the entity in the format of "{schema}.{entity name}".
    * Suitable for safe use in Postgres queries.
    */
@@ -162,7 +190,8 @@ export class SourceTable {
       parameterLookupSources: this.parameterLookupSources,
       bucketDataSourceIds: this.bucketDataSourceIds == null ? undefined : new Set(this.bucketDataSourceIds),
       parameterLookupSourceIds:
-        this.parameterLookupSourceIds == null ? undefined : new Set(this.parameterLookupSourceIds)
+        this.parameterLookupSourceIds == null ? undefined : new Set(this.parameterLookupSourceIds),
+      sourceMetadata: this.options.sourceMetadata
     });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;

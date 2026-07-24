@@ -1,5 +1,6 @@
 import { SourceEntityDescriptor, SourceTable } from '@powersync/service-core';
 import { ServiceAssertionError } from '@powersync/service-errors';
+import { readCaptureMetadata } from '../replication/CaptureReconciler.js';
 import { toQualifiedTableName } from '../utils/mssql.js';
 import { CaptureInstance } from './CaptureInstance.js';
 
@@ -45,6 +46,29 @@ export class MSSQLSourceTable {
 
   enabledForCDC(): boolean {
     return this.captureInstance !== null;
+  }
+
+  /**
+   * The persisted capture-table object id this binding is pinned to, or null for a legacy
+   * metadata-free binding. All source tables of one physical table are pinned to the same CDC
+   * capture instance.
+   */
+  get pinnedCaptureObjectId(): number | null {
+    for (const sourceTable of this.sourceTables) {
+      const metadata = readCaptureMetadata(sourceTable.sourceMetadata);
+      if (metadata != null) {
+        return metadata.captureTableObjectId;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * True if this binding is capture-instance-pinned. Pinned bindings never silently switch to a
+   * newer capture instance; a redeploy (new replication stream) is required to adopt one.
+   */
+  isCaptureInstancePinned(): boolean {
+    return this.pinnedCaptureObjectId != null;
   }
 
   setCaptureInstance(captureInstance: CaptureInstance) {

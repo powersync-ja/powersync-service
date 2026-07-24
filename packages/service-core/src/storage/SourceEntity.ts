@@ -1,5 +1,13 @@
 import { SourceTableRef } from '@powersync/service-sync-rules';
 
+/**
+ * Opaque JSON value used for source-specific identity metadata.
+ *
+ * Storage persists and hydrates these values verbatim and never interprets them.
+ * Only the source module that produced a value understands its shape.
+ */
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
 export interface ColumnDescriptor {
   name: string;
   /**
@@ -31,4 +39,15 @@ export interface SourceEntityDescriptor extends SourceTableRef {
    * report this, in which case we default to keeping a copy.
    */
   sendsCompleteRows?: boolean;
+
+  /**
+   * Optional opaque, source-specific identity metadata discovered for this entity.
+   *
+   * Storage never interprets this value. The authoritative metadata persisted on new
+   * records is chosen by the source reconciler (see {@link SourceTableCandidateResolution}),
+   * so most sources leave this undefined and select metadata inside the reconciler instead.
+   *
+   * Undefined preserves legacy metadata-free behavior.
+   */
+  sourceMetadata?: JsonValue;
 }

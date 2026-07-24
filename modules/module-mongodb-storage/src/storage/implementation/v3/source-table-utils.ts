@@ -1,5 +1,5 @@
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { BucketDefinitionMapping, ColumnDescriptor, storage } from '@powersync/service-core';
+import { BucketDefinitionMapping, ColumnDescriptor, JsonValue, storage } from '@powersync/service-core';
 import {
   BucketDataSource,
   BucketDefinitionId,
@@ -38,6 +38,16 @@ export interface SourceTableReconciliationContext {
   syncConfig: HydratedSyncConfig;
   mapping: BucketDefinitionMapping;
   desired: SourceTableDesiredResolution;
+  /**
+   * Candidate ids the source reconciler classified as compatible (same source generation).
+   * Storage reuses these; all other overlapping candidates are dropped.
+   */
+  sourceCompatibleCandidateIds: readonly storage.SourceTableId[];
+  /**
+   * Finalized opaque metadata to persist on any record created by this resolution.
+   * Undefined preserves legacy metadata-free behavior.
+   */
+  sourceMetadata: JsonValue | undefined;
 }
 
 export interface SourceTableReconciliationPlan {
@@ -134,9 +144,8 @@ class SourceTableReconciliationPlanner {
   constructor(private readonly context: SourceTableReconciliationContext) {}
 
   plan(candidateDocs: SourceTableDocumentV3[]): SourceTableReconciliationPlan {
-    const { identity } = this.context;
     for (const doc of candidateDocs) {
-      if (matchingSourceTableIdentity(doc, identity)) {
+      if (this.isCompatible(doc)) {
         this.retainDoc(doc);
       }
     }
@@ -145,12 +154,15 @@ class SourceTableReconciliationPlanner {
       tables: this.tables,
       narrowingUpdates: this.narrowingUpdates,
       newTableMemberships: this.newTableMemberships(),
-      // Non-retained overlapping docs represent renames / relation-id changes /
-      // replica-identity changes. Same-identity stale docs are retained in production.
-      dropDocs: candidateDocs.filter(
-        (doc) => !this.retainedDocIds.has(doc._id.toHexString()) && !matchingSourceTableIdentity(doc, identity)
-      )
+      // Non-compatible overlapping docs represent renames / relation-id changes /
+      // replica-identity changes / superseded source-metadata generations. Compatible docs
+      // are always retained (used now or kept as reusable snapshot-complete records).
+      dropDocs: candidateDocs.filter((doc) => !this.isCompatible(doc))
     };
+  }
+
+  private isCompatible(doc: SourceTableDocumentV3) {
+    return this.context.sourceCompatibleCandidateIds.find((id) => storage.sourceTableIdEquals(id, doc._id)) != null;
   }
 
   private retainDoc(doc: SourceTableDocumentV3) {
@@ -250,26 +262,6 @@ class SourceTableReconciliationPlanner {
   }
 }
 
-function sameReplicaIdColumns(left: ReplicaIdColumn[] | undefined, right: ReplicaIdColumn[]) {
-  return (
-    left != null &&
-    left.length == right.length &&
-    left.every(
-      (column, index) =>
-        column.name == right[index].name && column.type == right[index].type && column.type_oid == right[index].type_oid
-    )
-  );
-}
-
-function matchingSourceTableIdentity(doc: SourceTableDocumentV3, identity: SourceTableIdentity) {
-  return (
-    doc.schema_name == identity.schema &&
-    doc.table_name == identity.name &&
-    (identity.objectId == null || doc.relation_id == identity.objectId) &&
-    sameReplicaIdColumns(doc.replica_id_columns, identity.replicaIdColumns)
-  );
-}
-
 export function overlappingSourceTableFilter(
   connectionId: number,
   identity: Pick<SourceTableIdentity, 'schema' | 'name' | 'objectId'>
@@ -290,7 +282,8 @@ export function createNewSourceTable(
   memberships: SourceTableMembershipIds,
   context: SourceTableReconciliationContext
 ): NewSourceTable {
-  const { connectionId, connectionTag, identity, syncConfig, mapping, desired, storeCurrentData } = context;
+  const { connectionId, connectionTag, identity, syncConfig, mapping, desired, storeCurrentData, sourceMetadata } =
+    context;
   const doc: SourceTableDocumentV3 = {
     _id: id,
     connection_id: connectionId,
@@ -301,7 +294,10 @@ export function createNewSourceTable(
     snapshot_done: false,
     snapshot_status: undefined,
     bucket_data_source_ids: memberships.bucketDataSourceIds,
-    parameter_lookup_source_ids: memberships.parameterLookupSourceIds
+    parameter_lookup_source_ids: memberships.parameterLookupSourceIds,
+    // All records created in one resolution share the finalized metadata, so v3 never mixes
+    // metadata-free and pinned records for the same physical-table binding.
+    source_metadata: sourceMetadata
   };
   const table = sourceTableFromDocument(
     doc,
@@ -375,7 +371,8 @@ export function sourceTableFromDocument(
     bucketDataSources: resolvedMemberships.bucketDataSources,
     parameterLookupSources: resolvedMemberships.parameterLookupSources,
     bucketDataSourceIds: new Set(resolvedMembershipIds.bucketDataSourceIds),
-    parameterLookupSourceIds: new Set(resolvedMembershipIds.parameterLookupSourceIds)
+    parameterLookupSourceIds: new Set(resolvedMembershipIds.parameterLookupSourceIds),
+    sourceMetadata: doc.source_metadata
   });
   table.syncData = table.bucketDataSources.length > 0;
   table.syncParameters = table.parameterLookupSources.length > 0;

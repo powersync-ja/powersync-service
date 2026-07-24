@@ -146,23 +146,16 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const mapping = parsedOverride?.mapping ?? this.mapping;
 
     const { connection_id, source } = options;
-    const context: SourceTableReconciliationContext = {
-      connectionId: connection_id,
-      connectionTag: source.connectionTag,
-      identity: {
-        schema: source.schema,
-        name: source.name,
-        objectId: source.objectId,
-        replicaIdColumns: source.replicaIdColumns.map((column) => ({
-          name: column.name,
-          type: column.type,
-          type_oid: column.typeId
-        }))
-      },
-      storeCurrentData: source.sendsCompleteRows !== true,
-      syncConfig,
-      mapping,
-      desired: sourceTableDesiredResolution(syncConfig, source, mapping)
+    const reconcile = options.reconcileSourceTables ?? storage.defaultSourceTableReconciler;
+    const identity = {
+      schema: source.schema,
+      name: source.name,
+      objectId: source.objectId,
+      replicaIdColumns: source.replicaIdColumns.map((column) => ({
+        name: column.name,
+        type: column.type,
+        type_oid: column.typeId
+      }))
     };
 
     let result: storage.ResolveTablesResult | null = null;
@@ -173,13 +166,33 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       const col = this.db.sourceTables(this.replicationStreamId);
 
       // Fetch every persisted source-table doc that can overlap this physical table.
-      // Exact-identity docs are candidates for reuse; non-exact overlaps are possible drops.
+      // Compatible docs are candidates for reuse; incompatible overlaps are drops.
       const candidateDocs = await col
-        .find(overlappingSourceTableFilter(connection_id, context.identity), { session })
+        .find(overlappingSourceTableFilter(connection_id, identity), { session })
         .toArray();
 
+      // Hydrate candidates and hand them to the source-owned reconciler. The reconciler classifies
+      // compatibility (same source generation) and selects the metadata to persist. Storage never
+      // interprets source metadata itself.
+      const candidateTables = candidateDocs.map((doc) =>
+        sourceTableFromDocument(doc, source.connectionTag, syncConfig, mapping)
+      );
+      const resolution = await reconcile({ source, candidates: candidateTables });
+
+      const context: SourceTableReconciliationContext = {
+        connectionId: connection_id,
+        connectionTag: source.connectionTag,
+        identity,
+        storeCurrentData: source.sendsCompleteRows !== true,
+        syncConfig,
+        mapping,
+        desired: sourceTableDesiredResolution(syncConfig, source, mapping),
+        sourceCompatibleCandidateIds: Array.from(resolution.sourceCompatibleCandidateIds.values()),
+        sourceMetadata: resolution.sourceMetadata
+      };
+
       // Pure planning: which docs to retain (and narrow), whether a new doc is needed for
-      // uncovered memberships, and which docs conflict with the current identity.
+      // uncovered memberships, and which docs are incompatible and must be dropped.
       const plan = planSourceTableReconciliation(candidateDocs, context);
 
       // Persist narrowing for incomplete snapshots only. Snapshot-complete docs keep stale
