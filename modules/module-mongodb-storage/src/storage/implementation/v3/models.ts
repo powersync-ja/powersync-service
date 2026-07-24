@@ -176,13 +176,39 @@ export interface BucketOperation {
   data: string | null;
 }
 
+/**
+ * A non-empty chunk of a bucket's ordered operation stream.
+ *
+ * All writers maintain these invariants:
+ *
+ * - `ops` is non-empty and strictly ordered by `o`.
+ * - `min_op` is `ops[0].o` and `_id.o` is `ops[ops.length - 1].o`.
+ * - Documents for the same bucket have ordered, disjoint operation ranges,
+ *   although gaps between ranges are allowed.
+ * - `checksum` is the sum of every operation checksum and `count` is
+ *   `ops.length`.
+ *
+ * Metadata-only checksum and data queries rely on these invariants to identify
+ * boundary-straddling documents without reading `ops`.
+ */
 export interface BucketDataDocumentV3 {
   _id: BucketDataKey;
   min_op: bigint;
   checksum: bigint;
   count: number;
   size: number;
+  /**
+   * The greatest operation boundary that influenced this document's contents.
+   * Bucket-data reads propagate it so serving an earlier checkpoint can be
+   * invalidated when compaction changed the operations being returned.
+   */
   target_op?: bigint | null;
+  /**
+   * Present (and always true) when this document contains a CLEAR operation.
+   * In that case, this is the first document in the bucket: all preceding
+   * documents have been removed.
+   */
+  has_clear_op?: true;
   ops: BucketOperation[];
 }
 
