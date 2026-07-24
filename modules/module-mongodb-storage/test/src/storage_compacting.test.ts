@@ -4,7 +4,13 @@ import { loadBucketDataDocument, serializeBucketData } from '@module/storage/imp
 import { chunkBucketData, DEFAULT_MAX_DOC_SIZE_BYTES } from '@module/storage/implementation/v3/chunking.js';
 import { BucketDataDocumentV3 } from '@module/storage/implementation/v3/models.js';
 import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
-import { addChecksums, storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
+import {
+  addChecksums,
+  CheckpointChecksumInvalidatedError,
+  storage,
+  SyncRulesBucketStorage,
+  updateSyncRulesFromYaml
+} from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
@@ -425,6 +431,14 @@ bucket_definitions:
     expect(doc.size).toBe(bson.calculateObjectSize(doc.ops));
   });
 
+  test('2. has_clear_op is only stored when true', () => {
+    const putDoc = serializeBucketData('test[]', [makeBucketDataDoc({ o: 1n })]);
+    const clearDoc = serializeBucketData('test[]', [makeBucketDataDoc({ o: 2n, op: 'CLEAR', data: null })]);
+
+    expect(putDoc).not.toHaveProperty('has_clear_op');
+    expect(clearDoc.has_clear_op).toBe(true);
+  });
+
   test('2. range metadata consistency - after compaction', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
     const ops = [makeOp(10, 'A', 'a1', ctx, sourceTableId), makeOp(20, 'B', 'b1', ctx, sourceTableId)];
@@ -814,9 +828,23 @@ bucket_definitions:
     };
   }
 
-  test('partial checksum with start straddling multi-op document', async () => {
-    const { bucketStorage, syncRules, collection, bucketStateCollection, definitionId, sourceTableId, ctx } =
-      await setup();
+  function checksumRequest(): storage.BucketChecksumRequest {
+    return {
+      bucket: BUCKET,
+      source: {
+        uniqueName: 'global',
+        bucketParameters: [],
+        getSourceTables: () => new Set(),
+        tableSyncsData: () => false,
+        evaluateRow: () => [],
+        inferSchema: () => ({ objects: {} }),
+        bucketQuery: () => ({ ast: {} as any, parameters: [] })
+      } as any
+    };
+  }
+
+  test('start straddle recalculates a cached checksum from the beginning', async () => {
+    const { bucketStorage, collection, bucketStateCollection, definitionId, sourceTableId, ctx } = await setup();
 
     // Single document with ops 10-60, min_op=10, _id.o=60
     const ops = [
@@ -827,57 +855,37 @@ bucket_definitions:
       makeOp(50, 'E', 'e1', ctx, sourceTableId),
       makeOp(60, 'F', 'f1', ctx, sourceTableId)
     ];
-    const doc = serializeBucketData(BUCKET, ops);
-    await collection.insertMany([doc]);
+    // Cache the first half before compaction changes the document boundary.
+    const firstDoc = serializeBucketData(BUCKET, ops.slice(0, 3));
+    await collection.insertOne(firstDoc);
 
-    // Set compacted_state.op_id = 30 to create a partial range starting at 30.
-    // The pipeline will query ops where o > 30 and o <= 60.
-    // The document has min_op=10 < 30, so it's partially included.
-    // The pipeline must $filter ops to only sum those with o > 30 (ops 40, 50, 60).
     const fullChecksum = ops.reduce((sum, op) => addChecksums(sum, Number(op.checksum)), 0);
-    const partialChecksum = ops
-      .filter((op) => op.o > 30n)
-      .reduce((sum, op) => addChecksums(sum, Number(op.checksum)), 0);
-
-    // Partial and full must differ, otherwise the document is fully included and no straddling occurs.
-    expect(partialChecksum).not.toBe(fullChecksum);
-
     await bucketStateCollection.insertOne({
       _id: { d: definitionId, b: BUCKET },
       last_op: 30n,
-      compacted_state: {
-        op_id: 30n,
-        count: 3,
-        checksum: BigInt(
-          ops.filter((op) => op.o <= 30n).reduce((sum, op) => addChecksums(sum, Number(op.checksum)), 0)
-        ),
-        bytes: null
-      },
       estimate_since_compact: { count: 3, bytes: 100 }
     });
 
-    const request: storage.BucketChecksumRequest = {
-      bucket: BUCKET,
-      source: {
-        uniqueName: 'global',
-        bucketParameters: [],
-        getSourceTables: () => new Set(),
-        tableSyncsData: () => false,
-        evaluateRow: () => [],
-        inferSchema: () => ({ objects: {} }),
-        bucketQuery: () => ({ ast: {} as any, parameters: [] })
-      } as any
-    };
+    const request = checksumRequest();
+
+    const cached = await bucketStorage.getChecksums(test_utils.testCheckpoint(30n), [request]);
+    expect(cached.get(BUCKET)).toMatchObject({ count: 3 });
+
+    // Compaction rechunks the bucket into one document spanning the cached
+    // checkpoint. The requested endpoint is the end of the new document.
+    await collection.deleteMany({});
+    await collection.insertOne(serializeBucketData(BUCKET, ops, { compactionTargetOp: 60n }));
 
     const result = await bucketStorage.getChecksums(test_utils.testCheckpoint(60n), [request]);
     const checksumResult = result.get(BUCKET)!;
 
-    // The total checksum should be: compacted (ops 10,20,30) + partial (ops 40,50,60)
+    // The cached checkpoint at 30 is inside the new document. The full result
+    // must replace it rather than add the document checksum to it.
     expect(checksumResult.checksum).toBe(fullChecksum);
     expect(checksumResult.count).toBe(6);
   });
 
-  test('partial checksum with end straddling multi-op document', async () => {
+  test('end straddle invalidates the old checkpoint and a later checkpoint succeeds', async () => {
     const { bucketStorage, collection, bucketStateCollection, definitionId, sourceTableId, ctx } = await setup();
 
     // Document with ops 40-60, _id.o=60, min_op=40
@@ -886,22 +894,10 @@ bucket_definitions:
       makeOp(50, 'E', 'e1', ctx, sourceTableId),
       makeOp(60, 'F', 'f1', ctx, sourceTableId)
     ];
-    const doc = serializeBucketData(BUCKET, ops);
+    const doc = serializeBucketData(BUCKET, ops, { compactionTargetOp: 60n });
     await collection.insertMany([doc]);
 
-    // No compacted_state — start from beginning, so the full document is in range.
-    // Request checksums with checkpoint=45 (falls between ops 40 and 50).
-    // createBucketFilter produces _id.o <= 45.
-    // This document has _id.o=60 > 45, so the filter excludes it.
-    // But the document contains op 40 which should be included (40 <= 45).
-    const checksumUpTo45 = ops
-      .filter((op) => op.o <= 45n)
-      .reduce((sum, op) => addChecksums(sum, Number(op.checksum)), 0);
-
     const checksumAllOps = ops.reduce((sum, op) => addChecksums(sum, Number(op.checksum)), 0);
-
-    // The straddling is real: op 40 is <= 45 but the document's _id.o=60 is > 45
-    expect(checksumUpTo45).not.toBe(checksumAllOps);
 
     await bucketStateCollection.insertOne({
       _id: { d: definitionId, b: BUCKET },
@@ -909,26 +905,64 @@ bucket_definitions:
       estimate_since_compact: { count: 0, bytes: 0 }
     });
 
-    const request: storage.BucketChecksumRequest = {
+    const request = checksumRequest();
+
+    await expect(bucketStorage.getChecksums(test_utils.testCheckpoint(45n), [request])).rejects.toBeInstanceOf(
+      CheckpointChecksumInvalidatedError
+    );
+
+    const result = await bucketStorage.getChecksums(test_utils.testCheckpoint(60n), [request]);
+    expect(result.get(BUCKET)).toEqual({ bucket: BUCKET, checksum: checksumAllOps, count: 3 });
+  });
+
+  test('end straddle without target_op also invalidates the old checkpoint', async () => {
+    const { bucketStorage, collection, bucketStateCollection, definitionId, sourceTableId, ctx } = await setup();
+    const ops = [makeOp(40, 'D', 'd1', ctx, sourceTableId), makeOp(60, 'F', 'f1', ctx, sourceTableId)];
+    await collection.insertOne(serializeBucketData(BUCKET, ops));
+    await bucketStateCollection.insertOne({
+      _id: { d: definitionId, b: BUCKET },
+      last_op: 0n,
+      estimate_since_compact: { count: 0, bytes: 0 }
+    });
+
+    const request = checksumRequest();
+    await expect(bucketStorage.getChecksums(test_utils.testCheckpoint(45n), [request])).rejects.toBeInstanceOf(
+      CheckpointChecksumInvalidatedError
+    );
+  });
+
+  test('has_clear_op replaces a cached checksum', async () => {
+    const { bucketStorage, collection, bucketStateCollection, definitionId, sourceTableId, ctx } = await setup();
+    const beforeClear = makeOp(10, 'A', 'a1', ctx, sourceTableId);
+    const clear = { ...makeOp(20, 'clear', '', ctx, sourceTableId), op: 'CLEAR' as const, checksum: 101n, data: null };
+    const afterClear = makeOp(30, 'B', 'b1', ctx, sourceTableId);
+
+    await collection.insertOne(serializeBucketData(BUCKET, [beforeClear]));
+    await bucketStateCollection.insertOne({
+      _id: { d: definitionId, b: BUCKET },
+      last_op: 10n,
+      estimate_since_compact: { count: 1, bytes: 100 }
+    });
+
+    const request = checksumRequest();
+    const before = await bucketStorage.getChecksums(test_utils.testCheckpoint(10n), [request]);
+    expect(before.get(BUCKET)).toEqual({ bucket: BUCKET, checksum: 70, count: 1 });
+
+    // Compaction replaces everything preceding CLEAR, while the checksum cache
+    // still contains the old checkpoint.
+    await collection.deleteMany({});
+    await collection.insertOne(serializeBucketData(BUCKET, [clear, afterClear]));
+    await bucketStateCollection.updateOne(
+      { _id: { d: definitionId, b: BUCKET } },
+      { $set: { last_op: 30n, 'estimate_since_compact.count': 2 } }
+    );
+
+    const after = await bucketStorage.getChecksums(test_utils.testCheckpoint(30n), [request]);
+    expect(after.get(BUCKET)).toEqual({
       bucket: BUCKET,
-      source: {
-        uniqueName: 'global',
-        bucketParameters: [],
-        getSourceTables: () => new Set(),
-        tableSyncsData: () => false,
-        evaluateRow: () => [],
-        inferSchema: () => ({ objects: {} }),
-        bucketQuery: () => ({ ast: {} as any, parameters: [] })
-      } as any
-    };
-
-    const result = await bucketStorage.getChecksums(test_utils.testCheckpoint(45n), [request]);
-    const checksumResult = result.get(BUCKET)!;
-
-    // If createBucketFilter's _id.o <= 45 excludes this document,
-    // the checksum will be 0 instead of checksumUpTo45.
-    expect(checksumResult.checksum).toBe(checksumUpTo45);
-    expect(checksumResult.count).toBe(1);
+      checksum: addChecksums(Number(clear.checksum), Number(afterClear.checksum)),
+      count: 2
+    });
   });
 });
 
