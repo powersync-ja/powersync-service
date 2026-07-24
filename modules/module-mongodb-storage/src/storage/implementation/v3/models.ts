@@ -176,6 +176,18 @@ export interface BucketOperation {
   data: string | null;
 }
 
+export interface StorageRef {
+  path: string;
+  compressed_size: number;
+}
+
+/** An S3 object that may be deleted once its grace period has elapsed. */
+export interface ObjectStorageDeletionMarker {
+  _id: bson.ObjectId;
+  path: string;
+  delete_after: Date;
+}
+
 /**
  * A non-empty chunk of a bucket's ordered operation stream.
  *
@@ -203,13 +215,14 @@ export interface BucketDataDocumentV3 {
    * invalidated when compaction changed the operations being returned.
    */
   target_op?: bigint | null;
+  ops?: BucketOperation[];
+  storage_ref?: StorageRef;
   /**
    * Present (and always true) when this document contains a CLEAR operation.
    * In that case, this is the first document in the bucket: all preceding
    * documents have been removed.
    */
   has_clear_op?: true;
-  ops: BucketOperation[];
 }
 
 export function serializeParameterLookup(lookup: ScopedParameterLookup): bson.Binary {

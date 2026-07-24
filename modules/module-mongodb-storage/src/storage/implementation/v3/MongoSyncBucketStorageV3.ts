@@ -37,12 +37,15 @@ import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
 import { MongoStoppedSyncConfigCleanup } from './MongoStoppedSyncConfigCleanup.js';
+import { BucketDataObjectStorage } from './object-storage/BucketDataObjectStorage.js';
+import { ObjectStorage } from './object-storage/ObjectStorage.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export interface MongoSyncBucketStorageContextV3 {
   db: VersionedPowerSyncMongoV3;
   replicationStreamId: number;
   readPreference?: mongo.ReadPreference;
+  objectStorage: ObjectStorage | undefined;
   /**
    * Persisted mapping of the single sync config that read operations are served from.
    *
@@ -54,8 +57,7 @@ export interface MongoSyncBucketStorageContextV3 {
 
 function* walkDocumentOps(
   data: BucketDataDoc[],
-  documentOpCounts: number[],
-  documentSizes: number[]
+  documentOpCounts: number[]
 ): Generator<{ row: BucketDataDoc; docIndex: number; isLastOpInDocument: boolean }> {
   let opIndex = 0;
   for (const [docIndex, opCount] of documentOpCounts.entries()) {
@@ -337,6 +339,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     const self = this;
     return {
       db: this.db,
+      objectStorage: this.objectStorage,
       replicationStreamId: this.replicationStreamId,
       readPreference: this.readPreference,
       get mapping() {
@@ -615,14 +618,30 @@ export async function* getBucketDataBatchV3(
 
     const data: BucketDataDoc[] = [];
     const documentOpCounts: number[] = [];
-    const documentSizes: number[] = [];
     let sharedRemainingLimit = limit;
     let limitReached = false;
     // Buckets whose matched document contributed no rows after filtering.
     const completeEmptyBuckets = new Set<string>();
 
-    for (const raw of rawData) {
-      const doc = bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3;
+    // Deserialize all docs once
+    const docs: BucketDataDocumentV3[] = rawData.map(
+      (raw) => bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3
+    );
+
+    // Pre-fetch S3 objects for all S3-backed docs in this batch
+    if (ctx.objectStorage) {
+      const store = new BucketDataObjectStorage(ctx.objectStorage);
+      const s3Docs = docs.filter((d) => d.storage_ref);
+      if (s3Docs.length > 0) {
+        await Promise.all(
+          s3Docs.map(async (doc) => {
+            doc.ops = await store.retrieve(doc.storage_ref!.path);
+          })
+        );
+      }
+    }
+
+    for (const [i, doc] of docs.entries()) {
       const {
         rows,
         remainingLimit,
@@ -638,7 +657,6 @@ export async function* getBucketDataBatchV3(
       }
       data.push(...rows);
       documentOpCounts.push(rows.length);
-      documentSizes.push(raw.byteLength);
       sharedRemainingLimit = remainingLimit;
       if (docLimitReached) {
         limitReached = true;
@@ -687,7 +705,7 @@ export async function* getBucketDataBatchV3(
     let currentChunk: utils.SyncBucketData | null = null;
     let targetOp: InternalOpId | null = null;
 
-    for (const { row, docIndex, isLastOpInDocument } of walkDocumentOps(data, documentOpCounts, documentSizes)) {
+    for (const { row, docIndex, isLastOpInDocument } of walkDocumentOps(data, documentOpCounts)) {
       const bucket = row.bucketKey.bucket;
 
       if (currentChunk == null || currentChunk.bucket != bucket || currentChunkSizeBytes >= chunkSizeLimitBytes) {
@@ -730,7 +748,7 @@ export async function* getBucketDataBatchV3(
       currentChunk.next_after = entry.op_id;
 
       if (isLastOpInDocument) {
-        currentChunkSizeBytes += documentSizes[docIndex];
+        currentChunkSizeBytes += docs[docIndex].size;
       }
     }
 

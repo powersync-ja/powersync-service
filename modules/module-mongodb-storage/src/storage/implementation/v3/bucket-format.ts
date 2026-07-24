@@ -63,6 +63,11 @@ export function* loadBucketDataDocument(
   doc: BucketDataDocumentV3
 ): Generator<BucketDataDoc> {
   const { _id, ops } = doc;
+  if (!ops) {
+    throw new Error(
+      `Missing ops array on BucketDataDocumentV3 at _id.o=${_id.o}. Callers must patch doc.ops from S3 before calling this function.`
+    );
+  }
   const bucketKey = {
     ...context,
     bucket: _id.b

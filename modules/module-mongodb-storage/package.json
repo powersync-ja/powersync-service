@@ -18,6 +18,8 @@
     "./types": "./dist/types/types.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.637.0",
+    "@mongodb-js/zstd": "^7.0.0",
     "@powersync/lib-service-mongodb": "workspace:*",
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-core": "workspace:*",

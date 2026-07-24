@@ -37,12 +37,15 @@ import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import { MongoPersistedReplicationStream } from './MongoPersistedReplicationStream.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
+import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   readPreference?: mongo.ReadPreference;
   checksumCacheTtlMs?: number;
   storageConfig: StorageConfig;
+  objectStorage?: ObjectStorage;
+  inlineThresholdBytes?: number;
 }
 
 interface InternalCheckpointChanges extends CheckpointChanges {
@@ -71,6 +74,9 @@ export abstract class MongoSyncBucketStorage
 
   readonly checksums: MongoChecksums;
 
+  readonly objectStorage?: ObjectStorage;
+  readonly inlineThresholdBytes: number;
+
   /**
    * Canonical parsed sync config sets, keyed by defaultSchema.
    *
@@ -95,6 +101,11 @@ export abstract class MongoSyncBucketStorage
   ) {
     super();
     this.storageConfig = options.storageConfig;
+    this.objectStorage = options.objectStorage;
+    // Keep chunks below 256 BSON bytes inline in MongoDB rather than
+    // offloading to S3. Covers single CLEAR ops (~50 bytes) and tiny
+    // write batches. Configurable via object_storage.inline_threshold_bytes.
+    this.inlineThresholdBytes = options.inlineThresholdBytes ?? 256;
     this.readPreference = options.readPreference;
     this.db = factory.db.versioned(this.storageConfig);
     this.checksums = this.createMongoChecksums(options);
@@ -220,7 +231,9 @@ export abstract class MongoSyncBucketStorage
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable,
       hooks: options.hooks,
-      tracer: options.tracer
+      tracer: options.tracer,
+      objectStorage: this.objectStorage,
+      inlineThresholdBytes: this.inlineThresholdBytes
     };
   }
 

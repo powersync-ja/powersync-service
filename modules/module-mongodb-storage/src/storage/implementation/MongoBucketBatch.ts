@@ -32,6 +32,7 @@ import { MongoIdSequence } from './MongoIdSequence.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
+import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 
 // Currently, we can only have a single flush() at a time, since it locks the op_id sequence.
 // While the MongoDB transaction retry mechanism handles this okay, using an in-process Mutex
@@ -71,6 +72,10 @@ export interface MongoBucketBatchOptions {
 
   logger: Logger;
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
+  listSourceRecordCollections?: (groupId: number) => Promise<mongo.Collection<any>[]>;
+
+  objectStorage?: ObjectStorage;
+  inlineThresholdBytes?: number;
 }
 
 export abstract class MongoBucketBatch

@@ -5,6 +5,8 @@ import { MongoStorageConfig } from '../../types/types.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { MongoReportStorage } from '../MongoReportStorage.js';
 import { PowerSyncMongo } from './db.js';
+import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
+import { S3ObjectStorage } from './v3/object-storage/S3ObjectStorage.js';
 
 export class MongoStorageProvider implements storage.StorageProvider {
   get type() {
@@ -23,6 +25,17 @@ export class MongoStorageProvider implements storage.StorageProvider {
     }
 
     const decodedConfig = MongoStorageConfig.decode(storage as any);
+
+    let objectStorage: ObjectStorage | undefined;
+    if (decodedConfig.object_storage?.type === 's3') {
+      objectStorage = new S3ObjectStorage({
+        bucket: decodedConfig.object_storage.bucket,
+        region: decodedConfig.object_storage.region,
+        prefix: decodedConfig.object_storage.prefix,
+        endpoint: decodedConfig.object_storage.endpoint
+      });
+    }
+
     const client = lib_mongo.db.createMongoClient(decodedConfig, {
       powersyncVersion: POWERSYNC_VERSION,
       maxPoolSize: resolvedConfig.storage.max_pool_size ?? 8
@@ -53,7 +66,10 @@ export class MongoStorageProvider implements storage.StorageProvider {
       // Right now, only MongoDB source databases supports incremental reprocessing.
       // Remove this filter when we support it for other source databases.
       // This assumes a single source connection - revisit if we ever support multiple connections.
-      supportsMultipleSyncConfigs: resolvedConfig.connections?.[0]?.type == lib_mongo.MONGO_CONNECTION_TYPE
+      supportsMultipleSyncConfigs: resolvedConfig.connections?.[0]?.type == lib_mongo.MONGO_CONNECTION_TYPE,
+
+      objectStorage,
+      inlineThresholdBytes: decodedConfig.object_storage?.inline_threshold_bytes
     });
 
     // Storage factory for reports

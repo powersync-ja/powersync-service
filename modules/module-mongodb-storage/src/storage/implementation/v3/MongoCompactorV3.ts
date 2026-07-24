@@ -12,12 +12,28 @@ import { chunkBucketData } from './chunking.js';
 import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
 import { DefinitionChecksumOperations, MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
+import { BucketDataObjectStorage } from './object-storage/BucketDataObjectStorage.js';
+import { ObjectStorageLifecycle, PreparedObjectStorageUpload } from './object-storage/ObjectStorageLifecycle.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoCompactorV3 extends MongoCompactor {
   declare protected readonly db: VersionedPowerSyncMongoV3;
   declare protected readonly storage: MongoSyncBucketStorageV3;
+
+  override async compact(): Promise<void> {
+    await super.compact();
+    if (this.storage.objectStorage) {
+      await this.objectStorageLifecycle.cleanup(this.logger);
+    }
+  }
+
+  private get objectStorageLifecycle(): ObjectStorageLifecycle {
+    if (!this.storage.objectStorage) {
+      throw new Error('Object storage is not configured');
+    }
+    return new ObjectStorageLifecycle(this.db, this.group_id, this.storage.objectStorage);
+  }
 
   public async *dirtyBucketBatches(options: {
     minBucketChanges: number;
@@ -176,6 +192,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             size: 1,
             target_op: 1,
             ops: 1,
+            storage_ref: 1,
             bsonSize: { $bsonSize: '$$ROOT' }
           }
         }
@@ -197,7 +214,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       let batchCutIndex = rawBatch.length;
 
       for (let i = 0; i < rawBatch.length; i++) {
-        cumulativeBytes += Number(rawBatch[i].bsonSize);
+        cumulativeBytes += Number(rawBatch[i].bsonSize) + (rawBatch[i].storage_ref ? rawBatch[i].size : 0);
         if (cumulativeBytes > this.moveBatchByteLimit && i > 0) {
           // Byte limit exceeded; cut batch at current index. Always include
           // at least one document (i > 0 guard) to guarantee forward progress.
@@ -207,6 +224,8 @@ export class MongoCompactorV3 extends MongoCompactor {
       }
 
       const batchDocs = rawBatch.slice(0, batchCutIndex);
+
+      await this.hydrateS3Documents(batchDocs);
 
       // --- Decode documents into individual ops ---
       // Processable: document has at least one op <= maxOpId.
@@ -312,7 +331,12 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       // --- Rechunk survivors into new V3 documents ---
       const chunks = chunkBucketData(surviving);
-      const newDocs = chunks.map((chunk) => this.serializeCompactedBucketData(bucket, chunk));
+      const oldStoragePaths = processableDocs.flatMap((doc) => (doc.storage_ref ? [doc.storage_ref.path] : []));
+      const {
+        documents: newDocs,
+        storagePaths: newStoragePaths,
+        uploads
+      } = await this.persistBucketData(bucket, chunks, context);
 
       if (lastNotPut == null) {
         clearBoundaryDocId = null;
@@ -369,6 +393,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             if (newDocs.length > 0) {
               await bucketContext.collection.insertMany(newDocs as unknown as BucketDataDocumentGeneric[], { session });
             }
+            await this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, uploads, session);
           },
           {
             writeConcern: { w: 'majority' },
@@ -498,6 +523,8 @@ export class MongoCompactorV3 extends MongoCompactor {
     const bucket = bucketContext.key.bucket;
     let done = false;
     let opCountDiff = 0;
+    const oldStoragePaths: string[] = [];
+    let newStoragePaths = new Set<string>();
 
     this.signal?.throwIfAborted();
     await session.withTransaction(
@@ -518,7 +545,8 @@ export class MongoCompactorV3 extends MongoCompactor {
               checksum: 1,
               count: 1,
               target_op: 1,
-              ops: 1
+              ops: 1,
+              storage_ref: 1
             },
             limit: this.clearBatchLimit
           }
@@ -539,6 +567,10 @@ export class MongoCompactorV3 extends MongoCompactor {
           }
 
           lastDocId = doc._id;
+          if (doc.storage_ref) {
+            oldStoragePaths.push(doc.storage_ref.path);
+          }
+          await this.hydrateS3Documents([doc]);
           for (const op of loadBucketDataDocument(context, doc)) {
             if (op.o > lastNotPut) {
               throw new ReplicationAssertionError(
@@ -589,7 +621,10 @@ export class MongoCompactorV3 extends MongoCompactor {
           data: null,
           target_op: maxTargetOp
         } satisfies BucketDataDoc;
-        await collection.insertOne(this.serializeCompactedBucketData(bucket, [clearOp]), { session });
+        const persisted = await this.persistBucketData(bucket, [[clearOp]], context, { prepareMarkers: false });
+        newStoragePaths = persisted.storagePaths;
+        await collection.insertOne(persisted.documents[0], { session });
+        await this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, persisted.uploads, session);
 
         opCountDiff = -clearedOpCount + 1;
       },
@@ -612,6 +647,8 @@ export class MongoCompactorV3 extends MongoCompactor {
   ): Promise<number> {
     const bucket = bucketContext.key.bucket;
     let opCountDiff = 0;
+    const oldStoragePaths: string[] = [];
+    let newStoragePaths = new Set<string>();
 
     await session.withTransaction(
       async () => {
@@ -634,7 +671,8 @@ export class MongoCompactorV3 extends MongoCompactor {
               checksum: 1,
               count: 1,
               target_op: 1,
-              ops: 1
+              ops: 1,
+              storage_ref: 1
             },
             limit: 3
           }
@@ -653,6 +691,10 @@ export class MongoCompactorV3 extends MongoCompactor {
           }
 
           const isBoundaryDoc = doc._id.o == boundaryDocId.o;
+          if (doc.storage_ref) {
+            oldStoragePaths.push(doc.storage_ref.path);
+          }
+          await this.hydrateS3Documents([doc]);
           for (const op of loadBucketDataDocument(context, doc)) {
             if (!isBoundaryDoc && op.op != 'CLEAR') {
               throw new ReplicationAssertionError(
@@ -704,14 +746,15 @@ export class MongoCompactorV3 extends MongoCompactor {
           data: null,
           target_op: maxTargetOp
         } satisfies BucketDataDoc;
-        await collection.insertOne(this.serializeCompactedBucketData(bucket, [clearOp]), { session });
-
-        if (boundarySurvivors.length > 0) {
-          const survivingDocs = chunkBucketData(boundarySurvivors).map((chunk) =>
-            this.serializeCompactedBucketData(bucket, chunk)
-          );
-          await collection.insertMany(survivingDocs, { session });
-        }
+        const persisted = await this.persistBucketData(
+          bucket,
+          [[clearOp], ...chunkBucketData(boundarySurvivors)],
+          context,
+          { prepareMarkers: false }
+        );
+        newStoragePaths = persisted.storagePaths;
+        await collection.insertMany(persisted.documents, { session });
+        await this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, persisted.uploads, session);
 
         opCountDiff = -clearedOpCount + 1;
       },
@@ -724,14 +767,85 @@ export class MongoCompactorV3 extends MongoCompactor {
     return opCountDiff;
   }
 
-  /**
-   * Compaction may combine operations that were visible at different checkpoints.
-   * target_op marks the resulting document's upper bound so bucket-data reads for
-   * checkpoints inside it are invalidated.
-   */
-  private serializeCompactedBucketData(bucket: string, operations: BucketDataDoc[]): BucketDataDocumentV3 {
-    return serializeBucketData(bucket, operations, {
-      compactionTargetOp: operations[operations.length - 1].o
-    });
+  private async hydrateS3Documents(documents: BucketDataDocumentV3[]): Promise<void> {
+    if (!this.storage.objectStorage) {
+      return;
+    }
+
+    const store = new BucketDataObjectStorage(this.storage.objectStorage);
+    await Promise.all(
+      documents
+        .filter((document) => document.storage_ref)
+        .map(async (document) => {
+          document.ops = await store.retrieve(document.storage_ref!.path);
+        })
+    );
+  }
+
+  /** Publish replacement uploads and retire superseded objects in the same transaction. */
+  private async finishObjectStorageReplacement(
+    oldStoragePaths: Iterable<string>,
+    newStoragePaths: Set<string>,
+    uploads: PreparedObjectStorageUpload[],
+    session: mongo.ClientSession
+  ): Promise<void> {
+    if (!this.storage.objectStorage) {
+      return;
+    }
+    await this.objectStorageLifecycle.publishUploads(uploads, session);
+    await this.objectStorageLifecycle.retire(
+      Array.from(oldStoragePaths).filter((path) => !newStoragePaths.has(path)),
+      session
+    );
+  }
+
+  private async persistBucketData(
+    bucket: string,
+    chunks: BucketDataDoc[][],
+    context: { replicationStreamId: number; definitionId: string },
+    options: { prepareMarkers?: boolean } = {}
+  ): Promise<{ documents: BucketDataDocumentV3[]; storagePaths: Set<string>; uploads: PreparedObjectStorageUpload[] }> {
+    if (!this.storage.objectStorage) {
+      return {
+        documents: chunks.map((chunk) => serializeBucketData(bucket, chunk)),
+        storagePaths: new Set(),
+        uploads: []
+      };
+    }
+
+    const store = new BucketDataObjectStorage(this.storage.objectStorage);
+    const storagePaths = new Set<string>();
+    const documents: BucketDataDocumentV3[] = [];
+    const lifecycle = this.objectStorageLifecycle;
+    const paths = chunks.map((chunk) =>
+      lifecycle.allocatePath(context.definitionId, bucket, chunk[0].o, chunk[chunk.length - 1].o)
+    );
+    const uploads = options.prepareMarkers === false ? [] : await lifecycle.prepareUploads(paths);
+
+    // Keep object uploads bounded. Compaction may produce many chunks, and a
+    // sequential upload stream avoids unbounded memory and S3 request pressure.
+    for (const [index, chunk] of chunks.entries()) {
+      const minOp = chunk[0].o;
+      const maxOp = chunk[chunk.length - 1].o;
+      const path = paths[index];
+      const { compressedSize } = await store.store(path, chunk);
+      storagePaths.add(path);
+      documents.push({
+        _id: { b: bucket, o: maxOp },
+        min_op: minOp,
+        checksum: chunk.reduce((checksum, op) => checksum + op.checksum, 0n),
+        count: chunk.length,
+        size: chunk.reduce((size, op) => size + (op.data?.length ?? 0), 0),
+        target_op: chunk.reduce<bigint | null>(
+          (targetOp, op) =>
+            op.target_op != null && (targetOp == null || op.target_op > targetOp) ? op.target_op : targetOp,
+          null
+        ),
+        has_clear_op: chunk.some((op) => op.op == 'CLEAR') || undefined,
+        storage_ref: { path, compressed_size: compressedSize }
+      });
+    }
+
+    return { documents, storagePaths, uploads };
   }
 }

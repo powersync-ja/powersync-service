@@ -10,6 +10,7 @@ import { currentBucketKey, MAX_ROW_SIZE } from '../MongoBucketBatchShared.js';
 import { MongoIdSequence } from '../MongoIdSequence.js';
 import type { VersionedPowerSyncMongo } from '../db.js';
 import { TaggedBucketParameterDocument } from '../models.js';
+import { ObjectStorage } from '../v3/object-storage/ObjectStorage.js';
 import { BucketDataDoc, BucketKey } from './BucketDataDoc.js';
 import { SourceRecordBucketState, SourceRecordLookupState } from './SourceRecordStore.js';
 
@@ -60,6 +61,8 @@ export interface UpsertCurrentDataOptions {
 
 export interface PersistedBatchOptions {
   logger?: Logger;
+  objectStorage?: ObjectStorage;
+  inlineThresholdBytes?: number;
 }
 
 /**
@@ -73,6 +76,9 @@ export abstract class PersistedBatch {
   bucketData: BucketDataDoc[] = [];
   bucketParameters: TaggedBucketParameterDocument[] = [];
   bucketStates: Map<string, BucketStateUpdate> = new Map();
+
+  protected readonly objectStorage?: ObjectStorage;
+  protected readonly inlineThresholdBytes: number = 256;
 
   /**
    * For debug logging only.
@@ -93,6 +99,10 @@ export abstract class PersistedBatch {
   ) {
     this.currentSize = writtenSize;
     this.logger = options?.logger ?? defaultLogger;
+    this.objectStorage = options?.objectStorage;
+    if (options?.inlineThresholdBytes != null) {
+      this.inlineThresholdBytes = options.inlineThresholdBytes;
+    }
   }
 
   saveBucketData(options: SaveBucketDataOptions) {
