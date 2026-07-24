@@ -173,7 +173,10 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
   resolveTables(options: ResolveTablesOptions): Promise<ResolveTablesResult>;
 
   /**
-   * Queue a custom write checkpoint to be persisted after operations are flushed.
+   * Queue a custom checkpoint request to be persisted after operations are
+   * flushed. Set `checkpoint_requested_at` when the custom checkpoint came from
+   * a client checkpoint request and should be cleaned up by request-retention
+   * compaction; omit it for persistent source-owned checkpoints.
    */
   addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void;
 }

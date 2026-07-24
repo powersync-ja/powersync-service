@@ -70,6 +70,66 @@ describe('Config', () => {
     expect(config.api_parameters.max_buckets_per_connection).toBe(1);
   });
 
+  it('should resolve checkpoint request retention config', {}, async () => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: mongodb
+      api:
+        parameters:
+          checkpoint_request_retention_minutes: 15
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    const config = await collector.collectConfig({
+      config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
+    });
+
+    expect(config.api_parameters.checkpoint_request_retention_minutes).toBe(15);
+  });
+
+  it('should default checkpoint request retention to 60 minutes', {}, async () => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: mongodb
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    const config = await collector.collectConfig({
+      config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
+    });
+
+    expect(config.api_parameters.checkpoint_request_retention_minutes).toBe(60);
+  });
+
+  it.each([0, -1, 1.5])('should reject checkpoint request retention of %s minutes', async (retentionMinutes) => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: mongodb
+      api:
+        parameters:
+          checkpoint_request_retention_minutes: ${retentionMinutes}
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    await expect(
+      collector.collectConfig({
+        config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
+      })
+    ).rejects.toThrow('api.parameters.checkpoint_request_retention_minutes must be a positive integer');
+  });
+
   it('should resolve checksum cache TTL from API parameters', async () => {
     const yamlConfig = /* yaml */ `
       # PowerSync config

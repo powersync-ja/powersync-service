@@ -82,9 +82,9 @@ export class SyncConfigFromYaml {
   }
 
   #parseConfig(parsed: Document): SyncConfig {
-    using rootState = documentState(parsed, (e) => this.#errors.push(e)).requireMap('Sync Config must be a YAML map.');
+    const root = documentState(parsed, (e) => this.#errors.push(e)).requireMap('Sync Config must be a YAML map.');
 
-    if (parsed.errors.length > 0 || rootState == null) {
+    if (parsed.errors.length > 0 || root == null) {
       this.#errors.push(...parsed.errors.map((e) => new YamlError(e)));
       this.#throwOnErrorIfRequested();
 
@@ -92,6 +92,8 @@ export class SyncConfigFromYaml {
       // structure further.
       return new SqlSyncRules(this.yaml);
     }
+
+    using rootState = root;
 
     using declaredOptions = rootState.get('config')?.requireMap();
     let compatibility: CompatibilityContext;

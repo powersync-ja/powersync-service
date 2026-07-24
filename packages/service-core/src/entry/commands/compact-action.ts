@@ -21,6 +21,7 @@ const HEAP_LIMIT = v8.getHeapStatistics().heap_size_limit;
  * Limit to 1024MB overall.
  */
 const COMPACT_MEMORY_LIMIT_MB = Math.min(HEAP_LIMIT / 1024 / 1024 - 128, 1024);
+const MINUTE_MS = 60 * 1000;
 
 export function registerCompactAction(program: Command) {
   const compactCommand = program
@@ -82,6 +83,9 @@ export function registerCompactAction(program: Command) {
       // Start the storage engine in order to create the appropriate BucketStorage
       await serviceContext.lifeCycleEngine.start();
       const bucketStorage = serviceContext.storageEngine.activeBucketStorage;
+      const deleteCheckpointRequestsBefore = new Date(
+        Date.now() - config.api_parameters.checkpoint_request_retention_minutes * MINUTE_MS
+      );
 
       const active = (await bucketStorage.getActiveSyncConfig())?.storage;
       if (active == null) {
@@ -94,12 +98,14 @@ export function registerCompactAction(program: Command) {
           memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
           compactBuckets: buckets,
           compactParameterData: compactParameters ?? false,
+          deleteCheckpointRequestsBefore,
           signal: abortController.signal
         });
       } else {
         await active.compact({
           memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
           compactParameterData: compactParameters ?? true,
+          deleteCheckpointRequestsBefore,
           signal: abortController.signal
         });
       }

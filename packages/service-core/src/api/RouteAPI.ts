@@ -73,9 +73,15 @@ export interface RouteAPI {
    *
    * The position is provided to the callback so the caller can persist its
    * write-checkpoint mapping before the source adapter forces any required
-   * source-side marker or keepalive. After the callback returns, the adapter
+   * source-side marker or keepalive. The callback returns whether storage
+   * actually needs a source marker: when `shouldAdvance` is true the adapter
    * must ensure that the replication stream will observe this position or a
-   * greater one, even when the source is otherwise idle.
+   * greater one, even when the source is otherwise idle. When it is false, the
+   * adapter may skip the source marker.
+   *
+   * Reading the head and forcing the marker happen within a single source
+   * session/connection where applicable, so the marker is causally ordered
+   * after the head that was handed to the callback.
    */
   createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T>;
 
@@ -111,4 +117,13 @@ export interface RouteAPI {
   getParseSyncRulesOptions(): ParseSyncConfigOptions;
 }
 
-export type ReplicationHeadCallback<T> = (head: string) => Promise<T>;
+export interface ReplicationHeadResult<T> {
+  response: T;
+  /**
+   * True when storage needs the source to force a later observable position.
+   * False when storage can prove no marker is needed.
+   */
+  shouldAdvance: boolean;
+}
+
+export type ReplicationHeadCallback<T> = (head: string) => Promise<ReplicationHeadResult<T>>;
