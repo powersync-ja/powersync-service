@@ -57,8 +57,7 @@ export interface MongoSyncBucketStorageContextV3 {
 
 function* walkDocumentOps(
   data: BucketDataDoc[],
-  documentOpCounts: number[],
-  documentSizes: number[]
+  documentOpCounts: number[]
 ): Generator<{ row: BucketDataDoc; docIndex: number; isLastOpInDocument: boolean }> {
   let opIndex = 0;
   for (const [docIndex, opCount] of documentOpCounts.entries()) {
@@ -619,7 +618,6 @@ export async function* getBucketDataBatchV3(
 
     const data: BucketDataDoc[] = [];
     const documentOpCounts: number[] = [];
-    const documentSizes: number[] = [];
     let sharedRemainingLimit = limit;
     let limitReached = false;
     // Buckets whose matched document contributed no rows after filtering.
@@ -643,13 +641,6 @@ export async function* getBucketDataBatchV3(
       }
     }
 
-    // Track sizes: use doc.size (the total decompressed data size stored at write
-    // time) for S3-backed docs; fall back to raw byteLength for inline docs.
-    const docSizes: number[] = rawData.map((raw, i) => {
-      const doc = docs[i];
-      return doc.storage_ref ? doc.size : raw.byteLength;
-    });
-
     for (const [i, doc] of docs.entries()) {
       const {
         rows,
@@ -666,7 +657,6 @@ export async function* getBucketDataBatchV3(
       }
       data.push(...rows);
       documentOpCounts.push(rows.length);
-      documentSizes.push(docSizes[i]);
       sharedRemainingLimit = remainingLimit;
       if (docLimitReached) {
         limitReached = true;
@@ -715,7 +705,7 @@ export async function* getBucketDataBatchV3(
     let currentChunk: utils.SyncBucketData | null = null;
     let targetOp: InternalOpId | null = null;
 
-    for (const { row, docIndex, isLastOpInDocument } of walkDocumentOps(data, documentOpCounts, documentSizes)) {
+    for (const { row, docIndex, isLastOpInDocument } of walkDocumentOps(data, documentOpCounts)) {
       const bucket = row.bucketKey.bucket;
 
       if (currentChunk == null || currentChunk.bucket != bucket || currentChunkSizeBytes >= chunkSizeLimitBytes) {
@@ -758,7 +748,7 @@ export async function* getBucketDataBatchV3(
       currentChunk.next_after = entry.op_id;
 
       if (isLastOpInDocument) {
-        currentChunkSizeBytes += documentSizes[docIndex];
+        currentChunkSizeBytes += docs[docIndex].size;
       }
     }
 
