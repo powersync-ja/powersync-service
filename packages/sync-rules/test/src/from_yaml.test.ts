@@ -80,6 +80,36 @@ streams:
 `);
   });
 
+  test('invalid key in record', () => {
+    checkErrors(`
+config:
+  edition: 3
+streams:
+  [a, b]: #error "Expected a scalar here"
+    query: SELECT * FROM users
+`);
+  });
+
+  test('invalid extra keys', () => {
+    checkErrors(`
+config:
+  edition: 3
+streams:
+  a:
+    query: SELECT * FROM users
+    illegal_option: foo #error "Unknown key 'illegal_option'."
+`);
+
+    checkErrors(`
+config:
+  edition: 3
+streams:
+  a:
+    query: SELECT * FROM users
+[a, b]: true #error "Unexpected additional key."
+`);
+  });
+
   test('priority not a number', () => {
     checkErrors(`
 config:
@@ -110,23 +140,29 @@ interface ExpectedError {
 
 const errorCommentPattern = /#error\s+"((?:[^"\\]|\\.)*)"/;
 
-function parseExpectedErrors(source: string): ExpectedError[] {
-  return source
+function parseExpectedErrors(source: string): { withoutComments: string; errors: ExpectedError[] } {
+  const yamlLines: string[] = [];
+
+  const errors = source
     .split('\n')
     .map((lineText, index): ExpectedError | null => {
       const match = errorCommentPattern.exec(lineText);
       if (match == null) {
+        yamlLines.push(lineText);
         return null;
       }
 
+      yamlLines.push(lineText.substring(0, match.index));
       return { line: index + 1, message: JSON.parse(`"${match[1]}"`) };
     })
     .filter((entry) => entry != null);
+
+  return { errors, withoutComments: yamlLines.join('\n') };
 }
 
 function checkErrors(yaml: string) {
-  const { errors } = SqlSyncRules.fromYaml(yaml, { throwOnError: false, defaultSchema: 'schema' });
-  const expectedErrors = parseExpectedErrors(yaml);
+  const { errors: expectedErrors, withoutComments: transformedYaml } = parseExpectedErrors(yaml);
+  const { errors } = SqlSyncRules.fromYaml(transformedYaml, { throwOnError: false, defaultSchema: 'schema' });
 
   // Use our own LineCounter to translate the character offsets on errors back to line numbers, so that we can match
   // them up against the #error comments (which are only aware of line numbers).
