@@ -7,6 +7,7 @@ import {
   BucketParameterDocumentV3,
   BucketStateDocumentV3,
   CurrentDataDocumentV3,
+  ObjectStorageDeletionMarker,
   SourceTableDocumentV3,
   SyncConfigDefinition
 } from './models.js';
@@ -69,8 +70,8 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
     return this.db.collection<BucketDataDocumentV3>(`bucket_data_${replicationStreamId}_${definitionId}`);
   }
 
-  pendingS3Deletes(replicationStreamId: number): mongo.Collection<{ _id: string }> {
-    return this.db.collection<{ _id: string }>(`pending_s3_deletes_${replicationStreamId}`);
+  pendingObjectStorageDeletes(replicationStreamId: number): mongo.Collection<ObjectStorageDeletionMarker> {
+    return this.db.collection<ObjectStorageDeletionMarker>(`pending_object_storage_deletes_${replicationStreamId}`);
   }
 
   listBucketDataCollections(replicationStreamId: number) {

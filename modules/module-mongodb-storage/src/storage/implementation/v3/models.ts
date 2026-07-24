@@ -181,6 +181,13 @@ export interface StorageRef {
   compressed_size: number;
 }
 
+/** An S3 object that may be deleted once its grace period has elapsed. */
+export interface ObjectStorageDeletionMarker {
+  _id: bson.ObjectId;
+  path: string;
+  delete_after: Date;
+}
+
 export interface BucketDataDocumentV3 {
   _id: BucketDataKey;
   min_op: bigint;

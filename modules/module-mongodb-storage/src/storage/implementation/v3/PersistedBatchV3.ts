@@ -3,6 +3,7 @@ import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
 import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
+import { randomUUID } from 'node:crypto';
 import { mongoTableId } from '../../../utils/util.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
@@ -275,7 +276,7 @@ export class PersistedBatchV3 extends PersistedBatch {
                 }
               });
             } else {
-              const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}.bson.zstd`;
+              const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}-${randomUUID()}.bson.zstd`;
               const { compressedSize } = await store.store(path, bucketOps);
 
               inserts.push({

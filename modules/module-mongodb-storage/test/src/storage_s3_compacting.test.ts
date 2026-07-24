@@ -135,7 +135,7 @@ describe('S3 compaction (Phase 2d red tests)', () => {
     expect(compactedCount).toBeGreaterThanOrEqual(3);
 
     // The compacted_state.op_id must equal the maxOpId (checkpoint)
-    expect(bucketStateAfter!.compacted_state!.op_id).toBe(checkpoint);
+    expect(bucketStateAfter!.compacted_state!.op_id).toBe(checkpoint.checkpoint);
 
     // --- Verification 2: MongoDB docs replaced with new metadata shells ---
     const docsAfter = await collection.find({}).toArray();
@@ -144,17 +144,20 @@ describe('S3 compaction (Phase 2d red tests)', () => {
       expect(doc.ops).toBeUndefined();
     }
 
-    // --- Verification 3: S3 objects cleaned/replaced ---
-    // Old writer-generated paths should be gone from storage UNLESS they
-    // collided with a new compaction path (e.g. same minOp/maxOp after
-    // dedup). In that case the path was reused and still exists.
+    // --- Verification 3: replaced S3 objects are retained through the grace period ---
+    // Paths are globally unique, and compaction records delayed deletion markers
+    // instead of deleting objects while old readers may still be downloading them.
     const oldS3Paths = new Set(docsBefore.map((d: any) => d.storage_ref?.path).filter(Boolean));
     const afterS3Paths = new Set(docsAfter.map((d: any) => d.storage_ref?.path).filter(Boolean));
     for (const path of oldS3Paths) {
       if (!afterS3Paths.has(path)) {
-        expect(storedPaths.has(path)).toBe(false);
+        expect(storedPaths.has(path)).toBe(true);
       }
     }
+    const pendingDeletes = await db.pendingObjectStorageDeletes(bucketStorage.replicationStreamId).find({}).toArray();
+    expect(pendingDeletes.map((marker) => marker.path)).toEqual(
+      expect.arrayContaining([...oldS3Paths].filter((path) => !afterS3Paths.has(path)))
+    );
     for (const path of afterS3Paths) {
       expect(storedPaths.has(path)).toBe(true);
     }

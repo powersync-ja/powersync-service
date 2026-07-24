@@ -13,12 +13,27 @@ import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
 import { DefinitionChecksumOperations, MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { BucketDataObjectStorage } from './object-storage/BucketDataObjectStorage.js';
+import { ObjectStorageLifecycle, PreparedObjectStorageUpload } from './object-storage/ObjectStorageLifecycle.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoCompactorV3 extends MongoCompactor {
   declare protected readonly db: VersionedPowerSyncMongoV3;
   declare protected readonly storage: MongoSyncBucketStorageV3;
+
+  override async compact(): Promise<void> {
+    await super.compact();
+    if (this.storage.objectStorage) {
+      await this.objectStorageLifecycle.cleanup(this.logger);
+    }
+  }
+
+  private get objectStorageLifecycle(): ObjectStorageLifecycle {
+    if (!this.storage.objectStorage) {
+      throw new Error('Object storage is not configured');
+    }
+    return new ObjectStorageLifecycle(this.db, this.group_id, this.storage.objectStorage);
+  }
 
   public async *dirtyBucketBatches(options: {
     minBucketChanges: number;
@@ -137,8 +152,6 @@ export class MongoCompactorV3 extends MongoCompactor {
     const resolvedDefinitionId = bucketContext.key.definitionId;
     const collection = this.db.bucketData(this.group_id, resolvedDefinitionId);
     const context = { replicationStreamId: this.group_id, definitionId: resolvedDefinitionId };
-
-    await this.retryPendingS3Deletes();
 
     const lowerBound = bucketContext.minId;
     let upperBound = bucketContext.maxId;
@@ -319,11 +332,11 @@ export class MongoCompactorV3 extends MongoCompactor {
       // --- Rechunk survivors into new V3 documents ---
       const chunks = chunkBucketData(surviving);
       const oldStoragePaths = processableDocs.flatMap((doc) => (doc.storage_ref ? [doc.storage_ref.path] : []));
-      const { documents: newDocs, storagePaths: newStoragePaths } = await this.persistBucketData(
-        bucket,
-        chunks,
-        context
-      );
+      const {
+        documents: newDocs,
+        storagePaths: newStoragePaths,
+        uploads
+      } = await this.persistBucketData(bucket, chunks, context);
 
       if (lastNotPut == null) {
         clearBoundaryDocId = null;
@@ -380,6 +393,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             if (newDocs.length > 0) {
               await bucketContext.collection.insertMany(newDocs as unknown as BucketDataDocumentGeneric[], { session });
             }
+            await this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, uploads, session);
           },
           {
             writeConcern: { w: 'majority' },
@@ -389,8 +403,6 @@ export class MongoCompactorV3 extends MongoCompactor {
       } finally {
         await session.endSession();
       }
-
-      await this.deleteS3Objects(oldStoragePaths.filter((path) => !newStoragePaths.has(path)));
 
       // --- Accumulate bucket state ---
       for (const chunk of chunks) {
@@ -609,9 +621,10 @@ export class MongoCompactorV3 extends MongoCompactor {
           data: null,
           target_op: maxTargetOp
         } satisfies BucketDataDoc;
-        const persisted = await this.persistBucketData(bucket, [[clearOp]], context);
+        const persisted = await this.persistBucketData(bucket, [[clearOp]], context, { prepareMarkers: false });
         newStoragePaths = persisted.storagePaths;
         await collection.insertOne(persisted.documents[0], { session });
+        await this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, persisted.uploads, session);
 
         opCountDiff = -clearedOpCount + 1;
       },
@@ -620,8 +633,6 @@ export class MongoCompactorV3 extends MongoCompactor {
         readConcern: { level: 'snapshot' }
       }
     );
-
-    await this.deleteS3Objects(oldStoragePaths.filter((path) => !newStoragePaths.has(path)));
 
     return { done, opCountDiff };
   }
@@ -738,10 +749,12 @@ export class MongoCompactorV3 extends MongoCompactor {
         const persisted = await this.persistBucketData(
           bucket,
           [[clearOp], ...chunkBucketData(boundarySurvivors)],
-          context
+          context,
+          { prepareMarkers: false }
         );
         newStoragePaths = persisted.storagePaths;
         await collection.insertMany(persisted.documents, { session });
+        await this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, persisted.uploads, session);
 
         opCountDiff = -clearedOpCount + 1;
       },
@@ -750,8 +763,6 @@ export class MongoCompactorV3 extends MongoCompactor {
         readConcern: { level: 'snapshot' }
       }
     );
-
-    await this.deleteS3Objects(oldStoragePaths.filter((path) => !newStoragePaths.has(path)));
 
     return opCountDiff;
   }
@@ -771,26 +782,52 @@ export class MongoCompactorV3 extends MongoCompactor {
     );
   }
 
+  /** Publish replacement uploads and retire superseded objects in the same transaction. */
+  private async finishObjectStorageReplacement(
+    oldStoragePaths: Iterable<string>,
+    newStoragePaths: Set<string>,
+    uploads: PreparedObjectStorageUpload[],
+    session: mongo.ClientSession
+  ): Promise<void> {
+    if (!this.storage.objectStorage) {
+      return;
+    }
+    await this.objectStorageLifecycle.publishUploads(uploads, session);
+    await this.objectStorageLifecycle.retire(
+      Array.from(oldStoragePaths).filter((path) => !newStoragePaths.has(path)),
+      session
+    );
+  }
+
   private async persistBucketData(
     bucket: string,
     chunks: BucketDataDoc[][],
-    context: { replicationStreamId: number; definitionId: string }
-  ): Promise<{ documents: BucketDataDocumentV3[]; storagePaths: Set<string> }> {
+    context: { replicationStreamId: number; definitionId: string },
+    options: { prepareMarkers?: boolean } = {}
+  ): Promise<{ documents: BucketDataDocumentV3[]; storagePaths: Set<string>; uploads: PreparedObjectStorageUpload[] }> {
     if (!this.storage.objectStorage) {
       return {
         documents: chunks.map((chunk) => serializeBucketData(bucket, chunk)),
-        storagePaths: new Set()
+        storagePaths: new Set(),
+        uploads: []
       };
     }
 
     const store = new BucketDataObjectStorage(this.storage.objectStorage);
     const storagePaths = new Set<string>();
     const documents: BucketDataDocumentV3[] = [];
+    const lifecycle = this.objectStorageLifecycle;
+    const paths = chunks.map((chunk) =>
+      lifecycle.allocatePath(context.definitionId, bucket, chunk[0].o, chunk[chunk.length - 1].o)
+    );
+    const uploads = options.prepareMarkers === false ? [] : await lifecycle.prepareUploads(paths);
 
-    for (const chunk of chunks) {
+    // Keep object uploads bounded. Compaction may produce many chunks, and a
+    // sequential upload stream avoids unbounded memory and S3 request pressure.
+    for (const [index, chunk] of chunks.entries()) {
       const minOp = chunk[0].o;
       const maxOp = chunk[chunk.length - 1].o;
-      const path = `bucket-data/${context.replicationStreamId}/${context.definitionId}/${bucket}/${minOp}-${maxOp}.bson.zstd`;
+      const path = paths[index];
       const { compressedSize } = await store.store(path, chunk);
       storagePaths.add(path);
       documents.push({
@@ -809,46 +846,6 @@ export class MongoCompactorV3 extends MongoCompactor {
       });
     }
 
-    return { documents, storagePaths };
-  }
-
-  private async deleteS3Objects(paths: string[]): Promise<void> {
-    if (!this.storage.objectStorage || paths.length == 0) {
-      return;
-    }
-
-    const pendingDeletes = this.db.pendingS3Deletes(this.storage.replicationStreamId);
-    await pendingDeletes
-      .insertMany(
-        paths.map((_id) => ({ _id })),
-        { ordered: false }
-      )
-      .catch(() => undefined);
-
-    try {
-      await this.storage.objectStorage.delete(paths);
-      await pendingDeletes.deleteMany({ _id: { $in: paths } });
-    } catch (error) {
-      this.logger.warn(`Failed to delete S3 objects; will retry during the next compaction`, error);
-    }
-  }
-
-  private async retryPendingS3Deletes(): Promise<void> {
-    if (!this.storage.objectStorage) {
-      return;
-    }
-
-    const pendingDeletes = this.db.pendingS3Deletes(this.storage.replicationStreamId);
-    const paths = (await pendingDeletes.find({}).toArray()).map((entry) => entry._id);
-    if (paths.length == 0) {
-      return;
-    }
-
-    try {
-      await this.storage.objectStorage.delete(paths);
-      await pendingDeletes.deleteMany({ _id: { $in: paths } });
-    } catch (error) {
-      this.logger.warn(`Failed to retry pending S3 object deletes`, error);
-    }
+    return { documents, storagePaths, uploads };
   }
 }
