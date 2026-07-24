@@ -1,19 +1,17 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { addChecksums, storage, utils } from '@powersync/service-core';
-import * as bson from 'bson';
-import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
+import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
-import { BucketDataDocumentGeneric, SingleBucketStore } from '../common/SingleBucketStore.js';
-import { BucketStateDocumentBase } from '../models.js';
+import { BucketDataDocumentGeneric } from '../common/SingleBucketStore.js';
+import { BucketDataKey, BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { cacheKey } from '../OperationBatch.js';
 import { loadBucketDataDocument, serializeBucketData } from './bucket-format.js';
 import { chunkBucketData } from './chunking.js';
 import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
-import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
+import { DefinitionChecksumOperations, MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
-import { BucketDataObjectStorage } from './object-storage/BucketDataObjectStorage.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
@@ -59,10 +57,18 @@ export class MongoCompactorV3 extends MongoCompactor {
       });
   }
 
+  /**
+   * The compactor operates on persisted definition ids only - never on parsed sources.
+   * This narrowed view makes the source-resolving checksum methods unreachable here.
+   */
+  private get definitionChecksums(): DefinitionChecksumOperations {
+    return this.storage.checksums as MongoChecksumsV3;
+  }
+
   protected async computeChecksumsForBuckets(
     buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
   ): Promise<storage.PartialChecksumMap> {
-    return (this.storage.checksums as MongoChecksumsV3).computePartialChecksumsDirectByDefinition(
+    return this.definitionChecksums.computePartialChecksumsDirectByDefinition(
       buckets.map(({ bucket, definitionId }) => {
         if (definitionId == null) {
           throw new ServiceAssertionError(`Missing definitionId for bucket checksum update on bucket ${bucket}`);
@@ -94,11 +100,11 @@ export class MongoCompactorV3 extends MongoCompactor {
   protected async getBucketDataContext(
     bucket: string,
     definitionId: BucketDefinitionId | null
-  ): Promise<SingleBucketStore | null> {
+  ): Promise<SingleBucketStoreV3 | null> {
     let resolvedDefinitionId = definitionId;
 
     if (resolvedDefinitionId == null) {
-      const allDefinitionIds = this.storage.mapping.allBucketDefinitionIds();
+      const allDefinitionIds = this.storage.storageIds.bucketDefinitionIds;
       if (allDefinitionIds.length > 0) {
         const potentialIds = allDefinitionIds.map((id) => ({ d: id, b: bucket }));
         const bucketState = await this.db.bucketState(this.group_id).findOne({
@@ -131,9 +137,6 @@ export class MongoCompactorV3 extends MongoCompactor {
     const collection = this.db.bucketData(this.group_id, resolvedDefinitionId);
     const context = { replicationStreamId: this.group_id, definitionId: resolvedDefinitionId };
 
-    // Retry any S3 deletes left from a previous crash before starting this compaction run
-    await this.retryPendingS3Deletes();
-
     const lowerBound = bucketContext.minId;
     let upperBound = bucketContext.maxId;
 
@@ -143,6 +146,7 @@ export class MongoCompactorV3 extends MongoCompactor {
 
     let lastNotPut: bigint | null = null;
     let opsSincePut = 0;
+    let clearBoundaryDocId: BucketDataKey | null = null;
 
     const seen = new Map<string, bigint>();
     let trackingSize = 0;
@@ -158,8 +162,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             _id: {
               $gte: lowerBound,
               $lt: upperBound
-            },
-            '_id.o': { $lt: upperBound.o }
+            }
           }
         },
         { $sort: { _id: -1 } },
@@ -173,7 +176,6 @@ export class MongoCompactorV3 extends MongoCompactor {
             size: 1,
             target_op: 1,
             ops: 1,
-            storage_ref: 1,
             bsonSize: { $bsonSize: '$$ROOT' }
           }
         }
@@ -195,12 +197,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       let batchCutIndex = rawBatch.length;
 
       for (let i = 0; i < rawBatch.length; i++) {
-        const doc = rawBatch[i];
-        let docSize = Number(doc.bsonSize);
-        if (doc.storage_ref) {
-          docSize += doc.size ?? 0;
-        }
-        cumulativeBytes += docSize;
+        cumulativeBytes += Number(rawBatch[i].bsonSize);
         if (cumulativeBytes > this.moveBatchByteLimit && i > 0) {
           // Byte limit exceeded; cut batch at current index. Always include
           // at least one document (i > 0 guard) to guarantee forward progress.
@@ -210,19 +207,6 @@ export class MongoCompactorV3 extends MongoCompactor {
       }
 
       const batchDocs = rawBatch.slice(0, batchCutIndex);
-
-      // Pre-fetch S3 objects for all S3-backed docs in this batch
-      if (this.storage.objectStorage) {
-        const store = new BucketDataObjectStorage(this.storage.objectStorage);
-        const s3Docs = batchDocs.filter((d: BucketDataDocumentV3) => d.storage_ref);
-        if (s3Docs.length > 0) {
-          await Promise.all(
-            s3Docs.map(async (doc: any) => {
-              doc.ops = await store.retrieve(doc.storage_ref.path);
-            })
-          );
-        }
-      }
 
       // --- Decode documents into individual ops ---
       // Processable: document has at least one op <= maxOpId.
@@ -328,73 +312,18 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       // --- Rechunk survivors into new V3 documents ---
       const chunks = chunkBucketData(surviving);
+      const newDocs = chunks.map((chunk) => serializeBucketData(bucket, chunk));
 
-      // Track old S3 refs for cleanup
-      const oldStorageRefs: string[] = processableDocs
-        .filter((d: BucketDataDocumentV3) => d.storage_ref)
-        .map((d: BucketDataDocumentV3) => d.storage_ref!.path);
-
-      const newStoragePaths = new Set<string>();
-      let newDocs: BucketDataDocumentV3[] = [];
-
-      if (!this.storage.objectStorage) {
-        newDocs = chunks.map((chunk) => serializeBucketData(bucket, chunk));
+      if (lastNotPut == null) {
+        clearBoundaryDocId = null;
       } else {
-        const store = new BucketDataObjectStorage(this.storage.objectStorage);
-        for (const chunk of chunks) {
-          const minOp = chunk[0].o;
-          const maxOp = chunk[chunk.length - 1].o;
-
-          let totalChecksum = 0n;
-          let totalSize = 0;
-          let maxTargetOp: bigint | null = null;
-          let hasClearOp = false;
-          const bucketOps = chunk.map((op) => {
-            totalChecksum += op.checksum;
-            totalSize += op.data?.length ?? 0;
-            if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
-              maxTargetOp = op.target_op;
-            }
-            if (op.op === 'CLEAR') {
-              hasClearOp = true;
-            }
-            return {
-              o: op.o,
-              op: op.op,
-              source_table: op.source_table,
-              source_key: op.source_key,
-              table: op.table,
-              row_id: op.row_id,
-              checksum: op.checksum,
-              data: op.data
-            };
-          });
-
-          const bsonSize = Buffer.from(bson.serialize({ ops: bucketOps })).byteLength;
-
-          if (bsonSize <= this.storage.inlineThresholdBytes) {
-            newDocs.push(serializeBucketData(bucket, chunk));
-          } else {
-            const path = `bucket-data/${this.group_id}/${resolvedDefinitionId}/${bucket}/${minOp}-${maxOp}.bson.zstd`;
-            const { compressedSize } = await store.store(path, bucketOps);
-            newStoragePaths.add(path);
-
-            newDocs.push({
-              _id: { b: bucket, o: maxOp },
-              min_op: minOp,
-              checksum: totalChecksum,
-              count: chunk.length,
-              size: totalSize,
-              target_op: maxTargetOp,
-              has_clear_op: hasClearOp || undefined,
-              storage_ref: {
-                path,
-                compressed_size: compressedSize
-              }
-            });
-          }
+        const boundaryOp = lastNotPut;
+        const boundaryDoc = newDocs.find((doc) => doc.min_op <= boundaryOp && doc._id.o >= boundaryOp);
+        if (boundaryDoc != null) {
+          clearBoundaryDocId = boundaryDoc._id;
         }
       }
+
       // --- Commit: scoped delete + insert in transaction ---
       const session = this.db.client.startSession();
       try {
@@ -406,7 +335,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             const verification = await bucketContext.collection
               .aggregate<{ docCount: number; checksumSum: bigint | null; opCountSum: number | null }>(
                 [
-                  { $match: { _id: { $in: idsToDelete } as any } },
+                  { $match: { _id: { $in: idsToDelete } } },
                   {
                     $group: {
                       _id: null,
@@ -450,17 +379,6 @@ export class MongoCompactorV3 extends MongoCompactor {
         await session.endSession();
       }
 
-      // After commit: clean up old S3 objects via the pending delete queue.
-      // Persist pending deletes inside the transaction (so a crash after commit
-      // but before S3 delete cannot orphan objects). Then delete from S3 and
-      // remove from the queue outside the transaction.
-      if (this.storage.objectStorage && oldStorageRefs.length > 0) {
-        const toDelete = oldStorageRefs.filter((p) => !newStoragePaths.has(p));
-        if (toDelete.length > 0) {
-          await this.deleteWithRetryQueue(bucketContext.collection, toDelete);
-        }
-      }
-
       // --- Accumulate bucket state ---
       for (const chunk of chunks) {
         for (const op of chunk) {
@@ -491,10 +409,11 @@ export class MongoCompactorV3 extends MongoCompactor {
 
     // --- Clear: collapse leading MOVE/REMOVE/CLEAR sequence ---
     if (lastNotPut != null && opsSincePut >= 2) {
-      const cleared = await this.clearBucketLeading(lastNotPut, bucketContext, collection, context);
-      if (cleared > 0) {
-        totalOpCount = totalOpCount - cleared + 1; // cleared ops replaced by one CLEAR op
+      if (clearBoundaryDocId == null) {
+        throw new ReplicationAssertionError(`Missing CLEAR boundary document for bucket ${bucket}`);
       }
+
+      totalOpCount += await this.clearBucketLeading(lastNotPut, clearBoundaryDocId, bucketContext, collection, context);
     }
 
     // --- Finalize: update bucket checksums and state ---
@@ -519,99 +438,228 @@ export class MongoCompactorV3 extends MongoCompactor {
 
   /**
    * Collapse the leading sequence of MOVE/REMOVE/CLEAR ops at the start
-   * of the bucket into a single CLEAR op. Reads forward (ascending) from
-   * minId up to lastNotPut, then replaces all cleared documents in one
-   * atomic transaction.
+   * of the bucket into a single CLEAR op. Reads whole clearable documents
+   * before the known boundary document, then splits that boundary document
+   * if it contains ops on both sides of lastNotPut.
    *
-   * Returns the number of ops collapsed (for bucket state adjustment).
+   * Returns the op count diff after replacing cleared ops with CLEAR ops.
    */
   private async clearBucketLeading(
     lastNotPut: bigint,
-    bucketContext: SingleBucketStore,
+    boundaryDocId: BucketDataKey,
+    bucketContext: SingleBucketStoreV3,
+    collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
+    context: { replicationStreamId: number; definitionId: string }
+  ): Promise<number> {
+    let opCountDiff = 0;
+    const session = this.db.client.startSession();
+    try {
+      let done = false;
+      // First step is to clear full chunks that contain only CLEAR/MOVE/REMOVE operations.
+      // There can be many of them, so we do one batch at a time.
+      while (!done) {
+        const batch = await this.clearLeadingFullDocuments(
+          session,
+          lastNotPut,
+          boundaryDocId,
+          bucketContext,
+          collection,
+          context
+        );
+        done = batch.done;
+        opCountDiff += batch.opCountDiff;
+      }
+
+      // The final step is to process the "boundary" document: It may contain some CLEAR/MOVE/REMOVE operations,
+      // potentially followed by PUT operations. This is only a single document, so no need for batching.
+      opCountDiff += await this.clearBoundaryDocument(
+        session,
+        lastNotPut,
+        boundaryDocId,
+        bucketContext,
+        collection,
+        context
+      );
+    } finally {
+      await session.endSession();
+    }
+
+    return opCountDiff;
+  }
+
+  private async clearLeadingFullDocuments(
+    session: mongo.ClientSession,
+    lastNotPut: bigint,
+    boundaryDocId: BucketDataKey,
+    bucketContext: SingleBucketStoreV3,
+    collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
+    context: { replicationStreamId: number; definitionId: string }
+  ): Promise<{ done: boolean; opCountDiff: number }> {
+    const bucket = bucketContext.key.bucket;
+    let done = false;
+    let opCountDiff = 0;
+
+    this.signal?.throwIfAborted();
+    await session.withTransaction(
+      async () => {
+        const query = collection.find(
+          {
+            _id: {
+              $gte: bucketContext.minId,
+              $lt: boundaryDocId
+            }
+          },
+          {
+            session,
+            sort: { _id: 1 },
+            projection: {
+              _id: 1,
+              min_op: 1,
+              checksum: 1,
+              count: 1,
+              target_op: 1,
+              ops: 1
+            },
+            limit: this.clearBatchLimit
+          }
+        );
+
+        let combinedChecksum = 0;
+        let clearedOpCount = 0;
+        let maxTargetOp: bigint | null = null;
+        let lastDocId: BucketDataKey | null = null;
+        let clearOpCount = 0;
+        let gotNonClearOp = false;
+
+        for await (const doc of query.stream()) {
+          if (doc.min_op > lastNotPut) {
+            throw new ReplicationAssertionError(
+              `Unexpected document before CLEAR boundary with min_op ${doc.min_op} > ${lastNotPut} in bucket ${bucket}`
+            );
+          }
+
+          lastDocId = doc._id;
+          for (const op of loadBucketDataDocument(context, doc)) {
+            if (op.o > lastNotPut) {
+              throw new ReplicationAssertionError(
+                `Unexpected op ${op.o} after CLEAR boundary ${lastNotPut} in bucket ${bucket}`
+              );
+            }
+            if (op.op == 'PUT') {
+              throw new ReplicationAssertionError(`Unexpected PUT at op ${op.o} in CLEAR region for bucket ${bucket}`);
+            }
+
+            if (op.op == 'CLEAR') {
+              clearOpCount++;
+              if (clearOpCount > 1) {
+                throw new ReplicationAssertionError(`Unexpected multiple CLEAR operations in bucket ${bucket}`);
+              }
+            } else {
+              gotNonClearOp = true;
+            }
+            combinedChecksum = addChecksums(combinedChecksum, Number(op.checksum));
+            clearedOpCount++;
+            if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
+              maxTargetOp = op.target_op;
+            }
+          }
+        }
+
+        if (!gotNonClearOp) {
+          done = true;
+          return;
+        }
+
+        this.logger.info(`Flushing CLEAR for ${clearedOpCount} ops at ${lastDocId?.o}`);
+        await collection.deleteMany(
+          {
+            _id: {
+              $gte: bucketContext.minId,
+              $lte: lastDocId!
+            }
+          },
+          { session }
+        );
+
+        const clearOp = {
+          bucketKey: { ...context, bucket },
+          o: lastDocId!.o,
+          op: 'CLEAR' as const,
+          checksum: BigInt(combinedChecksum),
+          data: null,
+          target_op: maxTargetOp
+        } satisfies BucketDataDoc;
+        await collection.insertOne(serializeBucketData(bucket, [clearOp]), { session });
+
+        opCountDiff = -clearedOpCount + 1;
+      },
+      {
+        writeConcern: { w: 'majority' },
+        readConcern: { level: 'snapshot' }
+      }
+    );
+
+    return { done, opCountDiff };
+  }
+
+  private async clearBoundaryDocument(
+    session: mongo.ClientSession,
+    lastNotPut: bigint,
+    boundaryDocId: BucketDataKey,
+    bucketContext: SingleBucketStoreV3,
     collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
     context: { replicationStreamId: number; definitionId: string }
   ): Promise<number> {
     const bucket = bucketContext.key.bucket;
-    let highestSeenOp = 0n;
+    let opCountDiff = 0;
 
-    const idsToDelete: BucketDataDocumentV3['_id'][] = [];
-    let combinedChecksum = 0;
-    let clearedOpCount = 0;
-    let maxTargetOp: bigint | null = null;
-    const boundarySurvivors: BucketDataDoc[] = [];
-
-    let expectedDocCount = 0;
-    let expectedChecksum = 0;
-    let expectedOpCount = 0;
-
-    // --- Read: paginate ascending, collect docs to delete ---
-    const oldRefs: string[] = [];
-    while (true) {
-      this.signal?.throwIfAborted();
-
-      const pipeline: mongo.Document[] = [
-        {
-          $match: {
-            '_id.b': bucket,
+    await session.withTransaction(
+      async () => {
+        const query = collection.find(
+          {
+            // This is a range query, but should only ever return two documents:
+            // 1. The CLEAR op from the previous clearLeadingFullDocuments.
+            // 2. The boundary document.
             _id: {
-              $gt: { b: bucket, o: highestSeenOp }
+              $gte: bucketContext.minId,
+              $lte: boundaryDocId
             }
+          },
+          {
+            session,
+            sort: { _id: 1 },
+            projection: {
+              _id: 1,
+              min_op: 1,
+              checksum: 1,
+              count: 1,
+              target_op: 1,
+              ops: 1
+            },
+            limit: 3
           }
-        },
-        { $sort: { _id: 1 } },
-        { $limit: this.clearBatchLimit },
-        {
-          $project: {
-            _id: 1,
-            min_op: 1,
-            checksum: 1,
-            count: 1,
-            target_op: 1,
-            ops: 1,
-            storage_ref: 1
+        );
+
+        let docsRead = 0;
+        let combinedChecksum = 0;
+        let clearedOpCount = 0;
+        let maxTargetOp: bigint | null = null;
+        const boundarySurvivors: BucketDataDoc[] = [];
+
+        for await (const doc of query.stream()) {
+          docsRead++;
+          if (docsRead > 2) {
+            throw new ReplicationAssertionError(`Unexpected extra document before CLEAR boundary in bucket ${bucket}`);
           }
-        }
-      ];
 
-      const rawBatch = await collection.aggregate(pipeline).toArray();
+          const isBoundaryDoc = doc._id.o == boundaryDocId.o;
+          for (const op of loadBucketDataDocument(context, doc)) {
+            if (!isBoundaryDoc && op.op != 'CLEAR') {
+              throw new ReplicationAssertionError(
+                `Unexpected ${op.op} operation before CLEAR boundary in bucket ${bucket}`
+              );
+            }
 
-      if (rawBatch.length == 0) {
-        break;
-      }
-
-      // Pre-fetch S3 objects for S3-backed docs
-      if (this.storage.objectStorage) {
-        const store = new BucketDataObjectStorage(this.storage.objectStorage);
-        const s3Docs = rawBatch.filter((d: any) => d.storage_ref?.path);
-        if (s3Docs.length > 0) {
-          await Promise.all(
-            s3Docs.map(async (doc: any) => {
-              doc.ops = await store.retrieve(doc.storage_ref.path);
-            })
-          );
-        }
-      }
-
-      let boundaryFound = false;
-
-      for (const doc of rawBatch) {
-        if (doc.min_op > lastNotPut) {
-          boundaryFound = true;
-          break;
-        }
-
-        if (doc._id.o > lastNotPut) {
-          // Boundary inside this document: split
-          boundaryFound = true;
-          idsToDelete.push(doc._id);
-          if (doc.storage_ref?.path) {
-            oldRefs.push(doc.storage_ref.path);
-          }
-          expectedDocCount++;
-          expectedChecksum = addChecksums(expectedChecksum, Number(doc.checksum));
-          expectedOpCount += doc.count;
-
-          for (const op of loadBucketDataDocument(context, doc as unknown as BucketDataDocumentV3)) {
             if (op.o <= lastNotPut) {
               if (op.op == 'PUT') {
                 throw new ReplicationAssertionError(
@@ -623,285 +671,54 @@ export class MongoCompactorV3 extends MongoCompactor {
               if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
                 maxTargetOp = op.target_op;
               }
-            } else {
+            } else if (isBoundaryDoc) {
               boundarySurvivors.push(op);
-            }
-          }
-          break;
-        } else {
-          // Entire doc is in CLEAR region
-          idsToDelete.push(doc._id);
-          if (doc.storage_ref?.path) {
-            oldRefs.push(doc.storage_ref.path);
-          }
-          expectedDocCount++;
-          expectedChecksum = addChecksums(expectedChecksum, Number(doc.checksum));
-          expectedOpCount += doc.count;
-
-          for (const op of loadBucketDataDocument(context, doc as unknown as BucketDataDocumentV3)) {
-            if (op.op == 'PUT') {
-              throw new ReplicationAssertionError(`Unexpected PUT at op ${op.o} in CLEAR region for bucket ${bucket}`);
-            }
-            combinedChecksum = addChecksums(combinedChecksum, Number(op.checksum));
-            clearedOpCount++;
-            if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
-              maxTargetOp = op.target_op;
+            } else {
+              throw new ReplicationAssertionError(
+                `Unexpected op ${op.o} after CLEAR boundary ${lastNotPut} in bucket ${bucket}`
+              );
             }
           }
         }
-      }
 
-      highestSeenOp = (rawBatch[rawBatch.length - 1]._id as BucketDataDocumentV3['_id']).o;
+        if (clearedOpCount == 0) {
+          throw new Error(`CLEAR boundary document not found for bucket ${bucket}`);
+        }
 
-      if (boundaryFound) {
-        break;
-      }
-
-      if (rawBatch.length < this.clearBatchLimit) {
-        break;
-      }
-    }
-
-    if (idsToDelete.length == 0) {
-      return 0;
-    }
-
-    this.logger.info(`Clearing ${clearedOpCount} ops (${idsToDelete.length} docs) at ${bucket} up to ${lastNotPut}`);
-
-    // --- Build new documents (S3 upload or inline) ---
-    const newStoragePaths = new Set<string>();
-    let clearDoc: BucketDataDocumentV3;
-    let boundaryDocShells: BucketDataDocumentV3[];
-
-    if (!this.storage.objectStorage) {
-      const clearOp = {
-        bucketKey: { ...context, bucket },
-        o: lastNotPut,
-        op: 'CLEAR' as const,
-        checksum: BigInt(combinedChecksum),
-        data: null,
-        target_op: maxTargetOp
-      } satisfies BucketDataDoc;
-      clearDoc = serializeBucketData(bucket, [clearOp]);
-
-      boundaryDocShells =
-        boundarySurvivors.length > 0
-          ? chunkBucketData(boundarySurvivors).map((chunk) => serializeBucketData(bucket, chunk))
-          : [];
-    } else {
-      const store = new BucketDataObjectStorage(this.storage.objectStorage!);
-
-      // --- CLEAR doc ---
-      {
-        const clearOpData = [
+        this.logger.info(`Flushing CLEAR for ${clearedOpCount} ops at ${lastNotPut}`);
+        await collection.deleteMany(
           {
-            o: lastNotPut,
-            op: 'CLEAR' as const,
-            checksum: BigInt(combinedChecksum),
-            data: null
-          }
-        ];
-
-        const bsonSize = Buffer.from(bson.serialize({ ops: clearOpData })).byteLength;
-
-        if (bsonSize <= this.storage.inlineThresholdBytes) {
-          const clearOp = {
-            bucketKey: { ...context, bucket },
-            o: lastNotPut,
-            op: 'CLEAR' as const,
-            checksum: BigInt(combinedChecksum),
-            data: null,
-            target_op: maxTargetOp
-          } satisfies BucketDataDoc;
-          clearDoc = serializeBucketData(bucket, [clearOp]);
-        } else {
-          const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${lastNotPut}-${lastNotPut}.bson.zstd`;
-          const { compressedSize } = await store.store(path, clearOpData);
-          newStoragePaths.add(path);
-
-          clearDoc = {
-            _id: { b: bucket, o: lastNotPut },
-            min_op: lastNotPut,
-            checksum: BigInt(combinedChecksum),
-            count: 1,
-            size: 0,
-            target_op: maxTargetOp,
-            has_clear_op: true,
-            storage_ref: {
-              path,
-              compressed_size: compressedSize
+            _id: {
+              $gte: bucketContext.minId,
+              $lte: boundaryDocId
             }
-          };
+          },
+          { session }
+        );
+
+        const clearOp = {
+          bucketKey: { ...context, bucket },
+          o: lastNotPut,
+          op: 'CLEAR' as const,
+          checksum: BigInt(combinedChecksum),
+          data: null,
+          target_op: maxTargetOp
+        } satisfies BucketDataDoc;
+        await collection.insertOne(serializeBucketData(bucket, [clearOp]), { session });
+
+        if (boundarySurvivors.length > 0) {
+          const survivingDocs = chunkBucketData(boundarySurvivors).map((chunk) => serializeBucketData(bucket, chunk));
+          await collection.insertMany(survivingDocs, { session });
         }
+
+        opCountDiff = -clearedOpCount + 1;
+      },
+      {
+        writeConcern: { w: 'majority' },
+        readConcern: { level: 'snapshot' }
       }
+    );
 
-      // --- Boundary survivors: upload to S3, build metadata shells ---
-      boundaryDocShells = [];
-      if (boundarySurvivors.length > 0) {
-        const chunks = chunkBucketData(boundarySurvivors);
-        for (const chunk of chunks) {
-          const minOp = chunk[0].o;
-          const maxOp = chunk[chunk.length - 1].o;
-
-          let totalChecksum = 0n;
-          let totalSize = 0;
-          let chunkMaxTargetOp: bigint | null = null;
-          let hasClearOp = false;
-          const bucketOps = chunk.map((op) => {
-            totalChecksum += op.checksum;
-            totalSize += op.data?.length ?? 0;
-            if (op.target_op != null && (chunkMaxTargetOp == null || op.target_op > chunkMaxTargetOp)) {
-              chunkMaxTargetOp = op.target_op;
-            }
-            if (op.op === 'CLEAR') {
-              hasClearOp = true;
-            }
-            return {
-              o: op.o,
-              op: op.op,
-              source_table: op.source_table,
-              source_key: op.source_key,
-              table: op.table,
-              row_id: op.row_id,
-              checksum: op.checksum,
-              data: op.data
-            };
-          });
-
-          const bsonSize = Buffer.from(bson.serialize({ ops: bucketOps })).byteLength;
-
-          if (bsonSize <= this.storage.inlineThresholdBytes) {
-            boundaryDocShells.push(serializeBucketData(bucket, chunk));
-          } else {
-            const path = `bucket-data/${this.group_id}/${context.definitionId}/${bucket}/${minOp}-${maxOp}.bson.zstd`;
-            const { compressedSize } = await store.store(path, bucketOps);
-            newStoragePaths.add(path);
-
-            boundaryDocShells.push({
-              _id: { b: bucket, o: maxOp },
-              min_op: minOp,
-              checksum: totalChecksum,
-              count: chunk.length,
-              size: totalSize,
-              target_op: chunkMaxTargetOp,
-              has_clear_op: hasClearOp || undefined,
-              storage_ref: {
-                path,
-                compressed_size: compressedSize
-              }
-            });
-          }
-        }
-      }
-    }
-
-    // --- Write: single atomic transaction ---
-    const session = this.db.client.startSession();
-    try {
-      await session.withTransaction(
-        async () => {
-          // Verify documents haven't been modified since we read them
-          const verification = await collection
-            .aggregate<{ docCount: number; checksumSum: bigint | null; opCountSum: number | null }>(
-              [
-                { $match: { _id: { $in: idsToDelete } as any } },
-                {
-                  $group: {
-                    _id: null,
-                    docCount: { $sum: 1 },
-                    checksumSum: { $sum: '$checksum' },
-                    opCountSum: { $sum: '$count' }
-                  }
-                }
-              ],
-              { session }
-            )
-            .next();
-
-          if (
-            verification == null || // all docs deleted
-            verification.docCount !== expectedDocCount || // some docs deleted
-            (Number((verification.checksumSum ?? 0n) & 0xffffffffn) | 0) !== expectedChecksum || // docs modified
-            verification.opCountSum !== expectedOpCount // ops changed within docs
-          ) {
-            throw new Error(`Concurrent modification detected during CLEAR for bucket ${bucket}. Aborting.`);
-          }
-
-          await collection.deleteMany({ _id: { $in: idsToDelete } } as any, { session });
-
-          await collection.insertOne(clearDoc as any, { session });
-
-          if (boundaryDocShells.length > 0) {
-            await collection.insertMany(boundaryDocShells as any, { session });
-          }
-        },
-        {
-          writeConcern: { w: 'majority' },
-          readConcern: { level: 'snapshot' }
-        }
-      );
-    } finally {
-      await session.endSession();
-    }
-
-    // After commit: clean up old S3 objects via the pending delete queue
-    if (this.storage.objectStorage && oldRefs.length > 0) {
-      const toDelete = oldRefs.filter((p) => !newStoragePaths.has(p));
-      if (toDelete.length > 0) {
-        await this.deleteWithRetryQueue(collection, toDelete);
-      }
-    }
-
-    return clearedOpCount;
-  }
-
-  /**
-   * Safe S3 delete with a MongoDB-persisted retry queue. Writes pending
-   * delete entries so a crash after commit but before S3 deletion cannot
-   * orphan objects. The next compaction run retries any leftover pending deletes.
-   */
-  private async deleteWithRetryQueue(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    _collection: mongo.Collection<any>,
-    paths: string[]
-  ): Promise<void> {
-    const pendingCollection = this.db.pendingS3Deletes(this.storage.replicationStreamId);
-    const entries = paths.map((p) => ({ _id: p }));
-
-    // Use ordered: false so a duplicate path (leftover from previous crash)
-    // doesn't abort the batch.
-    await pendingCollection.insertMany(entries, { ordered: false }).catch(() => {
-      // Duplicate _id expected from retry runs; ignore silently
-    });
-
-    try {
-      await this.storage.objectStorage!.delete(paths);
-      await pendingCollection.deleteMany({ _id: { $in: paths } });
-    } catch (err) {
-      logger.warn(`Failed to delete S3 objects; will retry on next compaction: ${err}`);
-    }
-  }
-
-  /**
-   * Retry any S3 deletes left from a previous compaction run that crashed
-   * between the transaction commit and the S3 delete.
-   */
-  private async retryPendingS3Deletes(): Promise<void> {
-    if (!this.storage.objectStorage) {
-      return;
-    }
-    const pendingCollection = this.db.pendingS3Deletes(this.storage.replicationStreamId);
-    const pending = await pendingCollection.find({}).toArray();
-    if (pending.length == 0) {
-      return;
-    }
-    const paths = pending.map((p) => p._id);
-    logger.info(`Retrying ${paths.length} pending S3 deletes from previous compaction run`);
-    try {
-      await this.storage.objectStorage.delete(paths);
-      await pendingCollection.deleteMany({ _id: { $in: paths } });
-    } catch (err) {
-      logger.warn(`Failed to retry pending S3 deletes; will retry on next compaction: ${err}`);
-    }
+    return opCountDiff;
   }
 }

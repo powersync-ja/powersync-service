@@ -42,6 +42,10 @@ export class ImplicitSchemaTablePattern implements Equatable {
     return this.tablePattern.endsWith('%');
   }
 
+  get isSchemaWildcard() {
+    return this.schema?.endsWith('%') ?? false;
+  }
+
   get name() {
     if (this.isWildcard) {
       throw new Error('Cannot get name for wildcard table');
@@ -101,8 +105,22 @@ export class TablePattern extends ImplicitSchemaTablePattern {
     return this.tablePattern.substring(0, this.tablePattern.length - 1);
   }
 
+  get schemaPrefix() {
+    if (!this.isSchemaWildcard) {
+      throw new Error('Not a wildcard schema');
+    }
+    return this.schema.substring(0, this.schema.length - 1);
+  }
+
   matches(table: SourceTableRef) {
-    if (this.connectionTag != table.connectionTag || this.schema != table.schema) {
+    if (this.connectionTag != table.connectionTag) {
+      return false;
+    }
+    if (this.isSchemaWildcard) {
+      if (!table.schema.startsWith(this.schemaPrefix)) {
+        return false;
+      }
+    } else if (this.schema != table.schema) {
       return false;
     }
     if (this.isWildcard) {

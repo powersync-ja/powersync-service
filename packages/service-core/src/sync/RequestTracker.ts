@@ -15,6 +15,8 @@ export class RequestTracker {
   largeBuckets: Record<string, number> = {};
 
   private encoding: string | undefined = undefined;
+  private lastCheckpointLogOperationsSynced = 0;
+  private lastCheckpointLogDataSyncedBytes = 0;
 
   constructor(private metrics: MetricsEngine) {
     this.metrics = metrics;
@@ -68,6 +70,19 @@ export class RequestTracker {
       encoding: this.encoding
     };
   }
+
+  getIncrementalCheckpointStats(): CheckpointLogStats {
+    const operationsSynced = this.operationsSynced - this.lastCheckpointLogOperationsSynced;
+    const dataSyncedBytes = this.dataSyncedBytes - this.lastCheckpointLogDataSyncedBytes;
+
+    this.lastCheckpointLogOperationsSynced = this.operationsSynced;
+    this.lastCheckpointLogDataSyncedBytes = this.dataSyncedBytes;
+
+    return {
+      operations_synced: operationsSynced,
+      data_synced_bytes: dataSyncedBytes
+    };
+  }
 }
 
 export interface OperationCounts {
@@ -81,6 +96,11 @@ export interface OperationsSentStats {
   bucket: string;
   operations: OperationCounts;
   total: number;
+}
+
+export interface CheckpointLogStats {
+  operations_synced: number;
+  data_synced_bytes: number;
 }
 
 export function statsForBatch(batch: SyncBucketData): OperationsSentStats {

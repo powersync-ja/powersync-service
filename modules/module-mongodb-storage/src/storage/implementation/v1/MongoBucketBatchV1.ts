@@ -1,5 +1,5 @@
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { ColumnDescriptor, SourceTable, storage } from '@powersync/service-core';
+import { ColumnDescriptor, InternalOpId, SourceTable, storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { calculateCheckpointState } from '../CheckpointState.js';
@@ -9,7 +9,7 @@ import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { PersistedBatchV1 } from './PersistedBatchV1.js';
 import { SourceRecordStoreV1 } from './SourceRecordStoreV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
-import { SourceTableDocumentV1, SyncRuleDocumentV1 } from './models.js';
+import { SyncRuleDocumentV1 } from './models.js';
 
 export class MongoBucketBatchV1 extends MongoBucketBatch {
   declare readonly db: VersionedPowerSyncMongoV1;
@@ -18,9 +18,22 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   private needsActivation = true;
   private lastWaitingLogThrottled = 0;
 
+  /**
+   * The last persisted op that is not yet covered by a checkpoint, if any.
+   *
+   * Seeded from the persisted keepalive_op, so that ops persisted before a restart can still be
+   * included in the next checkpoint.
+   */
+  private persisted_op: InternalOpId | null = null;
+
   constructor(options: MongoBucketBatchOptions) {
     super(options);
+    this.persisted_op = options.keepaliveOp ?? null;
     this.store = new SourceRecordStoreV1(this.db, this.replicationStreamId);
+  }
+
+  protected override recordPersistedOp(lastOp: InternalOpId): void {
+    this.persisted_op = lastOp;
   }
 
   protected createPersistedBatch(writtenSize: number): PersistedBatch {
@@ -37,7 +50,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   }
 
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
-    const syncRules = options.syncRules ?? this.sync_rules;
+    const syncRules = options.parsedSyncConfig?.hydratedSyncConfig ?? this.sync_rules;
     const { connection_id, source } = options;
     const { schema, name, objectId, replicaIdColumns, connectionTag, sendsCompleteRows } = source;
 
@@ -49,7 +62,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
     let result: storage.ResolveTablesResult | null = null;
     await this.db.client.withSession(async (session) => {
-      const col = this.db.commonSourceTables(this.replicationStreamId);
+      const col = this.db.sourceTablesV1(this.replicationStreamId);
       const filter: any = {
         group_id: this.replicationStreamId,
         connection_id,
@@ -144,13 +157,13 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   }
 
   async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
-    const doc = (await this.db.commonSourceTables(this.replicationStreamId).findOne(
+    const doc = await this.db.sourceTablesV1(this.replicationStreamId).findOne(
       {
         group_id: this.replicationStreamId,
         _id: mongoTableId(table.id)
       },
       { session: this.session }
-    )) as SourceTableDocumentV1 | null;
+    );
     if (doc == null) {
       return null;
     }
@@ -189,6 +202,8 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
 
     await this.flush(options);
+
+    using _ = this.tracer.span('storage', 'commit');
 
     const now = new Date();
 
@@ -329,7 +344,6 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       await this.autoActivate(lsn);
       await this.db.notifyCheckpoint();
       this.persisted_op = null;
-      this.last_checkpoint_lsn = lsn;
       if (checkpointState.newLastCheckpoint != null) {
         await this.sourceRecordStore.postCommitCleanup(checkpointState.newLastCheckpoint, this.logger);
       }
@@ -346,6 +360,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   }
 
   async setResumeLsn(lsn: string): Promise<void> {
+    using _ = this.tracer.span('storage', 'set_resume_lsn');
     await this.db.sync_rules.updateOne(
       {
         _id: this.replicationStreamId
@@ -355,7 +370,13 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           snapshot_lsn: lsn
         }
       },
-      { session: this.session }
+      {
+        session: this.session,
+        // Losing occasional resume LSN is fine. That may mean reprocessing
+        // some source changes in some edge cases, which is not an issue since
+        // changes are processed in an idempotent way.
+        writeConcern: { w: 1 }
+      }
     );
   }
 
@@ -380,17 +401,24 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
     await this.withTransaction(async () => {
       // Protect against race conditions
-      const count = await this.db.commonSourceTables(this.replicationStreamId).countDocuments(
-        {
-          group_id: this.replicationStreamId,
-          snapshot_done: false
-        },
-        { session: this.session }
-      );
-      if (count > 0) {
+      const blockingTables = await this.db
+        .sourceTablesV1(this.replicationStreamId)
+        .find(
+          {
+            group_id: this.replicationStreamId,
+            snapshot_done: false
+          },
+          {
+            session: this.session,
+            projection: { schema_name: 1, table_name: 1 }
+          }
+        )
+        .toArray();
+
+      if (blockingTables.length > 0) {
         if (options?.throwOnConflict ?? true) {
           throw new ReplicationAssertionError(
-            `Cannot mark snapshot done while ${count} source table${count == 1 ? '' : 's'} still require snapshotting`
+            `Cannot mark snapshot done while source tables still require snapshotting. Tables: ${blockingTables.map((t) => `${t.schema_name}.${t.table_name}`).join(', ')}`
           );
         } else {
           return;
@@ -423,7 +451,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     const ids = tables.map((table) => mongoTableId(table.id));
 
     await this.withTransaction(async () => {
-      await this.db.commonSourceTables(this.replicationStreamId).updateMany(
+      await this.db.sourceTablesV1(this.replicationStreamId).updateMany(
         { _id: { $in: ids } },
         {
           $set: {
@@ -467,7 +495,12 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
     const session = this.session;
     let activated = false;
+    let needsFutureActivationCheck = true;
     await session.withTransaction(async () => {
+      // Reset on transaction retries.
+      activated = false;
+      needsFutureActivationCheck = true;
+
       const doc = (await this.db.sync_rules.findOne(
         { _id: this.replicationStreamId },
         { session }
@@ -499,12 +532,14 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         );
         activated = true;
       } else if (doc?.state != storage.SyncRuleState.PROCESSING) {
-        this.needsActivation = false;
+        needsFutureActivationCheck = false;
       }
     });
     if (activated) {
       this.logger.info(`Activated new replication stream at ${lsn}`);
       await this.db.notifyCheckpoint();
+      this.needsActivation = false;
+    } else if (!needsFutureActivationCheck) {
       this.needsActivation = false;
     }
   }

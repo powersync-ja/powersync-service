@@ -1,8 +1,6 @@
 {
   "name": "@powersync/service-schema",
-  "version": "1.22.0",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "version": "1.23.3",
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "publishConfig": {
@@ -13,11 +11,7 @@
     "json-schema/*"
   ],
   "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "require": "./dist/index.js",
-      "default": "./dist/index.js"
-    },
+    ".": "./dist/index.js",
     "./schema.json": "./json-schema/powersync-config.json"
   },
   "repository": "https://github.com/powersync-ja/powersync-service",

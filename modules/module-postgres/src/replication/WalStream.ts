@@ -211,11 +211,13 @@ export class WalStream {
 
     let tableRows: any[];
     const prefix = tablePattern.isWildcard ? tablePattern.tablePrefix : undefined;
+    const schemaPrefix = tablePattern.isSchemaWildcard ? tablePattern.schemaPrefix : undefined;
 
     {
       let query = `
       SELECT
         c.oid AS relid,
+        n.nspname AS schema_name,
         c.relname AS table_name,
         (SELECT 
           json_agg(DISTINCT a.atttypid)
@@ -224,21 +226,26 @@ export class WalStream {
         AS column_types
       FROM pg_class c
       JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = $1
-      AND c.relkind = 'r'`;
+      WHERE c.relkind = 'r'`;
 
-      if (tablePattern.isWildcard) {
-        query += ' AND c.relname LIKE $2';
+      const params: any[] = [];
+      if (tablePattern.isSchemaWildcard) {
+        query += ` AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'`;
       } else {
-        query += ' AND c.relname = $2';
+        params.push({ type: 'varchar', value: schema });
+        query += ` AND n.nspname = $${params.length}`;
+      }
+
+      params.push({ type: 'varchar', value: tablePattern.tablePattern });
+      if (tablePattern.isWildcard) {
+        query += ` AND c.relname LIKE $${params.length}`;
+      } else {
+        query += ` AND c.relname = $${params.length}`;
       }
 
       const result = await rquery(db, {
         statement: query,
-        params: [
-          { type: 'varchar', value: schema },
-          { type: 'varchar', value: tablePattern.tablePattern }
-        ]
+        params
       });
 
       tableRows = pgwire.pgwireRows(result);
@@ -248,6 +255,7 @@ export class WalStream {
 
     for (let row of tableRows) {
       const name = row.table_name as string;
+      const tableSchema = (row.schema_name as string) ?? schema;
       if (typeof row.relid != 'bigint') {
         throw new ReplicationAssertionError(`Missing relid for ${name}`);
       }
@@ -256,17 +264,20 @@ export class WalStream {
       if (prefix && !name.startsWith(prefix)) {
         continue;
       }
+      if (schemaPrefix && !tableSchema.startsWith(schemaPrefix)) {
+        continue;
+      }
 
       const rs = await rquery(db, {
         statement: `SELECT 1 FROM pg_publication_tables WHERE pubname = $1 AND schemaname = $2 AND tablename = $3`,
         params: [
           { type: 'varchar', value: PUBLICATION_NAME },
-          { type: 'varchar', value: tablePattern.schema },
+          { type: 'varchar', value: tableSchema },
           { type: 'varchar', value: name }
         ]
       });
       if (rs.rows.length == 0) {
-        this.logger.info(`Skipping ${tablePattern.schema}.${name} - not part of ${PUBLICATION_NAME} publication`);
+        this.logger.info(`Skipping ${tableSchema}.${name} - not part of ${PUBLICATION_NAME} publication`);
         continue;
       }
 
@@ -278,7 +289,7 @@ export class WalStream {
         }
       } catch (e) {
         // It's possible that we just don't have permission to access pg_roles - log the error and continue.
-        this.logger.warn(`Could not check RLS access for ${tablePattern.schema}.${name}`, e);
+        this.logger.warn(`Could not check RLS access for ${tableSchema}.${name}`, e);
       }
 
       const cresult = await getReplicationIdentityColumns(db, relid);
@@ -289,7 +300,7 @@ export class WalStream {
         descriptor: {
           connectionTag: this.connections.connectionTag,
           name: name,
-          schema: schema,
+          schema: tableSchema,
           objectId: relid,
           replicaIdColumns: cresult.replicationColumns,
           // REPLICA IDENTITY FULL is the only identity that always sends the complete row.
@@ -311,7 +322,7 @@ export class WalStream {
     const slotName = this.slot_name;
 
     const status = await this.storage.getStatus();
-    const snapshotDone = status.snapshot_done && status.checkpoint_lsn != null;
+    const snapshotDone = status.snapshotDone;
     if (snapshotDone) {
       // Snapshot is done, but we still need to check the replication slot status
       this.logger.info(`Initial replication already done`);

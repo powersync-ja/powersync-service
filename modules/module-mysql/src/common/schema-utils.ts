@@ -1,3 +1,4 @@
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { ColumnDescriptor } from '@powersync/service-core';
 import { TablePattern } from '@powersync/service-sync-rules';
 import mysqlPromise from 'mysql2/promise';
@@ -147,6 +148,13 @@ export async function getTablesFromPattern(
   connection: mysqlPromise.Connection,
   tablePattern: TablePattern
 ): Promise<string[]> {
+  if (tablePattern.isSchemaWildcard) {
+    throw new ServiceError(
+      ErrorCode.PSYNC_R2201,
+      'Schema wildcards ("%") in table patterns are not supported for MySQL connections.'
+    );
+  }
+
   const schema = tablePattern.schema;
 
   if (tablePattern.isWildcard) {

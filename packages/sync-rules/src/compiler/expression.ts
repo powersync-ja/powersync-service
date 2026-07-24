@@ -89,14 +89,30 @@ class FindExternalData extends RecursiveExpressionVisitor<ExpressionInput, void,
   static readonly instance: FindExternalData = new FindExternalData();
 }
 
-export type ExpressionInput = ColumnInRow | ConnectionParameter;
+export type ExpressionInput = ColumnInRow | RowMetadata | ConnectionParameter;
 
-export class ColumnInRow implements EqualsIgnoringResultSet {
+/**
+ * An expression input resolved against a row of a result set: either a column value or metadata about the row's
+ * source table.
+ */
+export abstract class RowReference implements EqualsIgnoringResultSet {
   constructor(
     readonly syntacticOrigin: Expr,
-    readonly resultSet: SourceResultSet,
-    readonly column: string
+    readonly resultSet: SourceResultSet
   ) {}
+
+  abstract equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean;
+  abstract assumingSameResultSetEqualityHashCode(hasher: StableHasher): void;
+}
+
+export class ColumnInRow extends RowReference {
+  constructor(
+    syntacticOrigin: Expr,
+    resultSet: SourceResultSet,
+    readonly column: string
+  ) {
+    super(syntacticOrigin, resultSet);
+  }
 
   equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
     return other instanceof ColumnInRow && other.column == this.column;
@@ -104,6 +120,31 @@ export class ColumnInRow implements EqualsIgnoringResultSet {
 
   assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
     hasher.addString(this.column);
+  }
+}
+
+export type RowMetadataKind = 'schema' | 'table_name' | 'table_suffix';
+
+/**
+ * A reference to metadata of the row's source table (`users.schema()`, `users.table_name()` or
+ * `users.table_suffix()`) instead of an actual column, resolved against the concrete table a row was
+ * replicated from.
+ */
+export class RowMetadata extends RowReference {
+  constructor(
+    syntacticOrigin: Expr,
+    resultSet: SourceResultSet,
+    readonly kind: RowMetadataKind
+  ) {
+    super(syntacticOrigin, resultSet);
+  }
+
+  equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
+    return other instanceof RowMetadata && other.kind == this.kind;
+  }
+
+  assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
+    hasher.addString(`table.${this.kind}`);
   }
 }
 

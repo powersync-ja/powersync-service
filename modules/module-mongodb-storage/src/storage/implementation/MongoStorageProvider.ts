@@ -51,17 +51,26 @@ export class MongoStorageProvider implements storage.StorageProvider {
     await client.connect();
 
     const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
-    const syncStorageFactory = new MongoBucketStorage(
-      database,
-      {
-        // TODO currently need the entire resolved config due to this
-        slot_name_prefix: resolvedConfig.slot_name_prefix
-      },
-      {
-        objectStorage,
-        inlineThresholdBytes: decodedConfig.object_storage?.inline_threshold_bytes
-      }
-    );
+    const readPreference =
+      decodedConfig.bulk_read_preference == null
+        ? undefined
+        : new lib_mongo.mongo.ReadPreference(decodedConfig.bulk_read_preference, undefined, {
+            // maxStalenessSeconds is relevant for all modes except 'primary'.
+            // 90 is the minimum value.
+            maxStalenessSeconds: decodedConfig.bulk_read_preference == 'primary' ? undefined : 90
+          });
+    const syncStorageFactory = new MongoBucketStorage(database, {
+      replicationStreamNamePrefix: resolvedConfig.slot_name_prefix,
+      readPreference,
+      checksumCacheTtlMs: resolvedConfig.api_parameters.bucket_count_cache_ttl_minutes * 60_000,
+      // Right now, only MongoDB source databases supports incremental reprocessing.
+      // Remove this filter when we support it for other source databases.
+      // This assumes a single source connection - revisit if we ever support multiple connections.
+      supportsMultipleSyncConfigs: resolvedConfig.connections?.[0]?.type == lib_mongo.MONGO_CONNECTION_TYPE,
+
+      objectStorage,
+      inlineThresholdBytes: decodedConfig.object_storage?.inline_threshold_bytes
+    });
 
     // Storage factory for reports
     const reportStorageFactory = new MongoReportStorage(database);

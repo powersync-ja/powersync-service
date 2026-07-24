@@ -8,19 +8,19 @@ import { models, NormalizedPostgresStorageConfig } from '../types/types.js';
 
 import { getStorageApplicationName } from '../utils/application-name.js';
 import { NOTIFICATION_CHANNEL, STORAGE_SCHEMA_NAME } from '../utils/db.js';
-import { notifySyncRulesUpdate } from './batch/PostgresBucketBatch.js';
 import { PostgresSyncRulesStorage } from './PostgresSyncRulesStorage.js';
 import { PostgresPersistedReplicationStream } from './sync-rules/PostgresPersistedSyncConfigContent.js';
 
 export type PostgresBucketStorageOptions = {
   config: NormalizedPostgresStorageConfig;
-  slot_name_prefix: string;
+  replicationStreamNamePrefix: string;
+  checksumCacheTtlMs?: number;
 };
 
 export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   [framework.DO_NOT_LOG] = true;
   readonly db: lib_postgres.DatabaseClient;
-  public readonly slot_name_prefix: string;
+  public readonly replicationStreamNamePrefix: string;
 
   private activeStorageCache: storage.SyncRulesBucketStorage | undefined;
 
@@ -32,7 +32,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       notificationChannels: [NOTIFICATION_CHANNEL],
       applicationName: getStorageApplicationName()
     });
-    this.slot_name_prefix = options.slot_name_prefix;
+    this.replicationStreamNamePrefix = options.replicationStreamNamePrefix;
 
     this.db.registerListener({
       connectionCreated: async (connection) => this.prepareStatements(connection)
@@ -56,7 +56,8 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       factory: this,
       db: this.db,
       replicationStream,
-      batchLimits: this.options.config.batch_limits
+      batchLimits: this.options.config.batch_limits,
+      checksumCacheTtlMs: this.options.checksumCacheTtlMs
     });
     if (!options?.skipLifecycleHooks) {
       this.iterateListeners((cb) => cb.syncStorageCreated?.(syncRuleStorage));
@@ -200,7 +201,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
             ${{ type: 'json', value: options.config.plan }},
             ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }},
             CONCAT(
-              ${{ type: 'varchar', value: this.slot_name_prefix }},
+              ${{ type: 'varchar', value: this.replicationStreamNamePrefix }},
               (
                 SELECT
                   id
@@ -217,8 +218,6 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       `
         .decoded(models.SyncRules)
         .first();
-
-      await notifySyncRulesUpdate(this.db, newSyncRulesRow!);
 
       return new PostgresPersistedReplicationStream(this.db, newSyncRulesRow!);
     });

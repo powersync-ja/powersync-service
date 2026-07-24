@@ -12,6 +12,15 @@ export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptio
   oldestUncommittedChange: null
 };
 
+/**
+ * Storage writer for a source-specific unit of replication work.
+ *
+ * A batch evaluates source row changes against the hydrated sync config,
+ * persists bucket operations and parameter lookup rows, tracks source table and
+ * snapshot state, records the committed source position for visible
+ * checkpoints, and stores restart cursors for sources with PowerSync-managed
+ * resume state.
+ */
 export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageListener>, AsyncDisposable {
   /**
    * Alias for [Symbol.asyncDispose]
@@ -29,21 +38,28 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
   readonly skipExistingRows: boolean;
 
   /**
-   * Save an op, and potentially flush.
+   * Queue one normalized source row operation and potentially flush.
    *
-   * This can be an insert, update or delete op.
+   * When flushed, the operation is evaluated against data and parameter
+   * queries. That may produce bucket operations, parameter lookup rows, and
+   * current-data updates. `save()` may trigger that flush automatically when
+   * the batch reaches its size limits, but a flush does not create a checkpoint
+   * by itself.
    */
   save(record: SaveOptions): Promise<FlushedResult | null>;
 
   /**
-   * Replicate a truncate op - deletes all data in the specified tables.
+   * Replicate a truncate operation by removing all currently replicated rows
+   * for the specified source tables.
    */
   truncate(sourceTables: SourceTable[]): Promise<FlushedResult | null>;
 
   /**
-   * Drop one or more tables.
+   * Drop one or more source table mappings.
    *
-   * This is the same as truncate, but additionally removes the SourceTable record.
+   * This performs the same logical row removal as `truncate()`, then removes
+   * the stored `SourceTable` record. It is used for table drops, renames,
+   * replica identity changes, and superseded mappings.
    */
   drop(sourceTables: SourceTable[]): Promise<FlushedResult | null>;
 
@@ -58,21 +74,26 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
   flush(options?: BatchBucketFlushOptions): Promise<FlushedResult | null>;
 
   /**
-   * Flush and commit any saved ops. This creates a new checkpoint by default.
+   * Flush saved ops and advance the committed source checkpoint position.
    *
-   * Only call this after a transaction.
+   * Only call this at a source transaction, page, snapshot, or other boundary
+   * where it is valid for clients to observe all flushed changes together. A
+   * single commit may include multiple complete source transactions, but must
+   * not split one source transaction across checkpoint boundaries.
    */
   commit(lsn: string, options?: BucketBatchCommitOptions): Promise<CheckpointResult>;
 
   /**
-   * Advance the checkpoint LSN position, without any associated op.
+   * Advance the committed source checkpoint position without associated row
+   * operations.
    *
-   * This must only be called when not inside a transaction.
+   * Use this for source heartbeats, marker-only events, and idle-source write
+   * checkpoint progress. This must only be called outside a source transaction.
    */
   keepalive(lsn: string): Promise<CheckpointResult>;
 
   /**
-   * Set the LSN that replication should resume from.
+   * Set the source position that replication should resume from after restart.
    *
    * This can be used for:
    * 1. Setting the LSN for a snapshot, before starting replication.
@@ -80,13 +101,12 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    *
    * Not required if the source database keeps track of this, for example with
    * PostgreSQL logical replication slots.
+   *
+   * This is for restart safety only. If the same source position should become
+   * visible to clients, also call `commit()` or `keepalive()` at a valid source
+   * boundary.
    */
   setResumeLsn(lsn: string): Promise<void>;
-
-  /**
-   * Get the last checkpoint LSN, from either commit or keepalive.
-   */
-  lastCheckpointLsn: string | null;
 
   /**
    * LSN to resume from.
@@ -95,7 +115,21 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    */
   resumeFromLsn: string | null;
 
+  /**
+   * Mark table snapshots complete and record the source position that
+   * checkpoints must not precede for those tables.
+   */
   markTableSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn?: string): Promise<SourceTable[]>;
+
+  /**
+   * Mark a source table as requiring snapshot work again.
+   *
+   * Use this when a table that was previously considered snapshot-complete
+   * must be copied again before it can safely contribute to checkpoints. Common
+   * cases include detected schema or replica identity changes, interrupted
+   * re-snapshot work, or other source metadata changes that make the existing
+   * replicated rows no longer trustworthy.
+   */
   markTableSnapshotRequired(table: SourceTable): Promise<void>;
 
   /**
@@ -118,6 +152,10 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    */
   markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void>;
 
+  /**
+   * Persist resumable table snapshot progress such as row counts or source
+   * cursors.
+   */
   updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 
   /**
@@ -125,10 +163,17 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    */
   getSourceTableStatus(table: SourceTable): Promise<SourceTable | null>;
 
+  /**
+   * Resolve discovered source metadata against the active sync config and
+   * persisted source table state.
+   *
+   * @returns Current mappings that should receive replicated rows, plus
+   *          outdated mappings that the source connector should drop.
+   */
   resolveTables(options: ResolveTablesOptions): Promise<ResolveTablesResult>;
 
   /**
-   * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.
+   * Queue a custom write checkpoint to be persisted after operations are flushed.
    */
   addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void;
 }
@@ -216,8 +261,6 @@ export interface CheckpointResult {
   /**
    * True if a checkpoint was actually created by this operation. This can be false even if checkpointBlocked is false,
    * if the checkpoint was empty.
-   *
-   * This is primarily used for testing.
    */
   checkpointCreated: boolean;
 }

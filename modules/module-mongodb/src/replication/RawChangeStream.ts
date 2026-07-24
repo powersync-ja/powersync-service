@@ -6,17 +6,35 @@ import {
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
 import { PerformanceTracer } from '@powersync/service-core';
+import { performance } from 'node:perf_hooks';
+import { setTimeout as delay } from 'node:timers/promises';
 import { ChangeStreamInvalidatedError } from './ChangeStream.js';
+
+// Keep the DocumentDB idle-poll workaround from adding the full maxAwaitTimeMS
+// as local latency when an update arrives just after an empty batch.
+const CLIENT_SIDE_MAX_AWAIT_TIME_MS_DELAY_CAP_MS = 1_000;
 
 export interface RawChangeStreamOptions {
   signal?: AbortSignal;
 
   /**
    * How long to wait for new data per batch (max time for long-polling).
+   * This is sent as maxTimeMS for the getMore command.
    *
-   * This is used for maxTimeMS for the getMore command.
+   * A value of 0 is allowed for probe-style streams that do not want an idle
+   * wait; in that case PowerSync also skips the local empty-batch delay.
    */
   maxAwaitTimeMS: number;
+
+  /**
+   * Also enforce maxAwaitTimeMS on the client for empty getMore batches.
+   *
+   * Azure DocumentDB currently returns idle getMore calls before maxTimeMS. When
+   * this is enabled, empty batches are delayed locally (capped at 1s) to avoid
+   * tight polling. We still send maxTimeMS so this remains compatible with
+   * servers that handle maxAwaitTimeMS correctly.
+   */
+  clientSideMaxAwaitTimeMS?: boolean;
 
   /**
    * Timeout for the initial aggregate command.
@@ -212,31 +230,32 @@ async function* rawChangeStreamInner(
       options.signal?.throwIfAborted();
 
       using commandSpan = options.tracer?.span('changestream', 'getmore');
-      const getMoreResult: mongo.Document = await db
-        .command(
-          {
-            getMore: cursorId,
-            collection: nsCollection,
-            batchSize: batchSizer.next(),
-            maxTimeMS: options.maxAwaitTimeMS
-          },
-          { session, raw: true }
-        )
-        .catch((e) => {
-          if (isMongoServerError(e) && e.codeName == 'CursorKilled') {
-            // This may be due to the killCursors command issued when aborting.
-            // In that case, use the abort error instead.
-            options.signal?.throwIfAborted();
-          }
+      const getMoreStartedAt = performance.now();
+      const getMoreCommand: mongo.Document = {
+        getMore: cursorId,
+        collection: nsCollection,
+        batchSize: batchSizer.next(),
+        maxTimeMS: options.maxAwaitTimeMS
+      };
+      // Azure DocumentDB currently returns empty getMore batches before
+      // maxTimeMS expires. Keep maxTimeMS for forward compatibility with the
+      // server-side behavior, and when client-side mode is enabled, enforce the
+      // capped idle wait locally for empty batches below.
+      const getMoreResult: mongo.Document = await db.command(getMoreCommand, { session, raw: true }).catch((e) => {
+        if (isMongoServerError(e) && e.codeName == 'CursorKilled') {
+          // This may be due to the killCursors command issued when aborting.
+          // In that case, use the abort error instead.
+          options.signal?.throwIfAborted();
+        }
 
-          if (isResumableChangeStreamError(e)) {
-            if (isTimeoutError(e)) {
-              batchSizer.reduceAfterError();
-            }
-            throw new ResumableChangeStreamError(e.message, { cause: e });
+        if (isResumableChangeStreamError(e)) {
+          if (isTimeoutError(e)) {
+            batchSizer.reduceAfterError();
           }
-          throw mapChangeStreamError(e);
-        });
+          throw new ResumableChangeStreamError(e.message, { cause: e });
+        }
+        throw mapChangeStreamError(e);
+      });
 
       commandSpan?.end();
 
@@ -248,6 +267,13 @@ async function* rawChangeStreamInner(
         // Deviation from spec: We require that the server always returns a postBatchResumeToken.
         // postBatchResumeToken is returned in MongoDB 4.0.7 and later, and we support 6.0+
         throw new ReplicationAssertionError(`postBatchResumeToken from aggregate response`);
+      }
+      if (options.clientSideMaxAwaitTimeMS && nextBatch.length == 0) {
+        const remainingMaxAwaitTimeMS = Math.ceil(options.maxAwaitTimeMS - (performance.now() - getMoreStartedAt));
+        if (remainingMaxAwaitTimeMS > 0) {
+          const clientSideDelayMs = Math.min(remainingMaxAwaitTimeMS, CLIENT_SIDE_MAX_AWAIT_TIME_MS_DELAY_CAP_MS);
+          await delay(clientSideDelayMs, undefined, { signal: options.signal });
+        }
       }
       yield {
         events: nextBatch,
@@ -400,8 +426,18 @@ export function parseChangeDocument(buffer: Buffer): ProjectedChangeStreamDocume
   return doc as any;
 }
 
+function isMaxTimeMSExpiredError(e: unknown) {
+  return (
+    isMongoServerError(e) &&
+    (e.codeName == 'MaxTimeMSExpired' ||
+      // MongoDB documents code 50 as MaxTimeMSExpired. Azure DocumentDB reports
+      // this code with codeName ExceededTimeLimit.
+      e.code == 50)
+  );
+}
+
 function isTimeoutError(e: unknown) {
-  return isMongoNetworkTimeoutError(e) || (isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired');
+  return isMongoNetworkTimeoutError(e) || isMaxTimeMSExpiredError(e);
 }
 
 function isResumableChangeStreamError(e: unknown) {
@@ -415,8 +451,8 @@ function isResumableChangeStreamError(e: unknown) {
   } else if (e.hasErrorLabel('ResumableChangeStreamError')) {
     // For servers with wire version 9 or higher (server version 4.4 or higher), any server error with the ResumableChangeStreamError error label.
     return true;
-  } else if (e.codeName == 'MaxTimeMSExpired') {
-    // Our own exception for MaxTimeMSExpired.
+  } else if (isMaxTimeMSExpiredError(e)) {
+    // Our own exception for maxTimeMS timeouts.
     // This can help us retry faster, with a smaller batch size (if initialBatchSize is set to 1), which should hopefully avoid the timeout.
     return true;
   } else {

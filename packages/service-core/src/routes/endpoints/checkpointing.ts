@@ -54,13 +54,10 @@ export const writeCheckpoint2 = routeDefinition({
   handler: async (payload) => {
     const { token_payload, service_context } = payload.context;
 
-    const apiHandler = service_context.routerEngine.getAPI();
-
     const { replicationHead, writeCheckpoint } = await util.createWriteCheckpoint({
       userId: token_payload!.userIdString,
       clientId: payload.params.client_id,
-      api: apiHandler,
-      storage: service_context.storageEngine.activeBucketStorage
+      batcher: service_context.writeCheckpointBatcher
     });
 
     logger.info(

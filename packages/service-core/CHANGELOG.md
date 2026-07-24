@@ -1,5 +1,55 @@
 # @powersync/service-core
 
+## 1.23.3
+
+### Patch Changes
+
+- ea31f64: Potential fix and improved stack trace for 'evicted' errors.
+- Updated dependencies [ea71bf3]
+- Updated dependencies [edc6ed4]
+  - @powersync/service-sync-rules@0.39.0
+  - @powersync/lib-services-framework@0.9.8
+  - @powersync/service-rsocket-router@0.2.24
+
+## 1.23.2
+
+### Patch Changes
+
+- 71d4a0a: Add logs for checkpoint_complete to assist with debugging. Remove "sync lock" logs.
+- e4f683d: [MongoDB Storage] Add experimental option to allow reading data from secondaries.
+- 71d4a0a: Fix edge case where the service can return incomplete data. This could happen when using bucket priorities, and a checkpoint is invalidated by the compact process while syncing.
+- c2edf86: Add `api.parameters.bucket_count_cache_ttl_minutes` configuration option.
+- df9ab1e: Batch concurrent write checkpoint requests and increase request limits to improve throughput.
+- Updated dependencies [a6ae678]
+- Updated dependencies [c2edf86]
+  - @powersync/service-sync-rules@0.38.1
+  - @powersync/service-types@0.16.1
+  - @powersync/lib-services-framework@0.9.7
+  - @powersync/service-rsocket-router@0.2.23
+
+## 1.23.1
+
+### Patch Changes
+
+- 7e65360: Restructure replication locks for updated sync config.
+
+## 1.23.0
+
+### Minor Changes
+
+- a91a08f: [Experimental] Enable incremental reprocessing for MongoDB source + MongoDB storage. This includes significant changes to the v3 storage format.
+
+### Patch Changes
+
+- Updated dependencies [a91a08f]
+- Updated dependencies [184c39f]
+- Updated dependencies [c3f75df]
+- Updated dependencies [4bd35ea]
+  - @powersync/service-types@0.16.0
+  - @powersync/service-sync-rules@0.38.0
+  - @powersync/lib-services-framework@0.9.6
+  - @powersync/service-rsocket-router@0.2.22
+
 ## 1.22.0
 
 ### Minor Changes

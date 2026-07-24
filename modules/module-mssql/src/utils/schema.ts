@@ -1,4 +1,4 @@
-import { logger } from '@powersync/lib-services-framework';
+import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { TablePattern } from '@powersync/service-sync-rules';
 import sql from 'mssql';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
@@ -150,6 +150,13 @@ export async function getTablesFromPattern(
   connectionManager: MSSQLConnectionManager,
   tablePattern: TablePattern
 ): Promise<ResolvedTable[]> {
+  if (tablePattern.isSchemaWildcard) {
+    throw new ServiceError(
+      ErrorCode.PSYNC_R2201,
+      'Schema wildcards ("%") in table patterns are not supported for SQL Server connections.'
+    );
+  }
+
   if (tablePattern.isWildcard) {
     const { recordset: tableResults } = await connectionManager.query(
       `

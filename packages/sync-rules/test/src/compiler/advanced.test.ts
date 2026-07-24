@@ -26,7 +26,7 @@ describe('new sync stream features', () => {
       expect(
         compileSingleStreamAndSerialize(`
           SELECT u.*
-            FROM users u
+            FROM users AS "u"
             JOIN group_memberships gm1 ON u.id = gm1.user_id
             JOIN group_memberships gm2 ON gm1.group_id = gm2.group_id
             WHERE gm2.user_id = auth.user_id();
@@ -38,7 +38,7 @@ describe('new sync stream features', () => {
       expect(
         compileSingleStreamAndSerialize(`
           SELECT m.* 
-            FROM message m
+            FROM message AS "m"
             JOIN roles srm
               ON m.organization_id = srm.organization_id 
               WHERE srm.account_id=auth.user_id() 
@@ -74,7 +74,7 @@ describe('new sync stream features', () => {
 SELECT
     u.*
 FROM
-    public.users AS u
+    public.users AS "u"
 JOIN
     public.user_organization_map AS uom_colleagues ON u.id = uom_colleagues.user_id
 WHERE
@@ -96,7 +96,7 @@ FROM
 JOIN
     public.user_organization_map AS uom2 ON uom1.organization_id = uom2.organization_id
 JOIN
-    public.users AS u ON uom2.user_id = u.id
+    public.users AS "u" ON uom2.user_id = u.id
 WHERE
     uom1.user_id = auth.user_id()
         `;
@@ -112,7 +112,7 @@ SELECT
 FROM
     public.users AS u
 JOIN
-    public.addresses AS a ON u.address_id = a.id
+    public.addresses AS "a" ON u.address_id = a.id
 WHERE
     u.id IN (
         SELECT
@@ -137,7 +137,7 @@ WHERE
       // This would already be supported with old sync streams by using a subquery
       const stream = `
 SELECT t.*
-FROM ticket t
+FROM ticket AS "t"
     JOIN ticket_detail_item item ON item.ticket_id = t.id
     WHERE item.user_id = auth.user_id();
         `;
@@ -167,7 +167,7 @@ join assignment a
   on a.id = uas.assignment_id
 join assignment_checkpoint ac
   on ac.assignment_id = a.id
-join checkpoint c
+join checkpoint AS "c"
   on c.id = ac.checkpoint_id
 where uas.user_id = auth.user_id()
   and a.active = true;`;
@@ -271,10 +271,10 @@ streams:
           AND 'Scene' IN connection.parameter('synced_objects')
     queries:
       - |
-        SELECT "Scene"._id as id,
+        SELECT "Scene".*,
+        "Scene"._id as id,
         unixepoch("Scene"."createdOn") as "createdOnSortable",
-        IFNULL("Scene".archived, 0) as "archived",
-        "Scene".*
+        IFNULL("Scene".archived, 0) as "archived"
         FROM "Scene", available_projects
         WHERE "Scene".project IN available_projects.project
 `);
@@ -342,5 +342,15 @@ streams:
           WHERE a.k = b.k AND j.value = b.v`)
       ).toMatchSnapshot();
     });
+  });
+
+  test('row metadata', () => {
+    const serialized = compileSingleStreamAndSerialize(
+      `SELECT *, source.table_suffix() AS suffix FROM "%"."users_%" source WHERE source.schema() = auth.parameter('schema')`
+    );
+
+    // Should not be v1 if .schema() or .table_suffix() is used.
+    expect(serialized.version).toStrictEqual(2);
+    expect(serialized).toMatchSnapshot();
   });
 });

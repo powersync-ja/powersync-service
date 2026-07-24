@@ -11,6 +11,7 @@ import {
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
+import { SourceRecordLookupState } from '../common/SourceRecordStore.js';
 import { serializeBucketData } from './bucket-format.js';
 import { chunkBucketData } from './chunking.js';
 import {
@@ -47,11 +48,16 @@ export class PersistedBatchV3 extends PersistedBatch {
 
   saveParameterData(data: SaveParameterDataOptions) {
     const { sourceTable, sourceKey, evaluated } = data;
-    const remaining_lookups = new Map<string, SaveParameterDataOptions['existing_lookups'][number]>();
+    const remaining_lookups = new Map<string, SourceRecordLookupState>();
 
     for (let lookup of data.existing_lookups) {
       if (lookup.indexId == null) {
         throw new ReplicationAssertionError('Expected lookup when incrementalReprocessing is enabled');
+      }
+      if (sourceTable.parameterLookupSourceIds != null && !sourceTable.parameterLookupSourceIds.has(lookup.indexId)) {
+        // The parameter index is not active anymore.
+        // We don't cleanup these references upfront, but do need to ignore them after the definition is removed.
+        continue;
       }
       remaining_lookups.set(`${lookup.indexId}.${lookup.lookup.toString('base64')}`, lookup);
     }

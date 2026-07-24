@@ -50,7 +50,9 @@ bucket_definitions:
     });
 
     const batch = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRulesContent, 'global[]', 0n)])
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [
+        bucketRequest(syncRulesContent, 'global[]', 0n)
+      ])
     );
 
     expect(batch.chunkData.data).toMatchObject([
@@ -108,7 +110,9 @@ bucket_definitions:
     })();
 
     const checkpoint = result!.flushed_op;
-    const rowsBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const rowsBefore = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
+    );
     const dataBefore = test_utils.getBatchData(rowsBefore);
     const clearToOpId = BigInt(dataBefore[2].op_id);
 
@@ -119,7 +123,9 @@ bucket_definitions:
     );
 
     // The method wraps in a transaction; on assertion error the bucket must remain unchanged.
-    const rowsAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const rowsAfter = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
+    );
     expect(test_utils.getBatchData(rowsAfter)).toEqual(dataBefore);
   });
 });

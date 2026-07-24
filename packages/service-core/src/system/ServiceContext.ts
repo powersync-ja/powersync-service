@@ -19,6 +19,7 @@ export interface ServiceContext {
   storageEngine: storage.StorageEngine;
   migrations: PowerSyncMigrationManager;
   syncContext: SyncContext;
+  writeCheckpointBatcher: utils.WriteCheckpointBatcher;
   serviceMode: ServiceContextMode;
   eventsEngine: EventsEngine;
 }
@@ -50,6 +51,7 @@ export class ServiceContextContainer implements ServiceContext {
   eventsEngine: EventsEngine;
   syncContext: SyncContext;
   routerEngine: routes.RouterEngine;
+  writeCheckpointBatcher: utils.WriteCheckpointBatcher;
   serviceMode: ServiceContextMode;
 
   constructor(options: ServiceContextOptions) {
@@ -83,6 +85,11 @@ export class ServiceContextContainer implements ServiceContext {
     this.lifeCycleEngine.withLifecycle(this.routerEngine, {
       stop: (routerEngine) => routerEngine.shutDown()
     });
+
+    this.writeCheckpointBatcher = new utils.WriteCheckpointBatcher(
+      () => this.routerEngine.getAPI(),
+      () => this.storageEngine.activeBucketStorage
+    );
 
     this.syncContext = new SyncContext({
       maxDataFetchConcurrency: configuration.api_parameters.max_data_fetch_concurrency,

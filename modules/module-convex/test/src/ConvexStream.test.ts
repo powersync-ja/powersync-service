@@ -166,10 +166,8 @@ function createFakeStorage(options?: {
     getParsedSyncRules: () => syncRules,
     async getStatus() {
       return {
-        active: true,
-        snapshot_done: options?.snapshotDone ?? false,
-        checkpoint_lsn: options?.snapshotDone ? parseConvexLsn(CURSOR_100) : null,
-        snapshot_lsn: options?.snapshotLsn ?? null
+        snapshotDone: options?.snapshotDone ?? false,
+        resumeLsn: options?.snapshotLsn ?? (options?.snapshotDone ? parseConvexLsn(CURSOR_100) : null)
       };
     }
   };

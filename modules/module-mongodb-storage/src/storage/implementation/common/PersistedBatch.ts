@@ -3,10 +3,9 @@ import { BucketDataSource, BucketDefinitionId, EvaluatedParameters, EvaluatedRow
 import * as bson from 'bson';
 
 import { logger as defaultLogger, Logger } from '@powersync/lib-services-framework';
-import { InternalOpId, storage, utils } from '@powersync/service-core';
+import { BucketDefinitionMapping, InternalOpId, storage, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
-import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { currentBucketKey, MAX_ROW_SIZE } from '../MongoBucketBatchShared.js';
 import { MongoIdSequence } from '../MongoIdSequence.js';
 import type { VersionedPowerSyncMongo } from '../db.js';
@@ -107,7 +106,7 @@ export abstract class PersistedBatch {
   }
 
   saveBucketData(options: SaveBucketDataOptions) {
-    const remaining_buckets = new Map<string, SaveBucketDataOptions['before_buckets'][number]>();
+    const remaining_buckets = new Map<string, SourceRecordBucketState>();
     for (let bucket of options.before_buckets) {
       const mapped: SourceRecordBucketState = {
         bucket: bucket.bucket,
@@ -115,6 +114,11 @@ export abstract class PersistedBatch {
         id: bucket.id,
         table: bucket.table
       };
+      if (options.table.bucketDataSourceIds != null && !options.table.bucketDataSourceIds.has(mapped.definitionId!)) {
+        // The bucket definition is not active anymore.
+        // We don't cleanup these references upfront, but do need to ignore them after the definition is removed.
+        continue;
+      }
       remaining_buckets.set(currentBucketKey(mapped), mapped);
     }
 

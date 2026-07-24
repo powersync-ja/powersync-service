@@ -18,6 +18,17 @@ function makeSyncRulesContent(overrides?: {
   status?: storage.PersistedSyncConfigStatus;
 }): storage.PersistedSyncConfigContent {
   // We don't implement the entire interface correctly here - just enough to test the diagnostics logic.
+  const status = overrides?.status ?? {
+    id: '1',
+    replicationStreamId: 1,
+    state: storage.SyncRuleState.ACTIVE,
+    last_checkpoint_lsn: 'some_lsn',
+    last_fatal_error: null,
+    last_fatal_error_ts: null,
+    last_keepalive_ts: new Date(),
+    last_checkpoint_ts: new Date()
+  };
+
   return {
     replicationStreamId: 1,
     syncConfigId: null,
@@ -25,6 +36,7 @@ function makeSyncRulesContent(overrides?: {
     sync_rules_content: MINIMAL_SYNC_RULES,
     compiled_plan: null,
     storageVersion: 1,
+    syncConfigState: status.state,
     parsed(options?: any) {
       const syncRules = SqlSyncRules.fromYaml(MINIMAL_SYNC_RULES, {
         ...options,
@@ -38,18 +50,7 @@ function makeSyncRulesContent(overrides?: {
     asUpdateOptions: null as any,
     getStorageConfig: null as any,
     async getSyncConfigStatus() {
-      return (
-        overrides?.status ?? {
-          id: '1',
-          replicationStreamId: 1,
-          state: storage.SyncRuleState.ACTIVE,
-          last_checkpoint_lsn: 'some_lsn',
-          last_fatal_error: null,
-          last_fatal_error_ts: null,
-          last_keepalive_ts: new Date(),
-          last_checkpoint_ts: new Date()
-        }
-      );
+      return status;
     }
   } as storage.PersistedSyncConfigContent;
 }
@@ -58,9 +59,8 @@ function makeSystemStorage() {
   return {
     async getStatus() {
       return {
-        snapshot_done: true,
-        checkpoint_lsn: 'some_lsn',
-        active: true
+        snapshotDone: true,
+        resumeLsn: 'some_lsn'
       };
     }
   } as storage.SyncRulesBucketStorage;
@@ -96,7 +96,8 @@ function makeRouteAPI(walBudget?: SlotWalBudgetInfo | undefined): RouteAPI {
 const OPTIONS: DiagnosticsOptions = {
   live_status: true,
   check_connection: true,
-  include_content: false
+  include_content: false,
+  active: true
 };
 
 describe('getSyncRulesStatus WAL budget warnings', () => {

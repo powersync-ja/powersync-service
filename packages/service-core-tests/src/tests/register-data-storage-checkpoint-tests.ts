@@ -42,7 +42,7 @@ bucket_definitions:
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
 
-    const writeCheckpoint = await bucketStorage.createManagedWriteCheckpoint({
+    const writeCheckpoint = await createManagedWriteCheckpoint(bucketStorage, {
       heads: { '1': '5/0' },
       user_id: 'user1'
     });
@@ -102,7 +102,7 @@ bucket_definitions:
       }
     });
 
-    const writeCheckpoint = await bucketStorage.createManagedWriteCheckpoint({
+    const writeCheckpoint = await createManagedWriteCheckpoint(bucketStorage, {
       heads: { '1': '6/0' },
       user_id: 'user1'
     });
@@ -301,4 +301,14 @@ bucket_definitions:
       }
     });
   });
+}
+
+async function createManagedWriteCheckpoint(
+  bucketStorage: storage.SyncRulesBucketStorage,
+  checkpoint: storage.ManagedWriteCheckpointOptions
+) {
+  const checkpoints = await bucketStorage.createManagedWriteCheckpoints([checkpoint]);
+  const writeCheckpoint = checkpoints.get(checkpoint.user_id);
+  expect(writeCheckpoint).not.toBeUndefined();
+  return writeCheckpoint!;
 }

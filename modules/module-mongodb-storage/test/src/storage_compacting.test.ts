@@ -95,7 +95,7 @@ bucket_definitions:
       const users = ['u1', 'u2'];
       const userRequests = users.map((user) => bucketRequest(syncRules, `by_user["${user}"]`));
       const [u1Request, u2Request] = userRequests;
-      const checksumAfter = await bucketStorage.getChecksums(checkpoint, userRequests);
+      const checksumAfter = await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), userRequests);
       expect(checksumAfter.get(u1Request.bucket)).toEqual({
         bucket: u1Request.bucket,
         checksum: -659469718,
@@ -151,7 +151,7 @@ bucket_definitions:
       const users = ['u1', 'u2'];
       const userRequests = users.map((user) => bucketRequest(syncRulesContent, `by_user2["${user}"]`));
       const [u1Request, u2Request] = userRequests;
-      const checksumAfter = await bucketStorage.getChecksums(checkpoint, userRequests);
+      const checksumAfter = await bucketStorage.getChecksums(test_utils.testCheckpoint(checkpoint), userRequests);
       expect(checksumAfter.get(u1Request.bucket)).toEqual({
         bucket: u1Request.bucket,
         checksum: -659469718,
@@ -311,7 +311,8 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const mapping = syncRules.syncConfigContent[0].mapping;
+    const definitionId = mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();
@@ -421,7 +422,7 @@ bucket_definitions:
     expect(doc.min_op).toBe(3n);
     expect(doc.count).toBe(3);
     expect(doc.checksum).toBe(60n);
-    expect(doc.size).toBe(4 + 5 + 8);
+    expect(doc.size).toBe(bson.calculateObjectSize(doc.ops!));
   });
 
   test('2. range metadata consistency - after compaction', async () => {
@@ -439,7 +440,7 @@ bucket_definitions:
       expect(doc.min_op).toBe(doc.ops!.reduce((min, op) => (op.o < min ? op.o : min), doc.ops![0].o));
       expect(doc.count).toBe(doc.ops!.length);
       expect(doc.checksum).toBe(doc.ops!.reduce((sum, op) => sum + op.checksum, 0n));
-      expect(doc.size).toBe(doc.ops!.reduce((sum, op) => sum + (op.data?.length ?? 0), 0));
+      expect(doc.size).toBe(bson.calculateObjectSize(doc.ops!));
     }
   });
 
@@ -774,7 +775,8 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const mapping = syncRules.syncConfigContent[0].mapping;
+    const definitionId = mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();
@@ -867,7 +869,7 @@ bucket_definitions:
       } as any
     };
 
-    const result = await bucketStorage.getChecksums(60n, [request]);
+    const result = await bucketStorage.getChecksums(test_utils.testCheckpoint(60n), [request]);
     const checksumResult = result.get(BUCKET)!;
 
     // The total checksum should be: compacted (ops 10,20,30) + partial (ops 40,50,60)
@@ -920,7 +922,7 @@ bucket_definitions:
       } as any
     };
 
-    const result = await bucketStorage.getChecksums(45n, [request]);
+    const result = await bucketStorage.getChecksums(test_utils.testCheckpoint(45n), [request]);
     const checksumResult = result.get(BUCKET)!;
 
     // If createBucketFilter's _id.o <= 45 excludes this document,
@@ -948,7 +950,8 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const mapping = syncRules.syncConfigContent[0].mapping;
+    const definitionId = mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();
@@ -1216,7 +1219,8 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const mapping = syncRules.syncConfigContent[0].mapping;
+    const definitionId = mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();
@@ -1364,8 +1368,9 @@ bucket_definitions:
     expect(putOps.every((op) => op.data != null)).toBe(true);
 
     expect(docs.length).toBe(1);
-    const putSize = putOps.reduce((sum, op) => sum + (op.data?.length ?? 0), 0);
-    expect(docs[0].size).toBe(putSize);
+    // Size calculation is not exact - we just check for a range
+    expect(docs[0].size).toBeGreaterThan(1_000_000);
+    expect(docs[0].size).toBeLessThan(1_001_000);
   });
 
   test('tombstones and survivors end up in same document after rechunking', async () => {
@@ -1429,7 +1434,7 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
-    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const definitionId = bucketStorage.storageIds.bucketDefinitionIds[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
     const bucketStateCollection = db.bucketState(bucketStorage.replicationStreamId);
     const sourceTableId = new bson.ObjectId();

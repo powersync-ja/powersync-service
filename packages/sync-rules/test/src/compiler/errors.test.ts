@@ -12,6 +12,18 @@ function expectSingleErrorSource(yaml: string, source: string) {
   expect(sources[0]).toEqual(source);
 }
 
+function aliasedPrimaryJoinWarning(alias: string, tableName: string) {
+  return {
+    isWarning: true,
+    message:
+      `The source row is synced under its alias '${alias}' instead of '${tableName}'. ` +
+      `When joining, an alias is often added only to make the ON clause easier to write; if that is the case ` +
+      `here, the rename is likely unintentional and clients querying '${tableName}' will see zero rows. ` +
+      `Drop the alias on the source table, or quote it (\`AS "${alias}"\`) to keep the rename and silence this warning.`,
+    source: tableName
+  };
+}
+
 describe('compilation errors', () => {
   test('parsing error in query', () => {
     const [errors] = yamlToSyncPlan(`
@@ -120,7 +132,8 @@ streams:
       {
         message: 'USING is not supported',
         source: 'SELECT u.* FROM users u INNER JOIN orgs USING (org_id)'
-      }
+      },
+      aliasedPrimaryJoinWarning('u', 'users')
     ]);
   });
 
@@ -142,7 +155,8 @@ streams:
       {
         message: "Sync streams can only select from a single table, and this one already selects from 'users'.",
         source: 'orgs.*'
-      }
+      },
+      aliasedPrimaryJoinWarning('u', 'users')
     ]);
 
     expect(compilationErrorsForSingleStream('SELECT u.*, orgs.* FROM "users_%" u, orgs')).toStrictEqual([
@@ -159,6 +173,7 @@ streams:
         "SELECT u.* FROM users u INNER JOIN orgs WHERE u.name || orgs.name = subscription.parameter('a')"
       )
     ).toStrictEqual([
+      aliasedPrimaryJoinWarning('u', 'users'),
       {
         message:
           "This expression already references 'users', so it can't also reference data from this row unless the two are compared with an equals operator.",
@@ -174,7 +189,8 @@ streams:
       {
         message: 'Invalid unqualified reference since multiple tables are in scope',
         source: 'is_public'
-      }
+      },
+      aliasedPrimaryJoinWarning('u', 'users')
     ]);
   });
 
@@ -267,8 +283,45 @@ streams:
 
   test('full join', () => {
     expect(compilationErrorsForSingleStream('select i.* from issues i FULL JOIN users u')).toStrictEqual([
-      { message: 'FULL JOIN is not supported', source: 'select i.* from issues i FULL JOIN users u' }
+      { message: 'FULL JOIN is not supported', source: 'select i.* from issues i FULL JOIN users u' },
+      aliasedPrimaryJoinWarning('i', 'issues')
     ]);
+  });
+
+  test('aliased primary table with join: warns the table syncs under its alias (#565)', () => {
+    // An aliased primary table joined onto another table syncs under the alias (`cm`) rather than the real
+    // table name (`chat_messages`). When the alias was added only to simplify the join's ON clause, that
+    // rename is unintentional and clients querying `chat_messages` see zero rows. Surface a non-fatal warning.
+    expect(
+      compilationErrorsForSingleStream(
+        'SELECT cm.* FROM chat_messages cm ' +
+          'INNER JOIN chat_conversations ON cm.conversation_id = chat_conversations.id ' +
+          'WHERE chat_conversations.user_id = auth.user_id()'
+      )
+    ).toStrictEqual([aliasedPrimaryJoinWarning('cm', 'chat_messages')]);
+  });
+
+  test('aliased primary table with join: quoted alias is an escape hatch', () => {
+    // Quoting the alias signals deliberate intent and suppresses the warning. The maintainer-suggested
+    // form is `FROM user_data AS "users", $joins`.
+    expect(
+      compilationErrorsForSingleStream(
+        'SELECT users.* FROM user_data AS "users", chat_msg WHERE users.id = chat_msg.user_id'
+      )
+    ).toStrictEqual([]);
+  });
+
+  test('aliased primary table with join: still warns when joined tables are aliased', () => {
+    expect(
+      compilationErrorsForSingleStream(
+        'SELECT u.* FROM users u INNER JOIN orgs o ON u.org_id = o.id WHERE o.owner_id = auth.user_id()'
+      )
+    ).toStrictEqual([aliasedPrimaryJoinWarning('u', 'users')]);
+  });
+
+  test('aliased primary table without join: no warning', () => {
+    // A bare aliased primary with no join is the canonical safe form.
+    expect(compilationErrorsForSingleStream('SELECT u.* FROM users u WHERE u.id = auth.user_id()')).toStrictEqual([]);
   });
 
   test('subquery star', () => {
@@ -281,6 +334,22 @@ streams:
     expect(compilationErrorsForSingleStream('select * from users where users.*')).toStrictEqual([
       { message: '* columns are not supported here', source: 'users.*' }
     ]);
+  });
+
+  test('warns when * appears after aliased columns', () => {
+    expect(compilationErrorsForSingleStream('select user_id as id, * from users')).toStrictEqual([
+      {
+        message: `A '*' column after aliased columns may give unexpected results: If the source row contains a column named 'id', '*' would overwrite it.`,
+        source: '*',
+        isWarning: true
+      }
+    ]);
+
+    // The explicit column references here are superfluous, but harmless.
+    expect(compilationErrorsForSingleStream('select id, name, * from users')).toStrictEqual([]);
+
+    // No warning when * comes first.
+    expect(compilationErrorsForSingleStream('select *, user_id as id from users')).toStrictEqual([]);
   });
 
   test('request parameter wrong count', () => {
@@ -758,8 +827,48 @@ streams:
 `);
 
     expect(errors).toStrictEqual([
-      { message: 'Expected a scalar value here.', source: '- SELECT 1 as bar\n' },
-      { message: 'Expected a scalar value here.', source: '- SELECT * FROM tbl WHERE id IN foo\n' }
+      { message: 'Expected a scalar here.', source: '- SELECT 1 as bar\n' },
+      { message: 'Expected a scalar here.', source: '- SELECT * FROM tbl WHERE id IN foo\n' }
+    ]);
+  });
+});
+
+describe('table metadata', () => {
+  test('unknown function with table qualifier', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE users.unknown() = 1`)).toStrictEqual([
+      { message: 'Invalid schema in function name', source: 'users.unknown' }
+    ]);
+  });
+
+  test('arguments to table metadata functions', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE users.schema('x') = 'a'`)).toStrictEqual([
+      { message: 'Expected no arguments here', source: 'users.schema' }
+    ]);
+  });
+
+  test('compiles schema() without diagnostics', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE users.schema() = 'a'`)).toStrictEqual([]);
+  });
+
+  test('compiles table_name() without diagnostics on non-wildcard tables', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE users.table_name() = 'users'`)).toStrictEqual(
+      []
+    );
+  });
+
+  test('table qualifier not in scope', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE other.schema() = 'a'`)).toStrictEqual([
+      { message: "Table 'other' has not been added in a FROM clause here.", source: 'other.schema()' }
+    ]);
+  });
+
+  test('warns for table_suffix on tables without a wildcard name', () => {
+    expect(compilationErrorsForSingleStream(`SELECT * FROM users WHERE users.table_suffix() = 's'`)).toStrictEqual([
+      {
+        message: 'table_suffix() is always empty because this table is not selected with a wildcard name.',
+        source: 'users.table_suffix',
+        isWarning: true
+      }
     ]);
   });
 });

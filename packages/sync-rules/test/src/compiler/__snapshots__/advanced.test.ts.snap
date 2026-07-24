@@ -2906,6 +2906,7 @@ exports[`new sync stream features > json-each of cte 1`] = `
   "dataSources": [
     {
       "columns": [
+        "star",
         {
           "alias": "id",
           "expr": {
@@ -2949,7 +2950,6 @@ exports[`new sync stream features > json-each of cte 1`] = `
             "type": "function",
           },
         },
-        "star",
       ],
       "filters": [],
       "hash": 288003166,
@@ -3507,6 +3507,94 @@ exports[`new sync stream features > order-independent parameters 1`] = `
     },
   ],
   "version": 1,
+}
+`;
+
+exports[`new sync stream features > row metadata 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 524705252,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+        {
+          "alias": "suffix",
+          "expr": {
+            "source": {
+              "metadata": "table_suffix",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "filters": [],
+      "hash": 352817177,
+      "outputTableName": "source",
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "metadata": "schema",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "%",
+        "table": "users_%",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "expr": {
+                "function": "->>",
+                "parameters": [
+                  {
+                    "source": {
+                      "request": "auth",
+                    },
+                    "type": "data",
+                  },
+                  {
+                    "type": "lit_string",
+                    "value": "schema",
+                  },
+                ],
+                "type": "function",
+              },
+              "type": "request",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": 2,
 }
 `;
 
