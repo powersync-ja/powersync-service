@@ -1,8 +1,6 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { BucketPriority, HydratedSyncConfig, ResolvedBucket, SqliteJsonValue } from '@powersync/service-sync-rules';
 
-import { AbortError } from 'ix/aborterror.js';
-
 import * as auth from '../auth/auth-index.js';
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
@@ -13,7 +11,7 @@ import { PerformanceTracer, type Span } from '../tracing/PerformanceTracer.js';
 import { BucketChecksumState, CheckpointLine, type SyncCheckpointTraceCategory } from './BucketChecksumState.js';
 import { OperationsSentStats, RequestTracker, statsForBatch } from './RequestTracker.js';
 import { SyncContext } from './SyncContext.js';
-import { TokenStreamOptions, acquireSemaphoreAbortable, settledPromise, tokenStream } from './util.js';
+import { TokenStreamOptions, acquireSemaphoreAbortable, isAbortError, settledPromise, tokenStream } from './util.js';
 
 type CheckpointTiming = Record<string, number>;
 
@@ -87,7 +85,7 @@ export async function* streamResponse(
   try {
     yield* merged;
   } catch (e) {
-    if (e instanceof AbortError) {
+    if (isAbortError(e)) {
       return;
     } else {
       throw e;
@@ -236,7 +234,7 @@ async function* streamResponseInner(
             while (true) {
               const next = await settledPromise(waitForNewCheckpointLine());
               if (next.status == 'rejected') {
-                if (next.reason instanceof AbortError) {
+                if (isAbortError(next.reason)) {
                   checkpointResult = { result: 'invalidated', invalidationReason: 'checkpoint_cancelled' };
                 } else {
                   checkpointResult = { result: 'invalidated', invalidationReason: 'checkpoint_error' };
@@ -457,7 +455,9 @@ async function* bucketDataBatch(
     const filteredBuckets = checkpointLine.getFilteredBucketPositions(bucketsToFetch);
     const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets, {
       requestHint,
-      signal: abort_batch
+      // Checkpoint supersession is a cooperative batch handoff. Only abort
+      // in-flight storage work when the connection itself is closed.
+      signal: abort_connection
     });
     for await (let { chunkData: r, targetOp } of dataBatches) {
       // Abort in current batch if the connection is closed
