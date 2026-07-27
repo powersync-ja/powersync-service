@@ -546,14 +546,14 @@ export abstract class MongoCompactor {
     }
 
     // Do this after clearBucket so we have accurate counts.
-    this.updateBucketChecksums(currentState);
+    this.updateBucketChecksums(currentState, this.maxOpId);
     // Need another flush after updateBucketChecksums().
     await this.flush(bucketContext);
   }
 
   protected collectBucketStateUpdates(
     state: CurrentBucketState,
-    compactedOpId = this.maxOpId
+    compactedOpId: InternalOpId
   ): mongo.AnyBulkWriteOperation<BucketStateDocumentBase> {
     if (state.opCount < 0) {
       throw new ServiceAssertionError(
@@ -586,7 +586,7 @@ export abstract class MongoCompactor {
     };
   }
 
-  protected updateBucketChecksums(state: CurrentBucketState, compactedOpId = this.maxOpId) {
+  protected updateBucketChecksums(state: CurrentBucketState, compactedOpId: InternalOpId) {
     this.bucketStateUpdates.push(this.collectBucketStateUpdates(state, compactedOpId));
   }
 
