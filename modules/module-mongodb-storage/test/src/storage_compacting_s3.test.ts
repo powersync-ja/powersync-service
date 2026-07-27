@@ -3,7 +3,7 @@ import { bucketRequest, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { env } from './env.js';
-import { createS3TestStorageSuite } from './helpers/s3TestFactory.js';
+import { createMemoryS3TestStorageSuite, createS3TestStorageSuite } from './helpers/s3TestFactory.js';
 
 const SYNC_RULES_YAML = `
 bucket_definitions:
@@ -14,6 +14,14 @@ bucket_definitions:
 
 function s3Factory() {
   const { objectStorage, factoryGen } = createS3TestStorageSuite({ url: env.MONGO_TEST_URL, isCI: env.CI });
+  return { memoryStorage: objectStorage, factoryGen };
+}
+
+function memoryS3Factory() {
+  const { objectStorage, factoryGen } = createMemoryS3TestStorageSuite({
+    url: env.MONGO_TEST_URL,
+    isCI: env.CI
+  });
   return { memoryStorage: objectStorage, factoryGen };
 }
 
@@ -281,8 +289,7 @@ describe('V3 Compaction with object storage', () => {
   });
 
   test('compaction deletes old S3 objects', async () => {
-    if (process.env.MINIO_ENDPOINT) return;
-    const { memoryStorage, factoryGen } = s3Factory();
+    const { memoryStorage, factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;

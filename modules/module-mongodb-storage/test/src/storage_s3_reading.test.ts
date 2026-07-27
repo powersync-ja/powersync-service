@@ -7,7 +7,7 @@ import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/V
 import { hydrateBucketDataDocuments } from '../../src/storage/implementation/v3/object-storage/BucketDataObjectStorage.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
-import { createS3TestStorageSuite } from './helpers/s3TestFactory.js';
+import { createMemoryS3TestStorageSuite, createS3TestStorageSuite } from './helpers/s3TestFactory.js';
 
 const SYNC_RULES_YAML = `
 bucket_definitions:
@@ -18,6 +18,14 @@ bucket_definitions:
 
 function s3Factory() {
   const { objectStorage, factoryGen } = createS3TestStorageSuite({ url: env.MONGO_TEST_URL, isCI: env.CI });
+  return { memoryStorage: objectStorage, factory: factoryGen };
+}
+
+function memoryS3Factory() {
+  const { objectStorage, factoryGen } = createMemoryS3TestStorageSuite({
+    url: env.MONGO_TEST_URL,
+    isCI: env.CI
+  });
   return { memoryStorage: objectStorage, factory: factoryGen };
 }
 
@@ -62,8 +70,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
   });
 
   test('1. Round-trip write → read through S3', async () => {
-    if (process.env.MINIO_ENDPOINT) return;
-    const { memoryStorage, factory: factoryGen } = s3Factory();
+    const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
@@ -165,8 +172,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
   });
 
   test('3. Read with mixed inline + S3 docs', async () => {
-    if (process.env.MINIO_ENDPOINT) return;
-    const { memoryStorage, factory: factoryGen } = s3Factory();
+    const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
@@ -194,7 +200,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
 
     // Extract source_table and source_key from the S3-stored ops to reuse
     // in the inline document, ensuring valid identifiers for mapOpEntry.
-    const [_, entry] = [...(memoryStorage as MemoryObjectStorage).store.entries()][0];
+    const [_, entry] = [...memoryStorage.store.entries()][0];
     const wrapper = bson.deserialize(entry.data, { promoteValues: false });
     const s3Ops = wrapper.ops as any[];
     const s3SourceTable = s3Ops[0].source_table as bson.ObjectId;

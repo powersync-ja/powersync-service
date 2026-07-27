@@ -9,6 +9,18 @@ export interface S3TestFactoryOptions {
   inlineThresholdBytes?: number;
 }
 
+function createTestStorageSuite(options: S3TestFactoryOptions, objectStorage: ObjectStorage) {
+  return {
+    objectStorage,
+    factoryGen: mongoTestStorageFactoryGenerator({
+      url: options.url,
+      isCI: options.isCI,
+      objectStorage,
+      inlineThresholdBytes: options.inlineThresholdBytes ?? 0
+    })
+  };
+}
+
 /**
  * Creates an ObjectStorage instance for S3 tests.
  * Set MINIO_ENDPOINT to switch all S3 tests from MemoryObjectStorage
@@ -27,13 +39,14 @@ export function createS3TestStorageSuite(options: S3TestFactoryOptions) {
       })
     : new MemoryObjectStorage();
 
+  return createTestStorageSuite(options, objectStorage);
+}
+
+/** Creates an explicitly memory-backed suite for tests that inspect stored objects. */
+export function createMemoryS3TestStorageSuite(options: S3TestFactoryOptions) {
+  const objectStorage = new MemoryObjectStorage();
   return {
-    objectStorage,
-    factoryGen: mongoTestStorageFactoryGenerator({
-      url: options.url,
-      isCI: options.isCI,
-      objectStorage,
-      inlineThresholdBytes: options.inlineThresholdBytes ?? 0
-    })
+    ...createTestStorageSuite(options, objectStorage),
+    objectStorage
   };
 }

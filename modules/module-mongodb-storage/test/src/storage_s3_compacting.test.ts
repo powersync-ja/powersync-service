@@ -4,7 +4,7 @@ import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { env } from './env.js';
-import { createS3TestStorageSuite } from './helpers/s3TestFactory.js';
+import { createMemoryS3TestStorageSuite, createS3TestStorageSuite } from './helpers/s3TestFactory.js';
 
 const SYNC_RULES_YAML = `
 bucket_definitions:
@@ -18,10 +18,17 @@ function s3Factory() {
   return { memoryStorage: objectStorage, factory: factoryGen };
 }
 
+function memoryS3Factory() {
+  const { objectStorage, factoryGen } = createMemoryS3TestStorageSuite({
+    url: env.MONGO_TEST_URL,
+    isCI: env.CI
+  });
+  return { memoryStorage: objectStorage, factory: factoryGen };
+}
+
 describe('S3 compaction (Phase 2d red tests)', () => {
   test('MOVE compaction merges adjacent objects using their compacted size in one write', async () => {
-    if (process.env.MINIO_ENDPOINT) return;
-    const { memoryStorage, factory: factoryGen } = s3Factory();
+    const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
@@ -96,8 +103,7 @@ describe('S3 compaction (Phase 2d red tests)', () => {
   });
 
   test('Compaction round-trip with S3-backed docs', async () => {
-    if (process.env.MINIO_ENDPOINT) return;
-    const { memoryStorage, factory: factoryGen } = s3Factory();
+    const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;

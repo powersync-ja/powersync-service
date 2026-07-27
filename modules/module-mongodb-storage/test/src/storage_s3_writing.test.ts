@@ -7,7 +7,7 @@ import { MongoSyncBucketStorage } from '../../src/storage/implementation/createM
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
-import { createS3TestStorageSuite } from './helpers/s3TestFactory.js';
+import { createMemoryS3TestStorageSuite, createS3TestStorageSuite } from './helpers/s3TestFactory.js';
 
 const SYNC_RULES_YAML = `
 bucket_definitions:
@@ -21,10 +21,17 @@ function s3Factory() {
   return { memoryStorage: objectStorage, factory: factoryGen };
 }
 
+function memoryS3Factory() {
+  const { objectStorage, factoryGen } = createMemoryS3TestStorageSuite({
+    url: env.MONGO_TEST_URL,
+    isCI: env.CI
+  });
+  return { memoryStorage: objectStorage, factory: factoryGen };
+}
+
 describe('S3 write path (Phase 2b red tests)', () => {
   test('1. Write persists ops to S3', async () => {
-    if (process.env.MINIO_ENDPOINT) return; // Cannot access internal store against real S3
-    const { memoryStorage, factory: factoryGen } = s3Factory();
+    const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
@@ -50,7 +57,7 @@ describe('S3 write path (Phase 2b red tests)', () => {
     await writer.commit('1/1');
 
     // Verify S3 object was uploaded
-    const storedPaths = (memoryStorage as MemoryObjectStorage).store;
+    const storedPaths = memoryStorage.store;
     expect(storedPaths.size).toBeGreaterThan(0);
 
     // Find the stored path and decompress + deserialize
