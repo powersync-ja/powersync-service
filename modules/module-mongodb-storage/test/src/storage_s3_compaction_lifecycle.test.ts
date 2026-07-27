@@ -3,6 +3,7 @@ import { bucketRequest, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
+import { ObjectStorageError } from '../../src/storage/implementation/v3/object-storage/ObjectStorage.js';
 import { env } from './env.js';
 import { createMemoryS3TestStorageSuite, createS3TestStorageSuite } from './helpers/s3TestFactory.js';
 
@@ -28,6 +29,55 @@ function memoryS3Factory(inlineThresholdBytes = 0) {
 }
 
 describe('S3 compaction storage lifecycle', () => {
+  test('retries transient object storage failures', async () => {
+    const { memoryStorage, factory: factoryGen } = memoryS3Factory();
+    await using factory = await factoryGen.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
+    await writer.markAllSnapshotDone('1/1');
+    for (const [index, description] of ['old', 'new'].entries()) {
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'A', description },
+        afterReplicaId: test_utils.rid('A')
+      });
+      await writer.commit(`${index + 1}/1`);
+    }
+
+    const originalGet = memoryStorage.get.bind(memoryStorage);
+    let injectedFailure = false;
+    memoryStorage.get = async (...args) => {
+      if (!injectedFailure) {
+        injectedFailure = true;
+        throw new ObjectStorageError('temporary object storage failure', {
+          cause: new Error('socket reset'),
+          retryable: true
+        });
+      }
+      return originalGet(...args);
+    };
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    await bucketStorage.compact({
+      maxOpId: checkpoint.checkpoint,
+      compactBuckets: [request.bucket],
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      signal: null as any
+    });
+
+    expect(injectedFailure).toBe(true);
+    const data = test_utils.getBatchData(
+      await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]))
+    );
+    expect(data).toHaveLength(2);
+  });
+
   test('small inline updates merge into an inline replacement', async () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory(10_000);
     await using factory = await factoryGen.factory();

@@ -326,6 +326,9 @@ importers:
       '@powersync/service-types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@smithy/core':
+        specifier: ^3.24.6
+        version: 3.24.6
       async-mutex:
         specifier: ^0.5.0
         version: 0.5.0

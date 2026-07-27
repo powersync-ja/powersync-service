@@ -5,6 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { hydrateBucketDataDocuments } from '../../src/storage/implementation/v3/object-storage/BucketDataObjectStorage.js';
+import { ObjectStorageError } from '../../src/storage/implementation/v3/object-storage/ObjectStorage.js';
 import { S3ObjectStorage } from '../../src/storage/implementation/v3/object-storage/S3ObjectStorage.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
@@ -66,6 +67,42 @@ describe('S3 object storage reads', () => {
     });
 
     await expect(objectStorage.get('x'.repeat(640))).rejects.toThrowError(/exceeding the safe limit of 896 bytes/);
+  });
+
+  test('classifies S3 failures for compaction retries', async () => {
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
+    const transientCause = Object.assign(new Error('socket reset'), { code: 'ECONNRESET' });
+    (objectStorage as any).client.send = async () => {
+      throw transientCause;
+    };
+
+    await expect(objectStorage.get('transient-object')).rejects.toMatchObject({
+      name: 'ObjectStorageError',
+      retryable: true,
+      cause: transientCause,
+      message: expect.stringContaining('S3 download failed for transient-object')
+    } satisfies Partial<ObjectStorageError>);
+
+    const permanentCause = Object.assign(new Error('access denied'), {
+      name: 'AccessDenied',
+      $metadata: { httpStatusCode: 403 }
+    });
+    (objectStorage as any).client.send = async () => {
+      throw permanentCause;
+    };
+    await expect(objectStorage.get('permanent-object')).rejects.toMatchObject({
+      name: 'ObjectStorageError',
+      retryable: false,
+      cause: permanentCause,
+      message: expect.stringContaining('S3 download failed for permanent-object')
+    } satisfies Partial<ObjectStorageError>);
+
+    const controller = new AbortController();
+    controller.abort();
+    (objectStorage as any).client.send = async () => {
+      throw controller.signal.reason;
+    };
+    await expect(objectStorage.get('aborted-object')).rejects.toBe(controller.signal.reason);
   });
 
   test('paginates listings and strips the configured prefix', async () => {

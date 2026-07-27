@@ -5,7 +5,7 @@ import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketDataDocumentGeneric } from '../common/SingleBucketStore.js';
 import { BucketDataKey, BucketStateDocumentBase } from '../models.js';
-import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
+import { ConcurrentCompactionError, DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { cacheKey } from '../OperationBatch.js';
 import { loadBucketDataDocument, serializeBucketData } from './bucket-format.js';
 import { DEFAULT_MAX_DOC_SIZE_BYTES } from './chunking.js';
@@ -481,8 +481,8 @@ export class MongoCompactorV3 extends MongoCompactor {
             verification.checksumSum !== expectedChecksum ||
             verification.opCountSum !== expectedOpCount
           ) {
-            throw new Error(
-              `Concurrent modification detected in bucket ${bucket}. Aborting compaction for this group.`
+            throw new ConcurrentCompactionError(
+              `Inputs changed while compacting bucket ${bucket}; restarting from the latest bucket state`
             );
           }
 

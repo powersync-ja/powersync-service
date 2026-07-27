@@ -5,9 +5,10 @@ import {
   PutObjectCommand,
   S3Client
 } from '@aws-sdk/client-s3';
-import { acquireSemaphoreAbortable } from '@powersync/service-core';
+import { acquireSemaphoreAbortable, isAbortError } from '@powersync/service-core';
+import { isClockSkewError, isThrottlingError, isTransientError } from '@smithy/core/retry';
 import { Semaphore, SemaphoreInterface } from 'async-mutex';
-import type { ObjectStorage, ObjectStoragePutMetadata } from './ObjectStorage.js';
+import { ObjectStorageError, type ObjectStorage, type ObjectStoragePutMetadata } from './ObjectStorage.js';
 
 const DEFAULT_S3_OPERATION_CONCURRENCY = 16;
 const MAX_S3_PREFIX_BYTES = 256;
@@ -63,15 +64,19 @@ export class S3ObjectStorage implements ObjectStorage {
   async put(path: string, data: Uint8Array, metadata: ObjectStoragePutMetadata): Promise<void> {
     const fullPath = this.fullPath(path);
     await using _ = await this.withOperation();
-    await this.client.send(
-      new PutObjectCommand({
-        Bucket: this.bucket,
-        Key: fullPath,
-        Body: data,
-        ContentType: metadata.contentType,
-        ContentEncoding: metadata.contentEncoding ?? undefined
-      })
-    );
+    try {
+      await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: fullPath,
+          Body: data,
+          ContentType: metadata.contentType,
+          ContentEncoding: metadata.contentEncoding ?? undefined
+        })
+      );
+    } catch (error) {
+      throw s3OperationError('upload', fullPath, error);
+    }
   }
 
   async get(path: string, signal?: AbortSignal): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
@@ -100,9 +105,9 @@ export class S3ObjectStorage implements ObjectStorage {
       };
     } catch (err: any) {
       if (err.name === 'NoSuchKey' || err.Code === 'NoSuchKey') {
-        throw new Error(`S3 object not found: ${fullPath}`);
+        throw new ObjectStorageError(`S3 object not found: ${fullPath}`, { cause: err, retryable: false });
       }
-      throw err;
+      throw s3OperationError('download', fullPath, err);
     }
   }
 
@@ -112,17 +117,22 @@ export class S3ObjectStorage implements ObjectStorage {
 
     do {
       signal?.throwIfAborted();
-      const response = await (async () => {
-        await using _ = await this.withOperation(signal);
-        return await this.client.send(
-          new ListObjectsV2Command({
-            Bucket: this.bucket,
-            Prefix: fullPrefix,
-            ContinuationToken: continuationToken
-          }),
-          { abortSignal: signal }
-        );
-      })();
+      let response;
+      try {
+        response = await (async () => {
+          await using _ = await this.withOperation(signal);
+          return await this.client.send(
+            new ListObjectsV2Command({
+              Bucket: this.bucket,
+              Prefix: fullPrefix,
+              ContinuationToken: continuationToken
+            }),
+            { abortSignal: signal }
+          );
+        })();
+      } catch (error) {
+        throw s3OperationError('list', fullPrefix, error);
+      }
       for (const object of response.Contents ?? []) {
         if (object.Key == null) {
           continue;
@@ -140,16 +150,23 @@ export class S3ObjectStorage implements ObjectStorage {
     if (paths.length === 0) return;
     const fullPaths = paths.map((path) => ({ Key: this.fullPath(path) }));
     await using _ = await this.withOperation();
-    const response = await this.client.send(
-      new DeleteObjectsCommand({
-        Bucket: this.bucket,
-        Delete: { Objects: fullPaths, Quiet: true }
-      })
-    );
-    if (response.Errors?.length) {
-      throw new Error(
-        `Failed to delete S3 objects: ${response.Errors.map((error) => `${error.Key}: ${error.Code}`).join(', ')}`
+    let response;
+    try {
+      response = await this.client.send(
+        new DeleteObjectsCommand({
+          Bucket: this.bucket,
+          Delete: { Objects: fullPaths, Quiet: true }
+        })
       );
+    } catch (error) {
+      throw s3OperationError('delete', `${fullPaths.length} objects`, error);
+    }
+    if (response.Errors?.length) {
+      const errors = response.Errors.map((error) => `${error.Key}: ${error.Code}`).join(', ');
+      throw new ObjectStorageError(`Failed to delete S3 objects: ${errors}`, {
+        cause: response.Errors,
+        retryable: response.Errors.some((error) => isTransientS3Error({ name: error.Code }))
+      });
     }
   }
 
@@ -181,6 +198,38 @@ export class S3ObjectStorage implements ObjectStorage {
       [Symbol.asyncDispose]: async () => release()
     };
   }
+}
+
+function s3OperationError(operation: string, target: string, error: unknown): Error {
+  if (error instanceof ObjectStorageError) {
+    return error;
+  }
+  // Preserve abort errors so callers can distinguish cancellation from an S3
+  // failure and avoid retrying work after shutdown.
+  if (isAbortError(error)) {
+    return error as Error;
+  }
+  const detail = error instanceof Error ? `: ${error.message}` : '';
+  return new ObjectStorageError(`S3 ${operation} failed for ${target}${detail}`, {
+    cause: error,
+    retryable: isTransientS3Error(error)
+  });
+}
+
+function isTransientS3Error(error: unknown): boolean {
+  if (typeof error != 'object' || error == null) {
+    return false;
+  }
+  if (isAbortError(error)) {
+    return false;
+  }
+
+  const sdkError = error as Parameters<typeof isTransientError>[0];
+  // Use the same classification as the AWS SDK retry middleware. The SDK
+  // returns the final error after its own attempt/quota limits are exhausted;
+  // this tells the compactor whether restarting the larger bucket operation is
+  // still appropriate.
+  return isClockSkewError(sdkError) || isThrottlingError(sdkError) || isTransientError(sdkError);
 }
 
 function mergeChunks(chunks: Uint8Array[]): Uint8Array {
