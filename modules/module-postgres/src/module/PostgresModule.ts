@@ -1,4 +1,4 @@
-import { baseUri, NormalizedBasePostgresConnectionConfig } from '@powersync/lib-service-postgres';
+import { baseUri } from '@powersync/lib-service-postgres';
 import {
   api,
   ConfigurationFileSyncRulesProvider,
@@ -105,7 +105,9 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     return await this.testConnection(normalizedConfig);
   }
 
-  static async testConnection(normalizedConfig: NormalizedBasePostgresConnectionConfig): Promise<ConnectionTestResult> {
+  static async testConnection(
+    normalizedConfig: types.NormalizedPostgresConnectionConfig
+  ): Promise<ConnectionTestResult> {
     // FIXME: This is not a complete implementation yet.
     const connectionManager = new PgManager(normalizedConfig, {
       idleTimeout: 30_000,

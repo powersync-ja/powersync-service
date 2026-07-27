@@ -5,14 +5,24 @@ import * as t from 'ts-codec';
 // Maintain backwards compatibility by exporting these
 export const validatePort = lib_postgres.validatePort;
 export const baseUri = lib_postgres.baseUri;
-export type NormalizedPostgresConnectionConfig = lib_postgres.NormalizedBasePostgresConnectionConfig;
+export type NormalizedPostgresConnectionConfig = lib_postgres.NormalizedBasePostgresConnectionConfig & {
+  snapshot_concurrency: number;
+};
 export const POSTGRES_CONNECTION_TYPE = lib_postgres.POSTGRES_CONNECTION_TYPE;
 
 export const PostgresConnectionConfig = service_types.configFile.DataSourceConfig.and(
   lib_postgres.BasePostgresConnectionConfig
 ).and(
   t.object({
-    // Add any replication connection specific config here in future
+    /**
+     * Number of tables to snapshot in parallel during initial replication.
+     *
+     * Each worker uses its own source connection and its own storage writers,
+     * so flushes from different workers run concurrently.
+     *
+     * Defaults to 1 (sequential).
+     */
+    snapshot_concurrency: t.number.optional()
   })
 );
 
@@ -39,6 +49,7 @@ export function isPostgresConfig(
  */
 export function normalizeConnectionConfig(options: PostgresConnectionConfig) {
   return {
-    ...lib_postgres.normalizeConnectionConfig(options)
+    ...lib_postgres.normalizeConnectionConfig(options),
+    snapshot_concurrency: options.snapshot_concurrency ?? 1
   } satisfies NormalizedPostgresConnectionConfig;
 }
