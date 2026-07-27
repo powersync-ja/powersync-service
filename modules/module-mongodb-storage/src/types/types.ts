@@ -8,6 +8,9 @@ const S3ObjectStorageConfig = t.object({
   region: t.string,
   prefix: t.string.optional(),
   endpoint: t.string.optional(),
+  access_key_id: t.string.optional(),
+  secret_access_key: t.string.optional(),
+  concurrency_limit: t.number.optional(),
   // Chunks whose BSON-serialized size falls below this byte threshold
   // stay inline in MongoDB instead of being offloaded to S3. Default 256.
   inline_threshold_bytes: t.number.optional()

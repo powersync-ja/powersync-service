@@ -9,7 +9,7 @@ import { acquireSemaphoreAbortable } from '@powersync/service-core';
 import { Semaphore, SemaphoreInterface } from 'async-mutex';
 import type { ObjectStorage, ObjectStoragePutMetadata } from './ObjectStorage.js';
 
-const S3_OPERATION_CONCURRENCY = 16;
+const DEFAULT_S3_OPERATION_CONCURRENCY = 16;
 
 export interface S3ObjectStorageOptions {
   bucket: string;
@@ -18,17 +18,27 @@ export interface S3ObjectStorageOptions {
   endpoint?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
+  concurrencyLimit?: number;
 }
 
 export class S3ObjectStorage implements ObjectStorage {
   private client: S3Client;
   private bucket: string;
   private prefix: string;
-  private readonly operationSemaphore: SemaphoreInterface = new Semaphore(S3_OPERATION_CONCURRENCY);
+  private readonly operationSemaphore: SemaphoreInterface;
 
   constructor(options: S3ObjectStorageOptions) {
+    const concurrencyLimit = options.concurrencyLimit ?? DEFAULT_S3_OPERATION_CONCURRENCY;
+    if (!Number.isInteger(concurrencyLimit) || concurrencyLimit <= 0) {
+      throw new Error('S3 object storage concurrencyLimit must be a positive integer');
+    }
+    if ((options.accessKeyId == null) !== (options.secretAccessKey == null)) {
+      throw new Error('S3 object storage accessKeyId and secretAccessKey must be configured together');
+    }
+
     this.bucket = options.bucket;
     this.prefix = options.prefix ?? '';
+    this.operationSemaphore = new Semaphore(concurrencyLimit);
     this.client = new S3Client({
       region: options.region,
       endpoint: options.endpoint,

@@ -32,7 +32,10 @@ export class MongoStorageProvider implements storage.StorageProvider {
         bucket: decodedConfig.object_storage.bucket,
         region: decodedConfig.object_storage.region,
         prefix: decodedConfig.object_storage.prefix,
-        endpoint: decodedConfig.object_storage.endpoint
+        endpoint: decodedConfig.object_storage.endpoint,
+        accessKeyId: decodedConfig.object_storage.access_key_id,
+        secretAccessKey: decodedConfig.object_storage.secret_access_key,
+        concurrencyLimit: decodedConfig.object_storage.concurrency_limit
       });
     }
 

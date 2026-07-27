@@ -31,13 +31,34 @@ function memoryS3Factory() {
 }
 
 describe('S3 read path (Phase 2c red tests)', () => {
+  test('configures S3 credentials and validates operation options', async () => {
+    const objectStorage = new S3ObjectStorage({
+      bucket: 'test',
+      region: 'test',
+      accessKeyId: 'access-key',
+      secretAccessKey: 'secret-key',
+      concurrencyLimit: 4
+    });
+
+    await expect((objectStorage as any).client.config.credentials()).resolves.toMatchObject({
+      accessKeyId: 'access-key',
+      secretAccessKey: 'secret-key'
+    });
+    expect(() => new S3ObjectStorage({ bucket: 'test', region: 'test', accessKeyId: 'access-key' })).toThrowError(
+      /configured together/
+    );
+    expect(() => new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 0 })).toThrowError(
+      /positive integer/
+    );
+  });
+
   test('shares the concurrency limit across S3 operations', async () => {
-    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
-    let activeDownloads = 0;
-    let maxActiveDownloads = 0;
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 4 });
+    let activeOperations = 0;
+    let maxActiveOperations = 0;
     (objectStorage as any).client.send = async () => {
-      activeDownloads++;
-      maxActiveDownloads = Math.max(maxActiveDownloads, activeDownloads);
+      activeOperations++;
+      maxActiveOperations = Math.max(maxActiveOperations, activeOperations);
       await new Promise<void>((resolve) => setImmediate(resolve));
       try {
         return {
@@ -47,7 +68,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
           ContentType: 'application/bson'
         };
       } finally {
-        activeDownloads--;
+        activeOperations--;
       }
     };
 
@@ -61,7 +82,7 @@ describe('S3 read path (Phase 2c red tests)', () => {
             })
       )
     );
-    expect(maxActiveDownloads).toBe(16);
+    expect(maxActiveOperations).toBe(4);
   });
 
   test('aborts active object downloads', async () => {
