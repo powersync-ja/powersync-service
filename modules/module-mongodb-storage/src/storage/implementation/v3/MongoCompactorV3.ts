@@ -497,7 +497,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             );
           }
 
-          await bucketContext.collection.deleteMany({ _id: { $in: idsToDelete } } as any, { session });
+          await bucketContext.collection.deleteMany({ _id: { $in: idsToDelete } }, { session });
           await bucketContext.collection.insertMany(documents, { session });
           await this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, uploads, session);
         },

@@ -86,7 +86,7 @@ export class MongoCompactorV1 extends MongoCompactor {
     };
   }
 
-  private getBucketDataContext(bucket: string, _definitionId: BucketDefinitionId | null): SingleBucketStoreV1 {
+  private getBucketDataContext(bucket: string): SingleBucketStoreV1 {
     return new SingleBucketStoreV1(this.db, {
       replicationStreamId: this.group_id,
       definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID,
@@ -94,12 +94,12 @@ export class MongoCompactorV1 extends MongoCompactor {
     });
   }
 
-  protected async compactSingleBucket(bucket: string, definitionId: BucketDefinitionId | null = null) {
-    // Do not carry queued writes from a failed attempt into the rescan.
+  protected async compactSingleBucket(bucket: string) {
+    // Do not carry queued writes from a failed attempt into the rescan
     this.updates = [];
 
     const idLimitBytes = this.idLimitBytes;
-    const bucketContext = this.getBucketDataContext(bucket, definitionId);
+    const bucketContext = this.getBucketDataContext(bucket);
     const currentState: CurrentBucketState = {
       bucket,
       definitionId: bucketContext.key.definitionId,
