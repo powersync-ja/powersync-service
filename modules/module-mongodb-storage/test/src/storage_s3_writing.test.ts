@@ -225,9 +225,20 @@ describe('S3 write path (Phase 2b red tests)', () => {
       contentEncoding: null
     });
 
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
+    const deletionMarkers = db.pendingObjectStorageDeletes(bucketStorage.replicationStreamId);
+    await deletionMarkers.insertOne({
+      _id: new bson.ObjectId(),
+      path: `${streamPrefix}pending-object.bson`,
+      delete_after: new Date()
+    });
+
     await bucketStorage.clear();
 
     expect(Array.from(memoryStorage.store.keys()).some((path) => path.startsWith(streamPrefix))).toBe(false);
     expect(memoryStorage.store.has(unrelatedPath)).toBe(true);
+    expect(await db.db.listCollections({ name: deletionMarkers.collectionName }, { nameOnly: true }).hasNext()).toBe(
+      false
+    );
   });
 });

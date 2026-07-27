@@ -397,6 +397,15 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       const lifecycle = new ObjectStorageLifecycle(this.db, this.replicationStreamId, this.objectStorage);
       await lifecycle.deletePrefix(lifecycle.streamPrefix(), signal);
     }
+    await this.db
+      .pendingObjectStorageDeletes(this.replicationStreamId)
+      .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
+      .catch((error) => {
+        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          return;
+        }
+        throw error;
+      });
   }
 
   protected async clearParameterIndexes(_signal?: AbortSignal): Promise<void> {
