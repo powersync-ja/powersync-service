@@ -50,14 +50,14 @@ describe('S3 write path (Phase 2b red tests)', () => {
     await writer.commit('1/1');
 
     // Verify S3 object was uploaded
-    const storedPaths = (memoryStorage as any).store as Map<string, Buffer>;
+    const storedPaths = (memoryStorage as MemoryObjectStorage).store;
     expect(storedPaths.size).toBeGreaterThan(0);
 
     // Find the stored path and decompress + deserialize
-    const [path, data] = [...storedPaths.entries()][0];
+    const [path, entry] = [...storedPaths.entries()][0];
     expect(path).toBeTruthy();
 
-    const wrapper = bson.deserialize(data, { promoteValues: false });
+    const wrapper = bson.deserialize(entry.data, { promoteValues: false });
     expect(wrapper).toHaveProperty('ops');
     expect(Array.isArray(wrapper.ops)).toBe(true);
     expect(wrapper.ops).toHaveLength(2);
