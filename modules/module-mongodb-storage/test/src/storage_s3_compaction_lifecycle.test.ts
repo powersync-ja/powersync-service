@@ -205,8 +205,8 @@ describe('S3 compaction storage lifecycle', () => {
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
 
-    // Write ops with duplicates to exercise dedup during compaction.
-    // A@2 is superseded by A@6, becoming a MOVE tombstone.
+    // Write several operations, including a repeated object id, to exercise
+    // the compaction round-trip.
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
     await writer.markAllSnapshotDone('1/1');
@@ -280,10 +280,13 @@ describe('S3 compaction storage lifecycle', () => {
     expect(bucketStateBefore!.estimate_since_compact!.count).toBeGreaterThan(0);
 
     // Record the ops that exist so we can verify survival later.
-    // Use the Phase 2c read path to read actual ops (this path works).
     const batchBefore = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataBefore = test_utils.getBatchData(batchBefore);
     expect(dataBefore.length).toBe(4);
+    const expectedCompactedOpId = docsBefore
+      .filter((doc) => doc._id.b === bucket && doc._id.o <= checkpoint.checkpoint)
+      .reduce<bigint | null>((highest, doc) => (highest == null || doc._id.o > highest ? doc._id.o : highest), null);
+    expect(expectedCompactedOpId).not.toBeNull();
 
     // Compact the bucket.
     await bucketStorage.compact({
@@ -298,11 +301,7 @@ describe('S3 compaction storage lifecycle', () => {
       signal: null as any
     });
 
-    // --- Verification 1: bucket_state compacted_state is wrong ---
-    // The compactor writes compacted_state with checksum=0 and count=0
-    // because it cannot read ops from storage_ref docs. The correct output
-    // should have non-zero checksum and count >= 3 (1 MOVE tombstone + 3 PUTs,
-    // with potential consolidation).
+    // The compacted state reflects the hydrated object contents.
     const bucketStateAfter = await bucketStateCollection.findOne({
       _id: { d: definitionId, b: bucket }
     });
@@ -313,17 +312,17 @@ describe('S3 compaction storage lifecycle', () => {
     const compactedCount = bucketStateAfter!.compacted_state!.count;
     expect(compactedCount).toBeGreaterThanOrEqual(3);
 
-    // The compacted_state.op_id must equal the maxOpId (checkpoint)
-    expect(bucketStateAfter!.compacted_state!.op_id).toBe(checkpoint.checkpoint);
+    // Record the highest persisted document that was actually included in the
+    // compaction scan, rather than the requested upper bound.
+    expect(bucketStateAfter!.compacted_state!.op_id).toBe(expectedCompactedOpId);
 
-    // --- Verification 2: MongoDB docs replaced with new metadata shells ---
+    // Compacted MongoDB documents remain metadata shells for object storage.
     const docsAfter = await collection.find({}).toArray();
     for (const doc of docsAfter) {
       expect(doc.storage_ref).toBeDefined();
       expect(doc.ops).toBeUndefined();
     }
 
-    // --- Verification 3: replaced S3 objects are retained through the grace period ---
     // Paths are globally unique, and compaction records delayed deletion markers
     // instead of deleting objects while old readers may still be downloading them.
     const oldS3Paths = new Set(docsBefore.map((d: any) => d.storage_ref?.path).filter(Boolean));
@@ -342,11 +341,7 @@ describe('S3 compaction storage lifecycle', () => {
     }
     expect(afterS3Paths.size).toBeGreaterThan(0);
 
-    // --- Verification 4: Read path still returns correct ops ---
-    // Phase 2c reads ops from S3 correctly. Since compaction didn't delete
-    // the S3 objects or modify the docs, the ops are still readable.
-    // This assertion should PASS today and must continue passing after
-    // Phase 2d implementation.
+    // The replacement objects remain readable and preserve the logical ops.
     const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataAfter = test_utils.getBatchData(batchAfter);
     expect(dataAfter.length).toBe(dataBefore.length);
