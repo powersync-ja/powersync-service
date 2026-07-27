@@ -27,6 +27,44 @@ interface PendingCompactionGroup {
   changed: boolean;
 }
 
+/**
+ * Read one bounded prefix from a descending compaction cursor.
+ *
+ * The document that would cross the byte limit is deliberately not returned:
+ * pagination resumes below the last returned `_id`, so that document remains
+ * eligible for the next query. The first document is always accepted to ensure
+ * progress when a single document exceeds the configured byte limit.
+ *
+ * `hasMore` is conservative when the document limit is reached. An extra empty
+ * query is preferable to exhausting the cursor just to determine whether the
+ * limited MongoDB query contained another document.
+ */
+async function readCompactionBatch(
+  cursor: mongo.AggregationCursor<BucketDataDocumentV3>,
+  options: { byteLimit: number; documentLimit: number }
+): Promise<{ documents: BucketDataDocumentV3[]; hasMore: boolean }> {
+  const documents: BucketDataDocumentV3[] = [];
+  let cumulativeBytes = 0;
+
+  try {
+    for await (const document of cursor) {
+      if (documents.length > 0 && cumulativeBytes + document.size > options.byteLimit) {
+        return { documents, hasMore: true };
+      }
+
+      documents.push(document);
+      cumulativeBytes += document.size;
+
+      if (documents.length >= options.documentLimit) {
+        return { documents, hasMore: true };
+      }
+    }
+    return { documents, hasMore: false };
+  } finally {
+    await cursor.close();
+  }
+}
+
 export class MongoCompactorV3 extends MongoCompactor {
   declare protected readonly db: VersionedPowerSyncMongoV3;
   declare protected readonly storage: MongoSyncBucketStorageV3;
@@ -207,32 +245,21 @@ export class MongoCompactorV3 extends MongoCompactor {
         }
       ];
 
-      const rawBatch = await collection
-        .aggregate<BucketDataDocumentV3>(pipeline, {
+      const batch = await readCompactionBatch(
+        collection.aggregate<BucketDataDocumentV3>(pipeline, {
           batchSize: this.moveBatchQueryLimit + 1
-        })
-        .toArray();
+        }),
+        {
+          byteLimit: this.moveBatchByteLimit,
+          documentLimit: this.moveBatchQueryLimit
+        }
+      );
+      const batchDocs = batch.documents;
 
-      if (rawBatch.length == 0) {
+      if (batchDocs.length == 0) {
         // No more documents in this bucket — compaction complete.
         break;
       }
-
-      // --- Cut batch to byte limit ---
-      let cumulativeBytes = 0;
-      let batchCutIndex = rawBatch.length;
-
-      for (let i = 0; i < rawBatch.length; i++) {
-        cumulativeBytes += rawBatch[i].size;
-        if (cumulativeBytes > this.moveBatchByteLimit && i > 0) {
-          // Byte limit exceeded; cut batch at current index. Always include
-          // at least one document (i > 0 guard) to guarantee forward progress.
-          batchCutIndex = i;
-          break;
-        }
-      }
-
-      const batchDocs = rawBatch.slice(0, batchCutIndex);
 
       await hydrateBucketDataDocuments(batchDocs, this.storage.objectStorage, this.signal);
 
@@ -335,15 +362,8 @@ export class MongoCompactorV3 extends MongoCompactor {
       // --- Advance to next batch ---
       upperBound = batchDocs[batchDocs.length - 1]._id as typeof upperBound;
 
-      if (batchCutIndex < rawBatch.length) {
-        // We cut the batch short due to byte limit — don't advance past cut point
-        // The upperBound is already set to the last doc we processed
-      } else {
-        // Processed all docs in the raw batch. If we got fewer than the query
-        // limit, there are no more documents in this bucket — compaction complete.
-        if (rawBatch.length < this.moveBatchQueryLimit) {
-          break;
-        }
+      if (!batch.hasMore) {
+        break;
       }
 
       this.logger.info(`Compacted batch of ${batchDocs.length} documents for bucket ${bucket}`);
