@@ -5,8 +5,7 @@ import { MongoStorageConfig } from '../../types/types.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { MongoReportStorage } from '../MongoReportStorage.js';
 import { PowerSyncMongo } from './db.js';
-import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
-import { S3ObjectStorage } from './v3/object-storage/S3ObjectStorage.js';
+import type { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 
 export class MongoStorageProvider implements storage.StorageProvider {
   get type() {
@@ -28,6 +27,8 @@ export class MongoStorageProvider implements storage.StorageProvider {
 
     let objectStorage: ObjectStorage | undefined;
     if (decodedConfig.object_storage?.type === 's3') {
+      // Dynamically import S3ObjectStorage to avoid loading AWS SDK unless needed.
+      const { S3ObjectStorage } = await import('./v3/object-storage/S3ObjectStorage.js');
       objectStorage = new S3ObjectStorage({
         bucket: decodedConfig.object_storage.bucket,
         region: decodedConfig.object_storage.region,
