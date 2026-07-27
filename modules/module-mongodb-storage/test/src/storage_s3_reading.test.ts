@@ -4,6 +4,7 @@ import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
+import { hydrateBucketDataDocuments } from '../../src/storage/implementation/v3/object-storage/BucketDataObjectStorage.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 import { createS3TestStorageSuite } from './helpers/s3TestFactory.js';
@@ -21,6 +22,45 @@ function s3Factory() {
 }
 
 describe('S3 read path (Phase 2c red tests)', () => {
+  test('limits concurrent object downloads to 16', async () => {
+    const objectStorage = new MemoryObjectStorage();
+    const documents = Array.from({ length: 32 }, (_, index) => {
+      const path = `object-${index}`;
+      objectStorage.store.set(path, {
+        data: bson.serialize({ ops: [] }),
+        metadata: {
+          contentType: 'application/bson',
+          contentEncoding: null
+        }
+      });
+      return {
+        _id: { b: 'bucket', o: BigInt(index + 1) },
+        min_op: BigInt(index + 1),
+        checksum: 0n,
+        count: 0,
+        size: 1,
+        storage_ref: { path, file_size: 1 }
+      };
+    });
+
+    const originalGet = objectStorage.get.bind(objectStorage);
+    let activeDownloads = 0;
+    let maxActiveDownloads = 0;
+    objectStorage.get = async (path) => {
+      activeDownloads++;
+      maxActiveDownloads = Math.max(maxActiveDownloads, activeDownloads);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      try {
+        return await originalGet(path);
+      } finally {
+        activeDownloads--;
+      }
+    };
+
+    await hydrateBucketDataDocuments(documents, objectStorage);
+    expect(maxActiveDownloads).toBe(16);
+  });
+
   test('1. Round-trip write → read through S3', async () => {
     if (process.env.MINIO_ENDPOINT) return;
     const { memoryStorage, factory: factoryGen } = s3Factory();

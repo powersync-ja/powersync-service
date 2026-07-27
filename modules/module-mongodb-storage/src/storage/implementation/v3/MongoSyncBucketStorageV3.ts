@@ -37,7 +37,7 @@ import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
 import { MongoStoppedSyncConfigCleanup } from './MongoStoppedSyncConfigCleanup.js';
-import { BucketDataObjectStorage } from './object-storage/BucketDataObjectStorage.js';
+import { hydrateBucketDataDocuments } from './object-storage/BucketDataObjectStorage.js';
 import { ObjectStorage } from './object-storage/ObjectStorage.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
@@ -53,6 +53,30 @@ export interface MongoSyncBucketStorageContextV3 {
    * configs throws, but operations that don't use it remain unaffected.
    */
   readonly mapping: SingleSyncConfigBucketDefinitionMapping;
+}
+
+const BUCKET_DATA_FETCH_BATCH_LIMIT_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Keep the documents hydrated for one sync response within a bounded payload.
+ * The first document is always included so an oversized operation cannot prevent
+ * forward progress.
+ */
+function cutBucketDataBatch(documents: BucketDataDocumentV3[]): {
+  documents: BucketDataDocumentV3[];
+  wasCut: boolean;
+} {
+  let cumulativeBytes = 0;
+  for (let index = 0; index < documents.length; index++) {
+    cumulativeBytes += documents[index].size;
+    if (cumulativeBytes > BUCKET_DATA_FETCH_BATCH_LIMIT_BYTES && index > 0) {
+      return {
+        documents: documents.slice(0, index),
+        wasCut: true
+      };
+    }
+  }
+  return { documents, wasCut: false };
 }
 
 function* walkDocumentOps(
@@ -624,22 +648,16 @@ export async function* getBucketDataBatchV3(
     const completeEmptyBuckets = new Set<string>();
 
     // Deserialize all docs once
-    const docs: BucketDataDocumentV3[] = rawData.map(
+    const deserializedDocs: BucketDataDocumentV3[] = rawData.map(
       (raw) => bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3
     );
-
-    // Pre-fetch S3 objects for all S3-backed docs in this batch
-    if (ctx.objectStorage) {
-      const store = new BucketDataObjectStorage(ctx.objectStorage);
-      const s3Docs = docs.filter((d) => d.storage_ref);
-      if (s3Docs.length > 0) {
-        await Promise.all(
-          s3Docs.map(async (doc) => {
-            doc.ops = await store.retrieve(doc.storage_ref!.path);
-          })
-        );
-      }
+    const cutBatch = cutBucketDataBatch(deserializedDocs);
+    const docs = cutBatch.documents;
+    if (cutBatch.wasCut) {
+      hasMore = true;
     }
+
+    await hydrateBucketDataDocuments(docs, ctx.objectStorage);
 
     for (const [i, doc] of docs.entries()) {
       const {

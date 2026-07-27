@@ -12,12 +12,10 @@ import { chunkBucketData, DEFAULT_MAX_DOC_SIZE_BYTES } from './chunking.js';
 import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
 import { DefinitionChecksumOperations, MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
-import { BucketDataObjectStorage } from './object-storage/BucketDataObjectStorage.js';
+import { BucketDataObjectStorage, hydrateBucketDataDocuments } from './object-storage/BucketDataObjectStorage.js';
 import { ObjectStorageLifecycle, PreparedObjectStorageUpload } from './object-storage/ObjectStorageLifecycle.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-
-const S3_DOWNLOAD_CONCURRENCY = 16;
 
 interface PendingCompactionGroup {
   /**
@@ -236,7 +234,7 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       const batchDocs = rawBatch.slice(0, batchCutIndex);
 
-      await this.hydrateS3Documents(batchDocs);
+      await hydrateBucketDataDocuments(batchDocs, this.storage.objectStorage, this.signal);
 
       // Compact each document independently, then greedily merge adjacent
       // post-compaction results. This preserves existing boundaries unless
@@ -580,7 +578,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           if (doc.storage_ref) {
             oldStoragePaths.push(doc.storage_ref.path);
           }
-          await this.hydrateS3Documents([doc]);
+          await hydrateBucketDataDocuments([doc], this.storage.objectStorage, this.signal);
           for (const op of loadBucketDataDocument(context, doc)) {
             if (op.o > lastNotPut) {
               throw new ReplicationAssertionError(
@@ -704,7 +702,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           if (doc.storage_ref) {
             oldStoragePaths.push(doc.storage_ref.path);
           }
-          await this.hydrateS3Documents([doc]);
+          await hydrateBucketDataDocuments([doc], this.storage.objectStorage, this.signal);
           for (const op of loadBucketDataDocument(context, doc)) {
             if (!isBoundaryDoc && op.op != 'CLEAR') {
               throw new ReplicationAssertionError(
@@ -775,37 +773,6 @@ export class MongoCompactorV3 extends MongoCompactor {
     );
 
     return opCountDiff;
-  }
-
-  /**
-   * Load offloaded operations and patch them onto their MongoDB metadata documents.
-   *
-   * A shared index distributes documents across a fixed number of async workers.
-   * JavaScript runs each index increment synchronously before the worker awaits,
-   * so every document is claimed exactly once. This caps active S3 requests at
-   * {@link S3_DOWNLOAD_CONCURRENCY} without allocating one pending promise per
-   * object in a large compaction batch.
-   */
-  private async hydrateS3Documents(documents: BucketDataDocumentV3[]): Promise<void> {
-    if (!this.storage.objectStorage) {
-      return;
-    }
-
-    const store = new BucketDataObjectStorage(this.storage.objectStorage);
-    const storedDocuments = documents.filter((document) => document.storage_ref);
-    let nextDocument = 0;
-
-    const downloadNext = async () => {
-      while (nextDocument < storedDocuments.length) {
-        this.signal?.throwIfAborted();
-        const document = storedDocuments[nextDocument++];
-        document.ops = await store.retrieve(document.storage_ref!.path);
-      }
-    };
-
-    await Promise.all(
-      Array.from({ length: Math.min(S3_DOWNLOAD_CONCURRENCY, storedDocuments.length) }, () => downloadNext())
-    );
   }
 
   /** Publish replacement uploads and retire superseded objects in the same transaction. */
