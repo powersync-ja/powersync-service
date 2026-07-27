@@ -153,7 +153,7 @@ describe('S3 write path (Phase 2b red tests)', () => {
     expect(doc.storage_ref!.file_size).toBeGreaterThan(0);
 
     const stored = await memoryStorage.get(doc.storage_ref!.path);
-    const storedOps = (bson.deserialize(stored.data) as { ops: unknown[] }).ops;
+    const storedOps = (bson.deserialize(stored.data, { promoteValues: false }) as { ops: unknown[] }).ops;
     expect(doc.size).toBe(bson.calculateObjectSize(storedOps));
   });
 
