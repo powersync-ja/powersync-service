@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import * as bson from 'bson';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ObjectStorageDeletionMarker } from '../models.js';
 import { VersionedPowerSyncMongoV3 } from '../VersionedPowerSyncMongoV3.js';
 import { BucketDataObjectStorage } from './BucketDataObjectStorage.js';
@@ -9,6 +9,12 @@ import { ObjectStorage } from './ObjectStorage.js';
 export const OBJECT_STORAGE_UPLOAD_LEASE_MS = 60 * 60 * 1000;
 export const OBJECT_STORAGE_PUBLICATION_SAFETY_MARGIN_MS = 2 * 60 * 1000;
 export const OBJECT_STORAGE_REFERENCE_GRACE_MS = 15 * 60 * 1000;
+/**
+ * Protect against arbitrary-long bucket names and parameters exceeding the S3 key length limits.
+ *
+ * Any bucket name over this length is hashed.
+ */
+const MAX_READABLE_BUCKET_SEGMENT_BYTES = 128;
 
 export interface PreparedObjectStorageUpload {
   markerId: bson.ObjectId;
@@ -37,7 +43,14 @@ export class ObjectStorageLifecycle {
   }
 
   allocatePath(definitionId: string, bucket: string, minOp: bigint, maxOp: bigint): string {
-    return `${this.definitionPrefix(definitionId)}${encodeURIComponent(bucket)}/${minOp}-${maxOp}-${randomUUID()}.bson`;
+    // Preserve readable paths for normal buckets, but bound user-controlled
+    // parameter values so they cannot consume the S3 key-length budget.
+    const escapedBucket = encodeURIComponent(bucket);
+    const bucketSegment =
+      Buffer.byteLength(escapedBucket, 'utf8') <= MAX_READABLE_BUCKET_SEGMENT_BYTES
+        ? escapedBucket
+        : `sha256-${createHash('sha256').update(bucket).digest('base64url')}`;
+    return `${this.definitionPrefix(definitionId)}${bucketSegment}/${minOp}-${maxOp}-${randomUUID()}.bson`;
   }
 
   async prepareUploads(paths: string[], now = new Date()): Promise<PreparedObjectStorageUpload[]> {

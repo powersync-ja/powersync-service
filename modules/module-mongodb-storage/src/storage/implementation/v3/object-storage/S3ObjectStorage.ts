@@ -10,6 +10,7 @@ import { Semaphore, SemaphoreInterface } from 'async-mutex';
 import type { ObjectStorage, ObjectStoragePutMetadata } from './ObjectStorage.js';
 
 const DEFAULT_S3_OPERATION_CONCURRENCY = 16;
+const SAFE_S3_KEY_BYTES = 896;
 
 export interface S3ObjectStorageOptions {
   bucket: string;
@@ -51,7 +52,7 @@ export class S3ObjectStorage implements ObjectStorage {
   }
 
   async put(path: string, data: Uint8Array, metadata: ObjectStoragePutMetadata): Promise<void> {
-    const fullPath = this.prefix ? `${this.prefix}/${path}` : path;
+    const fullPath = this.fullPath(path);
     await using _ = await this.withOperation();
     await this.client.send(
       new PutObjectCommand({
@@ -65,8 +66,8 @@ export class S3ObjectStorage implements ObjectStorage {
   }
 
   async get(path: string, signal?: AbortSignal): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
+    const fullPath = this.fullPath(path);
     await using _ = await this.withOperation(signal);
-    const fullPath = this.prefix ? `${this.prefix}/${path}` : path;
     try {
       const response = await this.client.send(
         new GetObjectCommand({
@@ -97,7 +98,7 @@ export class S3ObjectStorage implements ObjectStorage {
   }
 
   async *list(prefix: string, signal?: AbortSignal): AsyncIterable<string> {
-    const fullPrefix = this.prefix ? `${this.prefix}/${prefix}` : prefix;
+    const fullPrefix = this.fullPath(prefix);
     let continuationToken: string | undefined;
 
     do {
@@ -128,7 +129,7 @@ export class S3ObjectStorage implements ObjectStorage {
 
   async delete(paths: string[]): Promise<void> {
     if (paths.length === 0) return;
-    const fullPaths = paths.map((p) => ({ Key: this.prefix ? `${this.prefix}/${p}` : p }));
+    const fullPaths = paths.map((path) => ({ Key: this.fullPath(path) }));
     await using _ = await this.withOperation();
     const response = await this.client.send(
       new DeleteObjectsCommand({
@@ -141,6 +142,15 @@ export class S3ObjectStorage implements ObjectStorage {
         `Failed to delete S3 objects: ${response.Errors.map((error) => `${error.Key}: ${error.Code}`).join(', ')}`
       );
     }
+  }
+
+  private fullPath(path: string): string {
+    const fullPath = this.prefix ? `${this.prefix}/${path}` : path;
+    const size = Buffer.byteLength(fullPath, 'utf8');
+    if (size > SAFE_S3_KEY_BYTES) {
+      throw new Error(`S3 object key is ${size} bytes, exceeding the safe limit of ${SAFE_S3_KEY_BYTES} bytes`);
+    }
+    return fullPath;
   }
 
   private async withOperation(signal?: AbortSignal): Promise<AsyncDisposable> {
