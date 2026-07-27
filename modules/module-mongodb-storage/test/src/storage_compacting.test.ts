@@ -715,7 +715,7 @@ bucket_definitions:
     }
   });
 
-  test('compaction with maxOpId filtering - ops above maxOpId preserved as pass-through', async () => {
+  test('compaction with maxOpId filtering excludes a straddling document', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
     const ops = [
       makeOp(10, 'A', 'a1', ctx, sourceTableId),
@@ -731,13 +731,11 @@ bucket_definitions:
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
     const allOpsAfter = docsAfter.flatMap((d) => d.ops!);
 
-    // All ops survive: ops <= maxOpId are deduplicated, ops > maxOpId pass through.
+    // The document ends above maxOpId, so the database query excludes it as a unit.
     expect(allOpsAfter.length).toBe(3);
-    // Ops <= maxOpId still present
     const opsBelow = allOpsAfter.filter((op) => op.o <= 15n);
     expect(opsBelow.length).toBe(1);
     expect(opsBelow[0].op).toBe('PUT');
-    // Ops > maxOpId preserved unchanged
     const opsAbove = allOpsAfter.filter((op) => op.o > 15n);
     expect(opsAbove.length).toBe(2);
     expect(opsAbove.every((op) => op.op === 'PUT')).toBe(true);
@@ -1753,7 +1751,7 @@ bucket_definitions:
     expect(sandwichOps.every((op) => op.op === 'PUT')).toBe(true);
   });
 
-  test('6. byte-based batch cutting - respects moveBatchByteLimit', async () => {
+  test('6. byte-based read batches do not constrain output merging', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
 
     // 6 documents, each with 2 PUT ops. With moveBatchByteLimit=400,
@@ -1769,6 +1767,7 @@ bucket_definitions:
         ])
       );
     }
+    expect(docs[0].size + docs[1].size).toBeGreaterThan(400);
     await insertDocs(collection, docs);
     await insertBucketState(bucketStateCollection, ctx.definitionId, 12n);
 
@@ -1795,8 +1794,13 @@ bucket_definitions:
     expect(allOps.length).toBe(12);
     expect(allOps.every((op) => op.op === 'PUT')).toBe(true);
 
-    // Multiple documents produced due to byte-based batch cuts
-    expect(docsAfter.length).toBeGreaterThan(1);
+    // Read batches are only a memory bound. The pending output group crosses
+    // those boundaries and merges all post-compaction results that fit.
+    expect(docsAfter).toHaveLength(1);
+    expect(docsAfter[0]).toMatchObject({
+      min_op: docs[0].min_op,
+      _id: docs[docs.length - 1]._id
+    });
   });
 
   test('7. cross-batch seen map overflow - dedup continues across batches', async () => {
@@ -1907,7 +1911,7 @@ bucket_definitions:
     expect(allOps.every((op) => op.op === 'PUT')).toBe(true);
   });
 
-  test('9. mixed-document maxOpId filtering preserves ops above horizon', async () => {
+  test('9. maxOpId filtering leaves a straddling document untouched', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
 
     // Single document with two ops: one <= maxOpId, one > maxOpId
@@ -1948,7 +1952,7 @@ bucket_definitions:
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
 
     // Four documents with truly disjoint [min_op, _id.o] ranges.
-    // maxOpId=350: doc1+doc2 are processable, doc3+doc4 are not.
+    // maxOpId=350: only doc1 is processable; doc2 straddles the horizon.
     // Compaction must preserve range disjointness after rechunking.
     const doc1 = serializeBucketData(BUCKET, [
       makeOp(100, 'A', 'a1', ctx, sourceTableId),
@@ -2144,7 +2148,7 @@ bucket_definitions:
       expect(clearDoc!.target_op).toBe(30n);
     });
 
-    test('compacted_state.checksum excludes pass-through ops above maxOpId', async () => {
+    test('straddling document is excluded from compacted state', async () => {
       const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
 
       // Row A at 10, 30, 50 — ops 10+30 ≤ maxOpId=40, op 50 > 40 (pass-through)
@@ -2166,19 +2170,12 @@ bucket_definitions:
         _id: { d: ctx.definitionId, b: BUCKET }
       });
       expect(state).toBeDefined();
-      expect(state!.compacted_state).toBeDefined();
+      expect(state!.compacted_state).toBeUndefined();
 
-      // MOVE dedup: A@50 pass-through, C@60 pass-through survive as PUT.
-      // A@30 (first ≤ 40) survives, B@20 survives. A@10 → MOVE.
-      // compacted_state covers only ops ≤ 40: MOVE@10, PUT@20, PUT@30 = 3 ops.
-
-      // Expected checksum: only ops ≤ 40
-      const opsWithinHorizon = [10, 20, 30];
-      const expectedChecksum = opsWithinHorizon.reduce((sum, id) => addChecksums(sum, id * 7), 0);
-      expect(state!.compacted_state!.checksum).toBe(BigInt(expectedChecksum));
-      // All 5 ops survive (3 counted + 2 pass-through)
+      // The document ends beyond maxOpId, so it is not read or modified.
       const allOps = await readAllOps(collection);
       expect(allOps.length).toBe(5);
+      expect(allOps.every((op) => op.op == 'PUT')).toBe(true);
     });
 
     test('upperBound pagination prevents re-reading replacement documents', async () => {

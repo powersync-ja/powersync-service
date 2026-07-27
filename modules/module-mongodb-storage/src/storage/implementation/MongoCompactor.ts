@@ -517,7 +517,10 @@ export abstract class MongoCompactor {
     await this.flush(bucketContext);
   }
 
-  protected collectBucketStateUpdates(state: CurrentBucketState): mongo.AnyBulkWriteOperation<BucketStateDocumentBase> {
+  protected collectBucketStateUpdates(
+    state: CurrentBucketState,
+    compactedOpId = this.maxOpId
+  ): mongo.AnyBulkWriteOperation<BucketStateDocumentBase> {
     if (state.opCount < 0) {
       throw new ServiceAssertionError(
         `Invalid opCount: ${state.opCount} checksum ${state.checksum} opsSincePut: ${state.opsSincePut} maxOpId: ${this.maxOpId}`
@@ -529,7 +532,7 @@ export abstract class MongoCompactor {
         update: {
           $set: {
             compacted_state: {
-              op_id: this.maxOpId,
+              op_id: compactedOpId,
               count: state.opCount,
               checksum: BigInt(state.checksum),
               bytes: state.opBytes
@@ -549,8 +552,8 @@ export abstract class MongoCompactor {
     };
   }
 
-  protected updateBucketChecksums(state: CurrentBucketState) {
-    this.bucketStateUpdates.push(this.collectBucketStateUpdates(state));
+  protected updateBucketChecksums(state: CurrentBucketState, compactedOpId = this.maxOpId) {
+    this.bucketStateUpdates.push(this.collectBucketStateUpdates(state, compactedOpId));
   }
 
   protected async flush(col: SingleBucketStore) {

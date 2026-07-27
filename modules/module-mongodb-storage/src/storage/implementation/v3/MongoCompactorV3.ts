@@ -8,7 +8,7 @@ import { BucketDataKey, BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { cacheKey } from '../OperationBatch.js';
 import { loadBucketDataDocument, serializeBucketData } from './bucket-format.js';
-import { chunkBucketData } from './chunking.js';
+import { chunkBucketData, DEFAULT_MAX_DOC_SIZE_BYTES } from './chunking.js';
 import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
 import { DefinitionChecksumOperations, MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
@@ -16,6 +16,16 @@ import { BucketDataObjectStorage } from './object-storage/BucketDataObjectStorag
 import { ObjectStorageLifecycle, PreparedObjectStorageUpload } from './object-storage/ObjectStorageLifecycle.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+
+interface PendingCompactionGroup {
+  /**
+   * Input documents are ordered from oldest to newest, matching `ops`.
+   * Keeping the inputs intact lets unchanged singletons retain their object.
+   */
+  inputs: BucketDataDocumentV3[];
+  ops: BucketDataDoc[];
+  changed: boolean;
+}
 
 export class MongoCompactorV3 extends MongoCompactor {
   declare protected readonly db: VersionedPowerSyncMongoV3;
@@ -154,7 +164,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     const context = { replicationStreamId: this.group_id, definitionId: resolvedDefinitionId };
 
     const lowerBound = bucketContext.minId;
-    let upperBound = bucketContext.maxId;
+    let upperBound = bucketContext.docId(this.maxOpId + 1n);
 
     let totalChecksum = 0;
     let totalOpCount = 0;
@@ -162,10 +172,11 @@ export class MongoCompactorV3 extends MongoCompactor {
 
     let lastNotPut: bigint | null = null;
     let opsSincePut = 0;
-    let clearBoundaryDocId: BucketDataKey | null = null;
-
+    let compactedOpId: bigint | null = null;
+    let clearBoundary: { opId: bigint; documentId: BucketDataKey } | null = null;
     const seen = new Map<string, bigint>();
     let trackingSize = 0;
+    let pendingGroup: PendingCompactionGroup | null = null;
 
     // --- Read batch from MongoDB ---
     while (true) {
@@ -174,7 +185,6 @@ export class MongoCompactorV3 extends MongoCompactor {
       const pipeline: mongo.Document[] = [
         {
           $match: {
-            '_id.b': bucket,
             _id: {
               $gte: lowerBound,
               $lt: upperBound
@@ -192,14 +202,13 @@ export class MongoCompactorV3 extends MongoCompactor {
             size: 1,
             target_op: 1,
             ops: 1,
-            storage_ref: 1,
-            bsonSize: { $bsonSize: '$$ROOT' }
+            storage_ref: 1
           }
         }
       ];
 
       const rawBatch = await collection
-        .aggregate<BucketDataDocumentV3 & { bsonSize: number | bigint }>(pipeline, {
+        .aggregate<BucketDataDocumentV3>(pipeline, {
           batchSize: this.moveBatchQueryLimit + 1
         })
         .toArray();
@@ -214,7 +223,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       let batchCutIndex = rawBatch.length;
 
       for (let i = 0; i < rawBatch.length; i++) {
-        cumulativeBytes += Number(rawBatch[i].bsonSize) + (rawBatch[i].storage_ref ? rawBatch[i].size : 0);
+        cumulativeBytes += rawBatch[i].size;
         if (cumulativeBytes > this.moveBatchByteLimit && i > 0) {
           // Byte limit exceeded; cut batch at current index. Always include
           // at least one document (i > 0 guard) to guarantee forward progress.
@@ -227,196 +236,104 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       await this.hydrateS3Documents(batchDocs);
 
-      // --- Decode documents into individual ops ---
-      // Processable: document has at least one op <= maxOpId.
-      // Only processable docs are deleted and recreated; the rest survive untouched.
-      const batchOps: BucketDataDoc[] = [];
-      const processableDocs: (BucketDataDocumentV3 & { bsonSize: number | bigint })[] = [];
-
+      // Compact each document independently, then greedily merge adjacent
+      // post-compaction results. This preserves existing boundaries unless
+      // merging is useful, and writes each final object at most once.
       for (const doc of batchDocs) {
-        let hasRelevantOp = false;
-        const candidateOps: BucketDataDoc[] = [];
-        for (const op of loadBucketDataDocument(context, doc as unknown as BucketDataDocumentV3)) {
-          candidateOps.push(op);
-          if (op.o <= this.maxOpId) {
-            hasRelevantOp = true;
-          }
-        }
-        if (hasRelevantOp) {
-          processableDocs.push(doc);
-          batchOps.push(...candidateOps);
-        } // else: candidateOps discarded — document has no ops <= maxOpId
-      }
+        compactedOpId ??= doc._id.o;
+        const originalOps = Array.from(loadBucketDataDocument(context, doc));
 
-      if (processableDocs.length == 0) {
-        // No documents with relevant ops in this batch; paginate to next batch
-        // without performing any writes. This handles batches where all documents
-        // contain only ops above maxOpId.
-        upperBound = batchDocs[batchDocs.length - 1]._id as typeof upperBound;
-        if (batchCutIndex >= rawBatch.length && rawBatch.length < this.moveBatchQueryLimit) {
-          // Entire remaining bucket is non-processable — compaction complete.
-          break;
-        }
-        // Skip dedup, rechunking, and transaction for this batch.
-        continue;
-      }
-
-      // Scoped replace in a bounded transaction.
-      // Delete by individual _id values instead of a continuous range.
-      // A continuous range could catch non-processable documents (all ops > maxOpId)
-      // that happen to fall between processable documents in _id.o sort order.
-      const idsToDelete = processableDocs.map((d) => d._id);
-      const expectedDocCount = processableDocs.length;
-      const expectedChecksum = processableDocs.reduce((sum, doc) => sum + doc.checksum, 0n);
-      const expectedOpCount = processableDocs.reduce((sum, doc) => sum + doc.count, 0);
-
-      // Sort ops by o descending for newest-first dedup
-      batchOps.sort((a, b) => (b.o > a.o ? 1 : b.o < a.o ? -1 : 0));
-
-      // --- Dedup: newest-first, superseded → MOVE ---
-      const surviving: BucketDataDoc[] = [];
-
-      for (const op of batchOps) {
-        if (op.op == 'PUT' || op.op == 'REMOVE') {
-          if (op.o > this.maxOpId) {
-            surviving.push(op);
-            continue; // Do not dedup ops above compaction horizon
-          }
-          const key = `${op.table}/${op.row_id}/${cacheKey(op.source_table!, op.source_key!)}`;
-          const targetOp = seen.get(key);
-          if (targetOp != null) {
-            surviving.push({
-              ...op,
-              op: 'MOVE',
-              target_op: targetOp,
-              table: undefined,
-              row_id: undefined,
-              source_table: undefined,
-              source_key: undefined,
-              data: null
-            });
-            if (lastNotPut == null) {
-              lastNotPut = op.o;
-            }
-            opsSincePut += 1;
-          } else {
-            if (trackingSize < this.idLimitBytes) {
-              seen.set(utils.flatstr(key), op.o);
-              trackingSize += key.length + 140;
-            }
-            surviving.push(op);
-            if (op.op == 'PUT') {
-              lastNotPut = null;
-              opsSincePut = 0;
+        let changed = false;
+        const compactedOps: BucketDataDoc[] = [];
+        for (let index = originalOps.length - 1; index >= 0; index--) {
+          const op = originalOps[index];
+          if (op.op == 'PUT' || op.op == 'REMOVE') {
+            const key = `${op.table}/${op.row_id}/${cacheKey(op.source_table!, op.source_key!)}`;
+            const targetOp = seen.get(key);
+            if (targetOp != null) {
+              compactedOps.push({
+                ...op,
+                op: 'MOVE',
+                target_op: targetOp,
+                table: undefined,
+                row_id: undefined,
+                source_table: undefined,
+                source_key: undefined,
+                data: null
+              });
+              changed = true;
+              if (lastNotPut == null) {
+                lastNotPut = op.o;
+              }
+              opsSincePut += 1;
             } else {
+              if (trackingSize < this.idLimitBytes) {
+                seen.set(utils.flatstr(key), op.o);
+                trackingSize += key.length + 140;
+              }
+              compactedOps.push(op);
+              if (op.op == 'PUT') {
+                lastNotPut = null;
+                opsSincePut = 0;
+              } else {
+                if (lastNotPut == null) {
+                  lastNotPut = op.o;
+                }
+                opsSincePut += 1;
+              }
+            }
+          } else {
+            compactedOps.push(op);
+            if (op.op != 'CLEAR') {
               if (lastNotPut == null) {
                 lastNotPut = op.o;
               }
               opsSincePut += 1;
             }
           }
+        }
+        compactedOps.reverse();
+
+        for (const op of compactedOps) {
+          totalChecksum = addChecksums(totalChecksum, Number(op.checksum));
+          totalOpBytes += op.data?.length ?? 0;
+        }
+        totalOpCount += compactedOps.length;
+
+        const candidate: PendingCompactionGroup = {
+          inputs: [doc],
+          ops: compactedOps,
+          changed
+        };
+
+        if (pendingGroup == null) {
+          pendingGroup = candidate;
         } else {
-          surviving.push(op);
-          if (op.op != 'CLEAR') {
-            if (lastNotPut == null) {
-              lastNotPut = op.o;
-            }
-            opsSincePut += 1;
-          }
-        }
-      }
-
-      // Reverse back to ascending order for rechunking
-      surviving.reverse();
-
-      // --- Rechunk survivors into new V3 documents ---
-      const chunks = chunkBucketData(surviving);
-      const oldStoragePaths = processableDocs.flatMap((doc) => (doc.storage_ref ? [doc.storage_ref.path] : []));
-      const {
-        documents: newDocs,
-        storagePaths: newStoragePaths,
-        uploads
-      } = await this.persistBucketData(bucket, chunks, context);
-
-      if (lastNotPut == null) {
-        clearBoundaryDocId = null;
-      } else {
-        const boundaryOp = lastNotPut;
-        const boundaryDoc = newDocs.find((doc) => doc.min_op <= boundaryOp && doc._id.o >= boundaryOp);
-        if (boundaryDoc != null) {
-          clearBoundaryDocId = boundaryDoc._id;
-        }
-      }
-
-      // --- Commit: scoped delete + insert in transaction ---
-      const session = this.db.client.startSession();
-      try {
-        await session.withTransaction(
-          async () => {
-            // Verify documents haven't been modified since we read them.
-            // This aggregate anchors the transaction snapshot and catches
-            // concurrent compaction jobs that modified the same documents.
-            const verification = await bucketContext.collection
-              .aggregate<{ docCount: number; checksumSum: bigint | null; opCountSum: number | null }>(
-                [
-                  { $match: { _id: { $in: idsToDelete } } },
-                  {
-                    $group: {
-                      _id: null,
-                      docCount: { $sum: 1 },
-                      checksumSum: { $sum: '$checksum' },
-                      opCountSum: { $sum: '$count' }
-                    }
-                  }
-                ],
-                { session }
-              )
-              .next();
-
+          const mergedOps: BucketDataDoc[] = [...candidate.ops, ...pendingGroup.ops];
+          const mergedSize = serializeBucketData(bucket, mergedOps).size;
+          if (mergedSize <= DEFAULT_MAX_DOC_SIZE_BYTES) {
+            pendingGroup = {
+              inputs: [...candidate.inputs, ...pendingGroup.inputs],
+              ops: mergedOps,
+              changed: candidate.changed || pendingGroup.changed
+            };
+          } else {
+            const flushedGroup = pendingGroup;
+            const documentId = await this.flushCompactionGroup(bucket, flushedGroup, bucketContext, context);
             if (
-              verification == null || // all docs deleted
-              verification.docCount !== expectedDocCount || // some docs deleted
-              verification.checksumSum !== expectedChecksum || // docs modified in-place
-              verification.opCountSum !== expectedOpCount // ops added/removed within docs
+              lastNotPut != null &&
+              flushedGroup.ops[0].o <= lastNotPut &&
+              flushedGroup.ops[flushedGroup.ops.length - 1].o >= lastNotPut
             ) {
-              throw new Error(
-                `Concurrent modification detected in bucket ${bucket}. Aborting compaction for this batch.`
-              );
+              clearBoundary = { opId: lastNotPut, documentId };
             }
-
-            await bucketContext.collection.deleteMany(
-              {
-                _id: { $in: idsToDelete }
-              } as any,
-              { session }
-            );
-            if (newDocs.length > 0) {
-              await bucketContext.collection.insertMany(newDocs as unknown as BucketDataDocumentGeneric[], { session });
-            }
-            await this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, uploads, session);
-          },
-          {
-            writeConcern: { w: 'majority' },
-            readConcern: { level: 'snapshot' }
-          }
-        );
-      } finally {
-        await session.endSession();
-      }
-
-      // --- Accumulate bucket state ---
-      for (const chunk of chunks) {
-        for (const op of chunk) {
-          if (op.o <= this.maxOpId) {
-            totalChecksum = addChecksums(totalChecksum, Number(op.checksum));
-            totalOpBytes += op.data?.length ?? 0;
+            pendingGroup = candidate;
           }
         }
       }
-      totalOpCount += surviving.filter((op) => op.o <= this.maxOpId).length;
 
       // --- Advance to next batch ---
-      upperBound = (newDocs.length > 0 ? newDocs[0]._id : rawBatch[batchCutIndex - 1]._id) as typeof upperBound;
+      upperBound = batchDocs[batchDocs.length - 1]._id as typeof upperBound;
 
       if (batchCutIndex < rawBatch.length) {
         // We cut the batch short due to byte limit — don't advance past cut point
@@ -432,33 +349,124 @@ export class MongoCompactorV3 extends MongoCompactor {
       this.logger.info(`Compacted batch of ${batchDocs.length} documents for bucket ${bucket}`);
     }
 
+    if (pendingGroup != null) {
+      const documentId = await this.flushCompactionGroup(bucket, pendingGroup, bucketContext, context);
+      if (
+        lastNotPut != null &&
+        pendingGroup.ops[0].o <= lastNotPut &&
+        pendingGroup.ops[pendingGroup.ops.length - 1].o >= lastNotPut
+      ) {
+        clearBoundary = { opId: lastNotPut, documentId };
+      }
+    }
+    if (compactedOpId == null) {
+      return;
+    }
+
     // --- Clear: collapse leading MOVE/REMOVE/CLEAR sequence ---
     if (lastNotPut != null && opsSincePut >= 2) {
-      if (clearBoundaryDocId == null) {
+      if (clearBoundary == null || clearBoundary.opId != lastNotPut) {
         throw new ReplicationAssertionError(`Missing CLEAR boundary document for bucket ${bucket}`);
       }
 
-      totalOpCount += await this.clearBucketLeading(lastNotPut, clearBoundaryDocId, bucketContext, collection, context);
+      totalOpCount += await this.clearBucketLeading(
+        lastNotPut,
+        clearBoundary.documentId,
+        bucketContext,
+        collection,
+        context
+      );
     }
 
     // --- Finalize: update bucket checksums and state ---
-    this.updateBucketChecksums({
-      bucket,
-      definitionId: resolvedDefinitionId,
-      seen: new Map(),
-      trackingSize: 0,
-      lastNotPut: lastNotPut,
-      opsSincePut: opsSincePut,
-      checksum: totalChecksum,
-      opCount: totalOpCount,
-      opBytes: totalOpBytes
-    });
+    this.updateBucketChecksums(
+      {
+        bucket,
+        definitionId: resolvedDefinitionId,
+        seen: new Map(),
+        trackingSize: 0,
+        lastNotPut: lastNotPut,
+        opsSincePut: opsSincePut,
+        checksum: totalChecksum,
+        opCount: totalOpCount,
+        opBytes: totalOpBytes
+      },
+      compactedOpId
+    );
     if (this.bucketStateUpdates.length > 0) {
       await this.writeBucketStateUpdates();
       this.bucketStateUpdates = [];
     }
 
     logger.info(`Compacted bucket ${bucket}: ${totalOpCount} surviving ops`);
+  }
+
+  private async flushCompactionGroup(
+    bucket: string,
+    group: PendingCompactionGroup,
+    bucketContext: SingleBucketStoreV3,
+    context: { replicationStreamId: number; definitionId: string }
+  ): Promise<BucketDataKey> {
+    if (group.inputs.length == 1 && !group.changed) {
+      return group.inputs[0]._id;
+    }
+
+    const idsToDelete = group.inputs.map((doc) => doc._id);
+    const expectedDocCount = group.inputs.length;
+    const expectedChecksum = group.inputs.reduce((sum, doc) => sum + doc.checksum, 0n);
+    const expectedOpCount = group.inputs.reduce((sum, doc) => sum + doc.count, 0);
+    const oldStoragePaths = group.inputs.flatMap((doc) => (doc.storage_ref ? [doc.storage_ref.path] : []));
+    const {
+      documents: [newDoc],
+      storagePaths: newStoragePaths,
+      uploads
+    } = await this.persistBucketData(bucket, [group.ops], context);
+
+    const session = this.db.client.startSession();
+    try {
+      await session.withTransaction(
+        async () => {
+          const verification = await bucketContext.collection
+            .aggregate<{ docCount: number; checksumSum: bigint | null; opCountSum: number | null }>(
+              [
+                { $match: { _id: { $in: idsToDelete } } },
+                {
+                  $group: {
+                    _id: null,
+                    docCount: { $sum: 1 },
+                    checksumSum: { $sum: '$checksum' },
+                    opCountSum: { $sum: '$count' }
+                  }
+                }
+              ],
+              { session }
+            )
+            .next();
+
+          if (
+            verification == null ||
+            verification.docCount !== expectedDocCount ||
+            verification.checksumSum !== expectedChecksum ||
+            verification.opCountSum !== expectedOpCount
+          ) {
+            throw new Error(
+              `Concurrent modification detected in bucket ${bucket}. Aborting compaction for this group.`
+            );
+          }
+
+          await bucketContext.collection.deleteMany({ _id: { $in: idsToDelete } } as any, { session });
+          await bucketContext.collection.insertOne(newDoc as unknown as BucketDataDocumentGeneric, { session });
+          await this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, uploads, session);
+        },
+        {
+          writeConcern: { w: 'majority' },
+          readConcern: { level: 'snapshot' }
+        }
+      );
+    } finally {
+      await session.endSession();
+    }
+    return newDoc._id;
   }
 
   /**

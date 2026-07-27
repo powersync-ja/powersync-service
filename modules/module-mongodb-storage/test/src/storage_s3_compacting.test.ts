@@ -19,6 +19,82 @@ function s3Factory() {
 }
 
 describe('S3 compaction (Phase 2d red tests)', () => {
+  test('MOVE compaction merges adjacent objects using their compacted size in one write', async () => {
+    if (process.env.MINIO_ENDPOINT) return;
+    const { memoryStorage, factory: factoryGen } = s3Factory();
+    await using factory = await factoryGen.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
+    await writer.markAllSnapshotDone('1/1');
+
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'A', description: 'old'.repeat(120_000) },
+      afterReplicaId: test_utils.rid('A')
+    });
+    await writer.commit('1/1');
+
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'B', description: 'middle'.repeat(60_000) },
+      afterReplicaId: test_utils.rid('B')
+    });
+    await writer.commit('2/1');
+
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'A', description: 'new'.repeat(120_000) },
+      afterReplicaId: test_utils.rid('A')
+    });
+    await writer.commit('3/1');
+
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
+    const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
+    const docsBefore = await collection.find({}).sort({ _id: 1 }).toArray();
+    expect(docsBefore).toHaveLength(3);
+
+    const oldPaths = new Set(docsBefore.map((doc) => doc.storage_ref!.path));
+    const objectStore = (memoryStorage as any).store as Map<string, unknown>;
+    expect(objectStore.size).toBe(3);
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    await bucketStorage.compact({
+      maxOpId: checkpoint.checkpoint,
+      compactBuckets: [request.bucket],
+      clearBatchLimit: 200,
+      moveBatchLimit: 10,
+      // Force each input object into a different MongoDB query batch. The
+      // pending merge group must survive across those batches.
+      moveBatchQueryLimit: 1,
+      moveBatchByteLimit: 16 * 1024 * 1024,
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      signal: null as any
+    });
+
+    const docsAfter = await collection.find({}).toArray();
+    expect(docsAfter).toHaveLength(1);
+    expect(docsAfter[0]).toMatchObject({
+      min_op: docsBefore[0].min_op,
+      _id: { o: docsBefore[2]._id.o },
+      count: 3
+    });
+    expect(oldPaths.has(docsAfter[0].storage_ref!.path)).toBe(false);
+
+    // The three old objects remain during their grace period and exactly one
+    // final replacement was uploaded. There was no intermediate MOVE-only
+    // object before the merge.
+    expect(objectStore.size).toBe(4);
+  });
+
   test('Compaction round-trip with S3-backed docs', async () => {
     if (process.env.MINIO_ENDPOINT) return;
     const { memoryStorage, factory: factoryGen } = s3Factory();
