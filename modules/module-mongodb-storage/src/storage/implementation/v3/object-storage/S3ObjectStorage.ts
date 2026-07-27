@@ -114,7 +114,7 @@ export class S3ObjectStorage implements ObjectStorage {
       signal?.throwIfAborted();
       const response = await (async () => {
         await using _ = await this.withOperation(signal);
-        return this.client.send(
+        return await this.client.send(
           new ListObjectsV2Command({
             Bucket: this.bucket,
             Prefix: fullPrefix,
