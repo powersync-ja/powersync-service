@@ -858,7 +858,6 @@ export class MongoCompactorV3 extends MongoCompactor {
 
     const store = new BucketDataObjectStorage(this.storage.objectStorage);
     const storagePaths = new Set<string>();
-    const documents: BucketDataDocumentV3[] = [];
     const lifecycle = this.objectStorageLifecycle;
     // Base placement on the final compacted size. Unchanged documents are not
     // rewritten, while small MOVE/merge results and CLEAR ops stay inline.
@@ -886,23 +885,25 @@ export class MongoCompactorV3 extends MongoCompactor {
       storedIndexes.forEach((index, preparedIndex) => uploadsByIndex.set(index, prepared[preparedIndex]));
     }
 
-    // Keep object uploads bounded. Compaction may produce many chunks, and a
-    // sequential upload stream avoids unbounded memory and S3 request pressure.
-    for (const [index, serialized] of serializedChunks.entries()) {
-      const upload = uploadsByIndex.get(index);
-      if (!upload) {
-        documents.push(serialized);
-        continue;
-      }
+    // S3ObjectStorage applies one shared concurrency limit across all callers,
+    // so compaction can schedule its uploads together without creating a
+    // separate limiter here.
+    const documents = await Promise.all(
+      serializedChunks.map(async (serialized, index) => {
+        const upload = uploadsByIndex.get(index);
+        if (!upload) {
+          return serialized;
+        }
 
-      const { ops, ...metadata } = serialized;
-      const { fileSize } = await store.store(upload.path, ops!);
-      storagePaths.add(upload.path);
-      documents.push({
-        ...metadata,
-        storage_ref: { path: upload.path, file_size: fileSize }
-      });
-    }
+        const { ops, ...metadata } = serialized;
+        const { fileSize } = await store.store(upload.path, ops!);
+        storagePaths.add(upload.path);
+        return {
+          ...metadata,
+          storage_ref: { path: upload.path, file_size: fileSize }
+        };
+      })
+    );
 
     return { documents, storagePaths, uploads: Array.from(uploadsByIndex.values()) };
   }
