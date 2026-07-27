@@ -847,9 +847,10 @@ export class MongoCompactorV3 extends MongoCompactor {
     context: { replicationStreamId: number; definitionId: string },
     preparedUploads?: PreparedObjectStorageUpload[]
   ): Promise<{ documents: BucketDataDocumentV3[]; storagePaths: Set<string>; uploads: PreparedObjectStorageUpload[] }> {
+    const serializedChunks = chunks.map((chunk) => serializeBucketData(bucket, chunk));
     if (!this.storage.objectStorage) {
       return {
-        documents: chunks.map((chunk) => serializeBucketData(bucket, chunk)),
+        documents: serializedChunks,
         storagePaths: new Set(),
         uploads: []
       };
@@ -859,31 +860,50 @@ export class MongoCompactorV3 extends MongoCompactor {
     const storagePaths = new Set<string>();
     const documents: BucketDataDocumentV3[] = [];
     const lifecycle = this.objectStorageLifecycle;
-    const paths =
-      preparedUploads?.map((upload) => upload.path) ??
-      chunks.map((chunk) =>
-        lifecycle.allocatePath(context.definitionId, bucket, chunk[0].o, chunk[chunk.length - 1].o)
-      );
-    if (paths.length < chunks.length) {
-      throw new ServiceAssertionError(
-        `Prepared ${paths.length} object storage paths for ${chunks.length} compacted documents`
-      );
+    // Base placement on the final compacted size. Unchanged documents are not
+    // rewritten, while small MOVE/merge results and CLEAR ops stay inline.
+    const storedIndexes = serializedChunks.flatMap((document, index) =>
+      document.size > this.storage.inlineThresholdBytes ? [index] : []
+    );
+    const uploadsByIndex = new Map<number, PreparedObjectStorageUpload>();
+
+    if (preparedUploads) {
+      for (const index of storedIndexes) {
+        const upload = preparedUploads[index];
+        if (!upload) {
+          throw new ServiceAssertionError(
+            `Missing prepared object storage path for compacted document at index ${index}`
+          );
+        }
+        uploadsByIndex.set(index, upload);
+      }
+    } else {
+      const paths = storedIndexes.map((index) => {
+        const chunk = chunks[index];
+        return lifecycle.allocatePath(context.definitionId, bucket, chunk[0].o, chunk[chunk.length - 1].o);
+      });
+      const prepared = await lifecycle.prepareUploads(paths);
+      storedIndexes.forEach((index, preparedIndex) => uploadsByIndex.set(index, prepared[preparedIndex]));
     }
-    const uploads = preparedUploads?.slice(0, chunks.length) ?? (await lifecycle.prepareUploads(paths));
 
     // Keep object uploads bounded. Compaction may produce many chunks, and a
     // sequential upload stream avoids unbounded memory and S3 request pressure.
-    for (const [index, chunk] of chunks.entries()) {
-      const path = paths[index];
-      const { ops, ...metadata } = serializeBucketData(bucket, chunk);
-      const { fileSize } = await store.store(path, ops!);
-      storagePaths.add(path);
+    for (const [index, serialized] of serializedChunks.entries()) {
+      const upload = uploadsByIndex.get(index);
+      if (!upload) {
+        documents.push(serialized);
+        continue;
+      }
+
+      const { ops, ...metadata } = serialized;
+      const { fileSize } = await store.store(upload.path, ops!);
+      storagePaths.add(upload.path);
       documents.push({
         ...metadata,
-        storage_ref: { path, file_size: fileSize }
+        storage_ref: { path: upload.path, file_size: fileSize }
       });
     }
 
-    return { documents, storagePaths, uploads };
+    return { documents, storagePaths, uploads: Array.from(uploadsByIndex.values()) };
   }
 }

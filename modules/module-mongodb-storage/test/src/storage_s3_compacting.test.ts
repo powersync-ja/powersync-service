@@ -18,15 +18,62 @@ function s3Factory() {
   return { memoryStorage: objectStorage, factory: factoryGen };
 }
 
-function memoryS3Factory() {
+function memoryS3Factory(inlineThresholdBytes = 0) {
   const { objectStorage, factoryGen } = createMemoryS3TestStorageSuite({
     url: env.MONGO_TEST_URL,
-    isCI: env.CI
+    isCI: env.CI,
+    inlineThresholdBytes
   });
   return { memoryStorage: objectStorage, factory: factoryGen };
 }
 
 describe('S3 compaction (Phase 2d red tests)', () => {
+  test('small inline updates merge into an inline replacement', async () => {
+    const { memoryStorage, factory: factoryGen } = memoryS3Factory(10_000);
+    await using factory = await factoryGen.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 10);
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'A', description: 'old' },
+      afterReplicaId: test_utils.rid('A')
+    });
+    await writer.commit('1/1');
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'A', description: 'new' },
+      afterReplicaId: test_utils.rid('A')
+    });
+    await writer.commit('2/1');
+
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
+    const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
+    expect(await collection.countDocuments({ storage_ref: { $exists: true } })).toBe(0);
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    await bucketStorage.compact({
+      maxOpId: checkpoint.checkpoint,
+      compactBuckets: [request.bucket],
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      signal: null as any
+    });
+
+    const docs = await collection.find({}).toArray();
+    expect(docs).toHaveLength(1);
+    expect(docs[0].storage_ref).toBeUndefined();
+    expect(docs[0].ops).toBeDefined();
+    expect(memoryStorage.store.size).toBe(0);
+  });
+
   test('MOVE compaction merges adjacent objects using their compacted size in one write', async () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();

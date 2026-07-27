@@ -242,9 +242,7 @@ export class PersistedBatchV3 extends PersistedBatch {
             const serialized = serializeBucketData(bucket, chunk);
             const { ops: bucketOps, ...metadata } = serialized;
 
-            const bsonSize = Buffer.from(bson.serialize({ ops: bucketOps! })).byteLength;
-
-            if (bsonSize <= this.inlineThresholdBytes) {
+            if (serialized.size <= this.inlineThresholdBytes) {
               // Small enough to store inline
               inserts.push({
                 insertOne: {
