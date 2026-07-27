@@ -8,7 +8,7 @@ import { BucketDataKey, BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { cacheKey } from '../OperationBatch.js';
 import { loadBucketDataDocument, serializeBucketData } from './bucket-format.js';
-import { chunkBucketData, DEFAULT_MAX_DOC_SIZE_BYTES } from './chunking.js';
+import { DEFAULT_MAX_DOC_SIZE_BYTES } from './chunking.js';
 import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
 import { DefinitionChecksumOperations, MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
@@ -562,7 +562,7 @@ export class MongoCompactorV3 extends MongoCompactor {
   ): Promise<{ done: boolean; opCountDiff: number }> {
     const bucket = bucketContext.key.bucket;
     this.signal?.throwIfAborted();
-    const prepared = await this.prepareCompactionUploads(bucket, context, 1, lastNotPut);
+    const prepared = await this.prepareCompactionUploads(bucket, context, [lastNotPut]);
     let done = false;
     let opCountDiff = 0;
 
@@ -681,7 +681,7 @@ export class MongoCompactorV3 extends MongoCompactor {
   ): Promise<number> {
     const bucket = bucketContext.key.bucket;
     this.signal?.throwIfAborted();
-    const prepared = await this.prepareCompactionUploads(bucket, context, 2, lastNotPut);
+    const prepared = await this.prepareCompactionUploads(bucket, context, [lastNotPut, boundaryDocId.o]);
     let opCountDiff = 0;
 
     await session.withTransaction(
@@ -782,7 +782,12 @@ export class MongoCompactorV3 extends MongoCompactor {
           data: null,
           target_op: maxTargetOp
         } satisfies BucketDataDoc;
-        const chunks = [[clearOp], ...chunkBucketData(boundarySurvivors)];
+        const chunks: BucketDataDoc[][] = [[clearOp]];
+        if (boundarySurvivors.length > 0) {
+          // These operations are a subset of one existing document, so keeping
+          // them together cannot increase its stored ops payload.
+          chunks.push(boundarySurvivors);
+        }
         const persisted = await this.persistBucketData(bucket, chunks, context, prepared);
         await collection.insertMany(persisted.documents, { session });
         await this.finishObjectStorageReplacement(oldStoragePaths, persisted.storagePaths, persisted.uploads, session);
@@ -810,17 +815,14 @@ export class MongoCompactorV3 extends MongoCompactor {
   private async prepareCompactionUploads(
     bucket: string,
     context: { replicationStreamId: number; definitionId: string },
-    count: number,
-    opIdHint: bigint
+    opIdHints: bigint[]
   ): Promise<PreparedObjectStorageUpload[]> {
     if (!this.storage.objectStorage) {
       return [];
     }
 
     const lifecycle = this.objectStorageLifecycle;
-    const paths = Array.from({ length: count }, () =>
-      lifecycle.allocatePath(context.definitionId, bucket, opIdHint, opIdHint)
-    );
+    const paths = opIdHints.map((opIdHint) => lifecycle.allocatePath(context.definitionId, bucket, opIdHint, opIdHint));
     return lifecycle.prepareUploads(paths);
   }
 
