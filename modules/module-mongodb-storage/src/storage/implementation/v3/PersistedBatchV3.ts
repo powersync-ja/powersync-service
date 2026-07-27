@@ -240,55 +240,26 @@ export class PersistedBatchV3 extends PersistedBatch {
           for (const chunk of chunks) {
             const minOp = chunk[0].o;
             const maxOp = chunk[chunk.length - 1].o;
+            const serialized = serializeBucketData(bucket, chunk);
+            const { ops: bucketOps, ...metadata } = serialized;
 
-            let totalChecksum = 0n;
-            let totalSize = 0;
-            let maxTargetOp: bigint | null = null;
-            let hasClearOp = false;
-            const bucketOps = chunk.map((op) => {
-              totalChecksum += op.checksum;
-              totalSize += op.data?.length ?? 0;
-              if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
-                maxTargetOp = op.target_op;
-              }
-              if (op.op === 'CLEAR') {
-                hasClearOp = true;
-              }
-              return {
-                o: op.o,
-                op: op.op,
-                source_table: op.source_table,
-                source_key: op.source_key,
-                table: op.table,
-                row_id: op.row_id,
-                checksum: op.checksum,
-                data: op.data
-              };
-            });
-
-            const bsonSize = Buffer.from(bson.serialize({ ops: bucketOps })).byteLength;
+            const bsonSize = Buffer.from(bson.serialize({ ops: bucketOps! })).byteLength;
 
             if (bsonSize <= this.inlineThresholdBytes) {
               // Small enough to store inline
               inserts.push({
                 insertOne: {
-                  document: serializeBucketData(bucket, chunk)
+                  document: serialized
                 }
               });
             } else {
               const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}-${randomUUID()}.bson.zstd`;
-              const { fileSize } = await store.store(path, bucketOps);
+              const { fileSize } = await store.store(path, bucketOps!);
 
               inserts.push({
                 insertOne: {
                   document: {
-                    _id: { b: bucket, o: maxOp },
-                    min_op: minOp,
-                    checksum: totalChecksum,
-                    count: chunk.length,
-                    size: totalSize,
-                    target_op: maxTargetOp,
-                    has_clear_op: hasClearOp || undefined,
+                    ...metadata,
                     storage_ref: {
                       path,
                       file_size: fileSize

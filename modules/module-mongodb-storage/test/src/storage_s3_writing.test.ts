@@ -152,9 +152,9 @@ describe('S3 write path (Phase 2b red tests)', () => {
     expect(doc.storage_ref!.file_size).toBeTypeOf('number');
     expect(doc.storage_ref!.file_size).toBeGreaterThan(0);
 
-    // The size field should reflect the sum of decompressed op.data lengths
-    // (NOT the compressed size from storage_ref.compressed_size)
-    expect(doc.size).not.toBe(doc.storage_ref!.file_size);
+    const stored = await memoryStorage.get(doc.storage_ref!.path);
+    const storedOps = (bson.deserialize(stored.data) as { ops: unknown[] }).ops;
+    expect(doc.size).toBe(bson.calculateObjectSize(storedOps));
   });
 
   test('3. No object storage = unchanged behavior', async () => {

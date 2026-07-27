@@ -818,23 +818,12 @@ export class MongoCompactorV3 extends MongoCompactor {
     // Keep object uploads bounded. Compaction may produce many chunks, and a
     // sequential upload stream avoids unbounded memory and S3 request pressure.
     for (const [index, chunk] of chunks.entries()) {
-      const minOp = chunk[0].o;
-      const maxOp = chunk[chunk.length - 1].o;
       const path = paths[index];
-      const { fileSize } = await store.store(path, chunk);
+      const { ops, ...metadata } = serializeBucketData(bucket, chunk);
+      const { fileSize } = await store.store(path, ops!);
       storagePaths.add(path);
       documents.push({
-        _id: { b: bucket, o: maxOp },
-        min_op: minOp,
-        checksum: chunk.reduce((checksum, op) => checksum + op.checksum, 0n),
-        count: chunk.length,
-        size: chunk.reduce((size, op) => size + (op.data?.length ?? 0), 0),
-        target_op: chunk.reduce<bigint | null>(
-          (targetOp, op) =>
-            op.target_op != null && (targetOp == null || op.target_op > targetOp) ? op.target_op : targetOp,
-          null
-        ),
-        has_clear_op: chunk.some((op) => op.op == 'CLEAR') || undefined,
+        ...metadata,
         storage_ref: { path, file_size: fileSize }
       });
     }
