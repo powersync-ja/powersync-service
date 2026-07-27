@@ -1,4 +1,10 @@
-import { DeleteObjectsCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client
+} from '@aws-sdk/client-s3';
 import type { ObjectStorage, ObjectStoragePutMetadata } from './ObjectStorage.js';
 
 export interface S3ObjectStorageOptions {
@@ -71,15 +77,47 @@ export class S3ObjectStorage implements ObjectStorage {
     }
   }
 
+  async *list(prefix: string, signal?: AbortSignal): AsyncIterable<string> {
+    const fullPrefix = this.prefix ? `${this.prefix}/${prefix}` : prefix;
+    let continuationToken: string | undefined;
+
+    do {
+      signal?.throwIfAborted();
+      const response = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: fullPrefix,
+          ContinuationToken: continuationToken
+        }),
+        { abortSignal: signal }
+      );
+      for (const object of response.Contents ?? []) {
+        if (object.Key == null) {
+          continue;
+        }
+        yield this.prefix ? object.Key.slice(this.prefix.length + 1) : object.Key;
+      }
+      continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+      if (response.IsTruncated && continuationToken == null) {
+        throw new Error(`S3 listing for ${fullPrefix} was truncated without a continuation token`);
+      }
+    } while (continuationToken != null);
+  }
+
   async delete(paths: string[]): Promise<void> {
     if (paths.length === 0) return;
     const fullPaths = paths.map((p) => ({ Key: this.prefix ? `${this.prefix}/${p}` : p }));
-    await this.client.send(
+    const response = await this.client.send(
       new DeleteObjectsCommand({
         Bucket: this.bucket,
         Delete: { Objects: fullPaths, Quiet: true }
       })
     );
+    if (response.Errors?.length) {
+      throw new Error(
+        `Failed to delete S3 objects: ${response.Errors.map((error) => `${error.Key}: ${error.Code}`).join(', ')}`
+      );
+    }
   }
 }
 

@@ -39,6 +39,7 @@ import { MongoCompactorV3 } from './MongoCompactorV3.js';
 import { MongoStoppedSyncConfigCleanup } from './MongoStoppedSyncConfigCleanup.js';
 import { hydrateBucketDataDocuments } from './object-storage/BucketDataObjectStorage.js';
 import { ObjectStorage } from './object-storage/ObjectStorage.js';
+import { ObjectStorageLifecycle } from './object-storage/ObjectStorageLifecycle.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export interface MongoSyncBucketStorageContextV3 {
@@ -388,9 +389,13 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return getBucketDataBatchV3(this.versionContext, checkpoint, dataBuckets, options);
   }
 
-  protected async clearBucketData(_signal?: AbortSignal): Promise<void> {
+  protected async clearBucketData(signal?: AbortSignal): Promise<void> {
     for (const collection of await this.db.listBucketDataCollections(this.replicationStreamId)) {
       await collection.drop();
+    }
+    if (this.objectStorage) {
+      const lifecycle = new ObjectStorageLifecycle(this.db, this.replicationStreamId, this.objectStorage);
+      await lifecycle.deletePrefix(`bucket-data/${this.replicationStreamId}/`, signal);
     }
   }
 
@@ -439,7 +444,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       signal: options.signal,
       logger: options.logger ?? this.logger,
       defaultSchema: options.defaultSchema,
-      sourceConnectionTag: options.sourceConnectionTag
+      sourceConnectionTag: options.sourceConnectionTag,
+      objectStorage: this.objectStorage
     }).run();
   }
 

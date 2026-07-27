@@ -11,6 +11,8 @@ import {
   SourceTableDocumentV3,
   SyncConfigDefinition
 } from './models.js';
+import { ObjectStorage } from './object-storage/ObjectStorage.js';
+import { ObjectStorageLifecycle } from './object-storage/ObjectStorageLifecycle.js';
 
 type SyncConfigState = ReplicationStreamDocumentV3['sync_configs'][number];
 
@@ -34,6 +36,7 @@ export interface MongoStoppedSyncConfigCleanupOptions extends storage.CleanupSto
   replicationStreamId: number;
   db: VersionedPowerSyncMongoV3;
   logger: Logger;
+  objectStorage?: ObjectStorage;
 }
 
 export class MongoStoppedSyncConfigCleanup {
@@ -41,6 +44,7 @@ export class MongoStoppedSyncConfigCleanup {
   private readonly replicationStreamId: number;
   private readonly signal: AbortSignal | undefined;
   private readonly logger: Logger;
+  private readonly objectStorage: ObjectStorage | undefined;
   private readonly defaultSchema: string;
   private readonly sourceConnectionTag: string;
 
@@ -49,6 +53,7 @@ export class MongoStoppedSyncConfigCleanup {
     this.replicationStreamId = options.replicationStreamId;
     this.signal = options.signal;
     this.logger = options.logger;
+    this.objectStorage = options.objectStorage;
     this.defaultSchema = options.defaultSchema;
     this.sourceConnectionTag = options.sourceConnectionTag;
   }
@@ -371,9 +376,13 @@ export class MongoStoppedSyncConfigCleanup {
   }
 
   private async dropBucketDataCollections(definitionIds: BucketDefinitionId[]): Promise<number> {
+    const lifecycle = this.objectStorage
+      ? new ObjectStorageLifecycle(this.db, this.replicationStreamId, this.objectStorage)
+      : null;
     for (const definitionId of definitionIds) {
       this.throwIfAborted();
       await this.dropCollection(this.db.bucketData(this.replicationStreamId, definitionId));
+      await lifecycle?.deletePrefix(`bucket-data/${this.replicationStreamId}/${definitionId}/`, this.signal);
     }
     return definitionIds.length;
   }

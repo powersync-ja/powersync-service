@@ -23,7 +23,7 @@ export class ObjectStorageLifecycle {
   constructor(
     private readonly db: VersionedPowerSyncMongoV3,
     private readonly replicationStreamId: number,
-    objectStorage: ObjectStorage
+    private readonly objectStorage: ObjectStorage
   ) {
     this.bucketData = new BucketDataObjectStorage(objectStorage);
   }
@@ -78,6 +78,35 @@ export class ObjectStorageLifecycle {
     if (markers.length) {
       await this.db.pendingObjectStorageDeletes(this.replicationStreamId).insertMany(markers, { session });
     }
+  }
+
+  /**
+   * Discover and delete objects by their storage prefix
+   * without reading the bucket-data collection that is being removed.
+   */
+  async deletePrefix(prefix: string, signal?: AbortSignal): Promise<{ objectCount: number }> {
+    let objectCount = 0;
+    let paths: string[] = [];
+
+    const flush = async () => {
+      if (paths.length === 0) {
+        return;
+      }
+      const deleting = paths;
+      paths = [];
+      await this.bucketData.delete(deleting);
+    };
+
+    for await (const path of this.objectStorage.list(prefix, signal)) {
+      signal?.throwIfAborted();
+      paths.push(path);
+      objectCount++;
+      if (paths.length === 500) {
+        await flush();
+      }
+    }
+    await flush();
+    return { objectCount };
   }
 
   async cleanup(logger: { warn(message: string, error?: unknown): void }): Promise<void> {

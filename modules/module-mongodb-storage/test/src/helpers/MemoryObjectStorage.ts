@@ -21,6 +21,15 @@ export class MemoryObjectStorage implements ObjectStorage {
     return data;
   }
 
+  async *list(prefix: string, signal?: AbortSignal): AsyncIterable<string> {
+    for (const path of this.store.keys()) {
+      signal?.throwIfAborted();
+      if (path.startsWith(prefix)) {
+        yield path;
+      }
+    }
+  }
+
   async delete(paths: string[]): Promise<void> {
     for (const p of paths) {
       this.store.delete(p);

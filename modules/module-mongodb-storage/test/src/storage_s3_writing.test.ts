@@ -198,4 +198,36 @@ describe('S3 write path (Phase 2b red tests)', () => {
     expect(doc.ops!.length).toBeGreaterThan(0);
     expect(doc.storage_ref).toBeUndefined();
   });
+
+  test('4. Clearing storage deletes only the replication stream object prefix', async () => {
+    const { memoryStorage, factory: factoryGen } = memoryS3Factory();
+    await using factory = await factoryGen.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 4);
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'clear-prefix', description: 'x'.repeat(1_000) },
+      afterReplicaId: test_utils.rid('clear-prefix')
+    });
+    await writer.commit('1/1');
+
+    const streamPrefix = `bucket-data/${bucketStorage.replicationStreamId}/`;
+    expect(Array.from(memoryStorage.store.keys()).some((path) => path.startsWith(streamPrefix))).toBe(true);
+
+    const unrelatedPath = 'bucket-data/999/unrelated/object.bson';
+    await memoryStorage.put(unrelatedPath, new Uint8Array(), {
+      contentType: 'application/bson',
+      contentEncoding: null
+    });
+
+    await bucketStorage.clear();
+
+    expect(Array.from(memoryStorage.store.keys()).some((path) => path.startsWith(streamPrefix))).toBe(false);
+    expect(memoryStorage.store.has(unrelatedPath)).toBe(true);
+  });
 });
