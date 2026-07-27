@@ -29,20 +29,20 @@ export class S3ObjectStorage implements ObjectStorage {
     });
   }
 
-  async put(path: string, data: Buffer, metadata?: ObjectStoragePutMetadata): Promise<void> {
+  async put(path: string, data: Uint8Array, metadata: ObjectStoragePutMetadata): Promise<void> {
     const fullPath = this.prefix ? `${this.prefix}/${path}` : path;
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,
         Key: fullPath,
         Body: data,
-        ContentType: metadata?.contentType,
-        ContentEncoding: metadata?.contentEncoding
+        ContentType: metadata.contentType,
+        ContentEncoding: metadata.contentEncoding ?? undefined
       })
     );
   }
 
-  async get(path: string): Promise<Buffer> {
+  async get(path: string): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
     const fullPath = this.prefix ? `${this.prefix}/${path}` : path;
     try {
       const response = await this.client.send(
@@ -51,12 +51,18 @@ export class S3ObjectStorage implements ObjectStorage {
           Key: fullPath
         })
       );
-      const chunks: Buffer[] = [];
-      const stream = response.Body as any;
+      const chunks: Uint8Array[] = [];
+      const stream = response.Body as AsyncIterable<Uint8Array>;
       for await (const chunk of stream) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        chunks.push(chunk);
       }
-      return Buffer.concat(chunks);
+      return {
+        data: mergeChunks(chunks),
+        metadata: {
+          contentType: response.ContentType ?? 'application/octet-stream',
+          contentEncoding: response.ContentEncoding ?? null
+        }
+      };
     } catch (err: any) {
       if (err.name === 'NoSuchKey' || err.Code === 'NoSuchKey') {
         throw new Error(`S3 object not found: ${fullPath}`);
@@ -75,4 +81,15 @@ export class S3ObjectStorage implements ObjectStorage {
       })
     );
   }
+}
+
+function mergeChunks(chunks: Uint8Array[]): Uint8Array {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
 }

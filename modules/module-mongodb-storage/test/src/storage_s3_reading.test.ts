@@ -1,4 +1,3 @@
-import * as zstd from '@mongodb-js/zstd';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
@@ -6,6 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { env } from './env.js';
+import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 import { createS3TestStorageSuite } from './helpers/s3TestFactory.js';
 
 const SYNC_RULES_YAML = `
@@ -154,10 +154,8 @@ describe('S3 read path (Phase 2c red tests)', () => {
 
     // Extract source_table and source_key from the S3-stored ops to reuse
     // in the inline document, ensuring valid identifiers for mapOpEntry.
-    const storedPaths = (memoryStorage as any).store as Map<string, Buffer>;
-    const [_, compressed] = [...storedPaths.entries()][0];
-    const decompressed = await zstd.decompress(compressed);
-    const wrapper = bson.deserialize(decompressed, { promoteValues: false });
+    const [_, entry] = [...(memoryStorage as MemoryObjectStorage).store.entries()][0];
+    const wrapper = bson.deserialize(entry.data, { promoteValues: false });
     const s3Ops = wrapper.ops as any[];
     const s3SourceTable = s3Ops[0].source_table as bson.ObjectId;
     const s3SourceKey = s3Ops[0].source_key as bson.UUID;

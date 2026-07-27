@@ -308,9 +308,6 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.637.0
         version: 3.1065.0
-      '@mongodb-js/zstd':
-        specifier: ^7.0.0
-        version: 7.0.0
       '@powersync/lib-service-mongodb':
         specifier: workspace:*
         version: link:../../libs/lib-mongodb
@@ -1456,10 +1453,6 @@ packages:
   '@mongodb-js/zstd@2.0.1':
     resolution: {integrity: sha512-hbQKltFj0hMrhe+Udh9gjkzswIJJVOo55vEHgfHbb6wjPpo4Oc3kng2bao/XnzLPCdd5Q1PXbWTC91LYPQrCtA==}
     engines: {node: '>= 16.20.1'}
-
-  '@mongodb-js/zstd@7.0.0':
-    resolution: {integrity: sha512-mQ2s0pYYiav+tzCDR05Zptem8Ey2v8s11lri5RKGhTtL4COVCvVCk5vtyRYNT+9L8qSfyOqqefF9UtnW8mC5jA==}
-    engines: {node: '>= 20.19.0'}
 
   '@napi-rs/snappy-android-arm-eabi@7.3.3':
     resolution: {integrity: sha512-d4vUFFzNBvazGfB/KU8MnEax6itTIgRWXodPdZDnWKHy9HwVBndpCiedQDcSNHcZNYV36rx034rpn7SAuTL2NA==}
@@ -3500,10 +3493,6 @@ packages:
   node-addon-api@4.3.0:
     resolution: {integrity: sha512-73sE9+3UaLYYFmDsFZnqCInzPyh3MqIwZO9cw58yIqAZhONrrabrYyYe3TuIqtIiOuTXVhsGau8hcrhhwSsDIQ==}
 
-  node-addon-api@8.8.0:
-    resolution: {integrity: sha512-c5Ko1fZJIJmzhFIkhRN76WTq+fC6tWnGy9CXA0fA+XygsWZmEwG8vmbkNqxMyoaa0Tin4djul49NzdVcJJcjeA==}
-    engines: {node: ^18 || ^20 || >= 21}
-
   node-domexception@1.0.0:
     resolution: {integrity: sha512-/jKZoMpw0F8GRwl4/eLROPA3cfcXtLApP0QzLmUT/HuPCZWyB7IY9ZrMeKw2O/nFIqPQB3PVM9aYm0F312AXDQ==}
     engines: {node: '>=10.5.0'}
@@ -5277,11 +5266,6 @@ snapshots:
   '@mongodb-js/zstd@2.0.1':
     dependencies:
       node-addon-api: 4.3.0
-      prebuild-install: 7.1.3
-
-  '@mongodb-js/zstd@7.0.0':
-    dependencies:
-      node-addon-api: 8.8.0
       prebuild-install: 7.1.3
 
   '@napi-rs/snappy-android-arm-eabi@7.3.3':
@@ -7296,8 +7280,6 @@ snapshots:
       semver: 7.7.3
 
   node-addon-api@4.3.0: {}
-
-  node-addon-api@8.8.0: {}
 
   node-domexception@1.0.0: {}
 

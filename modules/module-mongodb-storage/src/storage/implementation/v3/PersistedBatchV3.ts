@@ -277,7 +277,7 @@ export class PersistedBatchV3 extends PersistedBatch {
               });
             } else {
               const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}-${randomUUID()}.bson.zstd`;
-              const { compressedSize } = await store.store(path, bucketOps);
+              const { fileSize } = await store.store(path, bucketOps);
 
               inserts.push({
                 insertOne: {
@@ -291,7 +291,7 @@ export class PersistedBatchV3 extends PersistedBatch {
                     has_clear_op: hasClearOp || undefined,
                     storage_ref: {
                       path,
-                      compressed_size: compressedSize
+                      file_size: fileSize
                     }
                   }
                 }

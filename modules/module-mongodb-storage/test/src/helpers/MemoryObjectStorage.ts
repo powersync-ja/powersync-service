@@ -1,13 +1,19 @@
-import { ObjectStorage } from '@module/storage/implementation/v3/object-storage/ObjectStorage.js';
+import {
+  ObjectStorage,
+  ObjectStoragePutMetadata
+} from '@module/storage/implementation/v3/object-storage/ObjectStorage.js';
 
 export class MemoryObjectStorage implements ObjectStorage {
-  private store = new Map<string, Buffer>();
+  /**
+   * Public for testing purposes.
+   */
+  public readonly store = new Map<string, { data: Uint8Array; metadata: ObjectStoragePutMetadata }>();
 
-  async put(path: string, data: Buffer, _metadata?: any): Promise<void> {
-    this.store.set(path, data);
+  async put(path: string, data: Uint8Array, metadata: ObjectStoragePutMetadata): Promise<void> {
+    this.store.set(path, { data, metadata: metadata });
   }
 
-  async get(path: string): Promise<Buffer> {
+  async get(path: string): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
     const data = this.store.get(path);
     if (!data) {
       throw new Error(`NotFound: ${path}`);

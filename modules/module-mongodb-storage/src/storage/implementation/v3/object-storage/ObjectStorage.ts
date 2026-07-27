@@ -1,10 +1,10 @@
 export interface ObjectStoragePutMetadata {
   contentType: string;
-  contentEncoding: string;
+  contentEncoding: string | null;
 }
 
 export interface ObjectStorage {
-  put(path: string, data: Buffer, metadata?: ObjectStoragePutMetadata): Promise<void>;
-  get(path: string): Promise<Buffer>;
+  put(path: string, data: Uint8Array, metadata?: ObjectStoragePutMetadata): Promise<void>;
+  get(path: string): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }>;
   delete(paths: string[]): Promise<void>;
 }

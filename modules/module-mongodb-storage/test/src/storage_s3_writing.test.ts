@@ -1,5 +1,4 @@
 import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
-import * as zstd from '@mongodb-js/zstd';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
@@ -55,11 +54,10 @@ describe('S3 write path (Phase 2b red tests)', () => {
     expect(storedPaths.size).toBeGreaterThan(0);
 
     // Find the stored path and decompress + deserialize
-    const [path, compressed] = [...storedPaths.entries()][0];
+    const [path, data] = [...storedPaths.entries()][0];
     expect(path).toBeTruthy();
 
-    const decompressed = await zstd.decompress(compressed);
-    const wrapper = bson.deserialize(decompressed, { promoteValues: false });
+    const wrapper = bson.deserialize(data, { promoteValues: false });
     expect(wrapper).toHaveProperty('ops');
     expect(Array.isArray(wrapper.ops)).toBe(true);
     expect(wrapper.ops).toHaveLength(2);
@@ -83,8 +81,8 @@ describe('S3 write path (Phase 2b red tests)', () => {
     const doc = docs[0];
     expect(doc.storage_ref).toBeDefined();
     expect(doc.storage_ref!.path).toBeTruthy();
-    expect(doc.storage_ref!.compressed_size).toBeTypeOf('number');
-    expect(doc.storage_ref!.compressed_size).toBeGreaterThan(0);
+    expect(doc.storage_ref!.file_size).toBeTypeOf('number');
+    expect(doc.storage_ref!.file_size).toBeGreaterThan(0);
     expect(doc.ops).toBeUndefined();
   });
 
@@ -144,12 +142,12 @@ describe('S3 write path (Phase 2b red tests)', () => {
 
     // With S3 offloading, the document MUST have storage_ref and MUST NOT have ops.
     expect(doc.storage_ref).toBeDefined();
-    expect(doc.storage_ref!.compressed_size).toBeTypeOf('number');
-    expect(doc.storage_ref!.compressed_size).toBeGreaterThan(0);
+    expect(doc.storage_ref!.file_size).toBeTypeOf('number');
+    expect(doc.storage_ref!.file_size).toBeGreaterThan(0);
 
     // The size field should reflect the sum of decompressed op.data lengths
     // (NOT the compressed size from storage_ref.compressed_size)
-    expect(doc.size).not.toBe(doc.storage_ref!.compressed_size);
+    expect(doc.size).not.toBe(doc.storage_ref!.file_size);
   });
 
   test('3. No object storage = unchanged behavior', async () => {
@@ -178,8 +176,7 @@ describe('S3 write path (Phase 2b red tests)', () => {
     await writer.commit('1/1');
 
     // MemoryObjectStorage should have no entries (no S3 upload)
-    const storedPaths = (unusedMemory as any).store as Map<string, Buffer>;
-    expect(storedPaths.size).toBe(0);
+    expect(unusedMemory.store.size).toBe(0);
 
     // MongoDB document should have ops array (as today)
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;

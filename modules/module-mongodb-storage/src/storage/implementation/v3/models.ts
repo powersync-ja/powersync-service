@@ -178,7 +178,7 @@ export interface BucketOperation {
 
 export interface StorageRef {
   path: string;
-  compressed_size: number;
+  file_size: number;
 }
 
 /** An S3 object that may be deleted once its grace period has elapsed. */

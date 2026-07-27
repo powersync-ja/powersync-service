@@ -828,7 +828,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       const minOp = chunk[0].o;
       const maxOp = chunk[chunk.length - 1].o;
       const path = paths[index];
-      const { compressedSize } = await store.store(path, chunk);
+      const { fileSize } = await store.store(path, chunk);
       storagePaths.add(path);
       documents.push({
         _id: { b: bucket, o: maxOp },
@@ -842,7 +842,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           null
         ),
         has_clear_op: chunk.some((op) => op.op == 'CLEAR') || undefined,
-        storage_ref: { path, compressed_size: compressedSize }
+        storage_ref: { path, file_size: fileSize }
       });
     }
 
