@@ -145,6 +145,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         ) ?? [],
       snapshotComplete: doc.snapshot_done ?? true,
       sourceMetadata: doc.source_metadata ?? null,
+      initialSnapshotFilter: syncRules.getInitialSnapshotFilter(ref),
       ...syncRules.getMatchingSources(ref)
     });
     table.syncEvent = syncRules.tableTriggersEvent(ref);

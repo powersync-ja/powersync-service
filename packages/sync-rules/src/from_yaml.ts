@@ -16,7 +16,7 @@ import { syncStreamFromSql } from './legacy/streams/from_sql.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
 import { validateStorageVersion } from './StorageVersion.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
-import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
+import { InitialSnapshotFilter, SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { TablePattern } from './TablePattern.js';
 import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js';
 import { buildParsedToSourceValueMap, isBlockScalar, isQuotedScalar } from './yaml_scalar_map.js';
@@ -132,10 +132,51 @@ export class SyncConfigFromYaml {
 
     result.storageVersion = storageVersion;
 
+    const filtersMap = rootState.get('initial_snapshot_filters')?.requireMap();
+    if (filtersMap != null) {
+      this.#parseInitialSnapshotFilters(filtersMap, result);
+    }
+
     const eventDefinitions = this.#parseEventDefinitions(rootState, compatibility);
     result.eventDescriptors.push(...eventDefinitions);
 
     return result;
+  }
+
+  /**
+   * Parses the global `initial_snapshot_filters` configuration.
+   *
+   * Filters are applied per source table during the initial snapshot, regardless of
+   * bucket definitions. Table keys support the same patterns as bucket queries,
+   * including schema and table wildcards.
+   */
+  #parseInitialSnapshotFilters(filtersMap: YamlMapState, result: SyncConfig) {
+    for (const entry of filtersMap.stringKeyedItems()) {
+      using filterState = entry.value.requireMap(
+        `Initial snapshot filter for table '${entry.key}' must be an object with 'sql' and/or 'mongo' properties`
+      );
+      if (filterState == null) {
+        continue;
+      }
+
+      const filter: InitialSnapshotFilter = {};
+      const sql = filterState.get('sql')?.requireScalar()?.requireString();
+      if (sql != null) {
+        filter.sql = sql;
+      }
+      const mongoState = filterState.get('mongo');
+      if (mongoState != null) {
+        filter.mongo = mongoState.node.toJSON();
+      }
+
+      if (filter.sql === undefined && filter.mongo === undefined) {
+        filterState.reportError(
+          `Initial snapshot filter for table '${entry.key}' must have at least a 'sql' or 'mongo' property`
+        );
+        continue;
+      }
+      result.initialSnapshotFilters.set(entry.key, filter);
+    }
   }
 
   get #hasFatalError(): boolean {
