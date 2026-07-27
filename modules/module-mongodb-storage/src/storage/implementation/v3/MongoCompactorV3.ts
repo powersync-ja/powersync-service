@@ -17,6 +17,8 @@ import { ObjectStorageLifecycle, PreparedObjectStorageUpload } from './object-st
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
+const S3_DOWNLOAD_CONCURRENCY = 16;
+
 interface PendingCompactionGroup {
   /**
    * Input documents are ordered from oldest to newest, matching `ops`.
@@ -775,18 +777,34 @@ export class MongoCompactorV3 extends MongoCompactor {
     return opCountDiff;
   }
 
+  /**
+   * Load offloaded operations and patch them onto their MongoDB metadata documents.
+   *
+   * A shared index distributes documents across a fixed number of async workers.
+   * JavaScript runs each index increment synchronously before the worker awaits,
+   * so every document is claimed exactly once. This caps active S3 requests at
+   * {@link S3_DOWNLOAD_CONCURRENCY} without allocating one pending promise per
+   * object in a large compaction batch.
+   */
   private async hydrateS3Documents(documents: BucketDataDocumentV3[]): Promise<void> {
     if (!this.storage.objectStorage) {
       return;
     }
 
     const store = new BucketDataObjectStorage(this.storage.objectStorage);
+    const storedDocuments = documents.filter((document) => document.storage_ref);
+    let nextDocument = 0;
+
+    const downloadNext = async () => {
+      while (nextDocument < storedDocuments.length) {
+        this.signal?.throwIfAborted();
+        const document = storedDocuments[nextDocument++];
+        document.ops = await store.retrieve(document.storage_ref!.path);
+      }
+    };
+
     await Promise.all(
-      documents
-        .filter((document) => document.storage_ref)
-        .map(async (document) => {
-          document.ops = await store.retrieve(document.storage_ref!.path);
-        })
+      Array.from({ length: Math.min(S3_DOWNLOAD_CONCURRENCY, storedDocuments.length) }, () => downloadNext())
     );
   }
 
