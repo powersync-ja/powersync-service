@@ -37,7 +37,7 @@ export class ObjectStorageLifecycle {
   }
 
   allocatePath(definitionId: string, bucket: string, minOp: bigint, maxOp: bigint): string {
-    return `${this.definitionPrefix(definitionId)}${bucket}/${minOp}-${maxOp}-${randomUUID()}.bson`;
+    return `${this.definitionPrefix(definitionId)}${encodeURIComponent(bucket)}/${minOp}-${maxOp}-${randomUUID()}.bson`;
   }
 
   async prepareUploads(paths: string[], now = new Date()): Promise<PreparedObjectStorageUpload[]> {
