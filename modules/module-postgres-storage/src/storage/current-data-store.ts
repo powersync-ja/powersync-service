@@ -301,19 +301,72 @@ export class PostgresCurrentDataStore {
     `.execute();
   }
 
-  async deleteGroupRows(db: Queryable, options: { groupId: number }) {
+  /**
+   * Delete up to `limit` rows for the group, returning the number of rows deleted.
+   */
+  async deleteGroupRowsBatch(db: Queryable, options: { groupId: number; limit: number }): Promise<bigint> {
     if (this.softDeleteEnabled) {
-      await db.sql`
-        DELETE FROM v3_current_data
-        WHERE
-          group_id = ${{ type: 'int4', value: options.groupId }}
-      `.execute();
+      const result = await db.sql`
+        WITH
+          batch AS (
+            SELECT
+              ctid
+            FROM
+              v3_current_data
+            WHERE
+              group_id = ${{ type: 'int4', value: options.groupId }}
+            LIMIT
+              ${{ type: 'int4', value: options.limit }}
+          ),
+          deleted AS (
+            DELETE FROM v3_current_data
+            WHERE
+              ctid IN (
+                SELECT
+                  ctid
+                FROM
+                  batch
+              )
+            RETURNING
+              1
+          )
+        SELECT
+          COUNT(*) AS count
+        FROM
+          deleted
+      `.first<{ count: bigint }>();
+      return result?.count ?? 0n;
     } else {
-      await db.sql`
-        DELETE FROM current_data
-        WHERE
-          group_id = ${{ type: 'int4', value: options.groupId }}
-      `.execute();
+      const result = await db.sql`
+        WITH
+          batch AS (
+            SELECT
+              ctid
+            FROM
+              current_data
+            WHERE
+              group_id = ${{ type: 'int4', value: options.groupId }}
+            LIMIT
+              ${{ type: 'int4', value: options.limit }}
+          ),
+          deleted AS (
+            DELETE FROM current_data
+            WHERE
+              ctid IN (
+                SELECT
+                  ctid
+                FROM
+                  batch
+              )
+            RETURNING
+              1
+          )
+        SELECT
+          COUNT(*) AS count
+        FROM
+          deleted
+      `.first<{ count: bigint }>();
+      return result?.count ?? 0n;
     }
   }
 

@@ -49,6 +49,11 @@ export type PostgresSyncRulesStorageOptions = {
   checksumCacheTtlMs?: number;
 };
 
+/**
+ * Number of rows deleted per batch when clearing storage for a replication stream.
+ */
+export const CLEAR_BATCH_LIMIT = 50_000;
+
 export class PostgresSyncRulesStorage
   extends framework.BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
@@ -540,7 +545,11 @@ export class PostgresSyncRulesStorage
   }
 
   async clear(options?: storage.ClearStorageOptions): Promise<void> {
-    // TODO: Cleanly abort the cleanup when the provided signal is aborted.
+    const signal = options?.signal;
+    if (signal?.aborted) {
+      throw new framework.ReplicationAbortedError('Aborted clearing data', signal.reason);
+    }
+
     await this.db.sql`
       UPDATE sync_rules
       SET
@@ -552,25 +561,63 @@ export class PostgresSyncRulesStorage
         id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
 
-    await this.db.sql`
-      DELETE FROM bucket_data
-      WHERE
-        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
-    `.execute();
+    // Delete in batches - a single DELETE covering the entire group can run for
+    // hours on large deployments, never completing once it exceeds statement or
+    // socket timeouts. Each batch is its own autocommit statement, so progress
+    // is durable and a retry continues where the previous attempt stopped.
+    await this.clearBatched('bucket_data', signal, () => this.deleteGroupBatch('bucket_data'));
+    await this.clearBatched('bucket_parameters', signal, () => this.deleteGroupBatch('bucket_parameters'));
+    await this.clearBatched('current_data', signal, () =>
+      this.currentDataStore.deleteGroupRowsBatch(this.db, {
+        groupId: this.replicationStreamId,
+        limit: CLEAR_BATCH_LIMIT
+      })
+    );
+    await this.clearBatched('source_tables', signal, () => this.deleteGroupBatch('source_tables'));
+  }
 
-    await this.db.sql`
-      DELETE FROM bucket_parameters
-      WHERE
-        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
-    `.execute();
+  private async clearBatched(
+    label: string,
+    signal: AbortSignal | undefined,
+    deleteBatch: () => Promise<bigint>
+  ): Promise<void> {
+    while (true) {
+      if (signal?.aborted) {
+        throw new framework.ReplicationAbortedError('Aborted clearing data', signal.reason);
+      }
+      const count = await deleteBatch();
+      if (count < CLEAR_BATCH_LIMIT) {
+        return;
+      }
+      this.logger.info(`Cleared batch of ${count} ${label} rows, continuing...`);
+    }
+  }
 
-    await this.currentDataStore.deleteGroupRows(this.db, { groupId: this.replicationStreamId });
-
-    await this.db.sql`
-      DELETE FROM source_tables
-      WHERE
-        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
-    `.execute();
+  /**
+   * Delete up to {@link CLEAR_BATCH_LIMIT} rows for this group from the given table,
+   * returning the number of rows deleted.
+   */
+  private async deleteGroupBatch(table: 'bucket_data' | 'bucket_parameters' | 'source_tables'): Promise<bigint> {
+    const [row] = await this.db.queryRows<{ count: bigint }>({
+      statement: `
+        WITH batch AS (
+          SELECT ctid FROM ${table}
+          WHERE group_id = $1
+          LIMIT $2
+        ),
+        deleted AS (
+          DELETE FROM ${table}
+          WHERE ctid IN (SELECT ctid FROM batch)
+          RETURNING 1
+        )
+        SELECT COUNT(*) AS count FROM deleted
+      `,
+      params: [
+        { type: 'int4', value: this.replicationStreamId },
+        { type: 'int4', value: CLEAR_BATCH_LIMIT }
+      ]
+    });
+    return row?.count ?? 0n;
   }
 
   private async getChecksumsInternal(batch: storage.FetchPartialBucketChecksum[]): Promise<storage.PartialChecksumMap> {
