@@ -70,8 +70,18 @@ export class MongoCompactorV3 extends MongoCompactor {
   declare protected readonly storage: MongoSyncBucketStorageV3;
 
   override async compact(): Promise<void> {
+    if (this.storage.objectStorage) {
+      // Clean these before compacting - should be quick in most cases.
+      try {
+        await this.objectStorageLifecycle.cleanup(this.logger);
+      } catch (e) {
+        // In this case, still continue normal compact process
+        this.logger.error(`Failed to clean up object storage deletion markers before compaction`, e);
+      }
+    }
     await super.compact();
     if (this.storage.objectStorage) {
+      // Cleanup for any produced during compacting.
       await this.objectStorageLifecycle.cleanup(this.logger);
     }
   }
