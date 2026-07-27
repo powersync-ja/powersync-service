@@ -3,7 +3,6 @@ import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
 import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { randomUUID } from 'node:crypto';
 import { mongoTableId } from '../../../utils/util.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
@@ -23,7 +22,7 @@ import {
   SourceTableDocumentV3,
   taggedBucketParameterDocumentToTagged
 } from './models.js';
-import { BucketDataObjectStorage } from './object-storage/BucketDataObjectStorage.js';
+import { ObjectStorageLifecycle } from './object-storage/ObjectStorageLifecycle.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
@@ -233,7 +232,7 @@ export class PersistedBatchV3 extends PersistedBatch {
           }
         }
       } else {
-        const store = new BucketDataObjectStorage(this.objectStorage);
+        const lifecycle = new ObjectStorageLifecycle(this.db, this.group_id, this.objectStorage);
 
         for (const [bucket, ops] of operationsByBucket.entries()) {
           const chunks = chunkBucketData(ops);
@@ -253,8 +252,8 @@ export class PersistedBatchV3 extends PersistedBatch {
                 }
               });
             } else {
-              const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}-${randomUUID()}.bson`;
-              const { fileSize } = await store.store(path, bucketOps!);
+              const path = lifecycle.allocatePath(definitionId, bucket, minOp, maxOp);
+              const { fileSize } = await lifecycle.bucketData.store(path, bucketOps!);
 
               inserts.push({
                 insertOne: {

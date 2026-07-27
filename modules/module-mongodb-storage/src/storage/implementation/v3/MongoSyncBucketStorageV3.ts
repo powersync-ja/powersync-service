@@ -395,7 +395,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     }
     if (this.objectStorage) {
       const lifecycle = new ObjectStorageLifecycle(this.db, this.replicationStreamId, this.objectStorage);
-      await lifecycle.deletePrefix(`bucket-data/${this.replicationStreamId}/`, signal);
+      await lifecycle.deletePrefix(lifecycle.streamPrefix(), signal);
     }
   }
 

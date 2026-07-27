@@ -382,7 +382,7 @@ export class MongoStoppedSyncConfigCleanup {
     for (const definitionId of definitionIds) {
       this.throwIfAborted();
       await this.dropCollection(this.db.bucketData(this.replicationStreamId, definitionId));
-      await lifecycle?.deletePrefix(`bucket-data/${this.replicationStreamId}/${definitionId}/`, this.signal);
+      await lifecycle?.deletePrefix(lifecycle.definitionPrefix(definitionId), this.signal);
     }
     return definitionIds.length;
   }

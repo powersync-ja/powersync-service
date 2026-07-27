@@ -28,8 +28,16 @@ export class ObjectStorageLifecycle {
     this.bucketData = new BucketDataObjectStorage(objectStorage);
   }
 
+  streamPrefix(): string {
+    return `bucket-data/${this.replicationStreamId}/`;
+  }
+
+  definitionPrefix(definitionId: string): string {
+    return `${this.streamPrefix()}${definitionId}/`;
+  }
+
   allocatePath(definitionId: string, bucket: string, minOp: bigint, maxOp: bigint): string {
-    return `bucket-data/${this.replicationStreamId}/${definitionId}/${bucket}/${minOp}-${maxOp}-${randomUUID()}.bson`;
+    return `${this.definitionPrefix(definitionId)}${bucket}/${minOp}-${maxOp}-${randomUUID()}.bson`;
   }
 
   async prepareUploads(paths: string[], now = new Date()): Promise<PreparedObjectStorageUpload[]> {
