@@ -146,9 +146,13 @@ export function documentState(doc: Document, report: (error: YamlError) => void)
         if (matchedKeys != null) {
           for (const item of node.items) {
             const key = item.key;
-            const keyName = key instanceof Scalar ? String(key.value) : undefined;
-            if (keyName == null || !matchedKeys.has(keyName)) {
-              report(createYamlError(key as Node, `Unknown key '${keyName}'.`));
+            if (key instanceof Scalar) {
+              const keyName = String(key.value);
+              if (!matchedKeys.has(keyName)) {
+                report(createYamlError(key as Node, `Unknown key '${keyName}'.`));
+              }
+            } else {
+              report(createYamlError(key as Node, `Unexpected additional key.`));
             }
           }
         }

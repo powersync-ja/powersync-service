@@ -21,7 +21,7 @@ At a high level:
 7. Storage writes bucket operations and parameter index entries through a `BucketStorageBatch`.
 8. A batch `commit(lsn)` or `keepalive(lsn)` advances persisted source progress and any checkpoint state that is safe to expose.
 9. Once checkpoints are unblocked, bucket storage exposes a new checkpoint.
-10. The sync API watches checkpoint changes and streams updated checksums, bucket data, and write checkpoint acknowledgements to clients.
+10. The sync API watches checkpoint changes and streams updated checksums, bucket data, and checkpoint request acknowledgements to clients.
 
 ## End-To-End Sequence
 
@@ -102,7 +102,7 @@ In storage modes that support incremental reprocessing, a replication stream can
 3. [Source connector overview](./03-source-connector-overview.md): what Postgres, MongoDB, MySQL, SQL Server, Convex, and future source modules provide.
 4. [Storage writer overview](./04-storage-writer-overview.md): how source streams write source changes into bucket storage.
 5. [Snapshots and streaming](./05-snapshots-and-streaming.md): the consistency model for initial replication and ongoing change streams.
-6. [Checkpoints](./06-checkpoints.md): how storage checkpoints, write checkpoints, bucket checksums, and parameter lookups fit together.
+6. [Checkpoints](./06-checkpoints.md): how storage checkpoints, checkpoint requests, bucket checksums, and parameter lookups fit together.
 7. [Source modules](./07-source-modules.md): current source-specific implementations and differences.
 8. [AI agent plans](./08-ai-agent-plans.md): phased implementation plans for adding a new replication module.
 9. [Resolve tables flow](./09-resolve-tables-flow.md): the `resolveTables` lifecycle, source table discovery, and table metadata state.
@@ -122,5 +122,5 @@ In storage modes that support incremental reprocessing, a replication stream can
 - [storage-v3.md](../storage/storage-v3.md): storage version 3 data model.
 - [parameter-lookups.md](../storage/parameter-lookups.md): parameter lookup storage and compaction.
 - [initial-replication.md](../modules/postgres/initial-replication.md): historical and current Postgres initial replication design.
-- [convex-write-checkpoints.md](../modules/convex/convex-write-checkpoints.md): marker collection rationale for managed write checkpoints and idle sources.
-- [convex](../modules/convex/README.md): Convex-specific snapshot, schema-change, and write-checkpoint notes.
+- [convex-write-checkpoints.md](../modules/convex/convex-write-checkpoints.md): marker collection rationale for checkpoint requests, also known in older code and docs as managed write checkpoints.
+- [convex](../modules/convex/README.md): Convex-specific snapshot, schema-change, and checkpoint request notes.

@@ -107,7 +107,7 @@ bucket_definitions:
       user_id: 'user1'
     });
     // We have to trigger a new keepalive after the checkpoint, at least to cover postgres storage.
-    // This is what is effetively triggered with RouteAPI.createReplicationHead().
+    // This is what is effectively triggered by RouteAPI.createReplicationHead().
     // MongoDB storage doesn't explicitly need this anymore.
     await writer.keepalive('6/0');
 
@@ -126,6 +126,72 @@ bucket_definitions:
         writeCheckpoint: writeCheckpoint
       }
     });
+  });
+
+  test('managed write checkpoints - client supplied ids are monotonic', async () => {
+    await using factory = await generateStorageFactory();
+    const r = await factory.configureSyncRules(
+      updateSyncRulesFromYaml(
+        `
+bucket_definitions:
+  mybucket:
+    data: []
+    `,
+        {
+          validate: false,
+          storageVersion
+        }
+      )
+    );
+    const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+
+    const first = await createManagedWriteCheckpointResult(bucketStorage, {
+      user_id: 'user1',
+      heads: { '1': '5/0' },
+      checkpoint_request_id: 42n
+    });
+    expect(first.writeCheckpoints.get('user1')).toEqual(42n);
+    expect(first.shouldAdvance).toBe(true);
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '5/0' } })).resolves.toEqual(42n);
+
+    const stale = await createManagedWriteCheckpointResult(bucketStorage, {
+      user_id: 'user1',
+      heads: { '1': '8/0' },
+      checkpoint_request_id: 41n
+    });
+    expect(stale.writeCheckpoints.get('user1')).toEqual(42n);
+    // The stored checkpoint is unchanged but has not been processed by replication
+    // yet, so the source marker must still be forced (e.g. for a retry after a
+    // previous attempt failed to advance the marker).
+    expect(stale.shouldAdvance).toBe(true);
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '6/0' } })).resolves.toEqual(42n);
+
+    const retried = await createManagedWriteCheckpointResult(bucketStorage, {
+      user_id: 'user1',
+      heads: { '1': '8/0' },
+      checkpoint_request_id: 42n
+    });
+    expect(retried.writeCheckpoints.get('user1')).toEqual(42n);
+    // Same as above: the duplicate request still points at a pending checkpoint.
+    expect(retried.shouldAdvance).toBe(true);
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '6/0' } })).resolves.toEqual(42n);
+
+    const advanced = await createManagedWriteCheckpointResult(bucketStorage, {
+      user_id: 'user1',
+      heads: { '1': '8/0' },
+      checkpoint_request_id: 43n
+    });
+    expect(advanced.writeCheckpoints.get('user1')).toEqual(43n);
+    expect(advanced.shouldAdvance).toBe(true);
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '7/0' } })).resolves.toBeNull();
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '8/0' } })).resolves.toEqual(43n);
+
+    const generated = await createManagedWriteCheckpointResult(bucketStorage, {
+      user_id: 'user1',
+      heads: { '1': '9/0' }
+    });
+    expect(generated.writeCheckpoints.get('user1')).toEqual(44n);
+    expect(generated.shouldAdvance).toBe(true);
   });
 
   test('custom write checkpoints - checkpoint after write', async (context) => {
@@ -301,14 +367,67 @@ bucket_definitions:
       }
     });
   });
+
+  test('custom write checkpoints - checkpoint request markers are temporary', async () => {
+    await using factory = await generateStorageFactory();
+    const r = await factory.configureSyncRules(
+      updateSyncRulesFromYaml(
+        `
+bucket_definitions:
+  mybucket:
+    data: []
+    `,
+        {
+          validate: false,
+          storageVersion
+        }
+      )
+    );
+    const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+    bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await writer.markAllSnapshotDone('1/1');
+
+    writer.addCustomWriteCheckpoint({
+      checkpoint: 5n,
+      user_id: 'persistent'
+    });
+    writer.addCustomWriteCheckpoint({
+      checkpoint: 6n,
+      user_id: 'temporary',
+      checkpoint_requested_at: new Date('2024-01-01T00:00:00.000Z')
+    });
+    await writer.flush();
+
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'persistent' })).resolves.toEqual(5n);
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'temporary' })).resolves.toEqual(6n);
+
+    await bucketStorage.compact({
+      compactBuckets: [],
+      deleteCheckpointRequestsBefore: new Date(Date.now() + 1_000)
+    });
+
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'persistent' })).resolves.toEqual(5n);
+    await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'temporary' })).resolves.toBeNull();
+  });
 }
 
 async function createManagedWriteCheckpoint(
   bucketStorage: storage.SyncRulesBucketStorage,
   checkpoint: storage.ManagedWriteCheckpointOptions
 ) {
-  const checkpoints = await bucketStorage.createManagedWriteCheckpoints([checkpoint]);
-  const writeCheckpoint = checkpoints.get(checkpoint.user_id);
+  const result = await createManagedWriteCheckpointResult(bucketStorage, checkpoint);
+  const writeCheckpoint = result.writeCheckpoints.get(checkpoint.user_id);
   expect(writeCheckpoint).not.toBeUndefined();
   return writeCheckpoint!;
+}
+
+async function createManagedWriteCheckpointResult(
+  bucketStorage: storage.SyncRulesBucketStorage,
+  checkpoint: storage.ManagedWriteCheckpointOptions
+) {
+  const result = await bucketStorage.createManagedWriteCheckpoints([checkpoint]);
+  expect(result.writeCheckpoints.get(checkpoint.user_id)).not.toBeUndefined();
+  return result;
 }
