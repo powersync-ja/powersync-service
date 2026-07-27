@@ -31,7 +31,7 @@ describe('V3 checksums with S3 object storage', () => {
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
 
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
     const bucket = request.bucket;
     const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
 
@@ -78,7 +78,7 @@ describe('V3 checksums with S3 object storage', () => {
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
 
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
 
     // Write 50 ops with large data to fill multiple S3 documents
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -109,7 +109,7 @@ describe('V3 checksums with S3 object storage', () => {
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
 
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
     const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -153,8 +153,7 @@ describe('V3 checksums with S3 object storage', () => {
       moveBatchQueryLimit: 10,
       moveBatchByteLimit: 1024,
       minBucketChanges: 1,
-      minChangeRatio: 0,
-      signal: null as any
+      minChangeRatio: 0
     });
 
     // Shift compacted_state.op_id back to before the CLEAR doc so getChecksums

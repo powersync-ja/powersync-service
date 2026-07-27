@@ -41,7 +41,7 @@ describe('S3 object storage reads', () => {
       concurrencyLimit: 4
     });
 
-    await expect((objectStorage as any).client.config.credentials()).resolves.toMatchObject({
+    await expect(objectStorage.client.config.credentials()).resolves.toMatchObject({
       accessKeyId: 'access-key',
       secretAccessKey: 'secret-key'
     });
@@ -72,7 +72,7 @@ describe('S3 object storage reads', () => {
   test('classifies S3 failures for compaction retries', async () => {
     const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
     const transientCause = Object.assign(new Error('socket reset'), { code: 'ECONNRESET' });
-    (objectStorage as any).client.send = async () => {
+    objectStorage.client.send = async () => {
       throw transientCause;
     };
 
@@ -87,7 +87,7 @@ describe('S3 object storage reads', () => {
       name: 'AccessDenied',
       $metadata: { httpStatusCode: 403 }
     });
-    (objectStorage as any).client.send = async () => {
+    objectStorage.client.send = async () => {
       throw permanentCause;
     };
     await expect(objectStorage.get('permanent-object')).rejects.toMatchObject({
@@ -99,7 +99,7 @@ describe('S3 object storage reads', () => {
 
     const controller = new AbortController();
     controller.abort();
-    (objectStorage as any).client.send = async () => {
+    objectStorage.client.send = async () => {
       throw controller.signal.reason;
     };
     await expect(objectStorage.get('aborted-object')).rejects.toBe(controller.signal.reason);
@@ -112,7 +112,7 @@ describe('S3 object storage reads', () => {
       prefix: 'test-run'
     });
     const requests: any[] = [];
-    (objectStorage as any).client.send = async (command: any) => {
+    objectStorage.client.send = async (command: any) => {
       requests.push(command.input);
       if (command.input.ContinuationToken == null) {
         return {
@@ -146,7 +146,7 @@ describe('S3 object storage reads', () => {
     const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 4 });
     let activeOperations = 0;
     let maxActiveOperations = 0;
-    (objectStorage as any).client.send = async () => {
+    objectStorage.client.send = async () => {
       activeOperations++;
       maxActiveOperations = Math.max(maxActiveOperations, activeOperations);
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -238,13 +238,13 @@ describe('S3 object storage reads', () => {
     const checkpoint = flushResult!.flushed_op;
 
     // Confirm S3 objects were uploaded (baseline)
-    const storedPaths = (memoryStorage as any).store as Map<string, Buffer>;
+    const storedPaths = memoryStorage.store;
     expect(storedPaths.size).toBeGreaterThan(0);
 
     // Read back via getBucketDataBatch.
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [
-        bucketRequest(syncRules as any, 'global[]', 0n)
+        bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n)
       ])
     );
     const data = test_utils.getBatchData(batch);
@@ -287,7 +287,7 @@ describe('S3 object storage reads', () => {
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
-    const actualBucket = bucketRequest(syncRules as any, 'global[]', 0n).bucket;
+    const actualBucket = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n).bucket;
 
     await collection.insertOne({
       _id: { b: actualBucket, o: 50n },
@@ -298,15 +298,15 @@ describe('S3 object storage reads', () => {
       target_op: null,
       storage_ref: {
         path: 'nonexistent/missing-object/path',
-        compressed_size: 100
+        file_size: 100
       }
-    } as any);
+    });
 
     // A missing S3 object should be a hard error, not silently skipped.
     await expect(
       test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [
-          bucketRequest(syncRules as any, 'global[]', 0n)
+          bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n)
         ])
       )
     ).rejects.toThrow('nonexistent/missing-object/path');
@@ -352,7 +352,7 @@ describe('S3 object storage reads', () => {
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
-    const actualBucket = bucketRequest(syncRules as any, 'global[]', 0n).bucket;
+    const actualBucket = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n).bucket;
 
     await collection.insertOne({
       _id: { b: actualBucket, o: 100n },
@@ -374,12 +374,12 @@ describe('S3 object storage reads', () => {
         }
       ]
       // No storage_ref — this doc stores ops inline
-    } as any);
+    });
 
     // Read back. Both S3-backed and inline ops should be returned.
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [
-        bucketRequest(syncRules as any, 'global[]', 0n)
+        bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n)
       ])
     );
     const data = test_utils.getBatchData(batch);

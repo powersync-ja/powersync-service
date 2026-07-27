@@ -55,7 +55,7 @@ describe('S3-backed compaction operations', () => {
     await writer.commit('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
     const bucket = request.bucket;
 
     const batchBefore = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
@@ -70,8 +70,7 @@ describe('S3-backed compaction operations', () => {
       moveBatchQueryLimit: 10,
       moveBatchByteLimit: 1024,
       minBucketChanges: 1,
-      minChangeRatio: 0,
-      signal: null as any
+      minChangeRatio: 0
     });
 
     const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
@@ -113,7 +112,7 @@ describe('S3-backed compaction operations', () => {
     await writer.commit('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
 
     await bucketStorage.compact({
       maxOpId: checkpoint.checkpoint,
@@ -123,8 +122,7 @@ describe('S3-backed compaction operations', () => {
       moveBatchQueryLimit: 10,
       moveBatchByteLimit: 1024,
       minBucketChanges: 1,
-      minChangeRatio: 0,
-      signal: null as any
+      minChangeRatio: 0
     });
 
     const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
@@ -155,7 +153,7 @@ describe('S3-backed compaction operations', () => {
     await writer.commit('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
 
     const batchBefore = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataBefore = test_utils.getBatchData(batchBefore);
@@ -168,8 +166,7 @@ describe('S3-backed compaction operations', () => {
       moveBatchLimit: 10,
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
-      minChangeRatio: 0,
-      signal: null as any
+      minChangeRatio: 0
     });
 
     const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
@@ -208,7 +205,7 @@ describe('S3-backed compaction operations', () => {
     await writer.commit('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
 
     await bucketStorage.compact({
       maxOpId: checkpoint.checkpoint,
@@ -218,8 +215,7 @@ describe('S3-backed compaction operations', () => {
       moveBatchQueryLimit: 10,
       moveBatchByteLimit: 1024,
       minBucketChanges: 1,
-      minChangeRatio: 0,
-      signal: null as any
+      minChangeRatio: 0
     });
 
     const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
@@ -263,7 +259,7 @@ describe('S3-backed compaction operations', () => {
     await writer.commit('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
 
     await bucketStorage.compact({
       maxOpId: checkpoint.checkpoint,
@@ -274,8 +270,7 @@ describe('S3-backed compaction operations', () => {
       moveBatchQueryLimit: 10,
       moveBatchByteLimit: 1024,
       minBucketChanges: 1,
-      minChangeRatio: 0,
-      signal: null as any
+      minChangeRatio: 0
     });
 
     const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
@@ -326,11 +321,10 @@ describe('S3-backed compaction operations', () => {
     });
     await writer.commit('1/1');
 
-    const store = (memoryStorage as any).store as Map<string, Buffer>;
-    const pathsBefore = new Set(store.keys());
+    const store = memoryStorage.store;
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
 
     await bucketStorage.compact({
       maxOpId: checkpoint.checkpoint,
@@ -340,8 +334,7 @@ describe('S3-backed compaction operations', () => {
       moveBatchQueryLimit: 10,
       moveBatchByteLimit: 1024,
       minBucketChanges: 1,
-      minChangeRatio: 0,
-      signal: null as any
+      minChangeRatio: 0
     });
 
     const pathsAfter = new Set(store.keys());
@@ -379,7 +372,7 @@ describe('S3-backed compaction operations', () => {
     }
     await writer.commit('1/1');
     const checkpoint = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
 
     // Compact with maxOpId=6. Ops 1-6 get deduped (no duplicates here,
     // but the compactor still processes them). Ops 7-12 survive untouched.
@@ -391,8 +384,7 @@ describe('S3-backed compaction operations', () => {
       moveBatchQueryLimit: 10,
       moveBatchByteLimit: 1024,
       minBucketChanges: 1,
-      minChangeRatio: 0,
-      signal: null as any
+      minChangeRatio: 0
     });
 
     // Read back full checkpoint — all ops should be present

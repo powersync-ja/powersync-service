@@ -62,13 +62,12 @@ describe('S3 compaction storage lifecycle', () => {
     };
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
     await bucketStorage.compact({
       maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
       minBucketChanges: 1,
-      minChangeRatio: 0,
-      signal: null as any
+      minChangeRatio: 0
     });
 
     expect(injectedFailure).toBe(true);
@@ -108,13 +107,12 @@ describe('S3 compaction storage lifecycle', () => {
     expect(await collection.countDocuments({ storage_ref: { $exists: true } })).toBe(0);
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
     await bucketStorage.compact({
       maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
       minBucketChanges: 1,
-      minChangeRatio: 0,
-      signal: null as any
+      minChangeRatio: 0
     });
 
     const docs = await collection.find({}).toArray();
@@ -165,11 +163,11 @@ describe('S3 compaction storage lifecycle', () => {
     expect(docsBefore).toHaveLength(3);
 
     const oldPaths = new Set(docsBefore.map((doc) => doc.storage_ref!.path));
-    const objectStore = (memoryStorage as any).store as Map<string, unknown>;
+    const objectStore = memoryStorage.store;
     expect(objectStore.size).toBe(3);
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
     await bucketStorage.compact({
       maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
@@ -180,8 +178,7 @@ describe('S3 compaction storage lifecycle', () => {
       moveBatchQueryLimit: 1,
       moveBatchByteLimit: 16 * 1024 * 1024,
       minBucketChanges: 1,
-      minChangeRatio: 0,
-      signal: null as any
+      minChangeRatio: 0
     });
 
     const docsAfter = await collection.find({}).toArray();
@@ -246,7 +243,7 @@ describe('S3 compaction storage lifecycle', () => {
     await writer.commit('1/1');
 
     // Verify S3 objects were created (write path works).
-    const storedPaths = (memoryStorage as any).store as Map<string, Buffer>;
+    const storedPaths = memoryStorage.store;
     expect(storedPaths.size).toBeGreaterThan(0);
 
     // Verify MongoDB documents have storage_ref (no ops[]).
@@ -267,7 +264,7 @@ describe('S3 compaction storage lifecycle', () => {
     const checkpoint = await bucketStorage.getCheckpoint();
     expect(checkpoint.checkpoint).toBeGreaterThan(0n);
 
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
     const bucket = request.bucket;
 
     // Read bucket_state before compaction to confirm it exists and has
@@ -297,8 +294,7 @@ describe('S3 compaction storage lifecycle', () => {
       moveBatchQueryLimit: 10,
       moveBatchByteLimit: 1024,
       minBucketChanges: 1,
-      minChangeRatio: 0,
-      signal: null as any
+      minChangeRatio: 0
     });
 
     // The compacted state reflects the hydrated object contents.

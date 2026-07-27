@@ -25,7 +25,10 @@ export interface S3ObjectStorageOptions {
 }
 
 export class S3ObjectStorage implements ObjectStorage {
-  private client: S3Client;
+  /**
+   * Public for tests only.
+   */
+  public readonly client: S3Client;
   private bucket: string;
   private prefix: string;
   private readonly operationSemaphore: SemaphoreInterface;

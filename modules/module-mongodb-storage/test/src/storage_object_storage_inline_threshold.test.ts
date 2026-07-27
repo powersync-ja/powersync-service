@@ -4,6 +4,7 @@ import { bucketRequest, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_INLINE_THRESHOLD_BYTES } from '../../src/storage/implementation/common/PersistedBatch.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
+import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 
@@ -25,8 +26,8 @@ function s3Factory(threshold?: number) {
   return { memoryStorage, factoryGen };
 }
 
-describe('S3 inline threshold', () => {
-  test('small ops use the default threshold, stay inline and survive S3 loss', async () => {
+describe('Object storage inline threshold', () => {
+  test('stores small documents inline using the default threshold', async () => {
     const { memoryStorage, factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
@@ -51,51 +52,65 @@ describe('S3 inline threshold', () => {
     });
     await writer.commit('1/1');
     const checkpoint = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
 
-    // Verify ops were stored inline (no S3 objects created)
-    const store = (memoryStorage as any).store as Map<string, Buffer>;
-    expect(store.size).toBe(0);
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
+    const documents = await db
+      .bucketData(bucketStorage.replicationStreamId, definitionId)
+      .find({ '_id.b': request.bucket })
+      .toArray();
+    expect(documents).not.toHaveLength(0);
+    for (const document of documents) {
+      expect(document.size).toBeLessThanOrEqual(DEFAULT_INLINE_THRESHOLD_BYTES);
+      expect(document.ops).toBeDefined();
+      expect(document.storage_ref).toBeUndefined();
+    }
+    expect(memoryStorage.store.size).toBe(0);
 
-    // Reading back should work fine — ops are inline
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const data = test_utils.getBatchData(batch);
-    expect(data.length).toBe(2);
-    expect(data.some((d: any) => d.object_id === 'small1')).toBe(true);
-    expect(data.some((d: any) => d.object_id === 'small2')).toBe(true);
+    expect(data.map((op) => op.object_id)).toEqual(['small1', 'small2']);
   });
 
-  test('large ops go to S3 and fail on S3 loss', async () => {
+  test('stores documents above a configured threshold in object storage', async () => {
     const { memoryStorage, factoryGen } = s3Factory(256);
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    expect(bucketStorage.inlineThresholdBytes).toBe(256);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
     await writer.markAllSnapshotDone('1/1');
 
-    // Each op ~500 bytes, 20 ops = ~10KB BSON, well above 256 threshold
-    for (let i = 1; i <= 20; i++) {
-      await writer.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: { id: `row${i}`, description: `value${i}`.repeat(50) },
-        afterReplicaId: test_utils.rid(`row${i}`)
-      });
-    }
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'large', description: 'value'.repeat(500) },
+      afterReplicaId: test_utils.rid('large')
+    });
     await writer.commit('1/1');
     const checkpoint = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules as any, 'global[]', 0n);
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
 
-    // Verify ops were stored on S3
-    const store = (memoryStorage as any).store as Map<string, Buffer>;
-    expect(store.size).toBeGreaterThan(0);
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
+    const documents = await db
+      .bucketData(bucketStorage.replicationStreamId, definitionId)
+      .find({ '_id.b': request.bucket })
+      .toArray();
+    expect(documents).not.toHaveLength(0);
+    for (const document of documents) {
+      expect(document.size).toBeGreaterThan(256);
+      expect(document.ops).toBeUndefined();
+      expect(document.storage_ref).toBeDefined();
+    }
+    expect(new Set(memoryStorage.store.keys())).toEqual(
+      new Set(documents.map((document) => document.storage_ref!.path))
+    );
 
-    // Clear S3 — simulate S3 loss
-    store.clear();
-
-    // Reading back should fail hard (S3 object no longer exists)
-    await expect(test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]))).rejects.toThrow();
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    expect(test_utils.getBatchData(batch).map((op) => op.object_id)).toEqual(['large']);
   });
 });

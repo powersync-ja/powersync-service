@@ -94,8 +94,7 @@ bucket_definitions:
         moveBatchQueryLimit: 10,
         minBucketChanges: 1,
         minChangeRatio: 0,
-        maxOpId: checkpoint,
-        signal: null as any
+        maxOpId: checkpoint
       });
 
       const users = ['u1', 'u2'];
@@ -129,7 +128,6 @@ bucket_definitions:
       );
       const bucketStorage = factory.getInstance(syncRules);
       const syncRulesContent = syncRules.syncConfigContent[0];
-      const storageDb = (bucketStorage as any).db;
 
       await populate(bucketStorage, 2);
       const { checkpoint } = await bucketStorage.getCheckpoint();
@@ -242,7 +240,7 @@ bucket_definitions:
       expect(typeof firstBatch.value[0].estimatedCount).toBe('number');
       expect(firstBatch.value[0].dirtyRatio).toBeCloseTo(5 / 12);
 
-      const checksumBuckets = await (compactor as any).dirtyBucketBatchForChecksums({
+      const checksumBuckets = await compactor.dirtyBucketBatchForChecksums({
         minBucketChanges: 1
       });
       expect(checksumBuckets).toEqual([
@@ -377,8 +375,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId,
-      signal: null as any
+      maxOpId
     });
   }
 
@@ -623,8 +620,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 1n,
-      signal: null as any
+      maxOpId: 1n
     });
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
@@ -1042,8 +1038,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId,
-      signal: null as any
+      maxOpId
     });
   }
 
@@ -1311,8 +1306,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId,
-      signal: null as any
+      maxOpId
     });
   }
 
@@ -1587,8 +1581,7 @@ bucket_definitions:
       moveBatchQueryLimit: 2,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 24n,
-      signal: null as any
+      maxOpId: 24n
     });
 
     // Verify checksum preserved
@@ -1637,8 +1630,7 @@ bucket_definitions:
       moveBatchQueryLimit: 2,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 500n,
-      signal: null as any
+      maxOpId: 500n
     });
 
     // The document at _id.o=600 must still be present and unmodified after compaction.
@@ -1687,8 +1679,7 @@ bucket_definitions:
       minBucketChanges: 1,
       minChangeRatio: 0,
       maxOpId: 40n,
-      memoryLimitMB: 0.001,
-      signal: null as any
+      memoryLimitMB: 0.001
     });
 
     // Bucket checksum must be correct even with overflow — old ops that pass through
@@ -1739,8 +1730,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 300n,
-      signal: null as any
+      maxOpId: 300n
     });
 
     // The sandwiched document (doc2, ops 340+350) must survive because ALL
@@ -1781,8 +1771,7 @@ bucket_definitions:
       moveBatchByteLimit: 400,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 12n,
-      signal: null as any
+      maxOpId: 12n
     });
 
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
@@ -1840,8 +1829,7 @@ bucket_definitions:
       minBucketChanges: 1,
       minChangeRatio: 0,
       maxOpId: 20n,
-      memoryLimitMB: 0.001,
-      signal: null as any
+      memoryLimitMB: 0.001
     });
 
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
@@ -1893,8 +1881,7 @@ bucket_definitions:
       moveBatchQueryLimit: 2,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 10n,
-      signal: null as any
+      maxOpId: 10n
     });
 
     // All ops are > maxOpId, so processableDocs is always empty.
@@ -1931,8 +1918,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 300n,
-      signal: null as any
+      maxOpId: 300n
     });
 
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
@@ -1983,8 +1969,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 350n,
-      signal: null as any
+      maxOpId: 350n
     });
 
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
@@ -2011,8 +1996,7 @@ bucket_definitions:
         moveBatchQueryLimit: 10,
         minBucketChanges: 1,
         minChangeRatio: 0,
-        maxOpId,
-        signal: null as any
+        maxOpId
       });
     }
 
@@ -2112,8 +2096,7 @@ bucket_definitions:
         moveBatchQueryLimit: 1,
         minBucketChanges: 1,
         minChangeRatio: 0,
-        maxOpId: 15n,
-        signal: null as any
+        maxOpId: 15n
       });
 
       const docsAfter = await collection.find({ '_id.b': BUCKET }).toArray();
@@ -2199,8 +2182,7 @@ bucket_definitions:
         moveBatchQueryLimit: 1,
         minBucketChanges: 1,
         minChangeRatio: 0,
-        maxOpId: 40n,
-        signal: null as any
+        maxOpId: 40n
       });
 
       const docsAfter = await collection.find({ '_id.b': BUCKET }).toArray();
