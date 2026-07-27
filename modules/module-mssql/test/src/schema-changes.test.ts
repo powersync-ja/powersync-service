@@ -29,6 +29,13 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
+const WILDCARD_SYNC_RULES = `
+bucket_definitions:
+  global:
+    data:
+      - SELECT * FROM "test_data"
+`;
+
 function defineSchemaChangesTests(config: storage.TestStorageConfig) {
   const { factory } = config;
 
@@ -271,61 +278,289 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     ]);
   });
 
-  test('New capture instance created for replicating table triggers re-snapshot', async () => {
+  /**
+   * Start replication pinned to the original capture instance, then add a source column and create
+   * a new capture instance that includes it. The running stream must keep polling the original
+   * instance, so a new row is replicated without the newly captured column.
+   */
+  test('New capture instance with changed schema keeps the existing pinned capture instance', async () => {
     await using context = await CDCStreamTestContext.open(factory);
-    await context.updateSyncRules(BASIC_SYNC_RULES);
+    await context.updateSyncRules(WILDCARD_SYNC_RULES);
 
     const { connectionManager } = context;
     await createTestTableWithBasicId(connectionManager, 'test_data');
     const beforeLSN = await getLatestLSN(connectionManager);
-    const testData1 = await insertBasicIdTestData(connectionManager, 'test_data');
+    await insertBasicIdTestData(connectionManager, 'test_data');
     await waitForPendingCDCChanges(beforeLSN, connectionManager);
 
     await context.replicateSnapshot();
     await context.startStreaming();
 
-    await enableCDCForTable({ connectionManager, table: 'test_data', captureInstance: 'capture_instance_new' });
+    const tableBefore = context.cdcStream.tableCache.getAll()[0];
+    expect(tableBefore.isCaptureInstancePinned(), 'The initial source-table binding should be pinned').toBe(true);
+    const pinnedCaptureObjectId = tableBefore.pinnedCaptureObjectId;
+    expect(
+      tableBefore.captureInstance?.objectId,
+      'The active capture instance should match the persisted capture-instance pin'
+    ).toBe(pinnedCaptureObjectId);
+    const sourceTableIds = tableBefore.sourceTables.map((table) => table.id.toString());
 
-    const testData2 = await insertBasicIdTestData(connectionManager, 'test_data');
+    const schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
+    await connectionManager.query(
+      `ALTER TABLE ${toQualifiedTableName(connectionManager.schema, 'test_data')} ADD new_column INT`
+    );
+    await enableCDCForTable({ connectionManager, table: 'test_data', captureInstance: 'capture_instance_new' });
+    await expectedSchemaChange(schemaSpy, SchemaChangeType.NEW_CAPTURE_INSTANCE);
+
+    const tableAfter = context.cdcStream.tableCache.get(tableBefore.objectId)!;
+    expect(
+      tableAfter.pinnedCaptureObjectId,
+      'Detecting a newer capture instance should not change the persisted pin'
+    ).toBe(pinnedCaptureObjectId);
+    expect(
+      tableAfter.captureInstance?.objectId,
+      'The running stream should continue polling its pinned capture instance'
+    ).toBe(pinnedCaptureObjectId);
+    expect(
+      tableAfter.sourceTables.map((table) => table.id.toString()),
+      'Detecting a newer capture instance should not replace the PowerSync SourceTable records'
+    ).toEqual(sourceTableIds);
+
+    const { recordset: result } = await connectionManager.query(
+      `
+      INSERT INTO ${toQualifiedTableName(connectionManager.schema, 'test_data')} (description, new_column)
+      OUTPUT INSERTED.id, INSERTED.description, INSERTED.new_column
+      VALUES (@description, @new_column)
+      `,
+      [
+        { name: 'description', type: sql.NVarChar(sql.MAX), value: 'new_capture_column_description' },
+        { name: 'new_column', type: sql.Int, value: 1 }
+      ]
+    );
+    const testData2 = result[0];
 
     const data = await context.getFinalBucketState('global[]');
-    expect(data).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
+    const replicatedTestData2 = data.find((operation) => operation.object_id === String(testData2.id));
+    expect(replicatedTestData2, 'The row should be available at the next checkpoint').toBeDefined();
+    expect(
+      JSON.parse(replicatedTestData2!.data!),
+      'The pinned stream should replicate the row using the original capture schema'
+    ).toEqual({ id: testData2.id, description: testData2.description });
   });
 
-  test('New capture instance created for replicating table while PowerSync is stopped', async () => {
-    await using context = await CDCStreamTestContext.open(factory);
-    await context.updateSyncRules(BASIC_SYNC_RULES);
-    const { connectionManager } = context;
+  /**
+   * Create a replacement capture instance immediately after a schema check. The replacement omits
+   * `description`, which the original instance still captures. Let the running stream process a
+   * later transaction before the next schema check so its persisted LSN advances beyond the new
+   * instance's minimum LSN without detecting that instance. After restart, the row's description
+   * proves whether PowerSync restored the original capture instance or inferred the replacement.
+   */
+  test('Restart restores the existing pin after advancing past an undetected capture instance', async () => {
+    let initialBinding: {
+      sourceTableObjectId: number;
+      pinnedCaptureObjectId: number | null;
+      sourceTableIds: string[];
+    };
+    {
+      await using context = await CDCStreamTestContext.open(factory, {
+        cdcStreamOptions: { schemaCheckIntervalMs: 60_000 }
+      });
+      await context.updateSyncRules(WILDCARD_SYNC_RULES);
+      const { connectionManager } = context;
 
-    await createTestTableWithBasicId(connectionManager, 'test_data');
-    let beforeLSN = await getLatestLSN(connectionManager);
-    const testData1 = await insertBasicIdTestData(connectionManager, 'test_data');
-    await waitForPendingCDCChanges(beforeLSN, connectionManager);
+      await createTestTableWithBasicId(connectionManager, 'test_data');
+      await context.replicateSnapshot();
+      await context.startStreaming();
+      await context.getCheckpoint();
 
-    await context.replicateSnapshot();
-    await context.startStreaming();
+      const tableBefore = context.cdcStream.tableCache.getAll()[0];
+      expect(tableBefore.isCaptureInstancePinned(), 'The initial source-table binding should be pinned').toBe(true);
+      initialBinding = {
+        sourceTableObjectId: tableBefore.objectId,
+        pinnedCaptureObjectId: tableBefore.pinnedCaptureObjectId,
+        sourceTableIds: tableBefore.sourceTables.map((table) => table.id.toString())
+      };
 
-    const testData2 = await insertBasicIdTestData(connectionManager, 'test_data');
-    let data = await context.getBucketData('global[]');
-    expect(data).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
+      const schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
+      await connectionManager.query(
+        `ALTER TABLE ${toQualifiedTableName(connectionManager.schema, 'test_data')} ADD new_column INT`
+      );
+      await enableCDCForTable({
+        connectionManager,
+        table: 'test_data',
+        captureInstance: 'capture_instance_new',
+        // Give the replacement instance a distinct schema: it captures the new column but not description.
+        capturedColumns: ['id', 'new_column']
+      });
 
-    await context.dispose();
-    await enableCDCForTable({ connectionManager, table: 'test_data', captureInstance: 'capture_instance_new' });
+      const { recordset: result } = await connectionManager.query(
+        `
+        INSERT INTO ${toQualifiedTableName(connectionManager.schema, 'test_data')} (description, new_column)
+        OUTPUT INSERTED.id, INSERTED.description, INSERTED.new_column
+        VALUES (@description, @new_column)
+        `,
+        [
+          { name: 'description', type: sql.NVarChar(sql.MAX), value: 'before_restart' },
+          { name: 'new_column', type: sql.Int, value: 1 }
+        ]
+      );
+      const rowBeforeRestart = result[0];
 
-    await using newContext = await CDCStreamTestContext.open(factory, { doNotClear: true });
-    await newContext.loadActiveSyncRules();
+      const data = await context.getFinalBucketState('global[]');
+      const replicatedRow = data.find((operation) => operation.object_id === String(rowBeforeRestart.id));
+      expect(
+        replicatedRow,
+        'A transaction after the new capture instance was created should reach a PowerSync checkpoint'
+      ).toBeDefined();
+      expect(
+        JSON.parse(replicatedRow!.data!),
+        'Data captured only by the original instance should be visible before PowerSync stops'
+      ).toEqual({ id: rowBeforeRestart.id, description: rowBeforeRestart.description });
+      expect(
+        schemaSpy.mock.calls.some(([, change]) => change.type === SchemaChangeType.NEW_CAPTURE_INSTANCE),
+        'The replacement capture instance should still be undetected when PowerSync stops'
+      ).toBe(false);
+    }
 
-    await newContext.replicateSnapshot();
-    await newContext.startStreaming();
+    {
+      await using replicationContext = await CDCStreamTestContext.open(factory, { doNotClear: true });
+      await replicationContext.loadActiveSyncRules();
+      await replicationContext.replicateSnapshot();
 
-    const testData3 = await insertBasicIdTestData(connectionManager, 'test_data');
+      const tableAfter = replicationContext.cdcStream.tableCache.get(initialBinding.sourceTableObjectId)!;
+      expect(
+        tableAfter.pinnedCaptureObjectId,
+        'Restarting should restore the persisted pin even though the resume LSN passed the newer capture instance'
+      ).toBe(initialBinding.pinnedCaptureObjectId);
+      expect(
+        tableAfter.captureInstance?.objectId,
+        'The restarted stream should poll the original capture instance rather than infer the newest one from LSNs'
+      ).toBe(initialBinding.pinnedCaptureObjectId);
+      expect(
+        tableAfter.sourceTables.map((table) => table.id.toString()),
+        'Restarting should reuse the existing PowerSync SourceTable records without re-snapshotting'
+      ).toEqual(initialBinding.sourceTableIds);
 
-    const finalState = await newContext.getFinalBucketState('global[]');
-    expect(finalState).toMatchObject([
-      putOp('test_data', testData1),
-      putOp('test_data', testData2),
-      putOp('test_data', testData3)
-    ]);
+      await replicationContext.startStreaming();
+      const { connectionManager } = replicationContext;
+      const { recordset: result } = await connectionManager.query(
+        `
+        INSERT INTO ${toQualifiedTableName(connectionManager.schema, 'test_data')} (description, new_column)
+        OUTPUT INSERTED.id, INSERTED.description, INSERTED.new_column
+        VALUES (@description, @new_column)
+        `,
+        [
+          { name: 'description', type: sql.NVarChar(sql.MAX), value: 'after_restart' },
+          { name: 'new_column', type: sql.Int, value: 2 }
+        ]
+      );
+      const rowAfterRestart = result[0];
+
+      const finalState = await replicationContext.getFinalBucketState('global[]');
+      const replicatedRow = finalState.find((operation) => operation.object_id === String(rowAfterRestart.id));
+      expect(replicatedRow, 'The original capture instance should continue replicating after restart').toBeDefined();
+      expect(
+        JSON.parse(replicatedRow!.data!),
+        'Data captured only by the original instance should remain visible after restart'
+      ).toEqual({ id: rowAfterRestart.id, description: rowAfterRestart.description });
+    }
+  });
+
+  /**
+   * Persist a capture-instance pin, stop PowerSync, then use a separate context to add a source
+   * column and insert a row before creating the new capture instance. A third context restarts
+   * replication and must recover that change from the original capture instance.
+   */
+  test('New capture instance with changed schema created while PowerSync is stopped restores the existing pin', async () => {
+    let initialBinding: {
+      sourceTableObjectId: number;
+      pinnedCaptureObjectId: number | null;
+      sourceTableIds: string[];
+    };
+    {
+      await using context = await CDCStreamTestContext.open(factory);
+      await context.updateSyncRules(WILDCARD_SYNC_RULES);
+      const { connectionManager } = context;
+
+      await createTestTableWithBasicId(connectionManager, 'test_data');
+      const beforeLSN = await getLatestLSN(connectionManager);
+      const testData1 = await insertBasicIdTestData(connectionManager, 'test_data');
+      await waitForPendingCDCChanges(beforeLSN, connectionManager);
+
+      await context.replicateSnapshot();
+      await context.startStreaming();
+
+      const data = await context.getBucketData('global[]');
+      expect(data, 'The initial row should be available before PowerSync stops').toMatchObject([
+        putOp('test_data', testData1)
+      ]);
+
+      const tableBefore = context.cdcStream.tableCache.getAll()[0];
+      expect(tableBefore.isCaptureInstancePinned(), 'The initial source-table binding should be pinned').toBe(true);
+      initialBinding = {
+        sourceTableObjectId: tableBefore.objectId,
+        pinnedCaptureObjectId: tableBefore.pinnedCaptureObjectId,
+        sourceTableIds: tableBefore.sourceTables.map((table) => table.id.toString())
+      };
+    }
+
+    let testData2: any;
+    {
+      await using changeContext = await CDCStreamTestContext.open(factory, { doNotClear: true });
+      const changeConnectionManager = changeContext.connectionManager;
+      await changeConnectionManager.query(
+        `ALTER TABLE ${toQualifiedTableName(changeConnectionManager.schema, 'test_data')} ADD new_column INT`
+      );
+      const beforeChangedRowLSN = await getLatestLSN(changeConnectionManager);
+      const { recordset: result } = await changeConnectionManager.query(
+        `
+      INSERT INTO ${toQualifiedTableName(changeConnectionManager.schema, 'test_data')} (description, new_column)
+      OUTPUT INSERTED.id, INSERTED.description, INSERTED.new_column
+      VALUES (@description, @new_column)
+      `,
+        [
+          { name: 'description', type: sql.NVarChar(sql.MAX), value: 'new_capture_column_while_stopped' },
+          { name: 'new_column', type: sql.Int, value: 1 }
+        ]
+      );
+      testData2 = result[0];
+      await waitForPendingCDCChanges(beforeChangedRowLSN, changeConnectionManager);
+      await enableCDCForTable({
+        connectionManager: changeConnectionManager,
+        table: 'test_data',
+        captureInstance: 'capture_instance_new'
+      });
+    }
+
+    {
+      await using replicationContext = await CDCStreamTestContext.open(factory, { doNotClear: true });
+      await replicationContext.loadActiveSyncRules();
+      await replicationContext.replicateSnapshot();
+
+      const tableAfter = replicationContext.cdcStream.tableCache.get(initialBinding.sourceTableObjectId)!;
+      expect(
+        tableAfter.pinnedCaptureObjectId,
+        'Restarting the replication stream should restore the persisted capture-instance pin'
+      ).toBe(initialBinding.pinnedCaptureObjectId);
+      expect(
+        tableAfter.captureInstance?.objectId,
+        'The restarted stream should poll the persisted capture instance rather than the newest instance'
+      ).toBe(initialBinding.pinnedCaptureObjectId);
+      expect(
+        tableAfter.sourceTables.map((table) => table.id.toString()),
+        'Restarting with a newer capture instance available should reuse the PowerSync SourceTable records'
+      ).toEqual(initialBinding.sourceTableIds);
+
+      await replicationContext.startStreaming();
+
+      const finalState = await replicationContext.getFinalBucketState('global[]');
+      const replicatedTestData2 = finalState.find((operation) => operation.object_id === String(testData2.id));
+      expect(replicatedTestData2, 'The row should be available at the next checkpoint after restart').toBeDefined();
+      expect(
+        JSON.parse(replicatedTestData2!.data!),
+        'The restored pin should replicate the row using the original capture schema'
+      ).toEqual({ id: testData2.id, description: testData2.description });
+    }
   });
 
   test('Capture instance created for a sync rule table without a capture instance', async () => {
@@ -377,7 +612,7 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     expect(data).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
   });
 
-  test('Capture instance removed, and then re-added', async () => {
+  test('A replacement for a removed pinned capture instance is not silently adopted', async () => {
     await using context = await CDCStreamTestContext.open(factory);
     await context.updateSyncRules(BASIC_SYNC_RULES);
     const { connectionManager } = context;
@@ -392,24 +627,36 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     let data = await context.getBucketData('global[]');
     expect(data).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
 
-    let schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
+    const table = context.cdcStream.tableCache.getAll()[0];
+    const pinnedCaptureObjectId = table.pinnedCaptureObjectId;
+    const schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
     await disableCDCForTable(connectionManager, 'test_data');
     await expectedSchemaChange(schemaSpy, SchemaChangeType.MISSING_CAPTURE_INSTANCE);
 
-    schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
+    schemaSpy.mockClear();
     await enableCDCForTable({ connectionManager, table: 'test_data' });
-    await expectedSchemaChange(schemaSpy, SchemaChangeType.NEW_CAPTURE_INSTANCE);
+    await expectedSchemaChange(schemaSpy, SchemaChangeType.MISSING_CAPTURE_INSTANCE);
+    expect(
+      table.pinnedCaptureObjectId,
+      'Enabling a replacement capture instance should not change the persisted pin'
+    ).toBe(pinnedCaptureObjectId);
+    expect(
+      table.captureInstance,
+      'The replacement capture instance should not be adopted by the running stream'
+    ).toBeNull();
 
     const testData3 = await insertBasicIdTestData(connectionManager, 'test_data');
     const testData4 = await insertBasicIdTestData(connectionManager, 'test_data');
 
     const finalState = await context.getFinalBucketState('global[]');
-    expect(finalState).toMatchObject([
-      putOp('test_data', testData1),
-      putOp('test_data', testData2),
-      putOp('test_data', testData3),
-      putOp('test_data', testData4)
-    ]);
+    expect(
+      finalState.find((operation) => operation.object_id === String(testData3.id)),
+      'Rows from the replacement capture instance should not be replicated'
+    ).toBeUndefined();
+    expect(
+      finalState.find((operation) => operation.object_id === String(testData4.id)),
+      'Rows from the replacement capture instance should not be replicated'
+    ).toBeUndefined();
   });
 
   test('Column schema changes continue replication, but with warning.', async () => {

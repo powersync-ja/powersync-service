@@ -242,17 +242,23 @@ export interface EnableCDCForTableOptions {
   connectionManager: MSSQLConnectionManager;
   table: string;
   captureInstance?: string;
+  /**
+   * Optional source columns for the capture instance. When omitted, SQL Server captures all
+   * columns using its default behavior.
+   */
+  capturedColumns?: string[];
 }
 
 export async function enableCDCForTable(options: EnableCDCForTableOptions): Promise<void> {
-  const { connectionManager, table, captureInstance } = options;
+  const { connectionManager, table, captureInstance, capturedColumns } = options;
 
   await connectionManager.execute('sys.sp_cdc_enable_table', [
     { name: 'source_schema', value: connectionManager.schema },
     { name: 'source_name', value: table },
     { name: 'role_name', value: 'cdc_reader' },
     { name: 'supports_net_changes', value: 0 },
-    ...(captureInstance !== undefined ? [{ name: 'capture_instance', value: captureInstance }] : [])
+    ...(captureInstance !== undefined ? [{ name: 'capture_instance', value: captureInstance }] : []),
+    ...(capturedColumns !== undefined ? [{ name: 'captured_column_list', value: capturedColumns.join(',') }] : [])
   ]);
 }
 
