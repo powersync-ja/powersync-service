@@ -50,16 +50,22 @@ describe('S3 read path (Phase 2c red tests)', () => {
     expect(() => new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 0 })).toThrowError(
       /positive integer/
     );
+    expect(() => new S3ObjectStorage({ bucket: 'test', region: 'test', prefix: '💾'.repeat(65) })).toThrowError(
+      /at most 256 UTF-8 bytes/
+    );
+    expect(() => new S3ObjectStorage({ bucket: 'test', region: 'test', prefix: 'prefix/' })).toThrowError(
+      /must not end with/
+    );
   });
 
   test('rejects complete S3 keys over the safe byte limit', async () => {
     const objectStorage = new S3ObjectStorage({
       bucket: 'test',
       region: 'test',
-      prefix: '💾'.repeat(224)
+      prefix: 'p'.repeat(256)
     });
 
-    await expect(objectStorage.get('object')).rejects.toThrowError(/exceeding the safe limit of 896 bytes/);
+    await expect(objectStorage.get('x'.repeat(640))).rejects.toThrowError(/exceeding the safe limit of 896 bytes/);
   });
 
   test('shares the concurrency limit across S3 operations', async () => {

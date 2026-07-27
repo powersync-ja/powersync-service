@@ -10,6 +10,7 @@ import { Semaphore, SemaphoreInterface } from 'async-mutex';
 import type { ObjectStorage, ObjectStoragePutMetadata } from './ObjectStorage.js';
 
 const DEFAULT_S3_OPERATION_CONCURRENCY = 16;
+const MAX_S3_PREFIX_BYTES = 256;
 const SAFE_S3_KEY_BYTES = 896;
 
 export interface S3ObjectStorageOptions {
@@ -37,8 +38,16 @@ export class S3ObjectStorage implements ObjectStorage {
       throw new Error('S3 object storage accessKeyId and secretAccessKey must be configured together');
     }
 
+    const prefix = options.prefix ?? '';
+    if (Buffer.byteLength(prefix, 'utf8') > MAX_S3_PREFIX_BYTES) {
+      throw new Error(`S3 object storage prefix must be at most ${MAX_S3_PREFIX_BYTES} UTF-8 bytes`);
+    }
+    if (prefix.endsWith('/')) {
+      throw new Error('S3 object storage prefix must not end with "/"');
+    }
+
     this.bucket = options.bucket;
-    this.prefix = options.prefix ?? '';
+    this.prefix = prefix;
     this.operationSemaphore = new Semaphore(concurrencyLimit);
     this.client = new S3Client({
       region: options.region,
