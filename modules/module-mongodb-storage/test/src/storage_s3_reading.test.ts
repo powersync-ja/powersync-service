@@ -5,6 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { hydrateBucketDataDocuments } from '../../src/storage/implementation/v3/object-storage/BucketDataObjectStorage.js';
+import { S3ObjectStorage } from '../../src/storage/implementation/v3/object-storage/S3ObjectStorage.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 import { createMemoryS3TestStorageSuite, createS3TestStorageSuite } from './helpers/s3TestFactory.js';
@@ -30,42 +31,36 @@ function memoryS3Factory() {
 }
 
 describe('S3 read path (Phase 2c red tests)', () => {
-  test('limits concurrent object downloads to 16', async () => {
-    const objectStorage = new MemoryObjectStorage();
-    const documents = Array.from({ length: 32 }, (_, index) => {
-      const path = `object-${index}`;
-      objectStorage.store.set(path, {
-        data: bson.serialize({ ops: [] }),
-        metadata: {
-          contentType: 'application/bson',
-          contentEncoding: null
-        }
-      });
-      return {
-        _id: { b: 'bucket', o: BigInt(index + 1) },
-        min_op: BigInt(index + 1),
-        checksum: 0n,
-        count: 0,
-        size: 1,
-        storage_ref: { path, file_size: 1 }
-      };
-    });
-
-    const originalGet = objectStorage.get.bind(objectStorage);
+  test('shares the concurrency limit across S3 operations', async () => {
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
     let activeDownloads = 0;
     let maxActiveDownloads = 0;
-    objectStorage.get = async (path) => {
+    (objectStorage as any).client.send = async () => {
       activeDownloads++;
       maxActiveDownloads = Math.max(maxActiveDownloads, activeDownloads);
       await new Promise<void>((resolve) => setImmediate(resolve));
       try {
-        return await originalGet(path);
+        return {
+          Body: (async function* () {
+            yield bson.serialize({ ops: [] });
+          })(),
+          ContentType: 'application/bson'
+        };
       } finally {
         activeDownloads--;
       }
     };
 
-    await hydrateBucketDataDocuments(documents, objectStorage);
+    await Promise.all(
+      Array.from({ length: 32 }, (_, index) =>
+        index % 2 === 0
+          ? objectStorage.get(`object-${index}`)
+          : objectStorage.put(`object-${index}`, new Uint8Array(), {
+              contentType: 'application/bson',
+              contentEncoding: null
+            })
+      )
+    );
     expect(maxActiveDownloads).toBe(16);
   });
 

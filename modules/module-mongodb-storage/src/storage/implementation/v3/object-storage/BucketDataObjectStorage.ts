@@ -3,8 +3,6 @@ import * as bson from 'bson';
 import { BucketDataDocumentV3, BucketOperation } from '../models.js';
 import { ObjectStorage } from './ObjectStorage.js';
 
-const S3_DOWNLOAD_CONCURRENCY = 16;
-
 export class BucketDataObjectStorage {
   constructor(private readonly storage: ObjectStorage) {}
 
@@ -33,12 +31,8 @@ export class BucketDataObjectStorage {
 
 /**
  * Load offloaded operations and patch them onto their MongoDB metadata documents.
- *
- * A shared index distributes documents across a fixed number of async workers.
- * JavaScript runs each index increment synchronously before the worker awaits,
- * so every document is claimed exactly once. This caps active S3 requests at
- * {@link S3_DOWNLOAD_CONCURRENCY} without allocating one pending promise per
- * object in a large batch.
+ * The object-storage implementation is responsible for limiting request
+ * concurrency across all callers.
  */
 export async function hydrateBucketDataDocuments(
   documents: BucketDataDocumentV3[],
@@ -51,17 +45,10 @@ export async function hydrateBucketDataDocuments(
 
   const store = new BucketDataObjectStorage(objectStorage);
   const storedDocuments = documents.filter((document) => document.storage_ref);
-  let nextDocument = 0;
-
-  const downloadNext = async () => {
-    while (nextDocument < storedDocuments.length) {
-      signal?.throwIfAborted();
-      const document = storedDocuments[nextDocument++];
-      document.ops = await store.retrieve(document.storage_ref!.path, signal);
-    }
-  };
-
   await Promise.all(
-    Array.from({ length: Math.min(S3_DOWNLOAD_CONCURRENCY, storedDocuments.length) }, () => downloadNext())
+    storedDocuments.map(async (document) => {
+      signal?.throwIfAborted();
+      document.ops = await store.retrieve(document.storage_ref!.path, signal);
+    })
   );
 }

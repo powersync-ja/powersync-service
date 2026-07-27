@@ -326,6 +326,9 @@ importers:
       '@powersync/service-types':
         specifier: workspace:*
         version: link:../../packages/types
+      async-mutex:
+        specifier: ^0.5.0
+        version: 0.5.0
       bson:
         specifier: ^6.10.4
         version: 6.10.4
