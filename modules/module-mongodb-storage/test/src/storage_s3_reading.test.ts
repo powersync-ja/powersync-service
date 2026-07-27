@@ -69,6 +69,41 @@ describe('S3 read path (Phase 2c red tests)', () => {
     expect(maxActiveDownloads).toBe(16);
   });
 
+  test('aborts active object downloads', async () => {
+    const objectStorage = new MemoryObjectStorage();
+    const controller = new AbortController();
+    let downloadStarted!: () => void;
+    const started = new Promise<void>((resolve) => (downloadStarted = resolve));
+    objectStorage.get = async (_path, signal) => {
+      expect(signal).toBe(controller.signal);
+      downloadStarted();
+      await new Promise<void>((_resolve, reject) => {
+        signal!.addEventListener('abort', () => reject(signal!.reason), { once: true });
+      });
+      throw new Error('unreachable');
+    };
+
+    const hydrating = hydrateBucketDataDocuments(
+      [
+        {
+          _id: { b: 'bucket', o: 1n },
+          min_op: 1n,
+          checksum: 0n,
+          count: 0,
+          size: 1,
+          storage_ref: { path: 'object', file_size: 1 }
+        }
+      ],
+      objectStorage,
+      controller.signal
+    );
+    const expectation = expect(hydrating).rejects.toMatchObject({ name: 'AbortError' });
+
+    await started;
+    controller.abort();
+    await expectation;
+  });
+
   test('1. Round-trip write → read through S3', async () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();

@@ -455,7 +455,10 @@ async function* bucketDataBatch(
     // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
     // For the first batch, this will be all buckets.
     const filteredBuckets = checkpointLine.getFilteredBucketPositions(bucketsToFetch);
-    const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets, { requestHint });
+    const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets, {
+      requestHint,
+      signal: abort_batch
+    });
     for await (let { chunkData: r, targetOp } of dataBatches) {
       // Abort in current batch if the connection is closed
       if (abort_connection.aborted) {

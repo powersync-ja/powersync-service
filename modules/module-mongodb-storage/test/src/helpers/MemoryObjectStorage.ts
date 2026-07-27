@@ -13,7 +13,8 @@ export class MemoryObjectStorage implements ObjectStorage {
     this.store.set(path, { data, metadata: metadata });
   }
 
-  async get(path: string): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
+  async get(path: string, signal?: AbortSignal): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
+    signal?.throwIfAborted();
     const data = this.store.get(path);
     if (!data) {
       throw new Error(`NotFound: ${path}`);

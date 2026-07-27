@@ -663,7 +663,7 @@ export async function* getBucketDataBatchV3(
       hasMore = true;
     }
 
-    await hydrateBucketDataDocuments(docs, ctx.objectStorage);
+    await hydrateBucketDataDocuments(docs, ctx.objectStorage, options?.signal);
 
     for (const doc of docs) {
       const {

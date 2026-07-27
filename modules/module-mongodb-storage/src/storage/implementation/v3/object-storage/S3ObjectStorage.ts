@@ -48,18 +48,20 @@ export class S3ObjectStorage implements ObjectStorage {
     );
   }
 
-  async get(path: string): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
+  async get(path: string, signal?: AbortSignal): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
     const fullPath = this.prefix ? `${this.prefix}/${path}` : path;
     try {
       const response = await this.client.send(
         new GetObjectCommand({
           Bucket: this.bucket,
           Key: fullPath
-        })
+        }),
+        { abortSignal: signal }
       );
       const chunks: Uint8Array[] = [];
       const stream = response.Body as AsyncIterable<Uint8Array>;
       for await (const chunk of stream) {
+        signal?.throwIfAborted();
         chunks.push(chunk);
       }
       return {

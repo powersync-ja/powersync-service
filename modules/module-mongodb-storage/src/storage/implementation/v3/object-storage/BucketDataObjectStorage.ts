@@ -14,8 +14,8 @@ export class BucketDataObjectStorage {
     return { fileSize: bsonBuffer.byteLength };
   }
 
-  async retrieve(path: string): Promise<BucketOperation[]> {
-    const { data, metadata } = await this.storage.get(path);
+  async retrieve(path: string, signal?: AbortSignal): Promise<BucketOperation[]> {
+    const { data, metadata } = await this.storage.get(path, signal);
     if (metadata.contentEncoding != null) {
       throw new Error(`Unexpected content encoding: ${metadata.contentEncoding}`);
     }
@@ -57,7 +57,7 @@ export async function hydrateBucketDataDocuments(
     while (nextDocument < storedDocuments.length) {
       signal?.throwIfAborted();
       const document = storedDocuments[nextDocument++];
-      document.ops = await store.retrieve(document.storage_ref!.path);
+      document.ops = await store.retrieve(document.storage_ref!.path, signal);
     }
   };
 
