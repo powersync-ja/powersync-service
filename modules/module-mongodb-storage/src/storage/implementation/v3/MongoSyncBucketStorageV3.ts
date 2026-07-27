@@ -665,7 +665,7 @@ export async function* getBucketDataBatchV3(
 
     await hydrateBucketDataDocuments(docs, ctx.objectStorage);
 
-    for (const [i, doc] of docs.entries()) {
+    for (const doc of docs) {
       const {
         rows,
         remainingLimit,

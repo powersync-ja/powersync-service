@@ -72,7 +72,6 @@ export interface MongoBucketBatchOptions {
 
   logger: Logger;
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
-  listSourceRecordCollections?: (groupId: number) => Promise<mongo.Collection<any>[]>;
 
   objectStorage?: ObjectStorage;
   inlineThresholdBytes?: number;
