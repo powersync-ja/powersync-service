@@ -35,6 +35,8 @@ const MAX_TRANSACTION_BATCH_SIZE = 30_000_000;
  */
 const MAX_TRANSACTION_DOC_COUNT = 2_000;
 
+export const DEFAULT_INLINE_THRESHOLD_BYTES = 1024;
+
 export interface SaveBucketDataOptions {
   op_seq: MongoIdSequence;
   sourceKey: storage.ReplicaId;
@@ -78,7 +80,7 @@ export abstract class PersistedBatch {
   bucketStates: Map<string, BucketStateUpdate> = new Map();
 
   protected readonly objectStorage?: ObjectStorage;
-  protected readonly inlineThresholdBytes: number = 256;
+  protected readonly inlineThresholdBytes: number = DEFAULT_INLINE_THRESHOLD_BYTES;
 
   /**
    * For debug logging only.

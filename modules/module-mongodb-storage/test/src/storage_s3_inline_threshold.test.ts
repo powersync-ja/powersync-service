@@ -2,6 +2,7 @@ import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
+import { DEFAULT_INLINE_THRESHOLD_BYTES } from '../../src/storage/implementation/common/PersistedBatch.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
@@ -25,11 +26,12 @@ function s3Factory(threshold?: number) {
 }
 
 describe('S3 inline threshold', () => {
-  test('small ops stay inline and survive S3 loss', async () => {
-    const { memoryStorage, factoryGen } = s3Factory(1024);
+  test('small ops use the default threshold, stay inline and survive S3 loss', async () => {
+    const { memoryStorage, factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    expect(bucketStorage.inlineThresholdBytes).toBe(DEFAULT_INLINE_THRESHOLD_BYTES);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);

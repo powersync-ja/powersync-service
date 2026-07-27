@@ -12,7 +12,7 @@ const S3ObjectStorageConfig = t.object({
   secret_access_key: t.string.optional(),
   concurrency_limit: t.number.optional(),
   // Chunks whose BSON-serialized size falls below this byte threshold
-  // stay inline in MongoDB instead of being offloaded to S3. Default 256.
+  // stay inline in MongoDB instead of being offloaded to S3. Default 1024.
   inline_threshold_bytes: t.number.optional()
 });
 

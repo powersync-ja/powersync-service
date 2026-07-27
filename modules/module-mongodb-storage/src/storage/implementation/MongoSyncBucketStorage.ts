@@ -28,6 +28,7 @@ import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
+import { DEFAULT_INLINE_THRESHOLD_BYTES } from './common/PersistedBatch.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
@@ -102,10 +103,9 @@ export abstract class MongoSyncBucketStorage
     super();
     this.storageConfig = options.storageConfig;
     this.objectStorage = options.objectStorage;
-    // Keep chunks below 256 BSON bytes inline in MongoDB rather than
-    // offloading to S3. Covers single CLEAR ops (~50 bytes) and tiny
-    // write batches. Configurable via object_storage.inline_threshold_bytes.
-    this.inlineThresholdBytes = options.inlineThresholdBytes ?? 256;
+    // Keep small chunks inline in MongoDB rather than offloading them to S3.
+    // Configurable via object_storage.inline_threshold_bytes.
+    this.inlineThresholdBytes = options.inlineThresholdBytes ?? DEFAULT_INLINE_THRESHOLD_BYTES;
     this.readPreference = options.readPreference;
     this.db = factory.db.versioned(this.storageConfig);
     this.checksums = this.createMongoChecksums(options);
