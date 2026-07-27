@@ -1,4 +1,9 @@
-import { addChecksums, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
+import {
+  addChecksums,
+  CheckpointChecksumInvalidatedError,
+  storage,
+  updateSyncRulesFromYaml
+} from '@powersync/service-core';
 import { bucketRequest, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
@@ -67,7 +72,7 @@ describe('V3 checksums with S3 object storage', () => {
     expect(partial.count).toBe(full.count);
   });
 
-  test('partial checksum with end straddling S3-backed document', async () => {
+  test('partial checksum with end straddling S3-backed document invalidates the checkpoint', async () => {
     const { factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
@@ -91,12 +96,10 @@ describe('V3 checksums with S3 object storage', () => {
     await writer.commit('1/1');
     const checkpoint = await bucketStorage.getCheckpoint();
 
-    const full = (await bucketStorage.getChecksums(checkpoint, [request])).get(request.bucket)!;
-
     // Partial checkpoint at op 7 — some S3 docs will have _id.o > 7 but min_op <= 7
-    const partial = (await bucketStorage.getChecksums(test_utils.testCheckpoint(7n), [request])).get(request.bucket)!;
-    expect(partial.count).toBeGreaterThan(0);
-    expect(partial.count).toBeLessThan(full.count);
+    await expect(bucketStorage.getChecksums(test_utils.testCheckpoint(7n), [request])).rejects.toBeInstanceOf(
+      CheckpointChecksumInvalidatedError
+    );
   });
 
   test('checksum preserved after CLEAR-producing S3 compaction', async () => {
