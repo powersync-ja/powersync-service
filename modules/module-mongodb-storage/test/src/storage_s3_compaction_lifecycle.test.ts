@@ -27,7 +27,7 @@ function memoryS3Factory(inlineThresholdBytes = 0) {
   return { memoryStorage: objectStorage, factory: factoryGen };
 }
 
-describe('S3 compaction (Phase 2d red tests)', () => {
+describe('S3 compaction storage lifecycle', () => {
   test('small inline updates merge into an inline replacement', async () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory(10_000);
     await using factory = await factoryGen.factory();

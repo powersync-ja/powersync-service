@@ -29,7 +29,7 @@ function memoryS3Factory() {
   return { memoryStorage: objectStorage, factory: factoryGen };
 }
 
-describe('S3 write path (Phase 2b red tests)', () => {
+describe('S3 object storage writes', () => {
   test('1. Write persists ops to S3', async () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();

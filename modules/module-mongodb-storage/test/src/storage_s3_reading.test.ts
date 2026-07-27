@@ -30,7 +30,7 @@ function memoryS3Factory() {
   return { memoryStorage: objectStorage, factory: factoryGen };
 }
 
-describe('S3 read path (Phase 2c red tests)', () => {
+describe('S3 object storage reads', () => {
   test('configures S3 credentials and validates operation options', async () => {
     const objectStorage = new S3ObjectStorage({
       bucket: 'test',
@@ -66,6 +66,43 @@ describe('S3 read path (Phase 2c red tests)', () => {
     });
 
     await expect(objectStorage.get('x'.repeat(640))).rejects.toThrowError(/exceeding the safe limit of 896 bytes/);
+  });
+
+  test('paginates listings and strips the configured prefix', async () => {
+    const objectStorage = new S3ObjectStorage({
+      bucket: 'test',
+      region: 'test',
+      prefix: 'test-run'
+    });
+    const requests: any[] = [];
+    (objectStorage as any).client.send = async (command: any) => {
+      requests.push(command.input);
+      if (command.input.ContinuationToken == null) {
+        return {
+          Contents: [{ Key: 'test-run/bucket-data/1/definition/object-1.bson' }],
+          IsTruncated: true,
+          NextContinuationToken: 'next-page'
+        };
+      }
+      return {
+        Contents: [{ Key: 'test-run/bucket-data/1/definition/object-2.bson' }],
+        IsTruncated: false
+      };
+    };
+
+    const paths = await test_utils.fromAsync(objectStorage.list('bucket-data/1/'));
+
+    expect(paths).toEqual(['bucket-data/1/definition/object-1.bson', 'bucket-data/1/definition/object-2.bson']);
+    expect(requests).toEqual([
+      expect.objectContaining({
+        Prefix: 'test-run/bucket-data/1/',
+        ContinuationToken: undefined
+      }),
+      expect.objectContaining({
+        Prefix: 'test-run/bucket-data/1/',
+        ContinuationToken: 'next-page'
+      })
+    ]);
   });
 
   test('shares the concurrency limit across S3 operations', async () => {

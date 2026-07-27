@@ -1,7 +1,10 @@
 import { ObjectStorage } from '@module/storage/implementation/v3/object-storage/ObjectStorage.js';
 import { S3ObjectStorage } from '@module/storage/implementation/v3/object-storage/S3ObjectStorage.js';
 import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
+import { randomUUID } from 'node:crypto';
 import { MemoryObjectStorage } from './MemoryObjectStorage.js';
+
+const minioStorages: S3ObjectStorage[] = [];
 
 export interface S3TestFactoryOptions {
   url: string;
@@ -29,17 +32,45 @@ function createTestStorageSuite(options: S3TestFactoryOptions, objectStorage: Ob
  */
 export function createS3TestStorageSuite(options: S3TestFactoryOptions) {
   const minioEndpoint = process.env.MINIO_ENDPOINT;
-  const objectStorage: ObjectStorage = minioEndpoint
-    ? new S3ObjectStorage({
-        bucket: 'powersync-s3-test',
-        region: 'us-east-1',
-        endpoint: minioEndpoint,
-        accessKeyId: process.env.MINIO_ACCESS_KEY ?? 'minioadmin',
-        secretAccessKey: process.env.MINIO_SECRET_KEY ?? 'minioadmin'
-      })
-    : new MemoryObjectStorage();
+  let objectStorage: ObjectStorage;
+  if (minioEndpoint) {
+    const s3 = new S3ObjectStorage({
+      bucket: 'powersync-s3-test',
+      region: 'us-east-1',
+      prefix: `test-${process.pid}-${randomUUID()}`,
+      endpoint: minioEndpoint,
+      accessKeyId: process.env.MINIO_ACCESS_KEY ?? 'minioadmin',
+      secretAccessKey: process.env.MINIO_SECRET_KEY ?? 'minioadmin'
+    });
+    minioStorages.push(s3);
+    objectStorage = s3;
+  } else {
+    objectStorage = new MemoryObjectStorage();
+  }
 
   return createTestStorageSuite(options, objectStorage);
+}
+
+/** Remove all objects created by MinIO-backed suites in the current test. */
+export async function cleanupS3TestStorage(): Promise<void> {
+  for (const storage of minioStorages.splice(0)) {
+    let paths: string[] = [];
+    const flush = async () => {
+      if (paths.length === 0) {
+        return;
+      }
+      const deleting = paths;
+      paths = [];
+      await storage.delete(deleting);
+    };
+    for await (const path of storage.list('')) {
+      paths.push(path);
+      if (paths.length === 500) {
+        await flush();
+      }
+    }
+    await flush();
+  }
 }
 
 /** Creates an explicitly memory-backed suite for tests that inspect stored objects. */

@@ -29,7 +29,7 @@ function memoryS3Factory() {
  * V3 compaction tests with object storage (S3).
  * Exercise compaction behaviors through the storage API with ops stored on S3.
  */
-describe('V3 Compaction with object storage', () => {
+describe('S3-backed compaction operations', () => {
   test('compaction round-trip preserves data', async () => {
     const { factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
