@@ -253,7 +253,7 @@ export class PersistedBatchV3 extends PersistedBatch {
                 }
               });
             } else {
-              const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}-${randomUUID()}.bson.zstd`;
+              const path = `bucket-data/${this.group_id}/${definitionId}/${bucket}/${minOp}-${maxOp}-${randomUUID()}.bson`;
               const { fileSize } = await store.store(path, bucketOps!);
 
               inserts.push({
