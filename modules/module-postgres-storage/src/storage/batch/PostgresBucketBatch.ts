@@ -292,7 +292,7 @@ export class PostgresBucketBatch
       objectId: row.relation_id?.object_id,
       replicaIdColumns:
         row.replica_id_columns?.map(
-          (c) => ({ name: c.name, typeId: c.typeId, type: c.type }) satisfies ColumnDescriptor
+          (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
         ) ?? [],
       snapshotComplete: row.snapshot_done ?? true,
       sourceMetadata: row.source_metadata ?? undefined,

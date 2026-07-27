@@ -15,7 +15,7 @@ export const ColumnDescriptor = t.object({
   /**
    *  Some data sources have a type id that can be used to identify the type of the column
    */
-  typeId: t.number.optional()
+  type_oid: t.number.optional()
 });
 
 export const SourceTable = t.object({
