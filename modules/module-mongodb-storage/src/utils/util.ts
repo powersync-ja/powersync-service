@@ -50,7 +50,11 @@ async function findClearBatch<T>(
         startedAt
       };
     } catch (error) {
-      if (!lib_mongo.isMongoServerError(error) || error.codeName !== 'MaxTimeMSExpired' || batchSize === 1) {
+      if (
+        !lib_mongo.isMongoServerError(error) ||
+        error.codeName !== 'MaxTimeMSExpired' ||
+        batchSize == CLEAR_MIN_BATCH_SIZE
+      ) {
         throw error;
       }
       const nextBatchSize = Math.max(CLEAR_MIN_BATCH_SIZE, Math.floor(batchSize / 2));
