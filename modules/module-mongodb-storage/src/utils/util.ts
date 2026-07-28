@@ -241,6 +241,60 @@ export async function clearDeleteMany(
   });
 }
 
+interface ClearBatch<T> {
+  value: T;
+  hasMore: boolean;
+}
+
+async function clearCollectionInBatches<T>(
+  logger: Logger,
+  label: string,
+  findBatch: (batchSize: number) => Promise<ClearBatch<T> | null>,
+  deleteBatch: (batch: T) => Promise<mongo.DeleteResult>,
+  signal?: AbortSignal
+): Promise<number> {
+  let batchSize = CLEAR_BATCH_SIZE;
+  let deletedCount = 0;
+  while (true) {
+    const found = await findClearBatch(logger, label, batchSize, findBatch, signal);
+    batchSize = found.nextBatchSize;
+    throwIfClearAborted(signal);
+
+    const batch = found.result;
+    if (batch == null) {
+      return deletedCount;
+    }
+
+    let deleteDurationMs = 0;
+    const result = await clearDeleteMany(
+      logger,
+      label,
+      async () => {
+        const deleteStartedAt = performance.now();
+        const result = await deleteBatch(batch.value);
+        deleteDurationMs = performance.now() - deleteStartedAt;
+        return result;
+      },
+      signal
+    );
+    const batchDurationMs = found.durationMs + deleteDurationMs;
+    deletedCount += result.deletedCount;
+    if (result.deletedCount > 0) {
+      logger.info(
+        `Cleared batch of ${label} (${result.deletedCount} documents) in ${Math.round(batchDurationMs)}ms, continuing...`
+      );
+    }
+    if (result.deletedCount === 0) {
+      // This is not a normal completion path, but prevents an infinite loop if a selected batch makes no progress.
+      return deletedCount;
+    }
+    if (!batch.hasMore) {
+      return deletedCount;
+    }
+    await waitWithSignal(batchDurationMs / 5, signal, 'Aborted clearing data');
+  }
+}
+
 export async function clearCollectionInIdRanges<T extends mongo.Document>(
   logger: Logger,
   label: string,
@@ -248,76 +302,47 @@ export async function clearCollectionInIdRanges<T extends mongo.Document>(
   filter: ClearCollectionFilter<T>,
   signal?: AbortSignal
 ): Promise<number> {
-  let batchSize = CLEAR_BATCH_SIZE;
-  let deletedCount = 0;
-  while (true) {
-    const batch = await findClearBatch(
-      logger,
-      label,
-      batchSize,
-      async (currentBatchSize) => {
-        const queryOptions: mongo.FindOptions<T> = {
-          maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
-          projection: { _id: 1 }
-        };
-        const [batchEnd] = await collection
-          .find(filter, queryOptions)
-          .sort({ _id: 1 })
-          .skip(currentBatchSize)
-          .limit(1)
-          .toArray();
-        return batchEnd;
-      },
-      signal
-    );
-    batchSize = batch.nextBatchSize;
-    throwIfClearAborted(signal);
+  return clearCollectionInBatches(
+    logger,
+    label,
+    async (batchSize) => {
+      const queryOptions: mongo.FindOptions<T> = {
+        maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
+        projection: { _id: 1 }
+      };
+      const [batchEnd] = await collection
+        .find(filter, queryOptions)
+        .sort({ _id: 1 })
+        .skip(batchSize)
+        .limit(1)
+        .toArray();
+      return {
+        value: batchEnd,
+        hasMore: batchEnd != null
+      };
+    },
+    async (batchEnd) => {
+      if (batchEnd == null) {
+        // We're on the last batch
+        return collection.deleteMany(filter, {
+          maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS
+        });
+      }
 
-    const batchEnd = batch.result;
-    const hasMore = batchEnd != null;
-    const findDurationMs = batch.durationMs;
-    let deleteDurationMs = 0;
-    const result = await clearDeleteMany(
-      logger,
-      label,
-      async () => {
-        const deleteStartedAt = performance.now();
-        let result: mongo.DeleteResult;
-        if (batchEnd == null) {
-          // We're on the last batch
-          result = await collection.deleteMany(filter, {
-            maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS
-          });
-        } else {
-          const idRange: mongo.FilterOperators<mongo.InferIdType<T>> = {
-            ...filter._id,
-            $lt: batchEnd._id
-          };
-          result = await collection.deleteMany(
-            {
-              ...filter,
-              _id: idRange
-            } as mongo.Filter<T>,
-            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-          );
-        }
-        deleteDurationMs = performance.now() - deleteStartedAt;
-        return result;
-      },
-      signal
-    );
-    const batchDurationMs = findDurationMs + deleteDurationMs;
-    deletedCount += result.deletedCount;
-    if (result.deletedCount > 0) {
-      logger.info(
-        `Cleared batch of ${label} (${result.deletedCount} documents) in ${Math.round(batchDurationMs)}ms, continuing...`
+      const idRange: mongo.FilterOperators<mongo.InferIdType<T>> = {
+        ...filter._id,
+        $lt: batchEnd._id
+      };
+      return collection.deleteMany(
+        {
+          ...filter,
+          _id: idRange
+        } as mongo.Filter<T>,
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
       );
-    }
-    if (result.deletedCount === 0 || !hasMore) {
-      return deletedCount;
-    }
-    await waitWithSignal(batchDurationMs / 5, signal, 'Aborted clearing data');
-  }
+    },
+    signal
+  );
 }
 
 export async function clearCollectionInIdBatches<T extends mongo.Document>(
@@ -327,62 +352,37 @@ export async function clearCollectionInIdBatches<T extends mongo.Document>(
   filter: mongo.Filter<T>,
   signal?: AbortSignal
 ): Promise<void> {
-  let batchSize = CLEAR_BATCH_SIZE;
-  while (true) {
-    const batch = await findClearBatch(
-      logger,
-      label,
-      batchSize,
-      async (currentBatchSize) => {
-        return collection
-          .find(filter, {
-            maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
-            projection: { _id: 1 }
-          })
-          .limit(currentBatchSize)
-          .toArray();
-      },
-      signal
-    );
-    batchSize = batch.nextBatchSize;
-    throwIfClearAborted(signal);
-
-    const documents = batch.result;
-    if (documents.length === 0) {
-      return;
-    }
-    const hasMore = documents.length === batch.batchSize;
-    const findDurationMs = batch.durationMs;
-    let deleteDurationMs = 0;
-    const result = await clearDeleteMany(
-      logger,
-      label,
-      async () => {
-        const deleteStartedAt = performance.now();
-        const result = await collection.deleteMany(
-          {
-            _id: {
-              $in: documents.map((document) => document._id)
-            }
-          } as mongo.Filter<T>,
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        );
-        deleteDurationMs = performance.now() - deleteStartedAt;
-        return result;
-      },
-      signal
-    );
-    const batchDurationMs = findDurationMs + deleteDurationMs;
-    if (result.deletedCount > 0) {
-      logger.info(
-        `Cleared batch of ${label} (${result.deletedCount} documents) in ${Math.round(batchDurationMs)}ms, continuing...`
+  await clearCollectionInBatches(
+    logger,
+    label,
+    async (batchSize) => {
+      const documents = await collection
+        .find(filter, {
+          maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
+          projection: { _id: 1 }
+        })
+        .limit(batchSize)
+        .toArray();
+      if (documents.length === 0) {
+        return null;
+      }
+      return {
+        value: documents,
+        hasMore: documents.length === batchSize
+      };
+    },
+    async (documents) => {
+      return collection.deleteMany(
+        {
+          _id: {
+            $in: documents.map((document) => document._id)
+          }
+        } as mongo.Filter<T>,
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
       );
-    }
-    if (result.deletedCount === 0 || !hasMore) {
-      return;
-    }
-    await waitWithSignal(batchDurationMs / 5, signal, 'Aborted clearing data');
-  }
+    },
+    signal
+  );
 }
 
 export const createPaginatedConnectionQuery = async <T extends mongo.Document>(
