@@ -7,11 +7,16 @@ import {
   S3Client
 } from '@aws-sdk/client-s3';
 import { acquireSemaphoreAbortable, isAbortError } from '@powersync/service-core';
-import { isClockSkewError, isThrottlingError, isTransientError } from '@smithy/core/retry';
+import { isClockSkewCorrectedError, isThrottlingError, isTransientError } from '@smithy/core/retry';
 import { Semaphore, SemaphoreInterface } from 'async-mutex';
 import { ObjectStorageError, type ObjectStorage, type ObjectStoragePutMetadata } from './ObjectStorage.js';
 
 const DEFAULT_S3_OPERATION_CONCURRENCY = 16;
+const S3_DELETE_PREFIX_BATCH_SIZE = 1000;
+/**
+ * Slightly smaller than DEFAULT_S3_OPERATION_CONCURRENCY.
+ */
+const S3_DELETE_PREFIX_CONCURRENCY = 12;
 const MAX_S3_PREFIX_BYTES = 256;
 const SAFE_S3_KEY_BYTES = 896;
 
@@ -148,20 +153,7 @@ export class S3ObjectStorage implements ObjectStorage {
 
     do {
       signal?.throwIfAborted();
-      let response: ListObjectsV2CommandOutput;
-      try {
-        await using _ = await this.withOperation(signal);
-        response = await this.client.send(
-          new ListObjectsV2Command({
-            Bucket: this.bucket,
-            Prefix: fullPrefix,
-            ContinuationToken: continuationToken
-          }),
-          { abortSignal: signal }
-        );
-      } catch (error) {
-        throw s3OperationError('list', fullPrefix, error);
-      }
+      const response = await this.listPage(fullPrefix, continuationToken, signal);
       for (const object of response.Contents ?? []) {
         if (object.Key == null) {
           continue;
@@ -176,16 +168,101 @@ export class S3ObjectStorage implements ObjectStorage {
   }
 
   async delete(paths: string[]): Promise<void> {
-    if (paths.length === 0) return;
     const fullPaths = paths.map((path) => ({ Key: this.fullPath(path) }));
-    await using _ = await this.withOperation();
+    await this.deleteFullPaths(fullPaths);
+  }
+
+  async deletePrefix(prefix: string, signal?: AbortSignal): Promise<{ objectCount: number }> {
+    const fullPrefix = this.fullPath(prefix);
+    let continuationToken: string | undefined;
+    let objectCount = 0;
+    const deleting = new Set<Promise<void>>();
+    let deleteError: { error: unknown } | undefined;
+
+    const scheduleDelete = (fullPaths: { Key: string }[]) => {
+      let tracked: Promise<void>;
+      tracked = this.deleteFullPaths(fullPaths, signal)
+        .catch((error) => {
+          deleteError ??= { error };
+        })
+        .finally(() => deleting.delete(tracked));
+      deleting.add(tracked);
+    };
+    const throwDeleteError = () => {
+      if (deleteError != null) {
+        throw deleteError.error;
+      }
+    };
+
+    let operationError: { error: unknown } | undefined;
+    try {
+      do {
+        signal?.throwIfAborted();
+        const response = await this.listPage(fullPrefix, continuationToken, signal);
+        throwDeleteError();
+        const fullPaths: { Key: string }[] = [];
+        for (const object of response.Contents ?? []) {
+          if (object.Key != null) {
+            fullPaths.push({ Key: object.Key });
+          }
+        }
+        objectCount += fullPaths.length;
+        if (fullPaths.length !== 0) {
+          while (deleting.size >= S3_DELETE_PREFIX_CONCURRENCY) {
+            await Promise.race(deleting);
+            throwDeleteError();
+          }
+          scheduleDelete(fullPaths);
+        }
+        continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+        if (response.IsTruncated && continuationToken == null) {
+          throw new Error(`S3 listing for ${fullPrefix} was truncated without a continuation token`);
+        }
+      } while (continuationToken != null);
+    } catch (error) {
+      operationError = { error };
+    }
+
+    await Promise.all(deleting);
+    if (operationError != null) {
+      throw operationError.error;
+    }
+    throwDeleteError();
+    return { objectCount };
+  }
+
+  private async listPage(
+    fullPrefix: string,
+    continuationToken: string | undefined,
+    signal?: AbortSignal
+  ): Promise<ListObjectsV2CommandOutput> {
+    try {
+      await using _ = await this.withOperation(signal);
+      return await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: fullPrefix,
+          ContinuationToken: continuationToken,
+          MaxKeys: S3_DELETE_PREFIX_BATCH_SIZE
+        }),
+        { abortSignal: signal }
+      );
+    } catch (error) {
+      throw s3OperationError('list', fullPrefix, error);
+    }
+  }
+
+  private async deleteFullPaths(fullPaths: { Key: string }[], signal?: AbortSignal): Promise<void> {
+    if (fullPaths.length === 0) return;
+    await using _ = await this.withOperation(signal);
     let response;
     try {
       response = await this.client.send(
         new DeleteObjectsCommand({
           Bucket: this.bucket,
           Delete: { Objects: fullPaths, Quiet: true }
-        })
+        }),
+        { abortSignal: signal }
       );
     } catch (error) {
       throw s3OperationError('delete', `${fullPaths.length} objects`, error);
@@ -258,5 +335,5 @@ function isTransientS3Error(error: unknown): boolean {
   // returns the final error after its own attempt/quota limits are exhausted;
   // this tells the compactor whether restarting the larger bucket operation is
   // still appropriate.
-  return isClockSkewError(sdkError) || isThrottlingError(sdkError) || isTransientError(sdkError);
+  return isClockSkewCorrectedError(sdkError) || isThrottlingError(sdkError) || isTransientError(sdkError);
 }

@@ -1,3 +1,4 @@
+import { DeleteObjectsCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
@@ -180,6 +181,112 @@ describe('S3 object storage reads', () => {
         ContinuationToken: 'next-page'
       })
     ]);
+  });
+
+  test('deletes each prefix listing page directly', async () => {
+    const objectStorage = new S3ObjectStorage({
+      bucket: 'test',
+      region: 'test',
+      prefix: 'test-run'
+    });
+    const listRequests: any[] = [];
+    const deleteRequests: any[] = [];
+    objectStorage.client.send = async (command: any) => {
+      if (command instanceof ListObjectsV2Command) {
+        listRequests.push(command.input);
+        if (command.input.ContinuationToken == null) {
+          return {
+            Contents: [
+              { Key: 'test-run/bucket-data/1/object-1.bson' },
+              { Key: 'test-run/bucket-data/1/object-2.bson' }
+            ],
+            IsTruncated: true,
+            NextContinuationToken: 'next-page'
+          };
+        }
+        return {
+          Contents: [{ Key: 'test-run/bucket-data/1/object-3.bson' }],
+          IsTruncated: false
+        };
+      }
+      expect(command).toBeInstanceOf(DeleteObjectsCommand);
+      deleteRequests.push(command.input);
+      return {};
+    };
+
+    await expect(objectStorage.deletePrefix('bucket-data/1/')).resolves.toEqual({ objectCount: 3 });
+    expect(listRequests).toEqual([
+      expect.objectContaining({
+        Prefix: 'test-run/bucket-data/1/',
+        ContinuationToken: undefined,
+        MaxKeys: 1000
+      }),
+      expect.objectContaining({
+        Prefix: 'test-run/bucket-data/1/',
+        ContinuationToken: 'next-page',
+        MaxKeys: 1000
+      })
+    ]);
+    expect(deleteRequests).toEqual([
+      expect.objectContaining({
+        Delete: {
+          Objects: [{ Key: 'test-run/bucket-data/1/object-1.bson' }, { Key: 'test-run/bucket-data/1/object-2.bson' }],
+          Quiet: true
+        }
+      }),
+      expect.objectContaining({
+        Delete: {
+          Objects: [{ Key: 'test-run/bucket-data/1/object-3.bson' }],
+          Quiet: true
+        }
+      })
+    ]);
+  });
+
+  test('keeps up to 12 S3 prefix deletes in flight', async () => {
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 32 });
+    const deleteResolvers: (() => void)[] = [];
+    let activeDeletes = 0;
+    let maxActiveDeletes = 0;
+    let reached12!: () => void;
+    let reached13!: () => void;
+    const first12Started = new Promise<void>((resolve) => (reached12 = resolve));
+    const replacementStarted = new Promise<void>((resolve) => (reached13 = resolve));
+    objectStorage.client.send = async (command: any) => {
+      if (command instanceof ListObjectsV2Command) {
+        const page = Number(command.input.ContinuationToken ?? 0);
+        return {
+          Contents: [{ Key: `object-${page}` }],
+          IsTruncated: page < 12,
+          NextContinuationToken: page < 12 ? String(page + 1) : undefined
+        };
+      }
+      expect(command).toBeInstanceOf(DeleteObjectsCommand);
+      activeDeletes++;
+      maxActiveDeletes = Math.max(maxActiveDeletes, activeDeletes);
+      if (deleteResolvers.length === 11) {
+        reached12();
+      } else if (deleteResolvers.length === 12) {
+        reached13();
+      }
+      await new Promise<void>((resolve) => deleteResolvers.push(resolve));
+      activeDeletes--;
+      return {};
+    };
+
+    const deleting = objectStorage.deletePrefix('object-');
+    await first12Started;
+    expect(activeDeletes).toBe(12);
+
+    deleteResolvers[0]();
+    await replacementStarted;
+    expect(activeDeletes).toBe(12);
+    for (const resolve of deleteResolvers.slice(1)) {
+      resolve();
+    }
+
+    await expect(deleting).resolves.toEqual({ objectCount: 13 });
+    expect(maxActiveDeletes).toBe(12);
   });
 
   test('shares the concurrency limit across S3 operations', async () => {

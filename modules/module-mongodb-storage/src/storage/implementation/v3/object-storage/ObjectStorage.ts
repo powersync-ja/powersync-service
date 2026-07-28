@@ -25,4 +25,5 @@ export interface ObjectStorage {
   ): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }>;
   list(prefix: string, options?: { signal?: AbortSignal }): AsyncIterable<string>;
   delete(paths: string[]): Promise<void>;
+  deletePrefix(prefix: string, signal?: AbortSignal): Promise<{ objectCount: number }>;
 }
