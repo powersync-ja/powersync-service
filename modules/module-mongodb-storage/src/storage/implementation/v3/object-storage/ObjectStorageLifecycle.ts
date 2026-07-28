@@ -1,4 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
+import { Logger } from '@powersync/lib-services-framework';
 import * as bson from 'bson';
 import { createHash, randomUUID } from 'node:crypto';
 import { ObjectStorageDeletionMarker } from '../models.js';
@@ -131,7 +132,7 @@ export class ObjectStorageLifecycle {
     return { objectCount };
   }
 
-  async cleanup(logger: { warn(message: string, error?: unknown): void }): Promise<void> {
+  async cleanup(logger: Logger): Promise<void> {
     const markers = this.db.pendingObjectStorageDeletes(this.replicationStreamId);
     const cursor = markers.find({ delete_after: { $lte: new Date() } });
     let batch: ObjectStorageDeletionMarker[] = [];
