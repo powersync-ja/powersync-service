@@ -13,7 +13,11 @@ export class MemoryObjectStorage implements ObjectStorage {
     this.store.set(path, { data, metadata: metadata });
   }
 
-  async get(path: string, signal?: AbortSignal): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
+  async get(
+    path: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
+    const signal = options?.signal;
     signal?.throwIfAborted();
     const data = this.store.get(path);
     if (!data) {
@@ -22,7 +26,8 @@ export class MemoryObjectStorage implements ObjectStorage {
     return data;
   }
 
-  async *list(prefix: string, signal?: AbortSignal): AsyncIterable<string> {
+  async *list(prefix: string, options?: { signal?: AbortSignal }): AsyncIterable<string> {
+    const signal = options?.signal;
     for (const path of this.store.keys()) {
       signal?.throwIfAborted();
       if (path.startsWith(prefix)) {

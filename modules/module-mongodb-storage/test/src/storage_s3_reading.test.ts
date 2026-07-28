@@ -70,6 +70,45 @@ describe('S3 object storage reads', () => {
     await expect(objectStorage.get('x'.repeat(640))).rejects.toThrowError(/exceeding the safe limit of 896 bytes/);
   });
 
+  test('preallocates downloads and validates ContentLength', async () => {
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
+    const mockDownload = (contentLength: number | undefined, chunks: number[][]) => {
+      objectStorage.client.send = async () => ({
+        ContentLength: contentLength,
+        Body: (async function* () {
+          for (const chunk of chunks) {
+            yield new Uint8Array(chunk);
+          }
+        })(),
+        ContentType: 'application/bson'
+      });
+    };
+
+    mockDownload(5, [
+      [1, 2],
+      [3, 4, 5]
+    ]);
+    await expect(objectStorage.get('valid-object')).resolves.toEqual({
+      data: new Uint8Array([1, 2, 3, 4, 5]),
+      metadata: {
+        contentType: 'application/bson',
+        contentEncoding: null
+      }
+    });
+
+    mockDownload(undefined, [[1]]);
+    await expect(objectStorage.get('missing-length')).rejects.toThrowError(/missing ContentLength/);
+
+    mockDownload(5, [[1, 2, 3]]);
+    await expect(objectStorage.get('short-object')).rejects.toThrowError(/expected 5 bytes, received 3/);
+
+    mockDownload(3, [
+      [1, 2],
+      [3, 4]
+    ]);
+    await expect(objectStorage.get('long-object')).rejects.toThrowError(/expected 3 bytes, received at least 4/);
+  });
+
   test('classifies S3 failures for compaction retries', async () => {
     const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
     const transientCause = Object.assign(new Error('socket reset'), { code: 'ECONNRESET' });
@@ -159,15 +198,17 @@ describe('S3 object storage reads', () => {
       }
 
       // Download concurrency includes consuming the response body.
+      const data = bson.serialize({ ops: [] });
       return {
         Body: (async function* () {
           try {
             await new Promise<void>((resolve) => setImmediate(resolve));
-            yield bson.serialize({ ops: [] });
+            yield data;
           } finally {
             activeOperations--;
           }
         })(),
+        ContentLength: data.byteLength,
         ContentType: 'application/bson'
       };
     };
@@ -190,7 +231,8 @@ describe('S3 object storage reads', () => {
     const controller = new AbortController();
     let downloadStarted!: () => void;
     const started = new Promise<void>((resolve) => (downloadStarted = resolve));
-    objectStorage.get = async (_path, signal) => {
+    objectStorage.get = async (_path, options) => {
+      const signal = options?.signal;
       expect(signal).toBe(controller.signal);
       downloadStarted();
       await new Promise<void>((_resolve, reject) => {
@@ -211,7 +253,7 @@ describe('S3 object storage reads', () => {
         }
       ],
       objectStorage,
-      controller.signal
+      { signal: controller.signal }
     );
     const expectation = expect(hydrating).rejects.toMatchObject({ name: 'AbortError' });
 

@@ -2,6 +2,7 @@ import {
   DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
+  ListObjectsV2CommandOutput,
   PutObjectCommand,
   S3Client
 } from '@aws-sdk/client-s3';
@@ -97,14 +98,36 @@ export class S3ObjectStorage implements ObjectStorage {
         }),
         { abortSignal: signal }
       );
-      const chunks: Uint8Array[] = [];
+      const contentLength = response.ContentLength;
+      if (contentLength == null) {
+        throw new Error(`S3 download response for ${fullPath} is missing ContentLength`);
+      }
+      if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
+        throw new Error(`S3 download response for ${fullPath} has invalid ContentLength ${contentLength}`);
+      }
+
+      const data = new Uint8Array(contentLength);
+      let offset = 0;
       const stream = response.Body as AsyncIterable<Uint8Array>;
       for await (const chunk of stream) {
         signal?.throwIfAborted();
-        chunks.push(chunk);
+        const nextOffset = offset + chunk.byteLength;
+        if (nextOffset > contentLength) {
+          throw new Error(
+            `S3 download ContentLength mismatch for ${fullPath}: expected ${contentLength} bytes, received at least ${nextOffset}`
+          );
+        }
+        data.set(chunk, offset);
+        offset = nextOffset;
       }
+      if (offset !== contentLength) {
+        throw new Error(
+          `S3 download ContentLength mismatch for ${fullPath}: expected ${contentLength} bytes, received ${offset}`
+        );
+      }
+
       return {
-        data: mergeChunks(chunks),
+        data,
         metadata: {
           contentType: response.ContentType ?? 'application/octet-stream',
           contentEncoding: response.ContentEncoding ?? null
@@ -125,19 +148,17 @@ export class S3ObjectStorage implements ObjectStorage {
 
     do {
       signal?.throwIfAborted();
-      let response;
+      let response: ListObjectsV2CommandOutput;
       try {
-        response = await (async () => {
-          await using _ = await this.withOperation(signal);
-          return await this.client.send(
-            new ListObjectsV2Command({
-              Bucket: this.bucket,
-              Prefix: fullPrefix,
-              ContinuationToken: continuationToken
-            }),
-            { abortSignal: signal }
-          );
-        })();
+        await using _ = await this.withOperation(signal);
+        response = await this.client.send(
+          new ListObjectsV2Command({
+            Bucket: this.bucket,
+            Prefix: fullPrefix,
+            ContinuationToken: continuationToken
+          }),
+          { abortSignal: signal }
+        );
       } catch (error) {
         throw s3OperationError('list', fullPrefix, error);
       }
@@ -238,15 +259,4 @@ function isTransientS3Error(error: unknown): boolean {
   // this tells the compactor whether restarting the larger bucket operation is
   // still appropriate.
   return isClockSkewError(sdkError) || isThrottlingError(sdkError) || isTransientError(sdkError);
-}
-
-function mergeChunks(chunks: Uint8Array[]): Uint8Array {
-  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const result = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return result;
 }
