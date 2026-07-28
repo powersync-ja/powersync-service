@@ -395,7 +395,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     }
     if (this.objectStorage) {
       const lifecycle = new ObjectStorageLifecycle(this.db, this.replicationStreamId, this.objectStorage);
-      await lifecycle.deletePrefix(lifecycle.streamPrefix(), signal);
+      await lifecycle.deletePrefix(lifecycle.streamPrefix(), { signal });
     }
     await this.db
       .pendingObjectStorageDeletes(this.replicationStreamId)
@@ -672,7 +672,7 @@ export async function* getBucketDataBatchV3(
       hasMore = true;
     }
 
-    await hydrateBucketDataDocuments(docs, ctx.objectStorage, options?.signal);
+    await hydrateBucketDataDocuments(docs, ctx.objectStorage, { signal: options?.signal });
 
     for (const doc of docs) {
       const {

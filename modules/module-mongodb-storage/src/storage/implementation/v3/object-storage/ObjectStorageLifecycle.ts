@@ -105,9 +105,10 @@ export class ObjectStorageLifecycle {
    * Discover and delete objects by their storage prefix
    * without reading the bucket-data collection that is being removed.
    */
-  async deletePrefix(prefix: string, signal?: AbortSignal): Promise<{ objectCount: number }> {
+  async deletePrefix(prefix: string, options?: { signal?: AbortSignal }): Promise<{ objectCount: number }> {
     let objectCount = 0;
     let paths: string[] = [];
+    const signal = options?.signal;
 
     const flush = async () => {
       if (paths.length === 0) {
@@ -118,7 +119,7 @@ export class ObjectStorageLifecycle {
       await this.bucketData.delete(deleting);
     };
 
-    for await (const path of this.objectStorage.list(prefix, signal)) {
+    for await (const path of this.objectStorage.list(prefix, { signal })) {
       signal?.throwIfAborted();
       paths.push(path);
       objectCount++;

@@ -82,8 +82,12 @@ export class S3ObjectStorage implements ObjectStorage {
     }
   }
 
-  async get(path: string, signal?: AbortSignal): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
+  async get(
+    path: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
     const fullPath = this.fullPath(path);
+    const signal = options?.signal;
     await using _ = await this.withOperation(signal);
     try {
       const response = await this.client.send(
@@ -114,9 +118,10 @@ export class S3ObjectStorage implements ObjectStorage {
     }
   }
 
-  async *list(prefix: string, signal?: AbortSignal): AsyncIterable<string> {
+  async *list(prefix: string, options?: { signal?: AbortSignal }): AsyncIterable<string> {
     const fullPrefix = this.fullPath(prefix);
     let continuationToken: string | undefined;
+    const signal = options?.signal;
 
     do {
       signal?.throwIfAborted();

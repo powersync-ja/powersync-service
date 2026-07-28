@@ -18,8 +18,11 @@ export function isRetryableObjectStorageError(error: unknown): error is ObjectSt
 }
 
 export interface ObjectStorage {
-  put(path: string, data: Uint8Array, metadata?: ObjectStoragePutMetadata): Promise<void>;
-  get(path: string, signal?: AbortSignal): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }>;
-  list(prefix: string, signal?: AbortSignal): AsyncIterable<string>;
+  put(path: string, data: Uint8Array, metadata: ObjectStoragePutMetadata): Promise<void>;
+  get(
+    path: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }>;
+  list(prefix: string, options?: { signal?: AbortSignal }): AsyncIterable<string>;
   delete(paths: string[]): Promise<void>;
 }

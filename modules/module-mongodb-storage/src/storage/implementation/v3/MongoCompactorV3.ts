@@ -271,7 +271,7 @@ export class MongoCompactorV3 extends MongoCompactor {
         break;
       }
 
-      await hydrateBucketDataDocuments(batchDocs, this.storage.objectStorage, this.signal);
+      await hydrateBucketDataDocuments(batchDocs, this.storage.objectStorage, { signal: this.signal });
 
       // Compact each document independently, then greedily merge adjacent
       // post-compaction results. This preserves existing boundaries unless
@@ -740,7 +740,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           if (doc.storage_ref) {
             oldStoragePaths.push(doc.storage_ref.path);
           }
-          await hydrateBucketDataDocuments([doc], this.storage.objectStorage, this.signal);
+          await hydrateBucketDataDocuments([doc], this.storage.objectStorage, { signal: this.signal });
           for (const op of loadBucketDataDocument(context, doc)) {
             if (!isBoundaryDoc && op.op != 'CLEAR') {
               throw new ReplicationAssertionError(
