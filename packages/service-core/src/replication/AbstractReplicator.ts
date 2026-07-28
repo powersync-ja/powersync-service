@@ -1,4 +1,4 @@
-import { container, ErrorCode, logger } from '@powersync/lib-services-framework';
+import { container, ErrorCode, logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -314,7 +314,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       const syncRuleStorage = this.storage.getInstance(replicationStream, { skipLifecycleHooks: true });
       const promise = this.terminateStoppedReplicationStream(replicationStream, syncRuleStorage)
         .catch((e) => {
-          if (e?.errorData?.code === ErrorCode.PSYNC_S1003) {
+          if (e instanceof ReplicationAbortedError) {
+            // Expected when shutdown aborts an in-progress cleanup.
+          } else if (e?.errorData?.code === ErrorCode.PSYNC_S1003) {
             this.logReplicationStreamInfoOnce(replicationStream, 'replication-stream-cleanup-locked', () => {
               replicationStream.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
             });
