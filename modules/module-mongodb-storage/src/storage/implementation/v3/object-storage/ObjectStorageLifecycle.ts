@@ -138,7 +138,7 @@ export class ObjectStorageLifecycle {
    * without touching the database.
    */
   async deletePrefix(prefix: string, options?: { signal?: AbortSignal }): Promise<{ objectCount: number }> {
-    return this.objectStorage.deletePrefix(prefix, options?.signal);
+    return this.objectStorage.deletePrefix(prefix, { signal: options?.signal });
   }
 
   async cleanup(logger: Logger): Promise<void> {

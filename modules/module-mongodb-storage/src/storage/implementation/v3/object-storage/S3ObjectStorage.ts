@@ -172,8 +172,9 @@ export class S3ObjectStorage implements ObjectStorage {
     await this.deleteFullPaths(fullPaths);
   }
 
-  async deletePrefix(prefix: string, signal?: AbortSignal): Promise<{ objectCount: number }> {
+  async deletePrefix(prefix: string, options?: { signal?: AbortSignal }): Promise<{ objectCount: number }> {
     const fullPrefix = this.fullPath(prefix);
+    const signal = options?.signal;
     let continuationToken: string | undefined;
     let objectCount = 0;
     const deleting = new Set<Promise<void>>();
