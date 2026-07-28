@@ -281,10 +281,6 @@ async function clearCollectionInBatches<T>(
         `Cleared batch of ${label} (${result.deletedCount} documents) in ${Math.round(batchDurationMs)}ms, continuing...`
       );
     }
-    if (result.deletedCount === 0) {
-      // This is not a normal completion path, but prevents an infinite loop if a selected batch makes no progress.
-      return deletedCount;
-    }
     if (!batch.hasMore) {
       return deletedCount;
     }
