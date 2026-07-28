@@ -9,6 +9,7 @@ import * as uuid from 'uuid';
 import { BucketDataDoc } from '../storage/implementation/common/BucketDataDoc.js';
 
 const CLEAR_BATCH_SIZE = 10_000;
+const CLEAR_BATCH_GROWTH_THRESHOLD_MS = lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 8;
 const CLEAR_MIN_BATCH_SIZE = 100;
 
 type ClearCollectionFilter<T extends mongo.Document> = mongo.Filter<T> & {
@@ -38,16 +39,20 @@ async function findClearBatch<T>(
   initialBatchSize: number,
   operation: (batchSize: number) => Promise<T>,
   signal?: AbortSignal
-): Promise<{ result: T; batchSize: number; startedAt: number }> {
+): Promise<{ result: T; batchSize: number; nextBatchSize: number; durationMs: number }> {
   let batchSize = initialBatchSize;
   while (true) {
     throwIfClearAborted(signal);
     const startedAt = performance.now();
     try {
+      const result = await operation(batchSize);
+      const durationMs = performance.now() - startedAt;
       return {
-        result: await operation(batchSize),
+        result,
         batchSize,
-        startedAt
+        nextBatchSize:
+          durationMs < CLEAR_BATCH_GROWTH_THRESHOLD_MS ? Math.min(CLEAR_BATCH_SIZE, batchSize * 2) : batchSize,
+        durationMs
       };
     } catch (error) {
       if (
@@ -265,12 +270,12 @@ export async function clearCollectionInIdRanges<T extends mongo.Document>(
       },
       signal
     );
-    batchSize = batch.batchSize;
+    batchSize = batch.nextBatchSize;
     throwIfClearAborted(signal);
 
     const batchEnd = batch.result;
     const hasMore = batchEnd != null;
-    const findDurationMs = performance.now() - batch.startedAt;
+    const findDurationMs = batch.durationMs;
     let deleteDurationMs = 0;
     const result = await clearDeleteMany(
       logger,
@@ -339,15 +344,15 @@ export async function clearCollectionInIdBatches<T extends mongo.Document>(
       },
       signal
     );
-    batchSize = batch.batchSize;
+    batchSize = batch.nextBatchSize;
     throwIfClearAborted(signal);
 
     const documents = batch.result;
     if (documents.length === 0) {
       return;
     }
-    const hasMore = documents.length === batchSize;
-    const findDurationMs = performance.now() - batch.startedAt;
+    const hasMore = documents.length === batch.batchSize;
+    const findDurationMs = batch.durationMs;
     let deleteDurationMs = 0;
     const result = await clearDeleteMany(
       logger,
