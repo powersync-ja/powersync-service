@@ -39,7 +39,7 @@ async function findClearBatch<T>(
   initialBatchSize: number,
   operation: (batchSize: number) => Promise<T>,
   signal?: AbortSignal
-): Promise<{ result: T; batchSize: number; nextBatchSize: number; durationMs: number }> {
+): Promise<{ result: T; batchSize: number; durationMs: number }> {
   let batchSize = initialBatchSize;
   while (true) {
     throwIfClearAborted(signal);
@@ -50,8 +50,6 @@ async function findClearBatch<T>(
       return {
         result,
         batchSize,
-        nextBatchSize:
-          durationMs < CLEAR_BATCH_GROWTH_THRESHOLD_MS ? Math.min(CLEAR_BATCH_SIZE, batchSize * 2) : batchSize,
         durationMs
       };
     } catch (error) {
@@ -257,7 +255,6 @@ async function clearCollectionInBatches<T>(
   let deletedCount = 0;
   while (true) {
     const found = await findClearBatch(logger, label, batchSize, findBatch, signal);
-    batchSize = found.nextBatchSize;
     throwIfClearAborted(signal);
 
     const batch = found.result;
@@ -291,6 +288,10 @@ async function clearCollectionInBatches<T>(
     if (!batch.hasMore) {
       return deletedCount;
     }
+    batchSize =
+      batchDurationMs < CLEAR_BATCH_GROWTH_THRESHOLD_MS
+        ? Math.min(CLEAR_BATCH_SIZE, found.batchSize * 2)
+        : found.batchSize;
     await waitWithSignal(batchDurationMs / 5, signal, 'Aborted clearing data');
   }
 }
