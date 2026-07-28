@@ -7,7 +7,7 @@ import {
   S3Client
 } from '@aws-sdk/client-s3';
 import { acquireSemaphoreAbortable, isAbortError } from '@powersync/service-core';
-import { isClockSkewCorrectedError, isThrottlingError, isTransientError } from '@smithy/core/retry';
+import { isThrottlingError, isTransientError } from '@smithy/core/retry';
 import { Semaphore, SemaphoreInterface } from 'async-mutex';
 import { ObjectStorageError, type ObjectStorage, type ObjectStoragePutMetadata } from './ObjectStorage.js';
 
@@ -336,5 +336,7 @@ function isTransientS3Error(error: unknown): boolean {
   // returns the final error after its own attempt/quota limits are exhausted;
   // this tells the compactor whether restarting the larger bucket operation is
   // still appropriate.
-  return isClockSkewCorrectedError(sdkError) || isThrottlingError(sdkError) || isTransientError(sdkError);
+  // One exception is clock skew errors: We don't treat that as retryable by us,
+  // although the SDK may internally retry them.
+  return isThrottlingError(sdkError) || isTransientError(sdkError);
 }
