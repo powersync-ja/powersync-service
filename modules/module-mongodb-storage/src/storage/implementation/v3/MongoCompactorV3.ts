@@ -82,6 +82,8 @@ export class MongoCompactorV3 extends MongoCompactor {
     await super.compact();
     if (this.storage.objectStorage) {
       // Cleanup for any produced during compacting.
+      // Note that markers only expire after a delay, so this may skip many produced during this compact
+      // run. However, during long compact runs, this may also have many ones it can clean up.
       await this.objectStorageLifecycle.cleanup(this.logger);
     }
   }

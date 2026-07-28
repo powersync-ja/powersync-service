@@ -23,7 +23,16 @@ export interface PreparedObjectStorageUpload {
   deleteAfter: Date;
 }
 
-/** Coordinates the MongoDB outbox used to make object-storage changes recoverable. */
+/**
+ * Coordinates the MongoDB outbox used to make object-storage changes recoverable.
+ *
+ * A MongoDB collection is used to track files that will be uploaded, or should be deleted.
+ * By using a MongoDB collection, we can use the same transaction that creates or removes
+ * references to these files, making the operations atomic.
+ *
+ * These markers indicate which files should be deleted - either by being orphaned during create,
+ * or after references to them are removed.
+ */
 export class ObjectStorageLifecycle {
   readonly bucketData: BucketDataObjectStorage;
 
@@ -54,6 +63,12 @@ export class ObjectStorageLifecycle {
     return `${this.definitionPrefix(definitionId)}${bucketSegment}/${minOp}-${maxOp}-${randomUUID()}.bson`;
   }
 
+  /**
+   * Indicate that files will be uploaded to S3.
+   *
+   * These markers are expected to be removed using publishUploads(). If that does not happen within
+   * the grace period, the files will be deleted.
+   */
   async prepareUploads(paths: string[], now = new Date()): Promise<PreparedObjectStorageUpload[]> {
     const deleteAfter = new Date(now.getTime() + OBJECT_STORAGE_UPLOAD_LEASE_MS);
     const uploads = paths.map((path) => ({ markerId: new bson.ObjectId(), path, deleteAfter }));
@@ -73,6 +88,11 @@ export class ObjectStorageLifecycle {
     return now.getTime() < upload.deleteAfter.getTime() - OBJECT_STORAGE_PUBLICATION_SAFETY_MARGIN_MS;
   }
 
+  /**
+   * Remove markers for files that have finished uploading, and are now referenced from other documents.
+   *
+   * Call this in the same transaction as the one creating the references.
+   */
   async publishUploads(uploads: PreparedObjectStorageUpload[], session: mongo.ClientSession): Promise<void> {
     for (const upload of uploads) {
       if (!this.canPublish(upload)) {
@@ -91,6 +111,17 @@ export class ObjectStorageLifecycle {
     }
   }
 
+  /**
+   * Mark old paths for deletion.
+   *
+   * By marking for deletion instead of immediately deleting:
+   * 1. This avoids inconsistencies/orphaned files between MongoDB and S3, by allowing the markers to
+   *    be persisted transactionally, while the deletes happen asynchronously and can be retried.
+   * 2. The deletes are delayed, giving clients a grace period to continue using the files for
+   *    in-progress requests.
+   *
+   * Call this in the same transaction as the one removing the references to these files.
+   */
   async retire(paths: Iterable<string>, session: mongo.ClientSession, now = new Date()): Promise<void> {
     const markers: ObjectStorageDeletionMarker[] = Array.from(paths, (path) => ({
       _id: new bson.ObjectId(),
