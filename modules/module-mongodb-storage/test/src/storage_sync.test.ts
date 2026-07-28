@@ -9,7 +9,7 @@ import {
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { RequestParameters, ScopedParameterLookup, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { MongoParsedSyncConfigSet } from '../../src/storage/implementation/MongoParsedSyncConfigSet.js';
 import { MongoPersistedSyncConfigContentV3 } from '../../src/storage/implementation/MongoPersistedSyncConfigContent.js';
@@ -1465,6 +1465,71 @@ streams:
     await bucketStorage.clear();
 
     expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.replicationStreamId })).toBe(0);
+  });
+
+  test.runIf(storageVersion < 3)('clear deletes v1 data in scoped _id ranges', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, {
+        storageVersion
+      })
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+    const mongoFactory = factory as MongoBucketStorage;
+    const sourceTableId = new bson.ObjectId();
+    const documents = Array.from({ length: 10_002 }, (_, index) => ({
+      _id: {
+        g: syncRules.replicationStreamId,
+        t: sourceTableId,
+        k: index
+      },
+      data: new bson.Binary(),
+      buckets: [],
+      lookups: []
+    }));
+    await mongoFactory.db.current_data.insertMany([
+      ...documents,
+      {
+        _id: {
+          g: syncRules.replicationStreamId + 1,
+          t: sourceTableId,
+          k: 0
+        },
+        data: new bson.Binary(),
+        buckets: [],
+        lookups: []
+      }
+    ]);
+
+    const deleteSpy = vi.spyOn(mongoFactory.db.current_data, 'deleteMany');
+    try {
+      await bucketStorage.clear();
+      expect(deleteSpy).toHaveBeenCalledTimes(2);
+      expect(deleteSpy.mock.calls.map(([filter]) => filter)).toEqual([
+        {
+          _id: {
+            $gte: expect.objectContaining({
+              g: syncRules.replicationStreamId
+            }),
+            $lte: documents[10_000]._id
+          }
+        },
+        {
+          _id: {
+            $gte: expect.objectContaining({
+              g: syncRules.replicationStreamId
+            }),
+            $lt: expect.objectContaining({
+              g: syncRules.replicationStreamId
+            })
+          }
+        }
+      ]);
+      expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.replicationStreamId })).toBe(0);
+      expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.replicationStreamId + 1 })).toBe(1);
+    } finally {
+      deleteSpy.mockRestore();
+    }
   });
 
   test.runIf(storageVersion < 3)('storage metrics include v1 current_data', async () => {

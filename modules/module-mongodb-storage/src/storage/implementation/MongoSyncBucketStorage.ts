@@ -26,7 +26,6 @@ import { HydratedSyncConfig, ParameterLookupRows, ScopedParameterLookup } from '
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
-import { retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
@@ -331,23 +330,6 @@ export abstract class MongoSyncBucketStorage
     await this.clearSourceTables(signal);
 
     this.#storageInitialized = false;
-  }
-
-  protected async clearDeleteMany(
-    label: string,
-    operation: () => Promise<mongo.DeleteResult>,
-    signal?: AbortSignal
-  ): Promise<void> {
-    await retryOnMongoMaxTimeMSExpired(operation, {
-      signal,
-      abortMessage: 'Aborted clearing data',
-      retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5,
-      onRetry: () => {
-        this.logger.info(
-          `Cleared batch of ${label} in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
-        );
-      }
-    });
   }
 
   async reportError(e: any): Promise<void> {

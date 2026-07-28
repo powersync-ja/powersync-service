@@ -1,6 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
-import { ReplicationAbortedError, ServiceAssertionError } from '@powersync/lib-services-framework';
+import { Logger, ReplicationAbortedError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as bson from 'bson';
 import * as crypto from 'crypto';
@@ -8,7 +8,13 @@ import * as timers from 'node:timers/promises';
 import * as uuid from 'uuid';
 import { BucketDataDoc } from '../storage/implementation/common/BucketDataDoc.js';
 
-export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.Condition<T> {
+const CLEAR_BATCH_SIZE = 10_000;
+
+type ClearCollectionFilter<T extends mongo.Document> = mongo.Filter<T> & {
+  _id: mongo.FilterOperators<mongo.InferIdType<T>>;
+};
+
+export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.FilterOperators<T> {
   let filter = {
     $gte: {
       ...prefix
@@ -156,6 +162,86 @@ export async function retryOnMongoMaxTimeMSExpired<T>(
       options.onRetry?.(retryCount);
       await timers.setTimeout(options.retryDelayMs);
     }
+  }
+}
+
+export async function clearDeleteMany(
+  logger: Logger,
+  label: string,
+  operation: () => Promise<mongo.DeleteResult>,
+  signal?: AbortSignal
+): Promise<mongo.DeleteResult> {
+  return retryOnMongoMaxTimeMSExpired(operation, {
+    signal,
+    abortMessage: 'Aborted clearing data',
+    retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5,
+    onRetry: () => {
+      logger.info(`Cleared batch of ${label} in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`);
+    }
+  });
+}
+
+export async function clearCollectionInIdRanges<T extends mongo.Document>(
+  logger: Logger,
+  label: string,
+  collection: mongo.Collection<T>,
+  filter: ClearCollectionFilter<T>,
+  signal?: AbortSignal
+): Promise<void> {
+  while (true) {
+    let hasMore = false;
+    let batchDurationMs = 0;
+    const result = await clearDeleteMany(
+      logger,
+      label,
+      async () => {
+        const batchStartedAt = performance.now();
+        hasMore = false;
+        const queryOptions: mongo.FindOptions<T> = {
+          maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
+          projection: { _id: 1 }
+        };
+        const [batchEnd] = await collection
+          .find(filter, queryOptions)
+          .sort({ _id: 1 })
+          .skip(CLEAR_BATCH_SIZE)
+          .limit(1)
+          .toArray();
+        let result: mongo.DeleteResult;
+        if (batchEnd == null) {
+          // We're on the last batch
+          result = await collection.deleteMany(filter, {
+            maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS
+          });
+        } else {
+          hasMore = true;
+          const idRange: mongo.FilterOperators<mongo.InferIdType<T>> = {
+            ...filter._id,
+            $lte: batchEnd._id
+          };
+          delete idRange.$lt;
+          result = await collection.deleteMany(
+            {
+              ...filter,
+              _id: idRange
+            } as mongo.Filter<T>,
+            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+          );
+        }
+        batchDurationMs = performance.now() - batchStartedAt;
+        return result;
+      },
+      signal
+    );
+    if (result.deletedCount > 0) {
+      logger.info(
+        `Cleared batch of ${label} (${result.deletedCount} documents) in ${Math.round(batchDurationMs)}ms, continuing...`
+      );
+    }
+    if (result.deletedCount === 0 || !hasMore) {
+      return;
+    }
+    await timers.setTimeout(batchDurationMs / 5);
   }
 }
 

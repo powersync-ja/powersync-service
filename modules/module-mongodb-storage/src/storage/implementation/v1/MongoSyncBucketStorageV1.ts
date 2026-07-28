@@ -16,7 +16,14 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
+import {
+  clearCollectionInIdRanges,
+  clearDeleteMany,
+  idPrefixFilter,
+  mapOpEntry,
+  readSingleBatch,
+  setSessionSnapshotTime
+} from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageCheckpoint.js';
 import { SourceKey } from '../models.js';
@@ -214,21 +221,20 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   }
 
   protected async clearBucketData(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
+    await clearCollectionInIdRanges(
+      this.logger,
       'bucket data',
-      () =>
-        this.db.bucket_data.deleteMany(
-          {
-            _id: idPrefixFilter<BucketDataKeyV1>({ g: this.replicationStreamId }, ['b', 'o'])
-          },
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        ),
+      this.db.bucket_data,
+      {
+        _id: idPrefixFilter<BucketDataKeyV1>({ g: this.replicationStreamId }, ['b', 'o'])
+      },
       signal
     );
   }
 
   protected async clearParameterIndexes(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
+    await clearDeleteMany(
+      this.logger,
       'parameter index',
       () =>
         this.db.parameterIndexV1.deleteMany(
@@ -242,35 +248,32 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   }
 
   protected async clearSourceRecords(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
+    await clearCollectionInIdRanges(
+      this.logger,
       'source records',
-      () =>
-        this.db.sourceRecordsV1.deleteMany(
-          {
-            _id: idPrefixFilter<SourceKey>({ g: this.replicationStreamId }, ['t', 'k'])
-          },
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        ),
+      this.db.sourceRecordsV1,
+      {
+        _id: idPrefixFilter<SourceKey>({ g: this.replicationStreamId }, ['t', 'k'])
+      },
       signal
     );
   }
 
   protected async clearBucketState(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
+    await clearCollectionInIdRanges(
+      this.logger,
       'bucket state',
-      () =>
-        this.db.bucketStateV1.deleteMany(
-          {
-            _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.replicationStreamId }, ['b'])
-          },
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        ),
+      this.db.bucketStateV1,
+      {
+        _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.replicationStreamId }, ['b'])
+      },
       signal
     );
   }
 
   protected async clearSourceTables(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
+    await clearDeleteMany(
+      this.logger,
       'source tables',
       () =>
         this.db.sourceTablesV1(this.replicationStreamId).deleteMany(
