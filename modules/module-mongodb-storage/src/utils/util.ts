@@ -14,6 +14,23 @@ type ClearCollectionFilter<T extends mongo.Document> = mongo.Filter<T> & {
   _id: mongo.FilterOperators<mongo.InferIdType<T>>;
 };
 
+function throwIfClearAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new ReplicationAbortedError('Aborted clearing data', signal.reason);
+  }
+}
+
+async function waitWithSignal(delayMs: number, signal: AbortSignal | undefined, abortMessage: string): Promise<void> {
+  try {
+    await timers.setTimeout(delayMs, undefined, { signal });
+  } catch (error) {
+    if (signal?.aborted) {
+      throw new ReplicationAbortedError(abortMessage, signal.reason);
+    }
+    throw error;
+  }
+}
+
 export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.FilterOperators<T> {
   let filter = {
     $gte: {
@@ -160,7 +177,7 @@ export async function retryOnMongoMaxTimeMSExpired<T>(
       }
       retryCount += 1;
       options.onRetry?.(retryCount);
-      await timers.setTimeout(options.retryDelayMs);
+      await waitWithSignal(options.retryDelayMs, options.signal, options.abortMessage ?? 'Aborted MongoDB operation');
     }
   }
 }
@@ -207,6 +224,8 @@ export async function clearCollectionInIdRanges<T extends mongo.Document>(
           .skip(CLEAR_BATCH_SIZE)
           .limit(1)
           .toArray();
+        throwIfClearAborted(signal);
+
         let result: mongo.DeleteResult;
         if (batchEnd == null) {
           // We're on the last batch
@@ -240,7 +259,7 @@ export async function clearCollectionInIdRanges<T extends mongo.Document>(
     if (result.deletedCount === 0 || !hasMore) {
       return;
     }
-    await timers.setTimeout(batchDurationMs / 5);
+    await waitWithSignal(batchDurationMs / 5, signal, 'Aborted clearing data');
   }
 }
 
@@ -267,6 +286,8 @@ export async function clearCollectionInIdBatches<T extends mongo.Document>(
           })
           .limit(CLEAR_BATCH_SIZE)
           .toArray();
+        throwIfClearAborted(signal);
+
         if (documents.length === 0) {
           return { acknowledged: true, deletedCount: 0 };
         }
@@ -293,7 +314,7 @@ export async function clearCollectionInIdBatches<T extends mongo.Document>(
     if (result.deletedCount === 0 || !hasMore) {
       return;
     }
-    await timers.setTimeout(batchDurationMs / 5);
+    await waitWithSignal(batchDurationMs / 5, signal, 'Aborted clearing data');
   }
 }
 
