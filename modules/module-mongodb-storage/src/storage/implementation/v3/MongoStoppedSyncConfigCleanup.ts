@@ -3,7 +3,7 @@ import { Logger, ReplicationAbortedError } from '@powersync/lib-services-framewo
 import { SingleSyncConfigBucketDefinitionMapping, storage } from '@powersync/service-core';
 import { BucketDefinitionId, ParameterIndexId, SyncConfig } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { idPrefixFilter, retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
+import { clearCollectionInIdRanges, idPrefixFilter } from '../../../utils/util.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import {
   BucketStateDocumentV3,
@@ -393,26 +393,15 @@ export class MongoStoppedSyncConfigCleanup {
     let deletedCount = 0;
     for (const definitionId of definitionIds) {
       this.throwIfAborted();
-      const result = await retryOnMongoMaxTimeMSExpired(
-        () =>
-          collection.deleteMany(
-            {
-              _id: idPrefixFilter<BucketStateDocumentV3['_id']>({ d: definitionId }, ['b'])
-            },
-            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-          ),
+      deletedCount += await clearCollectionInIdRanges(
+        this.logger,
+        'bucket state',
+        collection,
         {
-          signal: this.signal,
-          abortMessage: 'Aborted stopped sync config cleanup',
-          retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5,
-          onRetry: () => {
-            this.logger.info(
-              `Cleared batch of bucket state in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
-            );
-          }
-        }
+          _id: idPrefixFilter<BucketStateDocumentV3['_id']>({ d: definitionId }, ['b'])
+        },
+        this.signal
       );
-      deletedCount += result.deletedCount;
     }
     return deletedCount;
   }

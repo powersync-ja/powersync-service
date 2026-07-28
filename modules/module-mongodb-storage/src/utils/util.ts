@@ -238,8 +238,9 @@ export async function clearCollectionInIdRanges<T extends mongo.Document>(
   collection: mongo.Collection<T>,
   filter: ClearCollectionFilter<T>,
   signal?: AbortSignal
-): Promise<void> {
+): Promise<number> {
   let batchSize = CLEAR_BATCH_SIZE;
+  let deletedCount = 0;
   while (true) {
     const batch = await findClearBatch(
       logger,
@@ -297,13 +298,14 @@ export async function clearCollectionInIdRanges<T extends mongo.Document>(
       signal
     );
     const batchDurationMs = findDurationMs + deleteDurationMs;
+    deletedCount += result.deletedCount;
     if (result.deletedCount > 0) {
       logger.info(
         `Cleared batch of ${label} (${result.deletedCount} documents) in ${Math.round(batchDurationMs)}ms, continuing...`
       );
     }
     if (result.deletedCount === 0 || !hasMore) {
-      return;
+      return deletedCount;
     }
     await waitWithSignal(batchDurationMs / 5, signal, 'Aborted clearing data');
   }
