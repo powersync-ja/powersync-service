@@ -595,7 +595,12 @@ export class PostgresSyncRulesStorage
 
   /**
    * Delete up to {@link CLEAR_BATCH_LIMIT} rows for this group from the given table,
-   * returning the number of rows deleted.
+   * returning the number of candidate rows found by the scan.
+   *
+   * The count is taken from the scan (`batch`) rather than the delete: with a
+   * concurrent process deleting the same rows, the delete may remove fewer rows
+   * than the scan found, and counting deleted rows could stop the loop while
+   * rows remain.
    */
   private async deleteGroupBatch(table: 'bucket_data' | 'bucket_parameters' | 'source_tables'): Promise<bigint> {
     const [row] = await this.db.queryRows<{ count: bigint }>({
@@ -610,7 +615,7 @@ export class PostgresSyncRulesStorage
           WHERE ctid IN (SELECT ctid FROM batch)
           RETURNING 1
         )
-        SELECT COUNT(*) AS count FROM deleted
+        SELECT COUNT(*) AS count FROM batch
       `,
       params: [
         { type: 'int4', value: this.replicationStreamId },

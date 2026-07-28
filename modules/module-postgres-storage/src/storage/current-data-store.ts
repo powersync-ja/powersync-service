@@ -302,7 +302,9 @@ export class PostgresCurrentDataStore {
   }
 
   /**
-   * Delete up to `limit` rows for the group, returning the number of rows deleted.
+   * Delete up to `limit` rows for the group, returning the number of candidate
+   * rows found by the scan (see PostgresSyncRulesStorage#deleteGroupBatch for
+   * why the scan is counted rather than the delete).
    */
   async deleteGroupRowsBatch(db: Queryable, options: { groupId: number; limit: number }): Promise<bigint> {
     if (this.softDeleteEnabled) {
@@ -333,7 +335,7 @@ export class PostgresCurrentDataStore {
         SELECT
           COUNT(*) AS count
         FROM
-          deleted
+          batch
       `.first<{ count: bigint }>();
       return result?.count ?? 0n;
     } else {
@@ -364,7 +366,7 @@ export class PostgresCurrentDataStore {
         SELECT
           COUNT(*) AS count
         FROM
-          deleted
+          batch
       `.first<{ count: bigint }>();
       return result?.count ?? 0n;
     }
