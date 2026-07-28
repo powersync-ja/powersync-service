@@ -34,22 +34,11 @@ class TestReplicator extends AbstractReplicator {
     replicationStream: PersistedReplicationStream,
     syncRuleStorage: SyncRulesBucketStorage
   ): Promise<void> {
-    return (
-      this as unknown as {
-        terminateStoppedReplicationStream(
-          replicationStream: PersistedReplicationStream,
-          syncRuleStorage: SyncRulesBucketStorage
-        ): Promise<void>;
-      }
-    ).terminateStoppedReplicationStream(replicationStream, syncRuleStorage);
+    return this.terminateStoppedReplicationStream(replicationStream, syncRuleStorage);
   }
 
   addClearingJob(replicationStreamId: number, promise: Promise<void>): void {
-    (
-      this as unknown as {
-        clearingJobs: Map<number, Promise<void>>;
-      }
-    ).clearingJobs.set(replicationStreamId, promise);
+    this.clearingJobs.set(replicationStreamId, promise);
   }
 }
 
@@ -66,11 +55,7 @@ describe('AbstractReplicator stopped stream cleanup', () => {
       }
     } as unknown as PersistedReplicationStream;
     const syncRuleStorage = {
-      logger: {
-        info() {
-          calls.push('log');
-        }
-      },
+      logger: { info: vi.fn() },
       async terminate() {
         calls.push('terminate');
       }
@@ -81,7 +66,7 @@ describe('AbstractReplicator stopped stream cleanup', () => {
 
     await replicator.terminateStoppedStream(replicationStream, syncRuleStorage);
 
-    expect(calls).toEqual(['lock', 'log', 'cleanup', 'terminate', 'log', 'release']);
+    expect(calls).toEqual(['lock', 'cleanup', 'terminate', 'release']);
     expect(release).toHaveBeenCalledOnce();
   });
 

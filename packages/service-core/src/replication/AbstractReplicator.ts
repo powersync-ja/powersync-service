@@ -51,11 +51,11 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   private replicationJobs = new Map<string, T>();
 
   /**
-   * Map of replciation stream ids to promises that are clearing the replication stream.
+   * Map of replication stream ids to promises that are clearing the replication stream.
    *
    * We primarily do this to keep track of what we're currently clearing.
    */
-  private clearingJobs = new Map<number, Promise<void>>();
+  protected readonly clearingJobs = new Map<number, Promise<void>>();
 
   /**
    * Used for replication lag computation.
@@ -378,7 +378,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     return `${this.id}-${syncRuleId}`;
   }
 
-  private async terminateStoppedReplicationStream(
+  protected async terminateStoppedReplicationStream(
     replicationStream: storage.PersistedReplicationStream,
     syncRuleStorage: storage.SyncRulesBucketStorage
   ) {
