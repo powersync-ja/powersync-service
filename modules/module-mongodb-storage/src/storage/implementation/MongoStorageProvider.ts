@@ -86,8 +86,15 @@ export class MongoStorageProvider implements storage.StorageProvider {
         await syncStorageFactory[Symbol.asyncDispose]();
         await client.close();
       },
-      tearDown: () => {
+      tearDown: async () => {
         logger.info(`Tearing down storage: ${database.db.namespace}...`);
+        if (objectStorage != null) {
+          logger.info(
+            `Clearing object storage: ${decodedConfig.object_storage!.bucket}/${decodedConfig.object_storage!.prefix ?? ''}.`
+          );
+          const { objectCount } = await objectStorage.deletePrefix('bucket-data/');
+          logger.info(`Deleted ${objectCount} objects from object storage.`);
+        }
         return database.db.dropDatabase();
       },
       onFatalError: (callback) => {
