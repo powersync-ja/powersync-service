@@ -23,10 +23,11 @@ function s3Factory() {
   return { memoryStorage: objectStorage, factory: factoryGen };
 }
 
-function memoryS3Factory() {
+function memoryS3Factory(options: { inlineThresholdBytes?: number } = {}) {
   const { objectStorage, factoryGen } = createMemoryS3TestStorageSuite({
     url: env.MONGO_TEST_URL,
-    isCI: env.CI
+    isCI: env.CI,
+    inlineThresholdBytes: options.inlineThresholdBytes ?? 0
   });
   return { memoryStorage: objectStorage, factory: factoryGen };
 }
@@ -146,20 +147,29 @@ describe('S3 object storage reads', () => {
     const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 4 });
     let activeOperations = 0;
     let maxActiveOperations = 0;
-    objectStorage.client.send = async () => {
+    objectStorage.client.send = async (command: any) => {
       activeOperations++;
       maxActiveOperations = Math.max(maxActiveOperations, activeOperations);
       await new Promise<void>((resolve) => setImmediate(resolve));
-      try {
-        return {
-          Body: (async function* () {
-            yield bson.serialize({ ops: [] });
-          })(),
-          ContentType: 'application/bson'
-        };
-      } finally {
+
+      if (command.input.Body != null) {
+        // Upload concurrency ends when the SDK request resolves.
         activeOperations--;
+        return {};
       }
+
+      // Download concurrency includes consuming the response body.
+      return {
+        Body: (async function* () {
+          try {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            yield bson.serialize({ ops: [] });
+          } finally {
+            activeOperations--;
+          }
+        })(),
+        ContentType: 'application/bson'
+      };
     };
 
     await Promise.all(
@@ -259,7 +269,7 @@ describe('S3 object storage reads', () => {
   });
 
   test('2. Missing S3 object is a hard error', async () => {
-    const { memoryStorage, factory: factoryGen } = s3Factory();
+    const { factory: factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
@@ -287,20 +297,19 @@ describe('S3 object storage reads', () => {
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
-    const actualBucket = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n).bucket;
-
-    await collection.insertOne({
-      _id: { b: actualBucket, o: 50n },
-      min_op: 1n,
-      checksum: 0n,
-      count: 0,
-      size: 0,
-      target_op: null,
-      storage_ref: {
-        path: 'nonexistent/missing-object/path',
-        file_size: 100
+    const document = await collection.findOne({});
+    expect(document?.storage_ref).toBeDefined();
+    await collection.updateOne(
+      { _id: document!._id },
+      {
+        $set: {
+          storage_ref: {
+            path: 'nonexistent/missing-object/path',
+            file_size: document!.storage_ref!.file_size
+          }
+        }
       }
-    });
+    );
 
     // A missing S3 object should be a hard error, not silently skipped.
     await expect(
@@ -313,86 +322,55 @@ describe('S3 object storage reads', () => {
   });
 
   test('3. Read with mixed inline + S3 docs', async () => {
-    const { memoryStorage, factory: factoryGen } = memoryS3Factory();
+    const { memoryStorage, factory: factoryGen } = memoryS3Factory({ inlineThresholdBytes: 1_000 });
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
 
-    // Write two ops through S3 writer (these go to S3 with storage_ref)
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
     await writer.markAllSnapshotDone('1/1');
 
+    // The first commit stays inline.
     await writer.save({
       sourceTable,
       tag: storage.SaveOperationTag.INSERT,
-      after: { id: 's3_item1', description: 'from s3' },
-      afterReplicaId: test_utils.rid('s3_item1')
+      after: { id: 'inline_item', description: 'small' },
+      afterReplicaId: test_utils.rid('inline_item')
     });
+    await writer.commit('1/1');
+
+    // The second commit exceeds the threshold and is offloaded.
     await writer.save({
       sourceTable,
       tag: storage.SaveOperationTag.INSERT,
-      after: { id: 's3_item2', description: 'from s3' },
-      afterReplicaId: test_utils.rid('s3_item2')
+      after: { id: 's3_item', description: 'large'.repeat(500) },
+      afterReplicaId: test_utils.rid('s3_item')
     });
+    await writer.commit('2/1');
 
-    const flushResult = await writer.flush();
-    const checkpoint = flushResult!.flushed_op;
-
-    // Extract source_table and source_key from the S3-stored ops to reuse
-    // in the inline document, ensuring valid identifiers for mapOpEntry.
-    const [_, entry] = [...memoryStorage.store.entries()][0];
-    const wrapper = bson.deserialize(entry.data, { promoteValues: false });
-    const s3Ops = wrapper.ops as any[];
-    const s3SourceTable = s3Ops[0].source_table as bson.ObjectId;
-    const s3SourceKey = s3Ops[0].source_key as bson.UUID;
-
-    // Directly insert an inline document (ops present, no storage_ref)
-    // into the same bucket_data collection.
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
-    const actualBucket = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n).bucket;
-
-    await collection.insertOne({
-      _id: { b: actualBucket, o: 100n },
-      min_op: 1n,
-      checksum: 999n,
-      count: 1,
-      size: 50,
-      target_op: null,
-      ops: [
-        {
-          o: 2n,
-          op: 'PUT',
-          source_table: s3SourceTable,
-          source_key: s3SourceKey,
-          table: 'items',
-          row_id: 'inline_item1',
-          checksum: 999n,
-          data: JSON.stringify({ id: 'inline_item1', description: 'inline' })
-        }
-      ]
-      // No storage_ref — this doc stores ops inline
-    });
+    const documents = await collection.find({}).sort({ '_id.o': 1 }).toArray();
+    expect(documents).toHaveLength(2);
+    expect(documents[0].ops).toBeDefined();
+    expect(documents[0].storage_ref).toBeUndefined();
+    expect(documents[1].ops).toBeUndefined();
+    expect(documents[1].storage_ref).toBeDefined();
+    expect(new Set(memoryStorage.store.keys())).toEqual(new Set([documents[1].storage_ref!.path]));
 
     // Read back. Both S3-backed and inline ops should be returned.
     const batch = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [
+      bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(documents[1]._id.o), [
         bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n)
       ])
     );
-    const data = test_utils.getBatchData(batch);
+    const data = batch.flatMap((chunk) => chunk.chunkData.data);
 
-    // When implemented: 3 ops total (2 from S3 + 1 inline).
-    // Currently: only 1 op (inline) because S3 ops are not fetched.
-    expect(data.length).toBe(3);
-    expect(data).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ op: 'PUT', object_id: 's3_item1' }),
-        expect.objectContaining({ op: 'PUT', object_id: 's3_item2' }),
-        expect.objectContaining({ op: 'PUT', object_id: 'inline_item1' })
-      ])
-    );
+    expect(data).toMatchObject([
+      { op: 'PUT', object_id: 'inline_item' },
+      { op: 'PUT', object_id: 's3_item' }
+    ]);
   });
 });

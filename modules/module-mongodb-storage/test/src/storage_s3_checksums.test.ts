@@ -77,14 +77,17 @@ describe('V3 checksums with S3 object storage', () => {
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
 
     const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
 
-    // Write 50 ops with large data to fill multiple S3 documents
+    // Write several operations into one S3-backed document that straddles the
+    // requested checkpoint.
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
     await writer.markAllSnapshotDone('1/1');
-    for (let i = 1; i <= 50; i++) {
+    for (let i = 1; i <= 12; i++) {
       const id = `row${i}`;
       await writer.save({
         sourceTable,
@@ -94,9 +97,15 @@ describe('V3 checksums with S3 object storage', () => {
       });
     }
     await writer.commit('1/1');
-    const checkpoint = await bucketStorage.getCheckpoint();
+    const documents = await db
+      .bucketData(bucketStorage.replicationStreamId, definitionId)
+      .find({ '_id.b': request.bucket })
+      .toArray();
+    expect(documents).toHaveLength(1);
+    expect(documents[0].storage_ref).toBeDefined();
+    expect(documents[0].ops).toBeUndefined();
 
-    // Partial checkpoint at op 7 — some S3 docs will have _id.o > 7 but min_op <= 7
+    // The document starts before op 7 and ends after it.
     await expect(bucketStorage.getChecksums(test_utils.testCheckpoint(7n), [request])).rejects.toBeInstanceOf(
       CheckpointChecksumInvalidatedError
     );
@@ -125,7 +134,7 @@ describe('V3 checksums with S3 object storage', () => {
     });
     await writer.save({
       sourceTable,
-      tag: storage.SaveOperationTag.INSERT,
+      tag: storage.SaveOperationTag.UPDATE,
       after: { id: 'A', description: 'v2' },
       afterReplicaId: test_utils.rid('A')
     });
@@ -137,7 +146,7 @@ describe('V3 checksums with S3 object storage', () => {
     });
     await writer.save({
       sourceTable,
-      tag: storage.SaveOperationTag.INSERT,
+      tag: storage.SaveOperationTag.UPDATE,
       after: { id: 'A', description: 'v4' },
       afterReplicaId: test_utils.rid('A')
     });
@@ -166,18 +175,17 @@ describe('V3 checksums with S3 object storage', () => {
     const docs = await db
       .bucketData(bucketStorage.replicationStreamId, definitionId)
       .find({ '_id.b': request.bucket })
-      .project({ checksum: 1 })
       .toArray();
     const groundTruth = docs.reduce((sum: number, d: any) => addChecksums(sum, Number(d.checksum)), 0);
+    expect(docs.some((doc) => doc.has_clear_op)).toBe(true);
+    expect(docs.every((doc) => doc.storage_ref != null && doc.ops == null)).toBe(true);
 
     const checksum = (await bucketStorage.getChecksums(checkpoint, [request])).get(request.bucket)!;
     expect(checksum.checksum).toBe(groundTruth);
 
-    // Surviving data: 2 PUT ops (B@3 and latest A@4)
+    // The two superseded A operations collapse into CLEAR.
     const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
-    const dataAfter = test_utils.getBatchData(batchAfter);
-    expect(dataAfter.length).toBeGreaterThanOrEqual(2);
-    expect(dataAfter.some((d: any) => d.object_id === 'B')).toBe(true);
-    expect(dataAfter.some((d: any) => d.object_id === 'A')).toBe(true);
+    const dataAfter = batchAfter.flatMap((chunk) => chunk.chunkData.data);
+    expect(dataAfter).toMatchObject([{ op: 'CLEAR' }, { object_id: 'B', op: 'PUT' }, { object_id: 'A', op: 'PUT' }]);
   });
 });

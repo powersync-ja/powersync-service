@@ -19,11 +19,11 @@ function s3Factory() {
   return { memoryStorage: objectStorage, factory: factoryGen };
 }
 
-function memoryS3Factory(inlineThresholdBytes = 0) {
+function memoryS3Factory(options: { inlineThresholdBytes?: number } = {}) {
   const { objectStorage, factoryGen } = createMemoryS3TestStorageSuite({
     url: env.MONGO_TEST_URL,
     isCI: env.CI,
-    inlineThresholdBytes
+    inlineThresholdBytes: options.inlineThresholdBytes ?? 0
   });
   return { memoryStorage: objectStorage, factory: factoryGen };
 }
@@ -41,7 +41,7 @@ describe('S3 compaction storage lifecycle', () => {
     for (const [index, description] of ['old', 'new'].entries()) {
       await writer.save({
         sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
+        tag: index === 0 ? storage.SaveOperationTag.INSERT : storage.SaveOperationTag.UPDATE,
         after: { id: 'A', description },
         afterReplicaId: test_utils.rid('A')
       });
@@ -77,7 +77,7 @@ describe('S3 compaction storage lifecycle', () => {
   });
 
   test('small inline updates merge into an inline replacement', async () => {
-    const { memoryStorage, factory: factoryGen } = memoryS3Factory(10_000);
+    const { memoryStorage, factory: factoryGen } = memoryS3Factory({ inlineThresholdBytes: 10_000 });
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
@@ -94,7 +94,7 @@ describe('S3 compaction storage lifecycle', () => {
     await writer.commit('1/1');
     await writer.save({
       sourceTable,
-      tag: storage.SaveOperationTag.INSERT,
+      tag: storage.SaveOperationTag.UPDATE,
       after: { id: 'A', description: 'new' },
       afterReplicaId: test_utils.rid('A')
     });
@@ -149,7 +149,7 @@ describe('S3 compaction storage lifecycle', () => {
 
     await writer.save({
       sourceTable,
-      tag: storage.SaveOperationTag.INSERT,
+      tag: storage.SaveOperationTag.UPDATE,
       after: { id: 'A', description: 'new'.repeat(120_000) },
       afterReplicaId: test_utils.rid('A')
     });
