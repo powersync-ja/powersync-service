@@ -53,8 +53,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   /**
    * Map of replciation stream ids to promises that are clearing the replication stream.
    *
-   * We primarily do this to keep track of what we're currently clearing, but don't currently
-   * use the Promise value.
+   * We primarily do this to keep track of what we're currently clearing.
    */
   private clearingJobs = new Map<number, Promise<void>>();
 
@@ -139,6 +138,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     for (const job of this.replicationJobs.values()) {
       promises.push(job.stop());
     }
+    promises.push(...this.clearingJobs.values());
     await Promise.all(promises);
   }
 

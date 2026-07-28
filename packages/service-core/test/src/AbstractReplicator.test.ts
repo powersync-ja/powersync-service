@@ -43,6 +43,14 @@ class TestReplicator extends AbstractReplicator {
       }
     ).terminateStoppedReplicationStream(replicationStream, syncRuleStorage);
   }
+
+  addClearingJob(replicationStreamId: number, promise: Promise<void>): void {
+    (
+      this as unknown as {
+        clearingJobs: Map<number, Promise<void>>;
+      }
+    ).clearingJobs.set(replicationStreamId, promise);
+  }
 }
 
 describe('AbstractReplicator stopped stream cleanup', () => {
@@ -98,5 +106,25 @@ describe('AbstractReplicator stopped stream cleanup', () => {
 
     expect(terminate).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('waits for stopped stream cleanup when stopping', async () => {
+    let finishCleanup: () => void;
+    const cleanup = new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    });
+    const replicator = new TestReplicator(async () => {});
+    replicator.addClearingJob(1, cleanup);
+
+    let stopped = false;
+    const stop = replicator.stop().then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+
+    finishCleanup!();
+    await stop;
+    expect(stopped).toBe(true);
   });
 });
