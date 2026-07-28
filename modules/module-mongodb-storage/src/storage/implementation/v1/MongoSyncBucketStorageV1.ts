@@ -17,6 +17,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import {
+  clearCollectionInIdBatches,
   clearCollectionInIdRanges,
   clearDeleteMany,
   idPrefixFilter,
@@ -233,16 +234,13 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   }
 
   protected async clearParameterIndexes(signal?: AbortSignal): Promise<void> {
-    await clearDeleteMany(
+    await clearCollectionInIdBatches(
       this.logger,
       'parameter index',
-      () =>
-        this.db.parameterIndexV1.deleteMany(
-          {
-            'key.g': this.replicationStreamId
-          },
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        ),
+      this.db.parameterIndexV1,
+      {
+        'key.g': this.replicationStreamId
+      },
       signal
     );
   }

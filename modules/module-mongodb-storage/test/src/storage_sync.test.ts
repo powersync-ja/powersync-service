@@ -1532,6 +1532,66 @@ streams:
     }
   });
 
+  test.runIf(storageVersion < 3)('clear deletes v1 parameter indexes in _id batches', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, {
+        storageVersion
+      })
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+    const mongoFactory = factory as MongoBucketStorage;
+    const sourceTableId = new bson.ObjectId();
+    const documents = Array.from({ length: 10_002 }, (_, index) => ({
+      _id: BigInt(index * 2),
+      key: {
+        g: syncRules.replicationStreamId,
+        t: sourceTableId,
+        k: index
+      },
+      lookup: new bson.Binary(),
+      bucket_parameters: []
+    }));
+    await mongoFactory.db.bucket_parameters.insertMany([
+      ...documents,
+      {
+        _id: 1n,
+        key: {
+          g: syncRules.replicationStreamId + 1,
+          t: sourceTableId,
+          k: 0
+        },
+        lookup: new bson.Binary(),
+        bucket_parameters: []
+      }
+    ]);
+
+    const deleteSpy = vi.spyOn(mongoFactory.db.bucket_parameters, 'deleteMany');
+    try {
+      await bucketStorage.clear();
+      expect(deleteSpy).toHaveBeenCalledTimes(2);
+      const deletedIdBatches = deleteSpy.mock.calls.map(([filter]) => {
+        expect(filter).toEqual({
+          _id: {
+            $in: expect.any(Array)
+          }
+        });
+        return (filter as { _id: { $in: bigint[] } })._id.$in;
+      });
+      expect(deletedIdBatches.map((ids) => ids.length)).toEqual([10_000, 2]);
+      const deletedIds = deletedIdBatches.flat();
+      expect(new Set(deletedIds)).toEqual(new Set(documents.map((document) => document._id)));
+      expect(await mongoFactory.db.bucket_parameters.countDocuments({ 'key.g': syncRules.replicationStreamId })).toBe(
+        0
+      );
+      expect(
+        await mongoFactory.db.bucket_parameters.countDocuments({ 'key.g': syncRules.replicationStreamId + 1 })
+      ).toBe(1);
+    } finally {
+      deleteSpy.mockRestore();
+    }
+  });
+
   test.runIf(storageVersion < 3)('storage metrics include v1 current_data', async () => {
     await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(

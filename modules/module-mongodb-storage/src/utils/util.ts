@@ -245,6 +245,59 @@ export async function clearCollectionInIdRanges<T extends mongo.Document>(
   }
 }
 
+export async function clearCollectionInIdBatches<T extends mongo.Document>(
+  logger: Logger,
+  label: string,
+  collection: mongo.Collection<T>,
+  filter: mongo.Filter<T>,
+  signal?: AbortSignal
+): Promise<void> {
+  while (true) {
+    let hasMore = false;
+    let batchDurationMs = 0;
+    const result = await clearDeleteMany(
+      logger,
+      label,
+      async () => {
+        const batchStartedAt = performance.now();
+        hasMore = false;
+        const documents = await collection
+          .find(filter, {
+            maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
+            projection: { _id: 1 }
+          })
+          .limit(CLEAR_BATCH_SIZE)
+          .toArray();
+        if (documents.length === 0) {
+          return { acknowledged: true, deletedCount: 0 };
+        }
+
+        hasMore = documents.length === CLEAR_BATCH_SIZE;
+        const result = await collection.deleteMany(
+          {
+            _id: {
+              $in: documents.map((document) => document._id)
+            }
+          } as mongo.Filter<T>,
+          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+        );
+        batchDurationMs = performance.now() - batchStartedAt;
+        return result;
+      },
+      signal
+    );
+    if (result.deletedCount > 0) {
+      logger.info(
+        `Cleared batch of ${label} (${result.deletedCount} documents) in ${Math.round(batchDurationMs)}ms, continuing...`
+      );
+    }
+    if (result.deletedCount === 0 || !hasMore) {
+      return;
+    }
+    await timers.setTimeout(batchDurationMs / 5);
+  }
+}
+
 export const createPaginatedConnectionQuery = async <T extends mongo.Document>(
   query: mongo.Filter<T>,
   collection: mongo.Collection<T>,
