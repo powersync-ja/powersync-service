@@ -352,8 +352,8 @@ export async function clearCollectionInIdBatches<T extends mongo.Document>(
   collection: mongo.Collection<T>,
   filter: mongo.Filter<T>,
   signal?: AbortSignal
-): Promise<void> {
-  await clearCollectionInBatches(
+): Promise<number> {
+  return clearCollectionInBatches(
     logger,
     label,
     async (batchSize) => {
