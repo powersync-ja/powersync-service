@@ -312,9 +312,15 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       // It is important to be able to continue running the refresh loop, otherwise we cannot
       // retry locked replication stream, for example.
       const syncRuleStorage = this.storage.getInstance(replicationStream, { skipLifecycleHooks: true });
-      const promise = this.terminateSyncRules(syncRuleStorage)
+      const promise = this.terminateStoppedReplicationStream(replicationStream, syncRuleStorage)
         .catch((e) => {
-          syncRuleStorage.logger.warn(`Failed clean up replication config`, e);
+          if (e?.errorData?.code === ErrorCode.PSYNC_S1003) {
+            this.logReplicationStreamInfoOnce(replicationStream, 'replication-stream-cleanup-locked', () => {
+              replicationStream.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
+            });
+          } else {
+            syncRuleStorage.logger.warn(`Failed clean up replication config`, e);
+          }
         })
         .finally(() => {
           this.clearingJobs.delete(replicationStream.replicationStreamId);
@@ -368,6 +374,19 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   protected createJobId(syncRuleId: number) {
     return `${this.id}-${syncRuleId}`;
+  }
+
+  private async terminateStoppedReplicationStream(
+    replicationStream: storage.PersistedReplicationStream,
+    syncRuleStorage: storage.SyncRulesBucketStorage
+  ) {
+    const lock = await replicationStream.lock();
+    this.clearReplicationStreamInfoLog(replicationStream, 'replication-stream-cleanup-locked');
+    try {
+      await this.terminateSyncRules(syncRuleStorage);
+    } finally {
+      await lock.release();
+    }
   }
 
   protected async terminateSyncRules(syncRuleStorage: storage.SyncRulesBucketStorage) {
