@@ -218,7 +218,6 @@ describe('S3 compaction storage lifecycle', () => {
       await writer.commit(`${i}/1`);
     }
 
-    const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
@@ -227,6 +226,7 @@ describe('S3 compaction storage lifecycle', () => {
     expect(docsBefore).toHaveLength(12);
 
     const maxOpId = docsBefore[5]._id.o;
+    const readCheckpoint = test_utils.testCheckpoint(docsBefore[docsBefore.length - 1]._id.o);
     const lowerPaths = new Set(docsBefore.slice(0, 6).map((doc) => doc.storage_ref!.path));
     const upperPaths = new Set(docsBefore.slice(6).map((doc) => doc.storage_ref!.path));
 
@@ -258,9 +258,8 @@ describe('S3 compaction storage lifecycle', () => {
     // Retired objects remain readable during the reference grace period.
     expect([...lowerPaths].every((path) => memoryStorage.store.has(path))).toBe(true);
 
-    const data = test_utils.getBatchData(
-      await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]))
-    );
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(readCheckpoint, [request]));
+    const data = batch.flatMap((chunk) => chunk.chunkData.data);
     expect(data).toHaveLength(12);
     for (let i = 7; i <= 12; i++) {
       const letter = String.fromCharCode(64 + i);
@@ -407,7 +406,7 @@ describe('S3 compaction storage lifecycle', () => {
     // The replacement object is readable and contains the expected compacted
     // operation sequence.
     const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
-    const dataAfter = test_utils.getBatchData(batchAfter);
+    const dataAfter = batchAfter.flatMap((chunk) => chunk.chunkData.data);
     expect(dataAfter).toMatchObject([
       { op: 'MOVE' },
       { object_id: 'B', op: 'PUT' },
