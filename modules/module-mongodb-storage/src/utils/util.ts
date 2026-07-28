@@ -217,9 +217,8 @@ export async function clearCollectionInIdRanges<T extends mongo.Document>(
           hasMore = true;
           const idRange: mongo.FilterOperators<mongo.InferIdType<T>> = {
             ...filter._id,
-            $lte: batchEnd._id
+            $lt: batchEnd._id
           };
-          delete idRange.$lt;
           result = await collection.deleteMany(
             {
               ...filter,
