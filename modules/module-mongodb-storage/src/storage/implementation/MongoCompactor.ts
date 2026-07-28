@@ -1,3 +1,5 @@
+import * as timers from 'node:timers/promises';
+
 import { isMongoServerError, mongo, MONGO_OPERATION_TIMEOUT_MS } from '@powersync/lib-service-mongodb';
 import {
   logger as defaultLogger,
@@ -21,6 +23,7 @@ import type { VersionedPowerSyncMongo } from './db.js';
 import { BucketStateDocumentBase } from './models.js';
 import type { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
+import { isRetryableObjectStorageError } from './v3/object-storage/ObjectStorage.js';
 
 interface CurrentBucketState {
   /** Bucket name */
@@ -69,6 +72,15 @@ const DEFAULT_MIN_CHANGE_RATIO = 0.1;
 const DIRTY_BUCKET_SCAN_BATCH_SIZE = 2_000;
 /** This default is primarily for tests. */
 const DEFAULT_MEMORY_LIMIT_MB = 64;
+const COMPACTION_RETRY_LIMIT = 3;
+const COMPACTION_RETRY_DELAY_MS = 1_000;
+
+export class ConcurrentCompactionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConcurrentCompactionError';
+  }
+}
 
 export interface DirtyBucket {
   bucket: string;
@@ -331,23 +343,45 @@ export abstract class MongoCompactor {
   /**
    * Compaction for a single bucket, with retries on failure.
    *
-   * This covers against occasional network or other database errors during a long compact job.
+   * A compaction can race another compactor after its initial scan. Restarting
+   * the bucket is safe because each replacement is transactional. Object
+   * storage paths are also prepared with lifecycle markers, so a retry can
+   * safely overwrite or eventually clean up uploads from the failed attempt.
    */
   protected async compactSingleBucketRetried(bucket: string, definitionId: BucketDefinitionId | null = null) {
     let retryCount = 0;
-    // Retry with exponential backoff up to 3 times on MongoDB errors.
     while (true) {
+      this.signal?.throwIfAborted();
+      // Do not carry queued writes from a failed attempt into the rescan.
+      this.updates = [];
+      this.bucketStateUpdates = [];
       try {
         await this.compactSingleBucket(bucket, definitionId);
-        break;
+        return;
       } catch (e) {
-        if (retryCount < 3 && isMongoServerError(e)) {
-          this.logger.warn(`Error compacting bucket ${bucket}, retrying...`, e);
-          retryCount++;
-          await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount));
-        } else {
+        if (this.signal?.aborted) {
           throw e;
         }
+
+        const retryReason = compactionRetryReason(e);
+        if (retryReason == null) {
+          throw e;
+        }
+        if (retryCount >= COMPACTION_RETRY_LIMIT) {
+          throw new Error(
+            `Failed to compact bucket ${bucket} after ${retryCount + 1} attempts (${retryReason}): ${errorMessage(e)}`,
+            { cause: e }
+          );
+        }
+
+        retryCount++;
+        const delay = COMPACTION_RETRY_DELAY_MS * 2 ** (retryCount - 1);
+        this.logger.warn(
+          `Error compacting bucket ${bucket} (${retryReason}); retrying in ${delay}ms ` +
+            `(attempt ${retryCount + 1}/${COMPACTION_RETRY_LIMIT + 1})`,
+          e
+        );
+        await timers.setTimeout(delay, undefined, this.signal ? { signal: this.signal } : undefined);
       }
     }
   }
@@ -512,12 +546,15 @@ export abstract class MongoCompactor {
     }
 
     // Do this after clearBucket so we have accurate counts.
-    this.updateBucketChecksums(currentState);
+    this.updateBucketChecksums(currentState, this.maxOpId);
     // Need another flush after updateBucketChecksums().
     await this.flush(bucketContext);
   }
 
-  protected collectBucketStateUpdates(state: CurrentBucketState): mongo.AnyBulkWriteOperation<BucketStateDocumentBase> {
+  protected collectBucketStateUpdates(
+    state: CurrentBucketState,
+    compactedOpId: InternalOpId
+  ): mongo.AnyBulkWriteOperation<BucketStateDocumentBase> {
     if (state.opCount < 0) {
       throw new ServiceAssertionError(
         `Invalid opCount: ${state.opCount} checksum ${state.checksum} opsSincePut: ${state.opsSincePut} maxOpId: ${this.maxOpId}`
@@ -529,7 +566,7 @@ export abstract class MongoCompactor {
         update: {
           $set: {
             compacted_state: {
-              op_id: this.maxOpId,
+              op_id: compactedOpId,
               count: state.opCount,
               checksum: BigInt(state.checksum),
               bytes: state.opBytes
@@ -549,8 +586,8 @@ export abstract class MongoCompactor {
     };
   }
 
-  protected updateBucketChecksums(state: CurrentBucketState) {
-    this.bucketStateUpdates.push(this.collectBucketStateUpdates(state));
+  protected updateBucketChecksums(state: CurrentBucketState, compactedOpId: InternalOpId) {
+    this.bucketStateUpdates.push(this.collectBucketStateUpdates(state, compactedOpId));
   }
 
   protected async flush(col: SingleBucketStore) {
@@ -736,4 +773,21 @@ export abstract class MongoCompactor {
 export interface BucketDataCollectionContext<TBucketData extends mongo.Document> {
   bucketKey: BucketKey;
   collection: mongo.Collection<TBucketData>;
+}
+
+function compactionRetryReason(error: unknown): string | null {
+  if (error instanceof ConcurrentCompactionError) {
+    return 'concurrent compaction';
+  }
+  if (isRetryableObjectStorageError(error)) {
+    return 'transient object storage failure';
+  }
+  if (isMongoServerError(error)) {
+    return 'MongoDB failure';
+  }
+  return null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
