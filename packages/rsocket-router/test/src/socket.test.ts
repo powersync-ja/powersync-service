@@ -118,6 +118,39 @@ describe('Sockets', () => {
     await vi.waitFor(() => expect(rawSocket.readyState).equals(rawSocket.CLOSED), { timeout: 3000 });
   });
 
+  it('should handle WebSocket protocol errors before the initial frame', async () => {
+    const transport = new WebsocketServerTransport({
+      wsCreator: () => server
+    });
+
+    const rSocketServer = new RSocketServer({
+      transport,
+      acceptor: {
+        accept: async () => {
+          return {};
+        }
+      }
+    });
+
+    await rSocketServer.bind();
+
+    const client = new WebSocket.WebSocket(WS_ADDRESS);
+    client.on('error', () => {});
+    await new Promise<void>((resolve) => {
+      client.once('open', () => resolve());
+    });
+
+    const closed = new Promise<number>((resolve) => {
+      client.once('close', (code) => resolve(code));
+    });
+
+    // FIN + RSV2 + RSV3 + text opcode, followed by an empty masked payload.
+    const invalidFrame = Buffer.from([0b1011_0001, 0b1000_0000, 0x00, 0x00, 0x00, 0x00]);
+    (client as any)._socket.write(invalidFrame);
+
+    expect(await closed).toEqual(1002);
+  });
+
   /**
    * The server should handle cases where the client closes the WebSocket connection
    * at any point in the handshaking process. This test will create 100 connections which
