@@ -22,7 +22,7 @@ const SAFE_S3_KEY_BYTES = 896;
 
 export interface S3ObjectStorageOptions {
   bucket: string;
-  region: string;
+  region?: string;
   prefix?: string;
   endpoint?: string;
   accessKeyId?: string;
