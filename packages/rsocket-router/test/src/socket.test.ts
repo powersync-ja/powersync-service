@@ -11,13 +11,13 @@ let nextPort = 5433;
 
 describe('Sockets', () => {
   let server: WebSocket.WebSocketServer;
-  let closeServer: () => void;
+  let closeServer: () => Promise<void>;
 
   let WS_PORT = 0;
   let WS_ADDRESS = '';
 
   beforeEach(() => {
-    let closed = false;
+    let closePromise: Promise<void> | undefined;
 
     WS_PORT = process.env.WS_PORT ? parseInt(process.env.WS_PORT) : nextPort++;
     WS_ADDRESS = `ws://localhost:${WS_PORT}`;
@@ -32,16 +32,20 @@ describe('Sockets', () => {
      * after each test. This method should prevent double closing.
      */
     closeServer = () => {
-      if (closed) {
-        return;
-      }
-      server.close();
-      closed = true;
+      return (closePromise ??= new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve();
+          }
+        });
+      }));
     };
   });
 
-  afterEach(() => {
-    closeServer();
+  afterEach(async () => {
+    await closeServer();
   });
 
   it('should only not close a server that is managed externally', async () => {
@@ -69,8 +73,7 @@ describe('Sockets', () => {
 
     // This will be triggered externally when the HTTP(s) server closes
     // linked to the internal WS server.
-    closeServer();
-    await isClosedPromise;
+    await Promise.all([closeServer(), isClosedPromise]);
     expect(closeableSpy).toBeCalledTimes(1);
   });
 
