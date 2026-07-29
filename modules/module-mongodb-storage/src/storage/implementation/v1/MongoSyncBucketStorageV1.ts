@@ -229,7 +229,8 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
       {
         _id: idPrefixFilter<BucketDataKeyV1>({ g: this.replicationStreamId }, ['b', 'o'])
       },
-      signal
+      signal,
+      this.clearBatchThrottleRate
     );
   }
 
@@ -241,7 +242,8 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
       {
         'key.g': this.replicationStreamId
       },
-      signal
+      signal,
+      this.clearBatchThrottleRate
     );
   }
 
@@ -253,7 +255,8 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
       {
         _id: idPrefixFilter<SourceKey>({ g: this.replicationStreamId }, ['t', 'k'])
       },
-      signal
+      signal,
+      this.clearBatchThrottleRate
     );
   }
 
@@ -265,7 +268,8 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
       {
         _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.replicationStreamId }, ['b'])
       },
-      signal
+      signal,
+      this.clearBatchThrottleRate
     );
   }
 

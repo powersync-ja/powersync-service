@@ -26,6 +26,7 @@ import { HydratedSyncConfig, ParameterLookupRows, ScopedParameterLookup } from '
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
+import { DEFAULT_CLEAR_BATCH_THROTTLE_RATE } from '../../types/types.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
@@ -41,6 +42,7 @@ export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   readPreference?: mongo.ReadPreference;
   checksumCacheTtlMs?: number;
+  clearBatchThrottleRate?: number;
   storageConfig: StorageConfig;
 }
 
@@ -82,6 +84,7 @@ export abstract class MongoSyncBucketStorage
   public readonly logger: Logger;
   public readonly storageConfig: StorageConfig;
   public readonly readPreference: mongo.ReadPreference | undefined;
+  public readonly clearBatchThrottleRate: number;
   #storageInitialized = false;
 
   constructor(
@@ -95,6 +98,7 @@ export abstract class MongoSyncBucketStorage
     super();
     this.storageConfig = options.storageConfig;
     this.readPreference = options.readPreference;
+    this.clearBatchThrottleRate = options.clearBatchThrottleRate ?? DEFAULT_CLEAR_BATCH_THROTTLE_RATE;
     this.db = factory.db.versioned(this.storageConfig);
     this.checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({

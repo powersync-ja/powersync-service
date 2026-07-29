@@ -34,6 +34,7 @@ export interface MongoStoppedSyncConfigCleanupOptions extends storage.CleanupSto
   replicationStreamId: number;
   db: VersionedPowerSyncMongoV3;
   logger: Logger;
+  clearBatchThrottleRate: number;
 }
 
 export class MongoStoppedSyncConfigCleanup {
@@ -43,6 +44,7 @@ export class MongoStoppedSyncConfigCleanup {
   private readonly logger: Logger;
   private readonly defaultSchema: string;
   private readonly sourceConnectionTag: string;
+  private readonly clearBatchThrottleRate: number;
 
   constructor(options: MongoStoppedSyncConfigCleanupOptions) {
     this.db = options.db;
@@ -51,6 +53,7 @@ export class MongoStoppedSyncConfigCleanup {
     this.logger = options.logger;
     this.defaultSchema = options.defaultSchema;
     this.sourceConnectionTag = options.sourceConnectionTag;
+    this.clearBatchThrottleRate = options.clearBatchThrottleRate;
   }
 
   async run(): Promise<storage.CleanupStoppedSyncConfigsResult> {
@@ -400,7 +403,8 @@ export class MongoStoppedSyncConfigCleanup {
         {
           _id: idPrefixFilter<BucketStateDocumentV3['_id']>({ d: definitionId }, ['b'])
         },
-        this.signal
+        this.signal,
+        this.clearBatchThrottleRate
       );
     }
     return deletedCount;

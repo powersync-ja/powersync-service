@@ -7,6 +7,7 @@ import * as crypto from 'crypto';
 import * as timers from 'node:timers/promises';
 import * as uuid from 'uuid';
 import { BucketDataDoc } from '../storage/implementation/common/BucketDataDoc.js';
+import { DEFAULT_CLEAR_BATCH_THROTTLE_RATE } from '../types/types.js';
 
 /**
  * Default and max batch size for clearing.
@@ -223,7 +224,8 @@ async function clearCollectionInBatches(
   logger: Logger,
   label: string,
   findAndDeleteBatch: (batchSize: number) => Promise<number>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  throttleRate = DEFAULT_CLEAR_BATCH_THROTTLE_RATE
 ): Promise<number> {
   let batchSize = CLEAR_BATCH_SIZE;
   let deletedCount = 0;
@@ -247,7 +249,7 @@ async function clearCollectionInBatches(
       } else if (batchDurationMs < CLEAR_BATCH_MIN_DURATION_MS) {
         batchSize = Math.min(CLEAR_BATCH_SIZE, batchSize * 2);
       }
-      await waitWithSignal(batchDurationMs / 5, signal, 'Aborted clearing data');
+      await waitWithSignal(batchDurationMs * throttleRate, signal, 'Aborted clearing data');
     } catch (error) {
       if (
         !lib_mongo.isMongoServerError(error) ||
@@ -270,7 +272,8 @@ export async function clearCollectionInIdRanges<T extends mongo.Document>(
   label: string,
   collection: mongo.Collection<T>,
   filter: ClearCollectionFilter<T>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  throttleRate = DEFAULT_CLEAR_BATCH_THROTTLE_RATE
 ): Promise<number> {
   return clearCollectionInBatches(
     logger,
@@ -309,7 +312,8 @@ export async function clearCollectionInIdRanges<T extends mongo.Document>(
       );
       return batchSize;
     },
-    signal
+    signal,
+    throttleRate
   );
 }
 
@@ -318,7 +322,8 @@ export async function clearCollectionInIdBatches<T extends mongo.Document>(
   label: string,
   collection: mongo.Collection<T>,
   filter: mongo.Filter<T>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  throttleRate = DEFAULT_CLEAR_BATCH_THROTTLE_RATE
 ): Promise<number> {
   return clearCollectionInBatches(
     logger,
@@ -346,7 +351,8 @@ export async function clearCollectionInIdBatches<T extends mongo.Document>(
       );
       return documents.length;
     },
-    signal
+    signal,
+    throttleRate
   );
 }
 

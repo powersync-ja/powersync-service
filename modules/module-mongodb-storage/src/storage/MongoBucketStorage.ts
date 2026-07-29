@@ -17,6 +17,7 @@ import {
   isCompatible
 } from '@powersync/service-core';
 import { ObjectId } from 'bson';
+import { DEFAULT_CLEAR_BATCH_THROTTLE_RATE } from '../types/types.js';
 import { generateReplicationStreamName } from '../utils/util.js';
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
@@ -37,6 +38,7 @@ export interface MongoBucketStorageOptions {
   readPreference?: mongo.ReadPreference;
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   checksumCacheTtlMs?: number;
+  clearBatchThrottleRate?: number;
   /**
    * Reuse a compatible active replication stream by appending a new sync config.
    *
@@ -95,6 +97,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         checksumOptions: this.options.checksumOptions,
         readPreference: this.options.readPreference,
         checksumCacheTtlMs: this.options.checksumCacheTtlMs,
+        clearBatchThrottleRate: this.options.clearBatchThrottleRate ?? DEFAULT_CLEAR_BATCH_THROTTLE_RATE,
         storageConfig
       }
     );
