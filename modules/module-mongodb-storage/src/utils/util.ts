@@ -8,9 +8,25 @@ import * as timers from 'node:timers/promises';
 import * as uuid from 'uuid';
 import { BucketDataDoc } from '../storage/implementation/common/BucketDataDoc.js';
 
+/**
+ * Default and max batch size for clearing.
+ */
 const CLEAR_BATCH_SIZE = 10_000;
-const CLEAR_BATCH_GROWTH_THRESHOLD_MS = lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 8;
+
+/**
+ * Minimum batch size for clearing when a batch takes too long.
+ */
 const CLEAR_MIN_BATCH_SIZE = 100;
+
+/**
+ * We target batch duration to stay between the min and max. If the druation is outside this range,
+ * we increase or decrease the batch size.
+ *
+ * MONGO_CLEAR_OPERATION_TIMEOUT_MS controls the absolute max of individual find and delete operations,
+ * but we try to avoid hitting that.
+ */
+const CLEAR_BATCH_MIN_DURATION_MS = 500;
+const CLEAR_BATCH_MAX_DURATION_MS = 2000;
 
 type ClearCollectionFilter<T extends mongo.Document> = mongo.Filter<T> & {
   _id: mongo.FilterOperators<mongo.InferIdType<T>>;
@@ -226,8 +242,11 @@ async function clearCollectionInBatches(
       if (foundBatchSize < batchSize) {
         return deletedCount;
       }
-      batchSize =
-        batchDurationMs < CLEAR_BATCH_GROWTH_THRESHOLD_MS ? Math.min(CLEAR_BATCH_SIZE, batchSize * 2) : batchSize;
+      if (batchDurationMs > CLEAR_BATCH_MAX_DURATION_MS) {
+        batchSize = Math.max(CLEAR_MIN_BATCH_SIZE, Math.floor(batchSize / 2));
+      } else if (batchDurationMs < CLEAR_BATCH_MIN_DURATION_MS) {
+        batchSize = Math.min(CLEAR_BATCH_SIZE, batchSize * 2);
+      }
       await waitWithSignal(batchDurationMs / 5, signal, 'Aborted clearing data');
     } catch (error) {
       if (
