@@ -33,42 +33,6 @@ async function waitWithSignal(delayMs: number, signal: AbortSignal | undefined, 
   }
 }
 
-async function findClearBatch<T>(
-  logger: Logger,
-  label: string,
-  initialBatchSize: number,
-  operation: (batchSize: number) => Promise<T>,
-  signal?: AbortSignal
-): Promise<{ result: T; batchSize: number; durationMs: number }> {
-  let batchSize = initialBatchSize;
-  while (true) {
-    throwIfClearAborted(signal);
-    const startedAt = performance.now();
-    try {
-      const result = await operation(batchSize);
-      const durationMs = performance.now() - startedAt;
-      return {
-        result,
-        batchSize,
-        durationMs
-      };
-    } catch (error) {
-      if (
-        !lib_mongo.isMongoServerError(error) ||
-        error.codeName !== 'MaxTimeMSExpired' ||
-        batchSize == CLEAR_MIN_BATCH_SIZE
-      ) {
-        throw error;
-      }
-      const nextBatchSize = Math.max(CLEAR_MIN_BATCH_SIZE, Math.floor(batchSize / 2));
-      logger.info(
-        `Finding batch of ${label} timed out with batch size ${batchSize}, retrying with ${nextBatchSize}...`
-      );
-      batchSize = nextBatchSize;
-    }
-  }
-}
-
 export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.FilterOperators<T> {
   let filter = {
     $gte: {
@@ -239,56 +203,46 @@ export async function clearDeleteMany(
   });
 }
 
-interface ClearBatch<T> {
-  value: T;
-  hasMore: boolean;
-}
-
-async function clearCollectionInBatches<T>(
+async function clearCollectionInBatches(
   logger: Logger,
   label: string,
-  findBatch: (batchSize: number) => Promise<ClearBatch<T> | null>,
-  deleteBatch: (batch: T) => Promise<mongo.DeleteResult>,
+  findAndDeleteBatch: (batchSize: number) => Promise<number>,
   signal?: AbortSignal
 ): Promise<number> {
   let batchSize = CLEAR_BATCH_SIZE;
   let deletedCount = 0;
   while (true) {
-    const found = await findClearBatch(logger, label, batchSize, findBatch, signal);
     throwIfClearAborted(signal);
-
-    const batch = found.result;
-    if (batch == null) {
-      return deletedCount;
-    }
-
-    let deleteDurationMs = 0;
-    const result = await clearDeleteMany(
-      logger,
-      label,
-      async () => {
-        const deleteStartedAt = performance.now();
-        const result = await deleteBatch(batch.value);
-        deleteDurationMs = performance.now() - deleteStartedAt;
-        return result;
-      },
-      signal
-    );
-    const batchDurationMs = found.durationMs + deleteDurationMs;
-    deletedCount += result.deletedCount;
-    if (result.deletedCount > 0) {
+    try {
+      const batchStartedAt = performance.now();
+      const foundBatchSize = await findAndDeleteBatch(batchSize);
+      const batchDurationMs = performance.now() - batchStartedAt;
+      deletedCount += foundBatchSize;
+      if (foundBatchSize > 0) {
+        logger.info(
+          `Cleared batch of ${label} (${foundBatchSize} documents) in ${Math.round(batchDurationMs)}ms, continuing...`
+        );
+      }
+      if (foundBatchSize < batchSize) {
+        return deletedCount;
+      }
+      batchSize =
+        batchDurationMs < CLEAR_BATCH_GROWTH_THRESHOLD_MS ? Math.min(CLEAR_BATCH_SIZE, batchSize * 2) : batchSize;
+      await waitWithSignal(batchDurationMs / 5, signal, 'Aborted clearing data');
+    } catch (error) {
+      if (
+        !lib_mongo.isMongoServerError(error) ||
+        error.codeName !== 'MaxTimeMSExpired' ||
+        batchSize == CLEAR_MIN_BATCH_SIZE
+      ) {
+        throw error;
+      }
+      const nextBatchSize = Math.max(CLEAR_MIN_BATCH_SIZE, Math.floor(batchSize / 2));
       logger.info(
-        `Cleared batch of ${label} (${result.deletedCount} documents) in ${Math.round(batchDurationMs)}ms, continuing...`
+        `Clearing batch of ${label} timed out with batch size ${batchSize}, retrying find and delete with ${nextBatchSize}...`
       );
+      batchSize = nextBatchSize;
     }
-    if (!batch.hasMore) {
-      return deletedCount;
-    }
-    batchSize =
-      batchDurationMs < CLEAR_BATCH_GROWTH_THRESHOLD_MS
-        ? Math.min(CLEAR_BATCH_SIZE, found.batchSize * 2)
-        : found.batchSize;
-    await waitWithSignal(batchDurationMs / 5, signal, 'Aborted clearing data');
   }
 }
 
@@ -313,30 +267,28 @@ export async function clearCollectionInIdRanges<T extends mongo.Document>(
         .skip(batchSize)
         .limit(1)
         .toArray();
-      return {
-        value: batchEnd,
-        hasMore: batchEnd != null
-      };
-    },
-    async (batchEnd) => {
+      throwIfClearAborted(signal);
+
       if (batchEnd == null) {
         // We're on the last batch
-        return collection.deleteMany(filter, {
+        const result = await collection.deleteMany(filter, {
           maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS
         });
+        return result.deletedCount;
       }
 
       const idRange: mongo.FilterOperators<mongo.InferIdType<T>> = {
         ...filter._id,
         $lt: batchEnd._id
       };
-      return collection.deleteMany(
+      await collection.deleteMany(
         {
           ...filter,
           _id: idRange
         } as mongo.Filter<T>,
         { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
       );
+      return batchSize;
     },
     signal
   );
@@ -360,16 +312,12 @@ export async function clearCollectionInIdBatches<T extends mongo.Document>(
         })
         .limit(batchSize)
         .toArray();
+      throwIfClearAborted(signal);
+
       if (documents.length === 0) {
-        return null;
+        return 0;
       }
-      return {
-        value: documents,
-        hasMore: documents.length === batchSize
-      };
-    },
-    async (documents) => {
-      return collection.deleteMany(
+      await collection.deleteMany(
         {
           _id: {
             $in: documents.map((document) => document._id)
@@ -377,6 +325,7 @@ export async function clearCollectionInIdBatches<T extends mongo.Document>(
         } as mongo.Filter<T>,
         { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
       );
+      return documents.length;
     },
     signal
   );
