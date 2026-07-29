@@ -39,6 +39,7 @@ export function createS3TestStorageSuite(options: S3TestFactoryOptions) {
       region: 'us-east-1',
       prefix: `test-${process.pid}-${randomUUID()}`,
       endpoint: minioEndpoint,
+      forcePathStyle: true,
       accessKeyId: process.env.MINIO_ACCESS_KEY ?? 'minioadmin',
       secretAccessKey: process.env.MINIO_SECRET_KEY ?? 'minioadmin'
     });

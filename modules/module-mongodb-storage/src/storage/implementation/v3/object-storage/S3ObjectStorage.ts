@@ -22,9 +22,10 @@ const SAFE_S3_KEY_BYTES = 896;
 
 export interface S3ObjectStorageOptions {
   bucket: string;
-  region: string;
+  region?: string;
   prefix?: string;
   endpoint?: string;
+  forcePathStyle?: boolean;
   accessKeyId?: string;
   secretAccessKey?: string;
   concurrencyLimit?: number;
@@ -62,7 +63,7 @@ export class S3ObjectStorage implements ObjectStorage {
     this.client = new S3Client({
       region: options.region,
       endpoint: options.endpoint,
-      forcePathStyle: !!options.endpoint,
+      forcePathStyle: options.forcePathStyle,
       credentials:
         options.accessKeyId && options.secretAccessKey
           ? { accessKeyId: options.accessKeyId, secretAccessKey: options.secretAccessKey }

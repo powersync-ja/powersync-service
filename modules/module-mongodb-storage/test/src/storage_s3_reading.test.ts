@@ -40,6 +40,7 @@ describe('S3 object storage reads', () => {
       region: 'test',
       accessKeyId: 'access-key',
       secretAccessKey: 'secret-key',
+      forcePathStyle: true,
       concurrencyLimit: 4
     });
 

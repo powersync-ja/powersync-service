@@ -5,9 +5,10 @@ import * as t from 'ts-codec';
 const S3ObjectStorageConfig = t.object({
   type: t.literal('s3'),
   bucket: t.string,
-  region: t.string,
+  region: t.string.optional(),
   prefix: t.string.optional(),
   endpoint: t.string.optional(),
+  force_path_style: t.boolean.optional(),
   access_key_id: t.string.optional(),
   secret_access_key: t.string.optional(),
   concurrency_limit: t.number.optional(),
