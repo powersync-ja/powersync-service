@@ -240,6 +240,10 @@ async function clearCollectionInBatches(
         `Clearing batch of ${label} timed out with batch size ${batchSize}, retrying find and delete with ${nextBatchSize}...`
       );
       batchSize = nextBatchSize;
+
+      // Pause for at least the equivalent of one query timeout before retrying, since the cause may be high database load.
+      const pauseDuration = Math.max(throttleRate, 1.0) * lib_mongo.MONGO_CLEAR_OPERATION_TIMEOUT_MS;
+      await waitWithSignal(pauseDuration, signal, 'Aborted clearing data');
     }
   }
 }
