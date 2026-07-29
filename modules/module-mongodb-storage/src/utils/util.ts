@@ -191,7 +191,7 @@ export async function retryOnMongoMaxTimeMSExpired<T>(
     try {
       return await operation();
     } catch (e) {
-      if (!lib_mongo.isMongoServerError(e) || e.codeName !== 'MaxTimeMSExpired') {
+      if (!lib_mongo.isMaxTimeMSExpiredError(e)) {
         throw e;
       }
       retryCount += 1;
@@ -199,25 +199,6 @@ export async function retryOnMongoMaxTimeMSExpired<T>(
       await waitWithSignal(options.retryDelayMs, options.signal, options.abortMessage ?? 'Aborted MongoDB operation');
     }
   }
-}
-
-export async function clearDeleteMany(
-  logger: Logger,
-  label: string,
-  operation: () => Promise<mongo.DeleteResult>,
-  signal?: AbortSignal
-): Promise<mongo.DeleteResult> {
-  return retryOnMongoMaxTimeMSExpired(operation, {
-    signal,
-    abortMessage: 'Aborted clearing data',
-    // This is a fairly long delay - only expected to hit this when the storage database is under high load.
-    retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
-    onRetry: () => {
-      logger.info(
-        `Clearing batch of ${label} timed out after ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, retrying...`
-      );
-    }
-  });
 }
 
 async function clearCollectionInBatches(
@@ -251,11 +232,7 @@ async function clearCollectionInBatches(
       }
       await waitWithSignal(batchDurationMs * throttleRate, signal, 'Aborted clearing data');
     } catch (error) {
-      if (
-        !lib_mongo.isMongoServerError(error) ||
-        error.codeName !== 'MaxTimeMSExpired' ||
-        batchSize == CLEAR_MIN_BATCH_SIZE
-      ) {
+      if (!lib_mongo.isTimeoutError(error) || batchSize == CLEAR_MIN_BATCH_SIZE) {
         throw error;
       }
       const nextBatchSize = Math.max(CLEAR_MIN_BATCH_SIZE, Math.floor(batchSize / 2));

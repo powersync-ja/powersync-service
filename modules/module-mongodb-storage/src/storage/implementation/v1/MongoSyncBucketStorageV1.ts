@@ -19,10 +19,10 @@ import * as bson from 'bson';
 import {
   clearCollectionInIdBatches,
   clearCollectionInIdRanges,
-  clearDeleteMany,
   idPrefixFilter,
   mapOpEntry,
   readSingleBatch,
+  retryOnMongoMaxTimeMSExpired,
   setSessionSnapshotTime
 } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
@@ -274,9 +274,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   }
 
   protected async clearSourceTables(signal?: AbortSignal): Promise<void> {
-    await clearDeleteMany(
-      this.logger,
-      'source tables',
+    await retryOnMongoMaxTimeMSExpired(
       () =>
         this.db.sourceTablesV1(this.replicationStreamId).deleteMany(
           {
@@ -284,7 +282,17 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
           },
           { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
         ),
-      signal
+      {
+        signal,
+        abortMessage: 'Aborted clearing data',
+        // This is a fairly long delay - only expected to hit this when the storage database is under high load.
+        retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
+        onRetry: () => {
+          this.logger.info(
+            `Clearing batch of source tables timed out after ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, retrying...`
+          );
+        }
+      }
     );
   }
 
