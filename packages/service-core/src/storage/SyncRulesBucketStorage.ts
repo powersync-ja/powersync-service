@@ -403,6 +403,9 @@ export interface TerminateOptions extends ClearStorageOptions {
 export interface BucketDataBatchOptions {
   requestHint?: BucketRequestHint;
 
+  /** Abort any in-progress work for this batch, including object-storage downloads. */
+  signal?: AbortSignal;
+
   /** Limit number of documents returned. Defaults to 1000. */
   limit?: number;
 

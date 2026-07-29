@@ -28,6 +28,7 @@ import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { DEFAULT_CLEAR_BATCH_THROTTLE_RATE } from '../../types/types.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
+import { DEFAULT_INLINE_THRESHOLD_BYTES } from './common/PersistedBatch.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
@@ -37,6 +38,7 @@ import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import { MongoPersistedReplicationStream } from './MongoPersistedReplicationStream.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
+import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
@@ -44,6 +46,8 @@ export interface MongoSyncBucketStorageOptions {
   checksumCacheTtlMs?: number;
   clearBatchThrottleRate?: number;
   storageConfig: StorageConfig;
+  objectStorage?: ObjectStorage;
+  inlineThresholdBytes?: number;
 }
 
 interface InternalCheckpointChanges extends CheckpointChanges {
@@ -72,6 +76,9 @@ export abstract class MongoSyncBucketStorage
 
   readonly checksums: MongoChecksums;
 
+  readonly objectStorage?: ObjectStorage;
+  readonly inlineThresholdBytes: number;
+
   /**
    * Canonical parsed sync config sets, keyed by defaultSchema.
    *
@@ -97,6 +104,10 @@ export abstract class MongoSyncBucketStorage
   ) {
     super();
     this.storageConfig = options.storageConfig;
+    this.objectStorage = options.objectStorage;
+    // Keep small chunks inline in MongoDB rather than offloading them to S3.
+    // Configurable via object_storage.inline_threshold_bytes.
+    this.inlineThresholdBytes = options.inlineThresholdBytes ?? DEFAULT_INLINE_THRESHOLD_BYTES;
     this.readPreference = options.readPreference;
     this.clearBatchThrottleRate = options.clearBatchThrottleRate ?? DEFAULT_CLEAR_BATCH_THROTTLE_RATE;
     this.db = factory.db.versioned(this.storageConfig);
@@ -223,7 +234,9 @@ export abstract class MongoSyncBucketStorage
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable,
       hooks: options.hooks,
-      tracer: options.tracer
+      tracer: options.tracer,
+      objectStorage: this.objectStorage,
+      inlineThresholdBytes: this.inlineThresholdBytes
     };
   }
 
