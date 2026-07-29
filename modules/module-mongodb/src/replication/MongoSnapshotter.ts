@@ -99,6 +99,9 @@ export class MongoSnapshotter {
     this.abortSignal.addEventListener('abort', () => {
       this.nextItemQueued?.resolve();
     });
+
+    // Errors here should not result in uncaught rejection - calling waitForInitialSnapshot is optional.
+    void this.initialSnapshotDone.promise.catch(() => {});
   }
 
   private get usePostImages() {
