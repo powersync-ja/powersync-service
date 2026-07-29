@@ -3,18 +3,17 @@ import { logger, ReplicationAssertionError, ServiceAssertionError } from '@power
 import { addChecksums, storage, utils } from '@powersync/service-core';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
-import { BucketDataDocumentGeneric } from '../common/SingleBucketStore.js';
 import { BucketDataKey, BucketStateDocumentBase } from '../models.js';
 import { ConcurrentCompactionError, DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { cacheKey } from '../OperationBatch.js';
 import { loadBucketDataDocument, serializeBucketData } from './bucket-format.js';
+import { BucketDataContextV3 } from './BucketDataContextV3.js';
 import { DEFAULT_MAX_DOC_SIZE_BYTES } from './chunking.js';
 import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
 import { DefinitionChecksumOperations, MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { BucketDataObjectStorage, hydrateBucketDataDocuments } from './object-storage/BucketDataObjectStorage.js';
 import { ObjectStorageLifecycle, PreparedObjectStorageUpload } from './object-storage/ObjectStorageLifecycle.js';
-import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 interface PendingCompactionGroup {
@@ -173,10 +172,10 @@ export class MongoCompactorV3 extends MongoCompactor {
     };
   }
 
-  protected async getBucketDataContext(
+  private async getBucketDataContext(
     bucket: string,
     definitionId: BucketDefinitionId | null
-  ): Promise<SingleBucketStoreV3 | null> {
+  ): Promise<BucketDataContextV3 | null> {
     let resolvedDefinitionId = definitionId;
 
     if (resolvedDefinitionId == null) {
@@ -196,7 +195,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       return null;
     }
 
-    return new SingleBucketStoreV3(this.db, {
+    return new BucketDataContextV3(this.db, {
       bucket,
       definitionId: resolvedDefinitionId,
       replicationStreamId: this.group_id
@@ -436,7 +435,7 @@ export class MongoCompactorV3 extends MongoCompactor {
   private async flushCompactionGroup(
     bucket: string,
     group: PendingCompactionGroup,
-    bucketContext: SingleBucketStoreV3,
+    bucketContext: BucketDataContextV3,
     context: { replicationStreamId: number; definitionId: string }
   ): Promise<BucketDataKey> {
     if (group.inputs.length == 1 && !group.changed) {
@@ -457,7 +456,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     bucket: string,
     inputs: BucketDataDocumentV3[],
     chunks: BucketDataDoc[][],
-    bucketContext: SingleBucketStoreV3,
+    bucketContext: BucketDataContextV3,
     context: { replicationStreamId: number; definitionId: string }
   ): Promise<BucketDataDocumentV3[]> {
     const idsToDelete = inputs.map((doc) => doc._id);
@@ -498,8 +497,8 @@ export class MongoCompactorV3 extends MongoCompactor {
             );
           }
 
-          await bucketContext.collection.deleteMany({ _id: { $in: idsToDelete } } as any, { session });
-          await bucketContext.collection.insertMany(documents as unknown as BucketDataDocumentGeneric[], { session });
+          await bucketContext.collection.deleteMany({ _id: { $in: idsToDelete } }, { session });
+          await bucketContext.collection.insertMany(documents, { session });
           await this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, uploads, session);
         },
         {
@@ -524,7 +523,7 @@ export class MongoCompactorV3 extends MongoCompactor {
   private async clearBucketLeading(
     lastNotPut: bigint,
     boundaryDocId: BucketDataKey,
-    bucketContext: SingleBucketStoreV3,
+    bucketContext: BucketDataContextV3,
     collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
     context: { replicationStreamId: number; definitionId: string }
   ): Promise<number> {
@@ -568,7 +567,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     session: mongo.ClientSession,
     lastNotPut: bigint,
     boundaryDocId: BucketDataKey,
-    bucketContext: SingleBucketStoreV3,
+    bucketContext: BucketDataContextV3,
     collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
     context: { replicationStreamId: number; definitionId: string }
   ): Promise<{ done: boolean; opCountDiff: number }> {
@@ -687,7 +686,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     session: mongo.ClientSession,
     lastNotPut: bigint,
     boundaryDocId: BucketDataKey,
-    bucketContext: SingleBucketStoreV3,
+    bucketContext: BucketDataContextV3,
     collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
     context: { replicationStreamId: number; definitionId: string }
   ): Promise<number> {
