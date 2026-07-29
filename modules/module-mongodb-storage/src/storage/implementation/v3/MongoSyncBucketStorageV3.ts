@@ -454,7 +454,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       logger: options.logger ?? this.logger,
       defaultSchema: options.defaultSchema,
       sourceConnectionTag: options.sourceConnectionTag,
-      objectStorage: this.objectStorage
+      objectStorage: this.objectStorage,
+      clearBatchThrottleRate: this.clearBatchThrottleRate
     }).run();
   }
 

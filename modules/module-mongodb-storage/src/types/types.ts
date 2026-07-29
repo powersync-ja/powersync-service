@@ -1,4 +1,5 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
 
@@ -36,6 +37,16 @@ export const MongoStorageConfig = lib_mongo.BaseMongoConfig.and(
      * This is an experimental option, and may be removed in a future release.
      */
     bulk_read_preference: MongoStorageReadPreference.optional(),
+    /**
+     * Throttle clear operations after sync config deploys, by pausing between batches.
+     * The rate produces a pause proportional to the previous batch duration.
+     *
+     * Increase this to reduce impact of clear operations on the storage cluster.
+     * Use 0 to clear as fast as possible.
+     *
+     * Defaults to 0.2.
+     */
+    clear_batch_throttle_rate: t.number.optional(),
 
     object_storage: S3ObjectStorageConfig.optional()
   })
@@ -43,6 +54,19 @@ export const MongoStorageConfig = lib_mongo.BaseMongoConfig.and(
 
 export type MongoStorageConfig = t.Encoded<typeof MongoStorageConfig>;
 export type MongoStorageConfigDecoded = t.Decoded<typeof MongoStorageConfig>;
+
+export const DEFAULT_CLEAR_BATCH_THROTTLE_RATE = 0.2;
+
+export function normalizeClearBatchThrottleRate(value: number | undefined): number {
+  const rate = value ?? DEFAULT_CLEAR_BATCH_THROTTLE_RATE;
+  if (!Number.isFinite(rate) || rate < 0 || rate > 20) {
+    throw new ServiceError(
+      ErrorCode.PSYNC_S3201,
+      'storage.clear_batch_throttle_rate must be a finite number between 0 and 20'
+    );
+  }
+  return rate;
+}
 
 export function isMongoStorageConfig(
   config: service_types.configFile.GenericStorageConfig

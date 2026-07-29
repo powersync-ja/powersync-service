@@ -26,7 +26,7 @@ import { HydratedSyncConfig, ParameterLookupRows, ScopedParameterLookup } from '
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
-import { retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
+import { DEFAULT_CLEAR_BATCH_THROTTLE_RATE } from '../../types/types.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { DEFAULT_INLINE_THRESHOLD_BYTES } from './common/PersistedBatch.js';
 import type { VersionedPowerSyncMongo } from './db.js';
@@ -44,6 +44,7 @@ export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   readPreference?: mongo.ReadPreference;
   checksumCacheTtlMs?: number;
+  clearBatchThrottleRate?: number;
   storageConfig: StorageConfig;
   objectStorage?: ObjectStorage;
   inlineThresholdBytes?: number;
@@ -90,6 +91,7 @@ export abstract class MongoSyncBucketStorage
   public readonly logger: Logger;
   public readonly storageConfig: StorageConfig;
   public readonly readPreference: mongo.ReadPreference | undefined;
+  public readonly clearBatchThrottleRate: number;
   #storageInitialized = false;
 
   constructor(
@@ -107,6 +109,7 @@ export abstract class MongoSyncBucketStorage
     // Configurable via object_storage.inline_threshold_bytes.
     this.inlineThresholdBytes = options.inlineThresholdBytes ?? DEFAULT_INLINE_THRESHOLD_BYTES;
     this.readPreference = options.readPreference;
+    this.clearBatchThrottleRate = options.clearBatchThrottleRate ?? DEFAULT_CLEAR_BATCH_THROTTLE_RATE;
     this.db = factory.db.versioned(this.storageConfig);
     this.checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
@@ -344,23 +347,6 @@ export abstract class MongoSyncBucketStorage
     await this.clearSourceTables(signal);
 
     this.#storageInitialized = false;
-  }
-
-  protected async clearDeleteMany(
-    label: string,
-    operation: () => Promise<mongo.DeleteResult>,
-    signal?: AbortSignal
-  ): Promise<void> {
-    await retryOnMongoMaxTimeMSExpired(operation, {
-      signal,
-      abortMessage: 'Aborted clearing data',
-      retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5,
-      onRetry: () => {
-        this.logger.info(
-          `Cleared batch of ${label} in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
-        );
-      }
-    });
   }
 
   async reportError(e: any): Promise<void> {

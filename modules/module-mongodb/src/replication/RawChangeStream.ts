@@ -1,4 +1,4 @@
-import { isMongoNetworkTimeoutError, isMongoServerError, mongo } from '@powersync/lib-service-mongodb';
+import { isMaxTimeMSExpiredError, isMongoServerError, isTimeoutError, mongo } from '@powersync/lib-service-mongodb';
 import {
   DatabaseConnectionError,
   ErrorCode,
@@ -424,20 +424,6 @@ export function parseChangeDocument(buffer: Buffer): ProjectedChangeStreamDocume
     doc.documentKey = deserialize(doc.documentKey, DESERIALIZE_DEFAULT) as any;
   }
   return doc as any;
-}
-
-function isMaxTimeMSExpiredError(e: unknown) {
-  return (
-    isMongoServerError(e) &&
-    (e.codeName == 'MaxTimeMSExpired' ||
-      // MongoDB documents code 50 as MaxTimeMSExpired. Azure DocumentDB reports
-      // this code with codeName ExceededTimeLimit.
-      e.code == 50)
-  );
-}
-
-function isTimeoutError(e: unknown) {
-  return isMongoNetworkTimeoutError(e) || isMaxTimeMSExpiredError(e);
 }
 
 function isResumableChangeStreamError(e: unknown) {
