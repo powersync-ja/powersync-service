@@ -41,4 +41,13 @@ export class MemoryObjectStorage implements ObjectStorage {
       this.store.delete(p);
     }
   }
+
+  async deletePrefix(prefix: string, options?: { signal?: AbortSignal }): Promise<{ objectCount: number }> {
+    const paths: string[] = [];
+    for await (const path of this.list(prefix, options)) {
+      paths.push(path);
+    }
+    await this.delete(paths);
+    return { objectCount: paths.length };
+  }
 }

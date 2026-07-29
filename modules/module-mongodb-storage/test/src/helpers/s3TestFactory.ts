@@ -54,22 +54,7 @@ export function createS3TestStorageSuite(options: S3TestFactoryOptions) {
 /** Remove all objects created by MinIO-backed suites in the current test. */
 export async function cleanupS3TestStorage(): Promise<void> {
   for (const storage of minioStorages.splice(0)) {
-    let paths: string[] = [];
-    const flush = async () => {
-      if (paths.length === 0) {
-        return;
-      }
-      const deleting = paths;
-      paths = [];
-      await storage.delete(deleting);
-    };
-    for await (const path of storage.list('')) {
-      paths.push(path);
-      if (paths.length === 500) {
-        await flush();
-      }
-    }
-    await flush();
+    await storage.deletePrefix('bucket-data/');
   }
 }
 
