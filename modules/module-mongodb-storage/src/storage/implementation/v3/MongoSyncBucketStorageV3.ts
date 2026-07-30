@@ -96,9 +96,8 @@ function extractRowsFromDocument(
   doc: BucketDataDocumentV3,
   context: { replicationStreamId: number; definitionId: string },
   bucketMap: Map<string, InternalOpId>,
-  endOpId: InternalOpId,
-  remainingLimit: number
-): { rows: BucketDataDoc[]; remainingLimit: number; limitReached: boolean } {
+  endOpId: InternalOpId
+): BucketDataDoc[] {
   const rows: BucketDataDoc[] = [];
   for (const row of loadBucketDataDocument(context, doc)) {
     const bucket = row.bucketKey.bucket;
@@ -114,12 +113,8 @@ function extractRowsFromDocument(
     }
 
     rows.push(row);
-    remainingLimit--;
-    if (remainingLimit <= 0) {
-      return { rows, remainingLimit, limitReached: true };
-    }
   }
-  return { rows, remainingLimit, limitReached: false };
+  return rows;
 }
 
 export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
@@ -632,7 +627,6 @@ export async function* getBucketDataBatchV3(
     // MongoDB Filter<T> doesn't accept the $or operator in its type.
     const filter = { $or: filters } as unknown as mongo.Filter<BucketDataDocumentV3>;
     const context = { replicationStreamId: ctx.replicationStreamId, definitionId };
-    const limit = remainingLimit;
 
     const cursorOptions = { limit: remainingLimit, batchSize: remainingLimit + 1 };
 
@@ -658,8 +652,6 @@ export async function* getBucketDataBatchV3(
 
     const data: BucketDataDoc[] = [];
     const documentOpCounts: number[] = [];
-    let sharedRemainingLimit = limit;
-    let limitReached = false;
     // Buckets whose matched document contributed no rows after filtering.
     const completeEmptyBuckets = new Set<string>();
 
@@ -676,11 +668,7 @@ export async function* getBucketDataBatchV3(
     await hydrateBucketDataDocuments(docs, ctx.objectStorage, { signal: options?.signal });
 
     for (const doc of docs) {
-      const {
-        rows,
-        remainingLimit,
-        limitReached: docLimitReached
-      } = extractRowsFromDocument(doc, context, bucketMap, end, sharedRemainingLimit);
+      const rows = extractRowsFromDocument(doc, context, bucketMap, end);
       if (rows.length == 0) {
         // The document straddles the requested (start, end] window: it matched the
         // query, but none of its ops are in range. Since its _id.o (max op) must be
@@ -691,14 +679,10 @@ export async function* getBucketDataBatchV3(
       }
       data.push(...rows);
       documentOpCounts.push(rows.length);
-      sharedRemainingLimit = remainingLimit;
-      if (docLimitReached) {
-        limitReached = true;
-        break;
-      }
     }
 
-    const batchHasMore = hasMore || limitReached;
+    const batchHasMore = hasMore;
+    remainingLimit -= docs.length;
 
     // Empty chunks are not forwarded to clients, but report progress to the caller:
     // the bucket's position advances to the checkpoint, so it is not re-requested.
@@ -732,8 +716,6 @@ export async function* getBucketDataBatchV3(
       }
       continue;
     }
-
-    remainingLimit -= data.length;
 
     let currentChunkSizeBytes = 0;
     let currentChunk: utils.SyncBucketData | null = null;
