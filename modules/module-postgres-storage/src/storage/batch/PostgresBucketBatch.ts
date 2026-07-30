@@ -200,9 +200,23 @@ export class PostgresBucketBatch
         return hydrated;
       });
       const resolution = await reconcile({ source, candidates: candidateTables });
-      const compatibleTables = candidateTables.filter((candidate) =>
-        resolution.sourceCompatibleCandidateIds.has(candidate.id)
-      );
+      storage.validateSourceTableCandidateResolution(candidateTables, resolution);
+
+      for (const resolvedTable of resolution.compatibleTables) {
+        const candidate = candidateTables.find((table) => storage.sourceTableIdEquals(table.id, resolvedTable.id))!;
+        if (candidate.sourceMetadata === resolvedTable.sourceMetadata) {
+          continue;
+        }
+        await db.sql`
+          UPDATE source_tables
+          SET
+            source_metadata = ${{ type: 'jsonb', value: resolvedTable.sourceMetadata ?? null }}
+          WHERE
+            id = ${{ type: 'varchar', value: resolvedTable.id.toString() }}
+        `.execute();
+      }
+
+      const compatibleTables = resolution.compatibleTables;
 
       // Postgres storage resolves to a single record. When multiple candidates are compatible
       // (unexpected duplicate/corrupt state), deterministically prefer a snapshot-complete record
@@ -237,7 +251,7 @@ export class PostgresBucketBatch
               ${{ type: 'varchar', value: schema }},
               ${{ type: 'varchar', value: table }},
               ${{ type: 'jsonb', value: normalizedReplicaIdColumns }},
-              ${{ type: 'jsonb', value: resolution.sourceMetadata ?? null }}
+              ${{ type: 'jsonb', value: resolution.newTableValues.sourceMetadata ?? null }}
             )
           RETURNING
             *
@@ -251,7 +265,11 @@ export class PostgresBucketBatch
 
       // All remaining overlapping candidates are drops (renames, relation-id / replica-id changes,
       // superseded source-metadata generations, or duplicate compatible records).
-      const dropTables = candidateTables.filter((candidate) => candidate.id.toString() !== resolvedId);
+      const dropTables = [
+        ...resolution.incompatibleTables,
+        // PostgreSQL storage allows only one SourceTable per physical table, so drop compatible duplicates too.
+        ...compatibleTables.filter((candidate) => candidate.id.toString() !== resolvedId)
+      ];
 
       return {
         tables: [sourceTable],

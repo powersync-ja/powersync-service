@@ -268,14 +268,7 @@ export class CDCStream {
     });
     const resolvedTable = new MSSQLSourceTable(table, resolved.tables);
 
-    const boundInstance = this.selectBoundCaptureInstance(resolvedTable, availableInstances);
-    if (!boundInstance) {
-      this.logger.warn(
-        `Missing capture instance for table ${resolvedTable.toQualifiedName()}. This table will not be replicated until CDC is enabled for it.`
-      );
-    } else {
-      resolvedTable.setCaptureInstance(boundInstance);
-    }
+    resolvedTable.setCaptureInstance(this.selectBoundCaptureInstance(resolvedTable, availableInstances));
 
     this.tableCache.set(resolvedTable);
 
@@ -308,19 +301,21 @@ export class CDCStream {
   /**
    * Select the capture instance a resolved binding must poll.
    *
-   * Pinned bindings resolve to their persisted capture identity; legacy/metadata-free bindings use
-   * the newest available instance, matching origin/main behavior.
+   * Table resolution ensures legacy records are pinned before streaming begins, so there is one
+   * authoritative capture instance for every cached table.
    */
-  private selectBoundCaptureInstance(
-    table: MSSQLSourceTable,
-    availableInstances: CaptureInstance[]
-  ): CaptureInstance | null {
+  private selectBoundCaptureInstance(table: MSSQLSourceTable, availableInstances: CaptureInstance[]): CaptureInstance {
     const pinnedObjectId = table.pinnedCaptureObjectId;
-    if (pinnedObjectId != null) {
-      // The reconciler already validated availability, but guard against unexpected state.
-      return availableInstances.find((instance) => instance.objectId === pinnedObjectId) ?? null;
+    if (pinnedObjectId == null) {
+      throw new ReplicationAssertionError(`No persisted capture instance for table ${table.toQualifiedName()}`);
     }
-    return availableInstances[0] ?? null;
+    const boundInstance = availableInstances.find((instance) => instance.objectId === pinnedObjectId);
+    if (boundInstance == null) {
+      throw new ReplicationAssertionError(
+        `Persisted capture instance ${pinnedObjectId} is unavailable for table ${table.toQualifiedName()}`
+      );
+    }
+    return boundInstance;
   }
 
   private async snapshotTableInTx(
@@ -780,29 +775,19 @@ export class CDCStream {
         actionedSchemaChange = false;
         break;
       case SchemaChangeType.NEW_CAPTURE_INSTANCE:
-        if (change.table!.isCaptureInstancePinned()) {
-          // Pinned bindings never silently switch capture instances. Warn (once per newer instance)
-          // that a redeploy is required, and keep polling the bound instance.
-          const newerObjectId = change.newCaptureInstance!.objectId;
-          if (this.warnedNewerCaptureObjectId.get(change.table!.objectId) !== newerObjectId) {
-            this.logger.warn(
-              `A newer CDC capture instance (object id ${newerObjectId}) is available for table ${change.table!.toQualifiedName()}, ` +
-                `but this replication stream is pinned to capture instance object id ${change.table!.pinnedCaptureObjectId}. ` +
-                `Redeploy the sync configuration as a new replication stream to adopt the new capture instance.`
-            );
-            this.warnedNewerCaptureObjectId.set(change.table!.objectId, newerObjectId);
-          }
-          // No checkpoint change is needed for a warning-only event.
-          actionedSchemaChange = false;
-          break;
+        // Capture-instance bindings are ensured before streaming. Warn (once per newer instance)
+        // that a redeploy is required, and keep polling the bound instance.
+        const newerObjectId = change.newCaptureInstance!.objectId;
+        if (this.warnedNewerCaptureObjectId.get(change.table!.objectId) !== newerObjectId) {
+          this.logger.warn(
+            `A newer CDC capture instance (object id ${newerObjectId}) is available for table ${change.table!.toQualifiedName()}, ` +
+              `but this replication stream is pinned to capture instance object id ${change.table!.pinnedCaptureObjectId}. ` +
+              `Redeploy the sync configuration as a new replication stream to adopt the new capture instance.`
+          );
+          this.warnedNewerCaptureObjectId.set(change.table!.objectId, newerObjectId);
         }
-        this.logger.info(
-          `New CDC capture instance detected for table ${change.table!.toQualifiedName()}. Re-snapshotting table...`
-        );
-        await batch.drop(change.table!.getReplicatedSourceTables());
-        this.tableCache.delete(change.table!.objectId);
-
-        await this.handleCreateOrUpdateTable(batch, change.table!.ref, change.newCaptureInstance!);
+        // No checkpoint change is needed for a warning-only event.
+        actionedSchemaChange = false;
         break;
       case SchemaChangeType.TABLE_DROP:
         await batch.drop(change.table!.getReplicatedSourceTables());

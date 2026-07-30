@@ -250,11 +250,10 @@ export class CDCPoller {
 
   private async pollTable(table: MSSQLSourceTable, bounds: { startLSN: LSN; endLSN: LSN }): Promise<number> {
     // Ensure that the startLSN is not before the minimum LSN for the bound capture instance.
-    // Pinned bindings poll their bound instance; legacy bindings track the newest instance.
-    const details = this.captureInstances.get(table.objectId)!;
-    const boundInstance =
-      details.instances.find((instance) => instance.objectId === table.captureInstance?.objectId) ??
-      details.instances[0];
+    const boundInstance = table.captureInstance;
+    if (boundInstance == null) {
+      throw new ReplicationAssertionError(`No capture instance bound for table ${table.toQualifiedName()}`);
+    }
     const minLSN = boundInstance.minLSN;
     // TODO(investigate): This seems fishy at first glance. Distinguish a newly snapshotted capture instance (where starting at minLSN is safe)
     // from expired CDC history. If cleanup advanced minLSN past required changes, returning early or
@@ -381,34 +380,26 @@ export class CDCPoller {
 
       const latestCaptureInstance = captureInstanceDetails.instances[0];
 
-      if (table.isCaptureInstancePinned()) {
-        // Pinned bindings never silently switch. Detect whether the bound instance is still
-        // available, and whether a newer instance now exists (redeploy required).
-        const boundObjectId = table.pinnedCaptureObjectId!;
-        const boundAvailable = captureInstanceDetails.instances.some((instance) => instance.objectId === boundObjectId);
-        if (!boundAvailable) {
-          // The bound pinned capture instance disappeared - stop replication for this table rather
-          // than falling forward to another instance.
-          this.logger.warn(`The pinned capture instance for table ${table.toQualifiedName()} is no longer available.`);
-          schemaChanges.push({
-            type: SchemaChangeType.MISSING_CAPTURE_INSTANCE,
-            table
-          });
-          continue;
-        }
-        if (latestCaptureInstance.objectId !== boundObjectId) {
-          // A newer capture instance exists. Emit a warning-only event; the handler keeps polling
-          // the bound instance and does not re-snapshot.
-          schemaChanges.push({
-            type: SchemaChangeType.NEW_CAPTURE_INSTANCE,
-            table,
-            newCaptureInstance: latestCaptureInstance
-          });
-          continue;
-        }
-        // Bound instance is the latest - fall through to rename / column-change detection.
-      } else if (!table.enabledForCDC() || table.captureInstance!.objectId !== latestCaptureInstance.objectId) {
-        // Legacy behavior: automatically adopt a new capture instance and re-snapshot.
+      // Table-cache population ensures every streamed table has one persisted capture-instance
+      // binding before polling begins.
+      const boundObjectId = table.pinnedCaptureObjectId;
+      if (boundObjectId == null) {
+        throw new ReplicationAssertionError(`No persisted capture instance for table ${table.toQualifiedName()}`);
+      }
+      const boundAvailable = captureInstanceDetails.instances.some((instance) => instance.objectId === boundObjectId);
+      if (!boundAvailable) {
+        // The bound pinned capture instance disappeared - stop replication for this table rather
+        // than falling forward to another instance.
+        this.logger.warn(`The pinned capture instance for table ${table.toQualifiedName()} is no longer available.`);
+        schemaChanges.push({
+          type: SchemaChangeType.MISSING_CAPTURE_INSTANCE,
+          table
+        });
+        continue;
+      }
+      if (latestCaptureInstance.objectId !== boundObjectId) {
+        // A newer capture instance exists. Emit a warning-only event; the handler keeps polling
+        // the bound instance and does not re-snapshot.
         schemaChanges.push({
           type: SchemaChangeType.NEW_CAPTURE_INSTANCE,
           table,
@@ -416,6 +407,7 @@ export class CDCPoller {
         });
         continue;
       }
+      // Bound instance is the latest - fall through to rename / column-change detection.
 
       // One of the replicated tables has been renamed
       if (table.ref.name !== captureInstanceDetails.sourceTable.name) {

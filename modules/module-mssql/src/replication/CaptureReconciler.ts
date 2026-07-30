@@ -1,5 +1,6 @@
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { JsonValue, SourceTable, SourceTableId, storage } from '@powersync/service-core';
+import { JsonValue, SourceTable, storage } from '@powersync/service-core';
+import * as t from 'ts-codec';
 import { CaptureInstance } from '../common/CaptureInstance.js';
 
 /**
@@ -8,23 +9,20 @@ import { CaptureInstance } from '../common/CaptureInstance.js';
  * We store the CDC change-table object id rather than only the capture-instance name, because
  * capture-instance names can be reused.
  */
-export type MSSQLSourceMetadata = {
-  captureTableObjectId: number;
-};
+export const MSSQLSourceMetadata = t.object({
+  captureTableObjectId: t.number
+});
+export type MSSQLSourceMetadata = t.Decoded<typeof MSSQLSourceMetadata>;
 
 /**
  * Parse persisted opaque source metadata into {@link MSSQLSourceMetadata}, or null for
  * legacy metadata-free records.
  */
 export function readCaptureMetadata(value: JsonValue | undefined): MSSQLSourceMetadata | null {
-  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+  if (value == null) {
     return null;
   }
-  const captureTableObjectId = (value as Record<string, unknown>).captureTableObjectId;
-  if (typeof captureTableObjectId !== 'number') {
-    return null;
-  }
-  return { captureTableObjectId };
+  return MSSQLSourceMetadata.decode(value as t.Encoded<typeof MSSQLSourceMetadata>);
 }
 
 /**
@@ -44,26 +42,30 @@ function identityCompatible(source: storage.SourceEntityDescriptor, candidate: S
  *
  * Rules (applied to identity-compatible candidates):
  * - No compatible candidates: new binding - pin to the newest available capture instance.
- * - All compatible lack metadata: legacy binding - keep them compatible, persist no metadata.
+ * - All compatible lack metadata: legacy binding - pin them in place to the newest available
+ *   capture instance, matching the instance the legacy streaming path would select.
  * - Compatible share one persisted capture identity: pinned binding - keep them compatible and
  *   persist the same identity; fail if that capture instance is no longer available.
  * - Mixed metadata-free + pinned, or multiple pinned identities: invalid persisted state - fail.
  */
 export function createCaptureReconciler(availableInstances: CaptureInstance[]) {
   return (({ source, candidates }) => {
+    if (availableInstances.length === 0) {
+      throw new ReplicationAssertionError(
+        `No CDC capture instance is available for source table ${source.schema}.${source.name}`
+      );
+    }
+
     const compatible = candidates.filter((candidate) => identityCompatible(source, candidate));
+    const incompatibleTables = candidates.filter((candidate) => !compatible.includes(candidate));
 
     if (compatible.length === 0) {
-      // New physical-table binding. Pin to the newest valid capture instance, if any.
+      // New physical-table binding. Pin to the newest valid capture instance.
       const newest = availableInstances[0];
-      if (newest == null) {
-        // No capture instance is available yet; resolve as metadata-free so the table can still be
-        // tracked. It will be pinned once CDC is enabled and a capture instance exists.
-        return { sourceCompatibleCandidateIds: new Set<SourceTableId>(), sourceMetadata: undefined };
-      }
       return {
-        sourceCompatibleCandidateIds: new Set<SourceTableId>(),
-        sourceMetadata: { captureTableObjectId: newest.objectId } satisfies MSSQLSourceMetadata
+        compatibleTables: [],
+        incompatibleTables,
+        newTableValues: { sourceMetadata: captureMetadata(newest.objectId) }
       };
     }
 
@@ -94,11 +96,16 @@ export function createCaptureReconciler(availableInstances: CaptureInstance[]) {
       );
     }
 
-    const sourceCompatibleCandidateIds = new Set<SourceTableId>(compatible.map((candidate) => candidate.id));
-
     if (pinnedObjectIds.size === 0) {
-      // Legacy binding. Preserve metadata-free behavior for the whole resolution.
-      return { sourceCompatibleCandidateIds, sourceMetadata: undefined };
+      // Backfill legacy records with the same newest instance the old streaming implementation
+      // would have selected.
+      const newest = availableInstances[0];
+      const sourceMetadata = captureMetadata(newest.objectId);
+      return {
+        compatibleTables: compatible.map((candidate) => candidate.withSourceMetadata(sourceMetadata)),
+        incompatibleTables,
+        newTableValues: { sourceMetadata }
+      };
     }
 
     // Pinned binding. Resolve the persisted capture identity against what is available.
@@ -112,8 +119,13 @@ export function createCaptureReconciler(availableInstances: CaptureInstance[]) {
       );
     }
     return {
-      sourceCompatibleCandidateIds,
-      sourceMetadata: { captureTableObjectId } satisfies MSSQLSourceMetadata
+      compatibleTables: compatible,
+      incompatibleTables,
+      newTableValues: { sourceMetadata: captureMetadata(captureTableObjectId) }
     };
   }) satisfies storage.SourceTableCandidateReconciler;
+}
+
+function captureMetadata(captureTableObjectId: number): MSSQLSourceMetadata {
+  return { captureTableObjectId };
 }

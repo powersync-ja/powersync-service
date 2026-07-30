@@ -7,7 +7,8 @@
 Add source-owned `SourceTable` reconciliation.
 
 `resolveTables()` now queries all overlapping persisted candidates and passes them to a
-source-provided reconciler that classifies compatibility and selects an opaque, source-specific
-`sourceMetadata` value to persist. Storage persists and hydrates this metadata but never interprets
-it. MongoDB v1/v3 and PostgreSQL storage were refactored to this candidate-first model (PostgreSQL
-gains a nullable `source_metadata` JSONB column via migration).
+source-provided reconciler that returns compatible and incompatible tables, can return
+modified compatible copies, and supplies values used for potential new records. Storage persists allowlisted
+source metadata differences but never interprets them. MongoDB v1/v3 and PostgreSQL storage were
+refactored to this candidate-first model (PostgreSQL gains a nullable `source_metadata` JSONB column
+via migration).

@@ -1,5 +1,5 @@
 import { JsonValue, SourceEntityDescriptor } from './SourceEntity.js';
-import { SourceTable, SourceTableId } from './SourceTable.js';
+import { SourceTable, sourceTableIdEquals } from './SourceTable.js';
 
 /**
  * Result of classifying overlapping persisted candidates against a discovered source entity.
@@ -11,24 +11,34 @@ export interface SourceTableCandidateResolution {
   /**
    * Existing candidates representing the same source generation, that storage may reuse.
    *
-   * Returning ids rather than hydrated tables keeps the reconciler's output to classification
-   * only; storage retains ownership of the candidate instances and persisted documents.
-   * Reconciler implementations should return the ids directly from `candidates`, preserving the
-   * storage-specific id representation supplied by the storage implementation.
-   *
-   * Candidates not included here are treated as incompatible (renames, relation-id changes,
-   * replica-identity changes, superseded capture identities, ...) and returned for the connector
-   * to drop.
+   * Return the original hydrated table when it is unchanged, or a modified hydrated copy when
+   * source-owned values should be updated. Storage persists only allowlisted differences without
+   * replacing the record, preserving its snapshot state and definition memberships.
    */
-  sourceCompatibleCandidateIds: ReadonlySet<SourceTableId>;
+  compatibleTables: ReadonlyArray<SourceTable>;
 
   /**
-   * Opaque metadata to persist on any record created by this resolution.
+   * Existing candidates that cannot be reused (renames, relation-id changes, replica-identity
+   * changes, superseded source generations, ...). Storage returns these to the connector to drop.
    *
-   * All records created in one resolution receive this same value, so v3 never mixes
-   * metadata-free and pinned records for the same physical-table binding.
+   * Every input candidate must be listed exactly once in either `compatibleTables` or
+   * `incompatibleTables`.
+   */
+  incompatibleTables: ReadonlyArray<SourceTable>;
+
+  /**
+   * Values to persist on any source-table record created by this resolution.
    *
-   * Undefined preserves legacy metadata-free behavior.
+   * This is separate from compatible-candidate updates because incremental storage may both reuse
+   * existing records and create a new record for uncovered sync-config memberships. Storage, not
+   * the reconciler, decides whether a new record is required.
+   */
+  newTableValues: SourceTableCreateValues;
+}
+
+export interface SourceTableCreateValues {
+  /**
+   * Opaque metadata to persist on records created by this resolution.
    */
   sourceMetadata?: JsonValue;
 }
@@ -55,7 +65,7 @@ export interface SourceTableCandidateReconcilerInput {
    * Persisted source tables overlapping the discovered entity by
    * `(schema + name) OR object/relation id`.
    */
-  candidates: ReadonlyArray<Readonly<SourceTable>>;
+  candidates: ReadonlyArray<SourceTable>;
 }
 
 export type SourceTableCandidateReconciler = (
@@ -99,12 +109,40 @@ export function sourceIdentityCompatible(source: SourceEntityDescriptor, candida
  * Used by storage when a connector does not supply a `reconcileSourceTables` callback. Every
  * candidate matching the generic identity fields is compatible, and no metadata is persisted.
  */
-export const defaultSourceTableReconciler = (({ source, candidates }) => {
-  const sourceCompatibleCandidateIds = new Set<SourceTableId>();
+export const defaultSourceTableReconciler: SourceTableCandidateReconciler = ({ source, candidates }) => {
+  const compatibleTables: SourceTable[] = [];
+  const incompatibleTables: SourceTable[] = [];
   for (const candidate of candidates) {
     if (sourceIdentityCompatible(source, candidate)) {
-      sourceCompatibleCandidateIds.add(candidate.id);
+      compatibleTables.push(candidate);
+    } else {
+      incompatibleTables.push(candidate);
     }
   }
-  return { sourceCompatibleCandidateIds, sourceMetadata: undefined };
-}) satisfies SourceTableCandidateReconciler;
+  return { compatibleTables, incompatibleTables, newTableValues: {} };
+};
+
+/**
+ * Validate that a source reconciler explicitly partitions every supplied candidate exactly once.
+ */
+export function validateSourceTableCandidateResolution(
+  candidates: ReadonlyArray<SourceTable>,
+  resolution: SourceTableCandidateResolution
+): void {
+  const classifiedTables = [...resolution.compatibleTables, ...resolution.incompatibleTables];
+
+  for (const candidate of candidates) {
+    const classifications = classifiedTables.filter((table) => sourceTableIdEquals(table.id, candidate.id));
+    if (classifications.length !== 1) {
+      throw new Error(
+        `Source table candidate ${candidate.id.toString()} must be classified exactly once, got ${classifications.length}`
+      );
+    }
+  }
+
+  for (const table of classifiedTables) {
+    if (!candidates.some((candidate) => sourceTableIdEquals(candidate.id, table.id))) {
+      throw new Error(`Source table reconciliation returned unknown candidate ${table.id.toString()}`);
+    }
+  }
+}

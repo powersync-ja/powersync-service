@@ -119,6 +119,35 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     storageVersion,
     tableIdStrings: storageConfig.tableIdStrings
   });
+
+  test('updates source metadata on an existing resolved table', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion }));
+    const bucketStorage = factory.getInstance(syncRules);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const source = sourceDescriptor('test');
+
+    const initial = await writer.resolveTables({ connection_id: 1, source });
+    expect(initial.tables[0].sourceMetadata).toBeUndefined();
+
+    const sourceMetadata = { captureTableObjectId: 42 };
+    const updated = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      reconcileSourceTables: ({ candidates }) => ({
+        compatibleTables: candidates.map((candidate) => candidate.withSourceMetadata(sourceMetadata)),
+        incompatibleTables: [],
+        newTableValues: { sourceMetadata }
+      })
+    });
+
+    expect(updated.tables.map((table) => table.id.toString())).toEqual(
+      initial.tables.map((table) => table.id.toString())
+    );
+    expect(updated.tables[0].sourceMetadata).toEqual(sourceMetadata);
+    expect((await writer.getSourceTableStatus(updated.tables[0]))?.sourceMetadata).toEqual(sourceMetadata);
+  });
+
   // The split of returned results can vary depending on storage drivers
   test('large batch (2)', async () => {
     // Test syncing a batch of data that is small in count,

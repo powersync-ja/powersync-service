@@ -52,11 +52,14 @@ describe('readCaptureMetadata', () => {
     expect(readCaptureMetadata({ captureTableObjectId: 7 })).toEqual({ captureTableObjectId: 7 });
   });
 
-  it('returns null for legacy / malformed metadata', () => {
+  it('returns null for legacy metadata', () => {
     expect(readCaptureMetadata(undefined)).toBeNull();
     expect(readCaptureMetadata(null)).toBeNull();
-    expect(readCaptureMetadata([1, 2] as any)).toBeNull();
-    expect(readCaptureMetadata({ foo: 1 } as any)).toBeNull();
+  });
+
+  it('rejects malformed metadata', () => {
+    expect(() => readCaptureMetadata([1, 2] as any)).toThrow();
+    expect(() => readCaptureMetadata({ foo: 1 } as any)).toThrow();
   });
 });
 
@@ -67,23 +70,39 @@ describe('createCaptureReconciler', () => {
       source: source(),
       candidates: []
     });
-    expect(resolution.sourceCompatibleCandidateIds.size).toBe(0);
-    expect(resolution.sourceMetadata).toEqual({ captureTableObjectId: 50 });
+    expect(resolution.compatibleTables).toEqual([]);
+    expect(resolution.incompatibleTables).toEqual([]);
+    expect(resolution.newTableValues).toEqual({ sourceMetadata: { captureTableObjectId: 50 } });
   });
 
-  it('resolves a new binding as metadata-free when no capture instance is available', () => {
-    const resolution = createCaptureReconciler([])({ source: source(), candidates: [] });
-    expect(resolution.sourceCompatibleCandidateIds.size).toBe(0);
-    expect(resolution.sourceMetadata).toBeUndefined();
+  it('fails a new binding when no capture instance is available', () => {
+    expect(() => createCaptureReconciler([])({ source: source(), candidates: [] })).toThrow(
+      /No CDC capture instance is available/
+    );
   });
 
-  it('keeps legacy metadata-free candidates compatible without adding metadata', () => {
+  it('updates legacy metadata-free candidates to the newest capture instance', () => {
     const resolution = createCaptureReconciler([instance(50)])({
       source: source(),
       candidates: [candidate('a'), candidate('b')]
     });
-    expect([...resolution.sourceCompatibleCandidateIds].sort()).toEqual(['a', 'b']);
-    expect(resolution.sourceMetadata).toBeUndefined();
+    expect(
+      resolution.compatibleTables.map((table) => ({ id: table.id, sourceMetadata: table.sourceMetadata }))
+    ).toEqual([
+      { id: 'a', sourceMetadata: { captureTableObjectId: 50 } },
+      { id: 'b', sourceMetadata: { captureTableObjectId: 50 } }
+    ]);
+    expect(resolution.incompatibleTables).toEqual([]);
+    expect(resolution.newTableValues).toEqual({ sourceMetadata: { captureTableObjectId: 50 } });
+  });
+
+  it('fails a legacy binding when no capture instance is available', () => {
+    expect(() =>
+      createCaptureReconciler([])({
+        source: source(),
+        candidates: [candidate('a')]
+      })
+    ).toThrow(/No CDC capture instance is available/);
   });
 
   it('preserves a pinned capture identity that is still available', () => {
@@ -91,8 +110,10 @@ describe('createCaptureReconciler', () => {
       source: source(),
       candidates: [candidate('a', { captureTableObjectId: 40 })]
     });
-    expect([...resolution.sourceCompatibleCandidateIds]).toEqual(['a']);
-    expect(resolution.sourceMetadata).toEqual({ captureTableObjectId: 40 });
+    expect(resolution.compatibleTables.map((table) => table.id)).toEqual(['a']);
+    expect(resolution.compatibleTables[0].sourceMetadata).toEqual({ captureTableObjectId: 40 });
+    expect(resolution.incompatibleTables).toEqual([]);
+    expect(resolution.newTableValues).toEqual({ sourceMetadata: { captureTableObjectId: 40 } });
   });
 
   it('fails when the pinned capture instance is no longer available', () => {
@@ -132,6 +153,9 @@ describe('createCaptureReconciler', () => {
         })
       ]
     });
-    expect([...resolution.sourceCompatibleCandidateIds]).toEqual(['a']);
+    expect(
+      resolution.compatibleTables.map((table) => ({ id: table.id, sourceMetadata: table.sourceMetadata }))
+    ).toEqual([{ id: 'a', sourceMetadata: { captureTableObjectId: 50 } }]);
+    expect(resolution.incompatibleTables.map((table) => table.id)).toEqual(['mismatch']);
   });
 });

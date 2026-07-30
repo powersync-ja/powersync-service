@@ -42,12 +42,12 @@ export interface SourceTableReconciliationContext {
    * Candidate ids the source reconciler classified as compatible (same source generation).
    * Storage reuses these; all other overlapping candidates are dropped.
    */
-  sourceCompatibleCandidateIds: readonly storage.SourceTableId[];
+  sourceCompatibleTables: readonly storage.SourceTable[];
   /**
    * Finalized opaque metadata to persist on any record created by this resolution.
    * Undefined preserves legacy metadata-free behavior.
    */
-  sourceMetadata: JsonValue | undefined;
+  newTableSourceMetadata: JsonValue | undefined;
 }
 
 export interface SourceTableReconciliationPlan {
@@ -162,7 +162,7 @@ class SourceTableReconciliationPlanner {
   }
 
   private isCompatible(doc: SourceTableDocumentV3) {
-    return this.context.sourceCompatibleCandidateIds.find((id) => storage.sourceTableIdEquals(id, doc._id)) != null;
+    return this.context.sourceCompatibleTables.find((table) => storage.sourceTableIdEquals(table.id, doc._id)) != null;
   }
 
   private retainDoc(doc: SourceTableDocumentV3) {
@@ -282,8 +282,16 @@ export function createNewSourceTable(
   memberships: SourceTableMembershipIds,
   context: SourceTableReconciliationContext
 ): NewSourceTable {
-  const { connectionId, connectionTag, identity, syncConfig, mapping, desired, storeCurrentData, sourceMetadata } =
-    context;
+  const {
+    connectionId,
+    connectionTag,
+    identity,
+    syncConfig,
+    mapping,
+    desired,
+    storeCurrentData,
+    newTableSourceMetadata
+  } = context;
   const doc: SourceTableDocumentV3 = {
     _id: id,
     connection_id: connectionId,
@@ -297,7 +305,7 @@ export function createNewSourceTable(
     parameter_lookup_source_ids: memberships.parameterLookupSourceIds,
     // All records created in one resolution share the finalized metadata, so v3 never mixes
     // metadata-free and pinned records for the same physical-table binding.
-    source_metadata: sourceMetadata
+    source_metadata: newTableSourceMetadata
   };
   const table = sourceTableFromDocument(
     doc,

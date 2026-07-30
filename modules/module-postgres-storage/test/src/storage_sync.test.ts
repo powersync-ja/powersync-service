@@ -17,6 +17,50 @@ function registerStorageVersionTests(storageVersion: number) {
       tableIdStrings: storageFactory.tableIdStrings
     });
 
+    test('updates source metadata on an existing resolved table', async () => {
+      await using factory = await storageFactory.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id FROM test
+`,
+          { storageVersion }
+        )
+      );
+      const bucketStorage = factory.getInstance(syncRules);
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const source: storage.SourceEntityDescriptor = {
+        connectionTag: storage.SourceTable.DEFAULT_TAG,
+        objectId: 'test',
+        schema: 'public',
+        name: 'test',
+        replicaIdColumns: [{ name: 'id', type: 'VARCHAR', typeId: 25 }]
+      };
+
+      const initial = await writer.resolveTables({ connection_id: 1, source });
+      expect(initial.tables[0].sourceMetadata).toBeUndefined();
+
+      const sourceMetadata = { captureTableObjectId: 42 };
+      const updated = await writer.resolveTables({
+        connection_id: 1,
+        source,
+        reconcileSourceTables: ({ candidates }) => ({
+          compatibleTables: candidates.map((candidate) => candidate.withSourceMetadata(sourceMetadata)),
+          incompatibleTables: [],
+          newTableValues: { sourceMetadata }
+        })
+      });
+
+      expect(updated.tables.map((table) => table.id.toString())).toEqual(
+        initial.tables.map((table) => table.id.toString())
+      );
+      expect(updated.tables[0].sourceMetadata).toEqual(sourceMetadata);
+      expect((await writer.getSourceTableStatus(updated.tables[0]))?.sourceMetadata).toEqual(sourceMetadata);
+    });
+
     test('large batch (2)', async () => {
       // Test syncing a batch of data that is small in count,
       // but large enough in size to be split over multiple returned chunks.

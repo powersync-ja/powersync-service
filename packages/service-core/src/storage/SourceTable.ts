@@ -40,9 +40,9 @@ export interface SourceTableOptions {
   /**
    * Opaque, source-specific identity metadata persisted with this record.
    *
-   * Storage persists and hydrates this value verbatim and never interprets it. This is part
-   * of the immutable identity of the record: if it changes, a replacement record with fresh
-   * snapshot state is created rather than updating this one. Undefined for legacy records.
+   * Storage persists and hydrates this value verbatim and never interprets it. A source
+   * reconciler may return a modified hydrated copy, which storage can persist without resetting
+   * snapshot state. Undefined for legacy records.
    */
   sourceMetadata?: JsonValue;
 }
@@ -180,6 +180,21 @@ export class SourceTable {
    * In-memory clone of the table status.
    */
   clone() {
+    return this.copyWithSourceMetadata(this.sourceMetadata);
+  }
+
+  /**
+   * Return a hydrated copy with different source-owned metadata.
+   *
+   * Storage reconciliation compares this copy with the persisted candidate and applies only
+   * allowlisted changes. Snapshot state, definition memberships, and resolved sync flags are
+   * preserved.
+   */
+  withSourceMetadata(sourceMetadata: JsonValue | undefined) {
+    return this.copyWithSourceMetadata(sourceMetadata);
+  }
+
+  private copyWithSourceMetadata(sourceMetadata: JsonValue | undefined) {
     const copy = new SourceTable({
       id: this.id,
       ref: this.options.ref,
@@ -191,7 +206,7 @@ export class SourceTable {
       bucketDataSourceIds: this.bucketDataSourceIds == null ? undefined : new Set(this.bucketDataSourceIds),
       parameterLookupSourceIds:
         this.parameterLookupSourceIds == null ? undefined : new Set(this.parameterLookupSourceIds),
-      sourceMetadata: this.options.sourceMetadata
+      sourceMetadata
     });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;

@@ -210,9 +210,11 @@ export interface ResolveTablesOptions {
    * Source-owned reconciliation callback.
    *
    * Storage queries all overlapping persisted candidates and passes them to this callback, which
-   * classifies compatibility and selects the metadata to persist for the resolution. The callback
-   * must be deterministic and free of storage mutations. It may be asynchronous, but is awaited
-   * while resolution is in progress and may execute inside a storage transaction.
+   * returns hydrated compatible and incompatible tables, may return modified copies of compatible
+   * records, and provides values for newly created records. Storage persists only allowlisted
+   * differences. The callback must be deterministic and free of storage mutations. It may be
+   * asynchronous, but is awaited while resolution is in progress and may execute inside a storage
+   * transaction.
    *
    * When omitted, storage uses {@link defaultSourceTableReconciler}, preserving legacy
    * metadata-free identity matching.

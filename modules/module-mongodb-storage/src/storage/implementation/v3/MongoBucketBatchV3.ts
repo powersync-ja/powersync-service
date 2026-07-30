@@ -180,6 +180,23 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         sourceTableFromDocument(doc, source.connectionTag, syncConfig, mapping)
       );
       const resolution = await reconcile({ source, candidates: candidateTables });
+      storage.validateSourceTableCandidateResolution(candidateTables, resolution);
+
+      for (const resolvedTable of resolution.compatibleTables) {
+        const candidate = candidateTables.find((table) => storage.sourceTableIdEquals(table.id, resolvedTable.id))!;
+        if (candidate.sourceMetadata === resolvedTable.sourceMetadata) {
+          continue;
+        }
+        const update =
+          resolvedTable.sourceMetadata === undefined
+            ? { $unset: { source_metadata: '' as const } }
+            : { $set: { source_metadata: resolvedTable.sourceMetadata } };
+        await col.updateOne({ _id: mongoTableId(resolvedTable.id) }, update, { session });
+        // The reconciliation planner still uses the raw documents
+        // below because it owns persisted membership narrowing and coverage.
+        candidateDocs.find((doc) => storage.sourceTableIdEquals(doc._id, resolvedTable.id))!.source_metadata =
+          resolvedTable.sourceMetadata;
+      }
 
       const context: SourceTableReconciliationContext = {
         connectionId: connection_id,
@@ -189,8 +206,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         syncConfig,
         mapping,
         desired: sourceTableDesiredResolution(syncConfig, source, mapping),
-        sourceCompatibleCandidateIds: Array.from(resolution.sourceCompatibleCandidateIds.values()),
-        sourceMetadata: resolution.sourceMetadata
+        sourceCompatibleTables: resolution.compatibleTables,
+        newTableSourceMetadata: resolution.newTableValues.sourceMetadata
       };
 
       // Pure planning: which docs to retain (and narrow), whether a new doc is needed for

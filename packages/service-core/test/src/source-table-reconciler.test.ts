@@ -1,6 +1,10 @@
 import { SourceEntityDescriptor } from '@/storage/SourceEntity.js';
 import { SourceTable, sourceTableIdEquals } from '@/storage/SourceTable.js';
-import { defaultSourceTableReconciler, sourceIdentityCompatible } from '@/storage/SourceTableReconciler.js';
+import {
+  defaultSourceTableReconciler,
+  sourceIdentityCompatible,
+  validateSourceTableCandidateResolution
+} from '@/storage/SourceTableReconciler.js';
 import * as bson from 'bson';
 import { describe, expect, it } from 'vitest';
 
@@ -56,20 +60,61 @@ describe('sourceIdentityCompatible', () => {
 });
 
 describe('defaultSourceTableReconciler', () => {
-  it('returns all identity-compatible candidates and no metadata', () => {
+  it('returns all identity-compatible candidates and no metadata', async () => {
     const a = candidate({ id: 'a' });
     const b = candidate({ id: 'b', ref: { connectionTag: 'default', schema: 'public', name: 'accounts' } });
-    const resolution = defaultSourceTableReconciler({ source: descriptor(), candidates: [a, b] });
-    expect([...resolution.sourceCompatibleCandidateIds]).toEqual(['a']);
-    expect(resolution.sourceMetadata).toBeUndefined();
+    const resolution = await defaultSourceTableReconciler({ source: descriptor(), candidates: [a, b] });
+    expect(resolution.compatibleTables).toEqual([a]);
+    expect(resolution.incompatibleTables).toEqual([b]);
+    expect(resolution.newTableValues).toEqual({});
   });
 
-  it('returns an empty set when nothing matches', () => {
-    const resolution = defaultSourceTableReconciler({
+  it('returns an empty set when nothing matches', async () => {
+    const resolution = await defaultSourceTableReconciler({
       source: descriptor({ objectId: 200 }),
       candidates: [candidate({ objectId: 100 })]
     });
-    expect(resolution.sourceCompatibleCandidateIds.size).toBe(0);
+    expect(resolution.compatibleTables).toHaveLength(0);
+    expect(resolution.incompatibleTables.map((table) => table.id)).toEqual(['table-1']);
+  });
+});
+
+describe('validateSourceTableCandidateResolution', () => {
+  it('accepts an explicit compatible/incompatible partition', () => {
+    const a = candidate({ id: 'a' });
+    const b = candidate({ id: 'b' });
+    expect(() =>
+      validateSourceTableCandidateResolution([a, b], {
+        compatibleTables: [a],
+        incompatibleTables: [b],
+        newTableValues: {}
+      })
+    ).not.toThrow();
+  });
+
+  it('rejects omitted, duplicate, and unknown candidates', () => {
+    const a = candidate({ id: 'a' });
+    expect(() =>
+      validateSourceTableCandidateResolution([a], {
+        compatibleTables: [],
+        incompatibleTables: [],
+        newTableValues: {}
+      })
+    ).toThrow(/exactly once/);
+    expect(() =>
+      validateSourceTableCandidateResolution([a], {
+        compatibleTables: [a],
+        incompatibleTables: [a],
+        newTableValues: {}
+      })
+    ).toThrow(/exactly once/);
+    expect(() =>
+      validateSourceTableCandidateResolution([a], {
+        compatibleTables: [a],
+        incompatibleTables: [candidate({ id: 'unknown' })],
+        newTableValues: {}
+      })
+    ).toThrow(/unknown candidate/);
   });
 });
 

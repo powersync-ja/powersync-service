@@ -81,10 +81,21 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         this.hydrateSourceTable(doc, connectionTag, syncRules, sendsCompleteRows)
       );
       const resolution = await reconcile({ source, candidates: candidateTables });
-      const sourceCompatibleCandidateIds = Array.from(resolution.sourceCompatibleCandidateIds.values());
-      const compatibleTables = candidateTables.filter(
-        (table) => sourceCompatibleCandidateIds.find((id) => storage.sourceTableIdEquals(id, table.id)) != null
-      );
+      storage.validateSourceTableCandidateResolution(candidateTables, resolution);
+
+      for (const resolvedTable of resolution.compatibleTables) {
+        const candidate = candidateTables.find((table) => storage.sourceTableIdEquals(table.id, resolvedTable.id))!;
+        if (candidate.sourceMetadata === resolvedTable.sourceMetadata) {
+          continue;
+        }
+        const update =
+          resolvedTable.sourceMetadata === undefined
+            ? { $unset: { source_metadata: '' as const } }
+            : { $set: { source_metadata: resolvedTable.sourceMetadata } };
+        await col.updateOne({ _id: mongoTableId(resolvedTable.id) }, update, { session });
+      }
+
+      const compatibleTables = resolution.compatibleTables;
 
       // V1 resolves to a single record. When multiple candidates are compatible (unexpected -
       // duplicate or corrupt state), deterministically prefer a snapshot-complete record so we
@@ -106,7 +117,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           replica_id_columns2: normalizedReplicaIdColumns,
           snapshot_done: false,
           snapshot_status: undefined,
-          source_metadata: resolution.sourceMetadata
+          source_metadata: resolution.newTableValues.sourceMetadata
         };
         await col.insertOne(doc, { session });
         sourceTable = this.hydrateSourceTable(doc, connectionTag, syncRules, sendsCompleteRows);
@@ -114,7 +125,11 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
       // All remaining overlapping candidates are drops (renames, relation-id / replica-id changes,
       // superseded source-metadata generations, or duplicate compatible records).
-      const dropTables = candidateTables.filter((table) => !storage.sourceTableIdEquals(table.id, sourceTable.id));
+      const dropTables = [
+        ...resolution.incompatibleTables,
+        // V1 allows only one SourceTable per physical table, so drop compatible duplicates too.
+        ...compatibleTables.filter((table) => !storage.sourceTableIdEquals(table.id, sourceTable.id))
+      ];
 
       result = { tables: [sourceTable], dropTables };
     });
