@@ -94,8 +94,7 @@ bucket_definitions:
         moveBatchQueryLimit: 10,
         minBucketChanges: 1,
         minChangeRatio: 0,
-        maxOpId: checkpoint,
-        signal: null as any
+        maxOpId: checkpoint
       });
 
       const users = ['u1', 'u2'];
@@ -129,7 +128,6 @@ bucket_definitions:
       );
       const bucketStorage = factory.getInstance(syncRules);
       const syncRulesContent = syncRules.syncConfigContent[0];
-      const storageDb = (bucketStorage as any).db;
 
       await populate(bucketStorage, 2);
       const { checkpoint } = await bucketStorage.getCheckpoint();
@@ -242,7 +240,7 @@ bucket_definitions:
       expect(typeof firstBatch.value[0].estimatedCount).toBe('number');
       expect(firstBatch.value[0].dirtyRatio).toBeCloseTo(5 / 12);
 
-      const checksumBuckets = await (compactor as any).dirtyBucketBatchForChecksums({
+      const checksumBuckets = await compactor.dirtyBucketBatchForChecksums({
         minBucketChanges: 1
       });
       expect(checksumBuckets).toEqual([
@@ -377,8 +375,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId,
-      signal: null as any
+      maxOpId
     });
   }
 
@@ -391,7 +388,7 @@ bucket_definitions:
 
     const doc = serializeBucketData('test[]', ops);
 
-    expect(doc.ops.map((op) => op.o)).toEqual([5n, 3n, 7n]);
+    expect(doc.ops!.map((op) => op.o)).toEqual([5n, 3n, 7n]);
   });
 
   test('1. ops[] ordering - preserved after compaction', async () => {
@@ -409,8 +406,8 @@ bucket_definitions:
 
     const docs = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
     for (const doc of docs) {
-      for (let i = 1; i < doc.ops.length; i++) {
-        expect(doc.ops[i].o).toBeGreaterThanOrEqual(doc.ops[i - 1].o);
+      for (let i = 1; i < doc.ops!.length; i++) {
+        expect(doc.ops![i].o).toBeGreaterThanOrEqual(doc.ops![i - 1].o);
       }
     }
   });
@@ -428,7 +425,7 @@ bucket_definitions:
     expect(doc.min_op).toBe(3n);
     expect(doc.count).toBe(3);
     expect(doc.checksum).toBe(60n);
-    expect(doc.size).toBe(bson.calculateObjectSize(doc.ops));
+    expect(doc.size).toBe(bson.calculateObjectSize(doc.ops!));
   });
 
   test('2. has_clear_op is only stored when true', () => {
@@ -450,11 +447,11 @@ bucket_definitions:
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
     for (const doc of docs) {
-      expect(doc._id.o).toBe(doc.ops.reduce((max, op) => (op.o > max ? op.o : max), 0n));
-      expect(doc.min_op).toBe(doc.ops.reduce((min, op) => (op.o < min ? op.o : min), doc.ops[0].o));
-      expect(doc.count).toBe(doc.ops.length);
-      expect(doc.checksum).toBe(doc.ops.reduce((sum, op) => sum + op.checksum, 0n));
-      expect(doc.size).toBe(bson.calculateObjectSize(doc.ops));
+      expect(doc._id.o).toBe(doc.ops!.reduce((max, op) => (op.o > max ? op.o : max), 0n));
+      expect(doc.min_op).toBe(doc.ops!.reduce((min, op) => (op.o < min ? op.o : min), doc.ops![0].o));
+      expect(doc.count).toBe(doc.ops!.length);
+      expect(doc.checksum).toBe(doc.ops!.reduce((sum, op) => sum + op.checksum, 0n));
+      expect(doc.size).toBe(bson.calculateObjectSize(doc.ops!));
     }
   });
 
@@ -536,7 +533,7 @@ bucket_definitions:
     await compact(bucketStorage, 30n);
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
-    const allOps = docs.flatMap((d) => d.ops);
+    const allOps = docs.flatMap((d) => d.ops!);
     const moveOps = allOps.filter((op) => op.op === 'MOVE');
     expect(moveOps.length).toBe(1);
     expect(moveOps[0].o).toBe(10n);
@@ -561,7 +558,7 @@ bucket_definitions:
     await compact(bucketStorage, 30n);
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
-    const allOps = docs.flatMap((d) => d.ops);
+    const allOps = docs.flatMap((d) => d.ops!);
     const moveOps = allOps.filter((op) => op.op === 'MOVE');
     // Pre-existing MOVE@20 + new MOVE@10 are collapsed into CLEAR
     expect(moveOps.length).toBe(0);
@@ -587,7 +584,7 @@ bucket_definitions:
     await compact(bucketStorage, 25n);
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
-    const allOps = docs.flatMap((d) => d.ops);
+    const allOps = docs.flatMap((d) => d.ops!);
     const clearOps = allOps.filter((op) => op.op === 'CLEAR');
     expect(clearOps.length).toBe(1);
   });
@@ -605,7 +602,7 @@ bucket_definitions:
     await compact(bucketStorage, 20n);
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
-    const allOps = docs.flatMap((d) => d.ops);
+    const allOps = docs.flatMap((d) => d.ops!);
     // MOVE@10 + REMOVE@20 collapsed into CLEAR@20
     const clearOps = allOps.filter((op) => op.op === 'CLEAR');
     expect(clearOps.length).toBe(1);
@@ -623,8 +620,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 1n,
-      signal: null as any
+      maxOpId: 1n
     });
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
@@ -654,7 +650,7 @@ bucket_definitions:
   test('9. serialization fidelity - null data preserved', () => {
     const ops = [makeBucketDataDoc({ o: 1n, data: null })];
     const doc = serializeBucketData('test[]', ops);
-    expect(doc.ops[0].data).toBeNull();
+    expect(doc.ops![0].data).toBeNull();
 
     const context = { replicationStreamId: 1, definitionId: '1' };
     const deserialized = [...loadBucketDataDocument(context, doc)];
@@ -664,7 +660,7 @@ bucket_definitions:
   test('9. serialization fidelity - empty string data preserved', () => {
     const ops = [makeBucketDataDoc({ o: 1n, data: '' })];
     const doc = serializeBucketData('test[]', ops);
-    expect(doc.ops[0].data).toBe('');
+    expect(doc.ops![0].data).toBe('');
 
     const context = { replicationStreamId: 1, definitionId: '1' };
     const deserialized = [...loadBucketDataDocument(context, doc)];
@@ -675,7 +671,7 @@ bucket_definitions:
     const unicodeData = '{"name":"日本語テスト","emoji":"🎉"}';
     const ops = [makeBucketDataDoc({ o: 1n, data: unicodeData })];
     const doc = serializeBucketData('test[]', ops);
-    expect(doc.ops[0].data).toBe(unicodeData);
+    expect(doc.ops![0].data).toBe(unicodeData);
 
     const context = { replicationStreamId: 1, definitionId: '1' };
     const deserialized = [...loadBucketDataDocument(context, doc)];
@@ -710,12 +706,12 @@ bucket_definitions:
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
     for (const doc of docs) {
-      const maxO = doc.ops.reduce((max, op) => (op.o > max ? op.o : max), 0n);
+      const maxO = doc.ops!.reduce((max, op) => (op.o > max ? op.o : max), 0n);
       expect(doc._id.o).toBe(maxO);
     }
   });
 
-  test('compaction with maxOpId filtering - ops above maxOpId preserved as pass-through', async () => {
+  test('compaction with maxOpId filtering excludes a straddling document', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
     const ops = [
       makeOp(10, 'A', 'a1', ctx, sourceTableId),
@@ -729,15 +725,13 @@ bucket_definitions:
     await compact(bucketStorage, 15n);
 
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
-    const allOpsAfter = docsAfter.flatMap((d) => d.ops);
+    const allOpsAfter = docsAfter.flatMap((d) => d.ops!);
 
-    // All ops survive: ops <= maxOpId are deduplicated, ops > maxOpId pass through.
+    // The document ends above maxOpId, so the database query excludes it as a unit.
     expect(allOpsAfter.length).toBe(3);
-    // Ops <= maxOpId still present
     const opsBelow = allOpsAfter.filter((op) => op.o <= 15n);
     expect(opsBelow.length).toBe(1);
     expect(opsBelow[0].op).toBe('PUT');
-    // Ops > maxOpId preserved unchanged
     const opsAbove = allOpsAfter.filter((op) => op.o > 15n);
     expect(opsAbove.length).toBe(2);
     expect(opsAbove.every((op) => op.op === 'PUT')).toBe(true);
@@ -761,7 +755,7 @@ bucket_definitions:
     }
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
-    const storedOps = docs.flatMap((d) => d.ops);
+    const storedOps = docs.flatMap((d) => d.ops!);
     let storedChecksum = 0;
     for (const op of storedOps) {
       storedChecksum = addChecksums(storedChecksum, Number(op.checksum));
@@ -1044,15 +1038,14 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId,
-      signal: null as any
+      maxOpId
     });
   }
 
   async function readAllOps(collection: any): Promise<{ row_id: string; o: bigint; op: string }[]> {
     const docs = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
     return docs.flatMap((d: any) =>
-      d.ops.map((op: any) => ({ row_id: op.row_id!, o: op.o, op: op.op, target_op: op.target_op ?? undefined }))
+      d.ops!.map((op: any) => ({ row_id: op.row_id!, o: op.o, op: op.op, target_op: op.target_op ?? undefined }))
     );
   }
 
@@ -1313,8 +1306,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId,
-      signal: null as any
+      maxOpId
     });
   }
 
@@ -1341,7 +1333,7 @@ bucket_definitions:
 
     expect(checksumAfter).toBe(checksumBefore);
 
-    const allOpsAfter = docsAfter.flatMap((d) => d.ops);
+    const allOpsAfter = docsAfter.flatMap((d) => d.ops!);
     // Two MOVEs collapsed into one CLEAR
     expect(allOpsAfter.length).toBe(4);
     const clearOps = allOpsAfter.filter((op) => op.op === 'CLEAR');
@@ -1370,7 +1362,7 @@ bucket_definitions:
 
     expect(checksumAfter).toBe(checksumBefore);
 
-    const allOpsAfter = docsAfter.flatMap((d) => d.ops);
+    const allOpsAfter = docsAfter.flatMap((d) => d.ops!);
     // Two MOVEs collapsed into one CLEAR
     expect(allOpsAfter.length).toBe(5);
     const clearOps = allOpsAfter.filter((op) => op.op === 'CLEAR');
@@ -1391,7 +1383,7 @@ bucket_definitions:
     await compact(bucketStorage, 30n);
 
     const docs = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
-    const allOps = docs.flatMap((d) => d.ops);
+    const allOps = docs.flatMap((d) => d.ops!);
     const moveOps = allOps.filter((op) => op.op === 'MOVE');
     expect(moveOps.length).toBe(1);
     expect(moveOps[0].o).toBe(10n);
@@ -1429,15 +1421,15 @@ bucket_definitions:
     const checksumAfter = docs.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
     expect(checksumAfter).toBe(checksumBefore);
 
-    const allOps = docs.flatMap((d) => d.ops);
+    const allOps = docs.flatMap((d) => d.ops!);
     expect(allOps.length).toBe(5);
     const moveOp = allOps.find((op) => op.op === 'MOVE');
     expect(moveOp).toMatchObject({ o: 10n, data: null });
 
     expect(docs.length).toBe(1);
 
-    const moveOpsInDoc = docs[0].ops.filter((op) => op.op === 'MOVE');
-    const putOpsInDoc = docs[0].ops.filter((op) => op.op === 'PUT');
+    const moveOpsInDoc = docs[0].ops!.filter((op) => op.op === 'MOVE');
+    const putOpsInDoc = docs[0].ops!.filter((op) => op.op === 'PUT');
     expect(moveOpsInDoc.length).toBe(1);
     expect(putOpsInDoc.length).toBe(4);
   });
@@ -1525,7 +1517,7 @@ bucket_definitions:
   ): Promise<{ row_id: string | undefined; o: bigint; op: string; target_op: bigint | undefined }[]> {
     const docs = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
     return docs.flatMap((d: any) =>
-      d.ops.map((op: any) => ({
+      d.ops!.map((op: any) => ({
         row_id: op.row_id ?? undefined,
         o: op.o,
         op: op.op,
@@ -1589,8 +1581,7 @@ bucket_definitions:
       moveBatchQueryLimit: 2,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 24n,
-      signal: null as any
+      maxOpId: 24n
     });
 
     // Verify checksum preserved
@@ -1639,14 +1630,13 @@ bucket_definitions:
       moveBatchQueryLimit: 2,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 500n,
-      signal: null as any
+      maxOpId: 500n
     });
 
     // The document at _id.o=600 must still be present and unmodified after compaction.
     // The streaming compactor should only touch documents containing ops <= maxOpId.
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
-    const allOpsAfter = docsAfter.flatMap((d) => d.ops);
+    const allOpsAfter = docsAfter.flatMap((d) => d.ops!);
     const op600 = allOpsAfter.find((op) => op.o === 600n);
     expect(op600).toBeDefined();
     expect(op600!.op).toBe('PUT');
@@ -1689,8 +1679,7 @@ bucket_definitions:
       minBucketChanges: 1,
       minChangeRatio: 0,
       maxOpId: 40n,
-      memoryLimitMB: 0.001,
-      signal: null as any
+      memoryLimitMB: 0.001
     });
 
     // Bucket checksum must be correct even with overflow — old ops that pass through
@@ -1741,8 +1730,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 300n,
-      signal: null as any
+      maxOpId: 300n
     });
 
     // The sandwiched document (doc2, ops 340+350) must survive because ALL
@@ -1753,7 +1741,7 @@ bucket_definitions:
     expect(sandwichOps.every((op) => op.op === 'PUT')).toBe(true);
   });
 
-  test('6. byte-based batch cutting - respects moveBatchByteLimit', async () => {
+  test('6. byte-based read batches do not constrain output merging', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
 
     // 6 documents, each with 2 PUT ops. With moveBatchByteLimit=400,
@@ -1769,6 +1757,7 @@ bucket_definitions:
         ])
       );
     }
+    expect(docs[0].size + docs[1].size).toBeGreaterThan(400);
     await insertDocs(collection, docs);
     await insertBucketState(bucketStateCollection, ctx.definitionId, 12n);
 
@@ -1782,8 +1771,7 @@ bucket_definitions:
       moveBatchByteLimit: 400,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 12n,
-      signal: null as any
+      maxOpId: 12n
     });
 
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
@@ -1795,8 +1783,13 @@ bucket_definitions:
     expect(allOps.length).toBe(12);
     expect(allOps.every((op) => op.op === 'PUT')).toBe(true);
 
-    // Multiple documents produced due to byte-based batch cuts
-    expect(docsAfter.length).toBeGreaterThan(1);
+    // Read batches are only a memory bound. The pending output group crosses
+    // those boundaries and merges all post-compaction results that fit.
+    expect(docsAfter).toHaveLength(1);
+    expect(docsAfter[0]).toMatchObject({
+      min_op: docs[0].min_op,
+      _id: docs[docs.length - 1]._id
+    });
   });
 
   test('7. cross-batch seen map overflow - dedup continues across batches', async () => {
@@ -1836,8 +1829,7 @@ bucket_definitions:
       minBucketChanges: 1,
       minChangeRatio: 0,
       maxOpId: 20n,
-      memoryLimitMB: 0.001,
-      signal: null as any
+      memoryLimitMB: 0.001
     });
 
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
@@ -1859,7 +1851,7 @@ bucket_definitions:
 
     // MOVEs have target_op stored at the document level (not per-op in V3).
     // Documents containing MOVEs should have non-null target_op.
-    const docsWithMoves = docsAfter.filter((d) => d.ops.some((op: any) => op.op === 'MOVE'));
+    const docsWithMoves = docsAfter.filter((d) => d.ops!.some((op: any) => op.op === 'MOVE'));
     expect(docsWithMoves.length).toBeGreaterThan(0);
     for (const doc of docsWithMoves) {
       expect(doc.target_op).toBeDefined();
@@ -1889,8 +1881,7 @@ bucket_definitions:
       moveBatchQueryLimit: 2,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 10n,
-      signal: null as any
+      maxOpId: 10n
     });
 
     // All ops are > maxOpId, so processableDocs is always empty.
@@ -1907,7 +1898,7 @@ bucket_definitions:
     expect(allOps.every((op) => op.op === 'PUT')).toBe(true);
   });
 
-  test('9. mixed-document maxOpId filtering preserves ops above horizon', async () => {
+  test('9. maxOpId filtering leaves a straddling document untouched', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
 
     // Single document with two ops: one <= maxOpId, one > maxOpId
@@ -1927,8 +1918,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 300n,
-      signal: null as any
+      maxOpId: 300n
     });
 
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
@@ -1948,7 +1938,7 @@ bucket_definitions:
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
 
     // Four documents with truly disjoint [min_op, _id.o] ranges.
-    // maxOpId=350: doc1+doc2 are processable, doc3+doc4 are not.
+    // maxOpId=350: only doc1 is processable; doc2 straddles the horizon.
     // Compaction must preserve range disjointness after rechunking.
     const doc1 = serializeBucketData(BUCKET, [
       makeOp(100, 'A', 'a1', ctx, sourceTableId),
@@ -1979,8 +1969,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 350n,
-      signal: null as any
+      maxOpId: 350n
     });
 
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
@@ -2007,8 +1996,7 @@ bucket_definitions:
         moveBatchQueryLimit: 10,
         minBucketChanges: 1,
         minChangeRatio: 0,
-        maxOpId,
-        signal: null as any
+        maxOpId
       });
     }
 
@@ -2108,8 +2096,7 @@ bucket_definitions:
         moveBatchQueryLimit: 1,
         minBucketChanges: 1,
         minChangeRatio: 0,
-        maxOpId: 15n,
-        signal: null as any
+        maxOpId: 15n
       });
 
       const docsAfter = await collection.find({ '_id.b': BUCKET }).toArray();
@@ -2139,12 +2126,12 @@ bucket_definitions:
       await doCompact(bucketStorage, 30n);
 
       const docsAfter = await collection.find({ '_id.b': BUCKET }).toArray();
-      const clearDoc = docsAfter.find((d: any) => d.ops.some((op: any) => op.op === 'CLEAR'));
+      const clearDoc = docsAfter.find((d: any) => d.ops!.some((op: any) => op.op === 'CLEAR'));
       expect(clearDoc).toBeDefined();
       expect(clearDoc!.target_op).toBe(30n);
     });
 
-    test('compacted_state.checksum excludes pass-through ops above maxOpId', async () => {
+    test('straddling document is excluded from compacted state', async () => {
       const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
 
       // Row A at 10, 30, 50 — ops 10+30 ≤ maxOpId=40, op 50 > 40 (pass-through)
@@ -2166,19 +2153,12 @@ bucket_definitions:
         _id: { d: ctx.definitionId, b: BUCKET }
       });
       expect(state).toBeDefined();
-      expect(state!.compacted_state).toBeDefined();
+      expect(state!.compacted_state).toBeUndefined();
 
-      // MOVE dedup: A@50 pass-through, C@60 pass-through survive as PUT.
-      // A@30 (first ≤ 40) survives, B@20 survives. A@10 → MOVE.
-      // compacted_state covers only ops ≤ 40: MOVE@10, PUT@20, PUT@30 = 3 ops.
-
-      // Expected checksum: only ops ≤ 40
-      const opsWithinHorizon = [10, 20, 30];
-      const expectedChecksum = opsWithinHorizon.reduce((sum, id) => addChecksums(sum, id * 7), 0);
-      expect(state!.compacted_state!.checksum).toBe(BigInt(expectedChecksum));
-      // All 5 ops survive (3 counted + 2 pass-through)
+      // The document ends beyond maxOpId, so it is not read or modified.
       const allOps = await readAllOps(collection);
       expect(allOps.length).toBe(5);
+      expect(allOps.every((op) => op.op == 'PUT')).toBe(true);
     });
 
     test('upperBound pagination prevents re-reading replacement documents', async () => {
@@ -2202,8 +2182,7 @@ bucket_definitions:
         moveBatchQueryLimit: 1,
         minBucketChanges: 1,
         minChangeRatio: 0,
-        maxOpId: 40n,
-        signal: null as any
+        maxOpId: 40n
       });
 
       const docsAfter = await collection.find({ '_id.b': BUCKET }).toArray();
