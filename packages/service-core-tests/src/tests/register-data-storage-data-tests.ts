@@ -1178,7 +1178,8 @@ bucket_definitions:
   });
 
   test('long batch', async () => {
-    // Test syncing a batch of data that is limited by count.
+    // Test syncing a batch of data that is limited by count. Compressed storage limits persisted
+    // documents and finishes yielding all operations from a document once it has been hydrated.
     await using factory = await generateStorageFactory();
     const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
       factory,
@@ -1220,55 +1221,76 @@ bucket_definitions:
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request], { limit: 4 })
     );
 
-    expect(test_utils.getBatchData(batch1)).toEqual([
+    const allOperations = [
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
       { op_id: '2', op: 'PUT', object_id: 'test2', checksum: 730027011 },
       { op_id: '3', op: 'PUT', object_id: 'test3', checksum: 1359888332 },
-      { op_id: '4', op: 'PUT', object_id: 'test4', checksum: 2049153252 }
-    ]);
-
-    expect(test_utils.getBatchMeta(batch1)).toEqual({
-      after: '0',
-      has_more: true,
-      next_after: '4'
-    });
-
-    const batch2 = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(
-        test_utils.testCheckpoint(checkpoint),
-        [{ ...request, start: BigInt(batch1.chunkData.next_after) }],
-        {
-          limit: 4
-        }
-      )
-    );
-    expect(test_utils.getBatchData(batch2)).toEqual([
+      { op_id: '4', op: 'PUT', object_id: 'test4', checksum: 2049153252 },
       { op_id: '5', op: 'PUT', object_id: 'test5', checksum: 3686902721 },
       { op_id: '6', op: 'PUT', object_id: 'test6', checksum: 1974820016 }
-    ]);
+    ];
 
-    expect(test_utils.getBatchMeta(batch2)).toEqual({
-      after: '4',
-      has_more: false,
-      next_after: '6'
-    });
+    if (config.compressedBucketStorage) {
+      expect(test_utils.getBatchData(batch1)).toEqual(allOperations);
+      expect(test_utils.getBatchMeta(batch1)).toEqual({
+        after: '0',
+        has_more: false,
+        next_after: '6'
+      });
 
-    const batch3 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(
-        test_utils.testCheckpoint(checkpoint),
-        [{ ...request, start: BigInt(batch2.chunkData.next_after) }],
-        {
-          limit: 4
-        }
-      )
-    );
-    expect(test_utils.getBatchData(batch3)).toEqual([]);
+      const batch2 = await test_utils.fromAsync(
+        bucketStorage.getBucketDataBatch(
+          test_utils.testCheckpoint(checkpoint),
+          [{ ...request, start: BigInt(batch1.chunkData.next_after) }],
+          {
+            limit: 4
+          }
+        )
+      );
+      expect(test_utils.getBatchData(batch2)).toEqual([]);
+      expect(test_utils.getBatchMeta(batch2)).toEqual(null);
+    } else {
+      expect(test_utils.getBatchData(batch1)).toEqual(allOperations.slice(0, 4));
 
-    expect(test_utils.getBatchMeta(batch3)).toEqual(null);
+      expect(test_utils.getBatchMeta(batch1)).toEqual({
+        after: '0',
+        has_more: true,
+        next_after: '4'
+      });
+
+      const batch2 = await test_utils.oneFromAsync(
+        bucketStorage.getBucketDataBatch(
+          test_utils.testCheckpoint(checkpoint),
+          [{ ...request, start: BigInt(batch1.chunkData.next_after) }],
+          {
+            limit: 4
+          }
+        )
+      );
+      expect(test_utils.getBatchData(batch2)).toEqual(allOperations.slice(4));
+
+      expect(test_utils.getBatchMeta(batch2)).toEqual({
+        after: '4',
+        has_more: false,
+        next_after: '6'
+      });
+
+      const batch3 = await test_utils.fromAsync(
+        bucketStorage.getBucketDataBatch(
+          test_utils.testCheckpoint(checkpoint),
+          [{ ...request, start: BigInt(batch2.chunkData.next_after) }],
+          {
+            limit: 4
+          }
+        )
+      );
+      expect(test_utils.getBatchData(batch3)).toEqual([]);
+      expect(test_utils.getBatchMeta(batch3)).toEqual(null);
+    }
   });
 
   describe('batch has_more', () => {
-    const setup = async (options: BucketDataBatchOptions) => {
+    const setup = async (options: BucketDataBatchOptions, commitAfter?: number) => {
       await using factory = await generateStorageFactory();
       const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
         factory,
@@ -1301,9 +1323,12 @@ bucket_definitions:
           },
           afterReplicaId: `test${i}`
         });
+        if (i == commitAfter) {
+          await writer.commit('1/1');
+        }
       }
 
-      await writer.commit('1/1');
+      await writer.commit(commitAfter == null ? '1/1' : '1/2');
 
       const { checkpoint } = await bucketStorage.getCheckpoint();
       const global1Request = bucketRequest(syncRules, 'global1[]', 0n);
@@ -1320,7 +1345,9 @@ bucket_definitions:
     };
 
     test('batch has_more (1)', async () => {
-      const { batch, global1Request, global2Request } = await setup({ limit: 5 });
+      // The commit boundary creates two compressed documents for global2. The limit selects the global1
+      // document and the first global2 document, leaving the second global2 document for the next batch.
+      const { batch, global1Request, global2Request } = await setup({ limit: 2 }, 5);
       expect(batch.length).toEqual(2);
 
       expect(batch[0].chunkData.bucket).toEqual(global1Request.bucket);
@@ -1330,12 +1357,20 @@ bucket_definitions:
         { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
       ]);
 
-      expect(test_utils.getBatchData(batch[1])).toEqual([
+      const global2Operations = [
         { op_id: '2', op: 'PUT', object_id: 'test2', checksum: 730027011 },
         { op_id: '3', op: 'PUT', object_id: 'test3', checksum: 1359888332 },
         { op_id: '4', op: 'PUT', object_id: 'test4', checksum: 2049153252 },
-        { op_id: '5', op: 'PUT', object_id: 'test5', checksum: 3686902721 }
-      ]);
+        { op_id: '5', op: 'PUT', object_id: 'test5', checksum: 3686902721 },
+        { op_id: '6', op: 'PUT', object_id: 'test6', checksum: 1974820016 },
+        { op_id: '7', op: 'PUT', object_id: 'test7', checksum: 2477637855 },
+        { op_id: '8', op: 'PUT', object_id: 'test8', checksum: 3644033632 },
+        { op_id: '9', op: 'PUT', object_id: 'test9', checksum: 1011055869 },
+        { op_id: '10', op: 'PUT', object_id: 'test10', checksum: 1331456365 }
+      ];
+      expect(test_utils.getBatchData(batch[1])).toEqual(
+        config.compressedBucketStorage ? global2Operations.slice(0, 4) : global2Operations.slice(0, 1)
+      );
 
       expect(test_utils.getBatchMeta(batch[0])).toEqual({
         after: '0',
@@ -1346,7 +1381,7 @@ bucket_definitions:
       expect(test_utils.getBatchMeta(batch[1])).toEqual({
         after: '0',
         has_more: true,
-        next_after: '5'
+        next_after: config.compressedBucketStorage ? '5' : '2'
       });
     });
 
@@ -1391,7 +1426,8 @@ bucket_definitions:
       const { batch, global1Request, global2Request } = await setup({ limit: 3, chunkLimitBytes: 50 });
 
       if (config.compressedBucketStorage) {
-        // In v3+, ops in the same bucket share a document, so ops 2 and 3 (global2) are batched together
+        // In v3+, ops in the same bucket share a document. Once hydrated, the entire document is yielded even
+        // when it exceeds the byte limit; the byte limit controls whether another document is fetched.
         expect(batch.length).toEqual(2);
         expect(batch[0].chunkData.bucket).toEqual(global1Request.bucket);
         expect(batch[1].chunkData.bucket).toEqual(global2Request.bucket);
@@ -1402,7 +1438,14 @@ bucket_definitions:
 
         expect(test_utils.getBatchData(batch[1])).toEqual([
           { op_id: '2', op: 'PUT', object_id: 'test2', checksum: 730027011 },
-          { op_id: '3', op: 'PUT', object_id: 'test3', checksum: 1359888332 }
+          { op_id: '3', op: 'PUT', object_id: 'test3', checksum: 1359888332 },
+          { op_id: '4', op: 'PUT', object_id: 'test4', checksum: 2049153252 },
+          { op_id: '5', op: 'PUT', object_id: 'test5', checksum: 3686902721 },
+          { op_id: '6', op: 'PUT', object_id: 'test6', checksum: 1974820016 },
+          { op_id: '7', op: 'PUT', object_id: 'test7', checksum: 2477637855 },
+          { op_id: '8', op: 'PUT', object_id: 'test8', checksum: 3644033632 },
+          { op_id: '9', op: 'PUT', object_id: 'test9', checksum: 1011055869 },
+          { op_id: '10', op: 'PUT', object_id: 'test10', checksum: 1331456365 }
         ]);
 
         expect(test_utils.getBatchMeta(batch[0])).toEqual({
@@ -1413,8 +1456,8 @@ bucket_definitions:
 
         expect(test_utils.getBatchMeta(batch[1])).toEqual({
           after: '0',
-          has_more: true,
-          next_after: '3'
+          has_more: false,
+          next_after: '10'
         });
       } else {
         expect(batch.length).toEqual(3);
