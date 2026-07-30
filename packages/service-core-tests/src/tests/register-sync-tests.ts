@@ -251,7 +251,7 @@ streams:
     expect(lines).toMatchSnapshot();
   });
 
-  test('sync interrupts low-priority buckets on new checkpoints', async () => {
+  test('carries pending low-priority buckets into a new checkpoint', async () => {
     await using f = await factory();
 
     const syncRules = await updateSyncRules(f, {
@@ -563,7 +563,7 @@ bucket_definitions:
     expect(sentRows).toBe(10002);
   });
 
-  test('sync interrupts low-priority buckets on new checkpoints (2)', async () => {
+  test('restarts updated low-priority buckets at a new checkpoint', async () => {
     await using f = await factory();
 
     const syncRules = await updateSyncRules(f, {
