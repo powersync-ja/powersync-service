@@ -210,65 +210,65 @@ export class PersistedBatchV3 extends PersistedBatch {
       operationsByDefinition.set(document.bucketKey.definitionId, existing);
     }
 
-    for (const [definitionId, documents] of operationsByDefinition.entries()) {
-      const operationsByBucket = new Map<string, BucketDataDoc[]>();
-      for (const document of documents) {
-        const existing = operationsByBucket.get(document.bucketKey.bucket) ?? [];
-        existing.push(document);
-        operationsByBucket.set(document.bucketKey.bucket, existing);
-      }
+    let uploadCount = 0;
+    const plans = Array.from(operationsByDefinition, ([definitionId, documents]) => {
+      const operationsByBucket = Map.groupBy(documents, (document) => document.bucketKey.bucket);
+      const lifecycle = this.objectStorage
+        ? new ObjectStorageLifecycle(this.db, this.group_id, this.objectStorage)
+        : undefined;
+      const createInserts: (() => Promise<mongo.AnyBulkWriteOperation<BucketDataDocumentV3>>)[] = [];
 
-      const inserts: mongo.AnyBulkWriteOperation<BucketDataDocumentV3>[] = [];
-
-      if (!this.objectStorage) {
-        for (const [bucket, ops] of operationsByBucket.entries()) {
-          const chunks = chunkBucketData(ops);
-          for (const chunk of chunks) {
-            inserts.push({
+      for (const [bucket, ops] of operationsByBucket) {
+        for (const chunk of chunkBucketData(ops)) {
+          const serialized = serializeBucketData(bucket, chunk);
+          if (lifecycle == null || serialized.size <= this.inlineThresholdBytes) {
+            createInserts.push(async () => ({
               insertOne: {
-                document: serializeBucketData(bucket, chunk)
+                document: serialized
               }
-            });
+            }));
+            continue;
           }
-        }
-      } else {
-        const lifecycle = new ObjectStorageLifecycle(this.db, this.group_id, this.objectStorage);
 
-        for (const [bucket, ops] of operationsByBucket.entries()) {
-          const chunks = chunkBucketData(ops);
-          for (const chunk of chunks) {
+          uploadCount += 1;
+          createInserts.push(async () => {
             const minOp = chunk[0].o;
             const maxOp = chunk[chunk.length - 1].o;
-            const serialized = serializeBucketData(bucket, chunk);
             const { ops: bucketOps, ...metadata } = serialized;
-
-            if (serialized.size <= this.inlineThresholdBytes) {
-              // Small enough to store inline
-              inserts.push({
-                insertOne: {
-                  document: serialized
-                }
-              });
-            } else {
-              const path = lifecycle.allocatePath(definitionId, bucket, minOp, maxOp);
-              const { fileSize } = await lifecycle.bucketData.store(path, bucketOps!);
-
-              inserts.push({
-                insertOne: {
-                  document: {
-                    ...metadata,
-                    storage_ref: {
-                      path,
-                      file_size: fileSize
-                    }
+            const path = lifecycle.allocatePath(definitionId, bucket, minOp, maxOp);
+            const { fileSize } = await lifecycle.bucketData.store(path, bucketOps!);
+            return {
+              insertOne: {
+                document: {
+                  ...metadata,
+                  storage_ref: {
+                    path,
+                    file_size: fileSize
                   }
                 }
-              });
-            }
-          }
+              }
+            };
+          });
         }
       }
 
+      return { definitionId, createInserts };
+    });
+
+    const createAllInserts = () =>
+      Promise.all(
+        plans.map(async ({ definitionId, createInserts }) => ({
+          definitionId,
+          inserts: await Promise.all(createInserts.map((createInsert) => createInsert()))
+        }))
+      );
+
+    // S3ObjectStorage applies one shared concurrency limit across all callers,
+    // so replication can schedule its uploads together without creating a
+    // separate limiter here.
+    const writes = await createAllInserts();
+
+    for (const { definitionId, inserts } of writes) {
       if (inserts.length > 0) {
         await this.db.bucketData(this.group_id, definitionId).bulkWrite(inserts, {
           session,
