@@ -218,20 +218,21 @@ export class CDCPoller {
 
       this.logger.info(`Polling bounds are ${startLSN} -> ${endLSN} spanning ${results.length} transaction(s).`);
 
-      let transactionCount = 0;
+      // We poll for batch size transactions, but these include transactions not applicable to our Source Tables.
+      // A single transaction can also span several Source Tables, so collect the distinct transaction LSNs
+      // that produced changes rather than counting per table, which would either double count the
+      // transactions spanning tables or miss the transactions applicable to only one of them.
+      let transactionLSNs = new Set<string>();
       this.logger.debug(
         `Currently replicating tables: ${this.replicatedTables.map((table) => table.toQualifiedName()).join(', ')}`
       );
       for (const table of this.replicatedTables) {
         if (table.enabledForCDC()) {
-          const tableTransactionCount = await this.pollTable(table, { startLSN, endLSN });
-          // We poll for batch size transactions, but these include transactions not applicable to our Source Tables.
-          // Each Source Table may or may not have transactions that are applicable to it, so just keep track of the highest number of transactions processed for any Source Table.
-          if (tableTransactionCount > transactionCount) {
-            transactionCount = tableTransactionCount;
-          }
+          const transactions = await this.pollTable(table, { startLSN, endLSN });
+          transactions.forEach((t) => transactionLSNs.add(t));
         }
       }
+      const transactionCount = transactionLSNs.size;
 
       this.logger.info(
         `Processed ${results.length} transaction(s), including ${transactionCount} Source Table transaction(s). Commited LSN: ${endLSN.toString()}`
@@ -248,11 +249,18 @@ export class CDCPoller {
     }
   }
 
-  private async pollTable(table: MSSQLSourceTable, bounds: { startLSN: LSN; endLSN: LSN }): Promise<number> {
+  /**
+   *  Emits the changes this table has within the given bounds, and returns the LSNs of the
+   *  transactions those changes belong to. The LSNs are returned in their string form so that the
+   *  caller can deduplicate them across tables by value.
+   */
+  private async pollTable(table: MSSQLSourceTable, bounds: { startLSN: LSN; endLSN: LSN }): Promise<Set<string>> {
+    const transactionLSNs = new Set<string>();
+
     // Ensure that the startLSN is not before the minimum LSN for the table
     const minLSN = this.captureInstances.get(table.objectId)!.instances[0].minLSN;
     if (minLSN > bounds.endLSN) {
-      return 0;
+      return transactionLSNs;
     } else if (minLSN >= bounds.startLSN) {
       bounds.startLSN = minLSN;
     }
@@ -260,7 +268,7 @@ export class CDCPoller {
     try {
       const { recordset: results } = await this.connectionManager.query(
         `
-        SELECT * FROM ${table.allChangesFunction}(@from_lsn, @to_lsn, 'all update old') ORDER BY __$start_lsn, __$seqval
+        SELECT * FROM ${table.allChangesFunction}(@from_lsn, @to_lsn, 'all update old') ORDER BY __$start_lsn, __$seqval, __$operation
     `,
         [
           { name: 'from_lsn', type: sql.VarBinary, value: bounds.startLSN.toBinary() },
@@ -268,46 +276,26 @@ export class CDCPoller {
         ]
       );
 
-      let transactionCount = 0;
-      let updateBefore: any = null;
-      let lastTransactionLSN: LSN | null = null;
-      for (const row of results) {
-        const transactionLSN = LSN.fromBinary(row.__$start_lsn);
-        switch (row.__$operation) {
-          case Operation.DELETE:
-            await this.eventHandler.onDelete(row, table, results.columns);
-            this.logger.info(`Processed DELETE row LSN: ${transactionLSN}`);
+      for (const { transactionLSN, type, rows } of groupLogicalChanges(results, table)) {
+        switch (type) {
+          case LogicalChangeType.DELETE:
+            await this.eventHandler.onDelete(rows[0], table, results.columns);
             break;
-          case Operation.INSERT:
-            await this.eventHandler.onInsert(row, table, results.columns);
-            this.logger.info(`Processed INSERT row LSN: ${transactionLSN}`);
+          case LogicalChangeType.INSERT:
+            await this.eventHandler.onInsert(rows[0], table, results.columns);
             break;
-          case Operation.UPDATE_BEFORE:
-            updateBefore = row;
-            this.logger.debug(`Processed UPDATE, before row LSN: ${transactionLSN}`);
+          case LogicalChangeType.UPDATE:
+          case LogicalChangeType.DEFERRED_UPDATE:
+            const [rowBefore, rowAfter] = rows;
+            await this.eventHandler.onUpdate(rowAfter, rowBefore, table, results.columns);
             break;
-          case Operation.UPDATE_AFTER:
-            if (updateBefore === null) {
-              throw new ReplicationAssertionError('Missing before image for update event.');
-            }
-            await this.eventHandler.onUpdate(row, updateBefore, table, results.columns);
-            updateBefore = null;
-            this.logger.info(`Processed UPDATE row LSN: ${transactionLSN}`);
-            break;
-          default:
-            this.logger.warn(`Unknown operation type [${row.__$operation}] encountered in CDC changes.`);
         }
+        this.logger.info(`Processed ${type}. Transaction LSN: ${transactionLSN}`);
 
-        // Increment transaction count when we encounter a new transaction LSN (except for UPDATE_BEFORE rows)
-        if (transactionLSN != lastTransactionLSN) {
-          lastTransactionLSN = transactionLSN;
-          if (row.__$operation !== Operation.UPDATE_BEFORE) {
-            transactionCount++;
-          }
-        }
+        transactionLSNs.add(transactionLSN.toString());
       }
 
-      return transactionCount;
+      return transactionLSNs;
     } catch (error) {
       // This Covers both deleted tables and capture instances
       if (error.message.includes(`Invalid object name`)) {
@@ -442,4 +430,111 @@ export class CDCPoller {
       })
     );
   }
+}
+
+enum LogicalChangeType {
+  INSERT = 'INSERT',
+  DELETE = 'DELETE',
+  UPDATE = 'UPDATE',
+  DEFERRED_UPDATE = 'DEFERRED UPDATE'
+}
+
+/**
+ *  One logical change to a single row, made up of the one or two CDC rows that describe it.
+ */
+interface LogicalChange {
+  transactionLSN: LSN;
+  type: LogicalChangeType;
+  /**
+   *  Inserts and Deletes resolve to 1 row.
+   *  Updates resolve to 2 rows, the row values before and after the update: [rowBefore, rowAfter].
+   */
+  rows: any[];
+}
+
+/**
+ *  Groups CDC change rows into the logical row changes they describe.
+ *
+ *  SQL Server records a logical change as either one row (a plain insert or delete) or two rows that share
+ *  a `__$seqval`. `__$seqval` represents the ordering of the changes to a row within a transaction.
+ *  CDC operations that can share a `__$seqval` are:
+ *  - The before and after operations of an in-place update
+ *  - The delete and insert operations of a deferred update.
+ *
+ *  This method groups and emits rows in the same transaction based on their `__$seqval`
+ *
+ *  The source table is only used to identify the table in the errors raised for change rows that
+ *  do not describe a valid logical change.
+ */
+function* groupLogicalChanges(rows: any[], table: MSSQLSourceTable): Generator<LogicalChange> {
+  let currentRows: any[] = [];
+  let currentTransactionLSN: Buffer | null = null;
+  let currentSequence: Buffer | null = null;
+
+  for (const row of rows) {
+    const nextTransactionLSN: Buffer = row.__$start_lsn;
+    const nextSequence: Buffer = row.__$seqval;
+
+    if (
+      currentRows.length > 0 &&
+      !(nextTransactionLSN.equals(currentTransactionLSN!) && nextSequence!.equals(currentSequence!))
+    ) {
+      yield toLogicalChange(currentRows, currentTransactionLSN!, table);
+      currentRows = [];
+    }
+    currentTransactionLSN = nextTransactionLSN;
+    currentSequence = nextSequence;
+    currentRows.push(row);
+  }
+
+  if (currentRows.length > 0) {
+    yield toLogicalChange(currentRows, currentTransactionLSN!, table);
+  }
+}
+
+function toLogicalChange(rows: any[], startLSN: Buffer, table: MSSQLSourceTable): LogicalChange {
+  // The rows are ordered by operation in the query, but this is an extra safeguard
+  const orderedRows = [...rows].sort((a, b) => a.__$operation - b.__$operation);
+  const transactionLSN = LSN.fromBinary(startLSN);
+  return {
+    transactionLSN,
+    type: resolveLogicalChangeType(orderedRows, transactionLSN, table),
+    rows: orderedRows
+  };
+}
+
+function resolveLogicalChangeType(orderedRows: any[], transactionLSN: LSN, table: MSSQLSourceTable): LogicalChangeType {
+  if (orderedRows.length === 1) {
+    const operation = orderedRows[0].__$operation;
+    if (operation === Operation.UPDATE_BEFORE || operation === Operation.UPDATE_AFTER) {
+      throw new ReplicationAssertionError(
+        `Incomplete update for table ${table.toQualifiedName()} in transaction LSN ${transactionLSN}: an update must have both a before and an after image.`
+      );
+    }
+
+    if (operation === Operation.INSERT) {
+      return LogicalChangeType.INSERT;
+    } else if (operation === Operation.DELETE) {
+      return LogicalChangeType.DELETE;
+    } else {
+      throw new ReplicationAssertionError(
+        `Unrecognized operation: ${operation} for table ${table.toQualifiedName()} in transaction LSN ${transactionLSN}.`
+      );
+    }
+  } else if (orderedRows.length === 2) {
+    const [first, second] = orderedRows;
+    if (first.__$operation === Operation.UPDATE_BEFORE && second.__$operation === Operation.UPDATE_AFTER) {
+      return LogicalChangeType.UPDATE;
+    } else if (first.__$operation === Operation.DELETE && second.__$operation === Operation.INSERT) {
+      return LogicalChangeType.DEFERRED_UPDATE;
+    }
+
+    throw new ReplicationAssertionError(
+      `Unexpected CDC operations [${first.__$operation}, ${second.__$operation}] for a single logical change on table ${table.toQualifiedName()} in transaction LSN ${transactionLSN}.`
+    );
+  }
+
+  throw new ReplicationAssertionError(
+    `Unexpected number of CDC operations [${orderedRows.length}] for a single logical change on table ${table.toQualifiedName()} in transaction LSN ${transactionLSN}.`
+  );
 }
