@@ -11,19 +11,17 @@ import { BucketDataDocumentV3, BucketOperation } from './models.js';
 export function serializeBucketData(
   bucket: string,
   operations: BucketDataDoc[],
-  options?: { compactionTargetOp?: bigint }
+  options?: { targetOp?: InternalOpId | null }
 ): BucketDataDocumentV3 {
   const minOp = operations[0].o;
   const maxOp = operations[operations.length - 1].o;
 
   let totalChecksum = 0n;
-  let maxTargetOp: bigint | null = options?.compactionTargetOp ?? null;
+  let maxTargetOp: InternalOpId | null = options?.targetOp ?? null;
   let hasClearOp = false;
 
   const ops: BucketOperation[] = operations.map((op) => {
     totalChecksum += op.checksum;
-
-    maxTargetOp = maxOpId(maxTargetOp, op.target_op);
 
     if (op.op == 'CLEAR') {
       hasClearOp = true;

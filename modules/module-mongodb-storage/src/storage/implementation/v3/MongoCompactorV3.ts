@@ -1,12 +1,12 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
-import { addChecksums, storage, utils } from '@powersync/service-core';
+import { addChecksums, InternalOpId, storage, utils } from '@powersync/service-core';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketDataKey, BucketStateDocumentBase } from '../models.js';
 import { ConcurrentCompactionError, DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { cacheKey } from '../OperationBatch.js';
-import { loadBucketDataDocument, serializeBucketData } from './bucket-format.js';
+import { loadBucketDataDocument, maxOpId, serializeBucketData } from './bucket-format.js';
 import { BucketDataContextV3 } from './BucketDataContextV3.js';
 import { DEFAULT_MAX_DOC_SIZE_BYTES } from './chunking.js';
 import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
@@ -283,16 +283,17 @@ export class MongoCompactorV3 extends MongoCompactor {
 
         let changed = false;
         const compactedOps: BucketDataDoc[] = [];
+        let maxTargetOp: InternalOpId | null = null;
         for (let index = originalOps.length - 1; index >= 0; index--) {
           const op = originalOps[index];
           if (op.op == 'PUT' || op.op == 'REMOVE') {
             const key = `${op.table}/${op.row_id}/${cacheKey(op.source_table!, op.source_key!)}`;
             const targetOp = seen.get(key);
             if (targetOp != null) {
+              maxTargetOp = maxOpId(maxTargetOp, targetOp);
               compactedOps.push({
                 ...op,
                 op: 'MOVE',
-                target_op: targetOp,
                 table: undefined,
                 row_id: undefined,
                 source_table: undefined,
@@ -348,7 +349,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           pendingGroup = candidate;
         } else {
           const mergedOps: BucketDataDoc[] = [...candidate.ops, ...pendingGroup.ops];
-          const mergedSize = serializeBucketData(bucket, mergedOps).size;
+          const mergedSize = serializeBucketData(bucket, mergedOps, { targetOp: maxTargetOp }).size;
           if (mergedSize <= DEFAULT_MAX_DOC_SIZE_BYTES) {
             pendingGroup = {
               inputs: [...candidate.inputs, ...pendingGroup.inputs],
@@ -664,10 +665,11 @@ export class MongoCompactorV3 extends MongoCompactor {
           o: lastDocId!.o,
           op: 'CLEAR' as const,
           checksum: BigInt(combinedChecksum),
-          data: null,
-          target_op: maxTargetOp
+          data: null
         } satisfies BucketDataDoc;
-        const persisted = await this.persistBucketData(bucket, [[clearOp]], context, prepared);
+        const persisted = await this.persistBucketData(bucket, [[clearOp]], context, prepared, {
+          targetOp: maxTargetOp
+        });
         await collection.insertOne(persisted.documents[0], { session });
         await this.finishObjectStorageReplacement(oldStoragePaths, persisted.storagePaths, persisted.uploads, session);
 
@@ -742,6 +744,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             oldStoragePaths.push(doc.storage_ref.path);
           }
           await hydrateBucketDataDocuments([doc], this.storage.objectStorage, { signal: this.signal });
+          maxTargetOp = maxOpId(maxTargetOp, doc.target_op);
           for (const op of loadBucketDataDocument(context, doc)) {
             if (!isBoundaryDoc && op.op != 'CLEAR') {
               throw new ReplicationAssertionError(
@@ -757,9 +760,6 @@ export class MongoCompactorV3 extends MongoCompactor {
               }
               combinedChecksum = addChecksums(combinedChecksum, Number(op.checksum));
               clearedOpCount++;
-              if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
-                maxTargetOp = op.target_op;
-              }
             } else if (isBoundaryDoc) {
               boundarySurvivors.push(op);
             } else {
@@ -790,8 +790,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           o: lastNotPut,
           op: 'CLEAR' as const,
           checksum: BigInt(combinedChecksum),
-          data: null,
-          target_op: maxTargetOp
+          data: null
         } satisfies BucketDataDoc;
         const chunks: BucketDataDoc[][] = [[clearOp]];
         if (boundarySurvivors.length > 0) {
@@ -799,7 +798,9 @@ export class MongoCompactorV3 extends MongoCompactor {
           // them together cannot increase its stored ops payload.
           chunks.push(boundarySurvivors);
         }
-        const persisted = await this.persistBucketData(bucket, chunks, context, prepared);
+        const persisted = await this.persistBucketData(bucket, chunks, context, prepared, {
+          targetOp: maxTargetOp ?? undefined
+        });
         await collection.insertMany(persisted.documents, { session });
         await this.finishObjectStorageReplacement(oldStoragePaths, persisted.storagePaths, persisted.uploads, session);
 
@@ -858,9 +859,10 @@ export class MongoCompactorV3 extends MongoCompactor {
     bucket: string,
     chunks: BucketDataDoc[][],
     context: { replicationStreamId: number; definitionId: string },
-    preparedUploads?: PreparedObjectStorageUpload[]
+    preparedUploads?: PreparedObjectStorageUpload[],
+    options?: { targetOp?: InternalOpId | null }
   ): Promise<{ documents: BucketDataDocumentV3[]; storagePaths: Set<string>; uploads: PreparedObjectStorageUpload[] }> {
-    const serializedChunks = chunks.map((chunk) => serializeBucketData(bucket, chunk));
+    const serializedChunks = chunks.map((chunk) => serializeBucketData(bucket, chunk, options));
     if (!this.storage.objectStorage) {
       return {
         documents: serializedChunks,
