@@ -56,11 +56,11 @@ export enum SchemaChangeType {
 export interface SchemaChange {
   type: SchemaChangeType;
   /**
-   * Existing table affected by the change.
+   *  The table that the schema change applies to. Populated for table drops, renames, new capture instances, and DDL changes.
    */
   table?: MSSQLSourceTable;
   /**
-   * New table identity after a rename.
+   *  Populated for new tables or renames, but only if the new table matches a sync config source table.
    */
   newTable?: SourceTableChangeRef;
 
