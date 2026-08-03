@@ -155,8 +155,7 @@ export class PostgresBucketBatch
     }));
 
     return this.db.transaction(async (db) => {
-      // Single overlap query: any candidate matching (schema + name) OR relation_id. Replaces the
-      // previous exact-identity match plus separate conflict query.
+      // Find records that overlap by name or relation id.
       let candidateRows: SourceTableDecoded[];
       if (objectId != null) {
         candidateRows = await db.sql`
@@ -193,7 +192,6 @@ export class PostgresBucketBatch
           .rows();
       }
 
-      // Hydrate candidates and let the source reconciler classify compatibility in JS.
       const candidateTables = candidateRows.map((row) => {
         const hydrated = this.sourceTableFromRow(row, connectionTag, syncRules);
         hydrated.storeCurrentData = sendsCompleteRows !== true;
@@ -214,9 +212,7 @@ export class PostgresBucketBatch
 
       const compatibleTables = resolution.compatibleTables;
 
-      // Postgres storage resolves to a single record. When multiple candidates are compatible
-      // (unexpected duplicate/corrupt state), deterministically prefer a snapshot-complete record
-      // to preserve already-snapshotted data, and drop the rest as conflicts.
+      // Keep one record, preferring one that has already been snapshotted.
       const reuse = compatibleTables.find((candidate) => candidate.snapshotComplete) ?? compatibleTables[0] ?? null;
 
       let sourceTable: storage.SourceTable;
@@ -256,13 +252,9 @@ export class PostgresBucketBatch
         sourceTable.storeCurrentData = sendsCompleteRows !== true;
       }
 
-      // All remaining overlapping candidates are drops (renames, relation-id / replica-id changes,
-      // superseded source-metadata generations, or duplicate compatible records).
       const dropTables = [
         ...resolution.incompatibleTables,
-        // PostgreSQL storage allows only one SourceTable per physical table, so drop compatible
-        // duplicates too. Only reachable when a record was reused - a newly inserted record means
-        // there were no compatible candidates.
+        // PostgreSQL storage only keeps one SourceTable per physical table.
         ...compatibleTables.filter((candidate) => !storage.sourceTableIdEquals(candidate.id, sourceTable.id))
       ];
 

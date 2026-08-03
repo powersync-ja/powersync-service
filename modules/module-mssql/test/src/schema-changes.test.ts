@@ -44,7 +44,6 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     await using context = await CDCStreamTestContext.open(factory);
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
-    // test_data is never created.
     await expect(context.replicateSnapshot()).rejects.toThrow(/does not exist/);
   });
 
@@ -60,8 +59,7 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     const testData1 = await insertBasicIdTestData(connectionManager, 'test_data');
     expect(await context.getBucketData('global[]')).toMatchObject([putOp('test_data', testData1)]);
 
-    // The replicated table set is fixed at deploy, so this never enters scope. It also does not
-    // disturb the running stream.
+    // This table is outside the fixed set for the running stream.
     await createTestTableWithBasicId(connectionManager, 'test_data_new');
     await insertBasicIdTestData(connectionManager, 'test_data_new');
 
@@ -75,7 +73,6 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
-    // The sync config table must exist for replication to start.
     await createTestTableWithBasicId(connectionManager, 'test_data');
 
     await context.replicateSnapshot();
@@ -88,11 +85,6 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     expect(data).toMatchObject([]);
   });
 
-  /**
-   * Schema checks run before polling within a cycle, so continuing after a drop would commit past
-   * changes for the dropped table that were never read. The job stops instead, and the already
-   * replicated data is retained for a redeploy to clean up.
-   */
   test('Drop table: replication stops and the replicated data is retained', async () => {
     await using context = await CDCStreamTestContext.open(factory);
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -112,8 +104,7 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
       putOp('test_data', testData2)
     ]);
 
-    // Attach the rejection handler before triggering the failure - the schema check can fire while
-    // the DDL statement is still awaiting, and an unhandled rejection fails the test outright.
+    // Attach before the DDL to avoid an unhandled rejection race.
     const streamFailure = expect(
       context.streamingPromise,
       'Dropping a replicated table should stop the job'
@@ -121,7 +112,7 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     await dropTestTable(connectionManager, 'test_data');
     await streamFailure;
 
-    // Read storage directly: getBucketData() races the stream promise, which has now rejected.
+    // The usual helper races the rejected stream promise.
     expect(
       await context.getCurrentBucketData('global[]'),
       'Dropping the source table should not delete data already replicated to clients'
@@ -150,18 +141,13 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     await renameTable(connectionManager, 'test_data', 'test_data_renamed');
     await streamFailure;
 
-    // Read storage directly: getBucketData() races the stream promise, which has now rejected.
+    // The usual helper races the rejected stream promise.
     expect(
       await context.getCurrentBucketData('global[]'),
       'Renaming the source table should not delete data already replicated to clients'
     ).toMatchObject([putOp('test_data', testData)]);
   });
 
-  /**
-   * Start replication pinned to the original capture instance, then add a source column and create
-   * a new capture instance that includes it. The running stream must keep polling the original
-   * instance, so a new row is replicated without the newly captured column.
-   */
   test('New capture instance with changed schema keeps the existing pinned capture instance', async () => {
     await using context = await CDCStreamTestContext.open(factory);
     await context.updateSyncRules(WILDCARD_SYNC_RULES);
@@ -229,13 +215,6 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     ).toEqual({ id: testData2.id, description: testData2.description });
   });
 
-  /**
-   * Create a replacement capture instance immediately after a schema check. The replacement omits
-   * `description`, which the original instance still captures. Let the running stream process a
-   * later transaction before the next schema check so its persisted LSN advances beyond the new
-   * instance's minimum LSN without detecting that instance. After restart, the row's description
-   * proves whether PowerSync restored the original capture instance or inferred the replacement.
-   */
   test('Restart restores the existing pin after advancing past an undetected capture instance', async () => {
     let initialBinding: {
       sourceTableObjectId: number;
@@ -270,7 +249,7 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
         connectionManager,
         table: 'test_data',
         captureInstance: 'capture_instance_new',
-        // Give the replacement instance a distinct schema: it captures the new column but not description.
+        // Make the replacement schema distinguishable from the pinned one.
         capturedColumns: ['id', 'new_column']
       });
 
@@ -347,11 +326,6 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     }
   });
 
-  /**
-   * Persist a capture-instance pin, stop PowerSync, then use a separate context to add a source
-   * column and insert a row before creating the new capture instance. A third context restarts
-   * replication and must recover that change from the original capture instance.
-   */
   test('New capture instance with changed schema created while PowerSync is stopped restores the existing pin', async () => {
     let initialBinding: {
       sourceTableObjectId: number;
@@ -444,14 +418,6 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     }
   });
 
-  /**
-   * Bindings created before capture-instance pinning have no source metadata. They must be pinned in
-   * place on the next job - to the instance the pre-pinning streaming logic would have selected -
-   * without replacing the SourceTable records or re-snapshotting.
-   *
-   * The metadata is stripped through the storage API rather than per-backend SQL, so this covers
-   * every storage backend the suite runs against.
-   */
   test('A legacy binding without source metadata is pinned on the next job', async () => {
     let sourceDescriptor: SourceEntityDescriptor;
     let initialBinding: {
@@ -486,8 +452,7 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     }
 
     {
-      // Strip the persisted pin, reproducing a record written before pinning existed. Done in its
-      // own context so it does not contend with a running stream for the storage batch.
+      // Reproduce a binding written before capture pinning.
       await using context = await CDCStreamTestContext.open(factory, { doNotClear: true });
       await context.loadActiveSyncRules();
 
@@ -536,11 +501,6 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     }
   });
 
-  /**
-   * Replication is ordered, so the job must not advance past a sync-config table it cannot
-   * replicate - a checkpoint that silently omits the table would be worse than not progressing.
-   * The job fails until CDC is enabled, then replicates normally.
-   */
   test('A sync rule table without a capture instance blocks the job until CDC is enabled', async () => {
     await using context = await CDCStreamTestContext.open(factory);
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -565,11 +525,6 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     expect(data).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
   });
 
-  /**
-   * A pinned capture instance disappearing with no replacement leaves nothing to poll and nothing
-   * to re-snapshot onto. Silently skipping the table would keep serving its now-stale records, so
-   * the whole replication job fails instead.
-   */
   test('Removing the last capture instance for a replicating table fails the job', async () => {
     await using context = await CDCStreamTestContext.open(factory, {
       cdcStreamOptions: { schemaCheckIntervalMs: 5000 }
@@ -597,10 +552,6 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     await streamFailure;
   });
 
-  /**
-   * Wildcards would let a table enter scope while a stream is running, which cannot be detected
-   * safely - so they are rejected outright rather than supported partially.
-   */
   test('Table wildcards in the sync configuration are rejected', async () => {
     await using context = await CDCStreamTestContext.open(factory);
     await context.updateSyncRules(`
@@ -618,11 +569,6 @@ bucket_definitions:
     ).rejects.toThrow(/wildcards/);
   });
 
-  /**
-   * A replacement capture instance may capture a different schema, so it is never adopted in place
-   * even though one is available - that would silently change what is replicated. The job stops and
-   * a new sync deploy is required.
-   */
   test('A replacement for a dropped pinned capture instance is not adopted, and stops the job', async () => {
     await using context = await CDCStreamTestContext.open(factory);
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -645,8 +591,7 @@ bucket_definitions:
       context.streamingPromise,
       'An available replacement should not keep the job alive - adopting it needs a new deploy'
     ).rejects.toThrow(/adopt the replacement/);
-    // Leave a replacement in place, so the failure is specifically about not adopting it rather
-    // than about having nothing to poll.
+    // Keep a replacement available to exercise the pinning failure.
     await enableCDCForTable({ connectionManager, table: 'test_data', captureInstance: 'capture_instance_new' });
     await disableCDCForTable(connectionManager, 'test_data', originalCaptureInstanceName);
     await streamFailure;
@@ -685,8 +630,7 @@ bucket_definitions:
     const testData2 = { id: result[0].id, description: result[0].description };
 
     const data = await context.getBucketData('global[]');
-    // Capture instances do not reflect most schema changes until the capture instance is re-created
-    // So testData2 will be replicated but without the new column
+    // The pinned capture schema does not include the new column.
     expect(data).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
 
     expect(
@@ -697,10 +641,6 @@ bucket_definitions:
   });
 }
 
-/**
- * Wait for a warning matching `pattern`. Most schema changes are warn-only now, so this is the
- * assertion for "we told the user, and did nothing else".
- */
 async function expectedWarning(warnSpy: any, pattern: RegExp) {
   try {
     await vi.waitFor(

@@ -352,12 +352,8 @@ export enum ErrorCode {
    *  * CDC has been disabled for the table.
    *  * The table has been dropped, which also drops the capture instance.
    *
-   *  Replication for the whole stream stops, rather than silently skipping the table and serving
-   *  checkpoints that omit it.
-   *
-   *  A new sync deploy is required, and re-enabling CDC alone does not help: the binding is pinned to
-   *  the CDC change table's object ID, and re-enabling CDC creates a new change table with a
-   *  different ID, which this replication stream will not adopt.
+   *  Replication stops and requires a new sync deploy. Re-enabling CDC creates a new capture
+   *  instance, which the existing stream will not adopt.
    */
   PSYNC_S1601 = 'PSYNC_S1601',
 
@@ -368,21 +364,15 @@ export enum ErrorCode {
    *  * CDC has not been enabled for the table.
    *  * The table does not exist in the source database.
    *
-   *  Replication does not start, rather than skipping the table and serving checkpoints that omit
-   *  it. Unlike {@link PSYNC_S1601} this is recoverable without a new sync deploy: create the table
-   *  and enable CDC for it, and replication starts on a subsequent attempt. The stream never
-   *  advanced past the table, so nothing was committed without it.
+   *  Replication starts once the table exists and has CDC enabled. No new sync deploy is required.
    */
   PSYNC_S1602 = 'PSYNC_S1602',
 
   /**
    *  A replicated source table was dropped or renamed.
    *
-   *  Replication for the whole stream stops. The table can no longer be polled, and changes
-   *  committed before it went away may not have been read yet — continuing would commit past them,
-   *  skipping those rows permanently.
-   *
-   *  A new sync deploy is required. Already-replicated data for the table is retained until then.
+   *  Replication stops because the table may still have unread changes. A new sync deploy is
+   *  required; existing replicated data is retained until then.
    */
   PSYNC_S1603 = 'PSYNC_S1603',
 

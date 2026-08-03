@@ -49,9 +49,7 @@ export class MSSQLSourceTable {
   }
 
   /**
-   * The persisted capture-table object id this binding is pinned to, or null for a legacy
-   * metadata-free binding. All source tables of one physical table are pinned to the same CDC
-   * capture instance.
+   * Persisted capture-table object id, or null for a legacy binding.
    */
   get pinnedCaptureObjectId(): number | null {
     for (const sourceTable of this.sourceTables) {

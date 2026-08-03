@@ -106,8 +106,7 @@ export interface SourceTableDocument {
   snapshot_done: boolean | undefined;
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
   /**
-   * Opaque, source-specific identity metadata. Persisted and hydrated verbatim; storage never
-   * interprets it. Undefined/absent for legacy records.
+   * Source-specific metadata. Absent for legacy records.
    */
   source_metadata?: storage.JsonValue;
 }

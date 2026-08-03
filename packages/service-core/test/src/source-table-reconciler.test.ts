@@ -130,8 +130,7 @@ describe('diffSourceTableUpdates', () => {
   });
 
   it('compares by value, not by reference', () => {
-    // withSourceMetadata() always allocates, so a reconciler that rebuilds structurally identical
-    // metadata each time must not produce a write on every resolution.
+    // A new object with equal metadata should not cause a write.
     const a = candidate({ id: 'a', sourceMetadata: { captureTableObjectId: 7 } });
     const rebuilt = a.withSourceMetadata({ captureTableObjectId: 7 });
 

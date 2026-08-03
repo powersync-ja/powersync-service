@@ -1,10 +1,7 @@
 import { SourceTableRef } from '@powersync/service-sync-rules';
 
 /**
- * Opaque JSON value used for source-specific identity metadata.
- *
- * Storage persists and hydrates these values verbatim and never interprets them.
- * Only the source module that produced a value understands its shape.
+ * Source-specific JSON metadata. Storage does not interpret it.
  */
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 

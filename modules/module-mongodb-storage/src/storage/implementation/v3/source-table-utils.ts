@@ -39,13 +39,11 @@ export interface SourceTableReconciliationContext {
   mapping: BucketDefinitionMapping;
   desired: SourceTableDesiredResolution;
   /**
-   * Candidate ids the source reconciler classified as compatible (same source generation).
-   * Storage reuses these; all other overlapping candidates are dropped.
+   * Candidates the source connector considers safe to reuse.
    */
   sourceCompatibleTables: readonly storage.SourceTable[];
   /**
-   * Finalized opaque metadata to persist on any record created by this resolution.
-   * Undefined preserves legacy metadata-free behavior.
+   * Source metadata for records created by this resolution.
    */
   newTableSourceMetadata: JsonValue | undefined;
 }
@@ -154,9 +152,7 @@ class SourceTableReconciliationPlanner {
       tables: this.tables,
       narrowingUpdates: this.narrowingUpdates,
       newTableMemberships: this.newTableMemberships(),
-      // Non-compatible overlapping docs represent renames / relation-id changes /
-      // replica-identity changes / superseded source-metadata generations. Compatible docs
-      // are always retained (used now or kept as reusable snapshot-complete records).
+      // Compatible records remain available for reuse even when not needed by this config.
       dropDocs: candidateDocs.filter((doc) => !this.isCompatible(doc))
     };
   }
@@ -165,9 +161,6 @@ class SourceTableReconciliationPlanner {
     return this.compatibleTableFor(doc) != null;
   }
 
-  /**
-   * The reconciler's copy of this candidate, which carries any source-owned metadata change.
-   */
   private compatibleTableFor(doc: SourceTableDocumentV3): storage.SourceTable | undefined {
     return this.context.sourceCompatibleTables.find((table) => storage.sourceTableIdEquals(table.id, doc._id));
   }
@@ -264,9 +257,7 @@ class SourceTableReconciliationPlanner {
       matchingSourcesFor(desired, memberships),
       memberships
     );
-    // The reconciler may have returned updated source metadata for this record, which storage
-    // persists separately. Take it from the reconciler's copy so the retained table matches what
-    // was written, rather than mutating the queried document.
+    // Use any metadata update returned by the reconciler.
     const resolved = this.compatibleTableFor(doc);
     const table = resolved == null ? built : built.withSourceMetadata(resolved.sourceMetadata);
     table.storeCurrentData = storeCurrentData;
@@ -315,8 +306,7 @@ export function createNewSourceTable(
     snapshot_status: undefined,
     bucket_data_source_ids: memberships.bucketDataSourceIds,
     parameter_lookup_source_ids: memberships.parameterLookupSourceIds,
-    // All records created in one resolution share the finalized metadata, so v3 never mixes
-    // metadata-free and pinned records for the same physical-table binding.
+    // Records created together share the same source metadata.
     source_metadata: newTableSourceMetadata
   };
   const table = sourceTableFromDocument(

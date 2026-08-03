@@ -16,9 +16,7 @@ import { ColumnDescriptor, JsonValue } from './SourceEntity.js';
 export type SourceTableId = string | bson.ObjectId;
 
 /**
- * Compare source table ids without coercing between storage-specific representations.
- *
- * String ids only equal strings, and BSON ObjectIds only equal ObjectIds with the same value.
+ * Compare source-table ids without coercing between storage-specific types.
  */
 export function sourceTableIdEquals(left: SourceTableId, right: SourceTableId): boolean {
   if (typeof left === 'string' || typeof right === 'string') {
@@ -38,11 +36,7 @@ export interface SourceTableOptions {
   bucketDataSourceIds?: Set<BucketDefinitionId>;
   parameterLookupSourceIds?: Set<ParameterIndexId>;
   /**
-   * Opaque, source-specific identity metadata persisted with this record.
-   *
-   * Storage persists and hydrates this value verbatim and never interprets it. A source
-   * reconciler may return a modified hydrated copy, which storage can persist without resetting
-   * snapshot state. Undefined for legacy records.
+   * Source-specific metadata. Undefined for legacy records.
    */
   sourceMetadata?: JsonValue;
 }
@@ -156,10 +150,6 @@ export class SourceTable {
     return this.options.parameterLookupSourceIds;
   }
 
-  /**
-   * Opaque, source-specific identity metadata persisted with this record, or undefined
-   * for legacy metadata-free records. Storage never interprets this value.
-   */
   get sourceMetadata() {
     return this.options.sourceMetadata;
   }
@@ -184,11 +174,7 @@ export class SourceTable {
   }
 
   /**
-   * Return a hydrated copy with different source-owned metadata.
-   *
-   * Storage reconciliation compares this copy with the persisted candidate and applies only
-   * allowlisted changes. Snapshot state, definition memberships, and resolved sync flags are
-   * preserved.
+   * Copy this table with different source metadata, preserving its resolved state.
    */
   withSourceMetadata(sourceMetadata: JsonValue | undefined) {
     return this.copyWithSourceMetadata(sourceMetadata);

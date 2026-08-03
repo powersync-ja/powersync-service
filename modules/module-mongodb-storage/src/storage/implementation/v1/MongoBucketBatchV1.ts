@@ -66,8 +66,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     await this.db.client.withSession(async (session) => {
       const col = this.db.sourceTablesV1(this.replicationStreamId);
 
-      // Single overlap query: any candidate matching (schema + name) OR relation_id. Replaces the
-      // previous exact-match lookup plus separate conflict lookup.
+      // Find records that overlap by name or relation id.
       const orClauses: Record<string, unknown>[] = [{ schema_name: schema, table_name: name }];
       if (objectId != null) {
         orClauses.push({ relation_id: objectId });
@@ -76,7 +75,6 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         .find({ group_id: this.replicationStreamId, connection_id, $or: orClauses }, { session })
         .toArray();
 
-      // Hydrate candidates and let the source reconciler classify compatibility in JS.
       const candidateTables = candidateDocs.map((doc) =>
         this.hydrateSourceTable(doc, connectionTag, syncRules, sendsCompleteRows)
       );
@@ -93,9 +91,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
       const compatibleTables = resolution.compatibleTables;
 
-      // V1 resolves to a single record. When multiple candidates are compatible (unexpected -
-      // duplicate or corrupt state), deterministically prefer a snapshot-complete record so we
-      // preserve already-snapshotted data, and treat the rest as conflicts to drop.
+      // V1 keeps one record, preferring one that has already been snapshotted.
       const reuse = compatibleTables.find((table) => table.snapshotComplete) ?? compatibleTables[0] ?? null;
 
       let sourceTable: storage.SourceTable;
@@ -119,11 +115,9 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         sourceTable = this.hydrateSourceTable(doc, connectionTag, syncRules, sendsCompleteRows);
       }
 
-      // All remaining overlapping candidates are drops (renames, relation-id / replica-id changes,
-      // superseded source-metadata generations, or duplicate compatible records).
       const dropTables = [
         ...resolution.incompatibleTables,
-        // V1 allows only one SourceTable per physical table, so drop compatible duplicates too.
+        // V1 only keeps one SourceTable per physical table.
         ...compatibleTables.filter((table) => !storage.sourceTableIdEquals(table.id, sourceTable.id))
       ];
 
@@ -134,8 +128,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   }
 
   /**
-   * Hydrate a persisted v1 source-table doc into a `SourceTable`, including sync flags and
-   * snapshot state. Used both as reconciler input and to build resolved/dropped tables.
+   * Build a SourceTable from its persisted v1 record.
    */
   private hydrateSourceTable(
     doc: SourceTableDocumentV1,
@@ -183,8 +176,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       return null;
     }
 
-    // storeCurrentData is resolved externally per-batch; getSourceTableStatus preserves the
-    // conservative default (true) by passing sendsCompleteRows undefined.
+    // Use the default storeCurrentData value when reading outside resolution.
     return this.hydrateSourceTable(doc, table.ref.connectionTag, this.sync_rules, undefined);
   }
 

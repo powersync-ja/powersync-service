@@ -243,8 +243,7 @@ export interface EnableCDCForTableOptions {
   table: string;
   captureInstance?: string;
   /**
-   * Optional source columns for the capture instance. When omitted, SQL Server captures all
-   * columns using its default behavior.
+   * Columns to capture. SQL Server captures all columns by default.
    */
   capturedColumns?: string[];
 }
@@ -263,8 +262,7 @@ export async function enableCDCForTable(options: EnableCDCForTableOptions): Prom
 }
 
 /**
- * Disable CDC for a table. Defaults to dropping every capture instance; pass `captureInstance` to
- * drop a single one, which is how a table ends up with a replacement instance but not its original.
+ * Disable one capture instance, or all instances by default.
  */
 export async function disableCDCForTable(
   connectionManager: MSSQLConnectionManager,

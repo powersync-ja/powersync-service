@@ -159,8 +159,7 @@ export interface SourceTableDocumentV3 {
   parameter_lookup_source_ids: ParameterIndexId[];
   latest_pending_delete?: InternalOpId | undefined;
   /**
-   * Opaque, source-specific identity metadata. Persisted and hydrated verbatim; storage never
-   * interprets it. Undefined/absent for legacy records.
+   * Source-specific metadata. Absent for legacy records.
    */
   source_metadata?: JsonValue;
 }

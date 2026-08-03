@@ -4,68 +4,44 @@ import { JsonValue, SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable, SourceTableId, sourceTableIdEquals } from './SourceTable.js';
 
 /**
- * Result of classifying overlapping persisted candidates against a discovered source entity.
- *
- * Returned by a {@link SourceTableCandidateReconciler}. The reconciler owns source-specific
- * compatibility and metadata selection; storage owns membership reconciliation and persistence.
+ * A source connector's classification of overlapping persisted tables.
  */
 export interface SourceTableCandidateResolution {
   /**
-   * Existing candidates representing the same source generation, that storage may reuse.
-   *
-   * Return the original hydrated table when it is unchanged, or a modified hydrated copy when
-   * source-owned values should be updated. Storage persists only allowlisted differences without
-   * replacing the record, preserving its snapshot state and definition memberships.
+   * Records storage can reuse. Copies may include updated source metadata.
    */
   compatibleTables: ReadonlyArray<SourceTable>;
 
   /**
-   * Existing candidates that cannot be reused (renames, relation-id changes, replica-identity
-   * changes, superseded source generations, ...). Storage returns these to the connector to drop.
-   *
-   * Every input candidate must be listed exactly once in either `compatibleTables` or
-   * `incompatibleTables`.
+   * Records that cannot be reused. Every candidate must appear in exactly one result list.
    */
   incompatibleTables: ReadonlyArray<SourceTable>;
 
   /**
-   * Values to persist on any source-table record created by this resolution.
-   *
-   * This is separate from compatible-candidate updates because incremental storage may both reuse
-   * existing records and create a new record for uncovered sync-config memberships. Storage, not
-   * the reconciler, decides whether a new record is required.
+   * Values for records storage creates during this resolution.
    */
   newTableValues: SourceTableCreateValues;
 }
 
 export interface SourceTableCreateValues {
   /**
-   * Opaque metadata to persist on records created by this resolution.
+   * Source metadata for new records.
    */
   sourceMetadata?: JsonValue;
 }
 
 /**
- * Source-provided callback that classifies overlapping persisted candidates.
- *
- * Contract:
- * - Deterministic and free of storage mutations.
- * - May be asynchronous, but is awaited while source-table resolution is in progress and may be
- *   running inside a storage transaction. Avoid slow or unbounded external I/O where possible.
- * - `candidates` are all persisted source tables overlapping the discovered entity by
- *   `(schema + name) OR object/relation id`.
- *
- * @throws if the persisted candidate state is invalid for this source (e.g. conflicting metadata).
+ * Input to a source-owned reconciliation callback. The callback may run inside a storage
+ * transaction, so it must not mutate storage or perform slow external work.
  */
 export interface SourceTableCandidateReconcilerInput {
   /**
-   * Source entity currently being resolved.
+   * Source entity being resolved.
    */
   source: SourceEntityDescriptor;
 
   /**
-   * Persisted source tables overlapping the discovered entity by
-   * `(schema + name) OR object/relation id`.
+   * Persisted tables overlapping by name or object id.
    */
   candidates: ReadonlyArray<SourceTable>;
 }
@@ -75,9 +51,7 @@ export type SourceTableCandidateReconciler = (
 ) => SourceTableCandidateResolution | Promise<SourceTableCandidateResolution>;
 
 /**
- * Compare replica-id column lists for exact structural equality.
- *
- * Shared helper for source reconcilers so source-specific policy is not pushed back into storage.
+ * Compare replica-id columns in order.
  */
 export function sameReplicaIdColumns(left: SourceTable['replicaIdColumns'], right: SourceEntityDescriptor): boolean {
   const target = right.replicaIdColumns;
@@ -91,10 +65,7 @@ export function sameReplicaIdColumns(left: SourceTable['replicaIdColumns'], righ
 }
 
 /**
- * Generic identity comparison shared by connectors: schema/name, object id, and replica-id columns.
- *
- * This reproduces the pre-existing storage identity match. Connectors layer source-specific
- * policy (such as MSSQL capture pinning) on top of the candidates this accepts.
+ * Compare the shared source-table identity fields.
  */
 export function sourceIdentityCompatible(source: SourceEntityDescriptor, candidate: SourceTable): boolean {
   return (
@@ -106,10 +77,7 @@ export function sourceIdentityCompatible(source: SourceEntityDescriptor, candida
 }
 
 /**
- * Default reconciler preserving legacy metadata-free behavior.
- *
- * Used by storage when a connector does not supply a `reconcileSourceTables` callback. Every
- * candidate matching the generic identity fields is compatible, and no metadata is persisted.
+ * Default identity-based reconciliation for connectors without source-specific metadata.
  */
 export const defaultSourceTableReconciler: SourceTableCandidateReconciler = ({ source, candidates }) => {
   const compatibleTables: SourceTable[] = [];
@@ -125,7 +93,7 @@ export const defaultSourceTableReconciler: SourceTableCandidateReconciler = ({ s
 };
 
 /**
- * Validate that a source reconciler explicitly partitions every supplied candidate exactly once.
+ * Check that every candidate was classified exactly once.
  */
 export function validateSourceTableCandidateResolution(
   candidates: ReadonlyArray<SourceTable>,
@@ -150,7 +118,7 @@ export function validateSourceTableCandidateResolution(
 }
 
 /**
- * An allowlisted difference between a persisted candidate and the copy the reconciler returned.
+ * A source-metadata update to persist.
  */
 export interface SourceTableMetadataUpdate {
   id: SourceTableId;
@@ -158,15 +126,7 @@ export interface SourceTableMetadataUpdate {
 }
 
 /**
- * Diff the reconciler's compatible tables against the candidates they came from, and return the
- * allowlisted changes storage should persist.
- *
- * Storage owns this diff so every backend applies the same rules; each backend only supplies the
- * write. Comparison is by value, so a reconciler that rebuilds structurally identical metadata on
- * each resolution does not cause a write every time.
- *
- * Call {@link validateSourceTableCandidateResolution} first - this assumes every compatible table
- * corresponds to a supplied candidate.
+ * Return source-metadata changes from compatible candidates, comparing metadata by value.
  */
 export function diffSourceTableUpdates(
   candidates: ReadonlyArray<SourceTable>,

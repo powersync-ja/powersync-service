@@ -167,24 +167,18 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     await session.withTransaction(async () => {
       const col = this.db.sourceTables(this.replicationStreamId);
 
-      // Fetch every persisted source-table doc that can overlap this physical table.
-      // Compatible docs are candidates for reuse; incompatible overlaps are drops.
+      // Find records that overlap by name or relation id.
       const candidateDocs = await col
         .find(overlappingSourceTableFilter(connection_id, identity), { session })
         .toArray();
 
-      // Hydrate candidates and hand them to the source-owned reconciler. The reconciler classifies
-      // compatibility (same source generation) and selects the metadata to persist. Storage never
-      // interprets source metadata itself.
       const candidateTables = candidateDocs.map((doc) =>
         sourceTableFromDocument(doc, source.connectionTag, syncConfig, mapping)
       );
       const resolution = await reconcile({ source, candidates: candidateTables });
       storage.validateSourceTableCandidateResolution(candidateTables, resolution);
 
-      // The planner below reads the raw documents (it owns membership narrowing and coverage), but
-      // takes source metadata from the reconciler's copies via the context, so the documents are
-      // left untouched.
+      // Persist metadata from the reconciler without mutating the queried documents.
       for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
         const update =
           sourceMetadata === undefined
@@ -205,8 +199,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         newTableSourceMetadata: resolution.newTableValues.sourceMetadata
       };
 
-      // Pure planning: which docs to retain (and narrow), whether a new doc is needed for
-      // uncovered memberships, and which docs are incompatible and must be dropped.
+      // Plan record reuse, membership changes, creation, and removal.
       const plan = planSourceTableReconciliation(candidateDocs, context);
 
       // Persist narrowing for incomplete snapshots only. Snapshot-complete docs keep stale

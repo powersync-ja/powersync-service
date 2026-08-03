@@ -75,8 +75,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
   }
 
   /**
-   * Resolves when streaming stops, or rejects with the error that stopped it. Lets tests assert on
-   * job-wide replication failures rather than only on individual schema-change events.
+   * Resolves when streaming stops, or rejects with the failure that stopped it.
    */
   get streamingPromise() {
     return this.streamPromise;

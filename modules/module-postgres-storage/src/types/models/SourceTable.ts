@@ -31,8 +31,7 @@ export const SourceTable = t.object({
   snapshot_replicated_count: t.Null.or(bigint),
   snapshot_last_key: t.Null.or(hexBuffer),
   /**
-   * Opaque, source-specific identity metadata. Persisted and hydrated verbatim; storage never
-   * interprets it. Null for legacy records.
+   * Source-specific metadata. Null for legacy records.
    */
   source_metadata: t.Null.or(jsonb_raw<JsonValue>())
 });

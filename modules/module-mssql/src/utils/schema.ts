@@ -161,9 +161,7 @@ export async function getTablesFromPattern(
     );
   }
 
-  // Wildcards would let a table enter scope mid-stream. Detecting that requires polling, and a poll
-  // can never be atomic with a commit, so there is always a window where checkpoints are issued
-  // without a table that belongs in them - producing checkpoints that never existed in the source.
+  // Wildcards would allow the replicated table set to change between polls.
   if (tablePattern.isWildcard) {
     throw new ServiceError(
       ErrorCode.PSYNC_R2201,

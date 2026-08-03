@@ -65,7 +65,6 @@ describe('readCaptureMetadata', () => {
 
 describe('createCaptureReconciler', () => {
   it('pins a new binding to the newest available capture instance', () => {
-    // instances are newest-first
     const resolution = createCaptureReconciler([instance(50), instance(40)])({
       source: source(),
       candidates: []
@@ -117,8 +116,6 @@ describe('createCaptureReconciler', () => {
   });
 
   it('fails when the pinned capture instance was dropped, even with a replacement available', () => {
-    // A replacement may capture a different schema, so it is never adopted in place - the job stops
-    // and a new sync deploy is required.
     expect(() =>
       createCaptureReconciler([instance(50)])({
         source: source(),
