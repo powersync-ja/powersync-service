@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { InternalOpId, storage } from '@powersync/service-core';
+import { BucketDefinitionMapping, InternalOpId, storage } from '@powersync/service-core';
 import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
@@ -8,6 +8,7 @@ import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
   BucketStateUpdate,
   PersistedBatch,
+  PersistedBatchOptions,
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
@@ -28,8 +29,22 @@ import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 export class PersistedBatchV3 extends PersistedBatch {
   currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
   sourceTablePendingDeletes = new Map<string, InternalOpId>();
+  protected readonly objectStorageLifecycle?: ObjectStorageLifecycle;
 
   declare protected readonly db: VersionedPowerSyncMongoV3;
+
+  constructor(
+    db: VersionedPowerSyncMongoV3,
+    group_id: number,
+    mapping: BucketDefinitionMapping,
+    writtenSize: number,
+    options?: PersistedBatchOptions
+  ) {
+    super(db, group_id, mapping, writtenSize, options);
+    if (this.objectStorage) {
+      this.objectStorageLifecycle = new ObjectStorageLifecycle(this.db, this.group_id, this.objectStorage);
+    }
+  }
 
   // Abstract override from PersistedBatch (V3-specific error message)
 
