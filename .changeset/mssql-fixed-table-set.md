@@ -18,8 +18,10 @@ What this means when making schema changes:
   replication starts.
 - **Changing a table's columns:** deploy a new sync configuration. Replication continues against the
   original captured schema and warns, since the bound capture instance keeps its own column list.
-- **Dropping or renaming a replicated table:** deploy a new sync configuration. PowerSync stops
-  replicating the table and warns, but retains its already-replicated data.
+- **Dropping or renaming a replicated table:** deploy a new sync configuration. Replication stops
+  with `PSYNC_S1603` — changes committed before the table went away may not have been read yet, so
+  continuing would commit past them and skip those rows. Already-replicated data for the table is
+  retained until the redeploy.
 - **Disabling and re-enabling CDC on a replicated table:** deploy a new sync configuration as a new
   replication stream. Replication stops with `PSYNC_S1601`. The binding is pinned to the CDC change
   table's object ID, and re-enabling CDC creates a new change table with a different ID, which the

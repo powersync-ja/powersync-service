@@ -35,7 +35,12 @@ import {
   isIColumnMetadata
 } from '../utils/mssql.js';
 import { getReplicationIdentityColumns, getTablesFromPattern, ResolvedTable } from '../utils/schema.js';
-import { CaptureInstanceMissingError, createCaptureReconciler, SourceTableNotReadyError } from './CaptureReconciler.js';
+import {
+  CaptureInstanceMissingError,
+  createCaptureReconciler,
+  SourceTableNotReadyError,
+  SourceTableUnavailableError
+} from './CaptureReconciler.js';
 import { CDCEventHandler, CDCPoller, SchemaChange, SchemaChangeType } from './CDCPoller.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 import { BatchedSnapshotQuery, MSSQLSnapshotQuery, SimpleSnapshotQuery } from './MSSQLSnapshotQuery.js';
@@ -754,27 +759,26 @@ export class CDCStream {
   }
 
   async handleSchemaChange(batch: storage.BucketStorageBatch, change: SchemaChange): Promise<void> {
-    let actionedSchemaChange = true;
-
     switch (change.type) {
-      case SchemaChangeType.TABLE_RENAME: {
-        // Treated the same as a drop: the renamed table is a different table as far as the sync
-        // configuration is concerned, and the replicated set is fixed at deploy. Retain the data
-        // and stop polling under the stale name - we cannot identify a point at which deleting it
-        // would be safe (see SchemaChangeType), and the rows still exist under the new name.
-        const fromTable = change.table!;
-        this.logger.warn(
-          `Table ${fromTable.toQualifiedName()} has been renamed${change.newTable ? ` to [${change.newTable.name}]` : ''}. ` +
-            `Replication for it has stopped and its already-replicated data is retained. Deploy the sync ` +
-            `configuration as a new replication stream to replicate it under the new name.`
+      case SchemaChangeType.TABLE_RENAME:
+        // Schema checks run before polling within a cycle, so dropping the table from the cache here
+        // would let the same cycle poll the remaining tables and commit past changes for this one
+        // that were never read - skipping them permanently. Fail the job instead. Its
+        // already-replicated data is retained, since we cannot identify a point at which deleting it
+        // would be safe (see SchemaChangeType).
+        throw new SourceTableUnavailableError(
+          `Table ${change.table!.toQualifiedName()} has been renamed${change.newTable ? ` to [${change.newTable.name}]` : ''}. ` +
+            `Deploy the sync configuration as a new replication stream to replicate it under the new name. ` +
+            `Its already-replicated data is retained until then.`
         );
-        this.tableCache.delete(fromTable.objectId);
-        actionedSchemaChange = false;
-        break;
-      }
+      case SchemaChangeType.TABLE_DROP:
+        throw new SourceTableUnavailableError(
+          `Table ${change.table!.toQualifiedName()} has been dropped from the source. Deploy the sync ` +
+            `configuration as a new replication stream to stop replicating it. Its already-replicated data is ` +
+            `retained until then.`
+        );
       case SchemaChangeType.TABLE_COLUMN_CHANGES:
         await this.handleColumnChanges(change.table!, change.newCaptureInstance!);
-        actionedSchemaChange = false;
         break;
       case SchemaChangeType.NEW_CAPTURE_INSTANCE: {
         // Capture-instance bindings are ensured before streaming. Warn (once per newer instance)
@@ -788,24 +792,8 @@ export class CDCStream {
           );
           this.warnedNewerCaptureObjectId.set(change.table!.objectId, newerObjectId);
         }
-        // No checkpoint change is needed for a warning-only event.
-        actionedSchemaChange = false;
         break;
       }
-      case SchemaChangeType.TABLE_DROP:
-        // Retain the replicated data. The drop is only ever detected after the fact, and from the
-        // catalog rather than the change stream, so we have no LSN for it and cannot say when a
-        // delete would be safe (see SchemaChangeType). Deleting is also not recoverable - it
-        // propagates to every client, and a drop is often one half of a drop-and-recreate. Stop
-        // polling it, otherwise every cycle queries a change table that is gone.
-        this.logger.warn(
-          `Table ${change.table!.toQualifiedName()} has been dropped from the source. Replication for it has ` +
-            `stopped and its already-replicated data is retained. Deploy the sync configuration as a new ` +
-            `replication stream to stop replicating this table.`
-        );
-        this.tableCache.delete(change.table!.objectId);
-        actionedSchemaChange = false;
-        break;
       case SchemaChangeType.MISSING_CAPTURE_INSTANCE:
         // The pinned capture instance is gone. A replacement, if any, may capture a different
         // schema and is never adopted in place, and continuing without one would silently stop
@@ -822,21 +810,19 @@ export class CDCStream {
       default:
         throw new ReplicationAssertionError(`Unknown schema change type: ${change.type}`);
     }
-
-    // Create a new checkpoint after the schema change
-    if (actionedSchemaChange) {
-      await createCheckpoint(this.connections);
-    }
+    // No checkpoint is created here: every change either warns without altering replicated data, or
+    // throws.
   }
 
   /**
-   * There is very little that can be automatically done to handle the column changes other than to warn the user about the schema drift.
+   * Column changes cannot be adopted: the bound capture instance keeps capturing the column list it
+   * was created with, so replication continues against the original schema. All we can do is warn
+   * about the drift.
    *
-   * Due to the way CDC works, users are prevented from making column schema changes that affect the replication identities of a table.
-   * If changes like that are required, CDC has to be disabled and re-enabled for the table. This would then be handled by the detection of the new
-   * capture instance.
-   * @param table
-   * @param captureInstance
+   * Adopting the new columns needs a new capture instance, which this stream will not pin to - so
+   * the remedy is a new sync deploy. Note that disabling and re-enabling CDC to refresh the capture
+   * instance stops this stream permanently (see {@link CaptureInstanceMissingError}), so it must not
+   * be suggested on its own.
    */
   private async handleColumnChanges(table: MSSQLSourceTable, captureInstance: CaptureInstance): Promise<void> {
     // Check there are any new pending schema changes
@@ -847,11 +833,13 @@ export class CDCStream {
       return;
     }
 
-    // New pending schema changes were detected - warn about those as well.
     this.logger.warn(
-      `Schema drift detected for table ${table.toQualifiedName()}. To ensure consistency, disable and re-enable CDC for this table.\n Pending schema changes:\n ${captureInstance.pendingSchemaChanges.join(', \n')}`
+      `Schema drift detected for table ${table.toQualifiedName()}. Replication continues against the captured ` +
+        `schema, so these changes are not replicated. Deploy the sync configuration as a new replication stream ` +
+        `to pick them up.\n Pending schema changes:\n ${captureInstance.pendingSchemaChanges.join(', \n')}`
     );
-    table.captureInstance = captureInstance;
+    // Only refresh the pending-change list; the bound instance must not be swapped out here.
+    table.captureInstance!.pendingSchemaChanges = captureInstance.pendingSchemaChanges;
   }
 
   /**

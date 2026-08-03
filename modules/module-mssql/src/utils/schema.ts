@@ -172,59 +172,30 @@ export async function getTablesFromPattern(
     );
   }
 
-  if (tablePattern.isWildcard) {
-    const { recordset: tableResults } = await connectionManager.query(
-      `
-        SELECT
-          tbl.name      AS [table],
-          sch.name      AS [schema],
-          tbl.object_id AS object_id
-        FROM sys.tables tbl
-          JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
+  const { recordset: tableResults } = await connectionManager.query(
+    `
+      SELECT
+        tbl.name      AS [table],
+        sch.name      AS [schema],
+        tbl.object_id AS object_id
+      FROM sys.tables tbl
+        JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
         WHERE sch.name = @schema
-          AND tbl.name LIKE @tablePattern
-      `,
-      [
-        { name: 'schema', type: sql.VarChar(sql.MAX), value: tablePattern.schema },
-        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern }
-      ]
-    );
+        AND tbl.name = @tablePattern
+    `,
+    [
+      { name: 'schema', type: sql.VarChar(sql.MAX), value: tablePattern.schema },
+      { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern }
+    ]
+  );
 
-    return tableResults
-      .map((row) => {
-        return {
-          objectId: row.object_id,
-          schema: row.schema,
-          name: row.table
-        };
-      })
-      .filter((table: ResolvedTable) => table.name.startsWith(tablePattern.tablePrefix));
-  } else {
-    const { recordset: tableResults } = await connectionManager.query(
-      `
-        SELECT
-          tbl.name      AS [table],
-          sch.name      AS [schema],
-          tbl.object_id AS object_id
-        FROM sys.tables tbl
-          JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
-          WHERE sch.name = @schema
-          AND tbl.name = @tablePattern
-      `,
-      [
-        { name: 'schema', type: sql.VarChar(sql.MAX), value: tablePattern.schema },
-        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern }
-      ]
-    );
-
-    return tableResults.map((row) => {
-      return {
-        objectId: row.object_id,
-        schema: row.schema,
-        name: row.table
-      };
-    });
-  }
+  return tableResults.map((row) => {
+    return {
+      objectId: row.object_id,
+      schema: row.schema,
+      name: row.table
+    };
+  });
 }
 
 export interface GetPendingSchemaChangesOptions {

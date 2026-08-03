@@ -30,6 +30,17 @@ export class SourceTableNotReadyError extends ServiceError {
 }
 
 /**
+ * Thrown when a replicated table is dropped or renamed. Fatal for the replication job: the table can
+ * no longer be polled, and changes committed before it went away may not have been read yet, so
+ * continuing would commit past them and skip those rows permanently.
+ */
+export class SourceTableUnavailableError extends ServiceError {
+  constructor(message: string) {
+    super(ErrorCode.PSYNC_S1603, message);
+  }
+}
+
+/**
  * Opaque source metadata persisted for MSSQL capture-instance-pinned source tables.
  *
  * We store the CDC change-table object id rather than only the capture-instance name, because

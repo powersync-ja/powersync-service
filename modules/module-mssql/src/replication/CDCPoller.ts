@@ -39,17 +39,19 @@ enum Operation {
  * in the catalog rather than in the change stream, so we learn that they happened but not the LSN
  * they happened at, and changes from before that point may still be unreplicated - there is no
  * moment we can identify as safe to delete. We might get away with tracking a barrier LSN, but that also gets complicated.
+ * That same missing LSN is why they fail the job: this check runs before polling in a cycle, so
+ * carrying on would commit the cycle's end LSN past changes for the departed table that were never
+ * read.
  */
 export enum SchemaChangeType {
   /**
-   * A replicated table was renamed. Stops polling it and retains its replicated data - the renamed
-   * table is a different table to the sync configuration, and the rows still exist at source under
-   * the new name.
+   * A replicated table was renamed. Fails the job: schema checks run before polling within a cycle,
+   * so continuing would commit past changes for this table that were never read. Its replicated data
+   * is retained for a redeploy to clean up.
    */
   TABLE_RENAME = 'table_rename',
   /**
-   * A replicated table was dropped from the source. Handled the same as a rename: stop polling,
-   * retain the data.
+   * A replicated table was dropped from the source. Handled the same as a rename.
    */
   TABLE_DROP = 'table_drop',
   /**
@@ -407,8 +409,8 @@ export class CDCPoller {
       if (boundObjectId == null) {
         throw new ReplicationAssertionError(`No persisted capture instance for table ${table.toQualifiedName()}`);
       }
-      const boundAvailable = captureInstanceDetails.instances.some((instance) => instance.objectId === boundObjectId);
-      if (!boundAvailable) {
+      const boundInstance = captureInstanceDetails.instances.find((instance) => instance.objectId === boundObjectId);
+      if (boundInstance == null) {
         // The bound capture instance was dropped while a replacement exists. The handler fails the
         // job either way; the replacement is reported only so the error can name the right remedy.
         schemaChanges.push({
@@ -419,18 +421,17 @@ export class CDCPoller {
         continue;
       }
       if (latestCaptureInstance.objectId !== boundObjectId) {
-        // A newer capture instance exists. Emit a warning-only event; the handler keeps polling
-        // the bound instance and does not re-snapshot.
+        // A newer capture instance exists. Warning-only - the handler keeps polling the bound
+        // instance. Deliberately no `continue`: renames and column changes must still be detected
+        // while a newer instance sits there unadopted, which can be indefinitely.
         schemaChanges.push({
           type: SchemaChangeType.NEW_CAPTURE_INSTANCE,
           table,
           newCaptureInstance: latestCaptureInstance
         });
-        continue;
       }
-      // Bound instance is the latest - fall through to rename / column-change detection.
 
-      // One of the replicated tables has been renamed. The new name is reported for the warning
+      // One of the replicated tables has been renamed. The new name is reported for the message
       // only - whether it matches the sync configuration no longer changes what happens, since a
       // table can only enter scope at deploy.
       if (table.ref.name !== captureInstanceDetails.sourceTable.name) {
@@ -446,11 +447,14 @@ export class CDCPoller {
         continue;
       }
 
-      if (latestCaptureInstance.pendingSchemaChanges.length > 0) {
+      // Drift is reported against the bound instance, not the newest one - that is the schema this
+      // stream actually replicates, and the two differ whenever a newer instance is sitting
+      // unadopted.
+      if (boundInstance.pendingSchemaChanges.length > 0) {
         schemaChanges.push({
           type: SchemaChangeType.TABLE_COLUMN_CHANGES,
           table,
-          newCaptureInstance: latestCaptureInstance
+          newCaptureInstance: boundInstance
         });
       }
     }

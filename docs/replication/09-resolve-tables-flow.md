@@ -114,7 +114,9 @@ The reason is that a table can only enter scope by polling for it, and a poll ca
 
 Consequences: no table-create event, and adding a table, renaming one into scope, or enabling CDC on one all require a new sync deploy.
 
-Dropping **or renaming** a replicated table stops polling it but **retains** its replicated data, with a warning. Removing the data would propagate a delete to every client's local database, which cannot be undone if the change was a mistake or part of a drop-and-recreate, and would leave rows in other tables referencing it dangling. Retained stale data is corrected by the redeploy either change requires anyway.
+Dropping **or renaming** a replicated table fails the job with `PSYNC_S1603`. Schema checks run before polling within a cycle, so merely dropping the table from the cache would let that same cycle poll the remaining tables and commit the end LSN — permanently skipping any changes for the departed table that had not been read yet.
+
+Its replicated data is **retained**, not deleted. Removing it would propagate a delete to every client's local database, which cannot be undone if the change was a mistake or part of a drop-and-recreate, and would leave rows in other tables referencing it dangling. Both changes are also observed in the catalog rather than the change stream, so there is no LSN at which a delete could be shown to be safe. A redeploy is what actually removes the data.
 
 No runtime schema change deletes replicated data. The only removal is at resolution time, on deploy.
 

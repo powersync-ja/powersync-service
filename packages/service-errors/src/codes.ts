@@ -375,6 +375,17 @@ export enum ErrorCode {
    */
   PSYNC_S1602 = 'PSYNC_S1602',
 
+  /**
+   *  A replicated source table was dropped or renamed.
+   *
+   *  Replication for the whole stream stops. The table can no longer be polled, and changes
+   *  committed before it went away may not have been read yet — continuing would commit past them,
+   *  skipping those rows permanently.
+   *
+   *  A new sync deploy is required. Already-replicated data for the table is retained until then.
+   */
+  PSYNC_S1603 = 'PSYNC_S1603',
+
   // ## PSYNC_S2xxx: Service API
 
   /**
