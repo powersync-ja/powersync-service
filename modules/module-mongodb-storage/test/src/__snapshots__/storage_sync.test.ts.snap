@@ -2699,7 +2699,7 @@ exports[`sync - mongodb > storage v3 > sync updates to data query only 2`] = `
   },
   {
     "data": {
-      "after": "0",
+      "after": "1",
       "bucket": "by_user.1.1["user1"]",
       "data": [
         {

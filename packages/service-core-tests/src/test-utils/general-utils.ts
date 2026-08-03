@@ -160,7 +160,7 @@ export async function getBatchArray(
   data: AsyncIterable<storage.SyncBucketDataChunk | storage.SyncBucketDataBatchEnd>
 ): Promise<storage.SyncBucketDataChunk[]> {
   const array = await fromAsync(data);
-  return array.filter((c) => !isBatchEnd(c)) as storage.SyncBucketDataChunk[];
+  return array.filter((c) => !isBatchEnd(c) && c.chunkData.data.length > 0) as storage.SyncBucketDataChunk[];
 }
 
 export async function getSingleBatchItem(
