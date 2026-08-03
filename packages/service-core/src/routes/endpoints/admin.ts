@@ -268,4 +268,76 @@ export const validate = routeDefinition({
   }
 });
 
-export const ADMIN_ROUTES = [executeSql, diagnostics, getSchema, reprocess, validate];
+/**
+ * Per-bucket report of total operations vs total live rows in storage, for the active sync config.
+ *
+ * Answers the recurring "why is my Data Synced so high" question. A high `operations / rows` ratio
+ * indicates fragmented buckets that a compact or defragment can reclaim.
+ */
+export const bucketReport = routeDefinition({
+  path: '/api/admin/v1/bucket-report',
+  method: router.HTTPMethod.POST,
+  authorize: authApi,
+  validator: schema.createTsCodecValidator(internal_routes.BucketReportRequest, { allowAdditional: true }),
+  handler: async (payload) => {
+    const {
+      context: { service_context }
+    } = payload;
+    const {
+      storageEngine: { activeBucketStorage }
+    } = service_context;
+
+    const active = await activeBucketStorage.getActiveSyncConfig();
+    if (active == null) {
+      throw new errors.ServiceError({
+        status: 422,
+        code: ErrorCode.PSYNC_S4104,
+        description: 'No active sync config'
+      });
+    }
+
+    if (active.storage.getBucketReport == null) {
+      throw new errors.ServiceError({
+        status: 422,
+        code: ErrorCode.PSYNC_S2001,
+        description: 'The configured storage provider does not support bucket reporting'
+      });
+    }
+
+    const report = await active.storage.getBucketReport({ limit: payload.params.limit });
+
+    return internal_routes.BucketReportResponse.encode({
+      buckets: report.buckets.map((bucket) => ({
+        bucket: bucket.bucket,
+        operations: bucket.operations,
+        rows: bucket.rows,
+        operation_bytes: bucket.operationBytes,
+        fragmentation: bucket.fragmentation,
+        rows_estimated: bucket.rowsEstimated,
+        suggested_action: bucket.suggestedAction,
+        tables: bucket.tables
+      })),
+      definitions: report.definitions.map((definition) => ({
+        definition: definition.definition,
+        bucket_count: definition.bucketCount,
+        operations: definition.operations,
+        operation_bytes: definition.operationBytes,
+        rows: definition.rows,
+        fragmentation: definition.fragmentation,
+        rows_estimated: definition.rowsEstimated,
+        suggested_action: definition.suggestedAction,
+        tables: definition.tables
+      })),
+      totals: {
+        bucket_count: report.totals.bucketCount,
+        operations: report.totals.operations,
+        operation_bytes: report.totals.operationBytes,
+        estimated: report.totals.estimated
+      },
+      buckets_truncated: report.bucketsTruncated,
+      definitions_truncated: report.definitionsTruncated
+    });
+  }
+});
+
+export const ADMIN_ROUTES = [executeSql, diagnostics, getSchema, reprocess, validate, bucketReport];

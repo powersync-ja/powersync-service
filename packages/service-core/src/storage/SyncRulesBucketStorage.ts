@@ -8,6 +8,7 @@ import {
 import * as bson from 'bson';
 import { PerformanceTracer } from '../tracing/PerformanceTracer.js';
 import * as util from '../util/util-index.js';
+import { BucketReport, GetBucketReportOptions } from './bucket-report.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
 import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
@@ -167,6 +168,17 @@ export interface SyncRulesBucketStorage
    * inside this replication stream.
    */
   cleanupStoppedSyncConfigs?(options: CleanupStoppedSyncConfigsOptions): Promise<CleanupStoppedSyncConfigsResult>;
+
+  /**
+   * Per-bucket report of total operations vs total live rows in storage.
+   *
+   * Intended for an on-demand admin/diagnostics view (e.g. answering "why is my Data Synced so high"),
+   * not as a live gauge. How the counts are derived is backend-specific, and the report may be relatively
+   * expensive on large instances.
+   *
+   * Optional: storage providers that don't implement it are reported as unsupported by the API.
+   */
+  getBucketReport?(options?: GetBucketReportOptions): Promise<BucketReport>;
 }
 
 export interface SyncRulesBucketStorageListener {

@@ -2,7 +2,7 @@ import { BasicRouterRequest, Context, JwtPayload, ParsedSyncConfigSet, storage }
 import { logger } from '@powersync/lib-services-framework';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
-import { diagnostics, reprocess, validate } from '../../../src/routes/endpoints/admin.js';
+import { bucketReport, diagnostics, reprocess, validate } from '../../../src/routes/endpoints/admin.js';
 import { mockServiceContext } from './mocks.js';
 
 describe('admin routes', () => {
@@ -207,6 +207,121 @@ bucket_definitions:
       });
       expect(activeBucketStorage.getActiveSyncConfig).not.toHaveBeenCalled();
       expect(activeBucketStorage.updateSyncRules).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('bucket-report', () => {
+    const report = {
+      buckets: [
+        {
+          bucket: '1#by_user["u1"]',
+          operations: 4750,
+          rows: 95,
+          operationBytes: 1216000,
+          fragmentation: 50,
+          rowsEstimated: true,
+          suggestedAction: 'compact',
+          tables: ['todos']
+        },
+        {
+          bucket: '1#global[]',
+          operations: 1000,
+          rows: 1000,
+          operationBytes: 3145728,
+          fragmentation: 1,
+          rowsEstimated: false,
+          suggestedAction: 'none',
+          tables: ['lists']
+        }
+      ],
+      definitions: [
+        {
+          definition: '1#by_user',
+          bucketCount: 1,
+          operations: 4750,
+          operationBytes: 1216000,
+          rows: 95,
+          fragmentation: 50,
+          rowsEstimated: true,
+          suggestedAction: 'compact',
+          tables: ['todos']
+        }
+      ],
+      totals: { bucketCount: 2, operations: 5750, operationBytes: 4361728, estimated: false },
+      bucketsTruncated: false,
+      definitionsTruncated: true
+    };
+
+    it('returns the report, forwards the limit, and maps fields to snake_case', async () => {
+      const getBucketReport = vi.fn(async () => report);
+      const activeBucketStorage = {
+        getActiveSyncConfig: vi.fn(async () => ({
+          content: makeSyncConfigContent({}),
+          replicationStream: {},
+          storage: { getBucketReport }
+        }))
+      };
+
+      const response = await bucketReport.handler({
+        context: makeContext(activeBucketStorage),
+        params: { limit: 20 },
+        request
+      });
+
+      expect(getBucketReport).toHaveBeenCalledWith({ limit: 20 });
+      expect(response.buckets[0]).toEqual({
+        bucket: '1#by_user["u1"]',
+        operations: 4750,
+        rows: 95,
+        operation_bytes: 1216000,
+        fragmentation: 50,
+        rows_estimated: true,
+        suggested_action: 'compact',
+        tables: ['todos']
+      });
+      expect(response.definitions).toEqual([
+        {
+          definition: '1#by_user',
+          bucket_count: 1,
+          operations: 4750,
+          operation_bytes: 1216000,
+          rows: 95,
+          fragmentation: 50,
+          rows_estimated: true,
+          suggested_action: 'compact',
+          tables: ['todos']
+        }
+      ]);
+      expect(response.totals).toEqual({
+        bucket_count: 2,
+        operations: 5750,
+        operation_bytes: 4361728,
+        estimated: false
+      });
+      expect(response.buckets_truncated).toBe(false);
+      expect(response.definitions_truncated).toBe(true);
+    });
+
+    it('rejects when there is no active sync config', async () => {
+      const activeBucketStorage = { getActiveSyncConfig: vi.fn(async () => null) };
+
+      await expect(
+        bucketReport.handler({ context: makeContext(activeBucketStorage), params: {}, request })
+      ).rejects.toMatchObject({ errorData: { status: 422, code: 'PSYNC_S4104' } });
+    });
+
+    it('rejects when the storage provider does not support bucket reporting', async () => {
+      const activeBucketStorage = {
+        getActiveSyncConfig: vi.fn(async () => ({
+          content: makeSyncConfigContent({}),
+          replicationStream: {},
+          storage: {}
+        }))
+      };
+
+      await expect(
+        bucketReport.handler({ context: makeContext(activeBucketStorage), params: {}, request })
+      ).rejects.toMatchObject({ errorData: { status: 422, code: 'PSYNC_S2001' } });
     });
   });
 });
