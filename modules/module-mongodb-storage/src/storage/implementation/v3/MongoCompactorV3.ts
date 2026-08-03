@@ -24,6 +24,7 @@ interface PendingCompactionGroup {
   inputs: BucketDataDocumentV3[];
   ops: BucketDataDoc[];
   changed: boolean;
+  targetOp: InternalOpId | null;
 }
 
 /**
@@ -283,7 +284,7 @@ export class MongoCompactorV3 extends MongoCompactor {
 
         let changed = false;
         const compactedOps: BucketDataDoc[] = [];
-        let maxTargetOp: InternalOpId | null = null;
+        let maxTargetOp: InternalOpId | null = doc.target_op ?? null;
         for (let index = originalOps.length - 1; index >= 0; index--) {
           const op = originalOps[index];
           if (op.op == 'PUT' || op.op == 'REMOVE') {
@@ -342,7 +343,8 @@ export class MongoCompactorV3 extends MongoCompactor {
         const candidate: PendingCompactionGroup = {
           inputs: [doc],
           ops: compactedOps,
-          changed
+          changed,
+          targetOp: maxTargetOp
         };
 
         if (pendingGroup == null) {
@@ -354,7 +356,8 @@ export class MongoCompactorV3 extends MongoCompactor {
             pendingGroup = {
               inputs: [...candidate.inputs, ...pendingGroup.inputs],
               ops: mergedOps,
-              changed: candidate.changed || pendingGroup.changed
+              changed: candidate.changed || pendingGroup.changed,
+              targetOp: maxOpId(maxTargetOp, pendingGroup.targetOp)
             };
           } else {
             const flushedGroup = pendingGroup;
@@ -433,6 +436,12 @@ export class MongoCompactorV3 extends MongoCompactor {
     logger.info(`Compacted bucket ${bucket}: ${totalOpCount} surviving ops`);
   }
 
+  /**
+   * Persist replacement objects before starting the transaction, then atomically
+   * publish their lifecycle markers alongside the MongoDB document replacement.
+   * If verification or the transaction fails, the prepared markers retain enough
+   * information for the uploaded objects to be cleaned up later.
+   */
   private async flushCompactionGroup(
     bucket: string,
     group: PendingCompactionGroup,
@@ -443,29 +452,17 @@ export class MongoCompactorV3 extends MongoCompactor {
       return group.inputs[0]._id;
     }
 
-    const [newDoc] = await this.replaceCompactionDocuments(bucket, group.inputs, [group.ops], bucketContext, context);
-    return newDoc._id;
-  }
-
-  /**
-   * Persist replacement objects before starting the transaction, then atomically
-   * publish their lifecycle markers alongside the MongoDB document replacement.
-   * If verification or the transaction fails, the prepared markers retain enough
-   * information for the uploaded objects to be cleaned up later.
-   */
-  private async replaceCompactionDocuments(
-    bucket: string,
-    inputs: BucketDataDocumentV3[],
-    chunks: BucketDataDoc[][],
-    bucketContext: BucketDataContextV3,
-    context: { replicationStreamId: number; definitionId: string }
-  ): Promise<BucketDataDocumentV3[]> {
+    const inputs = group.inputs;
     const idsToDelete = inputs.map((doc) => doc._id);
     const expectedDocCount = inputs.length;
     const expectedChecksum = inputs.reduce((sum, doc) => sum + doc.checksum, 0n);
     const expectedOpCount = inputs.reduce((sum, doc) => sum + doc.count, 0);
     const oldStoragePaths = inputs.flatMap((doc) => (doc.storage_ref ? [doc.storage_ref.path] : []));
-    const { documents, storagePaths: newStoragePaths, uploads } = await this.persistBucketData(bucket, chunks, context);
+    const {
+      documents,
+      storagePaths: newStoragePaths,
+      uploads
+    } = await this.persistBucketData(bucket, [group.ops], context, undefined, { targetOp: group.targetOp });
     const session = this.db.client.startSession();
     try {
       await session.withTransaction(
@@ -510,7 +507,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     } finally {
       await session.endSession();
     }
-    return documents;
+    return documents[0]._id;
   }
 
   /**
