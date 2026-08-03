@@ -8,12 +8,12 @@ import { ScalarStatement } from '../engine/scalar_expression_engine.js';
 import * as plan from '../plan.js';
 import { StreamEvaluationContext } from './index.js';
 import { isValidParameterValueRow } from './parameter_evaluator.js';
-import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
+import { resolveRowMetadata, TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 
 export class PreparedParameterIndexLookupCreator implements ParameterIndexLookupCreator {
   readonly sourceId: ParameterLookupDefinitionId;
   readonly sourceTable: TablePattern;
-  private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
+  private readonly evaluatorInputs: (plan.ColumnSqlParameterValue | plan.RowMetadataSqlValue)[];
   private readonly statement: ScalarStatement;
   private readonly numberOfOutputs: number;
   private readonly numberOfParameters: number;
@@ -68,7 +68,9 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
         }
 
         try {
-          const inputInstantiation = this.evaluatorInputs.map((input) => row[input.column]);
+          const inputInstantiation = this.evaluatorInputs.map((input) =>
+            'column' in input ? row[input.column] : resolveRowMetadata(input, this.sourceTable, sourceTable)
+          );
 
           // In almost all cases, lookups generate at most one output with exactly one bucket parameter. This is the case
           // for all lookups without a table-valued function, e.g. `SELECT foo.* FROM foo, bar ON foo.x = bar.x AND

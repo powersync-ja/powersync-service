@@ -13,7 +13,7 @@ import {
 import { equalsIgnoringResultSet } from './compatibility.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
 import { HashMap, HashSet, StableHasher } from './equality.js';
-import { ColumnInRow, SourceLocation } from './expression.js';
+import { RowReference, SourceLocation } from './expression.js';
 import { And, BaseTerm, EqualsClause, RequestExpression, RowExpression, SingleDependencyExpression } from './filter.js';
 import { ParsedStreamQuery } from './parser.js';
 import {
@@ -290,7 +290,7 @@ class PendingQuerierPath {
           // A subexpression might reference a table-valued function that has been attached to this source result set.
           // We need to explicitly add those functions to the context.
           for (const instantiation of expression.expression.instantiation) {
-            if (instantiation instanceof ColumnInRow && instantiation.resultSet !== source) {
+            if (instantiation instanceof RowReference && instantiation.resultSet !== source) {
               // The only way for this to be a different result set (in a single-dependency expression!) is for it to be
               // a table-valued function on the source.
               const rs = instantiation.resultSet;

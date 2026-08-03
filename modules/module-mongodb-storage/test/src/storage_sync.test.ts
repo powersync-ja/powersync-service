@@ -1467,6 +1467,96 @@ streams:
     expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.replicationStreamId })).toBe(0);
   });
 
+  test.runIf(storageVersion < 3)(
+    'clear removes large v1 current_data sets without affecting other streams',
+    async () => {
+      await using factory = await storageConfig.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, {
+          storageVersion
+        })
+      );
+      const bucketStorage = factory.getInstance(syncRules);
+      const mongoFactory = factory as MongoBucketStorage;
+      const sourceTableId = new bson.ObjectId();
+      const documents = Array.from({ length: 10_002 }, (_, index) => ({
+        _id: {
+          g: syncRules.replicationStreamId,
+          t: sourceTableId,
+          k: index
+        },
+        data: new bson.Binary(),
+        buckets: [],
+        lookups: []
+      }));
+      await mongoFactory.db.current_data.insertMany([
+        ...documents,
+        {
+          _id: {
+            g: syncRules.replicationStreamId + 1,
+            t: sourceTableId,
+            k: 0
+          },
+          data: new bson.Binary(),
+          buckets: [],
+          lookups: []
+        }
+      ]);
+
+      await bucketStorage.clear();
+
+      expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.replicationStreamId })).toBe(0);
+      expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.replicationStreamId + 1 })).toBe(1);
+    }
+  );
+
+  test.runIf(storageVersion < 3)(
+    'clear removes large v1 parameter index sets without affecting other streams',
+    async () => {
+      await using factory = await storageConfig.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, {
+          storageVersion
+        })
+      );
+      const bucketStorage = factory.getInstance(syncRules);
+      const mongoFactory = factory as MongoBucketStorage;
+      const sourceTableId = new bson.ObjectId();
+      const documents = Array.from({ length: 10_002 }, (_, index) => ({
+        _id: BigInt(index * 2),
+        key: {
+          g: syncRules.replicationStreamId,
+          t: sourceTableId,
+          k: index
+        },
+        lookup: new bson.Binary(),
+        bucket_parameters: []
+      }));
+      await mongoFactory.db.bucket_parameters.insertMany([
+        ...documents,
+        {
+          _id: 1n,
+          key: {
+            g: syncRules.replicationStreamId + 1,
+            t: sourceTableId,
+            k: 0
+          },
+          lookup: new bson.Binary(),
+          bucket_parameters: []
+        }
+      ]);
+
+      await bucketStorage.clear();
+
+      expect(await mongoFactory.db.bucket_parameters.countDocuments({ 'key.g': syncRules.replicationStreamId })).toBe(
+        0
+      );
+      expect(
+        await mongoFactory.db.bucket_parameters.countDocuments({ 'key.g': syncRules.replicationStreamId + 1 })
+      ).toBe(1);
+    }
+  );
+
   test.runIf(storageVersion < 3)('storage metrics include v1 current_data', async () => {
     await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(

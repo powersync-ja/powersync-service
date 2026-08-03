@@ -1,5 +1,21 @@
 # @powersync/service-module-mongodb
 
+## 0.19.0
+
+### Minor Changes
+
+- d99c31f: Add experimental Azure DocumentDB (formerly Cosmos DB for MongoDB vCore) support.
+
+### Patch Changes
+
+- Updated dependencies [ea71bf3]
+- Updated dependencies [ea31f64]
+- Updated dependencies [edc6ed4]
+  - @powersync/service-sync-rules@0.39.0
+  - @powersync/service-core@1.23.3
+  - @powersync/lib-services-framework@0.9.8
+  - @powersync/lib-service-mongodb@0.6.29
+
 ## 0.18.2
 
 ### Patch Changes

@@ -11,13 +11,13 @@ let nextPort = 5433;
 
 describe('Sockets', () => {
   let server: WebSocket.WebSocketServer;
-  let closeServer: () => void;
+  let closeServer: () => Promise<void>;
 
   let WS_PORT = 0;
   let WS_ADDRESS = '';
 
   beforeEach(() => {
-    let closed = false;
+    let closePromise: Promise<void> | undefined;
 
     WS_PORT = process.env.WS_PORT ? parseInt(process.env.WS_PORT) : nextPort++;
     WS_ADDRESS = `ws://localhost:${WS_PORT}`;
@@ -32,16 +32,20 @@ describe('Sockets', () => {
      * after each test. This method should prevent double closing.
      */
     closeServer = () => {
-      if (closed) {
-        return;
-      }
-      server.close();
-      closed = true;
+      return (closePromise ??= new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve();
+          }
+        });
+      }));
     };
   });
 
-  afterEach(() => {
-    closeServer();
+  afterEach(async () => {
+    await closeServer();
   });
 
   it('should only not close a server that is managed externally', async () => {
@@ -69,8 +73,7 @@ describe('Sockets', () => {
 
     // This will be triggered externally when the HTTP(s) server closes
     // linked to the internal WS server.
-    closeServer();
-    await isClosedPromise;
+    await Promise.all([closeServer(), isClosedPromise]);
     expect(closeableSpy).toBeCalledTimes(1);
   });
 
@@ -116,6 +119,39 @@ describe('Sockets', () => {
     const rawSocket: WebSocket.WebSocket = duplexSpy.mock.calls[0][3];
     await vi.waitFor(() => expect(duplex.closed).equals(true), { timeout: 3000 });
     await vi.waitFor(() => expect(rawSocket.readyState).equals(rawSocket.CLOSED), { timeout: 3000 });
+  });
+
+  it('should handle WebSocket protocol errors before the initial frame', async () => {
+    const transport = new WebsocketServerTransport({
+      wsCreator: () => server
+    });
+
+    const rSocketServer = new RSocketServer({
+      transport,
+      acceptor: {
+        accept: async () => {
+          return {};
+        }
+      }
+    });
+
+    await rSocketServer.bind();
+
+    const client = new WebSocket.WebSocket(WS_ADDRESS);
+    client.on('error', () => {});
+    await new Promise<void>((resolve) => {
+      client.once('open', () => resolve());
+    });
+
+    const closed = new Promise<number>((resolve) => {
+      client.once('close', (code) => resolve(code));
+    });
+
+    // FIN + RSV2 + RSV3 + text opcode, followed by an empty masked payload.
+    const invalidFrame = Buffer.from([0b1011_0001, 0b1000_0000, 0x00, 0x00, 0x00, 0x00]);
+    (client as any)._socket.write(invalidFrame);
+
+    expect(await closed).toEqual(1002);
   });
 
   /**

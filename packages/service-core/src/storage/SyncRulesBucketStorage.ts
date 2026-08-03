@@ -320,6 +320,13 @@ export interface CompactOptions {
 
   compactParameterData?: boolean;
 
+  /**
+   * Delete client-requested write checkpoints created before this time.
+   *
+   * Generated write checkpoints are not affected.
+   */
+  deleteCheckpointRequestsBefore?: Date;
+
   /** Minimum of 2 */
   clearBatchLimit?: number;
 
@@ -407,6 +414,9 @@ export interface TerminateOptions extends ClearStorageOptions {
 
 export interface BucketDataBatchOptions {
   requestHint?: BucketRequestHint;
+
+  /** Abort any in-progress work for this batch, including object-storage downloads. */
+  signal?: AbortSignal;
 
   /** Limit number of documents returned. Defaults to 1000. */
   limit?: number;

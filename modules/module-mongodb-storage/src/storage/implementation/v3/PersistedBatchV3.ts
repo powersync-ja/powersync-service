@@ -22,6 +22,7 @@ import {
   SourceTableDocumentV3,
   taggedBucketParameterDocumentToTagged
 } from './models.js';
+import { ObjectStorageLifecycle } from './object-storage/ObjectStorageLifecycle.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
@@ -218,14 +219,53 @@ export class PersistedBatchV3 extends PersistedBatch {
       }
 
       const inserts: mongo.AnyBulkWriteOperation<BucketDataDocumentV3>[] = [];
-      for (const [bucket, ops] of operationsByBucket.entries()) {
-        const chunks = chunkBucketData(ops);
-        for (const chunk of chunks) {
-          inserts.push({
-            insertOne: {
-              document: serializeBucketData(bucket, chunk)
+
+      if (!this.objectStorage) {
+        for (const [bucket, ops] of operationsByBucket.entries()) {
+          const chunks = chunkBucketData(ops);
+          for (const chunk of chunks) {
+            inserts.push({
+              insertOne: {
+                document: serializeBucketData(bucket, chunk)
+              }
+            });
+          }
+        }
+      } else {
+        const lifecycle = new ObjectStorageLifecycle(this.db, this.group_id, this.objectStorage);
+
+        for (const [bucket, ops] of operationsByBucket.entries()) {
+          const chunks = chunkBucketData(ops);
+          for (const chunk of chunks) {
+            const minOp = chunk[0].o;
+            const maxOp = chunk[chunk.length - 1].o;
+            const serialized = serializeBucketData(bucket, chunk);
+            const { ops: bucketOps, ...metadata } = serialized;
+
+            if (serialized.size <= this.inlineThresholdBytes) {
+              // Small enough to store inline
+              inserts.push({
+                insertOne: {
+                  document: serialized
+                }
+              });
+            } else {
+              const path = lifecycle.allocatePath(definitionId, bucket, minOp, maxOp);
+              const { fileSize } = await lifecycle.bucketData.store(path, bucketOps!);
+
+              inserts.push({
+                insertOne: {
+                  document: {
+                    ...metadata,
+                    storage_ref: {
+                      path,
+                      file_size: fileSize
+                    }
+                  }
+                }
+              });
             }
-          });
+          }
         }
       }
 

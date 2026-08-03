@@ -21,7 +21,7 @@ config:
 streams:
   stream:
       accept_potentially_dangerous_queries: true
-      query: SELECT s.id AS id FROM stores s INNER JOIN json_each(s.tags) as tags WHERE tags.value = subscription.parameter('tag')
+      query: SELECT s.id AS id FROM stores AS "s" INNER JOIN json_each(s.tags) as tags WHERE tags.value = subscription.parameter('tag')
 `);
 
     const sourceTable = new TestSourceTable('stores');

@@ -1,7 +1,7 @@
 {
   "name": "@powersync/service-module-postgres-storage",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.16.2",
+  "version": "0.16.3",
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "publishConfig": {

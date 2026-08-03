@@ -10,13 +10,13 @@ import {
   SerializedParameterIndexLookupCreator,
   serializedStreamBucketDataSourceEquality,
   serializedStreamParameterIndexLookupCreatorEquality,
-  SerializedSyncPlanV1,
+  SerializedSyncPlan,
   SourceTableRef,
   SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
 
 export interface SerializedSyncConfigWithMapping {
-  plan: SerializedSyncPlanV1;
+  plan: SerializedSyncPlan;
   mapping: SingleSyncConfigBucketDefinitionMapping;
 }
 
@@ -131,7 +131,7 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
    */
   static constructIncrementalMappingFromSerializedPlans(
     compatibleConfigs: SerializedSyncConfigWithMapping[],
-    newPlan: SerializedSyncPlanV1,
+    newPlan: SerializedSyncPlan,
     reservedMappings: SingleSyncConfigBucketDefinitionMapping[]
   ): SingleSyncConfigBucketDefinitionMapping {
     return this.constructIncrementalMappingWithChanges(compatibleConfigs, newPlan, reservedMappings).mapping;
@@ -139,7 +139,7 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
 
   static constructIncrementalMappingWithChanges(
     compatibleConfigs: SerializedSyncConfigWithMapping[],
-    newPlan: SerializedSyncPlanV1,
+    newPlan: SerializedSyncPlan,
     reservedMappings: SingleSyncConfigBucketDefinitionMapping[]
   ): IncrementalMappingResult {
     let nextBucketDefinitionId =

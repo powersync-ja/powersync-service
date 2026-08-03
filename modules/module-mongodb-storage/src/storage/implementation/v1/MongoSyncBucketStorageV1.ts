@@ -16,7 +16,15 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
+import {
+  clearCollectionInIdBatches,
+  clearCollectionInIdRanges,
+  idPrefixFilter,
+  mapOpEntry,
+  readSingleBatch,
+  retryOnMongoMaxTimeMSExpired,
+  setSessionSnapshotTime
+} from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageCheckpoint.js';
 import { SourceKey } from '../models.js';
@@ -290,64 +298,59 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   }
 
   protected async clearBucketData(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
+    await clearCollectionInIdRanges(
+      this.logger,
       'bucket data',
-      () =>
-        this.db.bucket_data.deleteMany(
-          {
-            _id: idPrefixFilter<BucketDataKeyV1>({ g: this.replicationStreamId }, ['b', 'o'])
-          },
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        ),
-      signal
+      this.db.bucket_data,
+      {
+        _id: idPrefixFilter<BucketDataKeyV1>({ g: this.replicationStreamId }, ['b', 'o'])
+      },
+      signal,
+      this.clearBatchThrottleRate
     );
   }
 
   protected async clearParameterIndexes(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
+    await clearCollectionInIdBatches(
+      this.logger,
       'parameter index',
-      () =>
-        this.db.parameterIndexV1.deleteMany(
-          {
-            'key.g': this.replicationStreamId
-          },
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        ),
-      signal
+      this.db.parameterIndexV1,
+      {
+        'key.g': this.replicationStreamId
+      },
+      signal,
+      this.clearBatchThrottleRate
     );
   }
 
   protected async clearSourceRecords(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
+    await clearCollectionInIdRanges(
+      this.logger,
       'source records',
-      () =>
-        this.db.sourceRecordsV1.deleteMany(
-          {
-            _id: idPrefixFilter<SourceKey>({ g: this.replicationStreamId }, ['t', 'k'])
-          },
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        ),
-      signal
+      this.db.sourceRecordsV1,
+      {
+        _id: idPrefixFilter<SourceKey>({ g: this.replicationStreamId }, ['t', 'k'])
+      },
+      signal,
+      this.clearBatchThrottleRate
     );
   }
 
   protected async clearBucketState(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
+    await clearCollectionInIdRanges(
+      this.logger,
       'bucket state',
-      () =>
-        this.db.bucketStateV1.deleteMany(
-          {
-            _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.replicationStreamId }, ['b'])
-          },
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        ),
-      signal
+      this.db.bucketStateV1,
+      {
+        _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.replicationStreamId }, ['b'])
+      },
+      signal,
+      this.clearBatchThrottleRate
     );
   }
 
   protected async clearSourceTables(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
-      'source tables',
+    await retryOnMongoMaxTimeMSExpired(
       () =>
         this.db.sourceTablesV1(this.replicationStreamId).deleteMany(
           {
@@ -355,7 +358,17 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
           },
           { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
         ),
-      signal
+      {
+        signal,
+        abortMessage: 'Aborted clearing data',
+        // This is a fairly long delay - only expected to hit this when the storage database is under high load.
+        retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
+        onRetry: () => {
+          this.logger.info(
+            `Clearing batch of source tables timed out after ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, retrying...`
+          );
+        }
+      }
     );
   }
 
@@ -465,6 +478,7 @@ export async function* getBucketDataBatchV1(
 
   if (session != null) {
     session.advanceOperationTime(checkpoint.snapshotTime);
+    session.advanceClusterTime(checkpoint.clusterTime);
   }
 
   let filters: mongo.Filter<BucketDataDocumentV1>[] = [];

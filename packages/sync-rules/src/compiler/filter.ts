@@ -2,7 +2,7 @@ import { NodeLocation } from 'pgsql-ast-parser';
 import { expandNodeLocations } from '../errors.js';
 import { EqualsIgnoringResultSet } from './compatibility.js';
 import { StableHasher } from './equality.js';
-import { ColumnInRow, ExpressionInput, SyncExpression } from './expression.js';
+import { ExpressionInput, RowReference, SyncExpression } from './expression.js';
 import { BaseSourceResultSet, SourceResultSet } from './table.js';
 
 export interface Or {
@@ -79,7 +79,7 @@ export class SingleDependencyExpression implements EqualsIgnoringResultSet {
     let hasSubscriptionDependency = false;
 
     for (const dependency of inputs) {
-      if (dependency instanceof ColumnInRow) {
+      if (dependency instanceof RowReference) {
         if (
           hasSubscriptionDependency ||
           (resultSet != null && !BaseSourceResultSet.areCompatible(resultSet, dependency.resultSet))

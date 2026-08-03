@@ -1,8 +1,8 @@
 import { BaseObserver, logger } from '@powersync/lib-services-framework';
 import {
   PrecompiledSyncConfig,
+  SerializedSyncPlan as RawSerializedSyncPlan,
   SerializedCompatibilityContext,
-  SerializedSyncPlanV1,
   serializeSyncPlan,
   SqlSyncRules,
   SyncConfigWithErrors
@@ -171,7 +171,7 @@ export interface SerializedSyncPlan {
   /**
    * The serialized plan, from {@link serializeSyncPlan}.
    */
-  plan: SerializedSyncPlanV1;
+  plan: RawSerializedSyncPlan;
   compatibility: SerializedCompatibilityContext;
   /**
    * Event descriptors are not currently represented in the sync plan because they don't use the sync streams compiler

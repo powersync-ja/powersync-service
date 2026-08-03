@@ -1,5 +1,4 @@
 import { BucketPriority } from './BucketDescription.js';
-import { BucketParameterQuerier, QuerierError } from './BucketParameterQuerier.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { SyncRulesErrors, YamlError } from './errors.js';
 import { SyncConfigFromYaml } from './from_yaml.js';
@@ -56,11 +55,6 @@ export interface GetQuerierOptions {
    * null.
    */
   streams: Record<string, RequestedStream[]>;
-}
-
-export interface GetBucketParameterQuerierResult {
-  querier: BucketParameterQuerier;
-  errors: QuerierError[];
 }
 
 export class SqlSyncRules extends SyncConfig {
