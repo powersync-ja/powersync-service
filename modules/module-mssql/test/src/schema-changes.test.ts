@@ -1,8 +1,9 @@
-import { storage } from '@powersync/service-core';
-import { putOp } from '@powersync/service-core-tests';
+import { SourceEntityDescriptor, storage } from '@powersync/service-core';
+import { putOp, test_utils } from '@powersync/service-core-tests';
 import sql from 'mssql';
 import { describe, expect, test, vi } from 'vitest';
 
+import { LSN } from '@module/common/LSN.js';
 import { SchemaChangeType } from '@module/replication/CDCPoller.js';
 import { getLatestLSN, toQualifiedTableName } from '@module/utils/mssql.js';
 import { logger } from '@powersync/lib-services-framework';
@@ -431,6 +432,98 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
         JSON.parse(replicatedTestData2!.data!),
         'The restored pin should replicate the row using the original capture schema'
       ).toEqual({ id: testData2.id, description: testData2.description });
+    }
+  });
+
+  /**
+   * Bindings created before capture-instance pinning have no source metadata. They must be pinned in
+   * place on the next job - to the instance the pre-pinning streaming logic would have selected -
+   * without replacing the SourceTable records or re-snapshotting.
+   *
+   * The metadata is stripped through the storage API rather than per-backend SQL, so this covers
+   * every storage backend the suite runs against.
+   */
+  test('A legacy binding without source metadata is pinned on the next job', async () => {
+    let sourceDescriptor: SourceEntityDescriptor;
+    let initialBinding: {
+      sourceTableObjectId: number;
+      pinnedCaptureObjectId: number | null;
+      sourceTableIds: string[];
+    };
+
+    {
+      await using context = await CDCStreamTestContext.open(factory);
+      await context.updateSyncRules(BASIC_SYNC_RULES);
+      const { connectionManager } = context;
+
+      await createTestTableWithBasicId(connectionManager, 'test_data');
+      const beforeLSN = await getLatestLSN(connectionManager);
+      const testData = await insertBasicIdTestData(connectionManager, 'test_data');
+      await waitForPendingCDCChanges(beforeLSN, connectionManager);
+
+      await context.replicateSnapshot();
+      await context.startStreaming();
+
+      expect(await context.getBucketData('global[]')).toMatchObject([putOp('test_data', testData)]);
+
+      const table = context.cdcStream.tableCache.getAll()[0];
+      expect(table.pinnedCaptureObjectId, 'The binding should start out pinned').not.toBeNull();
+      sourceDescriptor = table.ref;
+      initialBinding = {
+        sourceTableObjectId: table.objectId,
+        pinnedCaptureObjectId: table.pinnedCaptureObjectId,
+        sourceTableIds: table.sourceTables.map((sourceTable) => sourceTable.id.toString())
+      };
+    }
+
+    {
+      // Strip the persisted pin, reproducing a record written before pinning existed. Done in its
+      // own context so it does not contend with a running stream for the storage batch.
+      await using context = await CDCStreamTestContext.open(factory, { doNotClear: true });
+      await context.loadActiveSyncRules();
+
+      await using writer = await context.storage!.createWriter({
+        ...test_utils.BATCH_OPTIONS,
+        zeroLSN: LSN.ZERO,
+        defaultSchema: context.connectionManager.schema,
+        storeCurrentData: false
+      });
+      const resolved = await writer.resolveTables({
+        connection_id: 1,
+        source: sourceDescriptor,
+        reconcileSourceTables: ({ candidates }) => ({
+          compatibleTables: candidates.map((candidate) => candidate.withSourceMetadata(undefined)),
+          incompatibleTables: [],
+          newTableValues: {}
+        })
+      });
+
+      expect(
+        resolved.tables.map((table) => table.id.toString()),
+        'Stripping the metadata should reuse the existing records'
+      ).toEqual(initialBinding.sourceTableIds);
+      expect(
+        resolved.tables.map((table) => table.sourceMetadata),
+        'The persisted pin should have been cleared'
+      ).toEqual(resolved.tables.map(() => undefined));
+    }
+
+    {
+      await using context = await CDCStreamTestContext.open(factory, { doNotClear: true });
+      await context.loadActiveSyncRules();
+      await context.replicateSnapshot();
+
+      const table = context.cdcStream.tableCache.get(initialBinding.sourceTableObjectId)!;
+      expect(table.pinnedCaptureObjectId, 'The legacy binding should be backfilled with a pin').toBe(
+        initialBinding.pinnedCaptureObjectId
+      );
+      expect(table.captureInstance?.objectId, 'The stream should poll the capture instance it was just pinned to').toBe(
+        initialBinding.pinnedCaptureObjectId
+      );
+      expect(
+        table.sourceTables.map((sourceTable) => sourceTable.id.toString()),
+        'Backfilling should update the existing records in place, not re-snapshot'
+      ).toEqual(initialBinding.sourceTableIds);
     }
   });
 
