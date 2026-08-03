@@ -76,7 +76,7 @@ function cutBucketDataBatch(rawDocuments: Buffer[]): {
     if (cumulativeBytes > BUCKET_DATA_FETCH_BATCH_LIMIT_BYTES) {
       return {
         documents,
-        wasCut: true
+        wasCut: documents.length < rawDocuments.length
       };
     }
   }
@@ -660,7 +660,7 @@ export async function* getBucketDataBatchV3(
       seenBuckets.add(bucket);
       const bucketStart = bucketMap.get(bucket);
       if (bucketStart == null) {
-        throw new Error(`data for unexpected bucket: ${bucket}`);
+        throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
       }
       let start: ProtocolOpId | undefined = undefined;
 
@@ -685,10 +685,6 @@ export async function* getBucketDataBatchV3(
         }
 
         if (start == null) {
-          const startOpId = bucketMap.get(bucket);
-          if (startOpId == null) {
-            throw new Error(`data for unexpected bucket: ${bucket}`);
-          }
           start = internalToExternalOpId(bucketStart);
         }
 
@@ -742,7 +738,6 @@ export async function* getBucketDataBatchV3(
       break;
     } else {
       // No data in this definition group - continue in the next group.
-      continue;
     }
   }
 }
