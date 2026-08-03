@@ -6,7 +6,7 @@ import {
   ReplicationCheckpoint,
   SyncRulesBucketStorage
 } from '@powersync/service-core';
-import { bucketRequest } from './general-utils.js';
+import { bucketRequest, getBatchArray } from './general-utils.js';
 import { fromAsync } from './stream_utils.js';
 
 export class StorageDataHelpers {
@@ -28,7 +28,7 @@ export class StorageDataHelpers {
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
 
-      const batches = await fromAsync(batch);
+      const batches = await getBatchArray(batch);
       data = data.concat(batches[0]?.chunkData.data ?? []);
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
