@@ -154,9 +154,6 @@ export class CDCPoller {
           for (const schemaChange of schemaChanges) {
             await this.eventHandler.onSchemaChange(schemaChange);
           }
-          // Keep polling state current for the pinned instance. In particular, CDC cleanup can
-          // advance minLSN while the capture-table identity remains unchanged.
-          this.refreshBoundCaptureInstances();
           this.lastSchemaCheckTime = Date.now();
 
           this.logger.debug(
@@ -265,9 +262,14 @@ export class CDCPoller {
   }
 
   private async pollTable(table: MSSQLSourceTable, bounds: { startLSN: LSN; endLSN: LSN }): Promise<number> {
-    const boundInstance = table.captureInstance;
+    // CDC cleanup can advance minLSN while the capture-table identity remains unchanged, so use
+    // the latest metadata loaded by the schema check rather than the instance bound at startup.
+    const availableInstances = this.captureInstances.get(table.objectId)?.instances ?? [];
+    const boundInstance = table.findPinnedCaptureInstance(availableInstances);
     if (boundInstance == null) {
-      throw new ReplicationAssertionError(`No capture instance bound for table ${table.toQualifiedName()}`);
+      throw new ReplicationAssertionError(
+        `Pinned capture instance is unavailable for table ${table.toQualifiedName()}`
+      );
     }
     const minLSN = boundInstance.minLSN;
     if (minLSN > bounds.endLSN) {
@@ -377,7 +379,7 @@ export class CDCPoller {
       if (boundObjectId == null) {
         throw new ReplicationAssertionError(`No persisted capture instance for table ${table.toQualifiedName()}`);
       }
-      const boundInstance = captureInstanceDetails.instances.find((instance) => instance.objectId === boundObjectId);
+      const boundInstance = table.findPinnedCaptureInstance(captureInstanceDetails.instances);
       if (boundInstance == null) {
         // Include the replacement so the error can suggest the right recovery step.
         schemaChanges.push({
@@ -421,20 +423,5 @@ export class CDCPoller {
     }
 
     return schemaChanges;
-  }
-
-  private refreshBoundCaptureInstances(): void {
-    for (const table of this.replicatedTables) {
-      const pinnedObjectId = table.pinnedCaptureObjectId;
-      if (pinnedObjectId == null) {
-        continue;
-      }
-      const refreshed = this.captureInstances
-        .get(table.objectId)
-        ?.instances.find((instance) => instance.objectId === pinnedObjectId);
-      if (refreshed != null) {
-        table.setCaptureInstance(refreshed);
-      }
-    }
   }
 }

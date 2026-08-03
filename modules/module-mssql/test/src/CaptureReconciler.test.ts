@@ -8,7 +8,7 @@ import {
   readCaptureMetadata
 } from '@module/replication/CaptureReconciler.js';
 import { SourceEntityDescriptor, SourceTable } from '@powersync/service-core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 /**
  * Build a source descriptor with optional identity overrides.
@@ -169,15 +169,35 @@ describe('createCaptureReconciler', () => {
   });
 });
 
-describe('CDCPoller capture-instance refresh', () => {
-  it('updates the bound instance without changing its persisted pin', () => {
+describe('MSSQLSourceTable.findPinnedCaptureInstance', () => {
+  it('finds the instance matching the persisted capture-table object id', () => {
+    const table = new MSSQLSourceTable(source(), [candidate('a', { captureTableObjectId: 40 })]);
+    const expected = instance(40);
+
+    expect(table.findPinnedCaptureInstance([instance(50), expected])).toBe(expected);
+  });
+
+  it('returns null when the binding is legacy or the pinned instance is unavailable', () => {
+    const legacy = new MSSQLSourceTable(source(), [candidate('legacy')]);
+    const pinned = new MSSQLSourceTable(source(), [candidate('pinned', { captureTableObjectId: 40 })]);
+
+    expect(legacy.findPinnedCaptureInstance([instance(40)])).toBeNull();
+    expect(pinned.findPinnedCaptureInstance([instance(50)])).toBeNull();
+  });
+});
+
+describe('CDCPoller capture-instance metadata', () => {
+  it('uses the latest minLSN without replacing the instance bound at startup', async () => {
     const persisted = candidate('a', { captureTableObjectId: 40 });
     const table = new MSSQLSourceTable(source(), [persisted]);
-    table.setCaptureInstance(instance(40));
+    const startupInstance = instance(40);
+    table.setCaptureInstance(startupInstance);
 
     const refreshed = instance(40);
+    refreshed.minLSN = LSN.fromString('00000000:00000002:0000');
+    const query = vi.fn().mockResolvedValue({ recordset: [] });
     const poller = new CDCPoller({
-      connectionManager: {} as any,
+      connectionManager: { query } as any,
       eventHandler: {} as any,
       getReplicatedTables: () => [table],
       startLSN: LSN.fromString(LSN.ZERO),
@@ -193,9 +213,14 @@ describe('CDCPoller capture-instance refresh', () => {
       ]
     ]);
 
-    (poller as any).refreshBoundCaptureInstances();
+    const bounds = {
+      startLSN: LSN.fromString('00000000:00000001:0000'),
+      endLSN: LSN.fromString('00000000:00000003:0000')
+    };
+    await (poller as any).pollTable(table, bounds);
 
-    expect(table.captureInstance).toBe(refreshed);
+    expect(bounds.startLSN).toBe(refreshed.minLSN);
+    expect(table.captureInstance).toBe(startupInstance);
     expect(table.pinnedCaptureObjectId).toBe(40);
   });
 });

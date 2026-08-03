@@ -117,6 +117,7 @@ export class CDCStream {
 
   // Latest capture instance warning emitted for each source table.
   private warnedNewerCaptureObjectId = new Map<number, number>();
+  private warnedSchemaChangeCount = new Map<number, number>();
 
   constructor(private options: CDCStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -271,7 +272,17 @@ export class CDCStream {
     });
     const resolvedTable = new MSSQLSourceTable(table, resolved.tables);
 
-    resolvedTable.setCaptureInstance(this.selectBoundCaptureInstance(resolvedTable, availableInstances));
+    const pinnedObjectId = resolvedTable.pinnedCaptureObjectId;
+    if (pinnedObjectId == null) {
+      throw new ReplicationAssertionError(`No persisted capture instance for table ${resolvedTable.toQualifiedName()}`);
+    }
+    const boundInstance = resolvedTable.findPinnedCaptureInstance(availableInstances);
+    if (boundInstance == null) {
+      throw new ReplicationAssertionError(
+        `Persisted capture instance ${pinnedObjectId} is unavailable for table ${resolvedTable.toQualifiedName()}`
+      );
+    }
+    resolvedTable.setCaptureInstance(boundInstance);
 
     this.tableCache.set(resolvedTable);
 
@@ -279,6 +290,7 @@ export class CDCStream {
     await batch.drop(resolved.dropTables);
     // Allow warnings again after the table is resolved.
     this.warnedNewerCaptureObjectId.delete(resolvedTable.objectId);
+    this.warnedSchemaChangeCount.delete(resolvedTable.objectId);
 
     // Snapshot if:
     // 1. The table is in the sync config and snapshot is requested, or not already done.
@@ -299,23 +311,6 @@ export class CDCStream {
     }
 
     return resolvedTable;
-  }
-
-  /**
-   * Find the capture instance selected during table resolution.
-   */
-  private selectBoundCaptureInstance(table: MSSQLSourceTable, availableInstances: CaptureInstance[]): CaptureInstance {
-    const pinnedObjectId = table.pinnedCaptureObjectId;
-    if (pinnedObjectId == null) {
-      throw new ReplicationAssertionError(`No persisted capture instance for table ${table.toQualifiedName()}`);
-    }
-    const boundInstance = availableInstances.find((instance) => instance.objectId === pinnedObjectId);
-    if (boundInstance == null) {
-      throw new ReplicationAssertionError(
-        `Persisted capture instance ${pinnedObjectId} is unavailable for table ${table.toQualifiedName()}`
-      );
-    }
-    return boundInstance;
   }
 
   private async snapshotTableInTx(
@@ -799,10 +794,8 @@ export class CDCStream {
    * Warn about column drift while continuing with the pinned capture schema.
    */
   private async handleColumnChanges(table: MSSQLSourceTable, captureInstance: CaptureInstance): Promise<void> {
-    if (
-      table.captureInstance?.objectId === captureInstance.objectId &&
-      table.captureInstance?.pendingSchemaChanges.length === captureInstance.pendingSchemaChanges.length
-    ) {
+    const changeCount = captureInstance.pendingSchemaChanges.length;
+    if (this.warnedSchemaChangeCount.get(table.objectId) === changeCount) {
       return;
     }
 
@@ -811,8 +804,7 @@ export class CDCStream {
         `schema, so these changes are not replicated. Deploy the sync configuration as a new replication stream ` +
         `to pick them up.\n Pending schema changes:\n ${captureInstance.pendingSchemaChanges.join(', \n')}`
     );
-    // Refresh the warning state without replacing the pinned instance.
-    table.captureInstance!.pendingSchemaChanges = captureInstance.pendingSchemaChanges;
+    this.warnedSchemaChangeCount.set(table.objectId, changeCount);
   }
 
   /**
