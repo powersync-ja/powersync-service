@@ -662,7 +662,6 @@ export async function* getBucketDataBatchV3(
       if (bucketStart == null) {
         throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
       }
-      let start: ProtocolOpId | undefined = undefined;
 
       // Reached a new bucket or size limit: yield the current chunk and start a new one.
       if (
@@ -671,6 +670,7 @@ export async function* getBucketDataBatchV3(
         currentChunkSizeBytes >= chunkSizeLimitBytes ||
         currentChunk.data.length >= batchLimit
       ) {
+        let start: ProtocolOpId | undefined = undefined;
         if (currentChunk != null) {
           if (currentChunk.bucket == bucket) {
             currentChunk.has_more = true;

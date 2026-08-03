@@ -228,9 +228,7 @@ export class PersistedBatchV3 extends PersistedBatch {
     let uploadCount = 0;
     const plans = Array.from(operationsByDefinition, ([definitionId, documents]) => {
       const operationsByBucket = Map.groupBy(documents, (document) => document.bucketKey.bucket);
-      const lifecycle = this.objectStorage
-        ? new ObjectStorageLifecycle(this.db, this.group_id, this.objectStorage)
-        : undefined;
+      const lifecycle = this.objectStorageLifecycle;
       const createInserts: (() => Promise<mongo.AnyBulkWriteOperation<BucketDataDocumentV3>>)[] = [];
 
       for (const [bucket, ops] of operationsByBucket) {
