@@ -633,10 +633,11 @@ bucket_definitions:
     // The pinned capture schema does not include the new column.
     expect(data).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
 
+    // Schema polling must not replace the capture instance selected when the stream started.
     expect(
       context.cdcStream.tableCache
         .getAll()
-        .every((t) => t.captureInstance && t.captureInstance.pendingSchemaChanges.length > 0)
+        .every((table) => table.captureInstance?.objectId === table.pinnedCaptureObjectId)
     ).toBe(true);
   });
 }
