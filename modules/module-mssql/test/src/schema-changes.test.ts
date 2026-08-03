@@ -75,6 +75,9 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
+    // The sync config table must exist for replication to start.
+    await createTestTableWithBasicId(connectionManager, 'test_data');
+
     await context.replicateSnapshot();
     await context.startStreaming();
 
@@ -109,19 +112,23 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
       putOp('test_data', testData2)
     ]);
 
+    // Attach the rejection handler before triggering the failure - the schema check can fire while
+    // the DDL statement is still awaiting, and an unhandled rejection fails the test outright.
+    const streamFailure = expect(
+      context.streamingPromise,
+      'Dropping a replicated table should stop the job'
+    ).rejects.toThrow(/has been dropped from the source/);
     await dropTestTable(connectionManager, 'test_data');
+    await streamFailure;
 
-    await expect(context.streamingPromise, 'Dropping a replicated table should stop the job').rejects.toThrow(
-      /has been dropped from the source/
-    );
-
+    // Read storage directly: getBucketData() races the stream promise, which has now rejected.
     expect(
-      await context.getBucketData('global[]'),
+      await context.getCurrentBucketData('global[]'),
       'Dropping the source table should not delete data already replicated to clients'
     ).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
   });
 
-  test('Rename table: replication stops with a warning and the replicated data is retained', async () => {
+  test('Rename table: replication stops and the replicated data is retained', async () => {
     await using context = await CDCStreamTestContext.open(factory);
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -136,14 +143,16 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
 
     expect(await context.getBucketData('global[]')).toMatchObject([putOp('test_data', testData)]);
 
+    const streamFailure = expect(
+      context.streamingPromise,
+      'Renaming a replicated table should stop the job'
+    ).rejects.toThrow(/has been renamed/);
     await renameTable(connectionManager, 'test_data', 'test_data_renamed');
+    await streamFailure;
 
-    await expect(context.streamingPromise, 'Renaming a replicated table should stop the job').rejects.toThrow(
-      /has been renamed/
-    );
-
+    // Read storage directly: getBucketData() races the stream promise, which has now rejected.
     expect(
-      await context.getBucketData('global[]'),
+      await context.getCurrentBucketData('global[]'),
       'Renaming the source table should not delete data already replicated to clients'
     ).toMatchObject([putOp('test_data', testData)]);
   });
@@ -580,12 +589,12 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
 
-    await disableCDCForTable(connectionManager, 'test_data');
-
-    await expect(
+    const streamFailure = expect(
       context.streamingPromise,
       'Losing the last capture instance should stop the whole replication job'
-    ).rejects.toThrow(/no replacement is available/);
+    ).rejects.toThrow(/Re-enable CDC for this table/);
+    await disableCDCForTable(connectionManager, 'test_data');
+    await streamFailure;
   });
 
   /**
@@ -632,15 +641,15 @@ bucket_definitions:
     const table = context.cdcStream.tableCache.getAll()[0];
     const originalCaptureInstanceName = table.captureInstance!.name;
 
+    const streamFailure = expect(
+      context.streamingPromise,
+      'An available replacement should not keep the job alive - adopting it needs a new deploy'
+    ).rejects.toThrow(/adopt the replacement/);
     // Leave a replacement in place, so the failure is specifically about not adopting it rather
     // than about having nothing to poll.
     await enableCDCForTable({ connectionManager, table: 'test_data', captureInstance: 'capture_instance_new' });
     await disableCDCForTable(connectionManager, 'test_data', originalCaptureInstanceName);
-
-    await expect(
-      context.streamingPromise,
-      'An available replacement should not keep the job alive - adopting it needs a new deploy'
-    ).rejects.toThrow(/no longer available/);
+    await streamFailure;
   });
 
   test('Column schema changes continue replication, but with warning.', async () => {
