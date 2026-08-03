@@ -1,5 +1,7 @@
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import { isDeepStrictEqual } from 'node:util';
 import { JsonValue, SourceEntityDescriptor } from './SourceEntity.js';
-import { SourceTable, sourceTableIdEquals } from './SourceTable.js';
+import { SourceTable, SourceTableId, sourceTableIdEquals } from './SourceTable.js';
 
 /**
  * Result of classifying overlapping persisted candidates against a discovered source entity.
@@ -134,7 +136,7 @@ export function validateSourceTableCandidateResolution(
   for (const candidate of candidates) {
     const classifications = classifiedTables.filter((table) => sourceTableIdEquals(table.id, candidate.id));
     if (classifications.length !== 1) {
-      throw new Error(
+      throw new ServiceAssertionError(
         `Source table candidate ${candidate.id.toString()} must be classified exactly once, got ${classifications.length}`
       );
     }
@@ -142,7 +144,46 @@ export function validateSourceTableCandidateResolution(
 
   for (const table of classifiedTables) {
     if (!candidates.some((candidate) => sourceTableIdEquals(candidate.id, table.id))) {
-      throw new Error(`Source table reconciliation returned unknown candidate ${table.id.toString()}`);
+      throw new ServiceAssertionError(`Source table reconciliation returned unknown candidate ${table.id.toString()}`);
     }
   }
+}
+
+/**
+ * An allowlisted difference between a persisted candidate and the copy the reconciler returned.
+ */
+export interface SourceTableMetadataUpdate {
+  id: SourceTableId;
+  sourceMetadata: JsonValue | undefined;
+}
+
+/**
+ * Diff the reconciler's compatible tables against the candidates they came from, and return the
+ * allowlisted changes storage should persist.
+ *
+ * Storage owns this diff so every backend applies the same rules; each backend only supplies the
+ * write. Comparison is by value, so a reconciler that rebuilds structurally identical metadata on
+ * each resolution does not cause a write every time.
+ *
+ * Call {@link validateSourceTableCandidateResolution} first - this assumes every compatible table
+ * corresponds to a supplied candidate.
+ */
+export function diffSourceTableUpdates(
+  candidates: ReadonlyArray<SourceTable>,
+  resolution: SourceTableCandidateResolution
+): SourceTableMetadataUpdate[] {
+  const updates: SourceTableMetadataUpdate[] = [];
+  for (const resolvedTable of resolution.compatibleTables) {
+    const candidate = candidates.find((table) => sourceTableIdEquals(table.id, resolvedTable.id));
+    if (candidate == null) {
+      throw new ServiceAssertionError(
+        `Source table reconciliation returned unknown candidate ${resolvedTable.id.toString()}`
+      );
+    }
+    if (isDeepStrictEqual(candidate.sourceMetadata, resolvedTable.sourceMetadata)) {
+      continue;
+    }
+    updates.push({ id: resolvedTable.id, sourceMetadata: resolvedTable.sourceMetadata });
+  }
+  return updates;
 }

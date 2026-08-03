@@ -346,15 +346,34 @@ export enum ErrorCode {
   // ## PSYNC_S16xx: MSSQL replication issues
 
   /**
-   *  A replicated source table's capture instance has been dropped during a polling cycle.
+   *  The CDC capture instance a replicated source table was bound to has been dropped.
    *
    *  Possible causes:
    *  * CDC has been disabled for the table.
    *  * The table has been dropped, which also drops the capture instance.
    *
-   *  Replication for the table will only resume once CDC has been re-enabled for the table.
+   *  Replication for the whole stream stops, rather than silently skipping the table and serving
+   *  checkpoints that omit it.
+   *
+   *  A new sync deploy is required, and re-enabling CDC alone does not help: the binding is pinned to
+   *  the CDC change table's object ID, and re-enabling CDC creates a new change table with a
+   *  different ID, which this replication stream will not adopt.
    */
   PSYNC_S1601 = 'PSYNC_S1601',
+
+  /**
+   *  A table in the sync configuration is not ready to be replicated.
+   *
+   *  Possible causes:
+   *  * CDC has not been enabled for the table.
+   *  * The table does not exist in the source database.
+   *
+   *  Replication does not start, rather than skipping the table and serving checkpoints that omit
+   *  it. Unlike {@link PSYNC_S1601} this is recoverable without a new sync deploy: create the table
+   *  and enable CDC for it, and replication starts on a subsequent attempt. The stream never
+   *  advanced past the table, so nothing was committed without it.
+   */
+  PSYNC_S1602 = 'PSYNC_S1602',
 
   // ## PSYNC_S2xxx: Service API
 

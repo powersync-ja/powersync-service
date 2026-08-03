@@ -139,7 +139,11 @@ export async function getReplicationIdentityColumns(
 }
 
 export interface SourceTableChangeRef {
-  objectId: number | string | undefined;
+  /**
+   * `sys.tables.object_id`, which SQL Server always reports as an int. Narrower than
+   * `SourceEntityDescriptor.objectId`, which has to accommodate other source databases.
+   */
+  objectId: number;
   schema: string;
   name: string;
 }
@@ -154,6 +158,17 @@ export async function getTablesFromPattern(
     throw new ServiceError(
       ErrorCode.PSYNC_R2201,
       'Schema wildcards ("%") in table patterns are not supported for SQL Server connections.'
+    );
+  }
+
+  // Wildcards would let a table enter scope mid-stream. Detecting that requires polling, and a poll
+  // can never be atomic with a commit, so there is always a window where checkpoints are issued
+  // without a table that belongs in them - producing checkpoints that never existed in the source.
+  if (tablePattern.isWildcard) {
+    throw new ServiceError(
+      ErrorCode.PSYNC_R2201,
+      `Table wildcards ("%") are not supported for SQL Server connections: "${tablePattern.tablePattern}". ` +
+        `List each table explicitly.`
     );
   }
 

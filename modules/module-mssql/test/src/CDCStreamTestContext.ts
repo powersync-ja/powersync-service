@@ -74,6 +74,14 @@ export class CDCStreamTestContext implements AsyncDisposable {
     return this.connectionManager.connectionTag;
   }
 
+  /**
+   * Resolves when streaming stops, or rejects with the error that stopped it. Lets tests assert on
+   * job-wide replication failures rather than only on individual schema-change events.
+   */
+  get streamingPromise() {
+    return this.streamPromise;
+  }
+
   async updateSyncRules(content: string) {
     const replicationStream = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: LEGACY_STORAGE_VERSION })

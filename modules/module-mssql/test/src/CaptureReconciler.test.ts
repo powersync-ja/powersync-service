@@ -116,7 +116,9 @@ describe('createCaptureReconciler', () => {
     expect(resolution.newTableValues).toEqual({ sourceMetadata: { captureTableObjectId: 40 } });
   });
 
-  it('fails when the pinned capture instance is no longer available', () => {
+  it('fails when the pinned capture instance was dropped, even with a replacement available', () => {
+    // A replacement may capture a different schema, so it is never adopted in place - the job stops
+    // and a new sync deploy is required.
     expect(() =>
       createCaptureReconciler([instance(50)])({
         source: source(),

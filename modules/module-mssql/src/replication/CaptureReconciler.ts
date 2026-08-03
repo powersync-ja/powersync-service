@@ -1,7 +1,33 @@
-import { ReplicationAssertionError } from '@powersync/lib-services-framework';
+import { ErrorCode, ReplicationAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { JsonValue, SourceTable, storage } from '@powersync/service-core';
 import * as t from 'ts-codec';
 import { CaptureInstance } from '../common/CaptureInstance.js';
+
+/**
+ * Thrown when the capture instance a replicated table was pinned to has been dropped. Fatal for the
+ * replication job: a replacement is never adopted in place because it may capture a different
+ * schema, and the dropped instance cannot be restored, so a new sync deploy is required.
+ *
+ * Deliberately not a `DatabaseQueryError` (the poller treats those as recoverable) and not a
+ * `CDCDataExpiredError` (which triggers a full stream restart).
+ */
+export class CaptureInstanceMissingError extends ServiceError {
+  constructor(message: string) {
+    super(ErrorCode.PSYNC_S1601, message);
+  }
+}
+
+/**
+ * Thrown when a sync configuration table cannot be replicated yet - it does not exist, or CDC has
+ * not been enabled for it. Fatal for the replication job, since it must not advance past a table it
+ * cannot replicate, but recoverable without a new sync deploy: the stream never committed anything
+ * without the table, so it starts normally once the table is ready.
+ */
+export class SourceTableNotReadyError extends ServiceError {
+  constructor(message: string) {
+    super(ErrorCode.PSYNC_S1602, message);
+  }
+}
 
 /**
  * Opaque source metadata persisted for MSSQL capture-instance-pinned source tables.
@@ -26,14 +52,6 @@ export function readCaptureMetadata(value: JsonValue | undefined): MSSQLSourceMe
 }
 
 /**
- * Compare the generic identity fields MSSQL owns: schema/name, source object id and replica-id
- * columns. Capture-instance pinning rules are layered on top of the candidates this accepts.
- */
-function identityCompatible(source: storage.SourceEntityDescriptor, candidate: SourceTable): boolean {
-  return storage.sourceIdentityCompatible(source, candidate);
-}
-
-/**
  * Build the source-owned reconciler for an MSSQL physical table.
  *
  * `availableInstances` are the capture instances currently available for the source table, ordered
@@ -44,20 +62,34 @@ function identityCompatible(source: storage.SourceEntityDescriptor, candidate: S
  * - No compatible candidates: new binding - pin to the newest available capture instance.
  * - All compatible lack metadata: legacy binding - pin them in place to the newest available
  *   capture instance, matching the instance the legacy streaming path would select.
- * - Compatible share one persisted capture identity: pinned binding - keep them compatible and
- *   persist the same identity; fail if that capture instance is no longer available.
+ * - Compatible share one persisted capture identity that is still available: pinned binding - keep
+ *   them compatible and persist the same identity. A newer instance is never adopted while the bound
+ *   one is still usable.
+ * - Compatible share one persisted capture identity that has been dropped: fail the replication job.
+ *   A replacement instance may capture a different schema, so it is never adopted in place - a new
+ *   sync deploy is required.
  * - Mixed metadata-free + pinned, or multiple pinned identities: invalid persisted state - fail.
  */
 export function createCaptureReconciler(availableInstances: CaptureInstance[]) {
   return (({ source, candidates }) => {
     if (availableInstances.length === 0) {
-      throw new ReplicationAssertionError(
-        `No CDC capture instance is available for source table ${source.schema}.${source.name}`
+      throw new SourceTableNotReadyError(
+        `No CDC capture instance is available for source table ${source.schema}.${source.name}. ` +
+          `Enable CDC for this table to start replicating it.`
       );
     }
 
-    const compatible = candidates.filter((candidate) => identityCompatible(source, candidate));
-    const incompatibleTables = candidates.filter((candidate) => !compatible.includes(candidate));
+    // Partition on the generic identity fields (schema/name, object id, replica-id columns).
+    // Capture-instance pinning rules are layered on top of the candidates this accepts.
+    const compatible: SourceTable[] = [];
+    const incompatibleTables: SourceTable[] = [];
+    for (const candidate of candidates) {
+      if (storage.sourceIdentityCompatible(source, candidate)) {
+        compatible.push(candidate);
+      } else {
+        incompatibleTables.push(candidate);
+      }
+    }
 
     if (compatible.length === 0) {
       // New physical-table binding. Pin to the newest valid capture instance.
@@ -112,10 +144,14 @@ export function createCaptureReconciler(availableInstances: CaptureInstance[]) {
     const [captureTableObjectId] = [...pinnedObjectIds];
     const available = availableInstances.some((instance) => instance.objectId === captureTableObjectId);
     if (!available) {
-      throw new ReplicationAssertionError(
-        `The pinned capture instance (object id ${captureTableObjectId}) for source table ` +
-          `${source.schema}.${source.name} is no longer available. Re-enable CDC or redeploy the ` +
-          `sync configuration to adopt a new capture instance; PowerSync will not silently switch instances.`
+      // The pinned capture instance has been dropped. Any replacement may capture a different
+      // schema, so adopting one in place would silently change what is replicated, and the existing
+      // records' snapshot state belongs to a capture schema that no longer exists. Stop the
+      // replication job; adopting a new capture instance requires a new sync deploy.
+      throw new CaptureInstanceMissingError(
+        `The CDC capture instance (object id ${captureTableObjectId}) for source table ` +
+          `${source.schema}.${source.name} is no longer available. Deploy the sync configuration as a ` +
+          `new replication stream to replicate this table against a new capture instance.`
       );
     }
     return {

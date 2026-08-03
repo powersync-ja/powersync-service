@@ -202,17 +202,13 @@ export class PostgresBucketBatch
       const resolution = await reconcile({ source, candidates: candidateTables });
       storage.validateSourceTableCandidateResolution(candidateTables, resolution);
 
-      for (const resolvedTable of resolution.compatibleTables) {
-        const candidate = candidateTables.find((table) => storage.sourceTableIdEquals(table.id, resolvedTable.id))!;
-        if (candidate.sourceMetadata === resolvedTable.sourceMetadata) {
-          continue;
-        }
+      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
         await db.sql`
           UPDATE source_tables
           SET
-            source_metadata = ${{ type: 'jsonb', value: resolvedTable.sourceMetadata ?? null }}
+            source_metadata = ${{ type: 'jsonb', value: sourceMetadata ?? null }}
           WHERE
-            id = ${{ type: 'varchar', value: resolvedTable.id.toString() }}
+            id = ${{ type: 'varchar', value: id.toString() }}
         `.execute();
       }
 
@@ -224,10 +220,8 @@ export class PostgresBucketBatch
       const reuse = compatibleTables.find((candidate) => candidate.snapshotComplete) ?? compatibleTables[0] ?? null;
 
       let sourceTable: storage.SourceTable;
-      let resolvedId: string;
       if (reuse != null) {
         sourceTable = reuse;
-        resolvedId = reuse.id.toString();
       } else {
         const id = options.idGenerator ? postgresTableId(options.idGenerator()) : uuid.v4();
         const insertedRow = await db.sql`
@@ -260,15 +254,16 @@ export class PostgresBucketBatch
           .first();
         sourceTable = this.sourceTableFromRow(insertedRow!, connectionTag, syncRules);
         sourceTable.storeCurrentData = sendsCompleteRows !== true;
-        resolvedId = id;
       }
 
       // All remaining overlapping candidates are drops (renames, relation-id / replica-id changes,
       // superseded source-metadata generations, or duplicate compatible records).
       const dropTables = [
         ...resolution.incompatibleTables,
-        // PostgreSQL storage allows only one SourceTable per physical table, so drop compatible duplicates too.
-        ...compatibleTables.filter((candidate) => candidate.id.toString() !== resolvedId)
+        // PostgreSQL storage allows only one SourceTable per physical table, so drop compatible
+        // duplicates too. Only reachable when a record was reused - a newly inserted record means
+        // there were no compatible candidates.
+        ...compatibleTables.filter((candidate) => !storage.sourceTableIdEquals(candidate.id, sourceTable.id))
       ];
 
       return {

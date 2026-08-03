@@ -182,20 +182,15 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       const resolution = await reconcile({ source, candidates: candidateTables });
       storage.validateSourceTableCandidateResolution(candidateTables, resolution);
 
-      for (const resolvedTable of resolution.compatibleTables) {
-        const candidate = candidateTables.find((table) => storage.sourceTableIdEquals(table.id, resolvedTable.id))!;
-        if (candidate.sourceMetadata === resolvedTable.sourceMetadata) {
-          continue;
-        }
+      // The planner below reads the raw documents (it owns membership narrowing and coverage), but
+      // takes source metadata from the reconciler's copies via the context, so the documents are
+      // left untouched.
+      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
         const update =
-          resolvedTable.sourceMetadata === undefined
+          sourceMetadata === undefined
             ? { $unset: { source_metadata: '' as const } }
-            : { $set: { source_metadata: resolvedTable.sourceMetadata } };
-        await col.updateOne({ _id: mongoTableId(resolvedTable.id) }, update, { session });
-        // The reconciliation planner still uses the raw documents
-        // below because it owns persisted membership narrowing and coverage.
-        candidateDocs.find((doc) => storage.sourceTableIdEquals(doc._id, resolvedTable.id))!.source_metadata =
-          resolvedTable.sourceMetadata;
+            : { $set: { source_metadata: sourceMetadata } };
+        await col.updateOne({ _id: mongoTableId(id) }, update, { session });
       }
 
       const context: SourceTableReconciliationContext = {

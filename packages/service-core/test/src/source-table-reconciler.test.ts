@@ -2,6 +2,7 @@ import { SourceEntityDescriptor } from '@/storage/SourceEntity.js';
 import { SourceTable, sourceTableIdEquals } from '@/storage/SourceTable.js';
 import {
   defaultSourceTableReconciler,
+  diffSourceTableUpdates,
   sourceIdentityCompatible,
   validateSourceTableCandidateResolution
 } from '@/storage/SourceTableReconciler.js';
@@ -115,6 +116,62 @@ describe('validateSourceTableCandidateResolution', () => {
         newTableValues: {}
       })
     ).toThrow(/unknown candidate/);
+  });
+});
+
+describe('diffSourceTableUpdates', () => {
+  function resolution(compatibleTables: SourceTable[]) {
+    return { compatibleTables, incompatibleTables: [], newTableValues: {} };
+  }
+
+  it('returns nothing when the reconciler returned the candidates untouched', () => {
+    const a = candidate({ id: 'a', sourceMetadata: { captureTableObjectId: 7 } });
+    expect(diffSourceTableUpdates([a], resolution([a]))).toEqual([]);
+  });
+
+  it('compares by value, not by reference', () => {
+    // withSourceMetadata() always allocates, so a reconciler that rebuilds structurally identical
+    // metadata each time must not produce a write on every resolution.
+    const a = candidate({ id: 'a', sourceMetadata: { captureTableObjectId: 7 } });
+    const rebuilt = a.withSourceMetadata({ captureTableObjectId: 7 });
+
+    expect(rebuilt.sourceMetadata).not.toBe(a.sourceMetadata);
+    expect(diffSourceTableUpdates([a], resolution([rebuilt]))).toEqual([]);
+  });
+
+  it('returns changed metadata', () => {
+    const a = candidate({ id: 'a', sourceMetadata: { captureTableObjectId: 7 } });
+    expect(diffSourceTableUpdates([a], resolution([a.withSourceMetadata({ captureTableObjectId: 8 })]))).toEqual([
+      { id: 'a', sourceMetadata: { captureTableObjectId: 8 } }
+    ]);
+  });
+
+  it('returns metadata added to a legacy record', () => {
+    const legacy = candidate({ id: 'a' });
+    expect(legacy.sourceMetadata).toBeUndefined();
+    expect(
+      diffSourceTableUpdates([legacy], resolution([legacy.withSourceMetadata({ captureTableObjectId: 7 })]))
+    ).toEqual([{ id: 'a', sourceMetadata: { captureTableObjectId: 7 } }]);
+  });
+
+  it('returns cleared metadata so storage can unset it', () => {
+    const a = candidate({ id: 'a', sourceMetadata: { captureTableObjectId: 7 } });
+    expect(diffSourceTableUpdates([a], resolution([a.withSourceMetadata(undefined)]))).toEqual([
+      { id: 'a', sourceMetadata: undefined }
+    ]);
+  });
+
+  it('only reports the candidates that changed', () => {
+    const a = candidate({ id: 'a', sourceMetadata: { captureTableObjectId: 7 } });
+    const b = candidate({ id: 'b', sourceMetadata: { captureTableObjectId: 7 } });
+    const updates = diffSourceTableUpdates([a, b], resolution([a, b.withSourceMetadata({ captureTableObjectId: 9 })]));
+    expect(updates).toEqual([{ id: 'b', sourceMetadata: { captureTableObjectId: 9 } }]);
+  });
+
+  it('rejects a compatible table that was never a candidate', () => {
+    expect(() => diffSourceTableUpdates([candidate({ id: 'a' })], resolution([candidate({ id: 'ghost' })]))).toThrow(
+      /unknown candidate/
+    );
   });
 });
 

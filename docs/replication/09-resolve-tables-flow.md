@@ -106,17 +106,39 @@ Compatibility is a source-specific decision, so `resolveTables` delegates it to 
 
 All records created in one resolution receive the same `sourceMetadata`. A reconciler may return `table.withSourceMetadata(...)` for compatible records when the source can prove that updating the metadata preserves the existing snapshot. Storage currently persists only this allowlisted difference; changes to schema/name, object id, or replica id columns still require incompatible replacement records with fresh snapshot state.
 
+### MSSQL: the replicated table set is fixed at deploy
+
+Table wildcards are rejected, and every configured table must exist with CDC enabled at startup. Together these fix the replicated table set for the life of a stream.
+
+The reason is that a table can only enter scope by polling for it, and a poll can never be atomic with a commit. Any detection interval therefore leaves a window where checkpoints are committed without a table that belongs in them — and rows already committed may reference it. Such a checkpoint is not a state the source database was ever in, and clients cannot tell an absent row from an unarrived one, so they act on it. Shortening the interval narrows that window; only a fixed table set closes it.
+
+Consequences: no table-create event, and adding a table, renaming one into scope, or enabling CDC on one all require a new sync deploy.
+
+Dropping **or renaming** a replicated table stops polling it but **retains** its replicated data, with a warning. Removing the data would propagate a delete to every client's local database, which cannot be undone if the change was a mistake or part of a drop-and-recreate, and would leave rows in other tables referencing it dangling. Retained stale data is corrected by the redeploy either change requires anyway.
+
+No runtime schema change deletes replicated data. The only removal is at resolution time, on deploy.
+
 ### MSSQL capture-instance pinning
 
 SQL Server CDC can have two capture instances for one physical table, each with its own change table and captured schema. The MSSQL reconciler pins new bindings to a specific capture instance:
 
-- **No available capture instance:** fail reconciliation with a hard replication error.
+The governing rule is that **a sync-config table without a usable capture instance stops the replication job.** Serving checkpoints while one of the configured tables cannot be replicated would emit broken data to clients, and clients cannot detect it: a bucket that is empty because its table is not replicating looks exactly like a bucket whose table has no rows. The client syncs to the checkpoint and treats it as complete. A stopped job is the recoverable failure; a silently incomplete checkpoint is not. Rules, evaluated in order:
+
+- **No capture instance available at all:** fail with `PSYNC_S1601`. Applies both to a table that has never been pinned (CDC not enabled yet) and to one whose only instance was dropped.
 - **New binding** (no compatible candidates): pin to the newest available capture instance and persist `{ captureTableObjectId }`.
 - **Legacy binding** (compatible candidates all lack metadata): update them in place to pin the newest available capture instance.
-- **Pinned binding** (compatible candidates share one capture identity): keep them compatible and persist the same identity; fail if that capture instance is no longer available rather than silently switching.
+- **Pinned binding, instance still available** (compatible candidates share one capture identity): keep them compatible and persist the same identity. A newer instance is never adopted while the bound one is usable.
+- **Pinned binding, instance dropped**: fail with `PSYNC_S1601`, whether or not a replacement exists. A replacement may capture a different schema, so adopting it in place would silently change what is replicated; adopting one requires deploying the sync configuration as a new replication stream.
 - **Invalid state** (mixed metadata-free + pinned, or multiple pinned identities): fail with a diagnostic error.
 
-At job startup, table-cache population resolves every configured CDC-enabled table before streaming, which also ensures legacy records have a capture-instance pin. If no capture instance is available, the table is skipped and the ensure step retries on a later job. At runtime a pinned stream polls its bound capture instance and uses that instance's minimum LSN for retention checks. When a newer capture instance appears it logs a single warning (throttled per newer instance) that a redeploy is required, and keeps polling the bound instance. If the bound instance disappears, replication for that table stops instead of falling forward.
+At job startup, table-cache population resolves every configured table before streaming, which also ensures legacy records have a capture-instance pin. A sync-config table with no capture instance fails the job with `PSYNC_S1601` rather than being skipped — this deliberately differs from Postgres publication handling, for the reason above. The schema check applies the same rule at runtime: it lists each pattern's tables and fails if one has no capture instance, which is the only way to notice a table created after startup without CDC (wildcard patterns can match one, and new-table detection sees only tables that already have a capture instance). Tables already being replicated are excluded there, so a capture instance lost from under a running table is diagnosed by the more specific path below. At runtime a pinned stream polls its bound capture instance and uses that instance's minimum LSN for retention checks.
+
+Because both cases fail, startup does not need to distinguish a never-pinned table from one whose pin was dropped, and therefore never needs to load persisted records before deciding to skip.
+
+The two capture-instance changes a running stream can see are handled differently:
+
+- **A newer instance appears while the bound one is still available** (`NEW_CAPTURE_INSTANCE`): log a single warning (throttled per newer instance) that a redeploy is required, and keep polling the bound instance. Adopting the new schema mid-stream would silently change what is replicated.
+- **The bound instance is gone** (`MISSING_CAPTURE_INSTANCE`): fail the whole replication job with `PSYNC_S1601`, whether or not a replacement exists. The event still carries `newCaptureInstance` when there is one, but only to tell the operator which remedy applies — re-enable CDC, or redeploy to adopt the replacement.
 
 **Deployment procedure for MSSQL capture/schema transitions:** adopting a new capture instance requires deploying a _new replication stream_. Reusing the same stream restores its pinned capture identity and therefore will not adopt the new instance. Promotion of the new stream waits for its snapshots to finish; the old stream keeps its capture instance available until it is retired, at which point the old capture instance can be removed.
 

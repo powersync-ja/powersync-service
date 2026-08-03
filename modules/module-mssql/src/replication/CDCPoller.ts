@@ -5,7 +5,6 @@ import {
   Logger,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
-import { TablePattern } from '@powersync/service-sync-rules';
 import sql from 'mssql';
 import timers from 'timers/promises';
 import { CaptureInstance } from '../common/CaptureInstance.js';
@@ -13,7 +12,7 @@ import { LSN } from '../common/LSN.js';
 import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { AdditionalConfig } from '../types/types.js';
 import { isDeadlockError } from '../utils/deadlock.js';
-import { CaptureInstanceDetails, getCaptureInstances, incrementLSN, toQualifiedTableName } from '../utils/mssql.js';
+import { CaptureInstanceDetails, getCaptureInstances, incrementLSN } from '../utils/mssql.js';
 import { SourceTableChangeRef, tableExists } from '../utils/schema.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 
@@ -24,12 +23,52 @@ enum Operation {
   UPDATE_AFTER = 4
 }
 
+/**
+ * Schema changes are detected to warn about, not to act on. Acting on one requires having detected
+ * it, and detection is polling - which can never be atomic with a commit. Whatever the interval,
+ * there is a window where checkpoints are committed against a schema we believe is current and is
+ * not. A checkpoint built that way is a state the source was never in, and clients cannot tell:
+ * an absent row looks the same as one that has not arrived. So the schema a stream replicates is
+ * fixed at deploy, and every change below either warns and stops replicating that table, or fails
+ * the job. A new sync deploy is how any of them is actually adopted.
+ *
+ * There is no table-create event: wildcard patterns are not supported and every configured table
+ * must exist at deploy, so no table can enter scope while a stream is running.
+ *
+ * Renames and drops retain the table's replicated data rather than deleting it. Both are observed
+ * in the catalog rather than in the change stream, so we learn that they happened but not the LSN
+ * they happened at, and changes from before that point may still be unreplicated - there is no
+ * moment we can identify as safe to delete. We might get away with tracking a barrier LSN, but that also gets complicated.
+ */
 export enum SchemaChangeType {
+  /**
+   * A replicated table was renamed. Stops polling it and retains its replicated data - the renamed
+   * table is a different table to the sync configuration, and the rows still exist at source under
+   * the new name.
+   */
   TABLE_RENAME = 'table_rename',
+  /**
+   * A replicated table was dropped from the source. Handled the same as a rename: stop polling,
+   * retain the data.
+   */
   TABLE_DROP = 'table_drop',
-  TABLE_CREATE = 'table_create',
+  /**
+   * The source table's columns changed. The pinned capture instance keeps capturing its original
+   * schema, so replication continues unchanged and this only warns about the drift.
+   */
   TABLE_COLUMN_CHANGES = 'table_column_changes',
+  /**
+   * A newer capture instance exists while the bound one is still usable. Adopting it would change
+   * the captured schema mid-stream, so this only warns.
+   */
   NEW_CAPTURE_INSTANCE = 'new_capture_instance',
+  /**
+   * The capture instance this table is pinned to is gone. The one change that fails the job rather
+   * than warning: there is nothing left to poll, so continuing would serve checkpoints that silently
+   * omit the table. A dropped capture instance cannot be restored, and a replacement is never
+   * adopted in place. When one is available it is carried in `newCaptureInstance`, only so the error
+   * can name the right remedy.
+   */
   MISSING_CAPTURE_INSTANCE = 'missing_capture_instance'
 }
 
@@ -62,10 +101,6 @@ export interface CDCPollerOptions {
   eventHandler: CDCEventHandler;
   /** CDC enabled source tables from the sync config to replicate */
   getReplicatedTables: () => MSSQLSourceTable[];
-  /** All table patterns from the sync config. Can contain tables that need to be replicated
-   *  but do not yet have CDC enabled
-   */
-  sourceTables: TablePattern[];
   startLSN: LSN;
   logger?: Logger;
   additionalConfig: AdditionalConfig;
@@ -339,26 +374,12 @@ export class CDCPoller {
   private async checkForSchemaChanges(): Promise<SchemaChange[]> {
     const schemaChanges: SchemaChange[] = [];
 
-    const newTables = this.checkForNewTables();
-    for (const table of newTables) {
-      this.logger.info(
-        `New table ${toQualifiedTableName(table.sourceTable.schema, table.sourceTable.name)} matching the sync config has been created. Handling schema change...`
-      );
-      schemaChanges.push({
-        type: SchemaChangeType.TABLE_CREATE,
-        newTable: {
-          name: table.sourceTable.name,
-          schema: table.sourceTable.schema,
-          objectId: table.sourceTable.objectId
-        },
-        newCaptureInstance: table.instances[0]
-      });
-    }
-
+    // No new-table detection: table patterns are exact names and must exist at deploy, so the
+    // replicated set cannot grow mid-stream. See SchemaChangeType.
     for (const table of this.replicatedTables) {
       const exists = await tableExists(table.objectId, this.connectionManager);
       if (!exists) {
-        this.logger.info(`Table ${table.toQualifiedName()} has been dropped. Handling schema change...`);
+        this.logger.info(`Table ${table.toQualifiedName()} has been dropped.`);
         schemaChanges.push({
           type: SchemaChangeType.TABLE_DROP,
           table
@@ -388,12 +409,12 @@ export class CDCPoller {
       }
       const boundAvailable = captureInstanceDetails.instances.some((instance) => instance.objectId === boundObjectId);
       if (!boundAvailable) {
-        // The bound pinned capture instance disappeared - stop replication for this table rather
-        // than falling forward to another instance.
-        this.logger.warn(`The pinned capture instance for table ${table.toQualifiedName()} is no longer available.`);
+        // The bound capture instance was dropped while a replacement exists. The handler fails the
+        // job either way; the replacement is reported only so the error can name the right remedy.
         schemaChanges.push({
           type: SchemaChangeType.MISSING_CAPTURE_INSTANCE,
-          table
+          table,
+          newCaptureInstance: latestCaptureInstance
         });
         continue;
       }
@@ -409,24 +430,18 @@ export class CDCPoller {
       }
       // Bound instance is the latest - fall through to rename / column-change detection.
 
-      // One of the replicated tables has been renamed
+      // One of the replicated tables has been renamed. The new name is reported for the warning
+      // only - whether it matches the sync configuration no longer changes what happens, since a
+      // table can only enter scope at deploy.
       if (table.ref.name !== captureInstanceDetails.sourceTable.name) {
-        const newTable = this.tableMatchesSyncRules(
-          captureInstanceDetails.sourceTable.schema,
-          captureInstanceDetails.sourceTable.name
-        )
-          ? {
-              name: captureInstanceDetails.sourceTable.name,
-              schema: captureInstanceDetails.sourceTable.schema,
-              objectId: captureInstanceDetails.sourceTable.objectId
-            }
-          : undefined;
-
         schemaChanges.push({
           type: SchemaChangeType.TABLE_RENAME,
           table,
-          newTable,
-          newCaptureInstance: latestCaptureInstance
+          newTable: {
+            name: captureInstanceDetails.sourceTable.name,
+            schema: captureInstanceDetails.sourceTable.schema,
+            objectId: captureInstanceDetails.sourceTable.objectId
+          }
         });
         continue;
       }
@@ -441,32 +456,5 @@ export class CDCPoller {
     }
 
     return schemaChanges;
-  }
-
-  private checkForNewTables(): CaptureInstanceDetails[] {
-    const newTables: CaptureInstanceDetails[] = [];
-    for (const [objectId, captureInstanceDetails] of this.captureInstances.entries()) {
-      // If a source table is not in the replicated tables array, but a capture instance exists for it, it is potentially a new table to replicate.
-      if (!this.replicatedTables.some((table) => table.objectId === objectId)) {
-        // Check if the new table matches any of the sync config source tables.
-        if (
-          this.tableMatchesSyncRules(captureInstanceDetails.sourceTable.schema, captureInstanceDetails.sourceTable.name)
-        ) {
-          newTables.push(captureInstanceDetails);
-        }
-      }
-    }
-
-    return newTables;
-  }
-
-  private tableMatchesSyncRules(schema: string, tableName: string): boolean {
-    return this.options.sourceTables.some((tablePattern) =>
-      tablePattern.matches({
-        connectionTag: this.connectionManager.connectionTag,
-        schema: schema,
-        name: tableName
-      })
-    );
   }
 }

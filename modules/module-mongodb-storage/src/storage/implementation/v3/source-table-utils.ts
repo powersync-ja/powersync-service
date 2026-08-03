@@ -162,7 +162,14 @@ class SourceTableReconciliationPlanner {
   }
 
   private isCompatible(doc: SourceTableDocumentV3) {
-    return this.context.sourceCompatibleTables.find((table) => storage.sourceTableIdEquals(table.id, doc._id)) != null;
+    return this.compatibleTableFor(doc) != null;
+  }
+
+  /**
+   * The reconciler's copy of this candidate, which carries any source-owned metadata change.
+   */
+  private compatibleTableFor(doc: SourceTableDocumentV3): storage.SourceTable | undefined {
+    return this.context.sourceCompatibleTables.find((table) => storage.sourceTableIdEquals(table.id, doc._id));
   }
 
   private retainDoc(doc: SourceTableDocumentV3) {
@@ -249,7 +256,7 @@ class SourceTableReconciliationPlanner {
 
   private sourceTableFor(doc: SourceTableDocumentV3, memberships: SourceTableMembershipIds): storage.SourceTable {
     const { connectionTag, syncConfig, mapping, desired, storeCurrentData } = this.context;
-    const table = sourceTableFromDocument(
+    const built = sourceTableFromDocument(
       doc,
       connectionTag,
       syncConfig,
@@ -257,6 +264,11 @@ class SourceTableReconciliationPlanner {
       matchingSourcesFor(desired, memberships),
       memberships
     );
+    // The reconciler may have returned updated source metadata for this record, which storage
+    // persists separately. Take it from the reconciler's copy so the retained table matches what
+    // was written, rather than mutating the queried document.
+    const resolved = this.compatibleTableFor(doc);
+    const table = resolved == null ? built : built.withSourceMetadata(resolved.sourceMetadata);
     table.storeCurrentData = storeCurrentData;
     return table;
   }

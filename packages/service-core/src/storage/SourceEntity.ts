@@ -39,15 +39,4 @@ export interface SourceEntityDescriptor extends SourceTableRef {
    * report this, in which case we default to keeping a copy.
    */
   sendsCompleteRows?: boolean;
-
-  /**
-   * Optional opaque, source-specific identity metadata discovered for this entity.
-   *
-   * Storage never interprets this value. The authoritative metadata persisted on new
-   * records is chosen by the source reconciler (see {@link SourceTableCandidateResolution}),
-   * so most sources leave this undefined and select metadata inside the reconciler instead.
-   *
-   * Undefined preserves legacy metadata-free behavior.
-   */
-  sourceMetadata?: JsonValue;
 }

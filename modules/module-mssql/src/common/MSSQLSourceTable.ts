@@ -63,20 +63,8 @@ export class MSSQLSourceTable {
     return null;
   }
 
-  /**
-   * True if this binding is capture-instance-pinned. Pinned bindings never silently switch to a
-   * newer capture instance; a redeploy (new replication stream) is required to adopt one.
-   */
-  isCaptureInstancePinned(): boolean {
-    return this.pinnedCaptureObjectId != null;
-  }
-
   setCaptureInstance(captureInstance: CaptureInstance) {
     this.captureInstance = captureInstance;
-  }
-
-  clearCaptureInstance() {
-    this.captureInstance = null;
   }
 
   get allChangesFunction() {

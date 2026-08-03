@@ -262,10 +262,18 @@ export async function enableCDCForTable(options: EnableCDCForTableOptions): Prom
   ]);
 }
 
-export async function disableCDCForTable(connectionManager: MSSQLConnectionManager, tableName: string) {
+/**
+ * Disable CDC for a table. Defaults to dropping every capture instance; pass `captureInstance` to
+ * drop a single one, which is how a table ends up with a replacement instance but not its original.
+ */
+export async function disableCDCForTable(
+  connectionManager: MSSQLConnectionManager,
+  tableName: string,
+  captureInstance: string = 'all'
+) {
   await connectionManager.execute('sys.sp_cdc_disable_table', [
     { name: 'source_schema', value: connectionManager.schema },
     { name: 'source_name', value: tableName },
-    { name: 'capture_instance', value: 'all' }
+    { name: 'capture_instance', value: captureInstance }
   ]);
 }

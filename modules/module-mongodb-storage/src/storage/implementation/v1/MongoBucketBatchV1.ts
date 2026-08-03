@@ -83,16 +83,12 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       const resolution = await reconcile({ source, candidates: candidateTables });
       storage.validateSourceTableCandidateResolution(candidateTables, resolution);
 
-      for (const resolvedTable of resolution.compatibleTables) {
-        const candidate = candidateTables.find((table) => storage.sourceTableIdEquals(table.id, resolvedTable.id))!;
-        if (candidate.sourceMetadata === resolvedTable.sourceMetadata) {
-          continue;
-        }
+      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
         const update =
-          resolvedTable.sourceMetadata === undefined
+          sourceMetadata === undefined
             ? { $unset: { source_metadata: '' as const } }
-            : { $set: { source_metadata: resolvedTable.sourceMetadata } };
-        await col.updateOne({ _id: mongoTableId(resolvedTable.id) }, update, { session });
+            : { $set: { source_metadata: sourceMetadata } };
+        await col.updateOne({ _id: mongoTableId(id) }, update, { session });
       }
 
       const compatibleTables = resolution.compatibleTables;
