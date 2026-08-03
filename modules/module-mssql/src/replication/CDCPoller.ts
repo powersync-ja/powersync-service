@@ -154,6 +154,9 @@ export class CDCPoller {
           for (const schemaChange of schemaChanges) {
             await this.eventHandler.onSchemaChange(schemaChange);
           }
+          // Keep polling state current for the pinned instance. In particular, CDC cleanup can
+          // advance minLSN while the capture-table identity remains unchanged.
+          this.refreshBoundCaptureInstances();
           this.lastSchemaCheckTime = Date.now();
 
           this.logger.debug(
@@ -418,5 +421,20 @@ export class CDCPoller {
     }
 
     return schemaChanges;
+  }
+
+  private refreshBoundCaptureInstances(): void {
+    for (const table of this.replicatedTables) {
+      const pinnedObjectId = table.pinnedCaptureObjectId;
+      if (pinnedObjectId == null) {
+        continue;
+      }
+      const refreshed = this.captureInstances
+        .get(table.objectId)
+        ?.instances.find((instance) => instance.objectId === pinnedObjectId);
+      if (refreshed != null) {
+        table.setCaptureInstance(refreshed);
+      }
+    }
   }
 }

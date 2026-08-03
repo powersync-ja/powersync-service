@@ -1,7 +1,7 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { isDeepStrictEqual } from 'node:util';
 import { JsonValue, SourceEntityDescriptor } from './SourceEntity.js';
-import { SourceTable, SourceTableId, sourceTableIdEquals } from './SourceTable.js';
+import { SourceTable, SourceTableCandidate, SourceTableId, sourceTableIdEquals } from './SourceTable.js';
 
 /**
  * A source connector's classification of overlapping persisted tables.
@@ -10,12 +10,12 @@ export interface SourceTableCandidateResolution {
   /**
    * Records storage can reuse. Copies may include updated source metadata.
    */
-  compatibleTables: ReadonlyArray<SourceTable>;
+  compatibleTables: ReadonlyArray<SourceTableCandidate>;
 
   /**
    * Records that cannot be reused. Every candidate must appear in exactly one result list.
    */
-  incompatibleTables: ReadonlyArray<SourceTable>;
+  incompatibleTables: ReadonlyArray<SourceTableCandidate>;
 
   /**
    * Values for records storage creates during this resolution.
@@ -25,9 +25,9 @@ export interface SourceTableCandidateResolution {
 
 export interface SourceTableCreateValues {
   /**
-   * Source metadata for new records.
+   * Source metadata for new records. Null means no metadata.
    */
-  sourceMetadata?: JsonValue;
+  sourceMetadata: JsonValue;
 }
 
 /**
@@ -43,7 +43,7 @@ export interface SourceTableCandidateReconcilerInput {
   /**
    * Persisted tables overlapping by name or object id.
    */
-  candidates: ReadonlyArray<SourceTable>;
+  candidates: ReadonlyArray<SourceTableCandidate>;
 }
 
 export type SourceTableCandidateReconciler = (
@@ -53,7 +53,10 @@ export type SourceTableCandidateReconciler = (
 /**
  * Compare replica-id columns in order.
  */
-export function sameReplicaIdColumns(left: SourceTable['replicaIdColumns'], right: SourceEntityDescriptor): boolean {
+export function sameReplicaIdColumns(
+  left: SourceTableCandidate['replicaIdColumns'],
+  right: SourceEntityDescriptor
+): boolean {
   const target = right.replicaIdColumns;
   return (
     left.length == target.length &&
@@ -67,7 +70,7 @@ export function sameReplicaIdColumns(left: SourceTable['replicaIdColumns'], righ
 /**
  * Compare the shared source-table identity fields.
  */
-export function sourceIdentityCompatible(source: SourceEntityDescriptor, candidate: SourceTable): boolean {
+export function sourceIdentityCompatible(source: SourceEntityDescriptor, candidate: SourceTableCandidate): boolean {
   return (
     candidate.schema == source.schema &&
     candidate.name == source.name &&
@@ -80,8 +83,8 @@ export function sourceIdentityCompatible(source: SourceEntityDescriptor, candida
  * Default identity-based reconciliation for connectors without source-specific metadata.
  */
 export const defaultSourceTableReconciler: SourceTableCandidateReconciler = ({ source, candidates }) => {
-  const compatibleTables: SourceTable[] = [];
-  const incompatibleTables: SourceTable[] = [];
+  const compatibleTables: SourceTableCandidate[] = [];
+  const incompatibleTables: SourceTableCandidate[] = [];
   for (const candidate of candidates) {
     if (sourceIdentityCompatible(source, candidate)) {
       compatibleTables.push(candidate);
@@ -89,14 +92,14 @@ export const defaultSourceTableReconciler: SourceTableCandidateReconciler = ({ s
       incompatibleTables.push(candidate);
     }
   }
-  return { compatibleTables, incompatibleTables, newTableValues: {} };
+  return { compatibleTables, incompatibleTables, newTableValues: { sourceMetadata: null } };
 };
 
 /**
  * Check that every candidate was classified exactly once.
  */
 export function validateSourceTableCandidateResolution(
-  candidates: ReadonlyArray<SourceTable>,
+  candidates: ReadonlyArray<SourceTableCandidate>,
   resolution: SourceTableCandidateResolution
 ): void {
   const classifiedTables = [...resolution.compatibleTables, ...resolution.incompatibleTables];
@@ -122,14 +125,48 @@ export function validateSourceTableCandidateResolution(
  */
 export interface SourceTableMetadataUpdate {
   id: SourceTableId;
-  sourceMetadata: JsonValue | undefined;
+  sourceMetadata: JsonValue;
+}
+
+/**
+ * Rebuild a resolution from storage-owned tables, applying only reconciler-owned metadata to
+ * compatible tables. All other mutable table state comes from storage.
+ *
+ * Reconciler candidates are typed as read-only, but TypeScript types provide no runtime protection:
+ * callback code can cast a cloned candidate and mutate it. Rematerializing by id ensures those
+ * mutations are not trusted even when the compile-time boundary is bypassed.
+ */
+export function materializeSourceTableResolution(
+  tables: ReadonlyArray<SourceTable>,
+  resolution: SourceTableCandidateResolution
+): MaterializedSourceTableResolution {
+  const findTable = (candidate: SourceTableCandidate): SourceTable => {
+    const table = tables.find((table) => sourceTableIdEquals(table.id, candidate.id));
+    if (table == null) {
+      throw new ServiceAssertionError(`Source table candidate ${candidate.id.toString()} was not persisted`);
+    }
+    return table;
+  };
+  return {
+    compatibleTables: resolution.compatibleTables.map((candidate) =>
+      findTable(candidate).withSourceMetadata(candidate.sourceMetadata)
+    ),
+    incompatibleTables: resolution.incompatibleTables.map(findTable),
+    newTableValues: resolution.newTableValues
+  };
+}
+
+export interface MaterializedSourceTableResolution {
+  compatibleTables: SourceTable[];
+  incompatibleTables: SourceTable[];
+  newTableValues: SourceTableCreateValues;
 }
 
 /**
  * Return source-metadata changes from compatible candidates, comparing metadata by value.
  */
 export function diffSourceTableUpdates(
-  candidates: ReadonlyArray<SourceTable>,
+  candidates: ReadonlyArray<SourceTableCandidate>,
   resolution: SourceTableCandidateResolution
 ): SourceTableMetadataUpdate[] {
   const updates: SourceTableMetadataUpdate[] = [];

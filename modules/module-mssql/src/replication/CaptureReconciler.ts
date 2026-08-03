@@ -1,5 +1,5 @@
 import { ErrorCode, ReplicationAssertionError, ServiceError } from '@powersync/lib-services-framework';
-import { JsonValue, SourceTable, storage } from '@powersync/service-core';
+import { JsonValue, SourceTableCandidate, storage } from '@powersync/service-core';
 import * as t from 'ts-codec';
 import { CaptureInstance } from '../common/CaptureInstance.js';
 
@@ -41,7 +41,7 @@ export type MSSQLSourceMetadata = t.Decoded<typeof MSSQLSourceMetadata>;
 /**
  * Parse persisted capture metadata, returning null for legacy records.
  */
-export function readCaptureMetadata(value: JsonValue | undefined): MSSQLSourceMetadata | null {
+export function readCaptureMetadata(value: JsonValue): MSSQLSourceMetadata | null {
   if (value == null) {
     return null;
   }
@@ -62,8 +62,8 @@ export function createCaptureReconciler(availableInstances: CaptureInstance[]) {
     }
 
     // Apply capture pinning after the shared identity check.
-    const compatible: SourceTable[] = [];
-    const incompatibleTables: SourceTable[] = [];
+    const compatible: SourceTableCandidate[] = [];
+    const incompatibleTables: SourceTableCandidate[] = [];
     for (const candidate of candidates) {
       if (storage.sourceIdentityCompatible(source, candidate)) {
         compatible.push(candidate);

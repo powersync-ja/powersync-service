@@ -128,7 +128,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const source = sourceDescriptor('test');
 
     const initial = await writer.resolveTables({ connection_id: 1, source });
-    expect(initial.tables[0].sourceMetadata).toBeUndefined();
+    expect(initial.tables[0].sourceMetadata).toBeNull();
 
     const sourceMetadata = { captureTableObjectId: 42 };
     const updated = await writer.resolveTables({

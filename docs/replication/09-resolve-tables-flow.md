@@ -39,7 +39,7 @@ This is a SourceTableRef with additional metadata used for replication:
 
 1. objectId / relation id: The underlying id of the table/collection in the source database. This is used to track renames.
 2. replicaIdColumns: The columns and types representing the "replica identity" for the table.
-3. sourceMetadata (optional): Opaque, source-specific identity metadata. Storage persists and hydrates it verbatim and never interprets it.
+3. sourceMetadata (nullable): Opaque, source-specific identity metadata. `null` means no metadata has been recorded. Storage persists and hydrates non-null values verbatim and never interprets them.
 
 ### SourceTable
 
@@ -99,10 +99,11 @@ Important: one physical table can resolve to multiple `SourceTable` records when
 
 `resolveTables` delegates compatibility checks to the connector through `reconcileSourceTables`. If none is provided, it uses the default identity comparison.
 
-- The source connector classifies candidates and provides `sourceMetadata` for updated or new records.
+- Storage hydrates overlapping records into `SourceTable` values, then passes isolated clones to the connector through a read-only `SourceTableCandidate` type.
+- The source connector classifies those candidates and provides `sourceMetadata` for updated or new records.
 - Storage persists those changes and manages record creation, snapshot state, memberships, and incompatible records.
 
-The reconciler must not mutate storage or perform slow source queries. It can update `sourceMetadata` without resetting snapshot state. Changes to the table identity still require a new record and snapshot.
+The reconciler must not perform slow source queries. Candidate state is cloned before the callback; `withSourceMetadata()` is the supported way to return a metadata change. After reconciliation, storage rematerializes results from its original `SourceTable` values, so snapshot state, memberships, and identity remain storage-owned even if callback code mutates a candidate or bypasses the type boundary with a cast. Changes to the table identity still require a new record and snapshot.
 
 ### MSSQL: the replicated table set is fixed at deploy
 

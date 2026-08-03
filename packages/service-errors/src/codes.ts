@@ -21,10 +21,10 @@ export enum ErrorCode {
   // ## PSYNC_R22xx: SQL supported feature issues
 
   /**
-   * Schema wildcards ("%") in table patterns are only supported for Postgres connections.
+   * A table or schema wildcard ("%") is not supported by the configured source connector.
    *
-   * Other connection types treat the schema part of a table pattern as an exact database or
-   * schema name, so a wildcard schema would silently match nothing there.
+   * Wildcard support is connector-specific. For example, SQL Server requires exact table and
+   * schema names, while some other connectors support table wildcards but not schema wildcards.
    */
   PSYNC_R2201 = 'PSYNC_R2201',
 

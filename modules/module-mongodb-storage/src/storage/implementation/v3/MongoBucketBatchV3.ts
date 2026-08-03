@@ -175,16 +175,13 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       const candidateTables = candidateDocs.map((doc) =>
         sourceTableFromDocument(doc, source.connectionTag, syncConfig, mapping)
       );
-      const resolution = await reconcile({ source, candidates: candidateTables });
-      storage.validateSourceTableCandidateResolution(candidateTables, resolution);
+      const candidates = candidateTables.map((table) => table.clone());
+      const resolution = await reconcile({ source, candidates });
+      storage.validateSourceTableCandidateResolution(candidates, resolution);
 
       // Persist metadata from the reconciler without mutating the queried documents.
-      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
-        const update =
-          sourceMetadata === undefined
-            ? { $unset: { source_metadata: '' as const } }
-            : { $set: { source_metadata: sourceMetadata } };
-        await col.updateOne({ _id: mongoTableId(id) }, update, { session });
+      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidates, resolution)) {
+        await col.updateOne({ _id: mongoTableId(id) }, { $set: { source_metadata: sourceMetadata } }, { session });
       }
 
       const context: SourceTableReconciliationContext = {

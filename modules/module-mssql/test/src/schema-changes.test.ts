@@ -466,9 +466,9 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
         connection_id: 1,
         source: sourceDescriptor,
         reconcileSourceTables: ({ candidates }) => ({
-          compatibleTables: candidates.map((candidate) => candidate.withSourceMetadata(undefined)),
+          compatibleTables: candidates.map((candidate) => candidate.withSourceMetadata(null)),
           incompatibleTables: [],
-          newTableValues: {}
+          newTableValues: { sourceMetadata: null }
         })
       });
 
@@ -479,7 +479,7 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
       expect(
         resolved.tables.map((table) => table.sourceMetadata),
         'The persisted pin should have been cleared'
-      ).toEqual(resolved.tables.map(() => undefined));
+      ).toEqual(resolved.tables.map(() => null));
     }
 
     {

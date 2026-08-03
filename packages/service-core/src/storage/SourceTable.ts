@@ -36,7 +36,7 @@ export interface SourceTableOptions {
   bucketDataSourceIds?: Set<BucketDefinitionId>;
   parameterLookupSourceIds?: Set<ParameterIndexId>;
   /**
-   * Source-specific metadata. Undefined for legacy records.
+   * Source-specific metadata. Null when no metadata has been recorded.
    */
   sourceMetadata?: JsonValue;
 }
@@ -151,7 +151,7 @@ export class SourceTable {
   }
 
   get sourceMetadata() {
-    return this.options.sourceMetadata;
+    return this.options.sourceMetadata ?? null;
   }
 
   /**
@@ -176,29 +176,35 @@ export class SourceTable {
   /**
    * Copy this table with different source metadata, preserving its resolved state.
    */
-  withSourceMetadata(sourceMetadata: JsonValue | undefined) {
+  withSourceMetadata(sourceMetadata: JsonValue) {
     return this.copyWithSourceMetadata(sourceMetadata);
   }
 
-  private copyWithSourceMetadata(sourceMetadata: JsonValue | undefined) {
+  private copyWithSourceMetadata(sourceMetadata: JsonValue) {
     const copy = new SourceTable({
       id: this.id,
-      ref: this.options.ref,
+      ref: { ...this.options.ref },
       objectId: this.objectId,
-      replicaIdColumns: this.replicaIdColumns,
+      replicaIdColumns: this.replicaIdColumns.map((column) => ({ ...column })),
       snapshotComplete: this.snapshotComplete,
-      bucketDataSources: this.bucketDataSources,
-      parameterLookupSources: this.parameterLookupSources,
+      bucketDataSources: [...this.bucketDataSources],
+      parameterLookupSources: [...this.parameterLookupSources],
       bucketDataSourceIds: this.bucketDataSourceIds == null ? undefined : new Set(this.bucketDataSourceIds),
       parameterLookupSourceIds:
         this.parameterLookupSourceIds == null ? undefined : new Set(this.parameterLookupSourceIds),
-      sourceMetadata
+      sourceMetadata: structuredClone(sourceMetadata)
     });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;
     copy.syncEvent = this.syncEvent;
     copy.storeCurrentData = this.storeCurrentData;
-    copy.snapshotStatus = this.snapshotStatus;
+    copy.snapshotStatus =
+      this.snapshotStatus == null
+        ? undefined
+        : {
+            ...this.snapshotStatus,
+            lastKey: this.snapshotStatus.lastKey?.slice() ?? null
+          };
     return copy;
   }
 
@@ -213,3 +219,11 @@ export class SourceTable {
     }
   }
 }
+
+/**
+ * A cloned SourceTable exposed to reconciliation with public fields typed as read-only.
+ * `options` is omitted so callers cannot mutate the underlying option bag without an explicit cast.
+ */
+export type SourceTableCandidate = Omit<Readonly<SourceTable>, 'options' | 'withSourceMetadata'> & {
+  withSourceMetadata(sourceMetadata: JsonValue): SourceTableCandidate;
+};

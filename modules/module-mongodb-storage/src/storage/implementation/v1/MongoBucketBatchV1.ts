@@ -78,18 +78,16 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       const candidateTables = candidateDocs.map((doc) =>
         this.hydrateSourceTable(doc, connectionTag, syncRules, sendsCompleteRows)
       );
-      const resolution = await reconcile({ source, candidates: candidateTables });
-      storage.validateSourceTableCandidateResolution(candidateTables, resolution);
+      const candidates = candidateTables.map((table) => table.clone());
+      const resolution = await reconcile({ source, candidates });
+      storage.validateSourceTableCandidateResolution(candidates, resolution);
 
-      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
-        const update =
-          sourceMetadata === undefined
-            ? { $unset: { source_metadata: '' as const } }
-            : { $set: { source_metadata: sourceMetadata } };
-        await col.updateOne({ _id: mongoTableId(id) }, update, { session });
+      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidates, resolution)) {
+        await col.updateOne({ _id: mongoTableId(id) }, { $set: { source_metadata: sourceMetadata } }, { session });
       }
 
-      const compatibleTables = resolution.compatibleTables;
+      const materializedResolution = storage.materializeSourceTableResolution(candidateTables, resolution);
+      const compatibleTables = materializedResolution.compatibleTables;
 
       // V1 keeps one record, preferring one that has already been snapshotted.
       const reuse = compatibleTables.find((table) => table.snapshotComplete) ?? compatibleTables[0] ?? null;
@@ -116,7 +114,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       }
 
       const dropTables = [
-        ...resolution.incompatibleTables,
+        ...materializedResolution.incompatibleTables,
         // V1 only keeps one SourceTable per physical table.
         ...compatibleTables.filter((table) => !storage.sourceTableIdEquals(table.id, sourceTable.id))
       ];
@@ -143,10 +141,10 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       objectId: doc.relation_id,
       replicaIdColumns:
         doc.replica_id_columns2?.map(
-          (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
+          (column) => ({ name: column.name, typeId: column.type_oid, type: column.type }) satisfies ColumnDescriptor
         ) ?? [],
       snapshotComplete: doc.snapshot_done ?? true,
-      sourceMetadata: doc.source_metadata,
+      sourceMetadata: doc.source_metadata ?? null,
       ...syncRules.getMatchingSources(ref)
     });
     table.syncEvent = syncRules.tableTriggersEvent(ref);

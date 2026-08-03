@@ -41,11 +41,11 @@ export interface SourceTableReconciliationContext {
   /**
    * Candidates the source connector considers safe to reuse.
    */
-  sourceCompatibleTables: readonly storage.SourceTable[];
+  sourceCompatibleTables: readonly storage.SourceTableCandidate[];
   /**
    * Source metadata for records created by this resolution.
    */
-  newTableSourceMetadata: JsonValue | undefined;
+  newTableSourceMetadata: JsonValue;
 }
 
 export interface SourceTableReconciliationPlan {
@@ -161,7 +161,7 @@ class SourceTableReconciliationPlanner {
     return this.compatibleTableFor(doc) != null;
   }
 
-  private compatibleTableFor(doc: SourceTableDocumentV3): storage.SourceTable | undefined {
+  private compatibleTableFor(doc: SourceTableDocumentV3): storage.SourceTableCandidate | undefined {
     return this.context.sourceCompatibleTables.find((table) => storage.sourceTableIdEquals(table.id, doc._id));
   }
 
@@ -374,15 +374,16 @@ export function sourceTableFromDocument(
       name: doc.table_name
     },
     objectId: doc.relation_id,
-    replicaIdColumns: doc.replica_id_columns!.map(
-      (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
-    ),
+    replicaIdColumns:
+      doc.replica_id_columns?.map(
+        (column) => ({ name: column.name, typeId: column.type_oid, type: column.type }) satisfies ColumnDescriptor
+      ) ?? [],
     snapshotComplete: doc.snapshot_done,
     bucketDataSources: resolvedMemberships.bucketDataSources,
     parameterLookupSources: resolvedMemberships.parameterLookupSources,
     bucketDataSourceIds: new Set(resolvedMembershipIds.bucketDataSourceIds),
     parameterLookupSourceIds: new Set(resolvedMembershipIds.parameterLookupSourceIds),
-    sourceMetadata: doc.source_metadata
+    sourceMetadata: doc.source_metadata ?? null
   });
   table.syncData = table.bucketDataSources.length > 0;
   table.syncParameters = table.parameterLookupSources.length > 0;

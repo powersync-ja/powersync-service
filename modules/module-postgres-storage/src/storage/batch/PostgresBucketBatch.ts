@@ -193,14 +193,15 @@ export class PostgresBucketBatch
       }
 
       const candidateTables = candidateRows.map((row) => {
-        const hydrated = this.sourceTableFromRow(row, connectionTag, syncRules);
-        hydrated.storeCurrentData = sendsCompleteRows !== true;
-        return hydrated;
+        const table = this.sourceTableFromRow(row, connectionTag, syncRules);
+        table.storeCurrentData = sendsCompleteRows !== true;
+        return table;
       });
-      const resolution = await reconcile({ source, candidates: candidateTables });
-      storage.validateSourceTableCandidateResolution(candidateTables, resolution);
+      const candidates = candidateTables.map((table) => table.clone());
+      const resolution = await reconcile({ source, candidates });
+      storage.validateSourceTableCandidateResolution(candidates, resolution);
 
-      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
+      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidates, resolution)) {
         await db.sql`
           UPDATE source_tables
           SET
@@ -210,7 +211,8 @@ export class PostgresBucketBatch
         `.execute();
       }
 
-      const compatibleTables = resolution.compatibleTables;
+      const materializedResolution = storage.materializeSourceTableResolution(candidateTables, resolution);
+      const compatibleTables = materializedResolution.compatibleTables;
 
       // Keep one record, preferring one that has already been snapshotted.
       const reuse = compatibleTables.find((candidate) => candidate.snapshotComplete) ?? compatibleTables[0] ?? null;
@@ -253,7 +255,7 @@ export class PostgresBucketBatch
       }
 
       const dropTables = [
-        ...resolution.incompatibleTables,
+        ...materializedResolution.incompatibleTables,
         // PostgreSQL storage only keeps one SourceTable per physical table.
         ...compatibleTables.filter((candidate) => !storage.sourceTableIdEquals(candidate.id, sourceTable.id))
       ];
@@ -297,10 +299,10 @@ export class PostgresBucketBatch
       objectId: row.relation_id?.object_id,
       replicaIdColumns:
         row.replica_id_columns?.map(
-          (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
+          (column) => ({ name: column.name, typeId: column.type_oid, type: column.type }) satisfies ColumnDescriptor
         ) ?? [],
       snapshotComplete: row.snapshot_done ?? true,
-      sourceMetadata: row.source_metadata ?? undefined,
+      sourceMetadata: row.source_metadata,
       ...syncRules.getMatchingSources(ref)
     });
 

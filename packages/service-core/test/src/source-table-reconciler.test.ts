@@ -3,6 +3,7 @@ import { SourceTable, sourceTableIdEquals } from '@/storage/SourceTable.js';
 import {
   defaultSourceTableReconciler,
   diffSourceTableUpdates,
+  materializeSourceTableResolution,
   sourceIdentityCompatible,
   validateSourceTableCandidateResolution
 } from '@/storage/SourceTableReconciler.js';
@@ -67,7 +68,7 @@ describe('defaultSourceTableReconciler', () => {
     const resolution = await defaultSourceTableReconciler({ source: descriptor(), candidates: [a, b] });
     expect(resolution.compatibleTables).toEqual([a]);
     expect(resolution.incompatibleTables).toEqual([b]);
-    expect(resolution.newTableValues).toEqual({});
+    expect(resolution.newTableValues).toEqual({ sourceMetadata: null });
   });
 
   it('returns an empty set when nothing matches', async () => {
@@ -88,7 +89,7 @@ describe('validateSourceTableCandidateResolution', () => {
       validateSourceTableCandidateResolution([a, b], {
         compatibleTables: [a],
         incompatibleTables: [b],
-        newTableValues: {}
+        newTableValues: { sourceMetadata: null }
       })
     ).not.toThrow();
   });
@@ -99,21 +100,21 @@ describe('validateSourceTableCandidateResolution', () => {
       validateSourceTableCandidateResolution([a], {
         compatibleTables: [],
         incompatibleTables: [],
-        newTableValues: {}
+        newTableValues: { sourceMetadata: null }
       })
     ).toThrow(/exactly once/);
     expect(() =>
       validateSourceTableCandidateResolution([a], {
         compatibleTables: [a],
         incompatibleTables: [a],
-        newTableValues: {}
+        newTableValues: { sourceMetadata: null }
       })
     ).toThrow(/exactly once/);
     expect(() =>
       validateSourceTableCandidateResolution([a], {
         compatibleTables: [a],
         incompatibleTables: [candidate({ id: 'unknown' })],
-        newTableValues: {}
+        newTableValues: { sourceMetadata: null }
       })
     ).toThrow(/unknown candidate/);
   });
@@ -121,7 +122,7 @@ describe('validateSourceTableCandidateResolution', () => {
 
 describe('diffSourceTableUpdates', () => {
   function resolution(compatibleTables: SourceTable[]) {
-    return { compatibleTables, incompatibleTables: [], newTableValues: {} };
+    return { compatibleTables, incompatibleTables: [], newTableValues: { sourceMetadata: null } };
   }
 
   it('returns nothing when the reconciler returned the candidates untouched', () => {
@@ -147,17 +148,48 @@ describe('diffSourceTableUpdates', () => {
 
   it('returns metadata added to a legacy record', () => {
     const legacy = candidate({ id: 'a' });
-    expect(legacy.sourceMetadata).toBeUndefined();
+    expect(legacy.sourceMetadata).toBeNull();
     expect(
       diffSourceTableUpdates([legacy], resolution([legacy.withSourceMetadata({ captureTableObjectId: 7 })]))
     ).toEqual([{ id: 'a', sourceMetadata: { captureTableObjectId: 7 } }]);
   });
 
-  it('returns cleared metadata so storage can unset it', () => {
+  it('returns cleared metadata as null', () => {
     const a = candidate({ id: 'a', sourceMetadata: { captureTableObjectId: 7 } });
-    expect(diffSourceTableUpdates([a], resolution([a.withSourceMetadata(undefined)]))).toEqual([
-      { id: 'a', sourceMetadata: undefined }
+    expect(diffSourceTableUpdates([a], resolution([a.withSourceMetadata(null)]))).toEqual([
+      { id: 'a', sourceMetadata: null }
     ]);
+  });
+
+  it('materializes only source metadata from reconciler results', () => {
+    const persisted = candidate({ id: 'a', snapshotComplete: false });
+    const modified = persisted.withSourceMetadata({ captureTableObjectId: 8 });
+    modified.snapshotComplete = true;
+    modified.syncData = false;
+
+    const [materialized] = materializeSourceTableResolution([persisted], resolution([modified])).compatibleTables;
+
+    expect(materialized.sourceMetadata).toEqual({ captureTableObjectId: 8 });
+    expect(materialized.snapshotComplete).toBe(false);
+    expect(materialized.syncData).toBe(persisted.syncData);
+  });
+
+  it('does not trust incompatible candidate mutations made through a cast', () => {
+    const persisted = candidate({ id: 'a', snapshotComplete: false });
+    const exposed = persisted.clone();
+    // Simulate callback code bypassing the read-only type boundary.
+    (exposed as any).snapshotComplete = true;
+
+    const materialized = materializeSourceTableResolution([persisted], {
+      compatibleTables: [],
+      incompatibleTables: [exposed],
+      newTableValues: { sourceMetadata: null }
+    }).incompatibleTables[0];
+
+    expect(exposed.snapshotComplete).toBe(true);
+    expect(materialized).toBe(persisted);
+    expect(materialized.snapshotComplete).toBe(false);
+    expect(materialized.syncData).toBe(persisted.syncData);
   });
 
   it('only reports the candidates that changed', () => {
@@ -171,6 +203,21 @@ describe('diffSourceTableUpdates', () => {
     expect(() => diffSourceTableUpdates([candidate({ id: 'a' })], resolution([candidate({ id: 'ghost' })]))).toThrow(
       /unknown candidate/
     );
+  });
+});
+
+describe('SourceTable.clone', () => {
+  it('isolates mutable identity and metadata values', () => {
+    const persisted = candidate({ id: 'a', sourceMetadata: { captureTableObjectId: 7 } });
+    const exposed = persisted.clone();
+
+    (exposed.ref as any).name = 'changed';
+    exposed.replicaIdColumns[0].name = 'changed';
+    (exposed.sourceMetadata as any).captureTableObjectId = 8;
+
+    expect(persisted.name).toBe('users');
+    expect(persisted.replicaIdColumns[0].name).toBe('id');
+    expect(persisted.sourceMetadata).toEqual({ captureTableObjectId: 7 });
   });
 });
 

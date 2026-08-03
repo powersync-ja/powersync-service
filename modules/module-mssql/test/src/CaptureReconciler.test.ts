@@ -1,5 +1,7 @@
 import { CaptureInstance } from '@module/common/CaptureInstance.js';
 import { LSN } from '@module/common/LSN.js';
+import { MSSQLSourceTable } from '@module/common/MSSQLSourceTable.js';
+import { CDCPoller } from '@module/replication/CDCPoller.js';
 import {
   createCaptureReconciler,
   MSSQLSourceMetadata,
@@ -62,7 +64,6 @@ describe('readCaptureMetadata', () => {
   });
 
   it('returns null for legacy metadata', () => {
-    expect(readCaptureMetadata(undefined)).toBeNull();
     expect(readCaptureMetadata(null)).toBeNull();
   });
 
@@ -165,5 +166,36 @@ describe('createCaptureReconciler', () => {
       resolution.compatibleTables.map((table) => ({ id: table.id, sourceMetadata: table.sourceMetadata }))
     ).toEqual([{ id: 'a', sourceMetadata: { captureTableObjectId: 50 } }]);
     expect(resolution.incompatibleTables.map((table) => table.id)).toEqual(['mismatch']);
+  });
+});
+
+describe('CDCPoller capture-instance refresh', () => {
+  it('updates the bound instance without changing its persisted pin', () => {
+    const persisted = candidate('a', { captureTableObjectId: 40 });
+    const table = new MSSQLSourceTable(source(), [persisted]);
+    table.setCaptureInstance(instance(40));
+
+    const refreshed = instance(40);
+    const poller = new CDCPoller({
+      connectionManager: {} as any,
+      eventHandler: {} as any,
+      getReplicatedTables: () => [table],
+      startLSN: LSN.fromString(LSN.ZERO),
+      additionalConfig: { pollingIntervalMs: 1, pollingBatchSize: 1, trustServerCertificate: false }
+    });
+    (poller as any).captureInstances = new Map([
+      [
+        100,
+        {
+          sourceTable: { schema: 'dbo', name: 'users', objectId: 100 },
+          instances: [refreshed]
+        }
+      ]
+    ]);
+
+    (poller as any).refreshBoundCaptureInstances();
+
+    expect(table.captureInstance).toBe(refreshed);
+    expect(table.pinnedCaptureObjectId).toBe(40);
   });
 });
