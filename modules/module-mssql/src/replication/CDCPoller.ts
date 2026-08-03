@@ -267,7 +267,6 @@ export class CDCPoller {
       throw new ReplicationAssertionError(`No capture instance bound for table ${table.toQualifiedName()}`);
     }
     const minLSN = boundInstance.minLSN;
-    // TODO: Distinguish a new snapshot from expired CDC history before clamping to minLSN.
     if (minLSN > bounds.endLSN) {
       return 0;
     } else if (minLSN >= bounds.startLSN) {

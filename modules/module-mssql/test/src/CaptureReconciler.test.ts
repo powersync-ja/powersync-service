@@ -8,6 +8,9 @@ import {
 import { SourceEntityDescriptor, SourceTable } from '@powersync/service-core';
 import { describe, expect, it } from 'vitest';
 
+/**
+ * Build a source descriptor with optional identity overrides.
+ */
 function source(overrides: Partial<SourceEntityDescriptor> = {}): SourceEntityDescriptor {
   return {
     connectionTag: 'default',
@@ -19,6 +22,9 @@ function source(overrides: Partial<SourceEntityDescriptor> = {}): SourceEntityDe
   };
 }
 
+/**
+ * Build a persisted source-table candidate with optional capture metadata.
+ */
 function candidate(
   id: string,
   metadata?: MSSQLSourceMetadata,
@@ -37,6 +43,9 @@ function candidate(
   });
 }
 
+/**
+ * Build a capture instance for the given capture-table object id.
+ */
 function instance(objectId: number): CaptureInstance {
   return {
     name: `dbo_users_${objectId}`,
