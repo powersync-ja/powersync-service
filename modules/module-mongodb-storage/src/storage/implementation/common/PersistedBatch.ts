@@ -35,7 +35,7 @@ const MAX_TRANSACTION_BATCH_SIZE = 30_000_000;
  */
 const MAX_TRANSACTION_DOC_COUNT = 2_000;
 
-export const DEFAULT_INLINE_THRESHOLD_BYTES = 1024;
+export const DEFAULT_INLINE_THRESHOLD_BYTES = 16 * 1024;
 
 export interface SaveBucketDataOptions {
   op_seq: MongoIdSequence;

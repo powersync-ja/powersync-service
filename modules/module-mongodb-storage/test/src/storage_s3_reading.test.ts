@@ -511,7 +511,7 @@ describe('S3 object storage reads', () => {
     expect(new Set(memoryStorage.store.keys())).toEqual(new Set([documents[1].storage_ref!.path]));
 
     // Read back. Both S3-backed and inline ops should be returned.
-    const batch = await test_utils.fromAsync(
+    const batch = await test_utils.getBatchArray(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(documents[1]._id.o), [
         bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n)
       ])

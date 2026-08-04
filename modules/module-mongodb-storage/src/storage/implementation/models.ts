@@ -78,6 +78,11 @@ export interface BucketDataProperties {
   row_id?: string;
   checksum: bigint;
   data: string | null;
+  /**
+   * V1-only.
+   *
+   * V3 stores this on the BucketDataDocumentV3 instead of the individual ops.
+   */
   target_op?: bigint | null;
 }
 
