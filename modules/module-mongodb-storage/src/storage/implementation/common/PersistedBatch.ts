@@ -309,9 +309,9 @@ export abstract class PersistedBatch {
         const replicationLag = Math.round((Date.now() - options.oldestUncommittedChange.getTime()) / 1000);
 
         this.logger.info(
-          `Flushed ${this.bucketDataCount} + ${this.bucketParameters.length} + ${
+          `Flushed updates: ${this.bucketDataCount} bucket, ${this.bucketParameters.length} parameter, ${
             this.currentDataCount
-          } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}. Replication lag: ${replicationLag}s`,
+          } current. ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}. Replication lag: ${replicationLag}s`,
           {
             flushed: {
               duration: duration,
@@ -325,9 +325,9 @@ export abstract class PersistedBatch {
         );
       } else {
         this.logger.info(
-          `Flushed ${this.bucketDataCount} + ${this.bucketParameters.length} + ${
+          `Flushed updates: ${this.bucketDataCount} bucket, ${this.bucketParameters.length} parameter, ${
             this.currentDataCount
-          } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}`,
+          } current. ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}`,
           {
             flushed: {
               duration: duration,
