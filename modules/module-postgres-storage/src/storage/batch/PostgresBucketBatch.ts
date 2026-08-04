@@ -201,7 +201,7 @@ export class PostgresBucketBatch
       const resolution = await reconcile({ source, candidates });
       storage.validateSourceTableCandidateResolution(candidates, resolution);
 
-      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidates, resolution)) {
+      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
         await db.sql`
           UPDATE source_tables
           SET

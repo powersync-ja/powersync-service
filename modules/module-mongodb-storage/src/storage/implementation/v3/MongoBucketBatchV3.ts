@@ -180,7 +180,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       storage.validateSourceTableCandidateResolution(candidates, resolution);
 
       // Persist metadata from the reconciler without mutating the queried documents.
-      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidates, resolution)) {
+      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
         await col.updateOne({ _id: mongoTableId(id) }, { $set: { source_metadata: sourceMetadata } }, { session });
       }
 

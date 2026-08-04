@@ -163,21 +163,23 @@ export interface MaterializedSourceTableResolution {
 }
 
 /**
- * Return source-metadata changes from compatible candidates, comparing metadata by value.
+ * Return source-metadata changes from compatible candidates, comparing metadata by value against
+ * the original storage-owned tables. The reconciler may mutate its isolated candidate clones, so
+ * those clones cannot be used as the persisted baseline.
  */
 export function diffSourceTableUpdates(
-  candidates: ReadonlyArray<SourceTableCandidate>,
+  persistedTables: ReadonlyArray<SourceTable>,
   resolution: SourceTableCandidateResolution
 ): SourceTableMetadataUpdate[] {
   const updates: SourceTableMetadataUpdate[] = [];
   for (const resolvedTable of resolution.compatibleTables) {
-    const candidate = candidates.find((table) => sourceTableIdEquals(table.id, resolvedTable.id));
-    if (candidate == null) {
+    const persistedTable = persistedTables.find((table) => sourceTableIdEquals(table.id, resolvedTable.id));
+    if (persistedTable == null) {
       throw new ServiceAssertionError(
         `Source table reconciliation returned unknown candidate ${resolvedTable.id.toString()}`
       );
     }
-    if (isDeepStrictEqual(candidate.sourceMetadata, resolvedTable.sourceMetadata)) {
+    if (isDeepStrictEqual(persistedTable.sourceMetadata, resolvedTable.sourceMetadata)) {
       continue;
     }
     updates.push({ id: resolvedTable.id, sourceMetadata: resolvedTable.sourceMetadata });

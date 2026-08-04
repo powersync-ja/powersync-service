@@ -82,7 +82,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       const resolution = await reconcile({ source, candidates });
       storage.validateSourceTableCandidateResolution(candidates, resolution);
 
-      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidates, resolution)) {
+      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
         await col.updateOne({ _id: mongoTableId(id) }, { $set: { source_metadata: sourceMetadata } }, { session });
       }
 
