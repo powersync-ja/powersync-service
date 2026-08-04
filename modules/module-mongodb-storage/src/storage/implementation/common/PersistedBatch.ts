@@ -321,32 +321,32 @@ export abstract class PersistedBatch {
         const replicationLag = Math.round((Date.now() - options.oldestUncommittedChange.getTime()) / 1000);
 
         this.logger.info(
-          `Flushed ${this.bucketDataCount} + ${this.bucketParameters.length} + ${
+          `Flushed: ${this.bucketDataCount} ops, ${this.bucketParameters.length} index entries, ${
             this.currentDataCount
-          } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}. Replication lag: ${replicationLag}s`,
+          } records. ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}. Replication lag: ${replicationLag}s`,
           {
             flushed: {
               duration: duration,
               size: this.currentSize,
-              bucket_data_count: this.bucketDataCount,
-              parameter_data_count: this.bucketParameters.length,
-              current_data_count: this.currentDataCount,
+              bucket_ops_count: this.bucketDataCount,
+              parameter_indexes_count: this.bucketParameters.length,
+              source_records_count: this.currentDataCount,
               replication_lag_seconds: replicationLag
             }
           }
         );
       } else {
         this.logger.info(
-          `Flushed ${this.bucketDataCount} + ${this.bucketParameters.length} + ${
+          `Flushed: ${this.bucketDataCount} ops, ${this.bucketParameters.length} index entries, ${
             this.currentDataCount
-          } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}`,
+          } records. ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}`,
           {
             flushed: {
               duration: duration,
               size: this.currentSize,
-              bucket_data_count: this.bucketDataCount,
-              parameter_data_count: this.bucketParameters.length,
-              current_data_count: this.currentDataCount
+              bucket_ops_count: this.bucketDataCount,
+              parameter_indexes_count: this.bucketParameters.length,
+              source_records_count: this.currentDataCount
             }
           }
         );
