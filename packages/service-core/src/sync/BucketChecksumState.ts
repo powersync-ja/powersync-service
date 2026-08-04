@@ -77,6 +77,12 @@ export class BucketChecksumState {
   private lastChecksums: util.ChecksumMap | null = null;
   private lastWriteCheckpoint: bigint | null = null;
   /**
+   * The next storage checkpoint diff may be relative to a checksum-invalidated
+   * checkpoint that was never sent to the client. Re-check every bucket once
+   * instead of applying that diff to the last client-visible checksums.
+   */
+  private forceFullChecksumForNextCheckpoint = false;
+  /**
    * Once we've sent the first full checkpoint line including all {@link util.Checkpoint.streams} that the user is
    * subscribed to, we keep an index of the stream names to their index in that array.
    *
@@ -117,6 +123,10 @@ export class BucketChecksumState {
     }
   }
 
+  invalidateChecksumBaseline() {
+    this.forceFullChecksumForNextCheckpoint = true;
+  }
+
   /**
    * Build a new checkpoint line for an underlying storage checkpoint update if any buckets have changed.
    *
@@ -141,6 +151,7 @@ export class BucketChecksumState {
 
     const update = await this.parameterState.getCheckpointUpdate(next, tracer);
     const { buckets: allBuckets, updatedBuckets, usedParameterResults } = update;
+    const forceFullChecksum = this.forceFullChecksumForNextCheckpoint;
 
     /** Set of all buckets in this checkpoint. */
     const bucketDescriptionMap = new Map(allBuckets.map((b) => [b.bucket, b]));
@@ -176,7 +187,7 @@ export class BucketChecksumState {
     }
 
     let checksumMap: util.ChecksumMap;
-    if (updatedBuckets != INVALIDATE_ALL_BUCKETS) {
+    if (!forceFullChecksum && updatedBuckets != INVALIDATE_ALL_BUCKETS) {
       if (this.lastChecksums == null) {
         throw new ServiceAssertionError(`Bucket diff received without existing checksums`);
       }
@@ -250,6 +261,9 @@ export class BucketChecksumState {
         diff.updatedBuckets.length == 0
       ) {
         // No changes - don't send anything to the client
+        if (forceFullChecksum) {
+          this.forceFullChecksumForNextCheckpoint = false;
+        }
         return null;
       }
 
@@ -404,6 +418,9 @@ export class BucketChecksumState {
         this.lastChecksums = checksumMap;
         this.lastWriteCheckpoint = writeCheckpoint;
         this.pendingBucketDownloads = pendingBucketDownloads;
+        if (forceFullChecksum) {
+          this.forceFullChecksumForNextCheckpoint = false;
+        }
         deferredLog();
       },
 

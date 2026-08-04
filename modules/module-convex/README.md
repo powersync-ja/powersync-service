@@ -148,11 +148,11 @@ The content below is written in an agents.md style describing the behavior of `m
 
 ## 8) Checkpointing and Consistency
 
-- `createReplicationHead` must:
+- Managed write checkpoint creation must:
   1. resolve global head cursor,
-  2. pass that head to the callback so PowerSync stores the managed write checkpoint mapping,
-  3. then write a Convex checkpoint marker via `POST /api/mutation` (calls `powersync_checkpoints:createCheckpoint`).
-- The marker must be written after the callback. If the marker is replicated before the managed write checkpoint mapping exists, an idle source can still leave the client waiting for a later observable checkpoint update.
+  2. store any managed write checkpoint mapping for that head,
+  3. then write a Convex checkpoint marker via `POST /api/mutation` (calls `powersync_checkpoints:createCheckpoint`) only if storage advanced a checkpoint.
+- The marker must be written after the mapping is stored. If the marker is replicated before the managed write checkpoint mapping exists, an idle source can still leave the client waiting for a later observable checkpoint update.
 - Source marker table: `powersync_checkpoints`
   - Convex rejects table names starting with `_`, so no leading-underscore variant is used.
   - The table has a single `last_updated` field; the mutation upserts one row (bounded to one row total).

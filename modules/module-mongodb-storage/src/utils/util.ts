@@ -1,14 +1,56 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
-import { ReplicationAbortedError, ServiceAssertionError } from '@powersync/lib-services-framework';
+import { Logger, ReplicationAbortedError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as bson from 'bson';
 import * as crypto from 'crypto';
 import * as timers from 'node:timers/promises';
 import * as uuid from 'uuid';
 import { BucketDataDoc } from '../storage/implementation/common/BucketDataDoc.js';
+import { DEFAULT_CLEAR_BATCH_THROTTLE_RATE } from '../types/types.js';
 
-export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.Condition<T> {
+/**
+ * Default and max batch size for clearing.
+ */
+const CLEAR_BATCH_SIZE = 10_000;
+
+/**
+ * Minimum batch size for clearing when a batch takes too long.
+ */
+const CLEAR_MIN_BATCH_SIZE = 100;
+
+/**
+ * We target batch duration to stay between the min and max. If the druation is outside this range,
+ * we increase or decrease the batch size.
+ *
+ * MONGO_CLEAR_OPERATION_TIMEOUT_MS controls the absolute max of individual find and delete operations,
+ * but we try to avoid hitting that.
+ */
+const CLEAR_BATCH_MIN_DURATION_MS = 500;
+const CLEAR_BATCH_MAX_DURATION_MS = 2000;
+
+type ClearCollectionFilter<T extends mongo.Document> = mongo.Filter<T> & {
+  _id: mongo.FilterOperators<mongo.InferIdType<T>>;
+};
+
+function throwIfClearAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new ReplicationAbortedError('Aborted clearing data', signal.reason);
+  }
+}
+
+async function waitWithSignal(delayMs: number, signal: AbortSignal | undefined, abortMessage: string): Promise<void> {
+  try {
+    await timers.setTimeout(delayMs, undefined, { signal });
+  } catch (error) {
+    if (signal?.aborted) {
+      throw new ReplicationAbortedError(abortMessage, signal.reason);
+    }
+    throw error;
+  }
+}
+
+export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.FilterOperators<T> {
   let filter = {
     $gte: {
       ...prefix
@@ -149,14 +191,150 @@ export async function retryOnMongoMaxTimeMSExpired<T>(
     try {
       return await operation();
     } catch (e) {
-      if (!lib_mongo.isMongoServerError(e) || e.codeName !== 'MaxTimeMSExpired') {
+      if (!lib_mongo.isMaxTimeMSExpiredError(e)) {
         throw e;
       }
       retryCount += 1;
       options.onRetry?.(retryCount);
-      await timers.setTimeout(options.retryDelayMs);
+      await waitWithSignal(options.retryDelayMs, options.signal, options.abortMessage ?? 'Aborted MongoDB operation');
     }
   }
+}
+
+async function clearCollectionInBatches(
+  logger: Logger,
+  label: string,
+  findAndDeleteBatch: (batchSize: number) => Promise<number>,
+  signal?: AbortSignal,
+  throttleRate = DEFAULT_CLEAR_BATCH_THROTTLE_RATE
+): Promise<number> {
+  let batchSize = CLEAR_BATCH_SIZE;
+  let deletedCount = 0;
+  while (true) {
+    throwIfClearAborted(signal);
+    try {
+      const batchStartedAt = performance.now();
+      const foundBatchSize = await findAndDeleteBatch(batchSize);
+      const batchDurationMs = performance.now() - batchStartedAt;
+      deletedCount += foundBatchSize;
+      if (foundBatchSize > 0) {
+        logger.info(
+          `Cleared batch of ${label} (${foundBatchSize} documents) in ${Math.round(batchDurationMs)}ms, continuing...`
+        );
+      }
+      if (foundBatchSize < batchSize) {
+        return deletedCount;
+      }
+      if (batchDurationMs > CLEAR_BATCH_MAX_DURATION_MS) {
+        batchSize = Math.max(CLEAR_MIN_BATCH_SIZE, Math.floor(batchSize / 2));
+      } else if (batchDurationMs < CLEAR_BATCH_MIN_DURATION_MS) {
+        batchSize = Math.min(CLEAR_BATCH_SIZE, batchSize * 2);
+      }
+      await waitWithSignal(batchDurationMs * throttleRate, signal, 'Aborted clearing data');
+    } catch (error) {
+      if (!lib_mongo.isTimeoutError(error) || batchSize == CLEAR_MIN_BATCH_SIZE) {
+        throw error;
+      }
+      const nextBatchSize = Math.max(CLEAR_MIN_BATCH_SIZE, Math.floor(batchSize / 2));
+      logger.info(
+        `Clearing batch of ${label} timed out with batch size ${batchSize}, retrying find and delete with ${nextBatchSize}...`
+      );
+      batchSize = nextBatchSize;
+
+      // Pause for at least the equivalent of one query timeout before retrying, since the cause may be high database load.
+      const pauseDuration = Math.max(throttleRate, 1.0) * lib_mongo.MONGO_CLEAR_OPERATION_TIMEOUT_MS;
+      await waitWithSignal(pauseDuration, signal, 'Aborted clearing data');
+    }
+  }
+}
+
+export async function clearCollectionInIdRanges<T extends mongo.Document>(
+  logger: Logger,
+  label: string,
+  collection: mongo.Collection<T>,
+  filter: ClearCollectionFilter<T>,
+  signal?: AbortSignal,
+  throttleRate = DEFAULT_CLEAR_BATCH_THROTTLE_RATE
+): Promise<number> {
+  return clearCollectionInBatches(
+    logger,
+    label,
+    async (batchSize) => {
+      const queryOptions: mongo.FindOptions<T> = {
+        maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
+        projection: { _id: 1 }
+      };
+      const [batchEnd] = await collection
+        .find(filter, queryOptions)
+        .sort({ _id: 1 })
+        .skip(batchSize)
+        .limit(1)
+        .toArray();
+      throwIfClearAborted(signal);
+
+      if (batchEnd == null) {
+        // We're on the last batch
+        const result = await collection.deleteMany(filter, {
+          maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS
+        });
+        return result.deletedCount;
+      }
+
+      const idRange: mongo.FilterOperators<mongo.InferIdType<T>> = {
+        ...filter._id,
+        $lt: batchEnd._id
+      };
+      await collection.deleteMany(
+        {
+          ...filter,
+          _id: idRange
+        } as mongo.Filter<T>,
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      );
+      return batchSize;
+    },
+    signal,
+    throttleRate
+  );
+}
+
+export async function clearCollectionInIdBatches<T extends mongo.Document>(
+  logger: Logger,
+  label: string,
+  collection: mongo.Collection<T>,
+  filter: mongo.Filter<T>,
+  signal?: AbortSignal,
+  throttleRate = DEFAULT_CLEAR_BATCH_THROTTLE_RATE
+): Promise<number> {
+  return clearCollectionInBatches(
+    logger,
+    label,
+    async (batchSize) => {
+      const documents = await collection
+        .find(filter, {
+          maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
+          projection: { _id: 1 }
+        })
+        .limit(batchSize)
+        .toArray();
+      throwIfClearAborted(signal);
+
+      if (documents.length === 0) {
+        return 0;
+      }
+      await collection.deleteMany(
+        {
+          _id: {
+            $in: documents.map((document) => document._id)
+          }
+        } as mongo.Filter<T>,
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      );
+      return documents.length;
+    },
+    signal,
+    throttleRate
+  );
 }
 
 export const createPaginatedConnectionQuery = async <T extends mongo.Document>(

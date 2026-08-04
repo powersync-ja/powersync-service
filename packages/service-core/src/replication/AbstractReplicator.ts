@@ -1,4 +1,4 @@
-import { container, ErrorCode, logger } from '@powersync/lib-services-framework';
+import { container, ErrorCode, logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -51,12 +51,11 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   private replicationJobs = new Map<string, T>();
 
   /**
-   * Map of replciation stream ids to promises that are clearing the replication stream.
+   * Map of replication stream ids to promises that are clearing the replication stream.
    *
-   * We primarily do this to keep track of what we're currently clearing, but don't currently
-   * use the Promise value.
+   * We primarily do this to keep track of what we're currently clearing.
    */
-  private clearingJobs = new Map<number, Promise<void>>();
+  protected readonly clearingJobs = new Map<number, Promise<void>>();
 
   /**
    * Used for replication lag computation.
@@ -139,6 +138,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     for (const job of this.replicationJobs.values()) {
       promises.push(job.stop());
     }
+    promises.push(...this.clearingJobs.values());
     await Promise.all(promises);
   }
 
@@ -312,9 +312,17 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       // It is important to be able to continue running the refresh loop, otherwise we cannot
       // retry locked replication stream, for example.
       const syncRuleStorage = this.storage.getInstance(replicationStream, { skipLifecycleHooks: true });
-      const promise = this.terminateSyncRules(syncRuleStorage)
+      const promise = this.terminateStoppedReplicationStream(replicationStream, syncRuleStorage)
         .catch((e) => {
-          syncRuleStorage.logger.warn(`Failed clean up replication config`, e);
+          if (e instanceof ReplicationAbortedError) {
+            // Expected when shutdown aborts an in-progress cleanup.
+          } else if (e?.errorData?.code === ErrorCode.PSYNC_S1003) {
+            this.logReplicationStreamInfoOnce(replicationStream, 'replication-stream-cleanup-locked', () => {
+              replicationStream.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
+            });
+          } else {
+            syncRuleStorage.logger.warn(`Failed clean up replication config`, e);
+          }
         })
         .finally(() => {
           this.clearingJobs.delete(replicationStream.replicationStreamId);
@@ -368,6 +376,19 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   protected createJobId(syncRuleId: number) {
     return `${this.id}-${syncRuleId}`;
+  }
+
+  protected async terminateStoppedReplicationStream(
+    replicationStream: storage.PersistedReplicationStream,
+    syncRuleStorage: storage.SyncRulesBucketStorage
+  ) {
+    const lock = await replicationStream.lock();
+    this.clearReplicationStreamInfoLog(replicationStream, 'replication-stream-cleanup-locked');
+    try {
+      await this.terminateSyncRules(syncRuleStorage);
+    } finally {
+      await lock.release();
+    }
   }
 
   protected async terminateSyncRules(syncRuleStorage: storage.SyncRulesBucketStorage) {

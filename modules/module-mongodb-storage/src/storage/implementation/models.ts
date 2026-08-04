@@ -273,6 +273,11 @@ export interface CustomWriteCheckpointDocument {
    * This is not unique - multiple write checkpoints can have the same op_id.
    */
   op_id?: InternalOpId;
+  /**
+   * Set when this checkpoint was created from a client-supplied checkpoint
+   * request rather than a persistent custom write checkpoint.
+   */
+  checkpoint_requested_at?: Date | null;
 }
 
 export interface WriteCheckpointDocument {
@@ -286,6 +291,12 @@ export interface WriteCheckpointDocument {
    * between two checkpoints.
    */
   processed_at_lsn: string | null;
+  /**
+   * Set when this checkpoint was created from a client-supplied checkpoint request
+   * rather than a server-generated id. A missing/null value means this is not a
+   * checkpoint request.
+   */
+  checkpoint_requested_at?: Date | null;
 }
 
 export interface InstanceDocument {
