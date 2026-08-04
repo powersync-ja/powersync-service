@@ -5,7 +5,8 @@ import {
   ErrorCode,
   Logger,
   ReplicationAbortedError,
-  ReplicationAssertionError
+  ReplicationAssertionError,
+  ServiceError
 } from '@powersync/lib-services-framework';
 import {
   MetricsEngine,
@@ -520,6 +521,13 @@ export class ConvexStream {
   ): Promise<SourceTable[]> {
     if (tablePattern.connectionTag != this.connections.connectionTag) {
       return [];
+    }
+
+    if (tablePattern.isSchemaWildcard) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_R2201,
+        'Schema wildcards ("%") in table patterns are not supported for Convex connections.'
+      );
     }
 
     if (tablePattern.schema != this.defaultSchema) {

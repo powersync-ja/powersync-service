@@ -163,8 +163,9 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       } catch (ex) {
         // Convert to our standard form before responding.
         // This ensures the error can be serialized.
+        // However, use the original error for the logs, so that we have the stack trace.
         const error = new errors.InternalServerError(ex);
-        logger.error('Sync stream error', error);
+        logger.error('Sync stream error', ex);
         closeReason ??= 'stream error';
         responder.onError(error);
       } finally {

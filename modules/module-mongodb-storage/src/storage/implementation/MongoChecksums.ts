@@ -59,8 +59,10 @@ export interface MongoChecksumOptions {
 interface MongoChecksumCacheReadContext {
   /**
    * (Optional) Specify a specific Timestamp for the snapshot read.
+   * Must include clusterTime as well.
    */
   snapshotTime?: mongo.Timestamp;
+  clusterTime?: mongo.ClusterTime;
 
   /**
    * Read preference. Use undefined for the default,
@@ -142,10 +144,11 @@ export abstract class MongoChecksums {
       throw new ServiceAssertionError(`context is required`);
     }
 
-    const { snapshotTime, readPreference } = context;
+    const { snapshotTime, clusterTime, readPreference } = context;
     return this.db.client.withSession({ snapshot: true }, async (session) => {
-      if (snapshotTime != null) {
+      if (snapshotTime != null && clusterTime != null) {
         setSessionSnapshotTime(session, snapshotTime);
+        session.advanceClusterTime(clusterTime);
       }
       return this.computePartialChecksumsWithSession(batch, {
         readOptions: {

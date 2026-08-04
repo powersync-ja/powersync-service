@@ -8,7 +8,6 @@ import { models, NormalizedPostgresStorageConfig } from '../types/types.js';
 
 import { getStorageApplicationName } from '../utils/application-name.js';
 import { NOTIFICATION_CHANNEL, STORAGE_SCHEMA_NAME } from '../utils/db.js';
-import { notifySyncRulesUpdate } from './batch/PostgresBucketBatch.js';
 import { PostgresSyncRulesStorage } from './PostgresSyncRulesStorage.js';
 import { PostgresPersistedReplicationStream } from './sync-rules/PostgresPersistedSyncConfigContent.js';
 
@@ -219,8 +218,6 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       `
         .decoded(models.SyncRules)
         .first();
-
-      await notifySyncRulesUpdate(this.db, newSyncRulesRow!);
 
       return new PostgresPersistedReplicationStream(this.db, newSyncRulesRow!);
     });

@@ -26,8 +26,9 @@ import { HydratedSyncConfig, ParameterLookupRows, ScopedParameterLookup } from '
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
-import { retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
+import { DEFAULT_CLEAR_BATCH_THROTTLE_RATE } from '../../types/types.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
+import { DEFAULT_INLINE_THRESHOLD_BYTES } from './common/PersistedBatch.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
@@ -37,12 +38,16 @@ import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import { MongoPersistedReplicationStream } from './MongoPersistedReplicationStream.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
+import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   readPreference?: mongo.ReadPreference;
   checksumCacheTtlMs?: number;
+  clearBatchThrottleRate?: number;
   storageConfig: StorageConfig;
+  objectStorage?: ObjectStorage;
+  inlineThresholdBytes?: number;
 }
 
 interface InternalCheckpointChanges extends CheckpointChanges {
@@ -71,6 +76,9 @@ export abstract class MongoSyncBucketStorage
 
   readonly checksums: MongoChecksums;
 
+  readonly objectStorage?: ObjectStorage;
+  readonly inlineThresholdBytes: number;
+
   /**
    * Canonical parsed sync config sets, keyed by defaultSchema.
    *
@@ -83,6 +91,7 @@ export abstract class MongoSyncBucketStorage
   public readonly logger: Logger;
   public readonly storageConfig: StorageConfig;
   public readonly readPreference: mongo.ReadPreference | undefined;
+  public readonly clearBatchThrottleRate: number;
   #storageInitialized = false;
 
   constructor(
@@ -95,7 +104,12 @@ export abstract class MongoSyncBucketStorage
   ) {
     super();
     this.storageConfig = options.storageConfig;
+    this.objectStorage = options.objectStorage;
+    // Keep small chunks inline in MongoDB rather than offloading them to S3.
+    // Configurable via object_storage.inline_threshold_bytes.
+    this.inlineThresholdBytes = options.inlineThresholdBytes ?? DEFAULT_INLINE_THRESHOLD_BYTES;
     this.readPreference = options.readPreference;
+    this.clearBatchThrottleRate = options.clearBatchThrottleRate ?? DEFAULT_CLEAR_BATCH_THROTTLE_RATE;
     this.db = factory.db.versioned(this.storageConfig);
     this.checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
@@ -134,7 +148,9 @@ export abstract class MongoSyncBucketStorage
     this.writeCheckpointAPI.setWriteCheckpointMode(mode);
   }
 
-  createManagedWriteCheckpoints(checkpoints: storage.ManagedWriteCheckpointOptions[]): Promise<Map<string, bigint>> {
+  createManagedWriteCheckpoints(
+    checkpoints: storage.ManagedWriteCheckpointOptions[]
+  ): Promise<storage.CreateManagedWriteCheckpointsResult> {
     return this.writeCheckpointAPI.createManagedWriteCheckpoints(checkpoints);
   }
 
@@ -174,10 +190,14 @@ export abstract class MongoSyncBucketStorage
       }
 
       const snapshotTime = (session as any).snapshotTime as bson.Timestamp | undefined;
+      const clusterTime = session.clusterTime;
       if (snapshotTime == null) {
         throw new ServiceAssertionError('Missing snapshotTime in getCheckpoint()');
       }
-      return new MongoReplicationCheckpoint(this, state.checkpoint, state.lsn, snapshotTime);
+      if (clusterTime == null) {
+        throw new ServiceAssertionError('Missing clusterTime in getCheckpoint()');
+      }
+      return new MongoReplicationCheckpoint(this, state.checkpoint, state.lsn, snapshotTime, clusterTime);
     });
   }
 
@@ -214,7 +234,9 @@ export abstract class MongoSyncBucketStorage
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable,
       hooks: options.hooks,
-      tracer: options.tracer
+      tracer: options.tracer,
+      objectStorage: this.objectStorage,
+      inlineThresholdBytes: this.inlineThresholdBytes
     };
   }
 
@@ -273,6 +295,7 @@ export abstract class MongoSyncBucketStorage
     const snapshotTime = mongoCheckpoint.snapshotTime; // May be undefined in tests
     return this.checksums.getChecksums(checkpoint.checkpoint, buckets, {
       snapshotTime,
+      clusterTime: mongoCheckpoint.clusterTime,
       readPreference: options?.requestHint == 'bulk' ? this.readPreference : undefined
     });
   }
@@ -324,23 +347,6 @@ export abstract class MongoSyncBucketStorage
     await this.clearSourceTables(signal);
 
     this.#storageInitialized = false;
-  }
-
-  protected async clearDeleteMany(
-    label: string,
-    operation: () => Promise<mongo.DeleteResult>,
-    signal?: AbortSignal
-  ): Promise<void> {
-    await retryOnMongoMaxTimeMSExpired(operation, {
-      signal,
-      abortMessage: 'Aborted clearing data',
-      retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5,
-      onRetry: () => {
-        this.logger.info(
-          `Cleared batch of ${label} in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
-        );
-      }
-    });
   }
 
   async reportError(e: any): Promise<void> {
@@ -590,6 +596,9 @@ export abstract class MongoSyncBucketStorage
   >({
     max: 50,
     maxSize: 12 * 1024 * 1024,
+    // When we have more fetches than the cache size, complete the fetches instead
+    // of failing with Error('evicted').
+    ignoreFetchAbort: true,
     sizeCalculation: (value: InternalCheckpointChanges) => {
       const paramSize = [...value.updatedParameterLookups].reduce<number>((a, b) => a + b.length, 0);
       const bucketSize = [...value.updatedDataBuckets].reduce<number>((a, b) => a + b.length, 0);
@@ -627,7 +636,8 @@ class MongoReplicationCheckpoint implements ReplicationCheckpoint {
     storage: MongoSyncBucketStorage,
     public readonly checkpoint: InternalOpId,
     public readonly lsn: string | null,
-    public snapshotTime: mongo.Timestamp
+    public snapshotTime: mongo.Timestamp,
+    public clusterTime: mongo.ClusterTime
   ) {
     this.#storage = storage;
   }

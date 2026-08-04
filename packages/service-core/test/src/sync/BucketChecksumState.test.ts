@@ -1183,7 +1183,7 @@ streams:
       ).rejects.toThrow('Too many buckets: 60 (limit of 50');
 
       // Verify error log includes breakdown
-      expect(errorMessages[0]).toContain('Buckets by definition:');
+      expect(errorMessages[0]).toContain('(limit of 50)\nBuckets by sync stream:');
       expect(errorMessages[0]).toContain('projects: 30');
       expect(errorMessages[0]).toContain('tasks: 20');
       expect(errorMessages[0]).toContain('comments: 10');
@@ -1197,15 +1197,60 @@ streams:
       });
     });
 
-    test('limits bucket breakdown to top 10 definitions', async () => {
-      // Create sync streams with 15 different definitions with dynamic parameters
+    test('labels the bucket breakdown as bucket definitions for legacy sync rules', async () => {
+      const legacySyncRules = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  projects:
+    parameters: SELECT id FROM projects WHERE user_id = request.user_id()
+    data: []
+    `,
+        { defaultSchema: 'public' }
+      ).config.hydrate({ hydrationState: versionedHydrationState(5), sqlite: nodeSqlite(sqlite) });
+
+      const storage = new MockBucketChecksumStateStorage();
+      const errorMessages: string[] = [];
+      const state = new BucketChecksumState({
+        syncContext: new SyncContext({
+          maxBuckets: 50,
+          maxParameterQueryResults: 100,
+          maxDataFetchConcurrency: 10
+        }),
+        tokenPayload: new JwtPayload({ sub: 'u1' }),
+        syncRequest,
+        syncRules: legacySyncRules,
+        bucketStorage: storage,
+        logger: {
+          info: () => {},
+          error: (message: string) => errorMessages.push(message),
+          warn: () => {},
+          debug: () => {}
+        } as any
+      });
+
+      await expect(
+        state.buildNextCheckpointLine({
+          base: storage.makeCheckpoint(1n, (lookups) => [
+            { lookup: lookups[0], rows: Array.from({ length: 60 }, (_, id) => ({ id })) }
+          ]),
+          writeCheckpoint: null,
+          update: CHECKPOINT_INVALIDATE_ALL
+        })
+      ).rejects.toThrow('Too many buckets: 60 (limit of 50)');
+
+      expect(errorMessages[0]).toContain('(limit of 50)\nBuckets by bucket definition:');
+      expect(errorMessages[0]).toContain('projects: 60');
+    });
+
+    test('limits bucket breakdown to top 100 sync streams', async () => {
+      // Create 105 sync streams with dynamic parameters.
       let yamlDefinitions = `
 config:
   edition: 3
 
 streams:
 `;
-      for (let i = 1; i <= 15; i++) {
+      for (let i = 1; i <= 105; i++) {
         yamlDefinitions += `  def${i}:\n`;
         yamlDefinitions += `    auto_subscribe: true\n`;
         yamlDefinitions += `    query: SELECT * FROM tbl WHERE b = auth.parameter('${i}')\n`;
@@ -1229,7 +1274,7 @@ streams:
       };
 
       const smallContext = new SyncContext({
-        maxBuckets: 10,
+        maxBuckets: 100,
         maxParameterQueryResults: 10,
         maxDataFetchConcurrency: 10
       });
@@ -1238,7 +1283,7 @@ streams:
         syncContext: smallContext,
         tokenPayload: new JwtPayload({
           sub: 'u1',
-          ...Object.fromEntries(Array.from({ length: 30 }, (_, i) => [i.toString(), BigInt(i)]))
+          ...Object.fromEntries(Array.from({ length: 106 }, (_, i) => [i.toString(), BigInt(i)]))
         }),
         syncRequest,
         syncRules: SYNC_RULES_MANY,
@@ -1252,15 +1297,16 @@ streams:
           writeCheckpoint: null,
           update: CHECKPOINT_INVALIDATE_ALL
         })
-      ).rejects.toThrow('Too many buckets: 15 (limit of 10)');
+      ).rejects.toThrow('Too many buckets: 105 (limit of 100)');
 
-      // Verify only top 10 are shown
+      // Verify only the first 100 are shown.
       const errorMessage = errorMessages[0];
-      expect(errorMessage).toContain('... and 5 more results from 5 definitions');
+      expect(errorMessage).toContain('Buckets by sync stream:');
+      expect(errorMessage).toContain('... and 5 more buckets from 5 sync streams');
 
-      // Count how many definitions are listed (should be exactly 10)
+      // Count how many sync streams are listed (should be exactly 100).
       const defMatches = errorMessage.match(/def\d+:/g);
-      expect(defMatches?.length).toBe(10);
+      expect(defMatches?.length).toBe(100);
     });
   });
 });

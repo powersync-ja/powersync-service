@@ -34,52 +34,170 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
 
   async createManagedWriteCheckpoints(
     checkpoints: storage.ManagedWriteCheckpointOptions[]
-  ): Promise<Map<string, bigint>> {
+  ): Promise<storage.CreateManagedWriteCheckpointsResult> {
     if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
       throw new framework.errors.ValidationError(
         `Attempting to create a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
       );
     }
 
-    const uniqueCheckpoints = [...new Map(checkpoints.map((checkpoint) => [checkpoint.user_id, checkpoint])).values()];
+    const uniqueCheckpoints = storage.uniqueManagedWriteCheckpoints(checkpoints);
     if (uniqueCheckpoints.length == 0) {
-      return new Map();
+      return { writeCheckpoints: new Map(), shouldAdvance: false };
     }
 
-    const mappedCheckpoints = uniqueCheckpoints.map((checkpoint) => ({
-      user_id: checkpoint.user_id,
-      lsns: checkpoint.heads
-    }));
+    const writeCheckpoints = new Map<string, bigint>();
+    const generatedCheckpoints = uniqueCheckpoints.filter((checkpoint) => checkpoint.checkpoint_request_id == null);
+    const suppliedCheckpoints = uniqueCheckpoints.filter((checkpoint) => checkpoint.checkpoint_request_id != null);
 
-    const rows = await this.db.sql`
-      WITH
-        json_data AS (
+    if (generatedCheckpoints.length > 0) {
+      const mappedCheckpoints = generatedCheckpoints.map((checkpoint) => ({
+        user_id: checkpoint.user_id,
+        lsns: checkpoint.heads
+      }));
+
+      const generatedRows = await this.db.sql`
+        WITH
+          json_data AS (
+            SELECT
+            CHECKPOINT ->> 'user_id' AS user_id,
+            CHECKPOINT -> 'lsns' AS lsns
+            FROM
+              jsonb_array_elements(${{ type: 'jsonb', value: mappedCheckpoints }}) AS
+            CHECKPOINT
+          )
+        INSERT INTO
+          write_checkpoints (
+            user_id,
+            lsns,
+            write_checkpoint,
+            checkpoint_requested_at
+          )
+        SELECT
+          user_id,
+          lsns,
+          1,
+          NULL
+        FROM
+          json_data
+        ON CONFLICT (user_id) DO UPDATE
+        SET
+          write_checkpoint = write_checkpoints.write_checkpoint + 1,
+          lsns = EXCLUDED.lsns,
+          checkpoint_requested_at = NULL
+        RETURNING
+          *;
+      `
+        .decoded(models.WriteCheckpoint)
+        .rows();
+
+      for (const row of generatedRows) {
+        writeCheckpoints.set(row.user_id, row.write_checkpoint);
+      }
+    }
+
+    if (suppliedCheckpoints.length > 0) {
+      // Supplied request ids are monotonic. Greater values update the checkpoint
+      // id and heads, while equal retries only refresh the retention timestamp.
+      // Stale requests return the stored id without changing the row.
+      const mappedCheckpoints = suppliedCheckpoints.map((checkpoint) => ({
+        user_id: checkpoint.user_id,
+        lsns: checkpoint.heads,
+        checkpoint_request_id: String(checkpoint.checkpoint_request_id)
+      }));
+
+      const suppliedRows = await this.db.sql`
+        WITH
+          json_data AS (
+            SELECT
+            CHECKPOINT ->> 'user_id' AS user_id,
+            CHECKPOINT -> 'lsns' AS lsns,
+            (
+              CHECKPOINT ->> 'checkpoint_request_id'
+            )::int8 AS checkpoint_request_id
+            FROM
+              jsonb_array_elements(${{ type: 'jsonb', value: mappedCheckpoints }}) AS
+            CHECKPOINT
+          )
+        INSERT INTO
+          write_checkpoints (
+            user_id,
+            lsns,
+            write_checkpoint,
+            checkpoint_requested_at
+          )
+        SELECT
+          user_id,
+          lsns,
+          checkpoint_request_id,
+          NOW()
+        FROM
+          json_data
+        ON CONFLICT (user_id) DO UPDATE
+        SET
+          write_checkpoint = CASE
+            WHEN EXCLUDED.write_checkpoint > write_checkpoints.write_checkpoint THEN EXCLUDED.write_checkpoint
+            ELSE write_checkpoints.write_checkpoint
+          END,
+          lsns = CASE
+            WHEN EXCLUDED.write_checkpoint > write_checkpoints.write_checkpoint THEN EXCLUDED.lsns
+            ELSE write_checkpoints.lsns
+          END,
+          checkpoint_requested_at = NOW()
+        WHERE
+          EXCLUDED.write_checkpoint >= write_checkpoints.write_checkpoint
+        RETURNING
+          *;
+      `
+        .decoded(models.WriteCheckpoint)
+        .rows();
+
+      for (const row of suppliedRows) {
+        writeCheckpoints.set(row.user_id, row.write_checkpoint);
+      }
+
+      // RETURNING only excludes stale requests rejected by the monotonic
+      // conflict condition. Those requests still need the stored id.
+      const returnedSuppliedUserIds = new Set(suppliedRows.map((row) => row.user_id));
+      const unchangedUserIds = suppliedCheckpoints
+        .map((checkpoint) => checkpoint.user_id)
+        .filter((userId) => !returnedSuppliedUserIds.has(userId));
+
+      if (unchangedUserIds.length > 0) {
+        const mappedUserIds = unchangedUserIds.map((user_id) => ({ user_id }));
+        const unchangedRows = await this.db.sql`
+          WITH
+            json_data AS (
+              SELECT
+              CHECKPOINT ->> 'user_id' AS user_id
+              FROM
+                jsonb_array_elements(${{ type: 'jsonb', value: mappedUserIds }}) AS
+              CHECKPOINT
+            )
           SELECT
-          CHECKPOINT ->> 'user_id' AS user_id,
-          CHECKPOINT -> 'lsns' AS lsns
+            write_checkpoints.*
           FROM
-            jsonb_array_elements(${{ type: 'jsonb', value: mappedCheckpoints }}) AS
-          CHECKPOINT
-        )
-      INSERT INTO
-        write_checkpoints (user_id, lsns, write_checkpoint)
-      SELECT
-        user_id,
-        lsns,
-        1
-      FROM
-        json_data
-      ON CONFLICT (user_id) DO UPDATE
-      SET
-        write_checkpoint = write_checkpoints.write_checkpoint + 1,
-        lsns = EXCLUDED.lsns
-      RETURNING
-        *;
-    `
-      .decoded(models.WriteCheckpoint)
-      .rows();
+            write_checkpoints
+            JOIN json_data ON write_checkpoints.user_id = json_data.user_id;
+        `
+          .decoded(models.WriteCheckpoint)
+          .rows();
 
-    return new Map(rows.map((row) => [row.user_id, row.write_checkpoint]));
+        for (const row of unchangedRows) {
+          writeCheckpoints.set(row.user_id, row.write_checkpoint);
+        }
+      }
+    }
+
+    // Postgres storage does not track a per-row processed indicator: a write
+    // checkpoint is considered processed at read time by comparing its lsns
+    // against the replicated head (see lastManagedWriteCheckpoint). We therefore
+    // force the source marker whenever any checkpoint was matched, which also
+    // covers stale or duplicate requests whose stored checkpoint may still be
+    // pending. Forcing a marker for an already-processed checkpoint is wasteful
+    // but harmless.
+    const shouldAdvance = generatedCheckpoints.length > 0 || suppliedCheckpoints.length > 0;
+    return { writeCheckpoints, shouldAdvance };
   }
 
   async lastWriteCheckpoint(filters: storage.LastWriteCheckpointFilters): Promise<bigint | null> {
@@ -155,7 +273,8 @@ export async function batchCreateCustomWriteCheckpoints(
       // Cannot encode bigint directly using JSON.stringify.
       // The ::int8 in the query below will take care of casting back to a number
       checkpoint: String(cp.checkpoint),
-      sync_rules_id: cp.sync_rules_id
+      sync_rules_id: cp.sync_rules_id,
+      checkpoint_requested_at: cp.checkpoint_requested_at?.toISOString() ?? null
     };
   });
 
@@ -167,7 +286,12 @@ export async function batchCreateCustomWriteCheckpoints(
         CHECKPOINT
       )
     INSERT INTO
-      custom_write_checkpoints (user_id, write_checkpoint, sync_rules_id)
+      custom_write_checkpoints (
+        user_id,
+        write_checkpoint,
+        sync_rules_id,
+        checkpoint_requested_at
+      )
     SELECT
     CHECKPOINT ->> 'user_id'::varchar,
     (
@@ -175,11 +299,15 @@ export async function batchCreateCustomWriteCheckpoints(
     )::int8,
     (
       CHECKPOINT ->> 'sync_rules_id'
-    )::int4
+    )::int4,
+    (
+      CHECKPOINT ->> 'checkpoint_requested_at'
+    )::timestamptz
     FROM
       json_data
     ON CONFLICT (user_id, sync_rules_id) DO UPDATE
     SET
-      write_checkpoint = EXCLUDED.write_checkpoint;
+      write_checkpoint = EXCLUDED.write_checkpoint,
+      checkpoint_requested_at = EXCLUDED.checkpoint_requested_at;
   `.execute();
 }

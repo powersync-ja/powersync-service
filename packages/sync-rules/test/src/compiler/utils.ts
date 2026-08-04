@@ -4,6 +4,7 @@ import {
   getLocation,
   ParsingErrorListener,
   PrecompiledSyncConfig,
+  SerializedSyncPlan,
   serializeSyncPlan,
   SqlSyncRules,
   SyncPlan,
@@ -18,7 +19,7 @@ interface TranslationError {
   startOffset?: number;
 }
 
-export function compileSingleStreamAndSerialize(...sql: string[]): unknown {
+export function compileSingleStreamAndSerialize(...sql: string[]): SerializedSyncPlan {
   const [errors, plan] = compileSingleStream(...sql);
   expect(errors).toStrictEqual([]);
   return serializeSyncPlan(plan);

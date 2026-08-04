@@ -5,6 +5,7 @@ import { MapSourceVisitor, visitExpr } from '../expression_visitor.js';
 import {
   ColumnSqlParameterValue,
   RequestSqlParameterValue,
+  RowMetadataSqlValue,
   SqlParameterValue,
   TableProcessorTableValuedFunction,
   TableProcessorTableValuedFunctionOutput
@@ -123,6 +124,7 @@ class StatementToSqlite extends ExpressionToSqlite<number | TableValuedFunctionO
 export function mapExternalDataToInstantiation<T extends SqlParameterValue>() {
   const instantiation: T[] = [];
   const columnsToIndex = new Map<ColumnSqlParameterValue, number>();
+  const metadataToIndex = new Map<RowMetadataSqlValue, number>();
   const requestToIndex = new Map<RequestSqlParameterValue, number>();
   // Map from table-valued functions on the plan to table-valued functions on the scalar statement
   const tableValuedFunctions = new Map<TableProcessorTableValuedFunction, TableValuedFunction>();
@@ -135,6 +137,12 @@ export function mapExternalDataToInstantiation<T extends SqlParameterValue>() {
       }
 
       columnsToIndex.set(data, indexIfAdded);
+    } else if ('metadata' in data) {
+      if (metadataToIndex.has(data)) {
+        return metadataToIndex.get(data)!;
+      }
+
+      metadataToIndex.set(data, indexIfAdded);
     } else if ('function' in data) {
       const fn = tableValuedFunctions.get(data.function);
       if (fn == null) {

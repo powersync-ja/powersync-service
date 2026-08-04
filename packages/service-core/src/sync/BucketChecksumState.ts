@@ -2,6 +2,7 @@ import {
   BucketParameterQuerier,
   BucketPriority,
   BucketSource,
+  BucketSourceType,
   HydratedSyncConfig,
   mergeBuckets,
   QuerierError,
@@ -76,6 +77,12 @@ export class BucketChecksumState {
   private lastChecksums: util.ChecksumMap | null = null;
   private lastWriteCheckpoint: bigint | null = null;
   /**
+   * The next storage checkpoint diff may be relative to a checksum-invalidated
+   * checkpoint that was never sent to the client. Re-check every bucket once
+   * instead of applying that diff to the last client-visible checksums.
+   */
+  private forceFullChecksumForNextCheckpoint = false;
+  /**
    * Once we've sent the first full checkpoint line including all {@link util.Checkpoint.streams} that the user is
    * subscribed to, we keep an index of the stream names to their index in that array.
    *
@@ -116,6 +123,10 @@ export class BucketChecksumState {
     }
   }
 
+  invalidateChecksumBaseline() {
+    this.forceFullChecksumForNextCheckpoint = true;
+  }
+
   /**
    * Build a new checkpoint line for an underlying storage checkpoint update if any buckets have changed.
    *
@@ -140,6 +151,7 @@ export class BucketChecksumState {
 
     const update = await this.parameterState.getCheckpointUpdate(next, tracer);
     const { buckets: allBuckets, updatedBuckets, usedParameterResults } = update;
+    const forceFullChecksum = this.forceFullChecksumForNextCheckpoint;
 
     /** Set of all buckets in this checkpoint. */
     const bucketDescriptionMap = new Map(allBuckets.map((b) => [b.bucket, b]));
@@ -164,8 +176,9 @@ export class BucketChecksumState {
         const count = bucketsByDefinition.get(definition) ?? 0;
         bucketsByDefinition.set(definition, count + 1);
       }
-
-      const breakdown = formatBucketDefinitionBreakdown(bucketsByDefinition);
+      // Only 1 type is allowed per sync config
+      const bucketSourceType = this.parameterState.syncRules.bucketSourceDefinitions[0].type;
+      const breakdown = formatBucketDefinitionBreakdown(bucketsByDefinition, bucketSourceType);
       errorMessage += breakdown.message;
       logData.buckets_by_definition = breakdown.countsByDefinition;
 
@@ -174,7 +187,7 @@ export class BucketChecksumState {
     }
 
     let checksumMap: util.ChecksumMap;
-    if (updatedBuckets != INVALIDATE_ALL_BUCKETS) {
+    if (!forceFullChecksum && updatedBuckets != INVALIDATE_ALL_BUCKETS) {
       if (this.lastChecksums == null) {
         throw new ServiceAssertionError(`Bucket diff received without existing checksums`);
       }
@@ -248,6 +261,9 @@ export class BucketChecksumState {
         diff.updatedBuckets.length == 0
       ) {
         // No changes - don't send anything to the client
+        if (forceFullChecksum) {
+          this.forceFullChecksumForNextCheckpoint = false;
+        }
         return null;
       }
 
@@ -402,6 +418,9 @@ export class BucketChecksumState {
         this.lastChecksums = checksumMap;
         this.lastWriteCheckpoint = writeCheckpoint;
         this.pendingBucketDownloads = pendingBucketDownloads;
+        if (forceFullChecksum) {
+          this.forceFullChecksumForNextCheckpoint = false;
+        }
         deferredLog();
       },
 
@@ -795,30 +814,36 @@ function logCheckpoint(
 }
 
 /**
- * Format a breakdown of dynamic bucket by sync stream definition.
+ * Format a breakdown of dynamic buckets by sync stream or legacy bucket definition.
  *
- * Sorts definitions by count (descending), includes the top 10, and returns both the
+ * Sorts definitions by count (descending), includes the top 100, and returns both the
  * formatted message string and the counts record suitable for structured log data.
  */
-function formatBucketDefinitionBreakdown(bucketsByDefinition: Map<string, number>): {
+function formatBucketDefinitionBreakdown(
+  bucketsByDefinition: Map<string, number>,
+  bucketSourceType: BucketSourceType
+): {
   message: string;
   countsByDefinition: Record<string, number>;
 } {
-  // Sort definitions by count (descending) and take top 10
-  const allSorted = Array.from(bucketsByDefinition.entries()).sort((a, b) => b[1] - a[1]);
-  const sortedDefinitions = allSorted.slice(0, 10);
+  const maxLoggedDefinitions = 100;
 
-  let message = '\Buckets by definition:';
+  // Sort definitions by count (descending) and take the largest entries.
+  const allSorted = Array.from(bucketsByDefinition.entries()).sort((a, b) => b[1] - a[1]);
+  const sortedDefinitions = allSorted.slice(0, maxLoggedDefinitions);
+
+  const sourceLabel = bucketSourceType == BucketSourceType.SYNC_STREAM ? 'sync stream' : 'bucket definition';
+  let message = `\nBuckets by ${sourceLabel}:`;
   const countsByDefinition: Record<string, number> = {};
   for (const [definition, count] of sortedDefinitions) {
     message += `\n  ${definition}: ${count}`;
     countsByDefinition[definition] = count;
   }
 
-  if (allSorted.length > 10) {
-    const remainingResults = allSorted.slice(10).reduce((sum, [, count]) => sum + count, 0);
-    const remainingDefinitions = allSorted.length - 10;
-    message += `\n  ... and ${remainingResults} more results from ${remainingDefinitions} definitions`;
+  if (allSorted.length > maxLoggedDefinitions) {
+    const remainingResults = allSorted.slice(maxLoggedDefinitions).reduce((sum, [, count]) => sum + count, 0);
+    const remainingDefinitions = allSorted.length - maxLoggedDefinitions;
+    message += `\n  ... and ${remainingResults} more buckets from ${remainingDefinitions} ${sourceLabel}s`;
   }
 
   return { message, countsByDefinition };

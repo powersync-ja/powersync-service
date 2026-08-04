@@ -1,20 +1,32 @@
+import { bson } from '@powersync/service-core';
 import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
 import { BucketDataDocumentV3, BucketOperation } from './models.js';
 
-export function serializeBucketData(bucket: string, operations: BucketDataDoc[]): BucketDataDocumentV3 {
+/**
+ * Serialize a non-empty list of operations in strictly ascending `o` order.
+ * Preserving that order establishes the {@link BucketDataDocumentV3} range
+ * invariants used by metadata-only queries.
+ */
+export function serializeBucketData(
+  bucket: string,
+  operations: BucketDataDoc[],
+  options?: { compactionTargetOp?: bigint }
+): BucketDataDocumentV3 {
   const minOp = operations[0].o;
   const maxOp = operations[operations.length - 1].o;
 
   let totalChecksum = 0n;
-  let totalSize = 0;
-  let maxTargetOp: bigint | null = null;
+  let maxTargetOp: bigint | null = options?.compactionTargetOp ?? null;
+  let hasClearOp = false;
 
   const ops: BucketOperation[] = operations.map((op) => {
     totalChecksum += op.checksum;
-    totalSize += op.data?.length ?? 0;
 
     if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
       maxTargetOp = op.target_op;
+    }
+    if (op.op == 'CLEAR') {
+      hasClearOp = true;
     }
 
     return {
@@ -29,6 +41,8 @@ export function serializeBucketData(bucket: string, operations: BucketDataDoc[])
     };
   });
 
+  const size = bson.calculateObjectSize(ops);
+
   return {
     _id: {
       b: bucket,
@@ -37,8 +51,9 @@ export function serializeBucketData(bucket: string, operations: BucketDataDoc[])
     min_op: minOp,
     checksum: totalChecksum,
     count: operations.length,
-    size: totalSize,
+    size,
     target_op: maxTargetOp,
+    ...(hasClearOp ? { has_clear_op: true as const } : {}),
     ops
   };
 }
@@ -48,6 +63,11 @@ export function* loadBucketDataDocument(
   doc: BucketDataDocumentV3
 ): Generator<BucketDataDoc> {
   const { _id, ops } = doc;
+  if (!ops) {
+    throw new Error(
+      `Missing ops array on BucketDataDocumentV3 at _id.o=${_id.o}. Callers must patch doc.ops from S3 before calling this function.`
+    );
+  }
   const bucketKey = {
     ...context,
     bucket: _id.b

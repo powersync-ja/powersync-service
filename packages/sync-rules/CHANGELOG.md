@@ -1,5 +1,17 @@
 # @powersync/service-sync-rules
 
+## 0.39.0
+
+### Minor Changes
+
+- ea71bf3: Stop exporting legacy Sync Rules and alpha Sync Streams implementations
+
+### Patch Changes
+
+- edc6ed4: Emit a warning for Sync Streams with joins where the primary table has an alias. Adding an alias syncs the table under the changed name, which may be unintentional for joins if aliases are only added to simplify filters.
+
+  Closes #565.
+
 ## 0.38.1
 
 ### Patch Changes

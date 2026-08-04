@@ -37,12 +37,16 @@ import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
 import { MongoStoppedSyncConfigCleanup } from './MongoStoppedSyncConfigCleanup.js';
+import { hydrateBucketDataDocuments } from './object-storage/BucketDataObjectStorage.js';
+import { ObjectStorage } from './object-storage/ObjectStorage.js';
+import { ObjectStorageLifecycle } from './object-storage/ObjectStorageLifecycle.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export interface MongoSyncBucketStorageContextV3 {
   db: VersionedPowerSyncMongoV3;
   replicationStreamId: number;
   readPreference?: mongo.ReadPreference;
+  objectStorage: ObjectStorage | undefined;
   /**
    * Persisted mapping of the single sync config that read operations are served from.
    *
@@ -52,10 +56,33 @@ export interface MongoSyncBucketStorageContextV3 {
   readonly mapping: SingleSyncConfigBucketDefinitionMapping;
 }
 
+const BUCKET_DATA_FETCH_BATCH_LIMIT_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Keep the documents hydrated for one sync response within a bounded payload.
+ * The first document is always included so an oversized operation cannot prevent
+ * forward progress.
+ */
+function cutBucketDataBatch(documents: BucketDataDocumentV3[]): {
+  documents: BucketDataDocumentV3[];
+  wasCut: boolean;
+} {
+  let cumulativeBytes = 0;
+  for (let index = 0; index < documents.length; index++) {
+    cumulativeBytes += documents[index].size;
+    if (cumulativeBytes > BUCKET_DATA_FETCH_BATCH_LIMIT_BYTES && index > 0) {
+      return {
+        documents: documents.slice(0, index),
+        wasCut: true
+      };
+    }
+  }
+  return { documents, wasCut: false };
+}
+
 function* walkDocumentOps(
   data: BucketDataDoc[],
-  documentOpCounts: number[],
-  documentSizes: number[]
+  documentOpCounts: number[]
 ): Generator<{ row: BucketDataDoc; docIndex: number; isLastOpInDocument: boolean }> {
   let opIndex = 0;
   for (const [docIndex, opCount] of documentOpCounts.entries()) {
@@ -337,6 +364,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     const self = this;
     return {
       db: this.db,
+      objectStorage: this.objectStorage,
       replicationStreamId: this.replicationStreamId,
       readPreference: this.readPreference,
       get mapping() {
@@ -361,10 +389,23 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return getBucketDataBatchV3(this.versionContext, checkpoint, dataBuckets, options);
   }
 
-  protected async clearBucketData(_signal?: AbortSignal): Promise<void> {
+  protected async clearBucketData(signal?: AbortSignal): Promise<void> {
     for (const collection of await this.db.listBucketDataCollections(this.replicationStreamId)) {
       await collection.drop();
     }
+    if (this.objectStorage) {
+      const lifecycle = new ObjectStorageLifecycle(this.db, this.replicationStreamId, this.objectStorage);
+      await lifecycle.deletePrefix(lifecycle.streamPrefix(), { signal });
+    }
+    await this.db
+      .pendingObjectStorageDeletes(this.replicationStreamId)
+      .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
+      .catch((error) => {
+        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          return;
+        }
+        throw error;
+      });
   }
 
   protected async clearParameterIndexes(_signal?: AbortSignal): Promise<void> {
@@ -412,7 +453,9 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       signal: options.signal,
       logger: options.logger ?? this.logger,
       defaultSchema: options.defaultSchema,
-      sourceConnectionTag: options.sourceConnectionTag
+      sourceConnectionTag: options.sourceConnectionTag,
+      objectStorage: this.objectStorage,
+      clearBatchThrottleRate: this.clearBatchThrottleRate
     }).run();
   }
 
@@ -553,6 +596,7 @@ export async function* getBucketDataBatchV3(
 
   if (session != null) {
     session.advanceOperationTime(checkpoint.snapshotTime);
+    session.advanceClusterTime(checkpoint.clusterTime);
   }
 
   const batchLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
@@ -614,14 +658,24 @@ export async function* getBucketDataBatchV3(
 
     const data: BucketDataDoc[] = [];
     const documentOpCounts: number[] = [];
-    const documentSizes: number[] = [];
     let sharedRemainingLimit = limit;
     let limitReached = false;
     // Buckets whose matched document contributed no rows after filtering.
     const completeEmptyBuckets = new Set<string>();
 
-    for (const raw of rawData) {
-      const doc = bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3;
+    // Deserialize all docs once
+    const deserializedDocs: BucketDataDocumentV3[] = rawData.map(
+      (raw) => bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3
+    );
+    const cutBatch = cutBucketDataBatch(deserializedDocs);
+    const docs = cutBatch.documents;
+    if (cutBatch.wasCut) {
+      hasMore = true;
+    }
+
+    await hydrateBucketDataDocuments(docs, ctx.objectStorage, { signal: options?.signal });
+
+    for (const doc of docs) {
       const {
         rows,
         remainingLimit,
@@ -637,7 +691,6 @@ export async function* getBucketDataBatchV3(
       }
       data.push(...rows);
       documentOpCounts.push(rows.length);
-      documentSizes.push(raw.byteLength);
       sharedRemainingLimit = remainingLimit;
       if (docLimitReached) {
         limitReached = true;
@@ -686,7 +739,7 @@ export async function* getBucketDataBatchV3(
     let currentChunk: utils.SyncBucketData | null = null;
     let targetOp: InternalOpId | null = null;
 
-    for (const { row, docIndex, isLastOpInDocument } of walkDocumentOps(data, documentOpCounts, documentSizes)) {
+    for (const { row, docIndex, isLastOpInDocument } of walkDocumentOps(data, documentOpCounts)) {
       const bucket = row.bucketKey.bucket;
 
       if (currentChunk == null || currentChunk.bucket != bucket || currentChunkSizeBytes >= chunkSizeLimitBytes) {
@@ -729,7 +782,7 @@ export async function* getBucketDataBatchV3(
       currentChunk.next_after = entry.op_id;
 
       if (isLastOpInDocument) {
-        currentChunkSizeBytes += documentSizes[docIndex];
+        currentChunkSizeBytes += docs[docIndex].size;
       }
     }
 

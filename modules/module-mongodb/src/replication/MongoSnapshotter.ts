@@ -418,6 +418,13 @@ export class MongoSnapshotter {
       return [];
     }
 
+    if (tablePattern.isSchemaWildcard) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_R2201,
+        'Schema wildcards ("%") in table patterns are not supported for MongoDB connections.'
+      );
+    }
+
     const nameFilter = tablePattern.isWildcard
       ? new RegExp('^' + escapeRegExp(tablePattern.tablePrefix))
       : tablePattern.name;
