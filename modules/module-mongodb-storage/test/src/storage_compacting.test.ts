@@ -113,7 +113,7 @@ bucket_definitions:
       });
     });
 
-    test('populatePersistentChecksumCache', async () => {
+    test('compactInitialReplication', async () => {
       // Populate old replication stream
       const { factory } = await setup();
 
@@ -133,20 +133,20 @@ bucket_definitions:
       const { checkpoint } = await bucketStorage.getCheckpoint();
 
       // Default is to small small numbers - should be a no-op
-      const result0 = await bucketStorage.populatePersistentChecksumCache({
+      const result0 = await bucketStorage.compactInitialReplication({
         maxOpId: checkpoint
       });
       expect(result0.buckets).toEqual(0);
 
       // This should cache the checksums for the two buckets
-      const result1 = await bucketStorage.populatePersistentChecksumCache({
+      const result1 = await bucketStorage.compactInitialReplication({
         maxOpId: checkpoint,
         minBucketChanges: 1
       });
       expect(result1.buckets).toEqual(2);
 
       // This should be a no-op, as the checksums are already cached
-      const result2 = await bucketStorage.populatePersistentChecksumCache({
+      const result2 = await bucketStorage.compactInitialReplication({
         maxOpId: checkpoint,
         minBucketChanges: 1
       });
@@ -1500,6 +1500,30 @@ bucket_definitions:
       }))
     );
   }
+
+  test('initial compaction merges small chunks and refreshes bucket metadata', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    await insertDocs(collection, [
+      serializeBucketData(BUCKET, [makeOp(1, 'A', 'a', ctx, sourceTableId), makeOp(2, 'B', 'b', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(3, 'C', 'c', ctx, sourceTableId), makeOp(4, 'D', 'd', ctx, sourceTableId)])
+    ]);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 4n);
+
+    const result = await bucketStorage.compactInitialReplication({ maxOpId: 4n });
+
+    expect(result).toEqual({ buckets: 1 });
+    const documents = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    expect(documents).toHaveLength(1);
+    expect(documents[0].ops!.map((op) => op.o)).toEqual([1n, 2n, 3n, 4n]);
+
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.compacted_state).toMatchObject({
+      op_id: 4n,
+      count: 4,
+      checksum: 70n
+    });
+    expect(state?.estimate_since_compact).toEqual({ count: 0, bytes: 0 });
+  });
 
   test('1. multi-batch compaction preserves checksum and creates MOVE tombstones', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();

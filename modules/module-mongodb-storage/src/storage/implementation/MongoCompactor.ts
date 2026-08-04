@@ -7,7 +7,7 @@ import {
   ReplicationAssertionError,
   ServiceAssertionError
 } from '@powersync/lib-services-framework';
-import { InternalOpId, isPartialChecksum, PopulateChecksumCacheResults, storage } from '@powersync/service-core';
+import { InternalOpId, isPartialChecksum, storage } from '@powersync/service-core';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
 
 import { BucketKey } from './common/BucketDataDoc.js';
@@ -50,7 +50,14 @@ export interface CurrentBucketState {
   opBytes: number;
 }
 
-export interface MongoCompactOptions extends storage.CompactOptions {}
+export interface MongoCompactOptions extends storage.CompactOptions {
+  /**
+   * Only merge adjacent V3 bucket-data chunks. This is used after initial
+   * replication, where reading every operation would defeat the purpose of
+   * the lightweight pass.
+   */
+  compactChunksOnly?: boolean;
+}
 
 const DEFAULT_CLEAR_BATCH_LIMIT = 5000;
 const DEFAULT_MOVE_BATCH_LIMIT = 2000;
@@ -93,6 +100,8 @@ export abstract class MongoCompactor {
   protected readonly deleteCheckpointRequestsBefore: Date | undefined;
   protected readonly signal?: AbortSignal;
   protected readonly group_id: number;
+  protected readonly compactChunksOnly: boolean;
+  protected compactedBucketCount = 0;
 
   protected readonly logger: Logger;
 
@@ -116,6 +125,7 @@ export abstract class MongoCompactor {
     this.buckets = options.compactBuckets;
     this.deleteCheckpointRequestsBefore = options.deleteCheckpointRequestsBefore;
     this.signal = options.signal;
+    this.compactChunksOnly = options.compactChunksOnly ?? false;
     this.logger = options.logger ?? defaultLogger;
   }
 
@@ -124,7 +134,7 @@ export abstract class MongoCompactor {
    *
    * See /docs/storage/compacting-operations.md for details.
    */
-  async compact() {
+  async compact(): Promise<number> {
     await this.deleteOldCheckpointRequests();
 
     if (this.buckets) {
@@ -136,6 +146,8 @@ export abstract class MongoCompactor {
     } else {
       await this.compactDirtyBuckets();
     }
+
+    return this.compactedBucketCount;
   }
 
   private async deleteOldCheckpointRequests() {
@@ -155,41 +167,6 @@ export abstract class MongoCompactor {
     await this.db.custom_write_checkpoints.deleteMany({
       checkpoint_requested_at: { $exists: true, $lt: this.deleteCheckpointRequestsBefore }
     });
-  }
-
-  /**
-   * Subset of compact, only populating checksums where relevant.
-   */
-  async populateChecksums(options: { minBucketChanges: number }): Promise<PopulateChecksumCacheResults> {
-    let count = 0;
-    // Paginate through dirty buckets in batches until no more buckets meet the criteria.
-    while (true) {
-      this.signal?.throwIfAborted();
-      const buckets = await this.dirtyBucketBatchForChecksums(options);
-      if (buckets.length == 0) {
-        break;
-      }
-      this.signal?.throwIfAborted();
-
-      const start = Date.now();
-      // Filter batch by estimated bucket size, to reduce possibility of timeouts.
-      const checkBuckets: typeof buckets = [];
-      let totalCountEstimate = 0;
-      for (const bucket of buckets) {
-        checkBuckets.push(bucket);
-        totalCountEstimate += bucket.estimatedCount;
-        if (totalCountEstimate > 50_000) {
-          break;
-        }
-      }
-      this.logger.info(
-        `Calculating checksums for batch of ${buckets.length} buckets, estimated count of ${totalCountEstimate}`
-      );
-      await this.updateChecksumsBatch(checkBuckets);
-      this.logger.info(`Updated checksums for batch of ${checkBuckets.length} buckets in ${Date.now() - start}ms`);
-      count += checkBuckets.length;
-    }
-    return { buckets: count };
   }
 
   protected async *dirtyBucketBatchesForCollection<TCollectionBucketState extends BucketStateDocumentBase>(

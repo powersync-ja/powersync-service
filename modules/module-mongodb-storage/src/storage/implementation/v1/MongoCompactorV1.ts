@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { addChecksums, storage, utils } from '@powersync/service-core';
+import { addChecksums, CompactInitialReplicationResults, storage, utils } from '@powersync/service-core';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketStateDocumentBase, LEGACY_BUCKET_DATA_DEFINITION_ID } from '../models.js';
@@ -53,6 +53,41 @@ export class MongoCompactorV1 extends MongoCompactor {
       },
       () => null
     );
+  }
+
+  /**
+   * Subset of compact, only populating checksums where relevant.
+   */
+  async populateChecksums(options: { minBucketChanges: number }): Promise<CompactInitialReplicationResults> {
+    let count = 0;
+    // Paginate through dirty buckets in batches until no more buckets meet the criteria.
+    while (true) {
+      this.signal?.throwIfAborted();
+      const buckets = await this.dirtyBucketBatchForChecksums(options);
+      if (buckets.length == 0) {
+        break;
+      }
+      this.signal?.throwIfAborted();
+
+      const start = Date.now();
+      // Filter batch by estimated bucket size, to reduce possibility of timeouts.
+      const checkBuckets: typeof buckets = [];
+      let totalCountEstimate = 0;
+      for (const bucket of buckets) {
+        checkBuckets.push(bucket);
+        totalCountEstimate += bucket.estimatedCount;
+        if (totalCountEstimate > 50_000) {
+          break;
+        }
+      }
+      this.logger.info(
+        `Calculating checksums for batch of ${buckets.length} buckets, estimated count of ${totalCountEstimate}`
+      );
+      await this.updateChecksumsBatch(checkBuckets);
+      this.logger.info(`Updated checksums for batch of ${checkBuckets.length} buckets in ${Date.now() - start}ms`);
+      count += checkBuckets.length;
+    }
+    return { buckets: count };
   }
 
   protected async writeBucketStateUpdates(): Promise<void> {

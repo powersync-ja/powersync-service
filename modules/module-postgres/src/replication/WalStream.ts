@@ -633,8 +633,8 @@ WHERE  oid = $1::regclass`,
 
     const lastOp = flushResults?.flushed_op;
     if (lastOp != null) {
-      // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
-      await this.storage.populatePersistentChecksumCache({
+      // Compact storage _after_ initial replication, but _before_ we switch to this replication stream.
+      await this.storage.compactInitialReplication({
         // No checkpoint yet, but we do have the opId.
         maxOpId: lastOp,
         signal: this.abort_signal

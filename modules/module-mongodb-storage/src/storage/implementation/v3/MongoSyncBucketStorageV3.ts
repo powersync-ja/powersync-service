@@ -3,6 +3,8 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   CheckpointChanges,
+  CompactInitialReplicationOptions,
+  CompactInitialReplicationResults,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
@@ -190,6 +192,25 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
     return new MongoCompactorV3(this, this.db, options);
+  }
+
+  override async compactInitialReplication(
+    options: CompactInitialReplicationOptions
+  ): Promise<CompactInitialReplicationResults> {
+    this.logger.info(`Compacting chunks after initial replication...`);
+    const start = Date.now();
+    const maxOpId = options.maxOpId ?? (await this.fetchPersistedOpHead()) ?? undefined;
+    const compactedBuckets = await this.createMongoCompactor({
+      ...options,
+      maxOpId,
+      // A metadata-only scan is cheap, so include buckets with any changes.
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      compactChunksOnly: true,
+      logger: this.logger
+    }).compact();
+    this.logger.info(`Compacted chunks after initial replication in ${(Date.now() - start) / 1000}s`);
+    return { buckets: compactedBuckets };
   }
 
   protected createMongoParameterCompactor(

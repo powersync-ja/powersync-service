@@ -99,9 +99,9 @@ export interface SyncRulesBucketStorage
   compact(options?: CompactOptions): Promise<void>;
 
   /**
-   * Lightweight "compact" process to populate the checksum cache, if any.
+   * Compact storage after initial replication, before the first checkpoint exists.
    */
-  populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults>;
+  compactInitialReplication(options: CompactInitialReplicationOptions): Promise<CompactInitialReplicationResults>;
 
   // ## Read operations
 
@@ -358,12 +358,12 @@ export interface CompactOptions {
   logger?: Logger;
 }
 
-export interface PopulateChecksumCacheOptions {
+export interface CompactInitialReplicationOptions {
   /**
-   * Compute checksums up to this op id.
+   * Compact data up to this op id.
    *
    * Defaults to the highest persisted op id for the replication stream, which covers
-   * the common case of populating the cache right after initial replication, before
+   * the common case of compacting right after initial replication, before
    * the first checkpoint exists.
    */
   maxOpId?: util.InternalOpId;
@@ -371,9 +371,9 @@ export interface PopulateChecksumCacheOptions {
   signal?: AbortSignal;
 }
 
-export interface PopulateChecksumCacheResults {
+export interface CompactInitialReplicationResults {
   /**
-   * Number of buckets we have calculated checksums for.
+   * Number of buckets processed.
    */
   buckets: number;
 }
