@@ -346,7 +346,7 @@ export abstract class PersistedBatch {
               size: this.currentSize,
               bucket_ops_count: this.bucketDataCount,
               parameter_indexes_count: this.bucketParameters.length,
-              source_records_count: this.currentDataCount,
+              source_records_count: this.currentDataCount
             }
           }
         );
