@@ -12,7 +12,7 @@ import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { ConnectionTestResult } from './ReplicationModule.js';
 
 // Default to 1 minute when no source-specific interval is configured.
-const PING_INTERVAL = 1_000_000_000n * 60n;
+const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60;
 
 // In the initial startup period, we use a short refresh interval. This helps to take over replication quickly in the case
 // of rolling deploys. After the initial period, we switch to a longer refresh interval to reduce load.
@@ -35,7 +35,7 @@ export interface AbstractReplicatorOptions {
    */
   rateLimiter: ErrorRateLimiter;
   /**
-   * Interval in seconds between source connection pings. Null disables pings.
+   * Interval in seconds between source connection pings. Null or undefined uses the default; 0 disables pings.
    */
   heartbeatIntervalSeconds?: number | null;
 }
@@ -75,14 +75,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   protected constructor(private options: AbstractReplicatorOptions) {
     this.logger = logger.child({ name: `Replicator:${options.id}` });
+    const heartbeatIntervalSeconds = options.heartbeatIntervalSeconds ?? DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
     this.heartbeatIntervalNanos =
-      options.heartbeatIntervalSeconds == null
-        ? options.heartbeatIntervalSeconds === null
-          ? null
-          : PING_INTERVAL
-        : options.heartbeatIntervalSeconds <= 0
-          ? null
-          : BigInt(Math.round(options.heartbeatIntervalSeconds * 1_000_000_000));
+      heartbeatIntervalSeconds === 0 ? null : BigInt(Math.round(heartbeatIntervalSeconds * 1_000_000_000));
   }
 
   /**
