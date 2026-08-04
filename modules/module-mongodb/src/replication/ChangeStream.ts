@@ -940,6 +940,14 @@ export class ChangeStream {
     return this.replicationLag.getLagMillis();
   }
 
+  async keepAlive() {
+    // This writes to _powersync_checkpoints
+    // Main use case: When there are massive bulk writes to another database or collection, the change stream may
+    // start timing out due to reading through too much data in one batch. This breaks up those bulk writes,
+    // allowing the change stream to make progress.
+    await this._checkpointImplementation?.createBatchCheckpoint();
+  }
+
   private lastTouchedAt = performance.now();
 
   private touch() {

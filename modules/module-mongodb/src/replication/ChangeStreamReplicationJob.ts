@@ -24,7 +24,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
   }
 
   async keepAlive() {
-    // Nothing needed here
+    await this.lastStream?.keepAlive();
   }
 
   async replicate() {
