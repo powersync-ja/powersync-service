@@ -150,24 +150,39 @@ export interface SourceTableChangeRef {
 
 export type ResolvedTable = SourceTableChangeRef;
 
+export const SCHEMA_WILDCARD_MESSAGE =
+  'Schema wildcards ("%") in table patterns are not supported for SQL Server connections.';
+
+/**
+ * Wildcards would allow the replicated table set to change between polls, so they are rejected.
+ */
+export function tableWildcardMessage(tablePattern: TablePattern): string {
+  return (
+    `Table wildcards ("%") are not supported for SQL Server connections: "${tablePattern.tablePattern}". ` +
+    `List each table explicitly.`
+  );
+}
+
+/**
+ * Returns the reason this pattern cannot be replicated, or null if it is supported.
+ */
+export function unsupportedTablePatternMessage(tablePattern: TablePattern): string | null {
+  if (tablePattern.isSchemaWildcard) {
+    return SCHEMA_WILDCARD_MESSAGE;
+  }
+  if (tablePattern.isWildcard) {
+    return tableWildcardMessage(tablePattern);
+  }
+  return null;
+}
+
 export async function getTablesFromPattern(
   connectionManager: MSSQLConnectionManager,
   tablePattern: TablePattern
 ): Promise<ResolvedTable[]> {
-  if (tablePattern.isSchemaWildcard) {
-    throw new ServiceError(
-      ErrorCode.PSYNC_R2201,
-      'Schema wildcards ("%") in table patterns are not supported for SQL Server connections.'
-    );
-  }
-
-  // Wildcards would allow the replicated table set to change between polls.
-  if (tablePattern.isWildcard) {
-    throw new ServiceError(
-      ErrorCode.PSYNC_R2201,
-      `Table wildcards ("%") are not supported for SQL Server connections: "${tablePattern.tablePattern}". ` +
-        `List each table explicitly.`
-    );
+  const unsupported = unsupportedTablePatternMessage(tablePattern);
+  if (unsupported != null) {
+    throw new ServiceError(ErrorCode.PSYNC_R2201, unsupported);
   }
 
   const { recordset: tableResults } = await connectionManager.query(

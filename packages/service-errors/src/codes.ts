@@ -364,7 +364,12 @@ export enum ErrorCode {
    *  * CDC has not been enabled for the table.
    *  * The table does not exist in the source database.
    *
-   *  Replication starts once the table exists and has CDC enabled. No new sync deploy is required.
+   *  For a table that has not been replicated by this stream before, replication starts once the
+   *  table exists and has CDC enabled, without a new sync deploy.
+   *
+   *  For a table this stream was already replicating, re-enabling CDC is not enough: the new capture
+   *  instance has a different object id, so the next attempt fails with `PSYNC_S1601` until the sync
+   *  configuration is deployed as a new replication stream.
    */
   PSYNC_S1602 = 'PSYNC_S1602',
 

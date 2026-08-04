@@ -27,9 +27,15 @@ export class MSSQLSourceTable {
 
   public readonly ref: SourceEntityDescriptor;
 
+  /**
+   * Decoded once, since the persisted metadata only changes when a SourceTable is replaced.
+   */
+  private captureObjectId: number | null;
+
   constructor(ref: SourceEntityDescriptor, sourceTables: SourceTable[]) {
     this.sourceTables = sourceTables;
     this.ref = ref;
+    this.captureObjectId = readPinnedCaptureObjectId(sourceTables);
   }
 
   updateSourceTable(updated: SourceTable): void {
@@ -38,6 +44,7 @@ export class MSSQLSourceTable {
       throw new ServiceAssertionError(`No SourceTable found for table: ${updated.id}`);
     }
     this.sourceTables[index] = updated;
+    this.captureObjectId = readPinnedCaptureObjectId(this.sourceTables);
   }
 
   getReplicatedSourceTables(): SourceTable[] {
@@ -52,13 +59,7 @@ export class MSSQLSourceTable {
    * Persisted capture-table object id, or null for a legacy binding.
    */
   get pinnedCaptureObjectId(): number | null {
-    for (const sourceTable of this.sourceTables) {
-      const metadata = readCaptureMetadata(sourceTable.sourceMetadata);
-      if (metadata != null) {
-        return metadata.captureTableObjectId;
-      }
-    }
-    return null;
+    return this.captureObjectId;
   }
 
   /**
@@ -104,4 +105,17 @@ export class MSSQLSourceTable {
   toQualifiedName(): string {
     return toQualifiedTableName(this.ref.schema, this.ref.name);
   }
+}
+
+/**
+ * The pinned capture-table object id shared by these records, or null for a legacy binding.
+ */
+function readPinnedCaptureObjectId(sourceTables: SourceTable[]): number | null {
+  for (const sourceTable of sourceTables) {
+    const metadata = readCaptureMetadata(sourceTable.sourceMetadata);
+    if (metadata != null) {
+      return metadata.captureTableObjectId;
+    }
+  }
+  return null;
 }

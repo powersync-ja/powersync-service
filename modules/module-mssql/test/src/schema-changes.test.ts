@@ -4,7 +4,7 @@ import sql from 'mssql';
 import { describe, expect, test, vi } from 'vitest';
 
 import { LSN } from '@module/common/LSN.js';
-import { SchemaChangeType } from '@module/replication/CDCPoller.js';
+import { SchemaChangeType } from '@module/replication/SchemaChange.js';
 import { getLatestLSN, toQualifiedTableName } from '@module/utils/mssql.js';
 import { logger } from '@powersync/lib-services-framework';
 import { CDCStreamTestContext } from './CDCStreamTestContext.js';

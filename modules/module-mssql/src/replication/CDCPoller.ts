@@ -7,64 +7,21 @@ import {
 } from '@powersync/lib-services-framework';
 import sql from 'mssql';
 import timers from 'timers/promises';
-import { CaptureInstance } from '../common/CaptureInstance.js';
 import { LSN } from '../common/LSN.js';
 import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { AdditionalConfig } from '../types/types.js';
 import { isDeadlockError } from '../utils/deadlock.js';
 import { CaptureInstanceDetails, getCaptureInstances, incrementLSN } from '../utils/mssql.js';
-import { SourceTableChangeRef, tableExists } from '../utils/schema.js';
+import { tableExists } from '../utils/schema.js';
+import { CaptureInstanceMissingError } from './CaptureReconciler.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
+import { SchemaChange, SchemaChangeType } from './SchemaChange.js';
 
 enum Operation {
   DELETE = 1,
   INSERT = 2,
   UPDATE_BEFORE = 3,
   UPDATE_AFTER = 4
-}
-
-/**
- * Schema changes are detected to warn or error on, not applied automatically. Polling cannot be
- * made atomic with a commit, so the replicated schema stays fixed until the next deploy.
- *
- * Drops and renames fail the job because they have no known LSN. Continuing could skip unread
- * changes. Existing replicated data is kept for the next deploy to clean up.
- */
-export enum SchemaChangeType {
-  /**
-   * A replicated table was renamed.
-   */
-  TABLE_RENAME = 'table_rename',
-  /**
-   * A replicated table was dropped.
-   */
-  TABLE_DROP = 'table_drop',
-  /**
-   * The source columns changed. The pinned capture schema remains active.
-   */
-  TABLE_COLUMN_CHANGES = 'table_column_changes',
-  /**
-   * A newer capture instance exists, but the pinned one is still available.
-   */
-  NEW_CAPTURE_INSTANCE = 'new_capture_instance',
-  /**
-   * The pinned capture instance is no longer available.
-   */
-  MISSING_CAPTURE_INSTANCE = 'missing_capture_instance'
-}
-
-export interface SchemaChange {
-  type: SchemaChangeType;
-  /**
-   *  The table that the schema change applies to. Populated for table drops, renames, new capture instances, and DDL changes.
-   */
-  table?: MSSQLSourceTable;
-  /**
-   *  Populated for new tables or renames, but only if the new table matches a sync config source table.
-   */
-  newTable?: SourceTableChangeRef;
-
-  newCaptureInstance?: CaptureInstance;
 }
 
 export interface CDCEventHandler {
@@ -267,8 +224,11 @@ export class CDCPoller {
     const availableInstances = this.captureInstances.get(table.objectId)?.instances ?? [];
     const boundInstance = table.findPinnedCaptureInstance(availableInstances);
     if (boundInstance == null) {
-      throw new ReplicationAssertionError(
-        `Pinned capture instance is unavailable for table ${table.toQualifiedName()}`
+      // The pinned instance can be dropped between schema checks.
+      throw new CaptureInstanceMissingError(
+        `The CDC capture instance for table ${table.toQualifiedName()} (pinned to object id ` +
+          `${table.pinnedCaptureObjectId}) is no longer available. Deploy the sync configuration as a new ` +
+          `replication stream to replicate this table against a new capture instance.`
       );
     }
     const minLSN = boundInstance.minLSN;
@@ -330,7 +290,9 @@ export class CDCPoller {
 
       return transactionCount;
     } catch (error) {
-      // This Covers both deleted tables and capture instances
+      // This Covers both deleted tables and capture instances. Unlike the check above, this cannot
+      // tell the two apart, so it stays recoverable: the forced schema check classifies it as a
+      // dropped table or a missing capture instance and fails with the matching error.
       if (error.message.includes(`Invalid object name`)) {
         throw new DatabaseQueryError(
           ErrorCode.PSYNC_S1601,
@@ -363,13 +325,11 @@ export class CDCPoller {
 
       const captureInstanceDetails = this.captureInstances.get(table.objectId);
       if (!captureInstanceDetails) {
-        if (table.enabledForCDC()) {
-          // Table had a capture instance but no longer does.
-          schemaChanges.push({
-            type: SchemaChangeType.MISSING_CAPTURE_INSTANCE,
-            table
-          });
-        }
+        // The table had a capture instance when the stream started, but no longer does.
+        schemaChanges.push({
+          type: SchemaChangeType.MISSING_CAPTURE_INSTANCE,
+          table
+        });
         continue;
       }
 
@@ -385,7 +345,7 @@ export class CDCPoller {
         schemaChanges.push({
           type: SchemaChangeType.MISSING_CAPTURE_INSTANCE,
           table,
-          newCaptureInstance: latestCaptureInstance
+          replacementInstance: latestCaptureInstance
         });
         continue;
       }
@@ -417,7 +377,7 @@ export class CDCPoller {
         schemaChanges.push({
           type: SchemaChangeType.TABLE_COLUMN_CHANGES,
           table,
-          newCaptureInstance: boundInstance
+          captureInstance: boundInstance
         });
       }
     }
