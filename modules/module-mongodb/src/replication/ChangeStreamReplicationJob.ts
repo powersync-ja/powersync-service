@@ -71,6 +71,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
         storage: this.options.storage,
         metrics: this.options.metrics,
         connections: connectionManager,
+        keepaliveIntervalMs: connectionManager.options.heartbeat_interval_seconds * 1_000,
         logger: this.logger
       });
       this.lastStream = stream;

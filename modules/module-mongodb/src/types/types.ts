@@ -41,9 +41,9 @@ export enum PostImagesOption {
   READ_ONLY = 'read_only'
 }
 
-const DEFAULT_PING_INTERVAL_SECONDS = 0;
+const DEFAULT_PING_INTERVAL_SECONDS = 60;
 const MIN_PING_INTERVAL_SECONDS = 5;
-const MAX_PING_INTERVAL_SECONDS = 300;
+const MAX_PING_INTERVAL_SECONDS = 60;
 
 export interface NormalizedMongoConnectionConfig {
   id: string;
@@ -69,7 +69,7 @@ export const MongoConnectionConfig = service_types.configFile.DataSourceConfig.a
     // Replication specific settings
     post_images: t.literal('off').or(t.literal('auto_configure')).or(t.literal('read_only')).optional(),
     /**
-     * Interval in seconds between source connection heartbeats. Null or omitted defaults to 0 (disabled).
+     * Interval in seconds between source connection heartbeats. Null or omitted defaults to 60 seconds.
      */
     heartbeat_interval_seconds: t.number.or(t.Null).optional()
   })
@@ -107,13 +107,10 @@ function normalizeHeartbeatInterval(value: number | null | undefined): number {
   if (value == null) {
     return DEFAULT_PING_INTERVAL_SECONDS;
   }
-  if (value === 0) {
-    return 0;
-  }
   if (!Number.isFinite(value) || value < MIN_PING_INTERVAL_SECONDS || value > MAX_PING_INTERVAL_SECONDS) {
     throw new ServiceError(
       ErrorCode.PSYNC_S1109,
-      `MongoDB connection: heartbeat_interval_seconds must be 0 or between ${MIN_PING_INTERVAL_SECONDS} and ${MAX_PING_INTERVAL_SECONDS} seconds; null or omitted defaults to 0`
+      `MongoDB connection: heartbeat_interval_seconds must be between ${MIN_PING_INTERVAL_SECONDS} and ${MAX_PING_INTERVAL_SECONDS} seconds; null or omitted defaults to ${DEFAULT_PING_INTERVAL_SECONDS}`
     );
   }
   return value;
