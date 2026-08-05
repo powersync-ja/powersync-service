@@ -1,5 +1,15 @@
 # @powersync/service-jpgwire
 
+## 0.21.22
+
+### Patch Changes
+
+- 123c801: Reconnect PostgreSQL notification connections and restore `LISTEN` subscriptions when the underlying connection is terminated. Harden connection-slot retries and lease handling, and publish checkpoint notifications atomically with checkpoint updates.
+- Updated dependencies [8daa300]
+- Updated dependencies [be42e25]
+- Updated dependencies [cb4c627]
+  - @powersync/service-sync-rules@0.40.0
+
 ## 0.21.21
 
 ### Patch Changes
