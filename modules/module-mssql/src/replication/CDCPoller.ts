@@ -266,28 +266,32 @@ export class CDCPoller {
     }
 
     try {
-      const { recordset: results } = await this.connectionManager.query(
-        `
-        SELECT * FROM ${table.allChangesFunction}(@from_lsn, @to_lsn, 'all update old') ORDER BY __$start_lsn, __$seqval, __$operation
-    `,
-        [
-          { name: 'from_lsn', type: sql.VarBinary, value: bounds.startLSN.toBinary() },
-          { name: 'to_lsn', type: sql.VarBinary, value: bounds.endLSN.toBinary() }
-        ]
-      );
+      const request = await this.connectionManager.createRequest();
+      request.input('from_lsn', sql.VarBinary, bounds.startLSN.toBinary());
+      request.input('to_lsn', sql.VarBinary, bounds.endLSN.toBinary());
 
-      for (const { transactionLSN, type, rows } of groupLogicalChanges(results, table)) {
+      const columnsPromise = new Promise<sql.IColumnMetadata>((resolve, reject) => {
+        request.on('recordset', resolve);
+        request.on('error', reject);
+      });
+      const stream = request.toReadableStream();
+      request.query(`
+        SELECT * FROM ${table.allChangesFunction}(@from_lsn, @to_lsn, 'all update old') ORDER BY __$start_lsn, __$seqval, __$operation
+      `);
+
+      for await (const { transactionLSN, type, rows } of groupLogicalChanges(stream, table)) {
+        const columns = await columnsPromise;
         switch (type) {
           case LogicalChangeType.DELETE:
-            await this.eventHandler.onDelete(rows[0], table, results.columns);
+            await this.eventHandler.onDelete(rows[0], table, columns);
             break;
           case LogicalChangeType.INSERT:
-            await this.eventHandler.onInsert(rows[0], table, results.columns);
+            await this.eventHandler.onInsert(rows[0], table, columns);
             break;
           case LogicalChangeType.UPDATE:
           case LogicalChangeType.DEFERRED_UPDATE:
             const [rowBefore, rowAfter] = rows;
-            await this.eventHandler.onUpdate(rowAfter, rowBefore, table, results.columns);
+            await this.eventHandler.onUpdate(rowAfter, rowBefore, table, columns);
             break;
         }
         this.logger.info(`Processed ${type}. Transaction LSN: ${transactionLSN}`);
@@ -466,51 +470,48 @@ interface LogicalChange {
  *  The source table is only used to identify the table in the errors raised for change rows that
  *  do not describe a valid logical change.
  */
-function* groupLogicalChanges(rows: any[], table: MSSQLSourceTable): Generator<LogicalChange> {
-  let currentRows: any[] = [];
-  let currentTransactionLSN: Buffer | null = null;
-  let currentSequence: Buffer | null = null;
-
-  for (const row of rows) {
-    const nextTransactionLSN: Buffer = row.__$start_lsn;
-    const nextSequence: Buffer = row.__$seqval;
-
-    if (
-      currentRows.length > 0 &&
-      !(nextTransactionLSN.equals(currentTransactionLSN!) && nextSequence!.equals(currentSequence!))
-    ) {
-      yield toLogicalChange(currentRows, currentTransactionLSN!, table);
-      currentRows = [];
-    }
-    currentTransactionLSN = nextTransactionLSN;
-    currentSequence = nextSequence;
-    currentRows.push(row);
+async function* groupLogicalChanges(rows: AsyncIterable<any>, table: MSSQLSourceTable): AsyncGenerator<LogicalChange> {
+  interface PendingGroup {
+    transactionLSN: Buffer;
+    sequence: Buffer;
+    rows: any[];
   }
 
-  if (currentRows.length > 0) {
-    yield toLogicalChange(currentRows, currentTransactionLSN!, table);
+  let current: PendingGroup | null = null;
+
+  for await (const row of rows) {
+    const transactionLSN: Buffer = row.__$start_lsn;
+    const sequence: Buffer = row.__$seqval;
+
+    if (current && !(transactionLSN.equals(current.transactionLSN) && sequence.equals(current.sequence))) {
+      yield toLogicalChange(current.rows, current.transactionLSN, table);
+      current = null;
+    }
+    current ??= {
+      transactionLSN,
+      sequence,
+      rows: []
+    };
+    current.rows.push(row);
+  }
+
+  if (current) {
+    yield toLogicalChange(current.rows, current.transactionLSN, table);
   }
 }
 
 function toLogicalChange(rows: any[], startLSN: Buffer, table: MSSQLSourceTable): LogicalChange {
-  // The rows are ordered by operation in the query, but this is an extra safeguard
-  const orderedRows = [...rows].sort((a, b) => a.__$operation - b.__$operation);
   const transactionLSN = LSN.fromBinary(startLSN);
   return {
     transactionLSN,
-    type: resolveLogicalChangeType(orderedRows, transactionLSN, table),
-    rows: orderedRows
+    type: resolveLogicalChangeType(rows, transactionLSN, table),
+    rows: rows
   };
 }
 
 function resolveLogicalChangeType(orderedRows: any[], transactionLSN: LSN, table: MSSQLSourceTable): LogicalChangeType {
   if (orderedRows.length === 1) {
     const operation = orderedRows[0].__$operation;
-    if (operation === Operation.UPDATE_BEFORE || operation === Operation.UPDATE_AFTER) {
-      throw new ReplicationAssertionError(
-        `Incomplete update for table ${table.toQualifiedName()} in transaction LSN ${transactionLSN}: an update must have both a before and an after image.`
-      );
-    }
 
     if (operation === Operation.INSERT) {
       return LogicalChangeType.INSERT;
