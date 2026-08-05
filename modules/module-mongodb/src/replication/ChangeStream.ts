@@ -940,6 +940,7 @@ export class ChangeStream {
             await batch.setResumeLsn(lsn);
 
             if (timestamp != null) {
+              // Note that this timestamp provided by MongoDB is not exact - it can be around 10s behind.
               this.lastPersistedResumeTimestamp = timestamp.getTime();
             } else {
               // DocumentDB: No timestamp associated with the resumeToken. Just use the current time.
@@ -986,8 +987,11 @@ export class ChangeStream {
     const staleResumeLsn = Date.now() - this.lastPersistedResumeTimestamp > this.keepaliveIntervalMs * 1.1;
 
     // When there is replication lag, that resumeToken can get too outdated. In that case, we periodically create a
-    // new back checkpoint. We track that using lastBatchCheckpoint.
-    const staleBatchCheckpoint = Date.now() - this.lastBatchCheckpoint > this.keepaliveIntervalMs;
+    // new back checkpoint. This interval is controlled by the frequency of the keepAlive() call,
+    // while also skipping if there was another call to createBatchCheckpoint().
+    // We use a factor of 0.9 here, to make sure this is called on every keepAlive() interval, unless there
+    // was another call to createBatchCheckpoint().
+    const staleBatchCheckpoint = Date.now() - this.lastBatchCheckpoint > this.keepaliveIntervalMs * 0.9;
 
     // We don't use oldestUncommittedChange here, since that may be unset in some edge cases where we do need
     // to persist new checkpoints.
