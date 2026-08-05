@@ -8,6 +8,10 @@ export const DEFAULT_POLLING_BATCH_SIZE = 10;
 export const DEFAULT_POLLING_INTERVAL_MS = 1000;
 export const MSSQL_CONNECTION_TYPE = 'mssql' as const;
 
+const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60;
+const MIN_HEARTBEAT_INTERVAL_SECONDS = 5;
+const MAX_HEARTBEAT_INTERVAL_SECONDS = 60;
+
 export const AzureActiveDirectoryServicePrincipalSecret = t.object({
   type: t.literal('azure-active-directory-service-principal-secret'),
   options: t.object({
@@ -94,6 +98,8 @@ export interface NormalizedMSSQLConnectionConfig {
   lookup?: LookupFunction;
 
   additionalConfig: AdditionalConfig;
+
+  heartbeat_interval_seconds: number;
 }
 
 export const MSSQLConnectionConfig = service_types.configFile.DataSourceConfig.and(
@@ -110,7 +116,11 @@ export const MSSQLConnectionConfig = service_types.configFile.DataSourceConfig.a
     authentication: Authentication.optional(),
 
     reject_ip_ranges: t.array(t.string).optional(),
-    additionalConfig: AdditionalConfig.optional()
+    additionalConfig: AdditionalConfig.optional(),
+    /**
+     * Interval in seconds between source connection heartbeats. Null or omitted uses the default.
+     */
+    heartbeat_interval_seconds: t.number.or(t.Null).optional()
   })
 );
 
@@ -188,8 +198,22 @@ export function normalizeConnectionConfig(options: MSSQLConnectionConfig): Norma
       pollingIntervalMs: options.additionalConfig?.pollingIntervalMs ?? DEFAULT_POLLING_INTERVAL_MS,
       pollingBatchSize: options.additionalConfig?.pollingBatchSize ?? DEFAULT_POLLING_BATCH_SIZE,
       trustServerCertificate: options.additionalConfig?.trustServerCertificate ?? false
-    }
+    },
+    heartbeat_interval_seconds: normalizeHeartbeatInterval(options.heartbeat_interval_seconds)
   } satisfies NormalizedMSSQLConnectionConfig;
+}
+
+function normalizeHeartbeatInterval(value: number | null | undefined): number {
+  if (value == null) {
+    return DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
+  }
+  if (!Number.isFinite(value) || value < MIN_HEARTBEAT_INTERVAL_SECONDS || value > MAX_HEARTBEAT_INTERVAL_SECONDS) {
+    throw new ServiceError(
+      ErrorCode.PSYNC_S1109,
+      `MSSQL connection: heartbeat_interval_seconds must be between ${MIN_HEARTBEAT_INTERVAL_SECONDS} and ${MAX_HEARTBEAT_INTERVAL_SECONDS} seconds`
+    );
+  }
+  return value;
 }
 
 export function baseUri(config: ResolvedMSSQLConnectionConfig) {

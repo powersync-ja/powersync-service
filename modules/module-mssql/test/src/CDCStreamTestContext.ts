@@ -203,7 +203,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
 
-      const batches = await test_utils.fromAsync(batch);
+      const batches = await test_utils.getBatchArray(batch);
       data = data.concat(batches[0]?.chunkData.data ?? []);
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
@@ -230,7 +230,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
     const syncConfigContent = this.getSyncConfigContent();
     const map = [bucketRequest(syncConfigContent, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
-    const batches = await test_utils.fromAsync(batch);
+    const batches = await test_utils.getBatchArray(batch);
     return batches[0]?.chunkData.data ?? [];
   }
 }

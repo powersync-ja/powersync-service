@@ -22,17 +22,6 @@ export function compareIds(a: utils.OplogEntry, b: utils.OplogEntry) {
   return a.object_id!.localeCompare(b.object_id!);
 }
 
-export async function oneFromAsync<T>(source: Iterable<T> | AsyncIterable<T>): Promise<T> {
-  const items: T[] = [];
-  for await (const item of source) {
-    items.push(item);
-  }
-  if (items.length != 1) {
-    throw new Error(`One item expected, got: ${items.length}`);
-  }
-  return items[0];
-}
-
 export async function fromAsync<T>(source: Iterable<T> | AsyncIterable<T>): Promise<T[]> {
   const items: T[] = [];
   for await (const item of source) {

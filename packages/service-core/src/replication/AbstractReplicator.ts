@@ -11,8 +11,8 @@ import { AbstractReplicationJob } from './AbstractReplicationJob.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { ConnectionTestResult } from './ReplicationModule.js';
 
-// 1 minute
-const PING_INTERVAL = 1_000_000_000n * 60n;
+// Default to 1 minute when no source-specific interval is configured.
+const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60;
 
 // In the initial startup period, we use a short refresh interval. This helps to take over replication quickly in the case
 // of rolling deploys. After the initial period, we switch to a longer refresh interval to reduce load.
@@ -34,6 +34,10 @@ export interface AbstractReplicatorOptions {
    * This limits the effect of retries when there is a persistent issue.
    */
   rateLimiter: ErrorRateLimiter;
+  /**
+   * Interval in seconds between source connection pings. Null or undefined uses the default; 0 disables pings.
+   */
+  heartbeatIntervalSeconds?: number | null;
 }
 
 /**
@@ -62,13 +66,18 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
    */
   private activeReplicationJob: T | undefined = undefined;
 
-  // First ping is only after 5 minutes, not when starting
+  // The first ping is only after the configured interval, not when starting.
   private lastPing = hrtime.bigint();
+
+  private readonly heartbeatIntervalNanos: bigint | null;
 
   private abortController: AbortController | undefined;
 
   protected constructor(private options: AbstractReplicatorOptions) {
     this.logger = logger.child({ name: `Replicator:${options.id}` });
+    const heartbeatIntervalSeconds = options.heartbeatIntervalSeconds ?? DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
+    this.heartbeatIntervalNanos =
+      heartbeatIntervalSeconds === 0 ? null : BigInt(Math.round(heartbeatIntervalSeconds * 1_000_000_000));
   }
 
   /**
@@ -184,9 +193,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
         // Ensure that the replication jobs' connections are kept alive.
         // We don't ping while in error retry back-off, to avoid having too failures.
-        if (this.rateLimiter.mayPing()) {
+        if (this.heartbeatIntervalNanos != null && this.rateLimiter.mayPing()) {
           const now = hrtime.bigint();
-          if (now - this.lastPing >= PING_INTERVAL) {
+          if (now - this.lastPing >= this.heartbeatIntervalNanos) {
             for (const activeJob of this.replicationJobs.values()) {
               await activeJob.keepAlive();
             }

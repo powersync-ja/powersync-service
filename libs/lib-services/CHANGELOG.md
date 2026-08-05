@@ -1,5 +1,22 @@
 # @powersync/lib-services-framework
 
+## 0.10.0
+
+### Minor Changes
+
+- 2189250: Add `/sync/checkpoint-request` for client-supplied checkpoint request ids, previously called write checkpoint ids. The route returns the stored `checkpoint_request_id`, storage now treats managed request ids as monotonic per user/client, custom checkpoint request ids continue to use the existing `checkpoint` field for backwards compatibility, and `checkpoint_requested_at` metadata lets compact jobs remove expired request-derived checkpoint records.
+
+  This release includes storage migrations for the checkpoint request metadata. Self-hosters should run migrations as part of the upgrade.
+
+### Patch Changes
+
+- Updated dependencies [8daa300]
+- Updated dependencies [be42e25]
+- Updated dependencies [be42e25]
+- Updated dependencies [cb4c627]
+  - @powersync/service-sync-rules@0.40.0
+  - @powersync/service-errors@0.5.0
+
 ## 0.9.8
 
 ### Patch Changes

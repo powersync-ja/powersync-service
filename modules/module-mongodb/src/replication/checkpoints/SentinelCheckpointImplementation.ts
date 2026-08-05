@@ -108,11 +108,11 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     );
   }
 
-  lsnFromResumeToken(resumeToken: mongo.ResumeToken): string {
+  lsnFromResumeToken(resumeToken: mongo.ResumeToken) {
     // Pair the bare token with the current coordinate. The coordinate is
     // frozen between checkpoint events, so a per-batch resume marker only
     // advances the token; that is all resumption needs (see the design doc).
-    return new SentinelLSN({ sentinel: this.position, resume_token: resumeToken }).comparable;
+    return { lsn: new SentinelLSN({ sentinel: this.position, resume_token: resumeToken }).comparable, timestamp: null };
   }
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {

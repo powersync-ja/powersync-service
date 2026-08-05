@@ -40,7 +40,39 @@ class TestReplicator extends AbstractReplicator {
   addClearingJob(replicationStreamId: number, promise: Promise<void>): void {
     this.clearingJobs.set(replicationStreamId, promise);
   }
+
+  get heartbeatIntervalNanosForTest(): bigint | null {
+    return (this as any).heartbeatIntervalNanos;
+  }
 }
+
+describe('AbstractReplicator heartbeat interval', () => {
+  const options: AbstractReplicatorOptions = {
+    id: 'test',
+    storageEngine: {} as AbstractReplicatorOptions['storageEngine'],
+    metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
+    syncRuleProvider: {} as AbstractReplicatorOptions['syncRuleProvider'],
+    rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
+  };
+
+  it.each([undefined, null])('uses the default for %s', (heartbeatIntervalSeconds) => {
+    const replicator = new TestReplicator(async () => {}, { ...options, heartbeatIntervalSeconds });
+
+    expect(replicator.heartbeatIntervalNanosForTest).toBe(60_000_000_000n);
+  });
+
+  it('disables the heartbeat interval with 0', () => {
+    const replicator = new TestReplicator(async () => {}, { ...options, heartbeatIntervalSeconds: 0 });
+
+    expect(replicator.heartbeatIntervalNanosForTest).toBeNull();
+  });
+
+  it('converts a positive heartbeat interval to nanoseconds', () => {
+    const replicator = new TestReplicator(async () => {}, { ...options, heartbeatIntervalSeconds: 5 });
+
+    expect(replicator.heartbeatIntervalNanosForTest).toBe(5_000_000_000n);
+  });
+});
 
 describe('AbstractReplicator stopped stream cleanup', () => {
   it('holds the replication stream lock across source and storage cleanup', async () => {

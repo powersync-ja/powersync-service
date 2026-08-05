@@ -5,6 +5,7 @@ import {
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
   InternalOpId,
+  isBatchEnd,
   LEGACY_STORAGE_VERSION,
   OplogEntry,
   ProtocolOpId,
@@ -273,12 +274,23 @@ export class ChangeStreamTestContext {
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
 
-      const batches = await test_utils.fromAsync(batch);
-      data = data.concat(batches[0]?.chunkData.data ?? []);
-      if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
+      const chunks = await test_utils.fromAsync(batch);
+      if (chunks.length == 0) {
         break;
       }
-      map = [bucketRequest(syncConfigContent, bucket, BigInt(batches[0]!.chunkData.next_after))];
+      for (let chunk of chunks) {
+        if (isBatchEnd(chunk)) {
+          if (!chunk.hasMore) {
+            return data;
+          }
+        } else {
+          data = data.concat(chunk.chunkData.data ?? []);
+          map = [bucketRequest(syncConfigContent, bucket, BigInt(chunk.chunkData.next_after))];
+          if (!chunk.chunkData.has_more) {
+            return data;
+          }
+        }
+      }
     }
     return data;
   }

@@ -90,7 +90,7 @@ function registerStorageVersionTests(storageVersion: number) {
 
       const options: storage.BucketDataBatchOptions = {};
 
-      const batch1 = await test_utils.fromAsync(
+      const batch1 = await test_utils.getBatchArray(
         bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [globalBucket], options)
       );
       expect(test_utils.getBatchData(batch1)).toEqual([
@@ -102,7 +102,7 @@ function registerStorageVersionTests(storageVersion: number) {
         next_after: '1'
       });
 
-      const batch2 = await test_utils.fromAsync(
+      const batch2 = await test_utils.getBatchArray(
         bucketStorage.getBucketDataBatch(
           test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch1[0].chunkData.next_after) }],
@@ -118,7 +118,7 @@ function registerStorageVersionTests(storageVersion: number) {
         next_after: '2'
       });
 
-      const batch3 = await test_utils.fromAsync(
+      const batch3 = await test_utils.getBatchArray(
         bucketStorage.getBucketDataBatch(
           test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch2[0].chunkData.next_after) }],
@@ -134,7 +134,7 @@ function registerStorageVersionTests(storageVersion: number) {
         next_after: '3'
       });
 
-      const batch4 = await test_utils.fromAsync(
+      const batch4 = await test_utils.getBatchArray(
         bucketStorage.getBucketDataBatch(
           test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch3[0].chunkData.next_after) }],
