@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { InternalOpId, storage } from '@powersync/service-core';
+import { BucketDefinitionMapping, InternalOpId, storage } from '@powersync/service-core';
 import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
@@ -8,6 +8,7 @@ import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
   BucketStateUpdate,
   PersistedBatch,
+  PersistedBatchOptions,
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
@@ -28,8 +29,22 @@ import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 export class PersistedBatchV3 extends PersistedBatch {
   currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
   sourceTablePendingDeletes = new Map<string, InternalOpId>();
+  protected readonly objectStorageLifecycle?: ObjectStorageLifecycle;
 
   declare protected readonly db: VersionedPowerSyncMongoV3;
+
+  constructor(
+    db: VersionedPowerSyncMongoV3,
+    group_id: number,
+    mapping: BucketDefinitionMapping,
+    writtenSize: number,
+    options?: PersistedBatchOptions
+  ) {
+    super(db, group_id, mapping, writtenSize, options);
+    if (this.objectStorage) {
+      this.objectStorageLifecycle = new ObjectStorageLifecycle(this.db, this.group_id, this.objectStorage);
+    }
+  }
 
   // Abstract override from PersistedBatch (V3-specific error message)
 
@@ -210,65 +225,63 @@ export class PersistedBatchV3 extends PersistedBatch {
       operationsByDefinition.set(document.bucketKey.definitionId, existing);
     }
 
-    for (const [definitionId, documents] of operationsByDefinition.entries()) {
-      const operationsByBucket = new Map<string, BucketDataDoc[]>();
-      for (const document of documents) {
-        const existing = operationsByBucket.get(document.bucketKey.bucket) ?? [];
-        existing.push(document);
-        operationsByBucket.set(document.bucketKey.bucket, existing);
-      }
+    let uploadCount = 0;
+    const plans = Array.from(operationsByDefinition, ([definitionId, documents]) => {
+      const operationsByBucket = Map.groupBy(documents, (document) => document.bucketKey.bucket);
+      const lifecycle = this.objectStorageLifecycle;
+      const createInserts: (() => Promise<mongo.AnyBulkWriteOperation<BucketDataDocumentV3>>)[] = [];
 
-      const inserts: mongo.AnyBulkWriteOperation<BucketDataDocumentV3>[] = [];
-
-      if (!this.objectStorage) {
-        for (const [bucket, ops] of operationsByBucket.entries()) {
-          const chunks = chunkBucketData(ops);
-          for (const chunk of chunks) {
-            inserts.push({
+      for (const [bucket, ops] of operationsByBucket) {
+        for (const chunk of chunkBucketData(ops)) {
+          const serialized = serializeBucketData(bucket, chunk);
+          if (lifecycle == null || serialized.size <= this.inlineThresholdBytes) {
+            createInserts.push(async () => ({
               insertOne: {
-                document: serializeBucketData(bucket, chunk)
+                document: serialized
               }
-            });
+            }));
+            continue;
           }
-        }
-      } else {
-        const lifecycle = new ObjectStorageLifecycle(this.db, this.group_id, this.objectStorage);
 
-        for (const [bucket, ops] of operationsByBucket.entries()) {
-          const chunks = chunkBucketData(ops);
-          for (const chunk of chunks) {
+          uploadCount += 1;
+          createInserts.push(async () => {
             const minOp = chunk[0].o;
             const maxOp = chunk[chunk.length - 1].o;
-            const serialized = serializeBucketData(bucket, chunk);
             const { ops: bucketOps, ...metadata } = serialized;
-
-            if (serialized.size <= this.inlineThresholdBytes) {
-              // Small enough to store inline
-              inserts.push({
-                insertOne: {
-                  document: serialized
-                }
-              });
-            } else {
-              const path = lifecycle.allocatePath(definitionId, bucket, minOp, maxOp);
-              const { fileSize } = await lifecycle.bucketData.store(path, bucketOps!);
-
-              inserts.push({
-                insertOne: {
-                  document: {
-                    ...metadata,
-                    storage_ref: {
-                      path,
-                      file_size: fileSize
-                    }
+            const path = lifecycle.allocatePath(definitionId, bucket, minOp, maxOp);
+            const { fileSize } = await lifecycle.bucketData.store(path, bucketOps!);
+            return {
+              insertOne: {
+                document: {
+                  ...metadata,
+                  storage_ref: {
+                    path,
+                    file_size: fileSize
                   }
                 }
-              });
-            }
-          }
+              }
+            };
+          });
         }
       }
 
+      return { definitionId, createInserts };
+    });
+
+    const createAllInserts = () =>
+      Promise.all(
+        plans.map(async ({ definitionId, createInserts }) => ({
+          definitionId,
+          inserts: await Promise.all(createInserts.map((createInsert) => createInsert()))
+        }))
+      );
+
+    // S3ObjectStorage applies one shared concurrency limit across all callers,
+    // so replication can schedule its uploads together without creating a
+    // separate limiter here.
+    const writes = await createAllInserts();
+
+    for (const { definitionId, inserts } of writes) {
       if (inserts.length > 0) {
         await this.db.bucketData(this.group_id, definitionId).bulkWrite(inserts, {
           session,

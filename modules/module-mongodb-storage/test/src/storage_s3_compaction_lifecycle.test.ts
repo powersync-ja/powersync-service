@@ -71,7 +71,7 @@ describe('S3 compaction storage lifecycle', () => {
     });
 
     expect(injectedFailure).toBe(true);
-    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const batch = await test_utils.getBatchArray(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const data = batch.flatMap((chunk) => chunk.chunkData.data);
     expect(data).toHaveLength(2);
   });
@@ -258,7 +258,7 @@ describe('S3 compaction storage lifecycle', () => {
     // Retired objects remain readable during the reference grace period.
     expect([...lowerPaths].every((path) => memoryStorage.store.has(path))).toBe(true);
 
-    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(readCheckpoint, [request]));
+    const batch = await test_utils.getBatchArray(bucketStorage.getBucketDataBatch(readCheckpoint, [request]));
     const data = batch.flatMap((chunk) => chunk.chunkData.data);
     expect(data).toHaveLength(12);
     for (let i = 7; i <= 12; i++) {
@@ -347,7 +347,7 @@ describe('S3 compaction storage lifecycle', () => {
     expect(bucketStateBefore!.estimate_since_compact!.count).toBeGreaterThan(0);
 
     // Record the input operations and object path.
-    const batchBefore = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const batchBefore = await test_utils.getBatchArray(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataBefore = test_utils.getBatchData(batchBefore);
     expect(dataBefore).toHaveLength(4);
     const oldS3Paths = new Set(docsBefore.map((doc) => doc.storage_ref!.path));
@@ -405,7 +405,7 @@ describe('S3 compaction storage lifecycle', () => {
 
     // The replacement object is readable and contains the expected compacted
     // operation sequence.
-    const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const batchAfter = await test_utils.getBatchArray(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataAfter = batchAfter.flatMap((chunk) => chunk.chunkData.data);
     expect(dataAfter).toMatchObject([
       { op: 'MOVE' },

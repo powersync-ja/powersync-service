@@ -6,6 +6,7 @@ import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { isBatchEnd } from '../storage/storage-index.js';
 import { mergeAsyncIterables } from '../streams/streams-index.js';
 import { PerformanceTracer, type Span } from '../tracing/PerformanceTracer.js';
 import { BucketChecksumState, CheckpointLine, type SyncCheckpointTraceCategory } from './BucketChecksumState.js';
@@ -459,11 +460,17 @@ async function* bucketDataBatch(
       // in-flight storage work when the connection itself is closed.
       signal: abort_connection
     });
-    for await (let { chunkData: r, targetOp } of dataBatches) {
+    for await (let chunk of dataBatches) {
       // Abort in current batch if the connection is closed
       if (abort_connection.aborted) {
         return null;
       }
+      if (isBatchEnd(chunk)) {
+        // This replaces any other has_more value, since the batch end is the last chunk.
+        has_more = chunk.hasMore;
+        break;
+      }
+      const { chunkData: r, targetOp } = chunk;
       if (r.has_more) {
         has_more = true;
       }
