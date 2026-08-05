@@ -296,7 +296,6 @@ describe('V3 invariant verification', () => {
       row_id: 'row1',
       checksum: 1n,
       data: '{"id":"row1"}',
-      target_op: null,
       ...overrides
     };
   }
@@ -351,8 +350,7 @@ bucket_definitions:
       table: TABLE,
       row_id: rowId,
       checksum: BigInt(opId * 7),
-      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data }),
-      target_op: null
+      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data })
     };
   }
 
@@ -453,25 +451,6 @@ bucket_definitions:
       expect(doc.checksum).toBe(doc.ops!.reduce((sum, op) => sum + op.checksum, 0n));
       expect(doc.size).toBe(bson.calculateObjectSize(doc.ops!));
     }
-  });
-
-  test('3. target_op correctness - max of non-null target_ops', () => {
-    const ops = [
-      makeBucketDataDoc({ o: 1n, target_op: null }),
-      makeBucketDataDoc({ o: 2n, target_op: 10n }),
-      makeBucketDataDoc({ o: 3n, target_op: 5n }),
-      makeBucketDataDoc({ o: 4n, target_op: null })
-    ];
-
-    const doc = serializeBucketData('test[]', ops);
-    expect(doc.target_op).toBe(10n);
-  });
-
-  test('3. target_op correctness - all null yields null', () => {
-    const ops = [makeBucketDataDoc({ o: 1n, target_op: null }), makeBucketDataDoc({ o: 2n, target_op: null })];
-
-    const doc = serializeBucketData('test[]', ops);
-    expect(doc.target_op).toBeNull();
   });
 
   test('4. no overlapping ranges - multiple documents', () => {
@@ -817,8 +796,7 @@ bucket_definitions:
       table: TABLE,
       row_id: rowId,
       checksum: BigInt(opId * 7),
-      data: JSON.stringify({ id: rowId, description: data }),
-      target_op: null
+      data: JSON.stringify({ id: rowId, description: data })
     };
   }
 
@@ -868,7 +846,7 @@ bucket_definitions:
     // Compaction rechunks the bucket into one document spanning the cached
     // checkpoint. The requested endpoint is the end of the new document.
     await collection.deleteMany({});
-    await collection.insertOne(serializeBucketData(BUCKET, ops, { compactionTargetOp: 60n }));
+    await collection.insertOne(serializeBucketData(BUCKET, ops, { targetOp: 60n }));
 
     const result = await bucketStorage.getChecksums(test_utils.testCheckpoint(60n), [request]);
     const checksumResult = result.get(BUCKET)!;
@@ -888,7 +866,7 @@ bucket_definitions:
       makeOp(50, 'E', 'e1', ctx, sourceTableId),
       makeOp(60, 'F', 'f1', ctx, sourceTableId)
     ];
-    const doc = serializeBucketData(BUCKET, ops, { compactionTargetOp: 60n });
+    const doc = serializeBucketData(BUCKET, ops, { targetOp: 60n });
     await collection.insertMany([doc]);
 
     const checksumAllOps = ops.reduce((sum, op) => addChecksums(sum, Number(op.checksum)), 0);
@@ -1014,8 +992,7 @@ bucket_definitions:
       table: TABLE,
       row_id: rowId,
       checksum: BigInt(opId * 7),
-      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data }),
-      target_op: null
+      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data })
     };
   }
 
@@ -1282,8 +1259,7 @@ bucket_definitions:
       table: TABLE,
       row_id: rowId,
       checksum: BigInt(opId * 7),
-      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data }),
-      target_op: null
+      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data })
     };
   }
 
@@ -1495,8 +1471,7 @@ bucket_definitions:
       table: TABLE,
       row_id: rowId,
       checksum: BigInt(opId * 7),
-      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data }),
-      target_op: null
+      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data })
     };
   }
 

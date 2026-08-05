@@ -251,29 +251,36 @@ streams:
     expect(lines).toMatchSnapshot();
   });
 
-  test('sync interrupts low-priority buckets on new checkpoints', async () => {
+  test('carries pending low-priority buckets into a new checkpoint', async () => {
     await using f = await factory();
 
     const syncRules = await updateSyncRules(f, {
       content: `
 bucket_definitions:
-  b0:
+  b0a:
     priority: 2
     data:
-      - SELECT * FROM test WHERE LENGTH(id) <= 5;
+      - SELECT * FROM test WHERE substring(id, 1, 6) = 'first-';
+  b0b:
+    priority: 3
+    data:
+      - SELECT * FROM test WHERE substring(id, 1, 4) = 'low-';
   b1:
     priority: 1
     data:
-      - SELECT * FROM test WHERE LENGTH(id) > 5;
+      - SELECT * FROM test WHERE substring(id, 1, 8) = 'highprio';
     `
     });
 
     const bucketStorage = f.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const syncRulesContent = syncRules.syncConfigContent[0];
+    const b0aBucket = test_utils.bucketRequest(syncRulesContent, 'b0a[]').bucket;
+    const b0bBucket = test_utils.bucketRequest(syncRulesContent, 'b0b[]').bucket;
+    const b1Bucket = test_utils.bucketRequest(syncRulesContent, 'b1[]').bucket;
 
     await writer.markAllSnapshotDone('0/1');
-    // Initial data: Add one priority row and 10k low-priority rows.
     await writer.save({
       sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
@@ -283,15 +290,26 @@ bucket_definitions:
       },
       afterReplicaId: 'highprio'
     });
-    for (let i = 0; i < 10_000; i++) {
+    for (let i = 0; i < 999; i++) {
       await writer.save({
         sourceTable: testTable,
         tag: storage.SaveOperationTag.INSERT,
         after: {
-          id: `${i}`,
-          description: 'low prio'
+          id: `first-${i}`,
+          description: 'first low-priority bucket'
         },
-        afterReplicaId: `${i}`
+        afterReplicaId: `first-${i}`
+      });
+    }
+    for (let i = 0; i < 9_001; i++) {
+      await writer.save({
+        sourceTable: testTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: `low-${i}`,
+          description: 'last low-priority bucket'
+        },
+        afterReplicaId: `low-${i}`
       });
     }
 
@@ -311,8 +329,12 @@ bucket_definitions:
       isEncodingAsBson: false
     });
 
-    let sentCheckpoints = 0;
-    let sentRows = 0;
+    const dataLines: Array<{ bucket: string; objectIds: string[]; afterCheckpointDiff: boolean }> = [];
+    const partialCheckpoints: Array<{ priority: number; afterCheckpointDiff: boolean }> = [];
+    const checkpoints: any[] = [];
+    const checkpointCompletes: any[] = [];
+    let afterCheckpointDiff = false;
+    let interruptionTriggered = false;
 
     for await (let next of stream) {
       if (typeof next == 'string') {
@@ -320,10 +342,13 @@ bucket_definitions:
       }
       if (typeof next === 'object' && next !== null) {
         if ('partial_checkpoint_complete' in next) {
-          if (sentCheckpoints == 1) {
-            // Save new data to interrupt the low-priority sync.
+          partialCheckpoints.push({
+            priority: next.partial_checkpoint_complete.priority,
+            afterCheckpointDiff
+          });
 
-            // Add another high-priority row. This should interrupt the long-running low-priority sync.
+          if (next.partial_checkpoint_complete.priority == 2 && !interruptionTriggered) {
+            interruptionTriggered = true;
             await writer.save({
               sourceTable: testTable,
               tag: storage.SaveOperationTag.INSERT,
@@ -335,28 +360,76 @@ bucket_definitions:
             });
 
             await writer.commit('0/2');
-          } else {
-            // Low-priority sync from the first checkpoint was interrupted. This should not happen before
-            // 1000 low-priority items were synchronized.
-            expect(sentCheckpoints).toBe(2);
-            expect(sentRows).toBeGreaterThan(1000);
+            // Let the checkpoint watcher observe the update before requesting the next priority.
+            await timers.setTimeout(50);
           }
         }
         if ('checkpoint' in next || 'checkpoint_diff' in next) {
-          sentCheckpoints += 1;
+          checkpoints.push(next);
+          afterCheckpointDiff = 'checkpoint_diff' in next;
         }
 
         if ('data' in next) {
-          sentRows += next.data.data.length;
+          dataLines.push({
+            bucket: next.data.bucket,
+            objectIds: next.data.data.flatMap((entry: any) => (entry.object_id == null ? [] : [entry.object_id])),
+            afterCheckpointDiff
+          });
         }
         if ('checkpoint_complete' in next) {
+          checkpointCompletes.push(next);
           break;
         }
       }
     }
 
-    expect(sentCheckpoints).toBe(2);
-    expect(sentRows).toBe(10002);
+    // Expected flow (data may be split into any number of chunks):
+    //
+    // checkpoint
+    // data: b1 contains highprio
+    // partial_checkpoint_complete: priority 1
+    // data: b0a contains all 999 first-* rows (1,000 operations including highprio)
+    // partial_checkpoint_complete: priority 2
+    // ## add highprio2, interrupting before b0b starts
+    // checkpoint_diff
+    // data: b1 contains highprio2
+    // partial_checkpoint_complete: priority 1
+    // data: b0b contains all 9,001 low-* rows carried over from the interrupted checkpoint
+    // checkpoint_complete: only for the new checkpoint
+    expect(interruptionTriggered).toBe(true);
+    expect(checkpoints).toHaveLength(2);
+    expect(checkpoints[0]).toHaveProperty('checkpoint');
+    expect(checkpoints[1]).toHaveProperty('checkpoint_diff');
+    expect(partialCheckpoints).toEqual([
+      { priority: 1, afterCheckpointDiff: false },
+      { priority: 2, afterCheckpointDiff: false },
+      { priority: 1, afterCheckpointDiff: true }
+    ]);
+    expect(checkpointCompletes).toEqual([
+      {
+        checkpoint_complete: {
+          last_op_id: checkpoints[1].checkpoint_diff.last_op_id
+        }
+      }
+    ]);
+
+    const objectIdsFor = (bucket: string, afterDiff: boolean) =>
+      dataLines
+        .filter((line) => line.bucket == bucket && line.afterCheckpointDiff == afterDiff)
+        .flatMap((line) => line.objectIds);
+
+    expect(objectIdsFor(b1Bucket, false)).toEqual(['highprio']);
+    const b0aObjectIds = objectIdsFor(b0aBucket, false);
+    expect(new Set(b0aObjectIds)).toEqual(new Set(Array.from({ length: 999 }, (_, i) => `first-${i}`)));
+    expect(b0aObjectIds).toHaveLength(999);
+    expect(objectIdsFor(b0bBucket, false)).toEqual([]);
+
+    expect(objectIdsFor(b1Bucket, true)).toEqual(['highprio2']);
+    expect(objectIdsFor(b0aBucket, true)).toEqual([]);
+
+    const b0bObjectIds = objectIdsFor(b0bBucket, true);
+    expect(new Set(b0bObjectIds)).toEqual(new Set(Array.from({ length: 9_001 }, (_, i) => `low-${i}`)));
+    expect(b0bObjectIds).toHaveLength(9_001);
   });
 
   test('sync interruptions with unrelated data', async () => {
@@ -490,12 +563,8 @@ bucket_definitions:
     expect(sentRows).toBe(10002);
   });
 
-  test('sync interrupts low-priority buckets on new checkpoints (2)', async () => {
+  test('restarts updated low-priority buckets at a new checkpoint', async () => {
     await using f = await factory();
-
-    // bucket0a -> send all data
-    // then interrupt checkpoint with new data for all buckets
-    // -> data for all buckets should be sent in the new checkpoint
 
     const syncRules = await updateSyncRules(f, {
       content: `
@@ -503,24 +572,27 @@ bucket_definitions:
   b0a:
     priority: 2
     data:
-      - SELECT * FROM test WHERE LENGTH(id) <= 5;
+      - SELECT * FROM test WHERE substring(id, 1, 6) = 'first-';
   b0b:
-    priority: 2
+    priority: 3
     data:
-      - SELECT * FROM test WHERE LENGTH(id) <= 5;
+      - SELECT * FROM test WHERE substring(id, 1, 4) = 'low-';
   b1:
     priority: 1
     data:
-      - SELECT * FROM test WHERE LENGTH(id) > 5;
+      - SELECT * FROM test WHERE substring(id, 1, 8) = 'highprio';
     `
     });
 
     const bucketStorage = f.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const syncRulesContent = syncRules.syncConfigContent[0];
+    const b0aBucket = test_utils.bucketRequest(syncRulesContent, 'b0a[]').bucket;
+    const b0bBucket = test_utils.bucketRequest(syncRulesContent, 'b0b[]').bucket;
+    const b1Bucket = test_utils.bucketRequest(syncRulesContent, 'b1[]').bucket;
 
     await writer.markAllSnapshotDone('0/1');
-    // Initial data: Add one priority row and 10k low-priority rows.
     await writer.save({
       sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
@@ -530,15 +602,26 @@ bucket_definitions:
       },
       afterReplicaId: 'highprio'
     });
+    for (let i = 0; i < 999; i++) {
+      await writer.save({
+        sourceTable: testTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: `first-${i}`,
+          description: 'first low-priority bucket'
+        },
+        afterReplicaId: `first-${i}`
+      });
+    }
     for (let i = 0; i < 2_000; i++) {
       await writer.save({
         sourceTable: testTable,
         tag: storage.SaveOperationTag.INSERT,
         after: {
-          id: `${i}`,
+          id: `low-${i}`,
           description: 'low prio'
         },
-        afterReplicaId: `${i}`
+        afterReplicaId: `low-${i}`
       });
     }
 
@@ -558,8 +641,12 @@ bucket_definitions:
       isEncodingAsBson: false
     });
 
-    let sentRows = 0;
-    let lines: any[] = [];
+    const dataLines: Array<{ bucket: string; objectIds: string[]; afterCheckpointDiff: boolean }> = [];
+    const partialCheckpoints: Array<{ priority: number; afterCheckpointDiff: boolean }> = [];
+    const checkpoints: any[] = [];
+    const checkpointCompletes: any[] = [];
+    let afterCheckpointDiff = false;
+    let interruptionTriggered = false;
 
     for await (let next of stream) {
       if (typeof next == 'string') {
@@ -567,19 +654,13 @@ bucket_definitions:
       }
       if (typeof next === 'object' && next !== null) {
         if ('partial_checkpoint_complete' in next) {
-          lines.push(next);
-        }
-        if ('checkpoint' in next || 'checkpoint_diff' in next) {
-          lines.push(next);
-        }
+          partialCheckpoints.push({
+            priority: next.partial_checkpoint_complete.priority,
+            afterCheckpointDiff
+          });
 
-        if ('data' in next) {
-          lines.push({ data: { ...next.data, data: undefined } });
-          sentRows += next.data.data.length;
-
-          if (sentRows == 1001) {
-            // Save new data to interrupt the low-priority sync.
-            // Add another high-priority row. This should interrupt the long-running low-priority sync.
+          if (next.partial_checkpoint_complete.priority == 2 && !interruptionTriggered) {
+            interruptionTriggered = true;
             await writer.save({
               sourceTable: testTable,
               tag: storage.SaveOperationTag.INSERT,
@@ -590,51 +671,87 @@ bucket_definitions:
               afterReplicaId: 'highprio2'
             });
 
-            // Also add a low-priority row
             await writer.save({
               sourceTable: testTable,
               tag: storage.SaveOperationTag.INSERT,
               after: {
-                id: '2001',
+                id: 'low-2000',
                 description: 'Another low-priority row'
               },
-              afterReplicaId: '2001'
+              afterReplicaId: 'low-2000'
             });
 
             await writer.commit('0/2');
-          }
-
-          if (sentRows >= 1000 && sentRows <= 2001) {
-            // pause for a bit to give the stream time to process interruptions.
-            // This covers the data batch above and the next one.
+            // Let the checkpoint watcher observe the update before requesting the next priority.
             await timers.setTimeout(50);
           }
         }
+        if ('checkpoint' in next || 'checkpoint_diff' in next) {
+          checkpoints.push(next);
+          afterCheckpointDiff = 'checkpoint_diff' in next;
+        }
+
+        if ('data' in next) {
+          dataLines.push({
+            bucket: next.data.bucket,
+            objectIds: next.data.data.flatMap((entry: any) => (entry.object_id == null ? [] : [entry.object_id])),
+            afterCheckpointDiff
+          });
+        }
         if ('checkpoint_complete' in next) {
-          lines.push(next);
+          checkpointCompletes.push(next);
           break;
         }
       }
     }
 
-    // Expected lines (full details in snapshot):
+    // Expected flow (data may be split into any number of chunks):
     //
-    // checkpoint (4001)
-    // data (b1[] 0 -> 1)
-    // partial_checkpoint_complete (4001, priority 1)
-    // data (b0a[], 0 -> 2000)
-    // ## adds new data, interrupting the checkpoint
-    // data (b0a[], 2000 -> 4000) # expected - stream is already busy with this by the time it receives the interruption
-    // checkpoint_diff (4004)
-    // data (b1[], 1 -> 4002)
-    // partial_checkpoint_complete (4004, priority 1)
-    // data (b0a[], 4000 -> 4003)
-    // data (b0b[], 0 -> 1999)
-    // data (b0b[], 1999 -> 3999)
-    // data (b0b[], 3999 -> 4004)
-    // checkpoint_complete (4004)
-    expect(lines).toMatchSnapshot();
-    expect(sentRows).toBe(4004);
+    // checkpoint
+    // data: b1 contains highprio
+    // partial_checkpoint_complete: priority 1
+    // data: b0a contains all 999 first-* rows (1,000 operations including highprio)
+    // partial_checkpoint_complete: priority 2
+    // ## add highprio2 and low-2000, interrupting before b0b starts
+    // checkpoint_diff
+    // data: b1 contains highprio2
+    // partial_checkpoint_complete: priority 1
+    // data: b0b contains all 2,001 low-* rows
+    // checkpoint_complete: only for the new checkpoint
+    expect(interruptionTriggered).toBe(true);
+    expect(checkpoints).toHaveLength(2);
+    expect(checkpoints[0]).toHaveProperty('checkpoint');
+    expect(checkpoints[1]).toHaveProperty('checkpoint_diff');
+    expect(partialCheckpoints).toEqual([
+      { priority: 1, afterCheckpointDiff: false },
+      { priority: 2, afterCheckpointDiff: false },
+      { priority: 1, afterCheckpointDiff: true }
+    ]);
+    expect(checkpointCompletes).toEqual([
+      {
+        checkpoint_complete: {
+          last_op_id: checkpoints[1].checkpoint_diff.last_op_id
+        }
+      }
+    ]);
+
+    const objectIdsFor = (bucket: string, afterDiff: boolean) =>
+      dataLines
+        .filter((line) => line.bucket == bucket && line.afterCheckpointDiff == afterDiff)
+        .flatMap((line) => line.objectIds);
+
+    expect(objectIdsFor(b1Bucket, false)).toEqual(['highprio']);
+    const b0aObjectIds = objectIdsFor(b0aBucket, false);
+    expect(new Set(b0aObjectIds)).toEqual(new Set(Array.from({ length: 999 }, (_, i) => `first-${i}`)));
+    expect(b0aObjectIds).toHaveLength(999);
+    expect(objectIdsFor(b0bBucket, false)).toEqual([]);
+
+    expect(objectIdsFor(b1Bucket, true)).toEqual(['highprio2']);
+    expect(objectIdsFor(b0aBucket, true)).toEqual([]);
+
+    const b0bObjectIds = objectIdsFor(b0bBucket, true);
+    expect(new Set(b0bObjectIds)).toEqual(new Set(Array.from({ length: 2_001 }, (_, i) => `low-${i}`)));
+    expect(b0bObjectIds).toHaveLength(2_001);
   });
 
   test('sends checkpoint complete line for empty checkpoint', async () => {

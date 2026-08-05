@@ -220,7 +220,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const checkpoint = flushResult!.flushed_op;
 
     const options: storage.BucketDataBatchOptions = {};
-    const batch1 = await test_utils.fromAsync(
+    const batch1 = await test_utils.getBatchArray(
       bucketStorage.getBucketDataBatch(
         test_utils.testCheckpoint(checkpoint),
         [bucketRequest(syncRulesContent, 'global[]', 0n)],
@@ -237,7 +237,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       next_after: '2'
     });
 
-    const batch2 = await test_utils.fromAsync(
+    const batch2 = await test_utils.getBatchArray(
       bucketStorage.getBucketDataBatch(
         test_utils.testCheckpoint(checkpoint),
         [bucketRequest(syncRulesContent, 'global[]', batch1[0].chunkData.next_after)],
@@ -253,7 +253,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       next_after: '3'
     });
 
-    const batch3 = await test_utils.fromAsync(
+    const batch3 = await test_utils.getBatchArray(
       bucketStorage.getBucketDataBatch(
         test_utils.testCheckpoint(checkpoint),
         [bucketRequest(syncRulesContent, 'global[]', batch2[0].chunkData.next_after)],
@@ -1866,7 +1866,7 @@ describe('sync - mongodb', () => {
         async function getFilteredOps(start: number, checkpoint: number): Promise<bigint[]> {
           const { syncRules, bucketStorage } = await setupFilteringTest();
           const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', BigInt(start));
-          const batch = await test_utils.fromAsync(
+          const batch = await test_utils.getBatchArray(
             bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(BigInt(checkpoint)), [request])
           );
           const ops = batch.flatMap((b) => b.chunkData.data.map((d) => BigInt(d.op_id)));
@@ -2013,7 +2013,7 @@ describe('sync - mongodb', () => {
             const roundRequests = requests
               .filter((request) => pending.has(request.bucket))
               .map((request) => ({ ...request, start: positions.get(request.bucket)! }));
-            const batch = await test_utils.fromAsync(
+            const batch = await test_utils.getBatchArray(
               bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(end), roundRequests)
             );
             let anyHasMore = false;

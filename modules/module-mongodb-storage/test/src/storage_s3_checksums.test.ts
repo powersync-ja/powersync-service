@@ -184,7 +184,7 @@ describe('V3 checksums with S3 object storage', () => {
     expect(checksum.checksum).toBe(groundTruth);
 
     // The two superseded A operations collapse into CLEAR.
-    const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const batchAfter = await test_utils.getBatchArray(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataAfter = batchAfter.flatMap((chunk) => chunk.chunkData.data);
     expect(dataAfter).toMatchObject([{ op: 'CLEAR' }, { object_id: 'B', op: 'PUT' }, { object_id: 'A', op: 'PUT' }]);
   });
