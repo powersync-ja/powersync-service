@@ -270,9 +270,9 @@ export class CDCPoller {
       request.input('from_lsn', sql.VarBinary, bounds.startLSN.toBinary());
       request.input('to_lsn', sql.VarBinary, bounds.endLSN.toBinary());
 
-      const columnsPromise = new Promise<sql.IColumnMetadata>((resolve, reject) => {
-        request.on('recordset', resolve);
-        request.on('error', reject);
+      let columns: sql.IColumnMetadata | null = null;
+      request.on('recordset', (recordsetColumns) => {
+        columns = recordsetColumns;
       });
       const stream = request.toReadableStream();
       request.query(`
@@ -280,7 +280,11 @@ export class CDCPoller {
       `);
 
       for await (const { transactionLSN, type, rows } of groupLogicalChanges(stream, table)) {
-        const columns = await columnsPromise;
+        if (columns == null) {
+          throw new ReplicationAssertionError(
+            `Missing CDC column metadata while polling for updates for table ${table.toQualifiedName()}.`
+          );
+        }
         switch (type) {
           case LogicalChangeType.DELETE:
             await this.eventHandler.onDelete(rows[0], table, columns);
