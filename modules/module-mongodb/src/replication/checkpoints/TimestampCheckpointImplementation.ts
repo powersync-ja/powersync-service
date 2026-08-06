@@ -67,9 +67,10 @@ export class TimestampCheckpointImplementation implements CheckpointImplementati
     );
   }
 
-  lsnFromResumeToken(resumeToken: mongo.ResumeToken): string {
+  lsnFromResumeToken(resumeToken: mongo.ResumeToken) {
     // The timestamp is embedded in the resume token.
-    return MongoLSN.fromResumeToken(resumeToken).comparable;
+    const lsn = MongoLSN.fromResumeToken(resumeToken);
+    return { lsn: lsn.comparable, timestamp: timestampToDate(lsn.timestamp) };
   }
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {

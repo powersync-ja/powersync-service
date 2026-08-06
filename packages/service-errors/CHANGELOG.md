@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.5.0
+
+### Minor Changes
+
+- be42e25: Throw a clear error (`PSYNC_R2201`) when a schema wildcard is used in a table pattern with MongoDB, MySQL, SQL Server or Convex connections, instead of silently discovering no tables.
+
 ## 0.4.4
 
 ### Patch Changes
