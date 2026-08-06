@@ -228,8 +228,8 @@ export class CDCPoller {
       // The pinned instance can be dropped between schema checks.
       throw new CaptureInstanceMissingError(
         `The CDC capture instance for table ${table.toQualifiedName()} (pinned to object id ` +
-          `${table.pinnedCaptureObjectId}) is no longer available. Deploy the sync configuration as a new ` +
-          `replication stream to replicate this table against a new capture instance.`
+          `${table.pinnedCaptureObjectId}) is no longer available. Deploy a new sync config to replicate ` +
+          `this table against an available capture instance.`
       );
     }
     const minLSN = boundInstance.minLSN;

@@ -125,7 +125,7 @@ export function createCaptureReconciler(availableInstances: CaptureInstance[]) {
       // A replacement may capture a different schema, so do not adopt it in place.
       throw new CaptureInstanceMissingError(
         `The CDC capture instance (object id ${captureTableObjectId}) for source table ` +
-          `${source.schema}.${source.name} is no longer available. Redeploy your sync configuration to ` +
+          `${source.schema}.${source.name} is no longer available. Deploy a new sync config to ` +
           `replicate this table against a new capture instance.`
       );
     }

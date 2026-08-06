@@ -228,8 +228,8 @@ export class CDCStream {
         throw new SourceTableNotReadyError(
           `CDC is not enabled for source table ${tablePattern.schema}.${matchedTable.name}, which matches the ` +
             `sync configuration. Enable CDC for this table. If it was previously replicating, note that ` +
-            `re-enabling CDC creates a new capture instance which this replication stream will not adopt - ` +
-            `deploy the sync configuration as a new replication stream to replicate it again.`
+            `re-enabling CDC creates a new capture instance which PowerSync will not adopt automatically. ` +
+            `Deploy a new sync config to replicate it again.`
         );
       }
 
@@ -731,14 +731,14 @@ export class CDCStream {
         // Continuing could commit past unread changes because the rename has no known LSN.
         throw new SourceTableUnavailableError(
           `Table ${change.table.toQualifiedName()} has been renamed to [${change.newTable.name}]. ` +
-            `Deploy the sync configuration as a new replication stream to replicate it under the new name. ` +
+            `Deploy a new sync config that uses the new name to replicate it again. ` +
             `Its already-replicated data is retained until then.`
         );
       case SchemaChangeType.TABLE_DROP:
         throw new SourceTableUnavailableError(
-          `Table ${change.table.toQualifiedName()} has been dropped from the source. Deploy the sync ` +
-            `configuration as a new replication stream to stop replicating it. Its already-replicated data is ` +
-            `retained until then.`
+          `Table ${change.table.toQualifiedName()} has been dropped from the source. Deploy a new sync config ` +
+            `that no longer includes it. Its already-replicated data is retained until the new sync config ` +
+            `becomes active.`
         );
       case SchemaChangeType.TABLE_COLUMN_CHANGES:
         this.warnColumnChanges(change.table, change.captureInstance);
@@ -749,8 +749,9 @@ export class CDCStream {
         if (this.warnedNewerCaptureObjectId.get(table.objectId) !== newCaptureInstance.objectId) {
           this.logger.warn(
             `A newer CDC capture instance (object id ${newCaptureInstance.objectId}) is available for table ${table.toQualifiedName()}, ` +
-              `but this replication stream is pinned to capture instance object id ${table.pinnedCaptureObjectId}. ` +
-              `Redeploy the sync configuration as a new replication stream to adopt the new capture instance.`
+              `but the current replication process remains pinned to capture instance object id ${table.pinnedCaptureObjectId}. ` +
+              `Deploy a new sync config to adopt the new capture instance, and keep the current instance ` +
+              `available until that sync config becomes active.`
           );
           this.warnedNewerCaptureObjectId.set(table.objectId, newCaptureInstance.objectId);
         }
@@ -761,11 +762,11 @@ export class CDCStream {
         throw new CaptureInstanceMissingError(
           `The CDC capture instance for table ${change.table.toQualifiedName()} (pinned to object id ` +
             `${change.table.pinnedCaptureObjectId}) is no longer available. ` +
-            `This replication stream cannot replicate the table again - a dropped capture instance cannot be ` +
+            `PowerSync cannot continue replicating the table - a dropped capture instance cannot be ` +
             `restored, because re-enabling CDC creates a new one with a different object id. ` +
             (change.replacementInstance
-              ? `Deploy the sync configuration as a new replication stream to adopt the replacement.`
-              : `Re-enable CDC for this table, then deploy the sync configuration as a new replication stream.`)
+              ? `Deploy a new sync config to adopt the replacement.`
+              : `Re-enable CDC for this table, then deploy a new sync config.`)
         );
       default:
         throw new ReplicationAssertionError(`Unknown schema change type: ${(change as SchemaChange).type}`);
@@ -783,9 +784,9 @@ export class CDCStream {
     }
 
     this.logger.warn(
-      `Schema drift detected for table ${table.toQualifiedName()}. Replication continues against the captured ` +
-        `schema, so these changes are not replicated. Deploy the sync configuration as a new replication stream ` +
-        `to pick them up.\n Pending schema changes:\n ${captureInstance.pendingSchemaChanges.join(', \n')}`
+      `Schema drift detected for table ${table.toQualifiedName()}. Until a new sync config becomes active, ` +
+        `replication continues against the captured schema, so these changes are not replicated. Deploy a new ` +
+        `sync config to pick them up.\n Pending schema changes:\n ${captureInstance.pendingSchemaChanges.join(', \n')}`
     );
     this.warnedSchemaChangeCount.set(table.objectId, changeCount);
   }

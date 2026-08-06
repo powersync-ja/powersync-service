@@ -122,7 +122,9 @@ SQL Server can keep two capture instances for one table. Each binding is pinned 
 
 Every configured table is resolved before streaming starts, which also backfills pins for legacy records. A table that does not exist or does not have CDC enabled fails with `PSYNC_S1602`.
 
-Adopting a new capture instance requires a new replication stream. Keep the old instance available until the new stream has finished its snapshots and is active.
+To adopt a new capture instance, deploy a new sync config. The replacement processing binds to the new
+instance and snapshots as needed. Keep the old instance available until the new sync config has finished
+its snapshots and becomes active.
 
 The parsed sync config set matters here. Source objects, hydration state, and definition mappings are identity-bound; resolving sources from one parse and writing them through a batch created from another parse can point at the wrong persisted ids.
 
