@@ -409,22 +409,18 @@ export class BinLogStream {
     const serverId = createRandomServerId(this.storage.replicationStreamId);
 
     const connection = await this.connections.getConnection();
-    const { resumeLsn: resume_lsn } = await this.storage.getStatus();
-    if (resume_lsn) {
-      this.logger.info(`Existing resume LSN found: ${resume_lsn}`);
-    }
-    const fromGTID = resume_lsn
-      ? common.ReplicatedGTID.fromSerialized(resume_lsn)
-      : await common.readExecutedGtid(connection);
-    connection.release();
-
-    const gtidServerIds = fromGTID.serverIds;
-    if (gtidServerIds.length > 1) {
-      this.logger.warn(
-        `The executed GTID set contains multiple server UUIDs: ${gtidServerIds.join(', ')}. ` +
-          `GTID-based LSN ordering is only reliable for transactions from a single server. ` +
-          `Checkpoints may stall or be delayed if the active server is not the one with the highest transaction count.`
-      );
+    let fromGTID: common.ReplicatedGTID;
+    try {
+      const { resumeLsn: resume_lsn } = await this.storage.getStatus();
+      if (resume_lsn) {
+        this.logger.info(`Existing resume LSN found: ${resume_lsn}`);
+      }
+      // The server uuid picks the connected server's transaction counter out of GTID sets for LSN ordering.
+      fromGTID = resume_lsn
+        ? common.ReplicatedGTID.fromSerialized(resume_lsn, await common.readServerUuid(connection))
+        : await common.readExecutedGtid(connection);
+    } finally {
+      connection.release();
     }
 
     if (!this.stopped) {

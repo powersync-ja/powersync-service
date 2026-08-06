@@ -140,28 +140,53 @@ describe('ReplicatedGTID', () => {
     });
   });
 
-  describe('serverIds', () => {
-    test('single UUID', () => {
-      const gtid = new ReplicatedGTID({ raw_gtid: 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004:1-17', position: POSITION });
-      expect(gtid.serverIds).toEqual(['a7d0ff7b-0c0e-11f0-8b38-566fbaa00004']);
-    });
+  describe('connected server UUID selection', () => {
+    const ACTIVE = '2e35321d-0c0e-11f0-8b38-566fbaa00004';
+    const STALE = '314306f3-ff7b-11ef-a0e0-566fbaa00002';
 
-    test('multiple UUIDs in a newline-joined executed set', () => {
-      const raw = '2e35321d-0c0e-11f0-8b38-566fbaa00004:1-17,\n314306f3-ff7b-11ef-a0e0-566fbaa00002:1-2734181';
-      const gtid = new ReplicatedGTID({ raw_gtid: raw, position: POSITION });
-      expect(gtid.serverIds).toEqual(['2e35321d-0c0e-11f0-8b38-566fbaa00004', '314306f3-ff7b-11ef-a0e0-566fbaa00002']);
-    });
-
-    test('ignores segments without intervals', () => {
+    test('uses the connected server counter even when a stale UUID holds a higher one', () => {
+      // A restore from another server leaves the old UUID with a high counter. Ordering by the set-wide
+      // maximum would pin the LSN there and hang checkpoints until the active counter catches up.
       const gtid = new ReplicatedGTID({
-        raw_gtid: 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004:1-17,\ngarbage-no-colon',
-        position: POSITION
+        raw_gtid: `${STALE}:1-42350493,\n${ACTIVE}:1-17`,
+        position: POSITION,
+        serverUuid: ACTIVE
       });
-      expect(gtid.serverIds).toEqual(['a7d0ff7b-0c0e-11f0-8b38-566fbaa00004']);
+      expect(gtid.comparable.split('|')[0]).toEqual('0000000000000017');
     });
 
-    test('empty set has no server ids', () => {
-      expect(new ReplicatedGTID({ raw_gtid: '', position: POSITION }).serverIds).toEqual([]);
+    test('matches the set-wide maximum when the connected server holds it', () => {
+      const gtid = new ReplicatedGTID({
+        raw_gtid: `${ACTIVE}:1-42350493,\n${STALE}:1-2734181`,
+        position: POSITION,
+        serverUuid: ACTIVE
+      });
+      expect(gtid.comparable.split('|')[0]).toEqual('0000000042350493');
+    });
+
+    test('falls back to the set-wide maximum when the connected server has no transactions in the set', () => {
+      const gtid = new ReplicatedGTID({
+        raw_gtid: `${STALE}:1-2734181`,
+        position: POSITION,
+        serverUuid: ACTIVE
+      });
+      expect(gtid.comparable.split('|')[0]).toEqual('0000000002734181');
+    });
+
+    test('single-GTID values from the connected server are unaffected', () => {
+      const gtid = new ReplicatedGTID({ raw_gtid: `${ACTIVE}:18`, position: POSITION, serverUuid: ACTIVE });
+      expect(gtid.comparable.split('|')[0]).toEqual('0000000000000018');
+    });
+
+    test('fromSerialized produces the same LSN when the same server UUID is provided', () => {
+      const gtid = new ReplicatedGTID({
+        raw_gtid: `${STALE}:1-42350493,\n${ACTIVE}:1-17`,
+        position: POSITION,
+        serverUuid: ACTIVE
+      });
+      const deserialized = ReplicatedGTID.fromSerialized(gtid.comparable, ACTIVE);
+      expect(deserialized.comparable).toEqual(gtid.comparable);
+      expect(deserialized.activeServerUuid).toEqual(ACTIVE);
     });
   });
 });

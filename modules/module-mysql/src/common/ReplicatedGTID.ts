@@ -13,6 +13,11 @@ export type ReplicatedGTIDSpecification = {
    * The (end) position in a BinLog file where this transaction has been replicated in.
    */
   position: BinLogPosition;
+  /**
+   * The `@@server_uuid` of the connected server. When set and the raw GTID set contains multiple server
+   * UUIDs, LSN ordering uses this server's transaction counter rather than the highest counter in the set.
+   */
+  serverUuid?: string;
 };
 
 export type BinLogGTIDFormat = {
@@ -31,8 +36,8 @@ export type BinLogGTIDEvent = {
  * and position where this GTID could be located.
  */
 export class ReplicatedGTID {
-  static fromSerialized(comparable: string): ReplicatedGTID {
-    return new ReplicatedGTID(ReplicatedGTID.deserialize(comparable));
+  static fromSerialized(comparable: string, serverUuid?: string): ReplicatedGTID {
+    return new ReplicatedGTID({ ...ReplicatedGTID.deserialize(comparable), serverUuid });
   }
 
   private static deserialize(comparable: string): ReplicatedGTIDSpecification {
@@ -55,12 +60,13 @@ export class ReplicatedGTID {
     };
   }
 
-  static fromBinLogEvent(event: BinLogGTIDEvent) {
+  static fromBinLogEvent(event: BinLogGTIDEvent, serverUuid?: string) {
     const { raw_gtid, position } = event;
     const stringGTID = `${uuid.stringify(raw_gtid.server_id)}:${raw_gtid.transaction_range}`;
     return new ReplicatedGTID({
       raw_gtid: stringGTID,
-      position
+      position,
+      serverUuid
     });
   }
 
@@ -87,26 +93,15 @@ export class ReplicatedGTID {
 
   /**
    * The server UUID of a single-GTID value. For a raw value holding a full GTID set this is only the first
-   * UUID; use {@link serverIds} for all of them.
+   * UUID.
    */
   get serverId() {
     return this.options.raw_gtid.split(':')[0];
   }
 
-  /**
-   * All distinct server UUIDs in the raw GTID set. More than one means the set contains transactions from
-   * multiple servers, which GTID-based LSN ordering does not reliably support.
-   */
-  get serverIds(): string[] {
-    const ids = new Set<string>();
-    for (const uuidSet of this.options.raw_gtid.split(',')) {
-      const trimmed = uuidSet.trim();
-      const separator = trimmed.indexOf(':');
-      if (separator > 0) {
-        ids.add(trimmed.slice(0, separator));
-      }
-    }
-    return [...ids];
+  /** The connected server's `@@server_uuid`, when known. See {@link ReplicatedGTIDSpecification.serverUuid}. */
+  get activeServerUuid(): string | undefined {
+    return this.options.serverUuid;
   }
 
   /**
@@ -116,45 +111,52 @@ export class ReplicatedGTID {
    * The raw GTID can be a full GTID set consisting of multiple comma-separated
    * (optionally whitespace/newline padded) UUID sets, each of the form
    * `server_uuid:interval[:interval...]` where an interval is `n` or `n-m`.
-   * The maximum transaction id across all UUID sets is used for ordering.
    *
-   * Note: this assumes the currently writing server has the highest transaction
-   * counter in the set. If a stale server UUID in the set has a higher counter
-   * than the active server (e.g. after a restore to a new server), checkpoints
-   * can be delayed until the active server's counter catches up.
+   * When the connected server's UUID is known (see {@link ReplicatedGTIDSpecification.serverUuid}) and has
+   * transactions in the set, ordering uses that server's transaction counter: it is the counter that grows
+   * with new transactions. Otherwise the maximum counter across all UUID sets is used, which can pin the
+   * LSN to a stale server's higher counter (e.g. after a restore to a new server) and delay checkpoints
+   * until the active counter catches up.
    *
    * @returns A comparable string in the format
    *   `padded_end_transaction|raw_gtid|binlog_filename|binlog_position`
    */
   get comparable(): string {
     const { raw, position } = this;
+    const activeUuid = this.options.serverUuid;
 
-    let maxTransactionId = 0;
-    let hasTransactions = false;
+    let maxTransactionId: number | null = null;
+    let activeTransactionId: number | null = null;
 
     for (const uuidSet of raw.split(',')) {
-      const [, ...intervals] = uuidSet.trim().split(':');
+      const [serverUuid, ...intervals] = uuidSet.trim().split(':');
+      let uuidSetMax: number | null = null;
       for (const interval of intervals) {
         const [start, end] = interval.split('-');
         const startId = parseInt(start, 10);
         const endId = end !== undefined ? parseInt(end, 10) : startId;
         if (!Number.isNaN(startId)) {
-          hasTransactions = true;
-          maxTransactionId = Math.max(maxTransactionId, startId);
+          uuidSetMax = Math.max(uuidSetMax ?? 0, startId);
         }
         if (!Number.isNaN(endId)) {
-          hasTransactions = true;
-          maxTransactionId = Math.max(maxTransactionId, endId);
+          uuidSetMax = Math.max(uuidSetMax ?? 0, endId);
         }
+      }
+      if (uuidSetMax == null) {
+        continue;
+      }
+      maxTransactionId = Math.max(maxTransactionId ?? 0, uuidSetMax);
+      if (serverUuid === activeUuid) {
+        activeTransactionId = Math.max(activeTransactionId ?? 0, uuidSetMax);
       }
     }
 
     // This means no transactions have been executed on the database yet
-    if (!hasTransactions) {
+    if (maxTransactionId == null) {
       return ReplicatedGTID.ZERO.comparable;
     }
 
-    const paddedTransactionId = maxTransactionId.toString().padStart(16, '0');
+    const paddedTransactionId = (activeTransactionId ?? maxTransactionId).toString().padStart(16, '0');
     return [paddedTransactionId, raw, position.filename, position.offset].join('|');
   }
 
