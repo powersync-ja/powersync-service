@@ -17,12 +17,27 @@ import { CaptureInstanceDetails, getCaptureInstances, incrementLSN, toQualifiedT
 import { SourceTableChangeRef, tableExists } from '../utils/schema.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 
-enum Operation {
-  DELETE = 1,
-  INSERT = 2,
-  UPDATE_BEFORE = 3,
-  UPDATE_AFTER = 4
+enum LogicalChangeType {
+  INSERT = 'INSERT',
+  DELETE = 'DELETE',
+  UPDATE = 'UPDATE',
+  DEFERRED_UPDATE = 'DEFERRED UPDATE'
 }
+
+/**
+ *  One logical change to a single row, made up of the one or two CDC rows that describe it.
+ */
+interface LogicalChange {
+  transactionLSN: LSN;
+  type: LogicalChangeType;
+  /**
+   *  Inserts and Deletes resolve to 1 row.
+   *  Updates resolve to 2 rows, the row values before and after the update: [rowBefore, rowAfter].
+   */
+  rows: any[];
+}
+
+export const DEFAULT_SCHEMA_CHECK_INTERVAL_MS = 60_000;
 
 export enum SchemaChangeType {
   TABLE_RENAME = 'table_rename',
@@ -55,8 +70,6 @@ export interface CDCEventHandler {
   onSchemaChange: (change: SchemaChange) => Promise<void>;
 }
 
-export const DEFAULT_SCHEMA_CHECK_INTERVAL_MS = 60_000;
-
 export interface CDCPollerOptions {
   connectionManager: MSSQLConnectionManager;
   eventHandler: CDCEventHandler;
@@ -78,27 +91,30 @@ export interface CDCPollerOptions {
 }
 
 /**
+ * Polls SQL Server CDC change tables for changes at a configurable interval.
  *
+ * Processes changes in commit order, groups CDC rows into logical insert,
+ * update, and delete operations. It only commits once all the operations recorded in a polling cycle have been processed.
+ * Periodically runs checks to detect schema and capture-instance changes.
  */
 export class CDCPoller {
   private connectionManager: MSSQLConnectionManager;
   private eventHandler: CDCEventHandler;
   private currentLSN: LSN;
   private logger: Logger;
-  private listenerError: Error | null;
   private captureInstances: Map<number, CaptureInstanceDetails>;
 
+  private pollingError: Error | null = null;
   private isStopped: boolean = false;
   private isStopping: boolean = false;
   private isPolling: boolean = false;
   private lastSchemaCheckTime: number = 0;
 
-  constructor(public options: CDCPollerOptions) {
+  constructor(private options: CDCPollerOptions) {
     this.logger = options.logger ?? defaultLogger;
     this.connectionManager = options.connectionManager;
     this.eventHandler = options.eventHandler;
     this.currentLSN = options.startLSN;
-    this.listenerError = null;
     this.captureInstances = new Map<number, CaptureInstanceDetails>();
   }
 
@@ -174,7 +190,7 @@ export class CDCPoller {
           }
 
           // Non-recoverable errors
-          this.listenerError = error as Error;
+          this.pollingError = error as Error;
           this.logger.error('Error during CDC polling:', error);
           this.stop();
         }
@@ -182,9 +198,9 @@ export class CDCPoller {
       }
     }
 
-    if (this.listenerError) {
-      this.logger.error('CDC polling was stopped due to an error:', this.listenerError);
-      throw this.listenerError;
+    if (this.pollingError) {
+      this.logger.error('CDC polling was stopped due to an error:', this.pollingError);
+      throw this.pollingError;
     }
 
     this.logger.info(`CDC polling stopped...`);
@@ -250,7 +266,7 @@ export class CDCPoller {
   }
 
   /**
-   *  Emits the changes this table has within the given bounds, and returns the LSNs of the
+   *  Processes the changes this table has within the given bounds, and returns the LSNs of the
    *  transactions those changes belong to. The LSNs are returned in their string form so that the
    *  caller can deduplicate them across tables by value.
    */
@@ -440,26 +456,6 @@ export class CDCPoller {
   }
 }
 
-enum LogicalChangeType {
-  INSERT = 'INSERT',
-  DELETE = 'DELETE',
-  UPDATE = 'UPDATE',
-  DEFERRED_UPDATE = 'DEFERRED UPDATE'
-}
-
-/**
- *  One logical change to a single row, made up of the one or two CDC rows that describe it.
- */
-interface LogicalChange {
-  transactionLSN: LSN;
-  type: LogicalChangeType;
-  /**
-   *  Inserts and Deletes resolve to 1 row.
-   *  Updates resolve to 2 rows, the row values before and after the update: [rowBefore, rowAfter].
-   */
-  rows: any[];
-}
-
 /**
  *  Groups CDC change rows into the logical row changes they describe.
  *
@@ -470,9 +466,6 @@ interface LogicalChange {
  *  - The delete and insert operations of a deferred update.
  *
  *  This method groups and emits rows in the same transaction based on their `__$seqval`
- *
- *  The source table is only used to identify the table in the errors raised for change rows that
- *  do not describe a valid logical change.
  */
 async function* groupLogicalChanges(rows: AsyncIterable<any>, table: MSSQLSourceTable): AsyncGenerator<LogicalChange> {
   interface PendingGroup {
@@ -514,6 +507,14 @@ function toLogicalChange(rows: any[], startLSN: Buffer, table: MSSQLSourceTable)
 }
 
 function resolveLogicalChangeType(orderedRows: any[], transactionLSN: LSN, table: MSSQLSourceTable): LogicalChangeType {
+  // This matches the actual CDC operation codes:https://learn.microsoft.com/en-us/sql/relational-databases/system-functions/cdc-fn-cdc-get-all-changes-capture-instance-transact-sql?view=sql-server-ver17#table-returned
+  enum Operation {
+    DELETE = 1,
+    INSERT = 2,
+    UPDATE_BEFORE = 3,
+    UPDATE_AFTER = 4
+  }
+
   if (orderedRows.length === 1) {
     const operation = orderedRows[0].__$operation;
 
