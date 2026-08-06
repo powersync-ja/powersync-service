@@ -274,17 +274,12 @@ export class CDCStream {
     });
     const resolvedTable = new MSSQLSourceTable(table, resolved.tables);
 
-    const pinnedObjectId = resolvedTable.pinnedCaptureObjectId;
-    if (pinnedObjectId == null) {
-      throw new ReplicationAssertionError(`No persisted capture instance for table ${resolvedTable.toQualifiedName()}`);
-    }
-    const boundInstance = resolvedTable.findPinnedCaptureInstance(availableInstances);
-    if (boundInstance == null) {
+    resolvedTable.setCaptureInstance(availableInstances);
+    if (!resolvedTable.enabledForCDC()) {
       throw new ReplicationAssertionError(
-        `Persisted capture instance ${pinnedObjectId} is unavailable for table ${resolvedTable.toQualifiedName()}`
+        `No capture instance matching the persisted binding is available for table ${resolvedTable.toQualifiedName()}`
       );
     }
-    resolvedTable.setCaptureInstance(boundInstance);
 
     this.tableCache.set(resolvedTable);
 

@@ -169,29 +169,35 @@ describe('createCaptureReconciler', () => {
   });
 });
 
-describe('MSSQLSourceTable.findPinnedCaptureInstance', () => {
-  it('finds the instance matching the persisted capture-table object id', () => {
+describe('MSSQLSourceTable.setCaptureInstance', () => {
+  it('sets the instance matching the persisted capture-table object id', () => {
     const table = new MSSQLSourceTable(source(), [candidate('a', { captureTableObjectId: 40 })]);
     const expected = instance(40);
 
-    expect(table.findPinnedCaptureInstance([instance(50), expected])).toBe(expected);
+    table.setCaptureInstance([instance(50), expected]);
+
+    expect(table.captureInstance).toBe(expected);
   });
 
-  it('returns null when the binding is legacy or the pinned instance is unavailable', () => {
+  it('sets null when the binding is legacy or the pinned instance is unavailable', () => {
     const legacy = new MSSQLSourceTable(source(), [candidate('legacy')]);
     const pinned = new MSSQLSourceTable(source(), [candidate('pinned', { captureTableObjectId: 40 })]);
 
-    expect(legacy.findPinnedCaptureInstance([instance(40)])).toBeNull();
-    expect(pinned.findPinnedCaptureInstance([instance(50)])).toBeNull();
+    legacy.setCaptureInstance([instance(40)]);
+    pinned.setCaptureInstance([instance(40)]);
+    pinned.setCaptureInstance([instance(50)]);
+
+    expect(legacy.captureInstance).toBeNull();
+    expect(pinned.captureInstance).toBeNull();
   });
 });
 
 describe('CDCPoller capture-instance metadata', () => {
-  it('uses the latest minLSN without replacing the instance bound at startup', async () => {
+  it('refreshes the bound instance to use its latest metadata', async () => {
     const persisted = candidate('a', { captureTableObjectId: 40 });
     const table = new MSSQLSourceTable(source(), [persisted]);
     const startupInstance = instance(40);
-    table.setCaptureInstance(startupInstance);
+    table.setCaptureInstance([startupInstance]);
 
     const refreshed = instance(40);
     refreshed.minLSN = LSN.fromString('00000000:00000002:0000');
@@ -220,7 +226,7 @@ describe('CDCPoller capture-instance metadata', () => {
     await (poller as any).pollTable(table, bounds);
 
     expect(bounds.startLSN).toBe(refreshed.minLSN);
-    expect(table.captureInstance).toBe(startupInstance);
+    expect(table.captureInstance).toBe(refreshed);
     expect(table.pinnedCaptureObjectId).toBe(40);
   });
 });

@@ -222,7 +222,8 @@ export class CDCPoller {
     // CDC cleanup can advance minLSN while the capture-table identity remains unchanged, so use
     // the latest metadata loaded by the schema check rather than the instance bound at startup.
     const availableInstances = this.captureInstances.get(table.objectId)?.instances ?? [];
-    const boundInstance = table.findPinnedCaptureInstance(availableInstances);
+    table.setCaptureInstance(availableInstances);
+    const boundInstance = table.captureInstance;
     if (boundInstance == null) {
       // The pinned instance can be dropped between schema checks.
       throw new CaptureInstanceMissingError(
@@ -335,11 +336,8 @@ export class CDCPoller {
 
       const latestCaptureInstance = captureInstanceDetails.instances[0];
 
-      const boundObjectId = table.pinnedCaptureObjectId;
-      if (boundObjectId == null) {
-        throw new ReplicationAssertionError(`No persisted capture instance for table ${table.toQualifiedName()}`);
-      }
-      const boundInstance = table.findPinnedCaptureInstance(captureInstanceDetails.instances);
+      table.setCaptureInstance(captureInstanceDetails.instances);
+      const boundInstance = table.captureInstance;
       if (boundInstance == null) {
         // Include the replacement so the error can suggest the right recovery step.
         schemaChanges.push({
@@ -349,7 +347,7 @@ export class CDCPoller {
         });
         continue;
       }
-      if (latestCaptureInstance.objectId !== boundObjectId) {
+      if (latestCaptureInstance.objectId !== boundInstance.objectId) {
         // Keep checking for rename and column changes against the pinned instance.
         schemaChanges.push({
           type: SchemaChangeType.NEW_CAPTURE_INSTANCE,

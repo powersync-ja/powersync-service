@@ -63,18 +63,11 @@ export class MSSQLSourceTable {
   }
 
   /**
-   * Find the available capture instance matching this table's persisted binding.
+   * Bind the available capture instance matching this table's persisted identity.
    */
-  findPinnedCaptureInstance(availableInstances: readonly CaptureInstance[]): CaptureInstance | null {
-    const pinnedObjectId = this.pinnedCaptureObjectId;
-    if (pinnedObjectId == null) {
-      return null;
-    }
-    return availableInstances.find((instance) => instance.objectId === pinnedObjectId) ?? null;
-  }
-
-  setCaptureInstance(captureInstance: CaptureInstance) {
-    this.captureInstance = captureInstance;
+  setCaptureInstance(availableInstances: readonly CaptureInstance[]): void {
+    this.captureInstance =
+      availableInstances.find((instance) => instance.objectId === this.pinnedCaptureObjectId) ?? null;
   }
 
   get allChangesFunction() {
