@@ -7,6 +7,7 @@ import {
   InternalOpId,
   LEGACY_STORAGE_VERSION,
   OplogEntry,
+  ReplicationCheckpoint,
   storage,
   SyncRulesBucketStorage,
   updateSyncRulesFromYaml
@@ -192,12 +193,20 @@ export class CDCStreamTestContext implements AsyncDisposable {
    * This waits for a client checkpoint.
    */
   async getBucketData(bucket: string, start?: InternalOpId | string | undefined, options?: { timeout?: number }) {
+    const checkpoint = await this.getCheckpoint(options);
+    return this.getBucketDataAtCheckpoint(bucket, checkpoint, start);
+  }
+
+  async getBucketDataAtCheckpoint(
+    bucket: string,
+    checkpoint: ReplicationCheckpoint,
+    start?: InternalOpId | string | undefined
+  ) {
     start ??= 0n;
     if (typeof start == 'string') {
       start = BigInt(start);
     }
     const syncConfigContent = this.getSyncConfigContent();
-    const checkpoint = await this.getCheckpoint(options);
     let map = [bucketRequest(syncConfigContent, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
@@ -215,6 +224,11 @@ export class CDCStreamTestContext implements AsyncDisposable {
 
   async getFinalBucketState(bucket: string) {
     const data = await this.getBucketData(bucket);
+    return test_utils.reduceBucket(data).slice(1);
+  }
+
+  async getFinalBucketStateAtCheckpoint(bucket: string, checkpoint: ReplicationCheckpoint) {
+    const data = await this.getBucketDataAtCheckpoint(bucket, checkpoint);
     return test_utils.reduceBucket(data).slice(1);
   }
 
