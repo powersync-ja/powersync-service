@@ -85,8 +85,28 @@ export class ReplicatedGTID {
     return this.options.raw_gtid;
   }
 
+  /**
+   * The server UUID of a single-GTID value. For a raw value holding a full GTID set this is only the first
+   * UUID; use {@link serverIds} for all of them.
+   */
   get serverId() {
     return this.options.raw_gtid.split(':')[0];
+  }
+
+  /**
+   * All distinct server UUIDs in the raw GTID set. More than one means the set contains transactions from
+   * multiple servers, which GTID-based LSN ordering does not reliably support.
+   */
+  get serverIds(): string[] {
+    const ids = new Set<string>();
+    for (const uuidSet of this.options.raw_gtid.split(',')) {
+      const trimmed = uuidSet.trim();
+      const separator = trimmed.indexOf(':');
+      if (separator > 0) {
+        ids.add(trimmed.slice(0, separator));
+      }
+    }
+    return [...ids];
   }
 
   /**

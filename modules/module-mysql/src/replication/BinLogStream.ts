@@ -418,6 +418,15 @@ export class BinLogStream {
       : await common.readExecutedGtid(connection);
     connection.release();
 
+    const gtidServerIds = fromGTID.serverIds;
+    if (gtidServerIds.length > 1) {
+      this.logger.warn(
+        `The executed GTID set contains multiple server UUIDs: ${gtidServerIds.join(', ')}. ` +
+          `GTID-based LSN ordering is only reliable for transactions from a single server. ` +
+          `Checkpoints may stall or be delayed if the active server is not the one with the highest transaction count.`
+      );
+    }
+
     if (!this.stopped) {
       await this.storage.startBatch(
         { zeroLSN: common.ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: false },

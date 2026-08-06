@@ -101,6 +101,8 @@ export class BinLogListener {
 
   // Flag to indicate if are currently in a transaction that involves multiple row mutation events.
   private isTransactionOpen = false;
+  // Server UUIDs seen in GTID events, used to warn when the binlog carries transactions from multiple servers.
+  private seenGtidServerIds = new Set<string>();
   zongji: ZongJi;
   processingQueue: async.QueueObject<BinLogEvent>;
 
@@ -304,6 +306,7 @@ export class BinLogListener {
             }
           });
           this.binLogPosition.offset = evt.nextPosition;
+          this.trackGtidServerId(this.currentGTID.serverId);
           await this.eventHandler.onTransactionStart({ timestamp: new Date(evt.timestamp) });
           this.logger.info(`Processed GTID event: ${this.currentGTID.comparable}`);
           break;
@@ -387,6 +390,24 @@ export class BinLogListener {
       position: { ...this.binLogPosition }
     });
     return this.currentGTID.comparable;
+  }
+
+  /**
+   *  Warns when transactions from more than one server UUID appear on the binlog. GTID-based LSN ordering is
+   *  only reliable for a single server UUID, so mixed transactions can stall checkpoints or apply them out of
+   *  order. Warns once per newly seen UUID rather than per transaction.
+   */
+  private trackGtidServerId(serverId: string): void {
+    if (this.seenGtidServerIds.has(serverId)) {
+      return;
+    }
+    this.seenGtidServerIds.add(serverId);
+    if (this.seenGtidServerIds.size > 1) {
+      this.logger.warn(
+        `Transactions from multiple MySQL server UUIDs detected on the binlog: ${[...this.seenGtidServerIds].join(', ')}. ` +
+          `GTID-based LSN ordering across different server UUIDs is not supported, and checkpoints may stall or be inconsistent.`
+      );
+    }
   }
 
   private async processQueryEvent(event: BinLogQueryEvent): Promise<void> {

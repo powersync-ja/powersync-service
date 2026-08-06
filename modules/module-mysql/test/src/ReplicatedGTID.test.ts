@@ -139,4 +139,29 @@ describe('ReplicatedGTID', () => {
       expect(lowTransaction.comparable < legacyPoisoned).toBeTruthy();
     });
   });
+
+  describe('serverIds', () => {
+    test('single UUID', () => {
+      const gtid = new ReplicatedGTID({ raw_gtid: 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004:1-17', position: POSITION });
+      expect(gtid.serverIds).toEqual(['a7d0ff7b-0c0e-11f0-8b38-566fbaa00004']);
+    });
+
+    test('multiple UUIDs in a newline-joined executed set', () => {
+      const raw = '2e35321d-0c0e-11f0-8b38-566fbaa00004:1-17,\n314306f3-ff7b-11ef-a0e0-566fbaa00002:1-2734181';
+      const gtid = new ReplicatedGTID({ raw_gtid: raw, position: POSITION });
+      expect(gtid.serverIds).toEqual(['2e35321d-0c0e-11f0-8b38-566fbaa00004', '314306f3-ff7b-11ef-a0e0-566fbaa00002']);
+    });
+
+    test('ignores segments without intervals', () => {
+      const gtid = new ReplicatedGTID({
+        raw_gtid: 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004:1-17,\ngarbage-no-colon',
+        position: POSITION
+      });
+      expect(gtid.serverIds).toEqual(['a7d0ff7b-0c0e-11f0-8b38-566fbaa00004']);
+    });
+
+    test('empty set has no server ids', () => {
+      expect(new ReplicatedGTID({ raw_gtid: '', position: POSITION }).serverIds).toEqual([]);
+    });
+  });
 });
