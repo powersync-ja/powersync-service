@@ -363,7 +363,6 @@ export class BinLogStream {
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
-      await this.setActiveServerUuid();
       await this.initReplication();
       await this.streamChanges();
       this.logger.info('BinLogStream has been shut down');
@@ -373,16 +372,19 @@ export class BinLogStream {
     }
   }
 
-  private async setActiveServerUuid() {
-    const connection = await this.connections.getConnection();
-    try {
-      this.activeServerUuid = await common.readServerUuid(connection);
-    } finally {
-      connection.release();
+  private async ensureActiveServerUuid() {
+    if (this.activeServerUuid == null) {
+      const connection = await this.connections.getConnection();
+      try {
+        this.activeServerUuid = await common.readServerUuid(connection);
+      } finally {
+        connection.release();
+      }
     }
   }
 
   async initReplication() {
+    await this.ensureActiveServerUuid();
     const connection = await this.connections.getConnection();
     const errors = await common.checkSourceConfiguration(connection);
     connection.release();
@@ -425,6 +427,7 @@ export class BinLogStream {
   }
 
   async streamChanges() {
+    await this.ensureActiveServerUuid();
     const serverId = createRandomServerId(this.storage.replicationStreamId);
 
     const connection = await this.connections.getConnection();
