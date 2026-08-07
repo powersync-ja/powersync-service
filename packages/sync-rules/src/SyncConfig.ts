@@ -6,7 +6,7 @@ import {
 } from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
 import { YamlError } from './errors.js';
-import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
+import { EventDefinition } from './events/EventDescriptor.js';
 import { HydratedSyncConfig } from './HydratedSyncConfig.js';
 import { SourceTableRef } from './SourceTableRef.js';
 import { TablePattern } from './TablePattern.js';
@@ -21,6 +21,8 @@ export abstract class SyncConfig {
   bucketDataSources: BucketDataSource[] = [];
   bucketParameterLookupSources: ParameterIndexLookupCreator[] = [];
   bucketSources: BucketSource[] = [];
+  /** Prepared event definitions. Executable event descriptors only exist on {@link HydratedSyncConfig}. */
+  eventDefinitions: EventDefinition[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
   /**
    * If not defined, the storage module picks the latest stable version.
@@ -28,7 +30,6 @@ export abstract class SyncConfig {
    * Only supported storage versions can be set here when parsing from yaml.
    */
   storageVersion: number | undefined;
-  eventDescriptors: SqlEventDescriptor[] = [];
 
   /**
    * The (YAML-based) source contents from which this sync config has been derived.
@@ -71,9 +72,9 @@ export abstract class SyncConfig {
         sourceTables.set(r.key(), r);
       }
     }
-    for (const event of this.eventDescriptors) {
-      for (const r of event.getSourceTables()) {
-        sourceTables.set(r.key(), r);
+    for (const event of this.eventDefinitions) {
+      for (const table of event.getSourceTables()) {
+        sourceTables.set(table.key(), table);
       }
     }
   }
@@ -87,11 +88,9 @@ export abstract class SyncConfig {
   getEventTables(): TablePattern[] {
     const eventTables = new Map<string, TablePattern>();
 
-    if (this.eventDescriptors) {
-      for (const event of this.eventDescriptors) {
-        for (const r of event.getSourceTables()) {
-          eventTables.set(r.key(), r);
-        }
+    for (const event of this.eventDefinitions) {
+      for (const table of event.getSourceTables()) {
+        eventTables.set(table.key(), table);
       }
     }
 
@@ -99,7 +98,7 @@ export abstract class SyncConfig {
   }
 
   tableTriggersEvent(table: SourceTableRef): boolean {
-    return this.eventDescriptors.some((bucket) => bucket.tableTriggersEvent(table));
+    return this.eventDefinitions.some((event) => event.tableTriggersEvent(table));
   }
 
   tableSyncsData(table: SourceTableRef): boolean {

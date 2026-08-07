@@ -1,6 +1,6 @@
 import { SyncConfig } from '../../SyncConfig.js';
 import { CompatibilityContext } from '../../compatibility.js';
-import { SqlEventDescriptor } from '../../index.js';
+import { PreparedEventDefinition } from '../../events/CompiledEventSourceQuery.js';
 import * as plan from '../plan.js';
 import { PreparedStreamBucketDataSource } from './bucket_data_source.js';
 import { StreamBucketSource, StreamInput } from './bucket_source.js';
@@ -17,23 +17,21 @@ export interface StreamEvaluationContext {
 }
 
 export class PrecompiledSyncConfig extends SyncConfig {
-  /**
-   * The default schema for this sync config.
-   *
-   * This is independent of the loaded {@link plan} (the same sync plan can be loaded with different default schemas).
-   */
+  /** Default schema used to prepare unqualified source-table references from the compiled plan. */
   readonly defaultSchema: string;
 
   constructor(
     readonly plan: plan.SyncPlan,
     compatibility: CompatibilityContext,
-    eventDefinitions: SqlEventDescriptor[],
     context: StreamEvaluationContext
   ) {
     super(context.sourceText);
     this.compatibility = compatibility;
-    this.eventDescriptors = eventDefinitions;
     this.defaultSchema = context.defaultSchema;
+
+    for (const event of plan.events) {
+      this.eventDefinitions.push(new PreparedEventDefinition(event, context.defaultSchema));
+    }
 
     const preparedBuckets = new Map<plan.StreamBucketDataSource, PreparedStreamBucketDataSource>();
     const preparedLookups = new Map<plan.StreamParameterIndexLookupCreator, PreparedParameterIndexLookupCreator>();
