@@ -43,8 +43,12 @@ export async function readExecutedGtid(connection: mysqlPromise.Connection): Pro
   const executedGtidSet = binlogStatus.Executed_Gtid_Set.trim();
 
   if (executedGtidSet.length === 0) {
-    // New server with no transactions executed yet
-    return ReplicatedGTID.ZERO(activeServerUuid);
+    // New server with no transactions executed yet. Keep the current binlog
+    // coordinate so this synthetic GTID can still be validated after a restart.
+    return new ReplicatedGTID({
+      rawGtid: `${activeServerUuid}:0`,
+      position
+    });
   }
 
   const gtidSets = executedGtidSet.split(',');
@@ -95,6 +99,13 @@ export async function isGtidPositionStillAvailable(
 
   if (!logFile || Number(logFile['File_size']) < gtid.position.offset) {
     return false;
+  }
+
+  // Transaction zero is PowerSync's synthetic position before the first
+  // transaction from this server UUID. It is not valid MySQL GTID_SET syntax,
+  // so its availability is determined by the binlog coordinate above.
+  if (gtid.raw.split(':')[1] === '0') {
+    return true;
   }
 
   const [[result]] = await mysql_utils.retriedQuery({

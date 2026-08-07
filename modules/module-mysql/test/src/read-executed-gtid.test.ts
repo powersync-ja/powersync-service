@@ -71,7 +71,8 @@ describe('read-executed-gtid', () => {
       const gtid = await readExecutedGtid(connection);
 
       expect(gtid.raw).toEqual(`${ACTIVE_SERVER_UUID}:0`);
-      expect(gtid.comparable).toEqual(`0000000000000000|${ACTIVE_SERVER_UUID}:0||0`);
+      expect(gtid.position).toEqual({ filename: 'binlog.000042', offset: 1234 });
+      expect(gtid.comparable).toEqual(`0000000000000000|${ACTIVE_SERVER_UUID}:0|binlog.000042|1234`);
     });
 
     test('uses the active server ZERO GTID at the current position when only historical UUIDs exist', async () => {
@@ -113,6 +114,22 @@ describe('read-executed-gtid', () => {
       });
 
       await expect(isGtidPositionStillAvailable(connection, RESUME_GTID)).resolves.toBe(false);
+    });
+
+    test('validates the synthetic ZERO GTID using only its binlog coordinate', async () => {
+      const zeroGtid = new ReplicatedGTID({
+        rawGtid: `${ACTIVE_SERVER_UUID}:0`,
+        position: { filename: 'binlog.000042', offset: 1234 }
+      });
+      const { connection, query } = createResumeCheckConnection({
+        isExecuted: 0,
+        logFiles: [{ Log_name: 'binlog.000042', File_size: 2000 }]
+      });
+
+      await expect(isGtidPositionStillAvailable(connection, zeroGtid)).resolves.toBe(true);
+      expect(query).not.toHaveBeenCalledWith('SELECT GTID_SUBSET(?, @@GLOBAL.gtid_executed) AS is_executed', [
+        zeroGtid.raw
+      ]);
     });
 
     test.each([
