@@ -2,6 +2,7 @@ import { logger as defaultLogger, ErrorCode, ServiceError } from '@powersync/lib
 import {
   CompatibilityContext,
   CompatibilityOption,
+  compileEventDefinitions,
   DEFAULT_HYDRATION_STATE,
   deserializeSyncPlan,
   ErrorLocation,
@@ -9,7 +10,6 @@ import {
   HydrationState,
   nodeSqlite,
   PrecompiledSyncConfig,
-  SqlEventDescriptor,
   SqlSyncRules,
   SyncConfigWithErrors,
   versionedHydrationState,
@@ -40,17 +40,23 @@ export function parsePersistedSyncConfigContent(options: ParsePersistedSyncConfi
 
   const plan = deserializeSyncPlan(compiledPlan.plan);
   const compatibility = CompatibilityContext.deserialize(compiledPlan.compatibility);
-  const eventDefinitions: SqlEventDescriptor[] = [];
-  for (const [name, queries] of Object.entries(compiledPlan.eventDescriptors)) {
-    const descriptor = new SqlEventDescriptor(name, compatibility);
-    for (const query of queries) {
-      descriptor.addSourceQuery(query, parseOptions);
+  const errors: YamlError[] = [];
+  // Compiled events are additive to plan versions 1 and 2. New readers prefer them when present; when an older plan
+  // does not contain them, normalize the dual-written raw SQL at this loading boundary. This keeps legacy event
+  // evaluators out of PrecompiledSyncConfig while older binaries can continue reading the same persisted config.
+  if (compiledPlan.plan.events == null) {
+    const normalized = compileEventDefinitions(compiledPlan.eventDescriptors, parseOptions);
+    const fatalErrors = normalized.errors.filter((error) => error.type == 'fatal');
+    if (fatalErrors.length != 0) {
+      throw new Error(
+        `Failed to compile persisted replication events: ${fatalErrors.map((error) => error.message).join(', ')}`
+      );
     }
-
-    eventDefinitions.push(descriptor);
+    plan.events = normalized.events;
+    errors.push(...normalized.errors.map((error) => new YamlError(error)));
   }
 
-  const precompiled = new PrecompiledSyncConfig(plan, compatibility, eventDefinitions, {
+  const precompiled = new PrecompiledSyncConfig(plan, compatibility, {
     defaultSchema: parseOptions.defaultSchema,
     sourceText: content
   });
@@ -59,7 +65,6 @@ export function parsePersistedSyncConfigContent(options: ParsePersistedSyncConfi
   // This means asUpdateOptions will not change the storage version, even if the default changes.
   precompiled.storageVersion = storageVersion;
 
-  const errors: YamlError[] = [];
   if (compiledPlan.errors) {
     for (const error of compiledPlan.errors) {
       const location: ErrorLocation | undefined = error.location && {

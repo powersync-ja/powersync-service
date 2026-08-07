@@ -1368,10 +1368,10 @@ export class PostgresBucketBatch
   }
 
   /**
-   * Gets relevant {@link SqlEventDescriptor}s for the given {@link SourceTable}
+   * Gets relevant {@link HydratedEventDescriptor}s for the given {@link SourceTable}
    * TODO maybe share this with an abstract class
    */
-  protected getTableEvents(table: storage.SourceTable): sync_rules.SqlEventDescriptor[] {
+  protected getTableEvents(table: storage.SourceTable): sync_rules.HydratedEventDescriptor[] {
     return this.sync_rules.eventDescriptors.filter((evt) =>
       [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table.ref))
     );

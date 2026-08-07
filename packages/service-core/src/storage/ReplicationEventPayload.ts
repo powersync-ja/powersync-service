@@ -11,6 +11,6 @@ export type EventData = {
 export type ReplicationEventPayload = {
   batch: BucketStorageBatch;
   data: EventData;
-  event: sync_rules.SqlEventDescriptor;
+  event: sync_rules.HydratedEventDescriptor;
   table: SourceTable;
 };

@@ -60,7 +60,15 @@ export class CompilerModelToSyncPlan {
           queriers: resolvers!.map((e) => this.translateStreamResolver(e))
         };
       }),
-      buckets: this.buckets
+      buckets: this.buckets,
+      events: source.events.map((event) => ({
+        name: event.name,
+        sourceQueries: event.sourceQueries.map((query) => ({
+          sql: query.sql,
+          sourceTable: query.sourceTable.tablePattern,
+          variants: query.variants.map((variant) => this.translateRowProjection(variant))
+        }))
+      }))
     };
   }
 
@@ -112,30 +120,37 @@ export class CompilerModelToSyncPlan {
 
   private translateRowEvaluator(value: rows.RowEvaluator): plan.StreamDataSource {
     return this.translateStatefulObject(value, () => {
-      const hasher = new StableHasher();
-      value.buildBehaviorHashCode(hasher);
       const mapped = {
-        sourceTable: value.tablePattern,
-        hashCode: hasher.buildHashCode(),
-        tableValuedFunctions: this.translateAddedTableValuedFunctions(value.addedFunctions, value),
-        columns: value.columns.map((e) => {
-          if (e instanceof rows.StarColumnSource) {
-            return 'star';
-          } else {
-            return {
-              expr: this.translateExpression(e.expression.expression, value.syntacticSource, value.addedFunctions),
-              alias: e.alias ?? null
-            };
-          }
-        }),
-        outputTableName: value.outputName,
-        filters: value.filters.map((e) =>
-          this.translateExpression(e.expression, value.syntacticSource, value.addedFunctions)
-        ),
-        parameters: value.partitionBy.map((e) => this.translatePartitionKey(e, value))
+        ...this.translateRowProjection(value),
+        outputTableName: value.outputName
       } satisfies plan.StreamDataSource;
       return mapped;
     });
+  }
+
+  private translateRowProjection(value: rows.RowEvaluator | rows.EventRowEvaluator): plan.RowProjection {
+    const hasher = new StableHasher();
+    value.buildBehaviorHashCode(hasher);
+
+    return {
+      sourceTable: value.tablePattern,
+      hashCode: hasher.buildHashCode(),
+      tableValuedFunctions: this.translateAddedTableValuedFunctions(value.addedFunctions, value),
+      columns: value.columns.map((e) => {
+        if (e instanceof rows.StarColumnSource) {
+          return 'star';
+        } else {
+          return {
+            expr: this.translateExpression(e.expression.expression, value.syntacticSource, value.addedFunctions),
+            alias: e.alias ?? null
+          };
+        }
+      }),
+      filters: value.filters.map((e) =>
+        this.translateExpression(e.expression, value.syntacticSource, value.addedFunctions)
+      ),
+      parameters: value.partitionBy.map((e) => this.translatePartitionKey(e, value))
+    };
   }
 
   private translatePointLookup(value: rows.PointLookup, index: number): plan.StreamParameterIndexLookupCreator {

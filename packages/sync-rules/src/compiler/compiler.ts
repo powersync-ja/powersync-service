@@ -1,16 +1,19 @@
 import { NodeLocation, parse, PGNode, Statement } from 'pgsql-ast-parser';
-import { StreamOptions, SyncPlan } from '../sync_plan/plan.js';
+import { SqlRuleError } from '../errors.js';
+import { CompiledEventDescriptor, StreamOptions, SyncPlan } from '../sync_plan/plan.js';
 import { SourceSchema } from '../types.js';
 import { StreamResolver } from './bucket_resolver.js';
 import { DangerousParameterDetector } from './detect_dangerous_parameters.js';
 import { HashSet } from './equality.js';
 import { NodeLocations } from './expression.js';
+import { RowExpression, SingleDependencyExpression } from './filter.js';
 import { CompilerModelToSyncPlan } from './ir_to_sync_plan.js';
 import { StreamQueryParser } from './parser.js';
 import { QuerierGraphBuilder } from './querier_graph.js';
-import { PointLookup, RowEvaluator } from './rows.js';
+import { EventRowEvaluator, PointLookup, RowEvaluator } from './rows.js';
 import { SqlScope } from './scope.js';
 import { CommonTableExpression, PreparedSubquery } from './sqlite.js';
+import { PhysicalSourceResultSet } from './table.js';
 
 export interface SyncStreamsCompilerOptions {
   /**
@@ -32,6 +35,17 @@ export interface SyncStreamsCompilerOptions {
 
 export interface ParseStreamOptions extends StreamOptions {
   warnOnDangerousParameter: boolean;
+}
+
+export interface CompiledEvent {
+  name: string;
+  sourceQueries: CompiledEventSourceQueryModel[];
+}
+
+export interface CompiledEventSourceQueryModel {
+  sql: string;
+  sourceTable: PhysicalSourceResultSet;
+  variants: EventRowEvaluator[];
 }
 
 /**
@@ -124,11 +138,133 @@ export class SyncStreamsCompiler {
       }
     };
   }
+
+  /**
+   * Compiles the payload queries for a named replication event.
+   *
+   * Event queries intentionally support a smaller surface than stream queries: They must project and filter a single
+   * physical source table and cannot depend on request parameters, joins, subqueries or table-valued functions.
+   */
+  event(name: string): IndividualEventCompiler {
+    const event: CompiledEvent = { name, sourceQueries: [] };
+    this.output.events.push(event);
+
+    return {
+      addSourceQuery: (sql: string, errors: ParsingErrorListener) => {
+        const stmt = tryParse(sql, errors);
+        if (stmt == null) {
+          return;
+        }
+
+        const parser = new StreamQueryParser({
+          compiler: this,
+          originalText: sql,
+          locations: this.locations,
+          parentScope: new SqlScope({}),
+          errors
+        });
+        const query = parser.parse(stmt);
+        if (query == null) {
+          return;
+        }
+
+        if (query.joined.length != 0) {
+          errors.report('Event payload queries must SELECT from a single physical source table.', query.span.location);
+          return;
+        }
+
+        const defaultSchema = this.options.defaultSchema ?? '';
+        const sourceTable = query.sourceTable.tablePattern.toTablePattern(defaultSchema);
+        if (
+          event.sourceQueries.some((source) =>
+            source.sourceTable.tablePattern.toTablePattern(defaultSchema).equals(sourceTable)
+          )
+        ) {
+          errors.report('Each payload query should query a unique table', query.span.location);
+          return;
+        }
+
+        const variants: EventRowEvaluator[] = [];
+        let valid = true;
+        for (const variant of query.where.terms) {
+          const filters: RowExpression[] = [];
+          for (const term of variant.terms) {
+            if (
+              !(term instanceof SingleDependencyExpression) ||
+              term.dependsOnConnection ||
+              (term.resultSet != null && term.resultSet !== query.sourceTable)
+            ) {
+              errors.report(
+                'Event payload queries cannot depend on request parameters or other tables.',
+                term instanceof SingleDependencyExpression ? term.expression.location.location : term.location!
+              );
+              valid = false;
+              continue;
+            }
+
+            filters.push(new RowExpression(term));
+          }
+
+          variants.push(
+            new EventRowEvaluator({
+              columns: query.resultColumns,
+              syntacticSource: query.sourceTable,
+              filters,
+              partitionBy: [],
+              addedFunctions: []
+            })
+          );
+        }
+
+        if (valid) {
+          event.sourceQueries.push({ sql, sourceTable: query.sourceTable, variants });
+        }
+      }
+    };
+  }
+}
+
+/**
+ * Compiles raw event SQL stored alongside older sync plans into the current plan representation.
+ *
+ * This is the compatibility boundary for plans written before compiled events were added. Callers should reject fatal
+ * errors rather than carrying legacy event evaluators into a {@link SyncPlan}.
+ */
+export function compileEventDefinitions(
+  definitions: Readonly<Record<string, readonly string[]>>,
+  options: SyncStreamsCompilerOptions
+): { events: CompiledEventDescriptor[]; errors: SqlRuleError[] } {
+  const compiler = new SyncStreamsCompiler(options);
+  const errors: SqlRuleError[] = [];
+
+  for (const [name, queries] of Object.entries(definitions)) {
+    const event = compiler.event(name);
+    for (const sql of queries) {
+      event.addSourceQuery(sql, {
+        report(message, location, reportOptions) {
+          const error = new SqlRuleError(message, sql, location);
+          error.type = reportOptions?.isWarning ? 'warning' : 'fatal';
+          errors.push(error);
+        }
+      });
+    }
+  }
+
+  return { events: compiler.output.toSyncPlan().events, errors };
 }
 
 function tryParse(sql: string, errors: ParsingErrorListener): Statement | null {
   try {
-    const [stmt] = parse(sql, { locationTracking: true });
+    const statements = parse(sql, { locationTracking: true });
+    if (statements.length != 1) {
+      errors.report(
+        'Only a single SELECT statement is supported',
+        statements[1]?._location ?? { start: 0, end: sql.length }
+      );
+      return null;
+    }
+
+    const [stmt] = statements;
     return stmt;
   } catch (e: any) {
     const location: NodeLocation | undefined = e.token?._location;
@@ -161,6 +297,13 @@ export interface IndividualSyncStreamCompiler {
   finish(): void;
 }
 
+export interface IndividualEventCompiler {
+  /**
+   * Validates and adds one payload query to this event.
+   */
+  addSourceQuery(sql: string, errors: ParsingErrorListener): void;
+}
+
 /**
  * Something reporting errors.
  *
@@ -189,6 +332,7 @@ export class CompiledStreamQueries {
   });
 
   readonly resolvers: StreamResolver[] = [];
+  readonly events: CompiledEvent[] = [];
 
   get evaluators(): RowEvaluator[] {
     return [...this._evaluators];
