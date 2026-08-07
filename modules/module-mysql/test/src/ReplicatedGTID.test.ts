@@ -1,192 +1,138 @@
 import { ReplicatedGTID } from '@module/common/ReplicatedGTID.js';
+import * as uuid from 'uuid';
 import { describe, expect, test } from 'vitest';
 
 describe('ReplicatedGTID', () => {
+  const SERVER_UUID = 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004';
   const POSITION = { filename: 'binlog.000042', offset: 1234 };
 
-  describe('comparable', () => {
-    test('single UUID with a single range', () => {
+  describe('single GTID', () => {
+    test('exposes its raw value, server UUID, and binlog position', () => {
       const gtid = new ReplicatedGTID({
-        raw_gtid: 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004:1-17',
+        rawGtid: `${SERVER_UUID}:5`,
         position: POSITION
       });
-      expect(gtid.comparable).toEqual('0000000000000017|a7d0ff7b-0c0e-11f0-8b38-566fbaa00004:1-17|binlog.000042|1234');
+
+      expect(gtid.raw).toEqual(`${SERVER_UUID}:5`);
+      expect(gtid.serverUuid).toEqual(SERVER_UUID);
+      expect(gtid.position).toEqual(POSITION);
     });
 
-    test('single UUID with a bare transaction id', () => {
+    test('formats a comparable LSN using the transaction id', () => {
       const gtid = new ReplicatedGTID({
-        raw_gtid: 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004:5',
+        rawGtid: `${SERVER_UUID}:17`,
         position: POSITION
       });
-      expect(gtid.comparable.split('|')[0]).toEqual('0000000000000005');
+
+      expect(gtid.comparable).toEqual(`0000000000000017|${SERVER_UUID}:17|binlog.000042|1234`);
+      expect(gtid.toString()).toEqual(gtid.comparable);
     });
 
-    test('single UUID with multiple intervals uses the maximum transaction id', () => {
+    test('normalizes surrounding whitespace', () => {
       const gtid = new ReplicatedGTID({
-        raw_gtid: 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004:1-5:11-18',
+        rawGtid: ` \n\t${SERVER_UUID}:17 \r\n`,
         position: POSITION
       });
-      expect(gtid.comparable.split('|')[0]).toEqual('0000000000000018');
+
+      expect(gtid.raw).toEqual(`${SERVER_UUID}:17`);
+      expect(gtid.serverUuid).toEqual(SERVER_UUID);
+      expect(gtid.comparable).toEqual(`0000000000000017|${SERVER_UUID}:17|binlog.000042|1234`);
     });
 
-    test('multiple server UUIDs joined with a newline (gtid_executed format)', () => {
-      // SHOW MASTER STATUS returns multi-UUID GTID sets joined with ',\n'
-      const raw = '2e35321d-0c0e-11f0-8b38-566fbaa00004:1-17,\n314306f3-ff7b-11ef-a0e0-566fbaa00002:1-2734181';
-      const gtid = new ReplicatedGTID({ raw_gtid: raw, position: POSITION });
-      expect(gtid.comparable).not.toContain('NaN');
-      expect(gtid.comparable.split('|')[0]).toEqual('0000000002734181');
+    test('keeps the ZERO GTID format stable', () => {
+      expect(ReplicatedGTID.ZERO(SERVER_UUID).raw).toEqual(`${SERVER_UUID}:0`);
+      expect(ReplicatedGTID.ZERO(SERVER_UUID).comparable).toEqual(`0000000000000000|${SERVER_UUID}:0||0`);
     });
+  });
 
-    test('multiple server UUIDs where the first UUID holds the maximum', () => {
-      const gtid = new ReplicatedGTID({
-        raw_gtid: 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004:1-100,b7d0ff7b-0c0e-11f0-8b38-566fbaa00004:1-3',
-        position: POSITION
-      });
-      expect(gtid.comparable.split('|')[0]).toEqual('0000000000000100');
-    });
-
-    test('multiple server UUIDs with multi-interval members', () => {
-      const gtid = new ReplicatedGTID({
-        raw_gtid: 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004:1-5:20-30,\nb7d0ff7b-0c0e-11f0-8b38-566fbaa00004:1-8',
-        position: POSITION
-      });
-      expect(gtid.comparable.split('|')[0]).toEqual('0000000000000030');
-    });
-
-    test('ZERO GTID format is stable', () => {
-      expect(ReplicatedGTID.ZERO.comparable).toEqual('0000000000000000|0:0||0');
-    });
-
-    test('empty GTID set falls back to the ZERO GTID', () => {
-      const empty = new ReplicatedGTID({ raw_gtid: '', position: POSITION });
-      expect(empty.comparable).toEqual(ReplicatedGTID.ZERO.comparable);
-
-      const noRanges = new ReplicatedGTID({ raw_gtid: 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004', position: POSITION });
-      expect(noRanges.comparable).toEqual(ReplicatedGTID.ZERO.comparable);
-    });
-
-    test('unparseable segments are skipped and never produce NaN', () => {
-      const trailingGarbage = new ReplicatedGTID({
-        raw_gtid: 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004:1-17,\ngarbage-no-colon',
-        position: POSITION
-      });
-      expect(trailingGarbage.comparable).not.toContain('NaN');
-      expect(trailingGarbage.comparable.split('|')[0]).toEqual('0000000000000017');
-
-      const garbageInterval = new ReplicatedGTID({
-        raw_gtid: 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004:abc-def:1-9',
-        position: POSITION
-      });
-      expect(garbageInterval.comparable).not.toContain('NaN');
-      expect(garbageInterval.comparable.split('|')[0]).toEqual('0000000000000009');
+  describe('validation', () => {
+    test.each([
+      ['', 'missing server UUID and transaction id'],
+      [SERVER_UUID, 'missing transaction id'],
+      [`${SERVER_UUID}:`, 'empty transaction id'],
+      [`:${17}`, 'empty server UUID'],
+      [`${SERVER_UUID}:1-17`, 'transaction interval'],
+      [`${SERVER_UUID}:1:17`, 'multiple transaction components'],
+      [`${SERVER_UUID}:abc`, 'non-numeric transaction id'],
+      [`${SERVER_UUID}:-1`, 'negative transaction id'],
+      [`${SERVER_UUID}:17,another-server:9`, 'comma-separated GTID set'],
+      [`${SERVER_UUID}:17,\nanother-server:9`, 'newline-separated GTID set']
+    ])('rejects %s (%s)', (rawGtid) => {
+      expect(() => new ReplicatedGTID({ rawGtid, position: POSITION })).toThrow();
     });
   });
 
   describe('serialization', () => {
-    test('round-trips a multi-UUID GTID set', () => {
-      const raw = '2e35321d-0c0e-11f0-8b38-566fbaa00004:1-17,\n314306f3-ff7b-11ef-a0e0-566fbaa00002:1-2734181';
-      const gtid = new ReplicatedGTID({ raw_gtid: raw, position: POSITION });
+    test('round-trips a single GTID', () => {
+      const gtid = new ReplicatedGTID({
+        rawGtid: `${SERVER_UUID}:17`,
+        position: POSITION
+      });
 
       const deserialized = ReplicatedGTID.fromSerialized(gtid.comparable);
-      expect(deserialized.raw).toEqual(raw);
+
+      expect(deserialized.raw).toEqual(gtid.raw);
+      expect(deserialized.serverUuid).toEqual(SERVER_UUID);
       expect(deserialized.position).toEqual(POSITION);
       expect(deserialized.comparable).toEqual(gtid.comparable);
     });
 
     test('throws on malformed serialized GTIDs', () => {
-      expect(() => ReplicatedGTID.fromSerialized('abc')).toThrow();
-      // Missing binlog offset
-      expect(() => ReplicatedGTID.fromSerialized('0000000000000001|uuid:1|binlog.000001')).toThrow();
-      expect(() => ReplicatedGTID.fromSerialized('0000000000000001|uuid:1|binlog.000001|notanumber')).toThrow();
+      expect(() => ReplicatedGTID.fromSerialized('abc')).toThrow('Invalid serialized GTID');
+      expect(() => ReplicatedGTID.fromSerialized(`0000000000000001|${SERVER_UUID}:1|binlog.000001`)).toThrow(
+        'Invalid serialized GTID'
+      );
+      expect(() => ReplicatedGTID.fromSerialized(`0000000000000001|${SERVER_UUID}:1|binlog.000001|notanumber`)).toThrow(
+        'Invalid BinLog offset'
+      );
+    });
+
+    test('rejects a serialized GTID set', () => {
+      const serialized = `0000000000000017|${SERVER_UUID}:1-17|binlog.000042|1234`;
+
+      expect(() => ReplicatedGTID.fromSerialized(serialized)).toThrow('Expected a single transaction id');
+    });
+  });
+
+  describe('binlog events', () => {
+    test('creates a single GTID from a binlog event', () => {
+      const gtid = ReplicatedGTID.fromBinLogEvent({
+        rawGtid: {
+          serverUuid: Buffer.from(uuid.parse(SERVER_UUID)),
+          transactionId: 17
+        },
+        position: POSITION
+      });
+
+      expect(gtid.raw).toEqual(`${SERVER_UUID}:17`);
+      expect(gtid.position).toEqual(POSITION);
+      expect(gtid.comparable).toEqual(`0000000000000017|${SERVER_UUID}:17|binlog.000042|1234`);
     });
   });
 
   describe('LSN ordering', () => {
-    test('LSNs for the same transaction order by binlog offset', () => {
-      // Note: the binlog offset is not zero-padded, so lexicographic ordering only holds for
-      // offsets with the same number of digits. This is sufficient for the checkpoint gate since
-      // heartbeat keepalive LSNs are byte-identical to the last commit LSN, but is documented
-      // here as a known limitation of the format (which cannot change for compatibility with
-      // LSNs already persisted in bucket storage).
-      const raw = 'a7d0ff7b-0c0e-11f0-8b38-566fbaa00004:18';
+    test('orders GTIDs from the same server by transaction id', () => {
+      const earlier = new ReplicatedGTID({ rawGtid: `${SERVER_UUID}:9`, position: POSITION });
+      const later = new ReplicatedGTID({ rawGtid: `${SERVER_UUID}:18`, position: POSITION });
+
+      expect(earlier.comparable < later.comparable).toBeTruthy();
+    });
+
+    test('orders LSNs for the same transaction by binlog offset', () => {
+      // The binlog offset is not zero-padded, so lexicographic ordering only holds for
+      // offsets with the same number of digits. This format cannot change while existing
+      // LSNs remain persisted in bucket storage.
+      const rawGtid = `${SERVER_UUID}:18`;
       const transactionStart = new ReplicatedGTID({
-        raw_gtid: raw,
+        rawGtid,
         position: { filename: 'binlog.000042', offset: 157 }
       });
       const transactionEnd = new ReplicatedGTID({
-        raw_gtid: raw,
+        rawGtid,
         position: { filename: 'binlog.000042', offset: 300 }
       });
+
       expect(transactionStart.comparable < transactionEnd.comparable).toBeTruthy();
-    });
-
-    test('correct LSNs order against legacy NaN-corrupted LSNs as documented', () => {
-      // LSNs produced by the previous multi-UUID parsing bug contain a literal 'NaN' padded transaction id.
-      const legacyPoisoned = '0000000000000NaN|2e35321d-0c0e-11f0-8b38-566fbaa00004:1-17|binlog.000042|1234';
-
-      // Instances with transaction ids >= 1000 sort above the corrupted LSN and self-heal
-      const highTransaction = new ReplicatedGTID({
-        raw_gtid: '2e35321d-0c0e-11f0-8b38-566fbaa00004:1-39489900',
-        position: POSITION
-      });
-      expect(highTransaction.comparable > legacyPoisoned).toBeTruthy();
-
-      // Instances with transaction ids < 1000 still sort below it ('N' > any digit) and require a resync
-      const lowTransaction = new ReplicatedGTID({
-        raw_gtid: '2e35321d-0c0e-11f0-8b38-566fbaa00004:1-999',
-        position: POSITION
-      });
-      expect(lowTransaction.comparable < legacyPoisoned).toBeTruthy();
-    });
-  });
-
-  describe('connected server UUID selection', () => {
-    const ACTIVE = '2e35321d-0c0e-11f0-8b38-566fbaa00004';
-    const STALE = '314306f3-ff7b-11ef-a0e0-566fbaa00002';
-
-    test('uses the connected server counter even when a stale UUID holds a higher one', () => {
-      // A restore from another server leaves the old UUID with a high counter. Ordering by the set-wide
-      // maximum would pin the LSN there and hang checkpoints until the active counter catches up.
-      const gtid = new ReplicatedGTID({
-        raw_gtid: `${STALE}:1-42350493,\n${ACTIVE}:1-17`,
-        position: POSITION,
-        serverUuid: ACTIVE
-      });
-      expect(gtid.comparable.split('|')[0]).toEqual('0000000000000017');
-    });
-
-    test('matches the set-wide maximum when the connected server holds it', () => {
-      const gtid = new ReplicatedGTID({
-        raw_gtid: `${ACTIVE}:1-42350493,\n${STALE}:1-2734181`,
-        position: POSITION,
-        serverUuid: ACTIVE
-      });
-      expect(gtid.comparable.split('|')[0]).toEqual('0000000042350493');
-    });
-
-    test('falls back to the set-wide maximum when the connected server has no transactions in the set', () => {
-      const gtid = new ReplicatedGTID({
-        raw_gtid: `${STALE}:1-2734181`,
-        position: POSITION,
-        serverUuid: ACTIVE
-      });
-      expect(gtid.comparable.split('|')[0]).toEqual('0000000002734181');
-    });
-
-    test('single-GTID values from the connected server are unaffected', () => {
-      const gtid = new ReplicatedGTID({ raw_gtid: `${ACTIVE}:18`, position: POSITION, serverUuid: ACTIVE });
-      expect(gtid.comparable.split('|')[0]).toEqual('0000000000000018');
-    });
-
-    test('fromSerialized produces the same LSN when the same server UUID is provided', () => {
-      const gtid = new ReplicatedGTID({
-        raw_gtid: `${STALE}:1-42350493,\n${ACTIVE}:1-17`,
-        position: POSITION,
-        serverUuid: ACTIVE
-      });
-      const deserialized = ReplicatedGTID.fromSerialized(gtid.comparable, ACTIVE);
-      expect(deserialized.comparable).toEqual(gtid.comparable);
-      expect(deserialized.activeServerUuid).toEqual(ACTIVE);
     });
   });
 });

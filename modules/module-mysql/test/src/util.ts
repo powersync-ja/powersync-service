@@ -9,7 +9,7 @@ import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import { TablePattern } from '@powersync/service-sync-rules';
 import mysqlPromise from 'mysql2/promise';
-import { describe, TestOptions } from 'vitest';
+import { describe, TestOptions, vi } from 'vitest';
 import { env } from './env.js';
 
 export const TEST_URI = env.MYSQL_TEST_URI;
@@ -27,6 +27,17 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.test_utils.mongoT
 export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.postgresTestSetup({
   url: env.PG_STORAGE_TEST_URL
 });
+
+export function createMockMySQLConnection(queryHandler: (sql: string, params?: unknown[]) => Promise<unknown>): {
+  connection: mysqlPromise.Connection;
+  query: ReturnType<typeof vi.fn>;
+} {
+  const query = vi.fn(queryHandler);
+  return {
+    connection: { query } as unknown as mysqlPromise.Connection,
+    query
+  };
+}
 
 export function describeWithStorage(options: TestOptions, fn: (factory: TestStorageConfig) => void) {
   describe.skipIf(!env.TEST_MONGO_STORAGE)(`mongodb storage`, options, function () {
@@ -71,6 +82,13 @@ export async function getFromGTID(connectionManager: MySQLConnectionManager) {
   return fromGTID;
 }
 
+export async function getActiveServerUuid(connectionManager: MySQLConnectionManager) {
+  const connection = await connectionManager.getConnection();
+  const activeServerUuid = await common.readServerUuid(connection);
+  connection.release();
+  return activeServerUuid;
+}
+
 export interface CreateBinlogListenerParams {
   connectionManager: MySQLConnectionManager;
   eventHandler: BinLogEventHandler;
@@ -84,12 +102,15 @@ export async function createBinlogListener(params: CreateBinlogListenerParams): 
     startGTID = await getFromGTID(connectionManager);
   }
 
+  const activeServerUuid = await getActiveServerUuid(connectionManager);
+
   return new BinLogListener({
     connectionManager: connectionManager,
     eventHandler: eventHandler,
     startGTID: startGTID!,
     sourceTables: sourceTables,
-    serverId: createRandomServerId(1)
+    serverId: createRandomServerId(1),
+    activeServerUuid: activeServerUuid
   });
 }
 

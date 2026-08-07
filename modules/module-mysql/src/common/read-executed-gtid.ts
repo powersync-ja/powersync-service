@@ -1,10 +1,10 @@
+import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import mysqlPromise from 'mysql2/promise';
 import * as mysql_utils from '../utils/mysql-utils.js';
 import { ReplicatedGTID } from './ReplicatedGTID.js';
 
 /**
- * Gets the `@@server_uuid` of the connected server, used to pick its transaction counter out of a GTID set
- * for LSN ordering.
+ * Gets the `@@server_uuid` of the current connected server
  */
 export async function readServerUuid(connection: mysqlPromise.Connection): Promise<string> {
   const [[result]] = await mysql_utils.retriedQuery({
@@ -40,22 +40,71 @@ export async function readExecutedGtid(connection: mysqlPromise.Connection): Pro
     offset: parseInt(binlogStatus.Position)
   };
 
+  const activeServerUuid = await readServerUuid(connection);
+  const executedGtidSet = binlogStatus.Executed_Gtid_Set.trim();
+
+  if (executedGtidSet.length === 0) {
+    // New server with no transactions executed yet
+    return ReplicatedGTID.ZERO(activeServerUuid);
+  }
+
+  const gtidSets = executedGtidSet.split(',');
+  const latestActiveGtid = await getLatestActiveGtid(gtidSets, activeServerUuid);
   return new ReplicatedGTID({
-    // The head always points to the next position to start replication from
-    position,
-    raw_gtid: binlogStatus.Executed_Gtid_Set,
-    serverUuid: await readServerUuid(connection)
+    rawGtid: latestActiveGtid,
+    position
   });
 }
 
-export async function isBinlogStillAvailable(
+export async function getLatestActiveGtid(gtidSets: string[], activeServerUuid: string): Promise<string> {
+  for (const gtidSet of gtidSets) {
+    const [serverUuid, ...intervals] = gtidSet.trim().split(':');
+    if (serverUuid === activeServerUuid) {
+      let maxTransactionId: number | null = null;
+      for (const interval of intervals) {
+        const [start, end] = interval.split('-');
+        const startId = parseInt(start, 10);
+        const endId = end !== undefined ? parseInt(end, 10) : startId;
+        if (!Number.isNaN(startId)) {
+          maxTransactionId = Math.max(maxTransactionId ?? 0, startId);
+        }
+        if (!Number.isNaN(endId)) {
+          maxTransactionId = Math.max(maxTransactionId ?? 0, endId);
+        }
+      }
+      return activeServerUuid + ':' + maxTransactionId;
+    }
+  }
+
+  throw new ReplicationAssertionError(
+    `No GTID set found matching Active server UUID: ${activeServerUuid} in GTID sets: ${gtidSets.join(', ')}`
+  );
+}
+
+/**
+ * Checks that a stored resume GTID is still part of the server's executed history and that its
+ * binlog coordinate is still readable. This detects source rewinds where a restored server keeps
+ * the same UUID or recreates a binlog with the same filename but a shorter length.
+ */
+export async function isGtidPositionStillAvailable(
   connection: mysqlPromise.Connection,
-  binlogFile: string
+  gtid: ReplicatedGTID
 ): Promise<boolean> {
   const [logFiles] = await mysql_utils.retriedQuery({
     connection,
     query: `SHOW BINARY LOGS;`
   });
+  const logFile = logFiles.find((file) => file['Log_name'] == gtid.position.filename);
 
-  return logFiles.some((f) => f['Log_name'] == binlogFile);
+  if (!logFile || Number(logFile['File_size']) < gtid.position.offset) {
+    return false;
+  }
+
+  const [[result]] = await mysql_utils.retriedQuery({
+    connection,
+    query: `SELECT GTID_SUBSET(?, @@GLOBAL.gtid_executed) AS is_executed`,
+    params: [gtid.raw]
+  });
+
+  return result.is_executed === 1;
 }
