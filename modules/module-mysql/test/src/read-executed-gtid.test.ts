@@ -27,9 +27,9 @@ describe('read-executed-gtid', () => {
       expect(gtid).toEqual(`${ACTIVE_SERVER_UUID}:42`);
     });
 
-    test('throws when the active server is absent from the GTID sets', async () => {
-      await expect(getLatestActiveGtid([`${STALE_SERVER_UUID}:1-1000`], ACTIVE_SERVER_UUID)).rejects.toThrow(
-        `No GTID set found matching Active server UUID: ${ACTIVE_SERVER_UUID}`
+    test('returns the active server ZERO GTID when it is absent from the GTID sets', async () => {
+      await expect(getLatestActiveGtid([`${STALE_SERVER_UUID}:1-1000`], ACTIVE_SERVER_UUID)).resolves.toEqual(
+        `${ACTIVE_SERVER_UUID}:0`
       );
     });
   });
@@ -72,6 +72,19 @@ describe('read-executed-gtid', () => {
 
       expect(gtid.raw).toEqual(`${ACTIVE_SERVER_UUID}:0`);
       expect(gtid.comparable).toEqual(`0000000000000000|${ACTIVE_SERVER_UUID}:0||0`);
+    });
+
+    test('uses the active server ZERO GTID at the current position when only historical UUIDs exist', async () => {
+      const { connection } = createConnection({
+        version: '8.4.0',
+        executedGtidSet: `${STALE_SERVER_UUID}:1-1000`
+      });
+
+      const gtid = await readExecutedGtid(connection);
+
+      expect(gtid.raw).toEqual(`${ACTIVE_SERVER_UUID}:0`);
+      expect(gtid.position).toEqual({ filename: 'binlog.000042', offset: 1234 });
+      expect(gtid.comparable).toEqual(`0000000000000000|${ACTIVE_SERVER_UUID}:0|binlog.000042|1234`);
     });
   });
 

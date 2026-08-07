@@ -1,4 +1,3 @@
-import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import mysqlPromise from 'mysql2/promise';
 import * as mysql_utils from '../utils/mysql-utils.js';
 import { ReplicatedGTID } from './ReplicatedGTID.js';
@@ -76,9 +75,7 @@ export async function getLatestActiveGtid(gtidSets: string[], activeServerUuid: 
     }
   }
 
-  throw new ReplicationAssertionError(
-    `No GTID set found matching Active server UUID: ${activeServerUuid} in GTID sets: ${gtidSets.join(', ')}`
-  );
+  return `${activeServerUuid}:0`;
 }
 
 /**
