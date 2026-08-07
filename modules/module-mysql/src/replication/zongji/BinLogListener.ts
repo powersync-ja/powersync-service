@@ -1,4 +1,4 @@
-import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { Logger, ReplicationAssertionError, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { BinLogEvent, BinLogQueryEvent, StartOptions, TableMapEntry, ZongJi } from '@powersync/mysql-zongji';
 import { TablePattern } from '@powersync/service-sync-rules';
 import async from 'async';
@@ -76,7 +76,14 @@ export interface BinLogListenerOptions {
   connectionManager: MySQLConnectionManager;
   eventHandler: BinLogEventHandler;
   sourceTables: TablePattern[];
+  /**
+   *  Id that identifies this replication client.
+   */
   serverId: number;
+  /**
+   *  The server uuid of the source MySQL server that is being replicated.
+   */
+  activeServerUuid: string;
   startGTID: common.ReplicatedGTID;
   logger?: Logger;
   keepAliveInactivitySeconds?: number;
@@ -88,8 +95,6 @@ export interface BinLogListenerOptions {
  */
 export class BinLogListener {
   private sqlParser: ParserType;
-  private connectionManager: MySQLConnectionManager;
-  private eventHandler: BinLogEventHandler;
   private binLogPosition: common.BinLogPosition;
   private currentGTID: common.ReplicatedGTID;
   private logger: Logger;
@@ -101,10 +106,7 @@ export class BinLogListener {
 
   // Flag to indicate if are currently in a transaction that involves multiple row mutation events.
   private isTransactionOpen = false;
-  // The @@server_uuid of the connected server, used to order LSNs and to detect foreign transactions.
-  private currentServerUuid: string | undefined;
-  // Foreign server UUIDs already warned about, so each one is logged once rather than per transaction.
-  private warnedForeignServerIds = new Set<string>();
+
   zongji: ZongJi;
   processingQueue: async.QueueObject<BinLogEvent>;
 
@@ -115,17 +117,26 @@ export class BinLogListener {
 
   constructor(public options: BinLogListenerOptions) {
     this.logger = options.logger ?? defaultLogger;
-    this.connectionManager = options.connectionManager;
-    this.eventHandler = options.eventHandler;
     // Copy the position: the listener mutates it as events are processed, and the caller's startGTID must not change
     this.binLogPosition = { ...options.startGTID.position };
     this.currentGTID = options.startGTID;
-    this.currentServerUuid = options.startGTID.activeServerUuid;
     this.sqlParser = new Parser();
     this.processingQueue = this.createProcessingQueue();
     this.zongji = this.createZongjiListener();
     this.listenerError = null;
     this.databaseFilter = this.createDatabaseFilter(options.sourceTables);
+  }
+
+  private get connectionManager(): MySQLConnectionManager {
+    return this.options.connectionManager;
+  }
+
+  private get eventHandler(): BinLogEventHandler {
+    return this.options.eventHandler;
+  }
+
+  private get activeServerUuid(): string {
+    return this.options.activeServerUuid;
   }
 
   /**
@@ -298,33 +309,41 @@ export class BinLogListener {
     return async (evt: BinLogEvent) => {
       switch (true) {
         case zongji_utils.eventIsGTIDLog(evt):
-          this.currentGTID = common.ReplicatedGTID.fromBinLogEvent(
-            {
-              raw_gtid: {
-                server_id: evt.serverId,
-                transaction_range: evt.transactionRange
-              },
-              position: {
-                filename: this.binLogPosition.filename,
-                offset: evt.nextPosition
-              }
+          const transactionGTID = common.ReplicatedGTID.fromBinLogEvent({
+            rawGtid: {
+              serverUuid: evt.serverId, // The server uuid this transaction originated from
+              transactionId: evt.transactionRange
             },
-            this.currentServerUuid
-          );
+            position: {
+              filename: this.binLogPosition.filename,
+              offset: evt.nextPosition
+            }
+          });
+
+          if (transactionGTID.serverUuid !== this.activeServerUuid) {
+            throw new ReplicationAssertionError(
+              `Detected a transaction from a different MySQL server UUID: ${transactionGTID.serverUuid} than the server that is currently being replicated from: ${this.activeServerUuid}. ` +
+                `A re-snapshot is required to ensure consistency.`
+            );
+          }
+
+          this.currentGTID = transactionGTID;
           this.binLogPosition.offset = evt.nextPosition;
-          this.warnOnForeignServerUuid(this.currentGTID.serverId);
+
           await this.eventHandler.onTransactionStart({ timestamp: new Date(evt.timestamp) });
           this.logger.info(`Processed GTID event: ${this.currentGTID.comparable}`);
           break;
         case zongji_utils.eventIsRotation(evt):
           // The first event when starting replication is a synthetic Rotate event
-          // It describes the last binlog file and position that the replica client processed
+          // It describes the the position and file that the replica requested to start from
+          const isNewFile = this.binLogPosition.filename !== evt.binlogName;
+
           this.binLogPosition.filename = evt.binlogName;
-          this.binLogPosition.offset = evt.nextPosition !== 0 ? evt.nextPosition : evt.position;
+          this.binLogPosition.offset = evt.position;
+
           await this.eventHandler.onRotate();
 
-          const newFile = this.binLogPosition.filename !== evt.binlogName;
-          if (newFile) {
+          if (isNewFile) {
             this.logger.info(
               `Processed Rotate event. New BinLog file is: ${this.binLogPosition.filename}:${this.binLogPosition.offset}`
             );
@@ -391,33 +410,10 @@ export class BinLogListener {
   private advanceCommitPosition(nextPosition: number): string {
     this.binLogPosition.offset = nextPosition;
     this.currentGTID = new common.ReplicatedGTID({
-      raw_gtid: this.currentGTID.raw,
-      // Copy the position: this.binLogPosition is mutated by subsequent events
-      position: { ...this.binLogPosition },
-      serverUuid: this.currentServerUuid
+      rawGtid: this.currentGTID.raw,
+      position: { ...this.binLogPosition }
     });
     return this.currentGTID.comparable;
-  }
-
-  /**
-   *  Warns when a transaction on the binlog originates from a server other than the connected one, such as
-   *  when the connected server is a replica. LSN ordering follows the connected server's transaction
-   *  counter, so transactions from other server UUIDs are not reliably ordered and can stall checkpoints.
-   *  Warns once per foreign UUID rather than per transaction.
-   */
-  private warnOnForeignServerUuid(transactionServerUuid: string): void {
-    if (
-      this.currentServerUuid == null ||
-      transactionServerUuid === this.currentServerUuid ||
-      this.warnedForeignServerIds.has(transactionServerUuid)
-    ) {
-      return;
-    }
-    this.warnedForeignServerIds.add(transactionServerUuid);
-    this.logger.warn(
-      `Detected a transaction from a different MySQL server UUID on the binlog: ${transactionServerUuid} (connected server: ${this.currentServerUuid}). ` +
-        `LSN ordering follows the connected server's transaction counter, so transactions from other servers are not reliably ordered and checkpoints may stall.`
-    );
   }
 
   private async processQueryEvent(event: BinLogQueryEvent): Promise<void> {

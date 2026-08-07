@@ -73,6 +73,8 @@ export class BinLogStream {
 
   private readonly logger: Logger;
 
+  private activeServerUuid: string | null = null;
+
   private tableCache = new Map<string | number, storage.SourceTable[]>();
 
   private replicationLag = new ReplicationLagTracker();
@@ -220,16 +222,23 @@ export class BinLogStream {
       this.logger.info(`Initial replication already done.`);
 
       if (lastKnowGTID) {
-        // Check if the specific binlog file is still available. If it isn't, we need to snapshot again.
         const connection = await this.connections.getConnection();
         try {
-          const isAvailable = await common.isBinlogStillAvailable(connection, lastKnowGTID.position.filename);
+          // Check if the active server uuid matches the one in the GTID
+          if (this.activeServerUuid !== lastKnowGTID.serverUuid) {
+            this.logger.info(
+              `The source server uuid has changed. Active server uuid ${this.activeServerUuid} does not match the server uuid from the resume checkpoint: ${lastKnowGTID.serverUuid}, re-snapshotting to ensure consistency.`
+            );
+            return false;
+          }
+
+          const isAvailable = await common.isGtidPositionStillAvailable(connection, lastKnowGTID);
           if (!isAvailable) {
             this.logger.info(
-              `BinLog file ${lastKnowGTID.position.filename} is no longer available, starting initial replication again.`
+              `Resume GTID ${lastKnowGTID.raw} at ${lastKnowGTID.position.filename}:${lastKnowGTID.position.offset} is no longer present in the executed GTID history or available BinLogs, re-snapshotting to ensure consistency.`
             );
+            return false;
           }
-          return isAvailable;
         } finally {
           connection.release();
         }
@@ -267,7 +276,7 @@ export class BinLogStream {
       const flushResults = await this.storage.startBatch(
         {
           logger: this.logger,
-          zeroLSN: common.ReplicatedGTID.ZERO.comparable,
+          zeroLSN: common.ReplicatedGTID.ZERO(this.activeServerUuid!).comparable,
           defaultSchema: this.defaultSchema,
           storeCurrentData: false
         },
@@ -354,12 +363,22 @@ export class BinLogStream {
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
+      await this.setActiveServerUuid();
       await this.initReplication();
       await this.streamChanges();
       this.logger.info('BinLogStream has been shut down');
     } catch (e) {
       await this.storage.reportError(e);
       throw e;
+    }
+  }
+
+  private async setActiveServerUuid() {
+    const connection = await this.connections.getConnection();
+    try {
+      this.activeServerUuid = await common.readServerUuid(connection);
+    } finally {
+      connection.release();
     }
   }
 
@@ -382,7 +401,7 @@ export class BinLogStream {
       await this.storage.startBatch(
         {
           logger: this.logger,
-          zeroLSN: common.ReplicatedGTID.ZERO.comparable,
+          zeroLSN: common.ReplicatedGTID.ZERO(this.activeServerUuid!).comparable,
           defaultSchema: this.defaultSchema,
           storeCurrentData: false
         },
@@ -415,9 +434,8 @@ export class BinLogStream {
       if (resume_lsn) {
         this.logger.info(`Existing resume LSN found: ${resume_lsn}`);
       }
-      // The server uuid picks the connected server's transaction counter out of GTID sets for LSN ordering.
       fromGTID = resume_lsn
-        ? common.ReplicatedGTID.fromSerialized(resume_lsn, await common.readServerUuid(connection))
+        ? common.ReplicatedGTID.fromSerialized(resume_lsn)
         : await common.readExecutedGtid(connection);
     } finally {
       connection.release();
@@ -425,7 +443,11 @@ export class BinLogStream {
 
     if (!this.stopped) {
       await this.storage.startBatch(
-        { zeroLSN: common.ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: false },
+        {
+          zeroLSN: common.ReplicatedGTID.ZERO(this.activeServerUuid!).comparable,
+          defaultSchema: this.defaultSchema,
+          storeCurrentData: false
+        },
         async (batch) => {
           const binlogEventHandler = this.createBinlogEventHandler(batch);
           const binlogListener = new BinLogListener({
@@ -434,6 +456,7 @@ export class BinLogStream {
             startGTID: fromGTID,
             connectionManager: this.connections,
             serverId: serverId,
+            activeServerUuid: this.activeServerUuid!,
             eventHandler: binlogEventHandler
           });
 
