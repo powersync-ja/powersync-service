@@ -374,10 +374,11 @@ export enum ErrorCode {
   PSYNC_S1602 = 'PSYNC_S1602',
 
   /**
-   *  A replicated source table was dropped or renamed.
+   *  A replicated source table was dropped, renamed, recreated, or no longer matches the source
+   *  identity selected by the current replication process.
    *
-   *  Replication stops because the table may still have unread changes. A new sync deploy is
-   *  required; existing replicated data is retained until then.
+   *  Replication stops because the table may still have unread changes. A sync config deployment
+   *  is required to adopt the replacement; existing replicated data is retained until then.
    */
   PSYNC_S1603 = 'PSYNC_S1603',
 

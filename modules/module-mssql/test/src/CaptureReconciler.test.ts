@@ -152,6 +152,17 @@ describe('createCaptureReconciler', () => {
     ).toThrow(/multiple persisted capture identities/);
   });
 
+  it('does not replace an existing binding when the source identity changed', () => {
+    expect(() =>
+      createCaptureReconciler([instance(50)])({
+        source: source({ objectId: 200 }),
+        candidates: [candidate('old', { captureTableObjectId: 40 })]
+      })
+    ).toThrow(
+      /Table \[dbo\]\.\[users\] no longer matches the source table binding.*already-replicated data is retained/
+    );
+  });
+
   it('drops candidates that do not match the generic identity', () => {
     const resolution = createCaptureReconciler([instance(50)])({
       source: source(),

@@ -119,6 +119,48 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
     ).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
   });
 
+  test('Drop and recreate while stopped requires a new sync config', async () => {
+    let originalRows: Awaited<ReturnType<typeof insertBasicIdTestData>>[];
+    {
+      await using context = await CDCStreamTestContext.open(factory);
+      await context.updateSyncRules(BASIC_SYNC_RULES);
+
+      const { connectionManager } = context;
+      await createTestTableWithBasicId(connectionManager, 'test_data');
+      originalRows = [
+        await insertBasicIdTestData(connectionManager, 'test_data'),
+        await insertBasicIdTestData(connectionManager, 'test_data')
+      ];
+
+      await context.replicateSnapshot();
+      await context.startStreaming();
+      expect(await context.getBucketData('global[]')).toMatchObject(originalRows.map((row) => putOp('test_data', row)));
+    }
+
+    {
+      await using changeContext = await CDCStreamTestContext.open(factory, { doNotClear: true });
+      const { connectionManager } = changeContext;
+      await dropTestTable(connectionManager, 'test_data');
+      await createTestTableWithBasicId(connectionManager, 'test_data');
+      await insertBasicIdTestData(connectionManager, 'test_data');
+    }
+
+    {
+      await using restartContext = await CDCStreamTestContext.open(factory, { doNotClear: true });
+      await restartContext.loadActiveSyncRules();
+
+      await expect(
+        restartContext.replicateSnapshot(),
+        'A normal job restart must not adopt the replacement table'
+      ).rejects.toThrow(/no longer matches the source table binding/);
+
+      expect(
+        await restartContext.getCurrentBucketData('global[]'),
+        'The failed restart must retain data from the persisted binding'
+      ).toMatchObject(originalRows.map((row) => putOp('test_data', row)));
+    }
+  });
+
   test('Rename table: replication stops and the replicated data is retained', async () => {
     await using context = await CDCStreamTestContext.open(factory);
     await context.updateSyncRules(BASIC_SYNC_RULES);

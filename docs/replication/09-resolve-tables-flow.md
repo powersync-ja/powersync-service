@@ -109,7 +109,7 @@ The reconciler must not perform slow source queries. Candidate state is cloned b
 
 MSSQL rejects table wildcards and requires every configured table to exist with CDC enabled at startup. This keeps the table set fixed for the life of the stream. Polling cannot detect a new table atomically with a commit, so adding a table, enabling CDC, or renaming a table into scope requires a new sync config deploy.
 
-Dropping or renaming a replicated table fails the job with `PSYNC_S1603`. Continuing would risk committing past changes that have not been read from that table. Existing replicated data is retained; it is removed when the new config is resolved.
+Dropping, renaming, or recreating a replicated table, or otherwise changing its persisted source identity, fails the job with `PSYNC_S1603`. Continuing would risk committing past changes that have not been read from that table. Existing replicated data is retained; it is removed when the replacement sync config is resolved.
 
 ### MSSQL capture-instance pinning
 

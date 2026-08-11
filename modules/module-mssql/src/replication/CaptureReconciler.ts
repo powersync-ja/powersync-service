@@ -73,6 +73,20 @@ export function createCaptureReconciler(availableInstances: CaptureInstance[]) {
     }
 
     if (compatible.length === 0) {
+      if (candidates.length > 0) {
+        // An overlapping persisted binding with a different source identity is not a new table.
+        // This can happen when a table is dropped and recreated while replication is stopped.
+        // Reusing the old snapshot or replacing it during a normal job restart would silently
+        // adopt a different physical table without a sync config deployment boundary.
+        throw new SourceTableUnavailableError(
+          `Table ${formatQualifiedTableName(source.schema, source.name)} no longer matches the source table binding ` +
+            `selected by this replication process. ` +
+            `It may have been dropped and recreated, renamed, or had its replication identity changed. ` +
+            `Redeploy the sync config to adopt the replacement. Its already-replicated data is retained until ` +
+            `the redeployed sync config becomes active.`
+        );
+      }
+
       // Pin a new binding to the newest instance.
       const newest = availableInstances[0];
       return {
@@ -139,4 +153,9 @@ export function createCaptureReconciler(availableInstances: CaptureInstance[]) {
 
 function captureMetadata(captureTableObjectId: number): MSSQLSourceMetadata {
   return { captureTableObjectId };
+}
+
+function formatQualifiedTableName(schema: string, table: string): string {
+  const escapeIdentifier = (identifier: string) => `[${identifier.replace(/]/g, ']]')}]`;
+  return `${escapeIdentifier(schema)}.${escapeIdentifier(table)}`;
 }
