@@ -1,12 +1,16 @@
-import { Equality } from '../compiler/equality.js';
-import { DEFAULT_TAG } from '../TablePattern.js';
-import {
+import * as uuid from 'uuid';
+import type { Equality } from '../compiler/equality.js';
+import type { EventDefinitionId } from '../events/EventDescriptor.js';
+import type {
   SerializedBucketDataSource,
   SerializedDataSource,
+  SerializedEventDescriptor,
   SerializedEventRowEvaluator,
   SerializedEventSourceQuery,
   SerializedParameterIndexLookupCreator
 } from './serialize.js';
+
+const EVENT_DEFINITION_ID_NAMESPACE = uuid.v5('powersync-replication-event-definition-v1', uuid.v5.URL);
 
 export interface SerializedBucketDataSourceWithDataSources {
   bucket: SerializedBucketDataSource;
@@ -15,16 +19,30 @@ export interface SerializedBucketDataSourceWithDataSources {
 
 export interface SerializedEventSourceDefinition {
   eventName: string;
-  defaultSchema: string;
   source: SerializedEventSourceQuery;
 }
 
+/** Returns the serialized event definition without its derived ID. */
+export function serializedEventDefinitionIdentity(
+  event: Pick<SerializedEventDescriptor, 'name' | 'sourceQueries'>
+): string {
+  return JSON.stringify({ name: event.name, sourceQueries: event.sourceQueries });
+}
+
+/** Generate the content-addressed ID persisted with and exposed by a compiled event definition. */
+export function serializedEventDefinitionId(
+  event: Pick<SerializedEventDescriptor, 'name' | 'sourceQueries'>
+): EventDefinitionId {
+  return uuid.v5(serializedEventDefinitionIdentity(event), EVENT_DEFINITION_ID_NAMESPACE);
+}
+
 /**
- * Semantic equality for an individual event source query.
+ * Compiled-plan equality for an individual event source query.
  *
  * Event source identity is independent of the containing sync config. The identity deliberately excludes raw SQL and
- * compiler hash codes, and normalizes unordered filter variants so callers can use it as stable input to a persisted
- * fingerprint. Callers must still verify equality after a fingerprint lookup.
+ * compiler hash codes, preserves table references as represented in the plan, and normalizes unordered filter variants
+ * so callers can use it as stable input to a persisted fingerprint. Callers must still verify equality after a
+ * fingerprint lookup.
  */
 export const serializedEventSourceDefinitionEquality: Equality<SerializedEventSourceDefinition> = {
   hash(hasher, value) {
@@ -38,26 +56,31 @@ export const serializedEventSourceDefinitionEquality: Equality<SerializedEventSo
 /**
  * Returns the canonical, versioned identity input for one event source query.
  *
- * This is intentionally not a durable identifier by itself. Storage implementations can hash the returned value for
- * lookup and then use {@link serializedEventSourceDefinitionEquality} to guard against collisions.
+ * This is intentionally not a durable identifier by itself. Complete named events use
+ * {@link serializedEventDefinitionId}; source-level callers can use this value for semantic comparisons.
  */
 export function serializedEventSourceDefinitionIdentity(value: SerializedEventSourceDefinition): string {
-  const variants = value.source.variants
-    .map((variant) => eventVariantIdentity(variant, value.defaultSchema))
-    .map((variant) => JSON.stringify(variant))
-    .sort();
-
   return JSON.stringify({
     version: 1,
     eventName: value.eventName,
-    sourceTable: resolvedTableIdentity(value.source.table, value.defaultSchema),
-    variants
+    ...eventSourceQueryIdentity(value.source)
   });
 }
 
-function eventVariantIdentity(value: SerializedEventRowEvaluator, defaultSchema: string) {
+/** Canonical identity fields for a source query without the containing event name. */
+function eventSourceQueryIdentity(source: SerializedEventSourceQuery) {
   return {
-    table: resolvedTableIdentity(value.table, defaultSchema),
+    sourceTable: source.table,
+    variants: source.variants
+      .map(eventVariantIdentity)
+      .map((variant) => JSON.stringify(variant))
+      .sort()
+  };
+}
+
+function eventVariantIdentity(value: SerializedEventRowEvaluator) {
+  return {
+    table: value.table,
     columns: value.columns.map((column) => {
       return column == 'star' ? column : { ...column, expr: canonicalExpression(column.expr) };
     }),
@@ -69,10 +92,6 @@ function eventVariantIdentity(value: SerializedEventRowEvaluator, defaultSchema:
     })),
     partitionBy: value.partitionBy.map((key) => ({ expr: canonicalExpression(key.expr) }))
   };
-}
-
-function resolvedTableIdentity(table: SerializedEventRowEvaluator['table'], defaultSchema: string) {
-  return { ...table, connection: table.connection ?? DEFAULT_TAG, schema: table.schema ?? defaultSchema };
 }
 
 function canonicalExpression(value: unknown): unknown {
