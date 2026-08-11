@@ -232,8 +232,6 @@ async function collectChanges(options: CollectChangesOptions): Promise<Recording
     connectionManager,
     eventHandler,
     getReplicatedTables: () => tables,
-    // No sync config patterns, so no unrelated table is ever treated as a new table to replicate.
-    sourceTables: [],
     startLSN,
     additionalConfig: {
       pollingBatchSize: 100,
@@ -312,6 +310,6 @@ async function resolveSourceTable(
     },
     []
   );
-  table.setCaptureInstance(details.instances[0]);
+  table.setCaptureInstance([details.instances[0]]);
   return table;
 }
