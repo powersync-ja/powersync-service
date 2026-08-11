@@ -5,17 +5,17 @@ import {
   Logger,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
-import { TablePattern } from '@powersync/service-sync-rules';
 import sql from 'mssql';
 import timers from 'timers/promises';
-import { CaptureInstance } from '../common/CaptureInstance.js';
 import { LSN } from '../common/LSN.js';
 import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { AdditionalConfig } from '../types/types.js';
 import { isDeadlockError } from '../utils/deadlock.js';
-import { CaptureInstanceDetails, getCaptureInstances, incrementLSN, toQualifiedTableName } from '../utils/mssql.js';
-import { SourceTableChangeRef, tableExists } from '../utils/schema.js';
+import { CaptureInstanceDetails, getCaptureInstances, incrementLSN } from '../utils/mssql.js';
+import { tableExists } from '../utils/schema.js';
+import { CaptureInstanceMissingError } from './CaptureReconciler.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
+import { SchemaChange, SchemaChangeType } from './SchemaChange.js';
 
 enum LogicalChangeType {
   INSERT = 'INSERT',
@@ -39,29 +39,6 @@ interface LogicalChange {
 
 export const DEFAULT_SCHEMA_CHECK_INTERVAL_MS = 60_000;
 
-export enum SchemaChangeType {
-  TABLE_RENAME = 'table_rename',
-  TABLE_DROP = 'table_drop',
-  TABLE_CREATE = 'table_create',
-  TABLE_COLUMN_CHANGES = 'table_column_changes',
-  NEW_CAPTURE_INSTANCE = 'new_capture_instance',
-  MISSING_CAPTURE_INSTANCE = 'missing_capture_instance'
-}
-
-export interface SchemaChange {
-  type: SchemaChangeType;
-  /**
-   *  The table that the schema change applies to. Populated for table drops, renames, new capture instances, and DDL changes.
-   */
-  table?: MSSQLSourceTable;
-  /**
-   *  Populated for new tables or renames, but only if the new table matches a sync config source table.
-   */
-  newTable?: SourceTableChangeRef;
-
-  newCaptureInstance?: CaptureInstance;
-}
-
 export interface CDCEventHandler {
   onInsert: (row: any, table: MSSQLSourceTable, columns: sql.IColumnMetadata) => Promise<void>;
   onUpdate: (rowAfter: any, rowBefore: any, table: MSSQLSourceTable, columns: sql.IColumnMetadata) => Promise<void>;
@@ -75,10 +52,6 @@ export interface CDCPollerOptions {
   eventHandler: CDCEventHandler;
   /** CDC enabled source tables from the sync config to replicate */
   getReplicatedTables: () => MSSQLSourceTable[];
-  /** All table patterns from the sync config. Can contain tables that need to be replicated
-   *  but do not yet have CDC enabled
-   */
-  sourceTables: TablePattern[];
   startLSN: LSN;
   logger?: Logger;
   additionalConfig: AdditionalConfig;
@@ -269,12 +242,24 @@ export class CDCPoller {
    *  Processes the changes this table has within the given bounds, and returns the LSNs of the
    *  transactions those changes belong to. The LSNs are returned in their string form so that the
    *  caller can deduplicate them across tables by value.
-   */
+  */
   private async pollTable(table: MSSQLSourceTable, bounds: { startLSN: LSN; endLSN: LSN }): Promise<Set<string>> {
     const transactionLSNs = new Set<string>();
 
-    // Ensure that the startLSN is not before the minimum LSN for the table
-    const minLSN = this.captureInstances.get(table.objectId)!.instances[0].minLSN;
+    // CDC cleanup can advance minLSN while the capture-table identity remains unchanged, so use
+    // the latest metadata loaded by the schema check rather than the instance bound at startup.
+    const availableInstances = this.captureInstances.get(table.objectId)?.instances ?? [];
+    table.setCaptureInstance(availableInstances);
+    const boundInstance = table.captureInstance;
+    if (boundInstance == null) {
+      // The pinned instance can be dropped between schema checks.
+      throw new CaptureInstanceMissingError(
+        `The CDC capture instance for table ${table.toQualifiedName()} (pinned to object id ` +
+          `${table.pinnedCaptureObjectId}) is no longer available. Deploy a new sync config to replicate ` +
+          `this table against an available capture instance.`
+      );
+    }
+    const minLSN = boundInstance.minLSN;
     if (minLSN > bounds.endLSN) {
       return transactionLSNs;
     } else if (minLSN >= bounds.startLSN) {
@@ -321,7 +306,9 @@ export class CDCPoller {
 
       return transactionLSNs;
     } catch (error) {
-      // This Covers both deleted tables and capture instances
+      // This Covers both deleted tables and capture instances. Unlike the check above, this cannot
+      // tell the two apart, so it stays recoverable: the forced schema check classifies it as a
+      // dropped table or a missing capture instance and fails with the matching error.
       if (error.message.includes(`Invalid object name`)) {
         throw new DatabaseQueryError(
           ErrorCode.PSYNC_S1601,
@@ -337,33 +324,14 @@ export class CDCPoller {
     return Date.now() - this.lastSchemaCheckTime >= this.schemaCheckIntervalMs;
   }
 
-  /**
-   * Checks the given table for pending schema changes that can lead to inconsistencies in the replicated data if not handled.
-   * Returns the SchemaChange if any are found, null otherwise.
-   */
   private async checkForSchemaChanges(): Promise<SchemaChange[]> {
     const schemaChanges: SchemaChange[] = [];
 
-    const newTables = this.checkForNewTables();
-    for (const table of newTables) {
-      this.logger.info(
-        `New table ${toQualifiedTableName(table.sourceTable.schema, table.sourceTable.name)} matching the sync config has been created. Handling schema change...`
-      );
-      schemaChanges.push({
-        type: SchemaChangeType.TABLE_CREATE,
-        newTable: {
-          name: table.sourceTable.name,
-          schema: table.sourceTable.schema,
-          objectId: table.sourceTable.objectId
-        },
-        newCaptureInstance: table.instances[0]
-      });
-    }
-
+    // Exact table names keep the replicated set fixed until the next deploy.
     for (const table of this.replicatedTables) {
       const exists = await tableExists(table.objectId, this.connectionManager);
       if (!exists) {
-        this.logger.info(`Table ${table.toQualifiedName()} has been dropped. Handling schema change...`);
+        this.logger.info(`Table ${table.toQualifiedName()} has been dropped.`);
         schemaChanges.push({
           type: SchemaChangeType.TABLE_DROP,
           table
@@ -373,86 +341,61 @@ export class CDCPoller {
 
       const captureInstanceDetails = this.captureInstances.get(table.objectId);
       if (!captureInstanceDetails) {
-        if (table.enabledForCDC()) {
-          // Table had a capture instance but no longer does.
-          schemaChanges.push({
-            type: SchemaChangeType.MISSING_CAPTURE_INSTANCE,
-            table
-          });
-        }
+        // The table had a capture instance when the stream started, but no longer does.
+        schemaChanges.push({
+          type: SchemaChangeType.MISSING_CAPTURE_INSTANCE,
+          table
+        });
         continue;
       }
 
       const latestCaptureInstance = captureInstanceDetails.instances[0];
-      // If the table is not enabled for CDC or the capture instance is different, we need to re-snapshot the source table
-      if (!table.enabledForCDC() || table.captureInstance!.objectId !== latestCaptureInstance.objectId) {
+
+      table.setCaptureInstance(captureInstanceDetails.instances);
+      const boundInstance = table.captureInstance;
+      if (boundInstance == null) {
+        // Include the replacement so the error can suggest the right recovery step.
+        schemaChanges.push({
+          type: SchemaChangeType.MISSING_CAPTURE_INSTANCE,
+          table,
+          replacementInstance: latestCaptureInstance
+        });
+        continue;
+      }
+      if (latestCaptureInstance.objectId !== boundInstance.objectId) {
+        // Keep checking for rename and column changes against the pinned instance.
         schemaChanges.push({
           type: SchemaChangeType.NEW_CAPTURE_INSTANCE,
           table,
           newCaptureInstance: latestCaptureInstance
         });
-        continue;
       }
 
-      // One of the replicated tables has been renamed
+      // The new name is only used in the error message.
       if (table.ref.name !== captureInstanceDetails.sourceTable.name) {
-        const newTable = this.tableMatchesSyncRules(
-          captureInstanceDetails.sourceTable.schema,
-          captureInstanceDetails.sourceTable.name
-        )
-          ? {
-              name: captureInstanceDetails.sourceTable.name,
-              schema: captureInstanceDetails.sourceTable.schema,
-              objectId: captureInstanceDetails.sourceTable.objectId
-            }
-          : undefined;
-
         schemaChanges.push({
           type: SchemaChangeType.TABLE_RENAME,
           table,
-          newTable,
-          newCaptureInstance: latestCaptureInstance
+          newTable: {
+            name: captureInstanceDetails.sourceTable.name,
+            schema: captureInstanceDetails.sourceTable.schema,
+            objectId: captureInstanceDetails.sourceTable.objectId
+          }
         });
         continue;
       }
 
-      if (latestCaptureInstance.pendingSchemaChanges.length > 0) {
+      // Report drift against the capture instance this stream uses.
+      if (boundInstance.pendingSchemaChanges.length > 0) {
         schemaChanges.push({
           type: SchemaChangeType.TABLE_COLUMN_CHANGES,
           table,
-          newCaptureInstance: latestCaptureInstance
+          captureInstance: boundInstance
         });
       }
     }
 
     return schemaChanges;
-  }
-
-  private checkForNewTables(): CaptureInstanceDetails[] {
-    const newTables: CaptureInstanceDetails[] = [];
-    for (const [objectId, captureInstanceDetails] of this.captureInstances.entries()) {
-      // If a source table is not in the replicated tables array, but a capture instance exists for it, it is potentially a new table to replicate.
-      if (!this.replicatedTables.some((table) => table.objectId === objectId)) {
-        // Check if the new table matches any of the sync config source tables.
-        if (
-          this.tableMatchesSyncRules(captureInstanceDetails.sourceTable.schema, captureInstanceDetails.sourceTable.name)
-        ) {
-          newTables.push(captureInstanceDetails);
-        }
-      }
-    }
-
-    return newTables;
-  }
-
-  private tableMatchesSyncRules(schema: string, tableName: string): boolean {
-    return this.options.sourceTables.some((tablePattern) =>
-      tablePattern.matches({
-        connectionTag: this.connectionManager.connectionTag,
-        schema: schema,
-        name: tableName
-      })
-    );
   }
 }
 

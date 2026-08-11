@@ -242,24 +242,36 @@ export interface EnableCDCForTableOptions {
   connectionManager: MSSQLConnectionManager;
   table: string;
   captureInstance?: string;
+  /**
+   * Columns to capture. SQL Server captures all columns by default.
+   */
+  capturedColumns?: string[];
 }
 
 export async function enableCDCForTable(options: EnableCDCForTableOptions): Promise<void> {
-  const { connectionManager, table, captureInstance } = options;
+  const { connectionManager, table, captureInstance, capturedColumns } = options;
 
   await connectionManager.execute('sys.sp_cdc_enable_table', [
     { name: 'source_schema', value: connectionManager.schema },
     { name: 'source_name', value: table },
     { name: 'role_name', value: 'cdc_reader' },
     { name: 'supports_net_changes', value: 0 },
-    ...(captureInstance !== undefined ? [{ name: 'capture_instance', value: captureInstance }] : [])
+    ...(captureInstance !== undefined ? [{ name: 'capture_instance', value: captureInstance }] : []),
+    ...(capturedColumns !== undefined ? [{ name: 'captured_column_list', value: capturedColumns.join(',') }] : [])
   ]);
 }
 
-export async function disableCDCForTable(connectionManager: MSSQLConnectionManager, tableName: string) {
+/**
+ * Disable one capture instance, or all instances by default.
+ */
+export async function disableCDCForTable(
+  connectionManager: MSSQLConnectionManager,
+  tableName: string,
+  captureInstance: string = 'all'
+) {
   await connectionManager.execute('sys.sp_cdc_disable_table', [
     { name: 'source_schema', value: connectionManager.schema },
     { name: 'source_name', value: tableName },
-    { name: 'capture_instance', value: 'all' }
+    { name: 'capture_instance', value: captureInstance }
   ]);
 }

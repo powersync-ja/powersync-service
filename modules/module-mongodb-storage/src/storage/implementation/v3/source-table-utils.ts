@@ -1,5 +1,5 @@
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { BucketDefinitionMapping, ColumnDescriptor, storage } from '@powersync/service-core';
+import { BucketDefinitionMapping, ColumnDescriptor, JsonValue, storage } from '@powersync/service-core';
 import {
   BucketDataSource,
   BucketDefinitionId,
@@ -38,6 +38,14 @@ export interface SourceTableReconciliationContext {
   syncConfig: HydratedSyncConfig;
   mapping: BucketDefinitionMapping;
   desired: SourceTableDesiredResolution;
+  /**
+   * Candidates the source connector considers safe to reuse.
+   */
+  sourceCompatibleTables: readonly storage.SourceTableCandidate[];
+  /**
+   * Source metadata for records created by this resolution.
+   */
+  newTableSourceMetadata: JsonValue;
 }
 
 export interface SourceTableReconciliationPlan {
@@ -134,9 +142,8 @@ class SourceTableReconciliationPlanner {
   constructor(private readonly context: SourceTableReconciliationContext) {}
 
   plan(candidateDocs: SourceTableDocumentV3[]): SourceTableReconciliationPlan {
-    const { identity } = this.context;
     for (const doc of candidateDocs) {
-      if (matchingSourceTableIdentity(doc, identity)) {
+      if (this.isCompatible(doc)) {
         this.retainDoc(doc);
       }
     }
@@ -145,12 +152,17 @@ class SourceTableReconciliationPlanner {
       tables: this.tables,
       narrowingUpdates: this.narrowingUpdates,
       newTableMemberships: this.newTableMemberships(),
-      // Non-retained overlapping docs represent renames / relation-id changes /
-      // replica-identity changes. Same-identity stale docs are retained in production.
-      dropDocs: candidateDocs.filter(
-        (doc) => !this.retainedDocIds.has(doc._id.toHexString()) && !matchingSourceTableIdentity(doc, identity)
-      )
+      // Compatible records remain available for reuse even when not needed by this config.
+      dropDocs: candidateDocs.filter((doc) => !this.isCompatible(doc))
     };
+  }
+
+  private isCompatible(doc: SourceTableDocumentV3) {
+    return this.compatibleTableFor(doc) != null;
+  }
+
+  private compatibleTableFor(doc: SourceTableDocumentV3): storage.SourceTableCandidate | undefined {
+    return this.context.sourceCompatibleTables.find((table) => storage.sourceTableIdEquals(table.id, doc._id));
   }
 
   private retainDoc(doc: SourceTableDocumentV3) {
@@ -237,7 +249,7 @@ class SourceTableReconciliationPlanner {
 
   private sourceTableFor(doc: SourceTableDocumentV3, memberships: SourceTableMembershipIds): storage.SourceTable {
     const { connectionTag, syncConfig, mapping, desired, storeCurrentData } = this.context;
-    const table = sourceTableFromDocument(
+    const built = sourceTableFromDocument(
       doc,
       connectionTag,
       syncConfig,
@@ -245,29 +257,12 @@ class SourceTableReconciliationPlanner {
       matchingSourcesFor(desired, memberships),
       memberships
     );
+    // Use any metadata update returned by the reconciler.
+    const resolved = this.compatibleTableFor(doc);
+    const table = resolved == null ? built : built.withSourceMetadata(resolved.sourceMetadata);
     table.storeCurrentData = storeCurrentData;
     return table;
   }
-}
-
-function sameReplicaIdColumns(left: ReplicaIdColumn[] | undefined, right: ReplicaIdColumn[]) {
-  return (
-    left != null &&
-    left.length == right.length &&
-    left.every(
-      (column, index) =>
-        column.name == right[index].name && column.type == right[index].type && column.type_oid == right[index].type_oid
-    )
-  );
-}
-
-function matchingSourceTableIdentity(doc: SourceTableDocumentV3, identity: SourceTableIdentity) {
-  return (
-    doc.schema_name == identity.schema &&
-    doc.table_name == identity.name &&
-    (identity.objectId == null || doc.relation_id == identity.objectId) &&
-    sameReplicaIdColumns(doc.replica_id_columns, identity.replicaIdColumns)
-  );
 }
 
 export function overlappingSourceTableFilter(
@@ -290,7 +285,16 @@ export function createNewSourceTable(
   memberships: SourceTableMembershipIds,
   context: SourceTableReconciliationContext
 ): NewSourceTable {
-  const { connectionId, connectionTag, identity, syncConfig, mapping, desired, storeCurrentData } = context;
+  const {
+    connectionId,
+    connectionTag,
+    identity,
+    syncConfig,
+    mapping,
+    desired,
+    storeCurrentData,
+    newTableSourceMetadata
+  } = context;
   const doc: SourceTableDocumentV3 = {
     _id: id,
     connection_id: connectionId,
@@ -301,7 +305,9 @@ export function createNewSourceTable(
     snapshot_done: false,
     snapshot_status: undefined,
     bucket_data_source_ids: memberships.bucketDataSourceIds,
-    parameter_lookup_source_ids: memberships.parameterLookupSourceIds
+    parameter_lookup_source_ids: memberships.parameterLookupSourceIds,
+    // Records created together share the same source metadata.
+    source_metadata: newTableSourceMetadata
   };
   const table = sourceTableFromDocument(
     doc,
@@ -368,14 +374,16 @@ export function sourceTableFromDocument(
       name: doc.table_name
     },
     objectId: doc.relation_id,
-    replicaIdColumns: doc.replica_id_columns!.map(
-      (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
-    ),
+    replicaIdColumns:
+      doc.replica_id_columns?.map(
+        (column) => ({ name: column.name, typeId: column.type_oid, type: column.type }) satisfies ColumnDescriptor
+      ) ?? [],
     snapshotComplete: doc.snapshot_done,
     bucketDataSources: resolvedMemberships.bucketDataSources,
     parameterLookupSources: resolvedMemberships.parameterLookupSources,
     bucketDataSourceIds: new Set(resolvedMembershipIds.bucketDataSourceIds),
-    parameterLookupSourceIds: new Set(resolvedMembershipIds.parameterLookupSourceIds)
+    parameterLookupSourceIds: new Set(resolvedMembershipIds.parameterLookupSourceIds),
+    sourceMetadata: doc.source_metadata ?? null
   });
   table.syncData = table.bucketDataSources.length > 0;
   table.syncParameters = table.parameterLookupSources.length > 0;

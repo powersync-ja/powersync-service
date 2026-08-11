@@ -260,12 +260,12 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     const { bucketStorage } = options;
     const lastCheckpoint = await bucketStorage.getCheckpoint();
 
-    const current = lastCheckpoint.lsn
-      ? common.ReplicatedGTID.fromSerialized(lastCheckpoint.lsn)
-      : common.ReplicatedGTID.ZERO;
-
     const connection = await this.pool.getConnection();
     const head = await common.readExecutedGtid(connection);
+
+    const current = lastCheckpoint.lsn
+      ? common.ReplicatedGTID.fromSerialized(lastCheckpoint.lsn)
+      : common.ReplicatedGTID.ZERO(await common.readServerUuid(connection));
     const lag = await current.distanceTo(connection, head);
     connection.release();
     if (lag == null) {
