@@ -242,7 +242,7 @@ export class CDCPoller {
    *  Processes the changes this table has within the given bounds, and returns the LSNs of the
    *  transactions those changes belong to. The LSNs are returned in their string form so that the
    *  caller can deduplicate them across tables by value.
-  */
+   */
   private async pollTable(table: MSSQLSourceTable, bounds: { startLSN: LSN; endLSN: LSN }): Promise<Set<string>> {
     const transactionLSNs = new Set<string>();
 

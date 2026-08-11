@@ -11,6 +11,7 @@ import {
   toQualifiedTableName
 } from '@module/utils/mssql.js';
 import { getReplicationIdentityColumns } from '@module/utils/schema.js';
+import { SourceTable } from '@powersync/service-core';
 import timers from 'timers/promises';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { clearTestDb, enableCDCForTable, TEST_CONNECTION_OPTIONS, waitForPendingCDCChanges } from './util.js';
@@ -278,8 +279,8 @@ async function createDeferredUpdateTestTable(
 }
 
 /**
- *  Builds the MSSQLSourceTable that the CDCPoller needs, straight from the table's CDC capture instance.
- *  The poller only uses the capture instance and object id, so no SourceTables are required here.
+ *  Builds the MSSQLSourceTable that the CDCPoller needs, including the persisted capture-instance binding
+ *  that would normally be populated by source-table reconciliation.
  */
 async function resolveSourceTable(
   connectionManager: MSSQLConnectionManager,
@@ -300,16 +301,24 @@ async function resolveSourceTable(
     schema: connectionManager.schema
   });
 
-  const table = new MSSQLSourceTable(
-    {
-      connectionTag: connectionManager.connectionTag,
-      objectId: details.sourceTable.objectId,
-      schema: details.sourceTable.schema,
-      name: details.sourceTable.name,
-      replicaIdColumns: replicaIdColumnsResult.columns
-    },
-    []
-  );
-  table.setCaptureInstance([details.instances[0]]);
+  const ref = {
+    connectionTag: connectionManager.connectionTag,
+    objectId: details.sourceTable.objectId,
+    schema: details.sourceTable.schema,
+    name: details.sourceTable.name,
+    replicaIdColumns: replicaIdColumnsResult.columns
+  };
+  const sourceTable = new SourceTable({
+    id: `${details.sourceTable.objectId}`,
+    ref,
+    objectId: details.sourceTable.objectId,
+    replicaIdColumns: replicaIdColumnsResult.columns,
+    snapshotComplete: true,
+    bucketDataSources: [],
+    parameterLookupSources: [],
+    sourceMetadata: { captureTableObjectId: details.instances[0].objectId }
+  });
+  const table = new MSSQLSourceTable(ref, [sourceTable]);
+  table.setCaptureInstance(details.instances);
   return table;
 }
