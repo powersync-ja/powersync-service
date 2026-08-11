@@ -1,3 +1,4 @@
+import type { EventDefinitionId } from '../events/EventDescriptor.js';
 import { ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { SqlExpression } from './expression.js';
@@ -26,19 +27,9 @@ import {
   TableProcessorTableValuedFunction,
   TableProcessorTableValuedFunctionOutput
 } from './plan.js';
+import { serializedEventDefinitionId } from './plan_equality_serialized.js';
 
-/**
- * Serializes a sync plan into a simple JSON object.
- *
- * While {@link SyncPlan}s are already serializable for the most part, it contains a graph of references from e.g.
- * queriers to bucket creators. To represent this efficiently, we assign numbers to referenced elements while
- * serializing instead of duplicating definitions.
- */
-export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
-  const dataSourceIndex = new Map<StreamDataSource, number>();
-  const bucketIndex = new Map<StreamBucketDataSource, number>();
-  const parameterIndex = new Map<StreamParameterIndexLookupCreator, number>();
-  const expandingLookups = new Map<ExpandingLookup, LookupReference>();
+function createTableProcessorSerializer() {
   const addedTableValuedFunctions = new Map<TableProcessorTableValuedFunction, number>();
   let usesRowMetadataSqlValue = false;
 
@@ -90,6 +81,69 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
     });
   }
 
+  function serializeEventRowEvaluator(source: EventRowEvaluator): SerializedEventRowEvaluator {
+    return {
+      hash: source.hashCode,
+      table: serializeTablePattern(source.sourceTable),
+      tableValuedFunctions: serializeTableValued(source),
+      filters: source.filters.map(serializeTableProcessorDataExpr),
+      partitionBy: translateParameters(source),
+      columns: source.columns.map((column): SerializedColumnSource => {
+        if (column == 'star') {
+          return 'star';
+        }
+
+        return { expr: serializeTableProcessorDataExpr(column.expr), alias: column.alias };
+      })
+    };
+  }
+
+  function serializeEventDefinition(
+    event: Pick<CompiledEventDescriptor, 'name' | 'sourceQueries'>
+  ): Omit<SerializedEventDescriptor, 'id'> {
+    return {
+      name: event.name,
+      sourceQueries: event.sourceQueries.map((query) => ({
+        sql: query.sql,
+        table: serializeTablePattern(query.sourceTable),
+        variants: query.variants.map(serializeEventRowEvaluator)
+      }))
+    };
+  }
+
+  function serializeEvent(event: CompiledEventDescriptor): SerializedEventDescriptor {
+    return { id: event.id, ...serializeEventDefinition(event) };
+  }
+
+  return {
+    get usesRowMetadataSqlValue() {
+      return usesRowMetadataSqlValue;
+    },
+    serializeTableProcessorDataExpr,
+    serializeTablePattern,
+    serializeTableValued,
+    translateParameters,
+    serializeEventDefinition,
+    serializeEvent
+  };
+}
+
+/**
+ * Serializes a sync plan into a simple JSON object.
+ *
+ * While {@link SyncPlan}s are already serializable for the most part, it contains a graph of references from e.g.
+ * queriers to bucket creators. To represent this efficiently, we assign numbers to referenced elements while
+ * serializing instead of duplicating definitions.
+ */
+export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
+  const dataSourceIndex = new Map<StreamDataSource, number>();
+  const bucketIndex = new Map<StreamBucketDataSource, number>();
+  const parameterIndex = new Map<StreamParameterIndexLookupCreator, number>();
+  const expandingLookups = new Map<ExpandingLookup, LookupReference>();
+  const tableProcessorSerializer = createTableProcessorSerializer();
+  const { serializeTableProcessorDataExpr, serializeTablePattern, serializeTableValued, translateParameters } =
+    tableProcessorSerializer;
+
   function serializeDataSources(): SerializedDataSource[] {
     return plan.dataSources.map((source, i) => {
       dataSourceIndex.set(source, i);
@@ -112,34 +166,6 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
     });
   }
 
-  function serializeEventRowEvaluator(source: EventRowEvaluator): SerializedEventRowEvaluator {
-    return {
-      hash: source.hashCode,
-      table: serializeTablePattern(source.sourceTable),
-      tableValuedFunctions: serializeTableValued(source),
-      filters: source.filters.map(serializeTableProcessorDataExpr),
-      partitionBy: translateParameters(source),
-      columns: source.columns.map((column): SerializedColumnSource => {
-        if (column == 'star') {
-          return 'star';
-        }
-
-        return { expr: serializeTableProcessorDataExpr(column.expr), alias: column.alias };
-      })
-    };
-  }
-
-  function serializeEvents(): SerializedEventDescriptor[] {
-    return plan.events.map((event) => ({
-      name: event.name,
-      sourceQueries: event.sourceQueries.map((query) => ({
-        sql: query.sql,
-        table: serializeTablePattern(query.sourceTable),
-        variants: query.variants.map(serializeEventRowEvaluator)
-      }))
-    }));
-  }
-
   function serializeParameterIndexes(): SerializedParameterIndexLookupCreator[] {
     return plan.parameterIndexes.map((source, i) => {
       parameterIndex.set(source, i);
@@ -150,7 +176,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
         tableValuedFunctions: serializeTableValued(source),
         filters: source.filters.map(serializeTableProcessorDataExpr),
         partitionBy: translateParameters(source),
-        output: source.outputs.map((out) => visitExpr(replaceFunctionReferenceWithIndex, out, null)),
+        output: source.outputs.map(serializeTableProcessorDataExpr),
         lookupScope: source.defaultLookupScope
       } satisfies SerializedParameterIndexLookupCreator;
     });
@@ -208,7 +234,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
     };
   }
 
-  const events = serializeEvents();
+  const events = plan.events.map(tableProcessorSerializer.serializeEvent);
   const serialized: SerializedSyncPlan = {
     dataSources: serializeDataSources(),
     buckets: plan.buckets.map((bkt, index) => {
@@ -224,7 +250,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
       stream: s.stream,
       queriers: s.queriers.map(serializeStreamQuerier)
     })),
-    version: usesRowMetadataSqlValue ? 2 : 1
+    version: tableProcessorSerializer.usesRowMetadataSqlValue ? 2 : 1
   };
 
   // Compiled events are intentionally additive to plan versions 1 and 2. The service also persists their raw SQL in
@@ -346,6 +372,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   const serializedEvents = plan.events ?? [];
   const events = serializedEvents.map((event): CompiledEventDescriptor => {
     return {
+      id: event.id,
       name: event.name,
       sourceQueries: event.sourceQueries.map((query) => ({
         sql: query.sql,
@@ -424,6 +451,19 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   };
 }
 
+/** Derive the ID assigned while finalizing a compiled event definition. */
+export function compiledEventDefinitionId(
+  event: Pick<CompiledEventDescriptor, 'name' | 'sourceQueries'>
+): EventDefinitionId {
+  const definition = createTableProcessorSerializer().serializeEventDefinition(event);
+  return serializedEventDefinitionId(definition);
+}
+
+/** Serialize a single compiled event using the exact representation persisted in a sync plan. */
+export function serializeEventDescriptor(event: CompiledEventDescriptor): SerializedEventDescriptor {
+  return createTableProcessorSerializer().serializeEvent(event);
+}
+
 /**
  * Changes to {@link SerializedSyncPlan} require a version bump when older services would interpret the plan
  * incorrectly. Optional additive fields are only safe without a bump when older readers can ignore them while another
@@ -499,12 +539,14 @@ export interface SerializedDataSource {
 }
 
 export interface SerializedEventDescriptor {
+  /** Content-addressed identity derived from the rest of this event definition. */
+  id: EventDefinitionId;
   name: string;
   sourceQueries: SerializedEventSourceQuery[];
 }
 
 export interface SerializedEventSourceQuery {
-  /** Raw SQL retained only for the legacy compatibility mirror; compiled variants define semantic identity. */
+  /** Raw SQL retained for the legacy compatibility mirror and as part of the exact serialized event definition. */
   sql: string;
   table: SerializedTablePattern;
   variants: SerializedEventRowEvaluator[];

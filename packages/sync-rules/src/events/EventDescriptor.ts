@@ -12,8 +12,13 @@ export type EvaluatedEventRowWithErrors = {
   errors: EvaluationError[];
 };
 
+/** Content-addressed identity of a complete named event definition. */
+export type EventDefinitionId = string;
+
 /** A parsed event definition whose compiled expressions have not yet been prepared for evaluation. */
 export interface EventDefinition {
+  /** Deterministic identity generated from the serialized compiled definition. */
+  readonly id: EventDefinitionId;
   readonly name: string;
 
   createEvaluator(input: HydrationInput): HydratedEventDescriptor;
@@ -23,6 +28,8 @@ export interface EventDefinition {
 
 /** An event definition whose payload queries can evaluate replicated rows. */
 export interface HydratedEventDescriptor {
+  /** Deterministic identity generated from the serialized compiled definition. */
+  readonly id: EventDefinitionId;
   readonly name: string;
 
   evaluateRowWithErrors(options: EvaluateRowOptions): EvaluatedEventRowWithErrors;

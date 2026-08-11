@@ -34,15 +34,18 @@ describe('persisted compiled replication events', () => {
     const parsed = SqlSyncRules.fromYaml(yamlWithEvents, { defaultSchema: 'test_schema' });
     const update = updateSyncRulesFromConfig(parsed);
     const compiled = update.config.plan!;
+    const eventDefinitionId = parsed.config.eventDefinitions[0].id;
 
     expect(compiled.plan.version).toBeLessThanOrEqual(2);
     expect(compiled.plan.events).toHaveLength(1);
+    expect(compiled.plan.events![0].id).toBe(eventDefinitionId);
     expect(compiled.eventDescriptors).toEqual({ write_checkpoints: [EVENT_QUERY] });
 
     const restored = restore(compiled);
     expect(restored.config).toBeInstanceOf(PrecompiledSyncConfig);
     expect(restored.config).not.toHaveProperty('eventDescriptors');
     expect(restored.config.eventDefinitions).toHaveLength(1);
+    expect(restored.config.eventDefinitions[0].id).toBe(eventDefinitionId);
 
     const hydrated = restored.config.hydrate({
       hydrationState: DEFAULT_HYDRATION_STATE,
@@ -61,6 +64,7 @@ describe('persisted compiled replication events', () => {
     const legacyView = restore({ ...compiled, plan: planWithoutCompiledEvents });
     expect(legacyView.config).not.toHaveProperty('eventDescriptors');
     expect(legacyView.config.eventDefinitions).toHaveLength(1);
+    expect(legacyView.config.eventDefinitions[0].id).toBe(eventDefinitionId);
     expect((legacyView.config as PrecompiledSyncConfig).plan.events).toHaveLength(1);
   });
 

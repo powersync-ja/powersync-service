@@ -5,6 +5,8 @@ import {
   deserializeSyncPlan,
   nodeSqlite,
   PrecompiledSyncConfig,
+  serializedEventDefinitionId,
+  serializedEventDefinitionIdentity,
   serializedEventSourceDefinitionEquality,
   serializedEventSourceDefinitionIdentity,
   serializeSyncPlan,
@@ -41,10 +43,17 @@ describe('compiled replication events', () => {
     // Compiled events are additive and do not require a new plan version.
     expect(serialized.version).toBe(1);
     expect(serialized.events).toHaveLength(1);
-    expect(deserializeSyncPlan(JSON.parse(JSON.stringify(serialized))).events).toEqual(compiled.plan.events);
+    expect(compiled.eventDefinitions[0].id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    );
+    expect(serialized.events![0].id).toBe(compiled.eventDefinitions[0].id);
+    const deserialized = deserializeSyncPlan(JSON.parse(JSON.stringify(serialized)));
+    expect(deserialized.events).toMatchObject(compiled.plan.events);
+    expect(deserialized.events[0].id).toBe(compiled.eventDefinitions[0].id);
 
     const hydrated = compiled.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) });
     const event = hydrated.eventDescriptors[0];
+    expect(event.id).toBe(compiled.eventDefinitions[0].id);
     const checkpoints = new TestSourceTable('checkpoints');
 
     expect(
@@ -69,7 +78,7 @@ describe('compiled replication events', () => {
       'SELECT user_id, checkpoint FROM checkpoints WHERE active = true AND checkpoint > 0'
     );
     const equivalent = eventSourceFromQuery(
-      ' select user_id, checkpoint from test_schema.checkpoints AS c where c.checkpoint > 0 and c.active = true '
+      ' select user_id, checkpoint from checkpoints AS c where c.checkpoint > 0 and c.active = true '
     );
     const changed = eventSourceFromQuery(
       'SELECT user_id, checkpoint FROM checkpoints WHERE active = true AND checkpoint > 1'
@@ -78,6 +87,36 @@ describe('compiled replication events', () => {
     expect(serializedEventSourceDefinitionEquality.equals(first, equivalent)).toBe(true);
     expect(serializedEventSourceDefinitionIdentity(first)).toBe(serializedEventSourceDefinitionIdentity(equivalent));
     expect(serializedEventSourceDefinitionEquality.equals(first, changed)).toBe(false);
+  });
+
+  test('derives a content-addressed id from the exact serialized event definition', () => {
+    const first = eventDefinitionFromQueries(
+      'SELECT user_id, checkpoint FROM checkpoints WHERE active = true',
+      'SELECT user_id, checkpoint FROM archived_checkpoints'
+    );
+    const reordered = eventDefinitionFromQueries(
+      ' select user_id, checkpoint from archived_checkpoints ',
+      'select user_id, checkpoint from checkpoints c where c.active = true'
+    );
+    const changed = eventDefinitionFromQueries(
+      'SELECT user_id, checkpoint FROM checkpoints WHERE active = false',
+      'SELECT user_id, checkpoint FROM archived_checkpoints'
+    );
+
+    expect(first.id).toBe(serializedEventDefinitionId(first.event));
+    expect(reordered.id).not.toBe(first.id);
+    expect(changed.id).not.toBe(first.id);
+
+    const { id: _id, ...definition } = first.event;
+    expect(serializedEventDefinitionIdentity(first.event)).toBe(JSON.stringify(definition));
+  });
+
+  test('derives the id from the plan without loading context', () => {
+    const query = 'SELECT user_id, checkpoint FROM checkpoints WHERE active = true';
+
+    expect(eventDefinitionForSchema('first_schema', query).id).toBe(
+      eventDefinitionForSchema('second_schema', query).id
+    );
   });
 
   test.each([
@@ -119,7 +158,20 @@ function eventSourceFromQuery(query: string) {
   );
   const source = plan.events![0].sourceQueries[0];
 
-  return { eventName: 'write_checkpoints', defaultSchema: 'test_schema', source };
+  return { eventName: 'write_checkpoints', source };
+}
+
+function eventDefinitionFromQueries(...queries: string[]) {
+  return eventDefinitionForSchema('test_schema', ...queries);
+}
+
+function eventDefinitionForSchema(defaultSchema: string, ...queries: string[]) {
+  const config = SqlSyncRules.fromYaml(yamlWithEventQueries(...queries), {
+    defaultSchema
+  }).config as PrecompiledSyncConfig;
+  const plan = serializeSyncPlan(config.plan);
+
+  return { id: config.eventDefinitions[0].id, event: plan.events![0] };
 }
 
 function yamlWithEventQueries(...queries: string[]): string {

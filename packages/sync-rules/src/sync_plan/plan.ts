@@ -1,4 +1,5 @@
 import { BucketPriority } from '../BucketDescription.js';
+import type { EventDefinitionId } from '../events/EventDescriptor.js';
 import { ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
@@ -141,6 +142,8 @@ export type ColumnSource = 'star' | { expr: SqlExpression<TableProcessorData>; a
  * A named replication event compiled from `event_definitions`.
  */
 export interface CompiledEventDescriptor {
+  /** Content-addressed identity assigned when compiler output is finalized or restored from a serialized plan. */
+  id: EventDefinitionId;
   name: string;
   sourceQueries: CompiledEventSourceQuery[];
 }
@@ -155,7 +158,7 @@ export interface CompiledEventDescriptor {
 export interface CompiledEventSourceQuery {
   /**
    * Original SQL retained as a compatibility mirror for services using the legacy event evaluator.
-   * Semantic event identity is derived from the compiled variants, not this string.
+   * It remains part of the exact serialized event definition used to derive the event ID.
    */
   sql: string;
   sourceTable: ImplicitSchemaTablePattern;
