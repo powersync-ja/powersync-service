@@ -127,10 +127,11 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
 
       const { connectionManager } = context;
       await createTestTableWithBasicId(connectionManager, 'test_data');
-      originalRows = [
-        await insertBasicIdTestData(connectionManager, 'test_data'),
-        await insertBasicIdTestData(connectionManager, 'test_data')
-      ];
+      const testData1 = await insertBasicIdTestData(connectionManager, 'test_data');
+      const beforeLSN = await getLatestLSN(connectionManager);
+      const testData2 = await insertBasicIdTestData(connectionManager, 'test_data');
+      await waitForPendingCDCChanges(beforeLSN, connectionManager);
+      originalRows = [testData1, testData2];
 
       await context.replicateSnapshot();
       await context.startStreaming();
