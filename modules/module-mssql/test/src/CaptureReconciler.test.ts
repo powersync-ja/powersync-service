@@ -7,6 +7,8 @@ import {
   MSSQLSourceMetadata,
   readCaptureMetadata
 } from '@module/replication/CaptureReconciler.js';
+import type { MSSQLTableReconciliationContext } from '@module/replication/MSSQLTableReconciliationContext.js';
+import { MSSQLTableReconciliationState } from '@module/replication/MSSQLTableReconciliationContext.js';
 import { SourceEntityDescriptor, SourceTable } from '@powersync/service-core';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -58,6 +60,28 @@ function instance(objectId: number): CaptureInstance {
   };
 }
 
+function readyContext(
+  captureInstances: CaptureInstance[],
+  sourceDescriptor: SourceEntityDescriptor = source()
+): MSSQLTableReconciliationContext {
+  return {
+    state: MSSQLTableReconciliationState.READY,
+    source: sourceDescriptor,
+    captureInstances
+  };
+}
+
+function unavailableContext(
+  state: MSSQLTableReconciliationState.TABLE_MISSING | MSSQLTableReconciliationState.CDC_DISABLED,
+  sourceDescriptor: SourceEntityDescriptor = source()
+): MSSQLTableReconciliationContext {
+  return { state, source: sourceDescriptor };
+}
+
+function reconcile(context: MSSQLTableReconciliationContext, candidates: SourceTable[]) {
+  return createCaptureReconciler(context)({ source: context.source, candidates });
+}
+
 describe('readCaptureMetadata', () => {
   it('parses a valid metadata object', () => {
     expect(readCaptureMetadata({ captureTableObjectId: 7 })).toEqual({ captureTableObjectId: 7 });
@@ -75,26 +99,44 @@ describe('readCaptureMetadata', () => {
 
 describe('createCaptureReconciler', () => {
   it('pins a new binding to the newest available capture instance', () => {
-    const resolution = createCaptureReconciler([instance(50), instance(40)])({
-      source: source(),
-      candidates: []
-    });
+    const resolution = reconcile(readyContext([instance(50), instance(40)]), []);
     expect(resolution.compatibleTables).toEqual([]);
     expect(resolution.incompatibleTables).toEqual([]);
     expect(resolution.newTableValues).toEqual({ sourceMetadata: { captureTableObjectId: 50 } });
   });
 
-  it('fails a new binding when no capture instance is available', () => {
-    expect(() => createCaptureReconciler([])({ source: source(), candidates: [] })).toThrow(
-      /No CDC capture instance is available/
+  it('reports a missing table with no persisted binding as not ready', () => {
+    expect(() =>
+      reconcile(
+        unavailableContext(
+          MSSQLTableReconciliationState.TABLE_MISSING,
+          source({ objectId: undefined, replicaIdColumns: [] })
+        ),
+        []
+      )
+    ).toThrow(/does not exist/);
+  });
+
+  it('reports a missing table with a persisted binding as unavailable', () => {
+    expect(() =>
+      reconcile(
+        unavailableContext(
+          MSSQLTableReconciliationState.TABLE_MISSING,
+          source({ objectId: undefined, replicaIdColumns: [] })
+        ),
+        [candidate('old', { captureTableObjectId: 40 })]
+      )
+    ).toThrow(/no longer matches the source table binding/);
+  });
+
+  it('fails a new binding when CDC is disabled', () => {
+    expect(() => reconcile(unavailableContext(MSSQLTableReconciliationState.CDC_DISABLED), [])).toThrow(
+      /CDC is not enabled/
     );
   });
 
   it('updates legacy metadata-free candidates to the newest capture instance', () => {
-    const resolution = createCaptureReconciler([instance(50)])({
-      source: source(),
-      candidates: [candidate('a'), candidate('b')]
-    });
+    const resolution = reconcile(readyContext([instance(50)]), [candidate('a'), candidate('b')]);
     expect(
       resolution.compatibleTables.map((table) => ({ id: table.id, sourceMetadata: table.sourceMetadata }))
     ).toEqual([
@@ -105,20 +147,23 @@ describe('createCaptureReconciler', () => {
     expect(resolution.newTableValues).toEqual({ sourceMetadata: { captureTableObjectId: 50 } });
   });
 
-  it('fails a legacy binding when no capture instance is available', () => {
+  it('fails an existing binding when CDC is disabled', () => {
+    expect(() => reconcile(unavailableContext(MSSQLTableReconciliationState.CDC_DISABLED), [candidate('a')])).toThrow(
+      /CDC is no longer enabled/
+    );
+  });
+
+  it('reports a changed source identity as unavailable when CDC is disabled', () => {
+    const changedSource = source({ objectId: 200 });
     expect(() =>
-      createCaptureReconciler([])({
-        source: source(),
-        candidates: [candidate('a')]
-      })
-    ).toThrow(/No CDC capture instance is available/);
+      reconcile(unavailableContext(MSSQLTableReconciliationState.CDC_DISABLED, changedSource), [candidate('old')])
+    ).toThrow(/no longer matches the source table binding/);
   });
 
   it('preserves a pinned capture identity that is still available', () => {
-    const resolution = createCaptureReconciler([instance(50), instance(40)])({
-      source: source(),
-      candidates: [candidate('a', { captureTableObjectId: 40 })]
-    });
+    const resolution = reconcile(readyContext([instance(50), instance(40)]), [
+      candidate('a', { captureTableObjectId: 40 })
+    ]);
     expect(resolution.compatibleTables.map((table) => table.id)).toEqual(['a']);
     expect(resolution.compatibleTables[0].sourceMetadata).toEqual({ captureTableObjectId: 40 });
     expect(resolution.incompatibleTables).toEqual([]);
@@ -126,53 +171,42 @@ describe('createCaptureReconciler', () => {
   });
 
   it('fails when the pinned capture instance was dropped, even with a replacement available', () => {
-    expect(() =>
-      createCaptureReconciler([instance(50)])({
-        source: source(),
-        candidates: [candidate('a', { captureTableObjectId: 40 })]
-      })
-    ).toThrow(/no longer available/);
+    expect(() => reconcile(readyContext([instance(50)]), [candidate('a', { captureTableObjectId: 40 })])).toThrow(
+      /no longer available/
+    );
   });
 
   it('fails on a mixture of metadata-free and pinned candidates', () => {
     expect(() =>
-      createCaptureReconciler([instance(40)])({
-        source: source(),
-        candidates: [candidate('a'), candidate('b', { captureTableObjectId: 40 })]
-      })
+      reconcile(readyContext([instance(40)]), [candidate('a'), candidate('b', { captureTableObjectId: 40 })])
     ).toThrow(/mixture/);
   });
 
   it('fails on multiple distinct pinned identities', () => {
     expect(() =>
-      createCaptureReconciler([instance(40), instance(41)])({
-        source: source(),
-        candidates: [candidate('a', { captureTableObjectId: 40 }), candidate('b', { captureTableObjectId: 41 })]
-      })
+      reconcile(readyContext([instance(40), instance(41)]), [
+        candidate('a', { captureTableObjectId: 40 }),
+        candidate('b', { captureTableObjectId: 41 })
+      ])
     ).toThrow(/multiple persisted capture identities/);
   });
 
   it('does not replace an existing binding when the source identity changed', () => {
+    const changedSource = source({ objectId: 200 });
     expect(() =>
-      createCaptureReconciler([instance(50)])({
-        source: source({ objectId: 200 }),
-        candidates: [candidate('old', { captureTableObjectId: 40 })]
-      })
+      reconcile(readyContext([instance(50)], changedSource), [candidate('old', { captureTableObjectId: 40 })])
     ).toThrow(
       /Table \[dbo\]\.\[users\] no longer matches the source table binding.*already-replicated data is retained/
     );
   });
 
   it('drops candidates that do not match the generic identity', () => {
-    const resolution = createCaptureReconciler([instance(50)])({
-      source: source(),
-      candidates: [
-        candidate('a'),
-        candidate('mismatch', undefined, {
-          replicaIdColumns: [{ name: 'id', type: 'bigint', typeId: 127 }]
-        })
-      ]
-    });
+    const resolution = reconcile(readyContext([instance(50)]), [
+      candidate('a'),
+      candidate('mismatch', undefined, {
+        replicaIdColumns: [{ name: 'id', type: 'bigint', typeId: 127 }]
+      })
+    ]);
     expect(
       resolution.compatibleTables.map((table) => ({ id: table.id, sourceMetadata: table.sourceMetadata }))
     ).toEqual([{ id: 'a', sourceMetadata: { captureTableObjectId: 50 } }]);

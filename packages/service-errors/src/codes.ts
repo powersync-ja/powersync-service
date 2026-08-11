@@ -352,7 +352,7 @@ export enum ErrorCode {
    *  * CDC has been disabled for the table.
    *  * The table has been dropped, which also drops the capture instance.
    *
-   *  Replication stops and requires a new sync deploy. Re-enabling CDC creates a new capture
+   *  Replication stops and requires a sync config redeployment. Re-enabling CDC creates a new capture
    *  instance, which the existing stream will not adopt.
    */
   PSYNC_S1601 = 'PSYNC_S1601',
@@ -369,7 +369,7 @@ export enum ErrorCode {
    *
    *  For a table this stream was already replicating, re-enabling CDC is not enough: the new capture
    *  instance has a different object id, so the next attempt fails with `PSYNC_S1601` until the sync
-   *  configuration is deployed as a new replication stream.
+   *  config is redeployed.
    */
   PSYNC_S1602 = 'PSYNC_S1602',
 

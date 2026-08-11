@@ -39,12 +39,13 @@ import { getReplicationIdentityColumns, getTablesFromPattern, ResolvedTable } fr
 import {
   CaptureInstanceMissingError,
   createCaptureReconciler,
-  SourceTableNotReadyError,
   SourceTableUnavailableError
 } from './CaptureReconciler.js';
 import { CDCEventHandler, CDCPoller } from './CDCPoller.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 import { BatchedSnapshotQuery, MSSQLSnapshotQuery, SimpleSnapshotQuery } from './MSSQLSnapshotQuery.js';
+import type { MSSQLTableReconciliationContext } from './MSSQLTableReconciliationContext.js';
+import { MSSQLTableReconciliationState } from './MSSQLTableReconciliationContext.js';
 import { SchemaChange, SchemaChangeType } from './SchemaChange.js';
 
 export interface CDCStreamOptions {
@@ -213,26 +214,25 @@ export class CDCStream {
 
     const matchedTables: ResolvedTable[] = await getTablesFromPattern(this.connections, tablePattern);
 
-    // Every configured table must be ready before this stream starts.
     if (matchedTables.length == 0) {
-      throw new SourceTableNotReadyError(
-        `Source table ${tablePattern.schema}.${tablePattern.name} from the sync configuration does not exist. ` +
-          `Create the table and enable CDC for it.`
-      );
+      await this.processTable(batch, {
+        state: MSSQLTableReconciliationState.TABLE_MISSING,
+        source: {
+          connectionTag: this.connectionTag,
+          name: tablePattern.name,
+          schema: tablePattern.schema,
+          objectId: undefined,
+          // Replica identity metadata is unavailable when the physical table does not exist.
+          replicaIdColumns: []
+        }
+      });
+      // TABLE_MISSING reconciliation should always throw. Keep this as a safeguard in case that
+      // invariant changes, since continuing would incorrectly treat the pattern as resolved.
+      throw new ReplicationAssertionError('Missing source-table reconciliation unexpectedly completed');
     }
 
     const tables: MSSQLSourceTable[] = [];
     for (const matchedTable of matchedTables) {
-      const captureInstanceDetails = captureInstances.get(matchedTable.objectId);
-      if (!captureInstanceDetails) {
-        throw new SourceTableNotReadyError(
-          `CDC is not enabled for source table ${tablePattern.schema}.${matchedTable.name}, which matches the ` +
-            `sync configuration. Enable CDC for this table. If it was previously replicating, note that ` +
-            `re-enabling CDC creates a new capture instance which PowerSync will not adopt automatically. ` +
-            `Deploy a new sync config to replicate it again.`
-        );
-      }
-
       // TODO: Check RLS settings for table
 
       const replicaIdColumns = await getReplicationIdentityColumns({
@@ -241,17 +241,26 @@ export class CDCStream {
         schema: matchedTable.schema
       });
 
-      const table = await this.processTable(
-        batch,
-        {
-          connectionTag: this.connectionTag,
-          name: matchedTable.name,
-          schema: matchedTable.schema,
-          objectId: matchedTable.objectId,
-          replicaIdColumns: replicaIdColumns.columns
-        },
-        captureInstanceDetails.instances
-      );
+      const source: SourceEntityDescriptor = {
+        connectionTag: this.connectionTag,
+        name: matchedTable.name,
+        schema: matchedTable.schema,
+        objectId: matchedTable.objectId,
+        replicaIdColumns: replicaIdColumns.columns
+      };
+      const captureInstanceDetails = captureInstances.get(matchedTable.objectId);
+      const context: MSSQLTableReconciliationContext = captureInstanceDetails?.instances.length
+        ? {
+            state: MSSQLTableReconciliationState.READY,
+            source,
+            captureInstances: captureInstanceDetails.instances
+          }
+        : {
+            state: MSSQLTableReconciliationState.CDC_DISABLED,
+            source
+          };
+
+      const table = await this.processTable(batch, context);
 
       tables.push(table);
     }
@@ -260,21 +269,32 @@ export class CDCStream {
 
   async processTable(
     batch: storage.BucketStorageBatch,
-    table: SourceEntityDescriptor,
-    availableInstances: CaptureInstance[]
+    context: MSSQLTableReconciliationContext
   ): Promise<MSSQLSourceTable> {
-    if (!table.objectId && typeof table.objectId != 'number') {
-      throw new ReplicationAssertionError(`objectId expected, got ${typeof table.objectId}`);
+    const { source } = context;
+    if (context.state !== MSSQLTableReconciliationState.TABLE_MISSING) {
+      if (!source.objectId && typeof source.objectId != 'number') {
+        throw new ReplicationAssertionError(`objectId expected, got ${typeof source.objectId}`);
+      }
     }
-    // Load capture instances before resolving so the storage transaction does no source I/O.
+    // Load all source metadata before resolving so the storage transaction does no source I/O.
     const resolved = await batch.resolveTables({
       connection_id: this.connectionId,
-      source: table,
-      reconcileSourceTables: createCaptureReconciler(availableInstances)
+      source,
+      reconcileSourceTables: createCaptureReconciler(context)
     });
-    const resolvedTable = new MSSQLSourceTable(table, resolved.tables);
 
-    resolvedTable.setCaptureInstance(availableInstances);
+    if (context.state !== MSSQLTableReconciliationState.READY) {
+      // Unavailable states should always throw from the reconciler. Keep this as a safeguard so
+      // they can never be constructed, cached, or treated as successfully resolved tables.
+      throw new ReplicationAssertionError(
+        `Unavailable source-table reconciliation unexpectedly completed for ${source.schema}.${source.name}`
+      );
+    }
+
+    const resolvedTable = new MSSQLSourceTable(source, resolved.tables);
+
+    resolvedTable.setCaptureInstance(context.captureInstances);
     if (!resolvedTable.enabledForCDC()) {
       throw new ReplicationAssertionError(
         `No capture instance matching the persisted binding is available for table ${resolvedTable.toQualifiedName()}`
@@ -501,7 +521,11 @@ export class CDCStream {
               }
               await batch.drop(table.getReplicatedSourceTables());
               // Re-resolve against the bound instance only, so the new record keeps the same pin.
-              await this.processTable(batch, table.ref, [table.captureInstance]);
+              await this.processTable(batch, {
+                state: MSSQLTableReconciliationState.READY,
+                source: table.ref,
+                captureInstances: [table.captureInstance]
+              });
             }
             break;
           default:

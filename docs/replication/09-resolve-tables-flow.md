@@ -120,7 +120,7 @@ SQL Server can keep two capture instances for one table. Each binding is pinned 
 - If the pinned instance is removed, replication fails with `PSYNC_S1601`. A replacement is not adopted automatically because it may capture a different schema.
 - Conflicting persisted pins are treated as invalid state.
 
-Every configured table is resolved before streaming starts, which also backfills pins for legacy records. A table that does not exist or does not have CDC enabled fails with `PSYNC_S1602`.
+Every configured table is resolved before streaming starts, which also backfills pins for legacy records. A table with no persisted binding that does not exist or does not have CDC enabled fails with `PSYNC_S1602`. If a persisted binding exists, a missing or identity-mismatched table fails with `PSYNC_S1603`, while a table whose CDC capture instance is unavailable fails with `PSYNC_S1601`. This preserves the original binding and its replicated data across normal job restarts.
 
 To adopt a new capture instance, deploy a new sync config. The replacement processing binds to the new
 instance and snapshots as needed. Keep the old instance available until the new sync config has finished

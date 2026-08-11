@@ -141,6 +141,26 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
       await using changeContext = await CDCStreamTestContext.open(factory, { doNotClear: true });
       const { connectionManager } = changeContext;
       await dropTestTable(connectionManager, 'test_data');
+    }
+
+    {
+      await using missingRestartContext = await CDCStreamTestContext.open(factory, { doNotClear: true });
+      await missingRestartContext.loadActiveSyncRules();
+
+      await expect(
+        missingRestartContext.replicateSnapshot(),
+        'A normal job restart must preserve the unavailable-table error while the table is absent'
+      ).rejects.toThrow(/no longer matches the source table binding/);
+
+      expect(
+        await missingRestartContext.getCurrentBucketData('global[]'),
+        'The failed restart must retain data from the missing source table'
+      ).toMatchObject(originalRows.map((row) => putOp('test_data', row)));
+    }
+
+    {
+      await using changeContext = await CDCStreamTestContext.open(factory, { doNotClear: true });
+      const { connectionManager } = changeContext;
       await createTestTableWithBasicId(connectionManager, 'test_data');
       await insertBasicIdTestData(connectionManager, 'test_data');
     }
