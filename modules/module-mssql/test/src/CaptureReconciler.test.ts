@@ -200,7 +200,7 @@ describe('createCaptureReconciler', () => {
     );
   });
 
-  it('drops candidates that do not match the generic identity', () => {
+  it('drops stale incompatible candidates when a compatible candidate anchors the binding', () => {
     const resolution = reconcile(readyContext([instance(50)]), [
       candidate('a'),
       candidate('mismatch', undefined, {

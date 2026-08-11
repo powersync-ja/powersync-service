@@ -27,7 +27,10 @@ What this means when making schema changes:
 - **Make an identity-breaking change:** for a primary-key change, identity-column rename, or another
   change that requires CDC to be disabled, disable CDC, apply the DDL, re-enable CDC, update the sync
   config if needed, and deploy a new sync config. The current replication process cannot adopt the
-  replacement capture instance, so this results in downtime and stops with `PSYNC_S1601`.
+  replacement in place, so this results in downtime. If it observes CDC being disabled first, it stops
+  with `PSYNC_S1601` because its capture instance was removed. If it next reconciles after the replica
+  identity has changed, it stops with `PSYNC_S1603` instead. Disabling and re-enabling CDC without changing
+  the replica identity stops with `PSYNC_S1601`.
 - **Drop a table:** remove it from the sync config, deploy a new sync config and wait for it to become
   active, and only then drop the source table. Dropping the table first stops replication with
   `PSYNC_S1603`; already-replicated data is retained until the new sync config becomes active.

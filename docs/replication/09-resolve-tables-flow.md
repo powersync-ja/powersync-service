@@ -111,6 +111,8 @@ MSSQL rejects table wildcards and requires every configured table to exist with 
 
 Dropping, renaming, or recreating a replicated table, or otherwise changing its persisted source identity, fails the job with `PSYNC_S1603`. Continuing would risk committing past changes that have not been read from that table. Existing replicated data is retained; it is removed when the replacement sync config is resolved.
 
+This failure applies when none of the overlapping persisted records match the discovered source identity. If at least one record remains compatible, it anchors the current binding; other incompatible overlapping records are stale storage state and can be removed without adopting a replacement identity.
+
 ### MSSQL capture-instance pinning
 
 SQL Server can keep two capture instances for one table. Each binding is pinned to the capture table's object id:

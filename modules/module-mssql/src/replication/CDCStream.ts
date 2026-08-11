@@ -44,7 +44,10 @@ import {
 import { CDCEventHandler, CDCPoller } from './CDCPoller.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 import { BatchedSnapshotQuery, MSSQLSnapshotQuery, SimpleSnapshotQuery } from './MSSQLSnapshotQuery.js';
-import type { MSSQLTableReconciliationContext } from './MSSQLTableReconciliationContext.js';
+import type {
+  MSSQLReadyTableReconciliationContext,
+  MSSQLUnavailableTableReconciliationContext
+} from './MSSQLTableReconciliationContext.js';
 import { MSSQLTableReconciliationState } from './MSSQLTableReconciliationContext.js';
 import { SchemaChange, SchemaChangeType } from './SchemaChange.js';
 
@@ -215,7 +218,7 @@ export class CDCStream {
     const matchedTables: ResolvedTable[] = await getTablesFromPattern(this.connections, tablePattern);
 
     if (matchedTables.length == 0) {
-      await this.processTable(batch, {
+      await this.reportUnavailableTable(batch, {
         state: MSSQLTableReconciliationState.TABLE_MISSING,
         source: {
           connectionTag: this.connectionTag,
@@ -226,9 +229,6 @@ export class CDCStream {
           replicaIdColumns: []
         }
       });
-      // TABLE_MISSING reconciliation should always throw. Keep this as a safeguard in case that
-      // invariant changes, since continuing would incorrectly treat the pattern as resolved.
-      throw new ReplicationAssertionError('Missing source-table reconciliation unexpectedly completed');
     }
 
     const tables: MSSQLSourceTable[] = [];
@@ -249,33 +249,31 @@ export class CDCStream {
         replicaIdColumns: replicaIdColumns.columns
       };
       const captureInstanceDetails = captureInstances.get(matchedTable.objectId);
-      const context: MSSQLTableReconciliationContext = captureInstanceDetails?.instances.length
-        ? {
-            state: MSSQLTableReconciliationState.READY,
-            source,
-            captureInstances: captureInstanceDetails.instances
-          }
-        : {
-            state: MSSQLTableReconciliationState.CDC_DISABLED,
-            source
-          };
+      if (!captureInstanceDetails?.instances.length) {
+        await this.reportUnavailableTable(batch, {
+          state: MSSQLTableReconciliationState.CDC_DISABLED,
+          source
+        });
+      } else {
+        const table = await this.processTable(batch, {
+          state: MSSQLTableReconciliationState.READY,
+          source,
+          captureInstances: captureInstanceDetails.instances
+        });
 
-      const table = await this.processTable(batch, context);
-
-      tables.push(table);
+        tables.push(table);
+      }
     }
     return tables;
   }
 
   async processTable(
     batch: storage.BucketStorageBatch,
-    context: MSSQLTableReconciliationContext
+    context: MSSQLReadyTableReconciliationContext
   ): Promise<MSSQLSourceTable> {
     const { source } = context;
-    if (context.state !== MSSQLTableReconciliationState.TABLE_MISSING) {
-      if (!source.objectId && typeof source.objectId != 'number') {
-        throw new ReplicationAssertionError(`objectId expected, got ${typeof source.objectId}`);
-      }
+    if (!source.objectId && typeof source.objectId != 'number') {
+      throw new ReplicationAssertionError(`objectId expected, got ${typeof source.objectId}`);
     }
     // Load all source metadata before resolving so the storage transaction does no source I/O.
     const resolved = await batch.resolveTables({
@@ -283,14 +281,6 @@ export class CDCStream {
       source,
       reconcileSourceTables: createCaptureReconciler(context)
     });
-
-    if (context.state !== MSSQLTableReconciliationState.READY) {
-      // Unavailable states should always throw from the reconciler. Keep this as a safeguard so
-      // they can never be constructed, cached, or treated as successfully resolved tables.
-      throw new ReplicationAssertionError(
-        `Unavailable source-table reconciliation unexpectedly completed for ${source.schema}.${source.name}`
-      );
-    }
 
     const resolvedTable = new MSSQLSourceTable(source, resolved.tables);
 
@@ -309,6 +299,21 @@ export class CDCStream {
     // Snapshotting is driven by startInitialReplication, which picks up any source table that is
     // not snapshot-complete after the table cache has been populated.
     return resolvedTable;
+  }
+
+  private async reportUnavailableTable(
+    batch: storage.BucketStorageBatch,
+    context: MSSQLUnavailableTableReconciliationContext
+  ): Promise<never> {
+    await batch.resolveTables({
+      connection_id: this.connectionId,
+      source: context.source,
+      reconcileSourceTables: createCaptureReconciler(context)
+    });
+    // Unavailable-state reconciliation must reject; this enforces the Promise<never> contract if it returns.
+    throw new ReplicationAssertionError(
+      `Unavailable source-table reconciliation unexpectedly completed for ${context.source.schema}.${context.source.name}`
+    );
   }
 
   private async snapshotTableInTx(

@@ -11,14 +11,19 @@ interface BaseMSSQLTableReconciliationContext {
   source: SourceEntityDescriptor;
 }
 
-export type MSSQLTableReconciliationContext =
+export type MSSQLUnavailableTableReconciliationContext =
   | (BaseMSSQLTableReconciliationContext & {
       state: MSSQLTableReconciliationState.TABLE_MISSING;
     })
   | (BaseMSSQLTableReconciliationContext & {
       state: MSSQLTableReconciliationState.CDC_DISABLED;
-    })
-  | (BaseMSSQLTableReconciliationContext & {
-      state: MSSQLTableReconciliationState.READY;
-      captureInstances: readonly CaptureInstance[];
     });
+
+export type MSSQLReadyTableReconciliationContext = BaseMSSQLTableReconciliationContext & {
+  state: MSSQLTableReconciliationState.READY;
+  captureInstances: readonly CaptureInstance[];
+};
+
+export type MSSQLTableReconciliationContext =
+  | MSSQLUnavailableTableReconciliationContext
+  | MSSQLReadyTableReconciliationContext;

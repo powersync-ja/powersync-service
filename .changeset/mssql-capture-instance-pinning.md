@@ -14,6 +14,8 @@ process keeps polling the instance it is bound to and warns. Deploy a new sync c
 instance; the active sync config can continue serving clients through the old instance while the new sync
 config snapshots and catches up. Keep the old instance available until the new sync config becomes active.
 
-If the bound instance is removed first, replication stops with `PSYNC_S1601`. A table in the sync config
-that cannot be replicated yet — it does not exist, or CDC has not been enabled for it — stops replication
-with `PSYNC_S1602` rather than being skipped.
+If CDC is disabled for a bound table, or its capture instance is removed while the source table and replica
+identity remain unchanged, replication stops with `PSYNC_S1601`. A newly configured table that cannot be
+replicated yet — it does not exist, or CDC has not been enabled for it — stops replication with
+`PSYNC_S1602` rather than being skipped. Dropping, recreating, or otherwise changing the source identity of
+a previously bound table stops replication with `PSYNC_S1603`.

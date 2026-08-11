@@ -1,6 +1,7 @@
 import { ErrorCode, ReplicationAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { JsonValue, SourceTableCandidate, storage } from '@powersync/service-core';
 import * as t from 'ts-codec';
+import { toQualifiedTableName } from '../utils/mssql.js';
 import type { MSSQLTableReconciliationContext } from './MSSQLTableReconciliationContext.js';
 import { MSSQLTableReconciliationState } from './MSSQLTableReconciliationContext.js';
 
@@ -62,7 +63,7 @@ export function createCaptureReconciler(context: MSSQLTableReconciliationContext
         throw sourceTableUnavailableError(source);
       }
       throw new SourceTableNotReadyError(
-        `Source table ${formatQualifiedTableName(source.schema, source.name)} from the sync configuration does not ` +
+        `Source table ${toQualifiedTableName(source.schema, source.name)} from the sync configuration does not ` +
           `exist. Create the table and enable CDC for it.`
       );
     }
@@ -89,7 +90,7 @@ export function createCaptureReconciler(context: MSSQLTableReconciliationContext
 
       if (context.state === MSSQLTableReconciliationState.CDC_DISABLED) {
         throw new SourceTableNotReadyError(
-          `CDC is not enabled for source table ${formatQualifiedTableName(source.schema, source.name)}, which ` +
+          `CDC is not enabled for source table ${toQualifiedTableName(source.schema, source.name)}, which ` +
             `matches the sync configuration. Enable CDC for this table to start replicating it.`
         );
       }
@@ -103,9 +104,12 @@ export function createCaptureReconciler(context: MSSQLTableReconciliationContext
       };
     }
 
+    // At least one compatible candidate anchors this process to the discovered source identity.
+    // Any remaining incompatible candidates are stale overlapping records, so storage may remove
+    // them without adopting a replacement table or changing the binding this process uses.
     if (context.state === MSSQLTableReconciliationState.CDC_DISABLED) {
       throw new CaptureInstanceMissingError(
-        `CDC is no longer enabled for source table ${formatQualifiedTableName(source.schema, source.name)}. ` +
+        `CDC is no longer enabled for source table ${toQualifiedTableName(source.schema, source.name)}. ` +
           `Re-enable CDC, then redeploy the sync config to adopt the replacement capture instance. Its ` +
           `already-replicated data is retained until the redeployed sync config becomes active.`
       );
@@ -127,14 +131,14 @@ export function createCaptureReconciler(context: MSSQLTableReconciliationContext
     // Never guess which capture schema existing snapshots belong to.
     if (pinnedObjectIds.size > 0 && metadataFreeCount > 0) {
       throw new ReplicationAssertionError(
-        `Source table ${source.schema}.${source.name} has a mixture of legacy (metadata-free) and ` +
+        `Source table ${toQualifiedTableName(source.schema, source.name)} has a mixture of legacy (metadata-free) and ` +
           `capture-instance-pinned records. This is invalid persisted state.`
       );
     }
     // All records for a physical table must use the same capture instance.
     if (pinnedObjectIds.size > 1) {
       throw new ReplicationAssertionError(
-        `Source table ${source.schema}.${source.name} has multiple persisted capture identities ` +
+        `Source table ${toQualifiedTableName(source.schema, source.name)} has multiple persisted capture identities ` +
           `(${[...pinnedObjectIds].join(', ')}). This is invalid persisted state.`
       );
     }
@@ -156,7 +160,7 @@ export function createCaptureReconciler(context: MSSQLTableReconciliationContext
       // A replacement may capture a different schema, so do not adopt it in place.
       throw new CaptureInstanceMissingError(
         `The CDC capture instance (object id ${captureTableObjectId}) for source table ` +
-          `${source.schema}.${source.name} is no longer available. Deploy a new sync config to ` +
+          `${toQualifiedTableName(source.schema, source.name)} is no longer available. Deploy a new sync config to ` +
           `replicate this table against a new capture instance.`
       );
     }
@@ -174,14 +178,9 @@ function captureMetadata(captureTableObjectId: number): MSSQLSourceMetadata {
 
 function sourceTableUnavailableError(source: { schema: string; name: string }): SourceTableUnavailableError {
   return new SourceTableUnavailableError(
-    `Table ${formatQualifiedTableName(source.schema, source.name)} no longer matches the source table binding ` +
+    `Table ${toQualifiedTableName(source.schema, source.name)} no longer matches the source table binding ` +
       `selected by this replication process. It may have been dropped and recreated, renamed, or had its ` +
       `replication identity changed. Redeploy the sync config to adopt the replacement. Its already-replicated ` +
       `data is retained until the redeployed sync config becomes active.`
   );
-}
-
-function formatQualifiedTableName(schema: string, table: string): string {
-  const escapeIdentifier = (identifier: string) => `[${identifier.replace(/]/g, ']]')}]`;
-  return `${escapeIdentifier(schema)}.${escapeIdentifier(table)}`;
 }
