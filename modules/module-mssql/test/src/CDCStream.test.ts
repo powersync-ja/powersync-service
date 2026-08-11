@@ -110,14 +110,16 @@ function defineCDCStreamTests(config: storage.TestStorageConfig) {
     expect(data).toMatchObject([putOp('test_data', testData), removeOp('test_data', testData.id)]);
   });
 
-  test('Replicate matched wild card tables in sync rules', async () => {
+  test('Replicate multiple tables in sync rules', async () => {
     await using context = await CDCStreamTestContext.open(factory);
     const { connectionManager } = context;
+    // Table wildcards are not supported - each table is listed explicitly.
     await context.updateSyncRules(`
   bucket_definitions:
     global:
       data:
-        - SELECT id, description FROM "test_data_%"`);
+        - SELECT id, description FROM "test_data_1"
+        - SELECT id, description FROM "test_data_2"`);
 
     await createTestTable(connectionManager, 'test_data_1');
     await createTestTable(connectionManager, 'test_data_2');
@@ -148,6 +150,8 @@ function defineCDCStreamTests(config: storage.TestStorageConfig) {
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
+    // test_data is in the sync config and must exist for replication to start; test_donotsync is not.
+    await createTestTable(connectionManager, 'test_data');
     await createTestTable(connectionManager, 'test_donotsync');
 
     await context.replicateSnapshot();

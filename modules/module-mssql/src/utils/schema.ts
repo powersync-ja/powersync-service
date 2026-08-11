@@ -139,77 +139,76 @@ export async function getReplicationIdentityColumns(
 }
 
 export interface SourceTableChangeRef {
-  objectId: number | string | undefined;
+  /**
+   * `sys.tables.object_id`, which SQL Server always reports as an int. Narrower than
+   * `SourceEntityDescriptor.objectId`, which has to accommodate other source databases.
+   */
+  objectId: number;
   schema: string;
   name: string;
 }
 
 export type ResolvedTable = SourceTableChangeRef;
 
+export const SCHEMA_WILDCARD_MESSAGE =
+  'Schema wildcards ("%") in table patterns are not supported for SQL Server connections.';
+
+/**
+ * Wildcards would allow the replicated table set to change between polls, so they are rejected.
+ */
+export function tableWildcardMessage(tablePattern: TablePattern): string {
+  return (
+    `Table wildcards ("%") are not supported for SQL Server connections: "${tablePattern.tablePattern}". ` +
+    `List each table explicitly.`
+  );
+}
+
+/**
+ * Returns the reason this pattern cannot be replicated, or null if it is supported.
+ */
+export function unsupportedTablePatternMessage(tablePattern: TablePattern): string | null {
+  if (tablePattern.isSchemaWildcard) {
+    return SCHEMA_WILDCARD_MESSAGE;
+  }
+  if (tablePattern.isWildcard) {
+    return tableWildcardMessage(tablePattern);
+  }
+  return null;
+}
+
 export async function getTablesFromPattern(
   connectionManager: MSSQLConnectionManager,
   tablePattern: TablePattern
 ): Promise<ResolvedTable[]> {
-  if (tablePattern.isSchemaWildcard) {
-    throw new ServiceError(
-      ErrorCode.PSYNC_R2201,
-      'Schema wildcards ("%") in table patterns are not supported for SQL Server connections.'
-    );
+  const unsupported = unsupportedTablePatternMessage(tablePattern);
+  if (unsupported != null) {
+    throw new ServiceError(ErrorCode.PSYNC_R2201, unsupported);
   }
 
-  if (tablePattern.isWildcard) {
-    const { recordset: tableResults } = await connectionManager.query(
-      `
-        SELECT
-          tbl.name      AS [table],
-          sch.name      AS [schema],
-          tbl.object_id AS object_id
-        FROM sys.tables tbl
-          JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
+  const { recordset: tableResults } = await connectionManager.query(
+    `
+      SELECT
+        tbl.name      AS [table],
+        sch.name      AS [schema],
+        tbl.object_id AS object_id
+      FROM sys.tables tbl
+        JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
         WHERE sch.name = @schema
-          AND tbl.name LIKE @tablePattern
-      `,
-      [
-        { name: 'schema', type: sql.VarChar(sql.MAX), value: tablePattern.schema },
-        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern }
-      ]
-    );
+        AND tbl.name = @tablePattern
+    `,
+    [
+      { name: 'schema', type: sql.VarChar(sql.MAX), value: tablePattern.schema },
+      { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern }
+    ]
+  );
 
-    return tableResults
-      .map((row) => {
-        return {
-          objectId: row.object_id,
-          schema: row.schema,
-          name: row.table
-        };
-      })
-      .filter((table: ResolvedTable) => table.name.startsWith(tablePattern.tablePrefix));
-  } else {
-    const { recordset: tableResults } = await connectionManager.query(
-      `
-        SELECT
-          tbl.name      AS [table],
-          sch.name      AS [schema],
-          tbl.object_id AS object_id
-        FROM sys.tables tbl
-          JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
-          WHERE sch.name = @schema
-          AND tbl.name = @tablePattern
-      `,
-      [
-        { name: 'schema', type: sql.VarChar(sql.MAX), value: tablePattern.schema },
-        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern }
-      ]
-    );
-
-    return tableResults.map((row) => {
-      return {
-        objectId: row.object_id,
-        schema: row.schema,
-        name: row.table
-      };
-    });
-  }
+  return tableResults.map((row) => {
+    return {
+      objectId: row.object_id,
+      schema: row.schema,
+      name: row.table
+    };
+  });
 }
 
 export interface GetPendingSchemaChangesOptions {
