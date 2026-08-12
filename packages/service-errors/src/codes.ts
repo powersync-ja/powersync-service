@@ -382,6 +382,11 @@ export enum ErrorCode {
    */
   PSYNC_S1603 = 'PSYNC_S1603',
 
+  /**
+   *  MSSQL connection configuration error.
+   */
+  PSYNC_S1604 = 'PSYNC_S1604',
+
   // ## PSYNC_S2xxx: Service API
 
   /**
