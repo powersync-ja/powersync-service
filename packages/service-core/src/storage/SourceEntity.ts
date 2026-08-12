@@ -25,8 +25,6 @@ export interface SourceEntityDescriptor extends SourceTableRef {
    * If specified, this is specifically used to detect renames.
    */
   objectId: number | string | undefined;
-  schema: string;
-  name: string;
   /**
    *  The columns that are used to uniquely identify a record in the source entity.
    */
