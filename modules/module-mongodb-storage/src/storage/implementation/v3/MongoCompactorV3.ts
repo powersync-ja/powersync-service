@@ -32,6 +32,11 @@ enum CompactionKind {
   Chunks = 'chunks'
 }
 
+interface CompactionDecision {
+  kind: CompactionKind | null;
+  nextCompactCheck: mongo.Document;
+}
+
 interface ScheduledCompactionOptions {
   /** Process checks scheduled this far after the captured job start. */
   dueAheadMs?: number;
@@ -42,7 +47,8 @@ interface ScheduledCompactionOptions {
 class CompactionContext {
   constructor(
     readonly lease: CompactionLease,
-    readonly kind: CompactionKind
+    readonly kind: CompactionKind,
+    readonly decision: CompactionDecision | undefined
   ) {}
 
   get state() {
@@ -81,6 +87,14 @@ const DEFAULT_MIN_COMPACT_FULL_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_MAX_COMPACT_FULL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_COMPACT_LEASE_DURATION_MS = 10 * 60 * 1000;
 const FULL_COMPACT_RESCHEDULE_MARGIN_MS = 60 * 1000;
+/**
+ * Perform a chunk-merge compact if at least this many chunks have been added since hte last compaction.
+ *
+ * If the value is too low (say 1 or 2), this introduces write amplification: Every write may result in multiple object storage operations.
+ *
+ * If the value is too large, it may delay merging of chunks and negatively affect sync performance.
+ */
+const MERGE_CHUNKS_THRESHOLD = 8;
 
 /**
  * Read one bounded prefix from a compaction cursor.
@@ -240,11 +254,12 @@ export class MongoCompactorV3 extends MongoCompactor {
         break;
       }
 
-      const kind = forceKind ?? this.chooseCompactionKind(lease, lease.startedAt);
+      const decision = this.chooseCompactionKind(lease, lease.startedAt);
+      const kind = forceKind ?? decision.kind;
       if (kind == null) {
-        await this.rescheduleClaimedBucket(lease);
+        await this.rescheduleClaimedBucket(lease, decision);
       } else {
-        await this.compactClaimedBucket(lease, kind);
+        await this.compactClaimedBucket(lease, kind, decision);
       }
     }
   }
@@ -256,52 +271,51 @@ export class MongoCompactorV3 extends MongoCompactor {
     return CompactionLease.claim(this.db.bucketState(this.group_id), filter, sort, this.compactLeaseDurationMs);
   }
 
-  private async compactClaimedBucket(lease: CompactionLease, kind: CompactionKind) {
-    const context = new CompactionContext(lease, kind);
+  private async compactClaimedBucket(lease: CompactionLease, kind: CompactionKind, decision?: CompactionDecision) {
+    const context = new CompactionContext(lease, kind, decision);
     lease.startRenewal();
     await this.retryCompaction(context.state._id.b, () => this.compactSingleBucket(context));
   }
 
-  private chooseCompactionKind(lease: CompactionLease, now: Date): CompactionKind | null {
+  private chooseCompactionKind(lease: CompactionLease, now: Date): CompactionDecision {
     const state = lease.state;
-    if (now >= this.fullCompactionCheckAt(state)) {
-      return CompactionKind.Full;
-    }
-
     // For chunk compaction, we consider the number of chunks added.
-    // Right now, we trigger a compact if the interval has passed and at least 1 chunk was added.
+    // Right now, we trigger a compact if the interval has passed and at least a threshold of chunks were added.
     // In the future me may use a threshold for bytes/chunk or count/chunk instead, and only compact
     // if one of those are low.
-    const compacted = state.compacted_state;
-    const chunksSinceCompact = Math.max(0, state.bucket_stats.chunks - (compacted?.chunks ?? 0));
-    const canCheckChunks =
-      compacted == null || now.getTime() - compacted.at.getTime() >= this.minCompactChunkIntervalMs;
-    if (canCheckChunks && chunksSinceCompact >= 1) {
-      return CompactionKind.Chunks;
-    }
-    return null;
-  }
-
-  private async rescheduleClaimedBucket(lease: CompactionLease) {
-    const state = lease.state;
     const fullCheckAt = this.fullCompactionCheckAt(state);
     // Schedule a little late so a worker using a slightly earlier clock does
     // not wake before the exact full-compaction condition is true.
     const fullCheckWithMargin = new Date(fullCheckAt.getTime() + FULL_COMPACT_RESCHEDULE_MARGIN_MS);
-    const chunksSinceCompact = Math.max(0, state.bucket_stats.chunks - (state.compacted_state?.chunks ?? 0));
-    if (chunksSinceCompact == 0) {
-      // No new chunks can make chunk compaction eligible. Do not poll this
-      // bucket at the chunk-compaction interval; only wake it for its full-compact check.
-      await lease.reschedule(fullCheckWithMargin);
-      return;
+    const compacted = state.compacted_state;
+    const chunksSinceCompact = Math.max(0, state.bucket_stats.chunks - (compacted?.chunks ?? 0));
+    const shouldCompactChunks = chunksSinceCompact >= MERGE_CHUNKS_THRESHOLD;
+    const canCheckChunks =
+      compacted == null || now.getTime() - compacted.at.getTime() >= this.minCompactChunkIntervalMs;
+    // Too few new chunks can make chunk compaction eligible. Do not poll this
+    // bucket at the chunk-compaction interval; only wake it for its full-compact check.
+    const nextCompactCheck: mongo.Document = !shouldCompactChunks
+      ? fullCheckWithMargin
+      : {
+          $min: [
+            fullCheckWithMargin,
+            { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } }
+          ]
+        };
+    let kind: CompactionKind | null = null;
+    if (now >= fullCheckAt) {
+      kind = CompactionKind.Full;
+    } else if (canCheckChunks && shouldCompactChunks) {
+      kind = CompactionKind.Chunks;
     }
+    return {
+      kind,
+      nextCompactCheck
+    };
+  }
 
-    await lease.reschedule({
-      $min: [
-        fullCheckWithMargin,
-        { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } }
-      ]
-    });
+  private async rescheduleClaimedBucket(lease: CompactionLease, decision: CompactionDecision) {
+    await lease.reschedule(decision.nextCompactCheck);
   }
 
   /**
@@ -575,7 +589,10 @@ export class MongoCompactorV3 extends MongoCompactor {
   }
 
   private async finalizeSkippedBucket(context: CompactionContext) {
-    await this.rescheduleClaimedBucket(context.lease);
+    await this.rescheduleClaimedBucket(
+      context.lease,
+      context.decision ?? this.chooseCompactionKind(context.lease, context.startedAt)
+    );
   }
 
   private async readBucketStats(
