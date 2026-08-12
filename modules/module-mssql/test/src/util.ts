@@ -1,11 +1,12 @@
 import * as types from '@module/types/types.js';
 import { logger } from '@powersync/lib-services-framework';
-import { BucketStorageFactory, ReplicationCheckpoint, TestStorageConfig } from '@powersync/service-core';
-
+import { BucketStorageFactory, ReplicationCheckpoint, storage, TestStorageConfig } from '@powersync/service-core';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 
+import { CaptureInstance } from '@module/common/CaptureInstance.js';
 import { LSN } from '@module/common/LSN.js';
+import { MSSQLSourceMetadata } from '@module/replication/CaptureReconciler.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
 import { createCheckpoint, escapeIdentifier, getLatestLSN, toQualifiedTableName } from '@module/utils/mssql.js';
 import sql from 'mssql';
@@ -274,4 +275,55 @@ export async function disableCDCForTable(
     { name: 'source_name', value: tableName },
     { name: 'capture_instance', value: captureInstance }
   ]);
+}
+
+/**
+ * Create a capture instance with the given capture-table object id.
+ */
+export function createCaptureInstance(objectId: number): CaptureInstance {
+  return {
+    name: `dbo_users_${objectId}`,
+    objectId,
+    minLSN: LSN.fromString(LSN.ZERO),
+    createDate: new Date(),
+    pendingSchemaChanges: []
+  };
+}
+/**
+ * Build a persisted source-table candidate with optional capture metadata.
+ */
+export function createSourceTableCandidate(
+  id: string,
+  metadata?: MSSQLSourceMetadata,
+  overrides: Partial<ConstructorParameters<typeof storage.SourceTable>[0]> = {}
+): storage.SourceTable {
+  const descriptor = createSourceDescriptor();
+
+  return new storage.SourceTable({
+    id,
+    ref: descriptor,
+    objectId: descriptor.objectId,
+    replicaIdColumns: descriptor.replicaIdColumns,
+    snapshotComplete: true,
+    bucketDataSources: [],
+    parameterLookupSources: [],
+    sourceMetadata: metadata,
+    ...overrides
+  });
+}
+
+/**
+ * Create a source descriptor with optional identity overrides.
+ */
+export function createSourceDescriptor(
+  overrides: Partial<storage.SourceEntityDescriptor> = {}
+): storage.SourceEntityDescriptor {
+  return {
+    connectionTag: 'default',
+    schema: 'dbo',
+    name: 'users',
+    objectId: 100,
+    replicaIdColumns: [{ name: 'id', type: 'int', typeId: 56 }],
+    ...overrides
+  };
 }
