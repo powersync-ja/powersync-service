@@ -60,8 +60,7 @@ describe('V3 checksums with S3 object storage', () => {
       {
         $set: {
           last_op: 3n,
-          compacted_state: { op_id: 3n, count: 0, checksum: 0n, bytes: null },
-          estimate_since_compact: { count: 3, bytes: 100 }
+          compacted_state: { op_id: 3n, count: 0, checksum: 0n, bytes: 0n, chunks: 0, at: new Date() }
         }
       },
       { upsert: true }

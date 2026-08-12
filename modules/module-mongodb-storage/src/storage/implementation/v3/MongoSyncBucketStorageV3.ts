@@ -203,9 +203,6 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     const compactedBuckets = await this.createMongoCompactor({
       ...options,
       maxOpId,
-      // A metadata-only scan is cheap, so include buckets with any changes.
-      minBucketChanges: 1,
-      minChangeRatio: 0,
       compactChunksOnly: true,
       logger: this.logger
     }).compact();

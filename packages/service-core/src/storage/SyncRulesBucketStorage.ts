@@ -348,6 +348,18 @@ export interface CompactOptions {
    */
   minChangeRatio?: number;
 
+  /** Minimum delay before a V3 bucket is checked for chunk compaction. Default: five minutes. */
+  minCompactChunkIntervalMs?: number;
+
+  /** Minimum elapsed write pressure before the v3 sliding-scale full compact. Default: two hours. */
+  minCompactFullIntervalMs?: number;
+
+  /** Maximum age of writes not covered by a v3 full compact. */
+  maxCompactFullIntervalMs?: number;
+
+  /** How long a v3 worker owns a claimed bucket before another worker may recover it. */
+  compactLeaseDurationMs?: number;
+
   /**
    * Internal/testing use: Cache size for compacting parameters.
    */

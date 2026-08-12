@@ -117,11 +117,14 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
       },
       { name: 'bucket_updates', unique: true }
     );
+    // V3 workers claim only buckets that have reached their scheduled check
+    // time, keeping scheduled scans proportional to pending work.
     await bucketState.createIndex(
+      { next_compact_check: 1 },
       {
-        'estimate_since_compact.count': -1
-      },
-      { name: 'dirty_count' }
+        name: 'next_compact_check',
+        partialFilterExpression: { next_compact_check: { $exists: true } }
+      }
     );
   }
 }

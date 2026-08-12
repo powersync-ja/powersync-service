@@ -15,7 +15,6 @@ import * as bson from 'bson';
 import {
   BucketDataKey,
   BucketParameterDocumentBase,
-  BucketStateDocumentBase,
   CurrentBucket,
   OpType,
   ReplicaId,
@@ -159,9 +158,53 @@ export interface SourceTableDocumentV3 {
   latest_pending_delete?: InternalOpId | undefined;
 }
 
-export interface BucketStateDocumentV3 extends BucketStateDocumentBase {
-  _id: BucketStateDocumentBase['_id'] & {
+export interface BucketStateDocumentV3 {
+  _id: {
+    b: string;
     d: BucketDefinitionId;
+  };
+
+  /** Must always identify an actual operation in this logical stream. */
+  last_op: bigint;
+
+  /** The next time a compact worker should inspect this bucket. */
+  next_compact_check: Date | undefined;
+  /** The oldest write that has not been covered by a full compact. */
+  first_uncompacted_write: Date | undefined;
+
+  /**
+   * A checksum cache and the statistics captured by the latest compact (full
+   * or lite). Keeping these separate from bucket_stats lets writers only
+   * update one set of counters.
+   */
+  compacted_state?: {
+    op_id: InternalOpId;
+    checksum: bigint;
+    count: number;
+    bytes: bigint;
+    at: Date;
+    chunks: number;
+  };
+
+  /** Statistics from the most recent full compact. */
+  last_full_compact?: {
+    op_id: InternalOpId;
+    count: number;
+    at: Date;
+    puts: number;
+  };
+
+  /** Current aggregate bucket statistics, maintained by writers and compactors. */
+  bucket_stats: {
+    count: number;
+    bytes: bigint;
+    chunks: number;
+  };
+
+  /** A short-lived ownership marker used to distribute bucket compaction. */
+  compact_lease?: {
+    expires_at: Date;
+    id: unknown;
   };
 }
 

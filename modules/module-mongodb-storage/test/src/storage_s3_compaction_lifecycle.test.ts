@@ -337,14 +337,14 @@ describe('S3 compaction storage lifecycle', () => {
     const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
     const bucket = request.bucket;
 
-    // Read bucket_state before compaction to confirm it exists and has
-    // estimate_since_compact populated by the writer.
+    // Read bucket_state before compaction to confirm the writer recorded its
+    // aggregate statistics and scheduled a compact check.
     const bucketStateBefore = await bucketStateCollection.findOne({
       _id: { d: definitionId, b: bucket }
     });
     expect(bucketStateBefore).toBeDefined();
-    expect(bucketStateBefore!.estimate_since_compact).toBeDefined();
-    expect(bucketStateBefore!.estimate_since_compact!.count).toBeGreaterThan(0);
+    expect(bucketStateBefore!.bucket_stats.count).toBeGreaterThan(0);
+    expect(bucketStateBefore!.next_compact_check).toBeDefined();
 
     // Record the input operations and object path.
     const batchBefore = await test_utils.getBatchArray(bucketStorage.getBucketDataBatch(checkpoint, [request]));

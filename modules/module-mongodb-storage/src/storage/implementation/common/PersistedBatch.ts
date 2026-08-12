@@ -234,8 +234,41 @@ export abstract class PersistedBatch {
         bucket,
         lastOp: op_id,
         incrementCount: 1,
-        incrementBytes: bytes
+        incrementBytes: bytes,
+        incrementChunks: 0
       });
+    }
+  }
+
+  /**
+   * V3 persists operations in chunks. Keep this separate from incrementBucket:
+   * operation counts are known while evaluating rows, while chunk counts are
+   * only known after the writer has chunked a flush.
+   */
+  protected incrementBucketChunks(definitionId: BucketDefinitionId, bucket: string, chunks = 1) {
+    const key = `${definitionId ?? ''}:${bucket}`;
+    const existingState = this.bucketStates.get(key);
+    if (existingState != null) {
+      existingState.incrementChunks += chunks;
+    }
+  }
+
+  /**
+   * V3's compactor calculates byte deltas from persisted chunk metadata.
+   * Replace the writer's per-operation estimate with those exact sizes before
+   * flushing the corresponding bucket state.
+   */
+  protected resetBucketPersistedBytes(definitionId: BucketDefinitionId, bucket: string) {
+    const state = this.bucketStates.get(`${definitionId ?? ''}:${bucket}`);
+    if (state != null) {
+      state.incrementBytes = 0;
+    }
+  }
+
+  protected incrementBucketPersistedBytes(definitionId: BucketDefinitionId, bucket: string, bytes: number) {
+    const state = this.bucketStates.get(`${definitionId ?? ''}:${bucket}`);
+    if (state != null) {
+      state.incrementBytes += bytes;
     }
   }
 
@@ -377,4 +410,5 @@ export interface BucketStateUpdate {
   lastOp: InternalOpId;
   incrementCount: number;
   incrementBytes: number;
+  incrementChunks: number;
 }

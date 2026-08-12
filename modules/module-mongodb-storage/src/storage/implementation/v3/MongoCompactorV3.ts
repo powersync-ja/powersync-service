@@ -1,16 +1,16 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
+import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { addChecksums, InternalOpId, storage, utils } from '@powersync/service-core';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
-import { BucketDataKey, BucketStateDocumentBase } from '../models.js';
-import { ConcurrentCompactionError, CurrentBucketState, DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
+import { BucketDataKey } from '../models.js';
+import { ConcurrentCompactionError, MongoCompactor } from '../MongoCompactor.js';
 import { cacheKey } from '../OperationBatch.js';
 import { loadBucketDataDocument, maxOpId, serializeBucketData } from './bucket-format.js';
 import { BucketDataContextV3 } from './BucketDataContextV3.js';
 import { DEFAULT_MAX_DOC_SIZE_BYTES } from './chunking.js';
+import { CompactionLease } from './CompactionLease.js';
 import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
-import { DefinitionChecksumOperations, MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { BucketDataObjectStorage, hydrateBucketDataDocuments } from './object-storage/BucketDataObjectStorage.js';
 import { ObjectStorageLifecycle, PreparedObjectStorageUpload } from './object-storage/ObjectStorageLifecycle.js';
@@ -26,6 +26,61 @@ interface PendingCompactionGroup {
   changed: boolean;
   targetOp: InternalOpId | null;
 }
+
+enum CompactionKind {
+  Full = 'full',
+  Chunks = 'chunks'
+}
+
+interface ScheduledCompactionOptions {
+  /** Process checks scheduled this far after the captured job start. */
+  dueAheadMs?: number;
+  /** Used by initial replication, which must not run a full compact. */
+  forceKind?: CompactionKind;
+}
+
+class CompactionContext {
+  constructor(
+    readonly lease: CompactionLease,
+    readonly kind: CompactionKind
+  ) {}
+
+  get state() {
+    return this.lease.state;
+  }
+
+  get startedAt() {
+    return this.lease.startedAt;
+  }
+
+  get lastOp() {
+    return this.lease.lastOp;
+  }
+}
+
+interface BucketStats {
+  count: number;
+  bytes: bigint;
+  chunks: number;
+}
+
+/** Bucket stats read from bucket-data documents, including their checksum. */
+interface BucketStatsWithChecksum extends BucketStats {
+  checksum: number;
+}
+
+interface CompactionResult {
+  /** Metadata cached at compacted_state.op_id. */
+  compactedState: BucketStatsWithChecksum;
+  /** Complete bucket metadata through the op head captured at claim time. */
+  bucketStats: BucketStats;
+}
+
+const DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_MIN_COMPACT_FULL_INTERVAL_MS = 2 * 60 * 60 * 1000;
+const DEFAULT_MAX_COMPACT_FULL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_COMPACT_LEASE_DURATION_MS = 10 * 60 * 1000;
+const FULL_COMPACT_RESCHEDULE_MARGIN_MS = 60 * 1000;
 
 /**
  * Read one bounded prefix from a compaction cursor.
@@ -65,9 +120,55 @@ async function readCompactionBatch(
   }
 }
 
+function bucketStats(state: BucketStateDocumentV3): BucketStats {
+  return {
+    count: state.bucket_stats.count,
+    bytes: state.bucket_stats.bytes,
+    chunks: state.bucket_stats.chunks
+  };
+}
+
+function emptyBucketStats(): BucketStatsWithChecksum {
+  return { count: 0, bytes: 0n, chunks: 0, checksum: 0 };
+}
+
+function statsForDocument(
+  document: Pick<BucketDataDocumentV3, 'count' | 'size' | 'checksum'>
+): BucketStatsWithChecksum {
+  return {
+    count: document.count,
+    bytes: BigInt(document.size),
+    chunks: 1,
+    checksum: addChecksums(0, Number(document.checksum))
+  };
+}
+
+/** A scheduled bucket always has writes awaiting a full compact. */
+function firstUncompactedWrite(state: BucketStateDocumentV3): Date {
+  if (state.first_uncompacted_write == null) {
+    throw new ReplicationAssertionError(`Scheduled V3 bucket ${state._id.b} has no first uncompacted write`);
+  }
+  return state.first_uncompacted_write;
+}
+
 export class MongoCompactorV3 extends MongoCompactor {
   declare protected readonly db: VersionedPowerSyncMongoV3;
   declare protected readonly storage: MongoSyncBucketStorageV3;
+
+  private readonly minCompactChunkIntervalMs: number;
+  private readonly minCompactFullIntervalMs: number;
+  private readonly maxCompactFullIntervalMs: number;
+  private readonly compactLeaseDurationMs: number;
+  private readonly maxOpIdCap: InternalOpId | undefined;
+
+  constructor(bucketStorage: MongoSyncBucketStorageV3, db: VersionedPowerSyncMongoV3, options: storage.CompactOptions) {
+    super(bucketStorage, db, options);
+    this.minCompactChunkIntervalMs = options.minCompactChunkIntervalMs ?? DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS;
+    this.minCompactFullIntervalMs = options.minCompactFullIntervalMs ?? DEFAULT_MIN_COMPACT_FULL_INTERVAL_MS;
+    this.maxCompactFullIntervalMs = options.maxCompactFullIntervalMs ?? DEFAULT_MAX_COMPACT_FULL_INTERVAL_MS;
+    this.compactLeaseDurationMs = options.compactLeaseDurationMs ?? DEFAULT_COMPACT_LEASE_DURATION_MS;
+    this.maxOpIdCap = options.maxOpId;
+  }
 
   override async compact(): Promise<number> {
     if (this.storage.objectStorage) {
@@ -79,14 +180,161 @@ export class MongoCompactorV3 extends MongoCompactor {
         this.logger.error(`Failed to clean up object storage deletion markers before compaction`, e);
       }
     }
-    const compactedBuckets = await super.compact();
+    await this.deleteOldCheckpointRequests();
+
+    if (this.buckets != null) {
+      await this.compactExplicitBuckets(this.buckets);
+    } else if (this.compactChunksOnly) {
+      // Writers defer their first chunk-compaction check by minCompactChunkIntervalMs.
+      // Include that interval so this synchronous initial-replication pass
+      // processes the work that existed when it started.
+      await this.compactScheduledBuckets({
+        dueAheadMs: this.minCompactChunkIntervalMs,
+        forceKind: CompactionKind.Chunks
+      });
+    } else {
+      await this.compactScheduledBuckets();
+    }
     if (this.storage.objectStorage) {
       // Cleanup for any produced during compacting.
       // Note that markers only expire after a delay, so this may skip many produced during this compact
       // run. However, during long compact runs, this may also have many ones it can clean up.
       await this.objectStorageLifecycle.cleanup(this.logger);
     }
-    return compactedBuckets;
+    return this.compactedBucketCount;
+  }
+
+  /** An explicit compact request always runs a full compact for its buckets. */
+  private async compactExplicitBuckets(buckets: string[]) {
+    for (const bucket of buckets) {
+      // This is not a super efficient query, but this is not a common use case.
+      // May be optimized later.
+      const states = await this.db
+        .bucketState(this.group_id)
+        .find({ '_id.b': bucket }, { projection: { _id: 1 } })
+        .toArray();
+      for (const state of states) {
+        await using lease = await this.claimBucket({ _id: state._id });
+        if (lease != null) {
+          await this.compactClaimedBucket(lease, CompactionKind.Full);
+        }
+      }
+    }
+  }
+
+  /**
+   * Claim one scheduled bucket at a time. The fixed due boundary means a
+   * long-running job does not repeatedly process buckets it scheduled itself.
+   */
+  private async compactScheduledBuckets(options: ScheduledCompactionOptions = {}) {
+    const jobStartedAt = await this.serverNow();
+    const dueBefore = new Date(jobStartedAt.getTime() + (options.dueAheadMs ?? 0));
+    const forceKind = options.forceKind;
+    while (true) {
+      this.signal?.throwIfAborted();
+      await using lease = await this.claimBucket(
+        { next_compact_check: { $lte: dueBefore } },
+        { next_compact_check: 1 }
+      );
+      if (lease == null) {
+        break;
+      }
+
+      const kind = forceKind ?? this.chooseCompactionKind(lease, lease.startedAt);
+      if (kind == null) {
+        await this.rescheduleClaimedBucket(lease);
+      } else {
+        await this.compactClaimedBucket(lease, kind);
+      }
+    }
+  }
+
+  private async claimBucket(
+    filter: mongo.Filter<BucketStateDocumentV3>,
+    sort?: mongo.Sort
+  ): Promise<CompactionLease | null> {
+    return CompactionLease.claim(this.db.bucketState(this.group_id), filter, sort, this.compactLeaseDurationMs);
+  }
+
+  private async compactClaimedBucket(lease: CompactionLease, kind: CompactionKind) {
+    const context = new CompactionContext(lease, kind);
+    lease.startRenewal();
+    await this.retryCompaction(context.state._id.b, () => this.compactSingleBucket(context));
+  }
+
+  private chooseCompactionKind(lease: CompactionLease, now: Date): CompactionKind | null {
+    const state = lease.state;
+    if (now >= this.fullCompactionCheckAt(state)) {
+      return CompactionKind.Full;
+    }
+
+    // For chunk compaction, we consider the number of chunks added.
+    // Right now, we trigger a compact if the interval has passed and at least 1 chunk was added.
+    // In the future me may use a threshold for bytes/chunk or count/chunk instead, and only compact
+    // if one of those are low.
+    const compacted = state.compacted_state;
+    const chunksSinceCompact = Math.max(0, state.bucket_stats.chunks - (compacted?.chunks ?? 0));
+    const canCheckChunks =
+      compacted == null || now.getTime() - compacted.at.getTime() >= this.minCompactChunkIntervalMs;
+    if (canCheckChunks && chunksSinceCompact >= 1) {
+      return CompactionKind.Chunks;
+    }
+    return null;
+  }
+
+  private async rescheduleClaimedBucket(lease: CompactionLease) {
+    const state = lease.state;
+    const fullCheckAt = this.fullCompactionCheckAt(state);
+    // Schedule a little late so a worker using a slightly earlier clock does
+    // not wake before the exact full-compaction condition is true.
+    const fullCheckWithMargin = new Date(fullCheckAt.getTime() + FULL_COMPACT_RESCHEDULE_MARGIN_MS);
+    const chunksSinceCompact = Math.max(0, state.bucket_stats.chunks - (state.compacted_state?.chunks ?? 0));
+    if (chunksSinceCompact == 0) {
+      // No new chunks can make chunk compaction eligible. Do not poll this
+      // bucket at the chunk-compaction interval; only wake it for its full-compact check.
+      await lease.reschedule(fullCheckWithMargin);
+      return;
+    }
+
+    await lease.reschedule({
+      $min: [
+        fullCheckWithMargin,
+        { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } }
+      ]
+    });
+  }
+
+  /**
+   * Calculate the earliest full compaction time from the first uncompacted
+   * write, bounded by the maximum retention interval.
+   */
+  private fullCompactionCheckAt(state: BucketStateDocumentV3): Date {
+    const firstWrite = firstUncompactedWrite(state);
+    const stats = bucketStats(state);
+    const lastFull = state.last_full_compact;
+
+    // The number of operations since the last full compact.
+    // We may make this more specific in the future, to track new updates and deletes only, ignoring
+    // full new inserts, but that requires more granular tracking when replicating.
+    const uncompactedCount = lastFull == null ? stats.count : Math.max(0, stats.count - lastFull.count);
+    const compactedRows = lastFull?.puts ?? 0;
+
+    // If no full compact has ever been performed: ratio = 1, compact after minCompactFullIntervalMs.
+    // If every row has been updated or deleted exactly once since the last full compact: ratio = 0.5, compact after minCompactFullIntervalMs * 2.
+    // If 10% of rows has been updated since the last full compact, compact after minCompactFullIntervalMs * 11.
+    // If every row has been updated multiple times, the ratio tends closer to 1 again.
+    const ratio = uncompactedCount == 0 ? 0 : uncompactedCount / (compactedRows + uncompactedCount);
+    const fullIntervalMs = ratio == 0 ? this.maxCompactFullIntervalMs : this.minCompactFullIntervalMs / ratio;
+    return new Date(firstWrite.getTime() + Math.min(fullIntervalMs, this.maxCompactFullIntervalMs));
+  }
+
+  private async serverNow(): Promise<Date> {
+    const result = await this.db.db.command({ hello: 1 });
+    return result.localTime as Date;
+  }
+
+  private compactMaxOpId(context: CompactionContext): InternalOpId {
+    return this.maxOpIdCap == null || context.lastOp < this.maxOpIdCap ? context.lastOp : this.maxOpIdCap;
   }
 
   private get objectStorageLifecycle(): ObjectStorageLifecycle {
@@ -96,58 +344,14 @@ export class MongoCompactorV3 extends MongoCompactor {
     return new ObjectStorageLifecycle(this.db, this.group_id, this.storage.objectStorage);
   }
 
-  public async *dirtyBucketBatches(options: {
-    minBucketChanges: number;
-    minChangeRatio: number;
-  }): AsyncGenerator<DirtyBucket[]> {
-    if (options.minBucketChanges <= 0) {
-      throw new ReplicationAssertionError('minBucketChanges must be >= 1');
-    }
-    const collection = this.db.bucketState(this.group_id) as unknown as mongo.Collection<BucketStateDocumentBase>;
-    yield* this.dirtyBucketBatchesForCollection(
-      collection,
-      { d: new mongo.MinKey(), b: new mongo.MinKey() } as unknown as BucketStateDocumentV3['_id'],
-      { d: new mongo.MaxKey(), b: new mongo.MaxKey() } as unknown as BucketStateDocumentV3['_id'],
-      options,
-      (bucketState) => (bucketState as BucketStateDocumentV3)._id.d
-    );
-  }
-
-  public async dirtyBucketBatchForChecksums(options: { minBucketChanges: number }): Promise<DirtyBucket[]> {
-    if (options.minBucketChanges <= 0) {
-      throw new ReplicationAssertionError('minBucketChanges must be >= 1');
-    }
-    return this.dirtyBucketBatchForChecksumsForCollection(
-      this.db.bucketState(this.group_id) as unknown as mongo.Collection<BucketStateDocumentBase>,
-      {
-        'estimate_since_compact.count': { $gte: options.minBucketChanges }
-      } as unknown as mongo.Filter<BucketStateDocumentBase>,
-      (bucketState) => (bucketState as BucketStateDocumentV3)._id.d
-    );
-  }
-
-  protected async writeBucketStateUpdates(): Promise<void> {
-    await this.db
-      .bucketState(this.group_id)
-      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[], {
-        ordered: false
-      });
-  }
-
-  /**
-   * The compactor operates on persisted definition ids only - never on parsed sources.
-   * This narrowed view makes the source-resolving checksum methods unreachable here.
-   */
-  private get definitionChecksums(): DefinitionChecksumOperations {
-    return this.storage.checksums as MongoChecksumsV3;
-  }
-
-  protected override async compactSingleBucket(bucket: string, definitionId: BucketDefinitionId | null = null) {
-    if (this.compactChunksOnly) {
-      return this.compactSingleBucketChunks(bucket, definitionId);
+  private async compactSingleBucket(context: CompactionContext) {
+    // A retry restarts finalization after a transient replacement failure.
+    context.lease.restartFinalization();
+    if (context.kind == CompactionKind.Chunks) {
+      return this.compactSingleBucketChunks(context);
     }
 
-    return this.compactSingleBucketFully(bucket, definitionId);
+    return this.compactSingleBucketFully(context);
   }
 
   /**
@@ -156,27 +360,34 @@ export class MongoCompactorV3 extends MongoCompactor {
    * update the persisted checksum state and to decide whether a group can fit
    * in one chunk.
    */
-  private async compactSingleBucketChunks(bucket: string, definitionId: BucketDefinitionId | null) {
-    const bucketContext = await this.getBucketDataContext(bucket, definitionId);
-    if (bucketContext == null) {
-      return;
-    }
-
-    const resolvedDefinitionId = bucketContext.key.definitionId;
+  private async compactSingleBucketChunks(context: CompactionContext) {
+    const bucket = context.state._id.b;
+    const resolvedDefinitionId = context.state._id.d;
+    const bucketContext = new BucketDataContextV3(this.db, {
+      bucket,
+      definitionId: resolvedDefinitionId,
+      replicationStreamId: this.group_id
+    });
     const collection = this.db.bucketData(this.group_id, resolvedDefinitionId);
-    const context = { replicationStreamId: this.group_id, definitionId: resolvedDefinitionId };
-    let lowerBound = bucketContext.minId;
-    const upperBound = bucketContext.docId(this.maxOpId + 1n);
+    const dataContext = { replicationStreamId: this.group_id, definitionId: resolvedDefinitionId };
+    // Include the last previously compacted chunk as well as new chunks. It
+    // is the only old chunk which can become mergeable with the new tail.
+    let lowerBound =
+      context.state.compacted_state?.op_id != null && context.state.compacted_state.op_id > 0n
+        ? bucketContext.docId(context.state.compacted_state.op_id - 1n)
+        : bucketContext.minId;
+    const upperBound = bucketContext.docId(this.compactMaxOpId(context) + 1n);
 
     let compactedOpId: bigint | null = null;
-    let totalChecksum = 0;
-    let totalOpCount = 0;
-    let totalOpBytes = 0;
+    let overlappingCompactedChunk: BucketStatsWithChecksum | undefined;
+    let preCompactionTail = emptyBucketStats();
+    const tailLowerBound = lowerBound;
     let pendingChunks: BucketDataDocumentV3[] = [];
     let pendingSize = 0;
 
     while (true) {
       this.signal?.throwIfAborted();
+      await context.lease.throwIfLost();
 
       const batch = await readCompactionBatch(
         collection.aggregate<BucketDataDocumentV3>(
@@ -218,13 +429,15 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       for (const doc of batch.documents) {
         compactedOpId = maxOpId(compactedOpId, doc._id.o);
-        totalChecksum = addChecksums(totalChecksum, Number(doc.checksum));
-        totalOpCount += doc.count;
-        totalOpBytes += doc.size;
+        const documentStats = statsForDocument(doc);
+        preCompactionTail = this.combineAdjacentStats(preCompactionTail, documentStats);
+        if (context.state.compacted_state?.op_id === doc._id.o) {
+          overlappingCompactedChunk = documentStats;
+        }
 
         const nextSize = pendingSize + doc.size;
         if (pendingChunks.length > 0 && nextSize > DEFAULT_MAX_DOC_SIZE_BYTES) {
-          await this.flushChunkMerge(bucket, pendingChunks, collection, context, bucketContext);
+          await this.flushChunkMerge(bucket, pendingChunks, collection, dataContext, bucketContext);
           pendingChunks = [];
           pendingSize = 0;
         }
@@ -240,27 +453,24 @@ export class MongoCompactorV3 extends MongoCompactor {
     }
 
     if (pendingChunks.length > 1) {
-      await this.flushChunkMerge(bucket, pendingChunks, collection, context, bucketContext);
+      await this.flushChunkMerge(bucket, pendingChunks, collection, dataContext, bucketContext);
     }
 
     if (compactedOpId == null) {
+      await this.finalizeSkippedBucket(context);
       return;
     }
 
-    await this.finalizeCompactedBucket(
-      {
-        bucket,
-        definitionId: resolvedDefinitionId,
-        lastNotPut: null,
-        opsSincePut: 0,
-        checksum: totalChecksum,
-        opCount: totalOpCount,
-        opBytes: totalOpBytes
-      },
-      compactedOpId
-    );
+    const tailStats = await this.readBucketStats(bucket, resolvedDefinitionId, compactedOpId, tailLowerBound);
+    const compactedStats = this.combineChunkStats(context.state, tailStats, overlappingCompactedChunk);
+    const result = {
+      compactedState: compactedStats,
+      bucketStats: this.applyCompactionDelta(bucketStats(context.state), preCompactionTail, tailStats)
+    };
+
+    await this.finalizeCompactedBucket(context, compactedOpId, result);
     this.compactedBucketCount++;
-    this.logger.info(`Lightly compacted bucket ${bucket}: ${totalOpCount} ops`);
+    this.logger.info(`Lightly compacted bucket ${bucket}: ${result.bucketStats.count} ops`);
   }
 
   private async flushChunkMerge(
@@ -308,101 +518,172 @@ export class MongoCompactorV3 extends MongoCompactor {
   }
 
   private async finalizeCompactedBucket(
-    state: Pick<
-      CurrentBucketState,
-      'bucket' | 'definitionId' | 'lastNotPut' | 'opsSincePut' | 'checksum' | 'opCount' | 'opBytes'
-    >,
-    compactedOpId: InternalOpId
+    context: CompactionContext,
+    compactedOpId: InternalOpId,
+    compactionResult: CompactionResult,
+    puts = 0
   ) {
-    this.updateBucketChecksums(
-      {
-        ...state,
-        seen: new Map(),
-        trackingSize: 0
+    await context.lease.throwIfLost();
+    const startedStats = bucketStats(context.state);
+    const delta = {
+      count: compactionResult.bucketStats.count - startedStats.count,
+      bytes: compactionResult.bucketStats.bytes - startedStats.bytes,
+      chunks: compactionResult.bucketStats.chunks - startedStats.chunks
+    };
+    const coveredStart = compactedOpId >= context.lastOp;
+    const concurrentWriteCheck = { $gt: ['$last_op', context.lastOp] };
+    const nextAfterConcurrentWrite = new Date(context.startedAt.getTime() + this.minCompactChunkIntervalMs);
+    const nextCheckForUncompactedWork = {
+      $min: [
+        new Date(firstUncompactedWrite(context.state).getTime() + this.maxCompactFullIntervalMs),
+        { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } }
+      ]
+    };
+    const update: mongo.Document = {
+      compacted_state: {
+        op_id: compactedOpId,
+        checksum: BigInt(compactionResult.compactedState.checksum),
+        count: compactionResult.compactedState.count,
+        bytes: compactionResult.compactedState.bytes,
+        chunks: compactionResult.compactedState.chunks,
+        at: '$$NOW'
       },
-      compactedOpId
-    );
-    await this.flushBucketStateUpdates();
-  }
-
-  protected async computeChecksumsForBuckets(
-    buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
-  ): Promise<storage.PartialChecksumMap> {
-    return this.definitionChecksums.computePartialChecksumsDirectByDefinition(
-      buckets.map(({ bucket, definitionId }) => {
-        if (definitionId == null) {
-          throw new ServiceAssertionError(`Missing definitionId for bucket checksum update on bucket ${bucket}`);
-        }
-        return {
-          bucket,
-          definitionId,
-          end: this.maxOpId
-        };
-      })
-    );
-  }
-
-  protected bucketStateFilter(
-    bucket: string,
-    definitionId: BucketDefinitionId | null
-  ): mongo.Filter<BucketStateDocumentBase> {
-    if (definitionId == null) {
-      throw new ServiceAssertionError(`Missing definitionId for V3 bucket state filter on bucket ${bucket}`);
+      bucket_stats: {
+        count: { $add: ['$bucket_stats.count', delta.count] },
+        bytes: { $add: ['$bucket_stats.bytes', delta.bytes] },
+        chunks: { $add: ['$bucket_stats.chunks', delta.chunks] }
+      },
+      first_uncompacted_write:
+        context.kind == CompactionKind.Full && coveredStart
+          ? { $cond: [concurrentWriteCheck, context.startedAt, '$$REMOVE'] }
+          : '$first_uncompacted_write',
+      next_compact_check:
+        context.kind == CompactionKind.Full && coveredStart
+          ? { $cond: [concurrentWriteCheck, nextAfterConcurrentWrite, '$$REMOVE'] }
+          : nextCheckForUncompactedWork
+    };
+    if (context.kind == CompactionKind.Full && coveredStart) {
+      update.last_full_compact = {
+        op_id: compactedOpId,
+        count: compactionResult.bucketStats.count,
+        puts,
+        at: '$$NOW'
+      };
     }
+
+    await context.lease.finalize(update);
+  }
+
+  private async finalizeSkippedBucket(context: CompactionContext) {
+    await this.rescheduleClaimedBucket(context.lease);
+  }
+
+  private async readBucketStats(
+    bucket: string,
+    definitionId: BucketDefinitionId,
+    maxOp: InternalOpId,
+    lowerBound?: BucketDataKey
+  ): Promise<BucketStatsWithChecksum> {
+    const context = new BucketDataContextV3(this.db, {
+      bucket,
+      definitionId,
+      replicationStreamId: this.group_id
+    });
+    const [stats] = await this.db
+      .bucketData(this.group_id, definitionId)
+      .aggregate<{ count: number; bytes: number | bigint; chunks: number; checksum: bigint }>([
+        {
+          $match: {
+            _id:
+              lowerBound == null
+                ? { $gte: context.minId, $lte: context.docId(maxOp) }
+                : { $gt: lowerBound, $lte: context.docId(maxOp) }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            count: { $sum: '$count' },
+            bytes: { $sum: '$size' },
+            chunks: { $sum: 1 },
+            checksum: { $sum: '$checksum' }
+          }
+        }
+      ])
+      .toArray();
     return {
-      _id: {
-        d: definitionId,
-        b: bucket
-      }
+      count: Number(stats?.count ?? 0),
+      bytes: BigInt(stats?.bytes ?? 0),
+      chunks: Number(stats?.chunks ?? 0),
+      checksum:
+        typeof stats?.checksum == 'bigint'
+          ? Number(BigInt.asIntN(32, stats.checksum))
+          : addChecksums(0, Number(stats?.checksum ?? 0))
     };
   }
 
-  private async getBucketDataContext(
-    bucket: string,
-    definitionId: BucketDefinitionId | null
-  ): Promise<BucketDataContextV3 | null> {
-    let resolvedDefinitionId = definitionId;
-
-    if (resolvedDefinitionId == null) {
-      const allDefinitionIds = this.storage.storageIds.bucketDefinitionIds;
-      if (allDefinitionIds.length > 0) {
-        const potentialIds = allDefinitionIds.map((id) => ({ d: id, b: bucket }));
-        const bucketState = await this.db.bucketState(this.group_id).findOne({
-          _id: { $in: potentialIds }
-        });
-        if (bucketState != null) {
-          resolvedDefinitionId = bucketState._id.d;
-        }
-      }
+  private combineChunkStats(
+    state: BucketStateDocumentV3,
+    compactedTail: BucketStatsWithChecksum,
+    overlappingCompactedChunk: BucketStatsWithChecksum | undefined
+  ): BucketStatsWithChecksum {
+    const previous = state.compacted_state;
+    if (previous == null) {
+      return compactedTail;
     }
-
-    if (resolvedDefinitionId == null) {
-      return null;
+    if (overlappingCompactedChunk == null) {
+      throw new ReplicationAssertionError(`Missing previous compacted chunk for bucket ${state._id.b}`);
     }
+    return {
+      count: previous.count - overlappingCompactedChunk.count + compactedTail.count,
+      bytes: previous.bytes - overlappingCompactedChunk.bytes + compactedTail.bytes,
+      chunks: previous.chunks - 1 + compactedTail.chunks,
+      checksum: addChecksums(
+        addChecksums(Number(previous.checksum), -overlappingCompactedChunk.checksum),
+        compactedTail.checksum
+      )
+    };
+  }
 
-    return new BucketDataContextV3(this.db, {
+  private combineAdjacentStats(
+    first: BucketStatsWithChecksum,
+    second: BucketStatsWithChecksum
+  ): BucketStatsWithChecksum {
+    return {
+      count: first.count + second.count,
+      bytes: first.bytes + second.bytes,
+      chunks: first.chunks + second.chunks,
+      checksum: addChecksums(first.checksum, second.checksum)
+    };
+  }
+
+  private applyCompactionDelta(
+    total: BucketStats,
+    before: BucketStatsWithChecksum,
+    after: BucketStatsWithChecksum
+  ): BucketStats {
+    return {
+      count: total.count - before.count + after.count,
+      bytes: total.bytes - before.bytes + after.bytes,
+      chunks: total.chunks - before.chunks + after.chunks
+    };
+  }
+
+  private async compactSingleBucketFully(context: CompactionContext) {
+    const bucket = context.state._id.b;
+    const resolvedDefinitionId = context.state._id.d;
+    const bucketContext = new BucketDataContextV3(this.db, {
       bucket,
       definitionId: resolvedDefinitionId,
       replicationStreamId: this.group_id
     });
-  }
-
-  private async compactSingleBucketFully(bucket: string, definitionId: BucketDefinitionId | null = null) {
-    const bucketContext = await this.getBucketDataContext(bucket, definitionId);
-    if (bucketContext == null) {
-      return;
-    }
-
-    const resolvedDefinitionId = bucketContext.key.definitionId;
     const collection = this.db.bucketData(this.group_id, resolvedDefinitionId);
-    const context = { replicationStreamId: this.group_id, definitionId: resolvedDefinitionId };
-
+    const dataContext = { replicationStreamId: this.group_id, definitionId: resolvedDefinitionId };
     const lowerBound = bucketContext.minId;
-    let upperBound = bucketContext.docId(this.maxOpId + 1n);
+    let upperBound = bucketContext.docId(this.compactMaxOpId(context) + 1n);
 
-    let totalChecksum = 0;
     let totalOpCount = 0;
-    let totalOpBytes = 0;
+    let preCompactionPrefix = emptyBucketStats();
 
     let lastNotPut: bigint | null = null;
     let opsSincePut = 0;
@@ -410,11 +691,13 @@ export class MongoCompactorV3 extends MongoCompactor {
     let clearBoundary: { opId: bigint; documentId: BucketDataKey } | null = null;
     const seen = new Map<string, bigint>();
     let trackingSize = 0;
+    let putCount = 0;
     let pendingGroup: PendingCompactionGroup | null = null;
 
     // --- Read batch from MongoDB ---
     while (true) {
       this.signal?.throwIfAborted();
+      await context.lease.throwIfLost();
 
       const pipeline: mongo.Document[] = [
         {
@@ -464,7 +747,8 @@ export class MongoCompactorV3 extends MongoCompactor {
       // merging is useful, and writes each final object at most once.
       for (const doc of batchDocs) {
         compactedOpId ??= doc._id.o;
-        const originalOps = Array.from(loadBucketDataDocument(context, doc));
+        preCompactionPrefix = this.combineAdjacentStats(preCompactionPrefix, statsForDocument(doc));
+        const originalOps = Array.from(loadBucketDataDocument(dataContext, doc));
 
         let changed = false;
         const compactedOps: BucketDataDoc[] = [];
@@ -497,6 +781,7 @@ export class MongoCompactorV3 extends MongoCompactor {
               }
               compactedOps.push(op);
               if (op.op == 'PUT') {
+                putCount++;
                 lastNotPut = null;
                 opsSincePut = 0;
               } else {
@@ -518,10 +803,6 @@ export class MongoCompactorV3 extends MongoCompactor {
         }
         compactedOps.reverse();
 
-        for (const op of compactedOps) {
-          totalChecksum = addChecksums(totalChecksum, Number(op.checksum));
-          totalOpBytes += op.data?.length ?? 0;
-        }
         totalOpCount += compactedOps.length;
 
         const candidate: PendingCompactionGroup = {
@@ -545,7 +826,7 @@ export class MongoCompactorV3 extends MongoCompactor {
             };
           } else {
             const flushedGroup = pendingGroup;
-            const documentId = await this.flushCompactionGroup(bucket, flushedGroup, bucketContext, context);
+            const documentId = await this.flushCompactionGroup(bucket, flushedGroup, bucketContext, dataContext);
             if (
               lastNotPut != null &&
               flushedGroup.ops[0].o <= lastNotPut &&
@@ -569,7 +850,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     }
 
     if (pendingGroup != null) {
-      const documentId = await this.flushCompactionGroup(bucket, pendingGroup, bucketContext, context);
+      const documentId = await this.flushCompactionGroup(bucket, pendingGroup, bucketContext, dataContext);
       if (
         lastNotPut != null &&
         pendingGroup.ops[0].o <= lastNotPut &&
@@ -579,6 +860,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       }
     }
     if (compactedOpId == null) {
+      await this.finalizeSkippedBucket(context);
       return;
     }
 
@@ -593,25 +875,20 @@ export class MongoCompactorV3 extends MongoCompactor {
         clearBoundary.documentId,
         bucketContext,
         collection,
-        context
+        dataContext
       );
     }
 
-    // --- Finalize: update bucket checksums and state ---
-    await this.finalizeCompactedBucket(
-      {
-        bucket,
-        definitionId: resolvedDefinitionId,
-        lastNotPut,
-        opsSincePut,
-        checksum: totalChecksum,
-        opCount: totalOpCount,
-        opBytes: totalOpBytes
-      },
-      compactedOpId
-    );
+    const compactedStats = await this.readBucketStats(bucket, resolvedDefinitionId, compactedOpId);
+    const result = {
+      compactedState: compactedStats,
+      bucketStats: this.applyCompactionDelta(bucketStats(context.state), preCompactionPrefix, compactedStats)
+    };
 
-    logger.info(`Compacted bucket ${bucket}: ${totalOpCount} surviving ops`);
+    // --- Finalize: update bucket checksums and state ---
+    await this.finalizeCompactedBucket(context, compactedOpId, result, putCount);
+
+    this.logger.info(`Compacted bucket ${bucket}: ${totalOpCount} surviving ops`);
   }
 
   /**

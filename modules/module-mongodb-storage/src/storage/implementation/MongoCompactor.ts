@@ -1,54 +1,13 @@
 import * as timers from 'node:timers/promises';
 
-import { isMongoServerError, mongo, MONGO_OPERATION_TIMEOUT_MS } from '@powersync/lib-service-mongodb';
-import {
-  logger as defaultLogger,
-  Logger,
-  ReplicationAssertionError,
-  ServiceAssertionError
-} from '@powersync/lib-services-framework';
-import { InternalOpId, isPartialChecksum, storage } from '@powersync/service-core';
-import { BucketDefinitionId } from '@powersync/service-sync-rules';
+import { isMongoServerError, mongo } from '@powersync/lib-service-mongodb';
+import { logger as defaultLogger, Logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
+import { storage } from '@powersync/service-core';
 
 import { BucketKey } from './common/BucketDataDoc.js';
 import type { VersionedPowerSyncMongo } from './db.js';
-import { BucketStateDocumentBase } from './models.js';
 import type { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { isRetryableObjectStorageError } from './v3/object-storage/ObjectStorage.js';
-
-export interface CurrentBucketState {
-  /** Bucket name */
-  bucket: string;
-  definitionId: BucketDefinitionId;
-  /**
-   * Rows seen in the bucket, with the last op_id of each.
-   */
-  seen: Map<string, InternalOpId>;
-  /**
-   * Estimated memory usage of the seen Map.
-   */
-  trackingSize: number;
-  /**
-   * Last (lowest) seen op_id that is not a PUT.
-   */
-  lastNotPut: InternalOpId | null;
-  /**
-   * Number of REMOVE/MOVE operations seen since lastNotPut.
-   */
-  opsSincePut: number;
-  /**
-   * Incrementally-updated checksum, up to maxOpId.
-   */
-  checksum: number;
-  /**
-   * Op count for the checksum.
-   */
-  opCount: number;
-  /**
-   * Byte size of ops covered by the checksum.
-   */
-  opBytes: number;
-}
 
 export interface MongoCompactOptions extends storage.CompactOptions {
   /**
@@ -63,9 +22,6 @@ const DEFAULT_CLEAR_BATCH_LIMIT = 5000;
 const DEFAULT_MOVE_BATCH_LIMIT = 2000;
 const DEFAULT_MOVE_BATCH_QUERY_LIMIT = 10_000;
 const DEFAULT_MOVE_BATCH_BYTE_LIMIT = 16 * 1024 * 1024;
-const DEFAULT_MIN_BUCKET_CHANGES = 10;
-const DEFAULT_MIN_CHANGE_RATIO = 0.1;
-const DIRTY_BUCKET_SCAN_BATCH_SIZE = 2_000;
 /** This default is primarily for tests. */
 const DEFAULT_MEMORY_LIMIT_MB = 64;
 const COMPACTION_RETRY_LIMIT = 3;
@@ -78,23 +34,24 @@ export class ConcurrentCompactionError extends Error {
   }
 }
 
-export interface DirtyBucket {
-  bucket: string;
-  definitionId: BucketDefinitionId | null;
-  estimatedCount: number;
-  dirtyRatio?: number;
+/**
+ * A worker whose bucket lease has been replaced must stop immediately. Unlike
+ * a transactional replacement conflict, retrying it with the same compactor
+ * instance would still use the stale lease and could race the new owner.
+ */
+export class CompactionLeaseLostError extends ConcurrentCompactionError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CompactionLeaseLostError';
+  }
 }
 
 export abstract class MongoCompactor {
-  protected bucketStateUpdates: mongo.AnyBulkWriteOperation<BucketStateDocumentBase>[] = [];
-
   protected readonly idLimitBytes: number;
   protected readonly moveBatchLimit: number;
   protected readonly moveBatchQueryLimit: number;
   protected readonly moveBatchByteLimit: number;
   protected readonly clearBatchLimit: number;
-  protected readonly minBucketChanges: number;
-  protected readonly minChangeRatio: number;
   protected readonly maxOpId: bigint;
   protected readonly buckets: string[] | undefined;
   protected readonly deleteCheckpointRequestsBefore: Date | undefined;
@@ -119,8 +76,6 @@ export abstract class MongoCompactor {
     if (this.clearBatchLimit < 2) {
       throw new ReplicationAssertionError('clearBatchLimit must be >= 2');
     }
-    this.minBucketChanges = options.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
-    this.minChangeRatio = options.minChangeRatio ?? DEFAULT_MIN_CHANGE_RATIO;
     this.maxOpId = options.maxOpId ?? 0n;
     this.buckets = options.compactBuckets;
     this.deleteCheckpointRequestsBefore = options.deleteCheckpointRequestsBefore;
@@ -129,28 +84,9 @@ export abstract class MongoCompactor {
     this.logger = options.logger ?? defaultLogger;
   }
 
-  /**
-   * Compact buckets by converting operations into MOVE and/or CLEAR operations.
-   *
-   * See /docs/storage/compacting-operations.md for details.
-   */
-  async compact(): Promise<number> {
-    await this.deleteOldCheckpointRequests();
+  abstract compact(): Promise<number>;
 
-    if (this.buckets) {
-      for (const bucket of this.buckets) {
-        // We can make this more efficient later on by iterating through the buckets in a single query.
-        // That makes batching more tricky, so we leave for later.
-        await this.compactSingleBucketRetried(bucket);
-      }
-    } else {
-      await this.compactDirtyBuckets();
-    }
-
-    return this.compactedBucketCount;
-  }
-
-  private async deleteOldCheckpointRequests() {
+  protected async deleteOldCheckpointRequests() {
     if (this.deleteCheckpointRequestsBefore == null) {
       return;
     }
@@ -169,142 +105,6 @@ export abstract class MongoCompactor {
     });
   }
 
-  protected async *dirtyBucketBatchesForCollection<TCollectionBucketState extends BucketStateDocumentBase>(
-    collection: mongo.Collection<TCollectionBucketState>,
-    lastId: TCollectionBucketState['_id'],
-    maxId: TCollectionBucketState['_id'],
-    options: {
-      minBucketChanges: number;
-      minChangeRatio: number;
-    },
-    getDefinitionId: (state: TCollectionBucketState) => BucketDefinitionId | null
-  ): AsyncGenerator<DirtyBucket[]> {
-    // Paginate through the bucket state collection using cursor-based scanning.
-    while (true) {
-      // To avoid timeouts from too many buckets not meeting the minBucketChanges criteria, use an aggregation pipeline
-      // to scan a fixed batch of buckets at a time, but only return buckets that meet the criteria.
-      const [result] = await collection
-        .aggregate<{
-          buckets: TCollectionBucketState[];
-          cursor: Pick<TCollectionBucketState, '_id'>[];
-        }>(
-          [
-            {
-              $match: {
-                _id: { $gt: lastId, $lt: maxId }
-              }
-            },
-            {
-              $sort: { _id: 1 }
-            },
-            {
-              // Scan a fixed number of docs each query so sparse matches don't block progress.
-              $limit: DIRTY_BUCKET_SCAN_BATCH_SIZE
-            },
-            {
-              $facet: {
-                buckets: [
-                  {
-                    $match: {
-                      'estimate_since_compact.count': { $gte: options.minBucketChanges }
-                    }
-                  },
-                  {
-                    $project: {
-                      _id: 1,
-                      estimate_since_compact: 1,
-                      compacted_state: 1
-                    }
-                  }
-                ],
-                // This is used for the next query.
-                cursor: [{ $sort: { _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } }]
-              }
-            }
-          ],
-          { maxTimeMS: MONGO_OPERATION_TIMEOUT_MS }
-        )
-        .toArray();
-
-      const cursor = result?.cursor?.[0];
-      if (cursor == null) {
-        break;
-      }
-      lastId = cursor._id;
-
-      const mapped = (result?.buckets ?? []).map((bucketState) => {
-        // The numbers, specifically the bytes, could be a bigint. Convert to Number to allow calculating ratios.
-        // BigInt precision is not needed here since this is only an estimate.
-        const updatedCount = bucketState.estimate_since_compact?.count ?? 0;
-        const totalCount = (bucketState.compacted_state?.count ?? 0) + updatedCount;
-        const updatedBytes = Number(bucketState.estimate_since_compact?.bytes ?? 0);
-        const totalBytes = Number(bucketState.compacted_state?.bytes ?? 0) + updatedBytes;
-        const dirtyChangeNumber = totalCount > 0 ? updatedCount / totalCount : 0;
-        const dirtyChangeBytes = totalBytes > 0 ? updatedBytes / totalBytes : 0;
-        return {
-          bucket: bucketState._id.b,
-          definitionId: getDefinitionId(bucketState),
-          estimatedCount: totalCount,
-          dirtyRatio: Math.max(dirtyChangeNumber, dirtyChangeBytes)
-        };
-      });
-
-      yield mapped.filter(
-        (bucket) => bucket.estimatedCount >= options.minBucketChanges && bucket.dirtyRatio >= options.minChangeRatio
-      );
-    }
-  }
-
-  protected async dirtyBucketBatchForChecksumsForCollection<TBucketState extends BucketStateDocumentBase>(
-    collection: mongo.Collection<TBucketState>,
-    filter: mongo.Filter<TBucketState>,
-    getDefinitionId: (state: mongo.WithId<TBucketState>) => BucketDefinitionId | null
-  ): Promise<DirtyBucket[]> {
-    const dirtyBuckets = await collection
-      .find(filter, {
-        projection: {
-          _id: 1,
-          estimate_since_compact: 1,
-          compacted_state: 1
-        },
-        sort: {
-          'estimate_since_compact.count': -1
-        },
-        limit: 200,
-        maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
-      })
-      .toArray();
-
-    return dirtyBuckets.map((bucket) => ({
-      bucket: bucket._id.b,
-      definitionId: getDefinitionId(bucket),
-      estimatedCount: Number(bucket.estimate_since_compact!.count) + Number(bucket.compacted_state?.count ?? 0)
-    }));
-  }
-
-  public abstract dirtyBucketBatches(options: {
-    minBucketChanges: number;
-    minChangeRatio: number;
-  }): AsyncGenerator<DirtyBucket[]>;
-
-  public abstract dirtyBucketBatchForChecksums(options: { minBucketChanges: number }): Promise<DirtyBucket[]>;
-
-  protected async compactDirtyBuckets() {
-    for await (const buckets of this.dirtyBucketBatches({
-      minBucketChanges: this.minBucketChanges,
-      minChangeRatio: this.minChangeRatio
-    })) {
-      this.signal?.throwIfAborted();
-      if (buckets.length == 0) {
-        continue;
-      }
-
-      for (const { bucket, definitionId } of buckets) {
-        await this.compactSingleBucketRetried(bucket, definitionId);
-      }
-    }
-  }
-
   /**
    * Compaction for a single bucket, with retries on failure.
    *
@@ -313,14 +113,12 @@ export abstract class MongoCompactor {
    * storage paths are also prepared with lifecycle markers, so a retry can
    * safely overwrite or eventually clean up uploads from the failed attempt.
    */
-  protected async compactSingleBucketRetried(bucket: string, definitionId: BucketDefinitionId | null = null) {
+  protected async retryCompaction(bucket: string, compact: () => Promise<void>) {
     let retryCount = 0;
     while (true) {
       this.signal?.throwIfAborted();
-      // Do not carry queued bucket state writes from a failed attempt into the rescan.
-      this.bucketStateUpdates = [];
       try {
-        await this.compactSingleBucket(bucket, definitionId);
+        await compact();
         return;
       } catch (e) {
         if (this.signal?.aborted) {
@@ -349,101 +147,6 @@ export abstract class MongoCompactor {
       }
     }
   }
-
-  protected abstract compactSingleBucket(bucket: string, definitionId?: BucketDefinitionId | null): Promise<void>;
-
-  protected collectBucketStateUpdates(
-    state: CurrentBucketState,
-    compactedOpId: InternalOpId
-  ): mongo.AnyBulkWriteOperation<BucketStateDocumentBase> {
-    if (state.opCount < 0) {
-      throw new ServiceAssertionError(
-        `Invalid opCount: ${state.opCount} checksum ${state.checksum} opsSincePut: ${state.opsSincePut} maxOpId: ${this.maxOpId}`
-      );
-    }
-    return {
-      updateOne: {
-        filter: this.bucketStateFilter(state.bucket, state.definitionId),
-        update: {
-          $set: {
-            compacted_state: {
-              op_id: compactedOpId,
-              count: state.opCount,
-              checksum: BigInt(state.checksum),
-              bytes: state.opBytes
-            },
-            estimate_since_compact: {
-              // There could have been a whole bunch of new operations added to the bucket while compacting,
-              // which we don't currently cater for. We could potentially query for that, but that adds overhead.
-              count: 0,
-              bytes: 0
-            }
-          }
-        } satisfies mongo.UpdateFilter<BucketStateDocumentBase>,
-        // We generally expect this to have been created before.
-        // We don't create new ones here, to avoid issues with the unique index on bucket_updates.
-        upsert: false
-      }
-    };
-  }
-
-  protected updateBucketChecksums(state: CurrentBucketState, compactedOpId: InternalOpId) {
-    this.bucketStateUpdates.push(this.collectBucketStateUpdates(state, compactedOpId));
-  }
-
-  protected async flushBucketStateUpdates() {
-    if (this.bucketStateUpdates.length > 0) {
-      this.logger.info(`Updating ${this.bucketStateUpdates.length} bucket states`);
-      await this.writeBucketStateUpdates();
-      this.bucketStateUpdates = [];
-    }
-  }
-
-  protected async updateChecksumsBatch(buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]) {
-    const checksums = await this.computeChecksumsForBuckets(buckets);
-    const definitionIdByBucket = new Map(buckets.map((bucket) => [bucket.bucket, bucket.definitionId]));
-
-    for (const bucketChecksum of checksums.values()) {
-      if (isPartialChecksum(bucketChecksum)) {
-        // Should never happen since we don't specify `start`.
-        throw new ServiceAssertionError(`Full checksum expected, got ${JSON.stringify(bucketChecksum)}`);
-      }
-
-      this.bucketStateUpdates.push({
-        updateOne: {
-          filter: this.bucketStateFilter(
-            bucketChecksum.bucket,
-            definitionIdByBucket.get(bucketChecksum.bucket) ?? null
-          ),
-          update: {
-            $set: {
-              compacted_state: {
-                op_id: this.maxOpId,
-                count: bucketChecksum.count,
-                checksum: BigInt(bucketChecksum.checksum),
-                bytes: null
-              },
-              estimate_since_compact: {
-                count: 0,
-                bytes: 0
-              }
-            }
-          } satisfies mongo.UpdateFilter<BucketStateDocumentBase>,
-          // We don't create new ones here - it gets tricky to get the last_op right with the unique index on
-          // bucket_updates.
-          upsert: false
-        }
-      });
-    }
-
-    await this.flushBucketStateUpdates();
-  }
-
-  protected abstract writeBucketStateUpdates(): Promise<void>;
-  protected abstract computeChecksumsForBuckets(
-    buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
-  ): Promise<storage.PartialChecksumMap>;
-  protected abstract bucketStateFilter(bucket: string, definitionId: BucketDefinitionId | null): mongo.Document;
 }
 
 export interface BucketDataCollectionContext<TBucketData extends mongo.Document> {
@@ -452,6 +155,9 @@ export interface BucketDataCollectionContext<TBucketData extends mongo.Document>
 }
 
 function compactionRetryReason(error: unknown): string | null {
+  if (error instanceof CompactionLeaseLostError) {
+    return null;
+  }
   if (error instanceof ConcurrentCompactionError) {
     return 'concurrent compaction';
   }
