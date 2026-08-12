@@ -17,12 +17,27 @@ import { CaptureInstanceMissingError } from './CaptureReconciler.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 import { SchemaChange, SchemaChangeType } from './SchemaChange.js';
 
-enum Operation {
-  DELETE = 1,
-  INSERT = 2,
-  UPDATE_BEFORE = 3,
-  UPDATE_AFTER = 4
+enum LogicalChangeType {
+  INSERT = 'INSERT',
+  DELETE = 'DELETE',
+  UPDATE = 'UPDATE',
+  DEFERRED_UPDATE = 'DEFERRED UPDATE'
 }
+
+/**
+ *  One logical change to a single row, made up of the one or two CDC rows that describe it.
+ */
+interface LogicalChange {
+  transactionLSN: LSN;
+  type: LogicalChangeType;
+  /**
+   *  Inserts and Deletes resolve to 1 row.
+   *  Updates resolve to 2 rows, the row values before and after the update: [rowBefore, rowAfter].
+   */
+  rows: any[];
+}
+
+export const DEFAULT_SCHEMA_CHECK_INTERVAL_MS = 60_000;
 
 export interface CDCEventHandler {
   onInsert: (row: any, table: MSSQLSourceTable, columns: sql.IColumnMetadata) => Promise<void>;
@@ -31,8 +46,6 @@ export interface CDCEventHandler {
   onCommit: (lsn: string, transactionCount: number) => Promise<void>;
   onSchemaChange: (change: SchemaChange) => Promise<void>;
 }
-
-export const DEFAULT_SCHEMA_CHECK_INTERVAL_MS = 60_000;
 
 export interface CDCPollerOptions {
   connectionManager: MSSQLConnectionManager;
@@ -50,25 +63,31 @@ export interface CDCPollerOptions {
   schemaCheckIntervalMs?: number;
 }
 
+/**
+ * Polls SQL Server CDC change tables for changes at a configurable interval.
+ *
+ * Processes changes in commit order, groups CDC rows into logical insert,
+ * update, and delete operations. It only commits once all the operations recorded in a polling cycle have been processed.
+ * Periodically runs checks to detect schema and capture-instance changes.
+ */
 export class CDCPoller {
   private connectionManager: MSSQLConnectionManager;
   private eventHandler: CDCEventHandler;
   private currentLSN: LSN;
   private logger: Logger;
-  private listenerError: Error | null;
   private captureInstances: Map<number, CaptureInstanceDetails>;
 
+  private pollingError: Error | null = null;
   private isStopped: boolean = false;
   private isStopping: boolean = false;
   private isPolling: boolean = false;
   private lastSchemaCheckTime: number = 0;
 
-  constructor(public options: CDCPollerOptions) {
+  constructor(private options: CDCPollerOptions) {
     this.logger = options.logger ?? defaultLogger;
     this.connectionManager = options.connectionManager;
     this.eventHandler = options.eventHandler;
     this.currentLSN = options.startLSN;
-    this.listenerError = null;
     this.captureInstances = new Map<number, CaptureInstanceDetails>();
   }
 
@@ -144,7 +163,7 @@ export class CDCPoller {
           }
 
           // Non-recoverable errors
-          this.listenerError = error as Error;
+          this.pollingError = error as Error;
           this.logger.error('Error during CDC polling:', error);
           this.stop();
         }
@@ -152,9 +171,9 @@ export class CDCPoller {
       }
     }
 
-    if (this.listenerError) {
-      this.logger.error('CDC polling was stopped due to an error:', this.listenerError);
-      throw this.listenerError;
+    if (this.pollingError) {
+      this.logger.error('CDC polling was stopped due to an error:', this.pollingError);
+      throw this.pollingError;
     }
 
     this.logger.info(`CDC polling stopped...`);
@@ -188,20 +207,21 @@ export class CDCPoller {
 
       this.logger.info(`Polling bounds are ${startLSN} -> ${endLSN} spanning ${results.length} transaction(s).`);
 
-      let transactionCount = 0;
+      // We poll for batch size transactions, but these include transactions not applicable to our Source Tables.
+      // A single transaction can also span several Source Tables, so collect the distinct transaction LSNs
+      // that produced changes rather than counting per table, which would either double count the
+      // transactions spanning tables or miss the transactions applicable to only one of them.
+      let transactionLSNs = new Set<string>();
       this.logger.debug(
         `Currently replicating tables: ${this.replicatedTables.map((table) => table.toQualifiedName()).join(', ')}`
       );
       for (const table of this.replicatedTables) {
         if (table.enabledForCDC()) {
-          const tableTransactionCount = await this.pollTable(table, { startLSN, endLSN });
-          // We poll for batch size transactions, but these include transactions not applicable to our Source Tables.
-          // Each Source Table may or may not have transactions that are applicable to it, so just keep track of the highest number of transactions processed for any Source Table.
-          if (tableTransactionCount > transactionCount) {
-            transactionCount = tableTransactionCount;
-          }
+          const transactions = await this.pollTable(table, { startLSN, endLSN });
+          transactions.forEach((t) => transactionLSNs.add(t));
         }
       }
+      const transactionCount = transactionLSNs.size;
 
       this.logger.info(
         `Processed ${results.length} transaction(s), including ${transactionCount} Source Table transaction(s). Commited LSN: ${endLSN.toString()}`
@@ -218,7 +238,14 @@ export class CDCPoller {
     }
   }
 
-  private async pollTable(table: MSSQLSourceTable, bounds: { startLSN: LSN; endLSN: LSN }): Promise<number> {
+  /**
+   *  Processes the changes this table has within the given bounds, and returns the LSNs of the
+   *  transactions those changes belong to. The LSNs are returned in their string form so that the
+   *  caller can deduplicate them across tables by value.
+   */
+  private async pollTable(table: MSSQLSourceTable, bounds: { startLSN: LSN; endLSN: LSN }): Promise<Set<string>> {
+    const transactionLSNs = new Set<string>();
+
     // CDC cleanup can advance minLSN while the capture-table identity remains unchanged, so use
     // the latest metadata loaded by the schema check rather than the instance bound at startup.
     const availableInstances = this.captureInstances.get(table.objectId)?.instances ?? [];
@@ -234,62 +261,50 @@ export class CDCPoller {
     }
     const minLSN = boundInstance.minLSN;
     if (minLSN > bounds.endLSN) {
-      return 0;
+      return transactionLSNs;
     } else if (minLSN >= bounds.startLSN) {
       bounds.startLSN = minLSN;
     }
 
     try {
-      const { recordset: results } = await this.connectionManager.query(
-        `
-        SELECT * FROM ${table.allChangesFunction}(@from_lsn, @to_lsn, 'all update old') ORDER BY __$start_lsn, __$seqval
-    `,
-        [
-          { name: 'from_lsn', type: sql.VarBinary, value: bounds.startLSN.toBinary() },
-          { name: 'to_lsn', type: sql.VarBinary, value: bounds.endLSN.toBinary() }
-        ]
-      );
+      const request = await this.connectionManager.createRequest();
+      request.input('from_lsn', sql.VarBinary, bounds.startLSN.toBinary());
+      request.input('to_lsn', sql.VarBinary, bounds.endLSN.toBinary());
 
-      let transactionCount = 0;
-      let updateBefore: any = null;
-      let lastTransactionLSN: LSN | null = null;
-      for (const row of results) {
-        const transactionLSN = LSN.fromBinary(row.__$start_lsn);
-        switch (row.__$operation) {
-          case Operation.DELETE:
-            await this.eventHandler.onDelete(row, table, results.columns);
-            this.logger.info(`Processed DELETE row LSN: ${transactionLSN}`);
-            break;
-          case Operation.INSERT:
-            await this.eventHandler.onInsert(row, table, results.columns);
-            this.logger.info(`Processed INSERT row LSN: ${transactionLSN}`);
-            break;
-          case Operation.UPDATE_BEFORE:
-            updateBefore = row;
-            this.logger.debug(`Processed UPDATE, before row LSN: ${transactionLSN}`);
-            break;
-          case Operation.UPDATE_AFTER:
-            if (updateBefore === null) {
-              throw new ReplicationAssertionError('Missing before image for update event.');
-            }
-            await this.eventHandler.onUpdate(row, updateBefore, table, results.columns);
-            updateBefore = null;
-            this.logger.info(`Processed UPDATE row LSN: ${transactionLSN}`);
-            break;
-          default:
-            this.logger.warn(`Unknown operation type [${row.__$operation}] encountered in CDC changes.`);
-        }
+      let columns: sql.IColumnMetadata | null = null;
+      request.on('recordset', (recordsetColumns) => {
+        columns = recordsetColumns;
+      });
+      const stream = request.toReadableStream();
+      request.query(`
+        SELECT * FROM ${table.allChangesFunction}(@from_lsn, @to_lsn, 'all update old') ORDER BY __$start_lsn, __$seqval, __$operation
+      `);
 
-        // Increment transaction count when we encounter a new transaction LSN (except for UPDATE_BEFORE rows)
-        if (transactionLSN != lastTransactionLSN) {
-          lastTransactionLSN = transactionLSN;
-          if (row.__$operation !== Operation.UPDATE_BEFORE) {
-            transactionCount++;
-          }
+      for await (const { transactionLSN, type, rows } of groupLogicalChanges(stream, table)) {
+        if (columns == null) {
+          throw new ReplicationAssertionError(
+            `Missing CDC column metadata while polling for updates for table ${table.toQualifiedName()}.`
+          );
         }
+        switch (type) {
+          case LogicalChangeType.DELETE:
+            await this.eventHandler.onDelete(rows[0], table, columns);
+            break;
+          case LogicalChangeType.INSERT:
+            await this.eventHandler.onInsert(rows[0], table, columns);
+            break;
+          case LogicalChangeType.UPDATE:
+          case LogicalChangeType.DEFERRED_UPDATE:
+            const [rowBefore, rowAfter] = rows;
+            await this.eventHandler.onUpdate(rowAfter, rowBefore, table, columns);
+            break;
+        }
+        this.logger.info(`Processed ${type}. Transaction LSN: ${transactionLSN}`);
+
+        transactionLSNs.add(transactionLSN.toString());
       }
 
-      return transactionCount;
+      return transactionLSNs;
     } catch (error) {
       // This Covers both deleted tables and capture instances. Unlike the check above, this cannot
       // tell the two apart, so it stays recoverable: the forced schema check classifies it as a
@@ -382,4 +397,93 @@ export class CDCPoller {
 
     return schemaChanges;
   }
+}
+
+/**
+ *  Groups CDC change rows into the logical row changes they describe.
+ *
+ *  SQL Server records a logical change as either one row (a plain insert or delete) or two rows that share
+ *  a `__$seqval`. `__$seqval` represents the ordering of the changes to a row within a transaction.
+ *  CDC operations that can share a `__$seqval` are:
+ *  - The before and after operations of an in-place update
+ *  - The delete and insert operations of a deferred update.
+ *
+ *  This method groups and emits rows in the same transaction based on their `__$seqval`
+ */
+async function* groupLogicalChanges(rows: AsyncIterable<any>, table: MSSQLSourceTable): AsyncGenerator<LogicalChange> {
+  interface PendingGroup {
+    transactionLSN: Buffer;
+    sequence: Buffer;
+    rows: any[];
+  }
+
+  let current: PendingGroup | null = null;
+
+  for await (const row of rows) {
+    const transactionLSN: Buffer = row.__$start_lsn;
+    const sequence: Buffer = row.__$seqval;
+
+    if (current && !(transactionLSN.equals(current.transactionLSN) && sequence.equals(current.sequence))) {
+      yield toLogicalChange(current.rows, current.transactionLSN, table);
+      current = null;
+    }
+    current ??= {
+      transactionLSN,
+      sequence,
+      rows: []
+    };
+    current.rows.push(row);
+  }
+
+  if (current) {
+    yield toLogicalChange(current.rows, current.transactionLSN, table);
+  }
+}
+
+function toLogicalChange(rows: any[], startLSN: Buffer, table: MSSQLSourceTable): LogicalChange {
+  const transactionLSN = LSN.fromBinary(startLSN);
+  return {
+    transactionLSN,
+    type: resolveLogicalChangeType(rows, transactionLSN, table),
+    rows: rows
+  };
+}
+
+function resolveLogicalChangeType(orderedRows: any[], transactionLSN: LSN, table: MSSQLSourceTable): LogicalChangeType {
+  // This matches the actual CDC operation codes:https://learn.microsoft.com/en-us/sql/relational-databases/system-functions/cdc-fn-cdc-get-all-changes-capture-instance-transact-sql?view=sql-server-ver17#table-returned
+  enum Operation {
+    DELETE = 1,
+    INSERT = 2,
+    UPDATE_BEFORE = 3,
+    UPDATE_AFTER = 4
+  }
+
+  if (orderedRows.length === 1) {
+    const operation = orderedRows[0].__$operation;
+
+    if (operation === Operation.INSERT) {
+      return LogicalChangeType.INSERT;
+    } else if (operation === Operation.DELETE) {
+      return LogicalChangeType.DELETE;
+    } else {
+      throw new ReplicationAssertionError(
+        `Unrecognized operation: ${operation} for table ${table.toQualifiedName()} in transaction LSN ${transactionLSN}.`
+      );
+    }
+  } else if (orderedRows.length === 2) {
+    const [first, second] = orderedRows;
+    if (first.__$operation === Operation.UPDATE_BEFORE && second.__$operation === Operation.UPDATE_AFTER) {
+      return LogicalChangeType.UPDATE;
+    } else if (first.__$operation === Operation.DELETE && second.__$operation === Operation.INSERT) {
+      return LogicalChangeType.DEFERRED_UPDATE;
+    }
+
+    throw new ReplicationAssertionError(
+      `Unexpected CDC operations [${first.__$operation}, ${second.__$operation}] for a single logical change on table ${table.toQualifiedName()} in transaction LSN ${transactionLSN}.`
+    );
+  }
+
+  throw new ReplicationAssertionError(
+    `Unexpected number of CDC operations [${orderedRows.length}] for a single logical change on table ${table.toQualifiedName()} in transaction LSN ${transactionLSN}.`
+  );
 }
