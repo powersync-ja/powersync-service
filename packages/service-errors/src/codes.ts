@@ -21,10 +21,10 @@ export enum ErrorCode {
   // ## PSYNC_R22xx: SQL supported feature issues
 
   /**
-   * Schema wildcards ("%") in table patterns are only supported for Postgres connections.
+   * A table or schema wildcard ("%") is not supported by the configured source connector.
    *
-   * Other connection types treat the schema part of a table pattern as an exact database or
-   * schema name, so a wildcard schema would silently match nothing there.
+   * Wildcard support is connector-specific. For example, SQL Server requires exact table and
+   * schema names, while some other connectors support table wildcards but not schema wildcards.
    */
   PSYNC_R2201 = 'PSYNC_R2201',
 
@@ -346,15 +346,41 @@ export enum ErrorCode {
   // ## PSYNC_S16xx: MSSQL replication issues
 
   /**
-   *  A replicated source table's capture instance has been dropped during a polling cycle.
+   *  The CDC capture instance a replicated source table was bound to has been dropped.
    *
    *  Possible causes:
    *  * CDC has been disabled for the table.
    *  * The table has been dropped, which also drops the capture instance.
    *
-   *  Replication for the table will only resume once CDC has been re-enabled for the table.
+   *  Replication stops and requires a sync config redeployment. Re-enabling CDC creates a new capture
+   *  instance, which the existing stream will not adopt.
    */
   PSYNC_S1601 = 'PSYNC_S1601',
+
+  /**
+   *  A table in the sync configuration is not ready to be replicated.
+   *
+   *  Possible causes:
+   *  * CDC has not been enabled for the table.
+   *  * The table does not exist in the source database.
+   *
+   *  For a table that has not been replicated by this stream before, replication starts once the
+   *  table exists and has CDC enabled, without a new sync deploy.
+   *
+   *  For a table this stream was already replicating, re-enabling CDC is not enough: the new capture
+   *  instance has a different object id, so the next attempt fails with `PSYNC_S1601` until the sync
+   *  config is redeployed.
+   */
+  PSYNC_S1602 = 'PSYNC_S1602',
+
+  /**
+   *  A replicated source table was dropped, renamed, recreated, or no longer matches the source
+   *  identity selected by the current replication process.
+   *
+   *  Replication stops because the table may still have unread changes. A sync config deployment
+   *  is required to adopt the replacement; existing replicated data is retained until then.
+   */
+  PSYNC_S1603 = 'PSYNC_S1603',
 
   // ## PSYNC_S2xxx: Service API
 
