@@ -11,6 +11,28 @@ export interface MSSQLConnectionManagerListener {
   onEnded(): void;
 }
 
+export function createConnectionPoolConfig(
+  options: NormalizedMSSQLConnectionConfig,
+  poolOptions: sql.PoolOpts<sql.Connection>
+): sql.config {
+  return {
+    authentication: options.authentication,
+    user: options.username,
+    password: options.password,
+    server: options.hostname,
+    port: options.port,
+    database: options.database,
+    pool: poolOptions,
+    options: {
+      appName: `powersync/${POWERSYNC_VERSION}`,
+      encrypt: true, // Required for Azure
+      trustServerCertificate: options.additionalConfig.trustServerCertificate,
+      ...(options.tls_servername ? { serverName: options.tls_servername } : {}),
+      ...(options.cacert ? { cryptoCredentialsDetails: { ca: options.cacert } } : {})
+    }
+  };
+}
+
 export class MSSQLConnectionManager extends BaseObserver<MSSQLConnectionManagerListener> {
   private readonly pool: sql.ConnectionPool;
 
@@ -20,20 +42,7 @@ export class MSSQLConnectionManager extends BaseObserver<MSSQLConnectionManagerL
   ) {
     super();
     // The pool is lazy - no connections are opened until a query is performed.
-    this.pool = new sql.ConnectionPool({
-      authentication: options.authentication,
-      user: options.username,
-      password: options.password,
-      server: options.hostname,
-      port: options.port,
-      database: options.database,
-      pool: poolOptions,
-      options: {
-        appName: `powersync/${POWERSYNC_VERSION}`,
-        encrypt: true, // Required for Azure
-        trustServerCertificate: options.additionalConfig.trustServerCertificate
-      }
-    });
+    this.pool = new sql.ConnectionPool(createConnectionPoolConfig(options, poolOptions));
   }
 
   public get connectionTag() {
