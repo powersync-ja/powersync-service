@@ -12,9 +12,17 @@ import {
 } from '@module/utils/mssql.js';
 import { getReplicationIdentityColumns } from '@module/utils/schema.js';
 import { SourceTable } from '@powersync/service-core';
+import sql from 'mssql';
 import timers from 'timers/promises';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { clearTestDb, enableCDCForTable, TEST_CONNECTION_OPTIONS, waitForPendingCDCChanges } from './util.js';
+import {
+  clearTestDb,
+  createTestTableWithBasicId,
+  enableCDCForTable,
+  insertBasicIdTestData,
+  TEST_CONNECTION_OPTIONS,
+  waitForPendingCDCChanges
+} from './util.js';
 
 describe('CDCPoller tests', { timeout: 60_000 }, () => {
   let connectionManager: MSSQLConnectionManager;
@@ -61,24 +69,32 @@ describe('CDCPoller tests', { timeout: 60_000 }, () => {
 
   test('Normal deletes and inserts in the same transaction are not collapsed into updates', async () => {
     const tableName = 'test_mixed_transaction';
-    await createDeferredUpdateTestTable(connectionManager, tableName);
+    await createTestTableWithBasicId(connectionManager, tableName);
     const qualifiedName = toQualifiedTableName(connectionManager.schema, tableName);
 
     const beforeInsertLSN = await getLatestLSN(connectionManager);
-    await connectionManager.query(`
-      INSERT INTO ${qualifiedName} (id, code) VALUES (1, 'V1'), (2, 'V2')
-    `);
+    const initial = await insertBasicIdTestData(connectionManager, tableName);
     await waitForPendingCDCChanges(beforeInsertLSN, connectionManager);
 
     const startLSN = await getLatestReplicatedLSN(connectionManager);
 
     const beforeUpdateLSN = await getLatestLSN(connectionManager);
-    await connectionManager.query(`
+    const replacementDescription = 'replacement';
+    const { recordset } = await connectionManager.query(
+      `
       BEGIN TRAN;
-        DELETE FROM ${qualifiedName} WHERE id = 1;
-        INSERT INTO ${qualifiedName} (id, code) VALUES (1, 'V1again');
+        DELETE FROM ${qualifiedName} WHERE id = @id;
+        INSERT INTO ${qualifiedName} (description)
+        OUTPUT INSERTED.id, INSERTED.description
+        VALUES (@description);
       COMMIT;
-    `);
+    `,
+      [
+        { name: 'id', type: sql.Int, value: initial.id },
+        { name: 'description', type: sql.NVarChar(sql.MAX), value: replacementDescription }
+      ]
+    );
+    const replacement = recordset[0];
     await waitForPendingCDCChanges(beforeUpdateLSN, connectionManager);
 
     const table = await resolveSourceTable(connectionManager, tableName);
@@ -90,25 +106,28 @@ describe('CDCPoller tests', { timeout: 60_000 }, () => {
     });
 
     expect(operations).toMatchObject([
-      { operation: 'delete', row: { id: 1, code: 'V1' } },
-      { operation: 'insert', row: { id: 1, code: 'V1again' } }
+      { operation: 'delete', row: initial },
+      { operation: 'insert', row: replacement }
     ]);
   });
 
   test('In place updates emit a single UPDATE with the before and after rows', async () => {
     const tableName = 'test_in_place_update';
-    await createDeferredUpdateTestTable(connectionManager, tableName);
+    await createTestTableWithBasicId(connectionManager, tableName);
     const qualifiedName = toQualifiedTableName(connectionManager.schema, tableName);
 
     const beforeInsertLSN = await getLatestLSN(connectionManager);
-    await connectionManager.query(`INSERT INTO ${qualifiedName} (id, code) VALUES (1, 'V1')`);
+    const initial = await insertBasicIdTestData(connectionManager, tableName);
     await waitForPendingCDCChanges(beforeInsertLSN, connectionManager);
 
     const startLSN = await getLatestReplicatedLSN(connectionManager);
 
     const beforeUpdateLSN = await getLatestLSN(connectionManager);
-    // The new value does not derive from the current one, so the row stays put.
-    await connectionManager.query(`UPDATE ${qualifiedName} SET code = 'V9' WHERE id = 1`);
+    const updated = { ...initial, description: 'updated' };
+    await connectionManager.query(`UPDATE ${qualifiedName} SET description = @description WHERE id = @id`, [
+      { name: 'description', type: sql.NVarChar(sql.MAX), value: updated.description },
+      { name: 'id', type: sql.Int, value: updated.id }
+    ]);
     await waitForPendingCDCChanges(beforeUpdateLSN, connectionManager);
 
     const table = await resolveSourceTable(connectionManager, tableName);
@@ -119,24 +138,20 @@ describe('CDCPoller tests', { timeout: 60_000 }, () => {
       expectedOperationCount: 1
     });
 
-    expect(operations).toMatchObject([
-      { operation: 'update', rowBefore: { id: 1, code: 'V1' }, rowAfter: { id: 1, code: 'V9' } }
-    ]);
+    expect(operations).toMatchObject([{ operation: 'update', rowBefore: initial, rowAfter: updated }]);
   });
 
   test('Committed transaction count covers transactions across all replicated tables', async () => {
     const firstTableName = 'test_transaction_count_first';
     const secondTableName = 'test_transaction_count_second';
-    await createDeferredUpdateTestTable(connectionManager, firstTableName);
-    await createDeferredUpdateTestTable(connectionManager, secondTableName);
-    const firstQualifiedName = toQualifiedTableName(connectionManager.schema, firstTableName);
-    const secondQualifiedName = toQualifiedTableName(connectionManager.schema, secondTableName);
+    await createTestTableWithBasicId(connectionManager, firstTableName);
+    await createTestTableWithBasicId(connectionManager, secondTableName);
 
     const startLSN = await getLatestReplicatedLSN(connectionManager);
 
     // Two separate transactions, each applying to only one of the tables. Previously this would have been undercounted as 1 transaction.
-    await connectionManager.query(`INSERT INTO ${firstQualifiedName} (id, code) VALUES (1, 'A1')`);
-    await connectionManager.query(`INSERT INTO ${secondQualifiedName} (id, code) VALUES (1, 'B1')`);
+    const first = await insertBasicIdTestData(connectionManager, firstTableName);
+    const second = await insertBasicIdTestData(connectionManager, secondTableName);
 
     // CDC captures transactions in commit order, so waiting for a checkpoint written after both
     // inserts guarantees both have been captured before polling starts. That in turn guarantees
@@ -156,13 +171,56 @@ describe('CDCPoller tests', { timeout: 60_000 }, () => {
     });
 
     expect(operations).toMatchObject([
-      { operation: 'insert', row: { id: 1, code: 'A1' } },
-      { operation: 'insert', row: { id: 1, code: 'B1' } }
+      { operation: 'insert', row: first },
+      { operation: 'insert', row: second }
     ]);
 
     // The checkpoint table is not replicated here, so only the two inserts are counted.
     const transactionCount = commits.reduce((total, commit) => total + commit.transactionCount, 0);
     expect(transactionCount).toEqual(2);
+  });
+
+  test('Refreshes the bound capture instance to use its latest metadata', async () => {
+    const tableName = 'test_capture_metadata';
+    await createTestTableWithBasicId(connectionManager, tableName);
+    const table = await resolveSourceTable(connectionManager, tableName);
+    const startupInstance = table.captureInstance;
+    console.log(startupInstance);
+    const beforeInsertLSN = await getLatestLSN(connectionManager);
+    const inserted = await insertBasicIdTestData(connectionManager, tableName);
+    await waitForPendingCDCChanges(beforeInsertLSN, connectionManager);
+
+    const captureInstances = await getCaptureInstances({
+      connectionManager,
+      table: { schema: connectionManager.schema, name: tableName }
+    });
+    console.log(captureInstances.values());
+    const refreshed = captureInstances.get(table.objectId)!.instances[0];
+    const eventHandler = new RecordingCDCEventHandler();
+    const poller = new CDCPoller({
+      connectionManager,
+      eventHandler,
+      getReplicatedTables: () => [table],
+      startLSN: LSN.fromString(LSN.ZERO),
+      additionalConfig: {
+        pollingBatchSize: 1,
+        pollingIntervalMs: 1,
+        trustServerCertificate: true
+      }
+    });
+    (poller as any).captureInstances = captureInstances;
+
+    const bounds = {
+      startLSN: LSN.fromString(LSN.ZERO),
+      endLSN: await getLatestReplicatedLSN(connectionManager)
+    };
+    await (poller as any).pollTable(table, bounds);
+
+    expect(startupInstance).not.toBe(refreshed);
+    expect(bounds.startLSN).toBe(refreshed.minLSN);
+    expect(table.captureInstance).toBe(refreshed);
+    expect(table.pinnedCaptureObjectId).toBe(refreshed.objectId);
+    expect(eventHandler.operations).toMatchObject([{ operation: 'insert', row: inserted }]);
   });
 });
 
