@@ -227,7 +227,7 @@ export class MongoCompactorV3 extends MongoCompactor {
    * long-running job does not repeatedly process buckets it scheduled itself.
    */
   private async compactScheduledBuckets(options: ScheduledCompactionOptions = {}) {
-    const jobStartedAt = await this.serverNow();
+    const jobStartedAt = new Date();
     const dueBefore = new Date(jobStartedAt.getTime() + (options.dueAheadMs ?? 0));
     const forceKind = options.forceKind;
     while (true) {
@@ -326,11 +326,6 @@ export class MongoCompactorV3 extends MongoCompactor {
     const ratio = uncompactedCount == 0 ? 0 : uncompactedCount / (compactedRows + uncompactedCount);
     const fullIntervalMs = ratio == 0 ? this.maxCompactFullIntervalMs : this.minCompactFullIntervalMs / ratio;
     return new Date(firstWrite.getTime() + Math.min(fullIntervalMs, this.maxCompactFullIntervalMs));
-  }
-
-  private async serverNow(): Promise<Date> {
-    const result = await this.db.db.command({ hello: 1 });
-    return result.localTime as Date;
   }
 
   private compactMaxOpId(context: CompactionContext): InternalOpId {
@@ -468,7 +463,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       bucketStats: this.applyCompactionDelta(bucketStats(context.state), preCompactionTail, tailStats)
     };
 
-    await this.finalizeCompactedBucket(context, compactedOpId, result);
+    await this.finalizeCompactedBucket({ context, compactedOpId, compactionResult: result, puts: 0 });
     this.compactedBucketCount++;
     this.logger.info(`Lightly compacted bucket ${bucket}: ${result.bucketStats.count} ops`);
   }
@@ -517,12 +512,17 @@ export class MongoCompactorV3 extends MongoCompactor {
     );
   }
 
-  private async finalizeCompactedBucket(
-    context: CompactionContext,
-    compactedOpId: InternalOpId,
-    compactionResult: CompactionResult,
-    puts = 0
-  ) {
+  private async finalizeCompactedBucket({
+    context,
+    compactedOpId,
+    compactionResult,
+    puts
+  }: {
+    context: CompactionContext;
+    compactedOpId: InternalOpId;
+    compactionResult: CompactionResult;
+    puts: number;
+  }) {
     await context.lease.throwIfLost();
     const startedStats = bucketStats(context.state);
     const delta = {
@@ -886,7 +886,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     };
 
     // --- Finalize: update bucket checksums and state ---
-    await this.finalizeCompactedBucket(context, compactedOpId, result, putCount);
+    await this.finalizeCompactedBucket({ context, compactedOpId, compactionResult: result, puts: putCount });
 
     this.logger.info(`Compacted bucket ${bucket}: ${totalOpCount} surviving ops`);
   }
