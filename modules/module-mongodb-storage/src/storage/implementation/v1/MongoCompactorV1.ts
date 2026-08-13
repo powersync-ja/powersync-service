@@ -52,11 +52,13 @@ export class MongoCompactorV1 extends MongoCompactor {
   private bucketStateUpdates: mongo.AnyBulkWriteOperation<BucketStateDocumentBase>[] = [];
   private readonly minBucketChanges: number;
   private readonly minChangeRatio: number;
+  private readonly maxOpId: bigint;
 
   constructor(bucketStorage: MongoSyncBucketStorageV1, db: VersionedPowerSyncMongoV1, options: MongoCompactOptions) {
     super(bucketStorage, db, options);
     this.minBucketChanges = options.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
     this.minChangeRatio = options.minChangeRatio ?? DEFAULT_MIN_CHANGE_RATIO;
+    this.maxOpId = options.maxOpId ?? 0n;
   }
 
   /**

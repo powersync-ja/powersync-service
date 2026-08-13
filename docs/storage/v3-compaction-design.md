@@ -1,6 +1,6 @@
 # V3 Compaction Design
 
-This describes the design of compaction scheduling in MongoDB storage V3. For details on what compaction means on a protocol level, see [./compating-operations.md](./compacting-operations.md).
+This describes the design of compaction scheduling in MongoDB storage V3. For details on what compaction means on a protocol level, see [./compacting-operations.md](./compacting-operations.md).
 
 ## Goals
 

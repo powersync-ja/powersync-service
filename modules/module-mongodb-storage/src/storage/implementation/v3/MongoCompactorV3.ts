@@ -311,7 +311,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           const claimedKind =
             forceKind == null ? claimedDecision.kind : this.forcedCompactionKind(lease.state, forceKind);
           if (claimedKind == null) {
-            await this.rescheduleClaimedBucket(lease, claimedDecision);
+            await this.rescheduleClaimedBucket(lease, claimedDecision, rescheduleNotBefore);
           } else {
             await this.compactClaimedBucket(lease, claimedKind, claimedDecision, rescheduleNotBefore);
           }
@@ -456,8 +456,8 @@ export class MongoCompactorV3 extends MongoCompactor {
     };
   }
 
-  private async rescheduleClaimedBucket(lease: CompactionLease, decision: CompactionDecision) {
-    await lease.reschedule(decision.nextCompactCheck);
+  private async rescheduleClaimedBucket(lease: CompactionLease, decision: CompactionDecision, notBefore?: Date) {
+    await lease.reschedule(this.rescheduleAtOrAfter(decision.nextCompactCheck, notBefore));
   }
 
   private rescheduleAtOrAfter(nextCompactCheck: mongo.Document, notBefore: Date | undefined): mongo.Document {
@@ -565,8 +565,7 @@ export class MongoCompactorV3 extends MongoCompactor {
                 count: 1,
                 size: 1,
                 target_op: 1,
-                storage_ref: 1,
-                has_clear_op: 1
+                storage_ref: 1
               }
             }
           ],
@@ -743,18 +742,19 @@ export class MongoCompactorV3 extends MongoCompactor {
   private async finalizeSkippedBucket(context: CompactionContext) {
     // A maxOpId cap can exclude the first remaining document entirely. Avoid
     // immediately claiming the same no-progress bucket again in this run.
-    await this.rescheduleClaimedBucket(context.lease, {
-      ...context.decision,
-      nextCompactCheck: this.rescheduleAtOrAfter(
-        {
+    await this.rescheduleClaimedBucket(
+      context.lease,
+      {
+        ...context.decision,
+        nextCompactCheck: {
           $max: [
             context.decision.nextCompactCheck,
             { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } }
           ]
-        },
-        context.rescheduleNotBefore
-      )
-    });
+        }
+      },
+      context.rescheduleNotBefore
+    );
   }
 
   private async readBucketStats(
@@ -1206,7 +1206,7 @@ export class MongoCompactorV3 extends MongoCompactor {
   ): Promise<{ done: boolean; opCountDiff: number }> {
     const bucket = bucketContext.key.bucket;
     this.signal?.throwIfAborted();
-    const prepared = await this.prepareCompactionUploads(bucket, context, [lastNotPut]);
+    let prepared: PreparedObjectStorageUpload[] | undefined;
     let done = false;
     let opCountDiff = 0;
 
@@ -1281,6 +1281,7 @@ export class MongoCompactorV3 extends MongoCompactor {
           return;
         }
 
+        prepared ??= await this.prepareCompactionUploads(bucket, context, [lastNotPut]);
         this.logger.info(`Flushing CLEAR for ${clearedOpCount} ops at ${lastDocId?.o}`);
         await collection.deleteMany(
           {

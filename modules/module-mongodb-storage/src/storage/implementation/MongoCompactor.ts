@@ -52,7 +52,6 @@ export abstract class MongoCompactor {
   protected readonly moveBatchQueryLimit: number;
   protected readonly moveBatchByteLimit: number;
   protected readonly clearBatchLimit: number;
-  protected readonly maxOpId: bigint;
   protected readonly buckets: string[] | undefined;
   protected readonly deleteCheckpointRequestsBefore: Date | undefined;
   protected readonly signal?: AbortSignal;
@@ -76,7 +75,6 @@ export abstract class MongoCompactor {
     if (this.clearBatchLimit < 2) {
       throw new ReplicationAssertionError('clearBatchLimit must be >= 2');
     }
-    this.maxOpId = options.maxOpId ?? 0n;
     this.buckets = options.compactBuckets;
     this.deleteCheckpointRequestsBefore = options.deleteCheckpointRequestsBefore;
     this.signal = options.signal;
