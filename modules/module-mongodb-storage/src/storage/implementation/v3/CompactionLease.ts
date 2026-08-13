@@ -136,6 +136,11 @@ export class CompactionLease implements AsyncDisposable {
     if (result.matchedCount != 1 && !this.finalizing) {
       throw new CompactionLeaseLostError(`Lost compaction lease for bucket ${this.state._id.b}`);
     }
+    // A successful renewal confirms that a transient failure has passed. A
+    // lease-loss error remains sticky: it means another worker may own it.
+    if (!(this.renewalError instanceof CompactionLeaseLostError)) {
+      this.renewalError = undefined;
+    }
   }
 
   private async finish(update: mongo.Document[]) {
