@@ -10,6 +10,7 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BucketStorageBatch,
+  formatBytes,
   getUuidReplicaIdentityBson,
   MetricsEngine,
   RelationCache,
@@ -47,7 +48,7 @@ import {
   SimpleSnapshotQuery,
   SnapshotQuery
 } from './SnapshotQuery.js';
-import { computeWalBudgetReport, formatBytes, formatWalBudgetLine } from './wal-budget-utils.js';
+import { computeWalBudgetReport, formatWalBudgetLine } from './wal-budget-utils.js';
 
 export interface WalStreamOptions {
   logger?: Logger;

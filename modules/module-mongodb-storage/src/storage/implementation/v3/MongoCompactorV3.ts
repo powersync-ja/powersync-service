@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
-import { addChecksums, InternalOpId, storage, utils } from '@powersync/service-core';
+import { addChecksums, formatBytes, InternalOpId, storage, utils } from '@powersync/service-core';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketDataKey } from '../models.js';
@@ -624,7 +624,9 @@ export class MongoCompactorV3 extends MongoCompactor {
 
     await this.finalizeCompactedBucket({ context, compactedOpId, compactionResult: result, puts: 0 });
     this.compactedBucketCount++;
-    this.logger.info(`Lightly compacted bucket ${bucket}: ${result.bucketStats.count} ops`);
+    this.logger.info(
+      `Compacted bucket chunks ${bucket}: ${result.bucketStats.count} ops, ${result.bucketStats.chunks} chunks, ${formatBytes(result.bucketStats.bytes)}`
+    );
   }
 
   private async flushChunkMerge(
@@ -1068,7 +1070,9 @@ export class MongoCompactorV3 extends MongoCompactor {
     await this.finalizeCompactedBucket({ context, compactedOpId, compactionResult: result, puts: putCount });
 
     this.compactedBucketCount++;
-    this.logger.info(`Compacted bucket ${bucket}: ${totalOpCount} surviving ops`);
+    this.logger.info(
+      `Compacted bucket ${bucket}: ${totalOpCount} ops, ${result.bucketStats.chunks} chunks, ${formatBytes(result.bucketStats.bytes)}`
+    );
   }
 
   /**
