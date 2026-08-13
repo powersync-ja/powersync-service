@@ -48,7 +48,7 @@ class CompactionContext {
   constructor(
     readonly lease: CompactionLease,
     readonly kind: CompactionKind,
-    readonly decision: CompactionDecision | undefined
+    readonly decision: CompactionDecision
   ) {}
 
   get state() {
@@ -87,12 +87,14 @@ const DEFAULT_MIN_COMPACT_FULL_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_MAX_COMPACT_FULL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_COMPACT_LEASE_DURATION_MS = 10 * 60 * 1000;
 const FULL_COMPACT_RESCHEDULE_MARGIN_MS = 60 * 1000;
+const SCHEDULED_COMPACTION_BATCH_SIZE = 100;
 /**
- * Perform a chunk-merge compact if at least this many chunks have been added since hte last compaction.
+ * Perform chunk compaction if at least this many chunks have been added since
+ * the latest compaction.
  *
- * If the value is too low (say 1 or 2), this introduces write amplification: Every write may result in multiple object storage operations.
- *
- * If the value is too large, it may delay merging of chunks and negatively affect sync performance.
+ * A lower value increases compaction frequency and can increase chunk rewrites
+ * and object-storage operations. A higher value leaves more small chunks for
+ * longer, which can hurt sync performance.
  */
 const MERGE_CHUNKS_THRESHOLD = 8;
 
@@ -230,15 +232,28 @@ export class MongoCompactorV3 extends MongoCompactor {
       for (const state of states) {
         await using lease = await this.claimBucket({ _id: state._id });
         if (lease != null) {
-          await this.compactClaimedBucket(lease, CompactionKind.Full);
+          const decision = this.chooseCompactionKind(lease.state, lease.startedAt);
+          await this.compactClaimedBucket(lease, CompactionKind.Full, decision);
         }
       }
     }
   }
 
   /**
-   * Claim one scheduled bucket at a time. The fixed due boundary means a
-   * long-running job does not repeatedly process buckets it scheduled itself.
+   * Process scheduled work in bounded batches.
+   *
+   * Batching specifically help to cover cases of many buckets where no compaction is required:
+   * Instead of sequentially claiming and then rescheduling a bucket, this handles it in bulk.
+   *
+   * Buckets that do need compaction are still claimed and processed sequentially.
+   *
+   * Any concurrent workers may read the same batch. Rescheduling filters out buckets handled
+   * by a concurrent worker or replication write, while buckets that do need compaction are
+   * filtered out when claiming a compaction lease.
+   *
+   * We filter scheduled jobs by the job start date, so that the same bucket is not compacted
+   * multiple times in one run. One tweak to this is for the run after initial replication:
+   * We use dueAheadMs to also include buckets scheduled during initial replication.
    */
   private async compactScheduledBuckets(options: ScheduledCompactionOptions = {}) {
     const jobStartedAt = new Date();
@@ -246,22 +261,92 @@ export class MongoCompactorV3 extends MongoCompactor {
     const forceKind = options.forceKind;
     while (true) {
       this.signal?.throwIfAborted();
-      await using lease = await this.claimBucket(
-        { next_compact_check: { $lte: dueBefore } },
-        { next_compact_check: 1 }
-      );
-      if (lease == null) {
+      const states = await this.findScheduledBucketBatch(dueBefore);
+      if (states.length == 0) {
         break;
       }
 
-      const decision = this.chooseCompactionKind(lease, lease.startedAt);
-      const kind = forceKind ?? decision.kind;
-      if (kind == null) {
-        await this.rescheduleClaimedBucket(lease, decision);
-      } else {
-        await this.compactClaimedBucket(lease, kind, decision);
+      const scheduled = states.map((state) => ({
+        state,
+        decision: this.chooseCompactionKind(state, jobStartedAt)
+      }));
+      const noOpStates = scheduled.filter(
+        ({ state, decision }) => state.compact_lease == null && forceKind == null && decision.kind == null
+      );
+      await this.rescheduleUnclaimedBuckets(noOpStates);
+
+      for (const { state, decision } of scheduled) {
+        const kind = forceKind ?? decision.kind;
+        if (state.compact_lease == null && kind == null) {
+          continue;
+        }
+
+        await using lease = await this.claimBucket({ _id: state._id, next_compact_check: { $lte: dueBefore } });
+        if (lease == null) {
+          continue;
+        }
+        const claimedDecision = this.chooseCompactionKind(lease.state, lease.startedAt);
+        const claimedKind = forceKind ?? claimedDecision.kind;
+        if (claimedKind == null) {
+          await this.rescheduleClaimedBucket(lease, claimedDecision);
+        } else {
+          await this.compactClaimedBucket(lease, claimedKind, claimedDecision);
+        }
       }
     }
+  }
+
+  /** Read a bounded, priority-ordered snapshot of currently claimable scheduled work. */
+  private async findScheduledBucketBatch(dueBefore: Date): Promise<BucketStateDocumentV3[]> {
+    return this.db
+      .bucketState(this.group_id)
+      .find({
+        next_compact_check: { $lte: dueBefore },
+        $expr: {
+          $or: [{ $eq: [{ $type: '$compact_lease' }, 'missing'] }, { $lte: ['$compact_lease.expires_at', '$$NOW'] }]
+        }
+      })
+      .sort({ next_compact_check: 1 })
+      .limit(SCHEDULED_COMPACTION_BATCH_SIZE)
+      .toArray();
+  }
+
+  /**
+   * Reschedule snapshots that were already known to be no-ops without first
+   * taking a lease. Every decision input is compared so a concurrent writer
+   * or compactor simply makes the update a no-op instead of losing work.
+   */
+  private async rescheduleUnclaimedBuckets(states: { state: BucketStateDocumentV3; decision: CompactionDecision }[]) {
+    if (states.length == 0) {
+      return;
+    }
+    await this.db.bucketState(this.group_id).bulkWrite(
+      states.map(({ state, decision }) => ({
+        updateOne: {
+          filter: this.unclaimedSnapshotFilter(state),
+          update: [{ $set: { next_compact_check: decision.nextCompactCheck } }]
+        }
+      })),
+      { ordered: false }
+    );
+  }
+
+  /**
+   * This checks that the bucket state hasn't changed by a concurrent write since we checked.
+   *
+   * If it has changed, we'll re-check in the next batch.
+   */
+  private unclaimedSnapshotFilter(state: BucketStateDocumentV3): mongo.Filter<BucketStateDocumentV3> {
+    return {
+      _id: state._id,
+      last_op: state.last_op,
+      next_compact_check: state.next_compact_check,
+      first_uncompacted_write: state.first_uncompacted_write ?? { $exists: false },
+      bucket_stats: state.bucket_stats,
+      compacted_state: state.compacted_state ?? { $exists: false },
+      last_full_compact: state.last_full_compact ?? { $exists: false },
+      compact_lease: { $exists: false }
+    };
   }
 
   private async claimBucket(
@@ -271,18 +356,17 @@ export class MongoCompactorV3 extends MongoCompactor {
     return CompactionLease.claim(this.db.bucketState(this.group_id), filter, sort, this.compactLeaseDurationMs);
   }
 
-  private async compactClaimedBucket(lease: CompactionLease, kind: CompactionKind, decision?: CompactionDecision) {
+  private async compactClaimedBucket(lease: CompactionLease, kind: CompactionKind, decision: CompactionDecision) {
     const context = new CompactionContext(lease, kind, decision);
     lease.startRenewal();
     await this.retryCompaction(context.state._id.b, () => this.compactSingleBucket(context));
   }
 
-  private chooseCompactionKind(lease: CompactionLease, now: Date): CompactionDecision {
-    const state = lease.state;
+  private chooseCompactionKind(state: BucketStateDocumentV3, now: Date): CompactionDecision {
     // For chunk compaction, we consider the number of chunks added.
     // Right now, we trigger a compact if the interval has passed and at least a threshold of chunks were added.
-    // In the future me may use a threshold for bytes/chunk or count/chunk instead, and only compact
-    // if one of those are low.
+    // A future policy could also use bytes per chunk or records per chunk to
+    // decide when to compact.
     const fullCheckAt = this.fullCompactionCheckAt(state);
     // Schedule a little late so a worker using a slightly earlier clock does
     // not wake before the exact full-compaction condition is true.
@@ -292,7 +376,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     const shouldCompactChunks = chunksSinceCompact >= MERGE_CHUNKS_THRESHOLD;
     const canCheckChunks =
       compacted == null || now.getTime() - compacted.at.getTime() >= this.minCompactChunkIntervalMs;
-    // Too few new chunks can make chunk compaction eligible. Do not poll this
+    // Too few new chunks cannot make chunk compaction eligible. Do not poll this
     // bucket at the chunk-compaction interval; only wake it for its full-compact check.
     const nextCompactCheck: mongo.Document = !shouldCompactChunks
       ? fullCheckWithMargin
@@ -589,10 +673,7 @@ export class MongoCompactorV3 extends MongoCompactor {
   }
 
   private async finalizeSkippedBucket(context: CompactionContext) {
-    await this.rescheduleClaimedBucket(
-      context.lease,
-      context.decision ?? this.chooseCompactionKind(context.lease, context.startedAt)
-    );
+    await this.rescheduleClaimedBucket(context.lease, context.decision);
   }
 
   private async readBucketStats(

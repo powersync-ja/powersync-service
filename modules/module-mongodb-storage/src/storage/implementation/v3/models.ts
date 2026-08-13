@@ -174,7 +174,7 @@ export interface BucketStateDocumentV3 {
 
   /**
    * A checksum cache and the statistics captured by the latest compact (full
-   * or lite). Keeping these separate from bucket_stats lets writers only
+   * or chunk). Keeping these separate from bucket_stats lets writers only
    * update one set of counters.
    */
   compacted_state?: {
