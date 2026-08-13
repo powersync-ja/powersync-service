@@ -1,6 +1,6 @@
 # V3 Compaction Design
 
-This describes the design of compaction in MongoDB storage V3.
+This describes the design of compaction scheduling in MongoDB storage V3. For details on what compaction means on a protocol level, see [./compating-operations.md](./compacting-operations.md).
 
 ## Goals
 
@@ -72,3 +72,16 @@ Some care needs to be taken to take into account the "tail" of a bucket that exi
 Initial replication uses the same scheduled work model, but forces chunk compaction and includes the first chunk-compaction interval of scheduled work. This makes the initial pass immediate and resumable without introducing a separate selection model.
 
 The initial pass has a fixed boundary and does not chase writes that arrive while it runs. Chunk compaction performed concurrently during replication therefore reduces the work remaining for the post-replication pass.
+
+## Compaction jobs
+
+This design gives us flexibility in how compaction could be run:
+
+1. Scheduled job running once per day - same as before.
+2. Scheduled job running once per hour or even every 5 minutes. Actual work to perform is throttled in the job itself, and does not depend on job scheduling anymore.
+3. As a tweak to the above, allow concurrent compaction jobs if the previous one has not finished. This would effectively increase the number of compaction jobs as the backlog increases.
+4. Run a single process continuously polling for new buckets to compact.
+5. Run multiple processes continously polling for new buckets to compact.
+6. Use auto-scaling to dynamically configure the number of compaction processes depending on the backlog size.
+
+Note that the options 4-6 are technically feasible, but not implemented yet.
