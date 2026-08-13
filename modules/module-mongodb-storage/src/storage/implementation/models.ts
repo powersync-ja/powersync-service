@@ -74,6 +74,12 @@ export interface BucketDataProperties {
   op: OpType;
   source_table?: bson.ObjectId;
   source_key?: ReplicaId;
+  /**
+   * Stable identifier for the source record in the client protocol.
+   *
+   * This is derived from (source_table, source_key), so persistence is optional but preferred.
+   */
+  subkey?: string;
   table?: string;
   row_id?: string;
   checksum: bigint;

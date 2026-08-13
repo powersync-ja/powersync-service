@@ -217,6 +217,14 @@ export abstract class PersistedBatch {
   protected abstract checkDefinitionId(definitionId: BucketDefinitionId | null): BucketDefinitionId;
   protected abstract getBucketDefinitionId(bucketSource: BucketDataSource): BucketDefinitionId;
 
+  /**
+   * New bucket operations persist protocol subkeys during replication. Older
+   * V1 and V3 documents may not have one, so sync reads retain a fallback.
+   */
+  protected persistedSubkey(table: storage.SourceTableId, key: storage.ReplicaId): string {
+    return replicaIdToSubkey(table, key);
+  }
+
   protected get bucketDataCount(): number {
     return this.bucketData.length;
   }
@@ -256,6 +264,7 @@ export abstract class PersistedBatch {
       op: 'PUT',
       source_table: mongoTableId(options.sourceTableId),
       source_key: options.sourceKey,
+      subkey: this.persistedSubkey(options.sourceTableId, options.sourceKey),
       table: options.table,
       row_id: options.rowId,
       checksum: options.checksum,
@@ -278,6 +287,7 @@ export abstract class PersistedBatch {
       op: 'REMOVE',
       source_table: mongoTableId(options.sourceTableId),
       source_key: options.sourceKey,
+      subkey: this.persistedSubkey(options.sourceTableId, options.sourceKey),
       table: options.table,
       row_id: options.rowId,
       checksum: options.checksum,
