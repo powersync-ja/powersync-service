@@ -124,7 +124,8 @@ export abstract class PersistedBatch {
       remaining_buckets.set(currentBucketKey(mapped), mapped);
     }
 
-    const dchecksum = BigInt(utils.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey)));
+    const subkey = this.persistedSubkey(options.table.id, options.sourceKey);
+    const dchecksum = BigInt(utils.hashDelete(subkey));
 
     for (const evaluated of options.evaluated) {
       const definitionId = this.getBucketDefinitionId(evaluated.source);
@@ -159,6 +160,7 @@ export abstract class PersistedBatch {
         bucket: evaluated.bucket,
         sourceTableId: options.table.id,
         sourceKey: options.sourceKey,
+        subkey,
         table: evaluated.table,
         rowId: evaluated.id,
         checksum: BigInt(checksum),
@@ -181,6 +183,7 @@ export abstract class PersistedBatch {
         op_id,
         sourceTableId: options.table.id,
         sourceKey: options.sourceKey,
+        subkey,
         table: bucket.table,
         rowId: bucket.id,
         checksum: dchecksum
@@ -253,6 +256,7 @@ export abstract class PersistedBatch {
     bucket: string;
     sourceTableId: storage.SourceTable['id'];
     sourceKey: storage.ReplicaId;
+    subkey: string;
     table: string;
     rowId: string;
     checksum: bigint;
@@ -264,7 +268,7 @@ export abstract class PersistedBatch {
       op: 'PUT',
       source_table: mongoTableId(options.sourceTableId),
       source_key: options.sourceKey,
-      subkey: this.persistedSubkey(options.sourceTableId, options.sourceKey),
+      subkey: options.subkey,
       table: options.table,
       row_id: options.rowId,
       checksum: options.checksum,
@@ -277,6 +281,7 @@ export abstract class PersistedBatch {
     bucketKey: BucketKey;
     sourceTableId: storage.SourceTable['id'];
     sourceKey: storage.ReplicaId;
+    subkey: string;
     table: string;
     rowId: string;
     checksum: bigint;
@@ -287,7 +292,7 @@ export abstract class PersistedBatch {
       op: 'REMOVE',
       source_table: mongoTableId(options.sourceTableId),
       source_key: options.sourceKey,
-      subkey: this.persistedSubkey(options.sourceTableId, options.sourceKey),
+      subkey: options.subkey,
       table: options.table,
       row_id: options.rowId,
       checksum: options.checksum,
