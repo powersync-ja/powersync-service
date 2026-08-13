@@ -312,15 +312,16 @@ describe('Mongo Sync Parameter Storage Compact', () => {
  */
 describe('V3 invariant verification', () => {
   const BUCKET = 'global[]';
-  const TABLE = 'items';
 
   function makeBucketDataDoc(overrides: Partial<BucketDataDoc> & { o: bigint }): BucketDataDoc {
+    const sourceTable = new bson.ObjectId();
+    const sourceKey = 'key';
     return {
       bucketKey: { replicationStreamId: 1, definitionId: '1', bucket: 'test[]' },
       op: 'PUT',
-      source_table: new bson.ObjectId(),
-      source_key: 'key',
-      subkey: 'subkey-row1',
+      source_table: sourceTable,
+      source_key: sourceKey,
+      subkey: replicaIdToSubkey(sourceTable, sourceKey),
       table: 'test',
       row_id: 'row1',
       checksum: 1n,
@@ -750,7 +751,6 @@ bucket_definitions:
 
 describe('V3 checksum pipeline straddling', () => {
   const BUCKET = 'global[]';
-  const TABLE = 'items';
 
   async function setup() {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
@@ -920,7 +920,6 @@ bucket_definitions:
 
 describe('V3 compaction boundaries', () => {
   const BUCKET = 'global[]';
-  const TABLE = 'items';
 
   async function setupV3() {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
@@ -1162,7 +1161,6 @@ bucket_definitions:
 
 describe('V3 MOVE tombstone properties', () => {
   const BUCKET = 'global[]';
-  const TABLE = 'items';
 
   async function setupV3() {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
@@ -1350,7 +1348,6 @@ bucket_definitions:
  */
 describe('Streaming compactor', () => {
   const BUCKET = 'global[]';
-  const TABLE = 'items';
 
   async function setupV3() {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
@@ -1378,32 +1375,6 @@ bucket_definitions:
     };
 
     return { bucketStorage, syncRules, db, collection, bucketStateCollection, sourceTableId, ctx };
-  }
-
-  function makeOp(
-    opId: number,
-    rowId: string,
-    data: string,
-    ctx: { replicationStreamId: number; definitionId: string; bucket: string },
-    sourceTableId: bson.ObjectId,
-    overrides?: { op?: 'PUT' | 'REMOVE' }
-  ): BucketDataDoc {
-    return {
-      bucketKey: {
-        replicationStreamId: ctx.replicationStreamId,
-        definitionId: ctx.definitionId,
-        bucket: ctx.bucket
-      },
-      o: BigInt(opId),
-      op: overrides?.op ?? 'PUT',
-      source_table: sourceTableId,
-      source_key: test_utils.rid(rowId),
-      subkey: `subkey-${rowId}`,
-      table: TABLE,
-      row_id: rowId,
-      checksum: BigInt(opId * 7),
-      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data })
-    };
   }
 
   async function insertDocs(collection: any, docs: BucketDataDocumentV3[]) {
