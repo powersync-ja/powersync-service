@@ -14,6 +14,7 @@ import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { ParseSyncConfigOptions } from './PersistedSyncConfigContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
+import { SourceTableCandidateReconciler } from './SourceTableReconciler.js';
 import { StorageVersionConfig } from './StorageVersionConfig.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
@@ -212,6 +213,11 @@ export interface ResolveTablesOptions {
    * Source table or collection metadata discovered during snapshot or streaming.
    */
   source: SourceEntityDescriptor;
+  /**
+   * Classifies overlapping persisted tables. Defaults to identity-based reconciliation.
+   * This may run inside a storage transaction and must not mutate storage.
+   */
+  reconcileSourceTables?: SourceTableCandidateReconciler;
   /**
    * For tests only - custom id generator for stable ids.
    */

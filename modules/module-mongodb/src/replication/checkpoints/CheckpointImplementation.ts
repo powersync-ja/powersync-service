@@ -128,7 +128,7 @@ export interface CheckpointImplementation {
    * The timestamp implementation parses the timestamp embedded in the token.
    * The sentinel implementation pairs the token with the current coordinate.
    */
-  lsnFromResumeToken(resumeToken: mongo.ResumeToken): string;
+  lsnFromResumeToken(resumeToken: mongo.ResumeToken): { lsn: string; timestamp: Date | null };
 
   /**
    * Source-side replication head for write checkpoints. The LSN passed to the

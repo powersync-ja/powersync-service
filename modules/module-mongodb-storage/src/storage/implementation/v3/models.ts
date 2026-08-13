@@ -1,5 +1,6 @@
 import {
   InternalOpId,
+  JsonValue,
   PersistedDefinitionMapping,
   SerializedSyncPlan,
   SyncRuleState,
@@ -156,6 +157,10 @@ export interface SourceTableDocumentV3 {
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
   latest_pending_delete?: InternalOpId | undefined;
+  /**
+   * Source-specific metadata. Absent for legacy records.
+   */
+  source_metadata?: JsonValue;
 }
 
 export interface BucketStateDocumentV3 {
