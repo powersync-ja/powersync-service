@@ -46,6 +46,26 @@ export const DateParser = t.createParser<typeof codecs.date>(codecs.date._tag, (
   }
 });
 
+export const BigIntParser = t.createParser<typeof codecs.bigint>(codecs.bigint._tag, (_, { target }) => {
+  switch (target) {
+    case t.TransformTarget.Encoded: {
+      return {
+        oneOf: [
+          { type: 'string', pattern: '^-?[0-9]+$' },
+          {
+            type: 'integer',
+            minimum: Number.MIN_SAFE_INTEGER,
+            maximum: Number.MAX_SAFE_INTEGER
+          }
+        ]
+      };
+    }
+    case t.TransformTarget.Decoded: {
+      return { nodeType: 'bigint' };
+    }
+  }
+});
+
 export const BufferParser = t.createParser<typeof codecs.buffer>(codecs.buffer._tag, (_, { target }) => {
   switch (target) {
     case t.TransformTarget.Encoded: {
@@ -57,4 +77,4 @@ export const BufferParser = t.createParser<typeof codecs.buffer>(codecs.buffer._
   }
 });
 
-export const parsers = [ObjectIdParser, ResourceIdParser, DateParser, BufferParser];
+export const parsers = [ObjectIdParser, ResourceIdParser, DateParser, BigIntParser, BufferParser];

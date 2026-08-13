@@ -7,6 +7,10 @@ export const WriteCheckpointSchema = defineEntity({
     {
       name: 'write_checkpoints_user_checkpoint_index',
       properties: ['userId', 'syncRulesId', 'checkpoint']
+    },
+    {
+      name: 'write_checkpoints_requested_at_index',
+      properties: ['checkpointRequestedAt']
     }
   ],
   properties: {
@@ -15,6 +19,7 @@ export const WriteCheckpointSchema = defineEntity({
     userId: p.string().fieldName('user_id'),
     checkpoint: p.bigint('bigint'),
     heads: p.json().nullable(),
+    checkpointRequestedAt: p.datetime().fieldName('checkpoint_requested_at').nullable(),
     createdAt: p.datetime()
   }
 });

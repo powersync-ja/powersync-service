@@ -67,18 +67,18 @@ export class MikroOrmSyncRulesStorage
 
   async createManagedWriteCheckpoints(
     checkpoints: storage.ManagedWriteCheckpointOptions[]
-  ): Promise<Map<string, bigint>> {
+  ): Promise<storage.CreateManagedWriteCheckpointsResult> {
     if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
       throw new errors.ValidationError(
         `Attempting to create a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
       );
     }
 
-    const uniqueCheckpoints = [...new Map(checkpoints.map((checkpoint) => [checkpoint.user_id, checkpoint])).values()];
+    const uniqueCheckpoints = storage.uniqueManagedWriteCheckpoints(checkpoints);
     if (uniqueCheckpoints.length == 0) {
-      return new Map();
+      return { writeCheckpoints: new Map(), shouldAdvance: false };
     }
-    const createdCheckpoints = new Map<string, bigint>();
+    const writeCheckpoints = new Map<string, bigint>();
     const em = this.options.orm.em.fork();
     await em.transactional(async (transactionalEntityManager) => {
       for (const checkpoint of uniqueCheckpoints) {
@@ -93,23 +93,47 @@ export class MikroOrmSyncRulesStorage
             limit: 1
           }
         );
-        const value = (latest?.checkpoint ?? 0n) + 1n;
+
+        const requestedCheckpoint = checkpoint.checkpoint_request_id;
+        if (requestedCheckpoint != null && latest != null && requestedCheckpoint <= latest.checkpoint) {
+          if (requestedCheckpoint == latest.checkpoint) {
+            transactionalEntityManager.assign(latest, { checkpointRequestedAt: new Date() });
+          }
+          writeCheckpoints.set(checkpoint.user_id, latest.checkpoint);
+          continue;
+        }
+
+        if (requestedCheckpoint != null && latest != null) {
+          // A newer client-supplied id replaces the managed mapping. Keeping an
+          // older row would allow that old id to be acknowledged while the new
+          // request's source head is still pending.
+          await transactionalEntityManager.nativeDelete(this.options.dialect.writeCheckpointEntity, {
+            userId: checkpoint.user_id,
+            syncRulesId: null
+          });
+        }
+
+        const value = requestedCheckpoint ?? (latest?.checkpoint ?? 0n) + 1n;
         const row = transactionalEntityManager.create(this.options.dialect.writeCheckpointEntity, {
           id: uuid.v4(),
           syncRulesId: null,
           userId: checkpoint.user_id,
           checkpoint: value,
           heads: checkpoint.heads,
+          checkpointRequestedAt: requestedCheckpoint == null ? null : new Date(),
           createdAt: new Date()
         });
         transactionalEntityManager.persist(row);
-        createdCheckpoints.set(checkpoint.user_id, value);
+        writeCheckpoints.set(checkpoint.user_id, value);
       }
       await transactionalEntityManager.flush();
     });
 
     this.factory.checkpointWatcher.notify();
-    return createdCheckpoints;
+    // This storage does not track whether each managed checkpoint has already
+    // been processed, so conservatively force the source marker for every
+    // matched request. This also makes stale retries recover a lost marker.
+    return { writeCheckpoints, shouldAdvance: true };
   }
 
   async lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {

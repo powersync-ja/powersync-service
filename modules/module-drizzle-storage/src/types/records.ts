@@ -82,6 +82,7 @@ export interface StorageWriteCheckpointRecord {
   userId: string;
   checkpoint: bigint;
   heads: Record<string, string> | null;
+  checkpointRequestedAt: Date | null;
   createdAt: Date;
 }
 

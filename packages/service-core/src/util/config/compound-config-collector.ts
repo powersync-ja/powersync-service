@@ -6,6 +6,7 @@ import { Base64ConfigCollector } from './collectors/impl/base64-config-collector
 import { FallbackConfigCollector } from './collectors/impl/fallback-config-collector.js';
 import { FileSystemConfigCollector } from './collectors/impl/filesystem-config-collector.js';
 import {
+  DEFAULT_CHECKPOINT_REQUEST_RETENTION_MINUTES,
   DEFAULT_CHECKSUM_CACHE_TTL_MINUTES,
   DEFAULT_MAX_BUCKETS_PER_CONNECTION,
   DEFAULT_MAX_CONCURRENT_CONNECTIONS,
@@ -195,6 +196,9 @@ export class CompoundConfigCollector {
           baseConfig.api?.parameters?.max_concurrent_connections ?? DEFAULT_MAX_CONCURRENT_CONNECTIONS,
         max_data_fetch_concurrency:
           baseConfig.api?.parameters?.max_data_fetch_concurrency ?? DEFAULT_MAX_DATA_FETCH_CONCURRENCY,
+        checkpoint_request_retention_minutes: normalizeCheckpointRequestRetentionMinutes(
+          baseConfig.api?.parameters?.checkpoint_request_retention_minutes
+        ),
         bucket_count_cache_ttl_minutes: normalizeChecksumCacheTtlMinutes(
           baseConfig.api?.parameters?.bucket_count_cache_ttl_minutes
         )
@@ -258,6 +262,14 @@ function normalizeChecksumCacheTtlMinutes(ttlMinutes: number | undefined): numbe
   const normalized = ttlMinutes ?? DEFAULT_CHECKSUM_CACHE_TTL_MINUTES;
   if (!Number.isFinite(normalized) || !Number.isInteger(normalized) || normalized < 1) {
     throw new Error('api.parameters.bucket_count_cache_ttl_minutes must be a positive integer');
+  }
+  return normalized;
+}
+
+function normalizeCheckpointRequestRetentionMinutes(retentionMinutes: number | undefined): number {
+  const normalized = retentionMinutes ?? DEFAULT_CHECKPOINT_REQUEST_RETENTION_MINUTES;
+  if (!Number.isFinite(normalized) || !Number.isInteger(normalized) || normalized < 1) {
+    throw new Error('api.parameters.checkpoint_request_retention_minutes must be a positive integer');
   }
   return normalized;
 }

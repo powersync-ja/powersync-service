@@ -6,7 +6,7 @@ Source-specific streams write into bucket storage through shared storage writer 
 
 `SyncRulesBucketStorage` represents the persisted state for one replication stream.
 
-Replication writes source changes, source table metadata, snapshot progress, resume positions, and checkpoint boundaries into that state. The sync API reads the same state as checkpoints, bucket data, parameter lookup rows, checksums, and write-checkpoint acknowledgements.
+Replication writes source changes, source table metadata, snapshot progress, resume positions, and checkpoint boundaries into that state. The sync API reads the same state as checkpoints, bucket data, parameter lookup rows, checksums, and checkpoint request acknowledgements.
 
 A stream may contain one sync config or, in incremental storage, multiple sync configs. Replication-side writers evaluate the stream through the canonical parsed sync config set for that storage instance. Read-side storage serves one active sync config at a time.
 
@@ -38,7 +38,7 @@ Automatic schema change detection is source-specific. Modules that do not detect
 
 Flushing pending writes is separate from making those writes visible as a client checkpoint. This lets a source stream persist partial work inside a large source transaction while still exposing that work atomically only after the source reaches a valid transaction, page, snapshot, or marker boundary.
 
-Position-only events are also meaningful. A heartbeat or write-checkpoint marker can advance the stored source position without adding user data, which allows idle sources to show progress and publish write-checkpoint acknowledgements.
+Position-only events are also meaningful. A heartbeat or checkpoint request marker can advance the stored source position without adding user data, which allows idle sources to show progress and publish checkpoint request acknowledgements.
 
 ## Resume And Snapshot State
 
@@ -50,6 +50,6 @@ Storage also tracks table-level snapshot progress and source positions that chec
 
 ## Read-Side State Created By Writes
 
-Every writer decision must preserve the state the sync API needs to serve a consistent checkpoint: the committed source position, bucket operation data, bucket checksums, dynamic parameter lookup rows, and write-checkpoint acknowledgement state.
+Every writer decision must preserve the state the sync API needs to serve a consistent checkpoint: the committed source position, bucket operation data, bucket checksums, dynamic parameter lookup rows, and checkpoint request acknowledgement state.
 
 Storage may also derive checkpoint-change results from persisted write state to help the sync API avoid unnecessary checksum and parameter work. Those results are best-effort optimizations: storage may include extra buckets or lookups, or invalidate data and parameter buckets instead of returning specific changes.

@@ -78,6 +78,11 @@ export interface BucketDataProperties {
   row_id?: string;
   checksum: bigint;
   data: string | null;
+  /**
+   * V1-only.
+   *
+   * V3 stores this on the BucketDataDocumentV3 instead of the individual ops.
+   */
   target_op?: bigint | null;
 }
 
@@ -105,6 +110,10 @@ export interface SourceTableDocument {
   replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
   snapshot_done: boolean | undefined;
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
+  /**
+   * Source-specific metadata. Absent for legacy records.
+   */
+  source_metadata?: storage.JsonValue;
 }
 
 export interface SourceTableDocumentSnapshotStatus {
@@ -273,6 +282,11 @@ export interface CustomWriteCheckpointDocument {
    * This is not unique - multiple write checkpoints can have the same op_id.
    */
   op_id?: InternalOpId;
+  /**
+   * Set when this checkpoint was created from a client-supplied checkpoint
+   * request rather than a persistent custom write checkpoint.
+   */
+  checkpoint_requested_at?: Date | null;
 }
 
 export interface WriteCheckpointDocument {
@@ -286,6 +300,12 @@ export interface WriteCheckpointDocument {
    * between two checkpoints.
    */
   processed_at_lsn: string | null;
+  /**
+   * Set when this checkpoint was created from a client-supplied checkpoint request
+   * rather than a server-generated id. A missing/null value means this is not a
+   * checkpoint request.
+   */
+  checkpoint_requested_at?: Date | null;
 }
 
 export interface InstanceDocument {

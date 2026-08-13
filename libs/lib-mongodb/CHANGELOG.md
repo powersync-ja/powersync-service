@@ -1,5 +1,13 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.30
+
+### Patch Changes
+
+- 37591e9: [MongoDB Storage] Use batched deletes for clearing data.
+- Updated dependencies [2189250]
+  - @powersync/lib-services-framework@0.10.0
+
 ## 0.6.29
 
 ### Patch Changes

@@ -22,10 +22,10 @@ bucket_definitions:
 
     const first = (
       await bucketStorage.createManagedWriteCheckpoints([{ user_id: 'user1', heads: { '1': '5/0' } }])
-    ).get('user1')!;
+    ).writeCheckpoints.get('user1')!;
     const second = (
       await bucketStorage.createManagedWriteCheckpoints([{ user_id: 'user1', heads: { '1': '6/0' } }])
-    ).get('user1')!;
+    ).writeCheckpoints.get('user1')!;
 
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '4/0' } })).resolves.toBeNull();
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1', heads: { '1': '5/0' } })).resolves.toBe(first);
@@ -45,7 +45,7 @@ bucket_definitions:
 
       const writeCheckpoint = (
         await bucketStorage.createManagedWriteCheckpoints([{ user_id: 'user1', heads: { '1': '5/0' } }])
-      ).get('user1')!;
+      ).writeCheckpoints.get('user1')!;
 
       const em = factory.orm.em.fork();
       const row = await em.findOneOrFail(factory.dialect.syncRulesEntity, {
@@ -86,6 +86,7 @@ bucket_definitions:
       userId: 'user1',
       checkpoint: 42n,
       heads: null,
+      checkpointRequestedAt: null,
       createdAt: new Date()
     });
     em.persist(row);

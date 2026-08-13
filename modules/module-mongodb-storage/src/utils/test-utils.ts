@@ -37,7 +37,9 @@ export function mongoTestStorageFactoryGenerator(factoryOptions: MongoTestStorag
       return new MongoBucketStorage(db, {
         replicationStreamNamePrefix: 'test_',
         checksumOptions: factoryOptions.checksumOptions,
-        supportsMultipleSyncConfigs: factoryOptions.supportsMultipleSyncConfigs
+        supportsMultipleSyncConfigs: factoryOptions.supportsMultipleSyncConfigs,
+        objectStorage: factoryOptions.objectStorage,
+        inlineThresholdBytes: factoryOptions.inlineThresholdBytes
       });
     },
     tableIdStrings: false

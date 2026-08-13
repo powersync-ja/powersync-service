@@ -83,19 +83,34 @@ bucket_definitions:
     await adapter.shutdown();
   });
 
-  it('creates replication head from the global snapshot cursor', async () => {
+  it('gets and advances replication head from the global snapshot cursor', async () => {
     const adapter = createAdapter();
     const getHeadCursor = vi.fn(async (_options?: any) => HEAD_CURSOR);
     const createWriteCheckpointMarker = vi.fn(async (_options?: any) => undefined);
     (adapter as any).connectionManager.client.getHeadCursor = getHeadCursor;
     (adapter as any).connectionManager.client.createWriteCheckpointMarker = createWriteCheckpointMarker;
 
-    const result = await adapter.createReplicationHead(async (head) => head);
-    expect(result).toBe(parseConvexLsn(HEAD_CURSOR));
+    const head = await adapter.createReplicationHead(async (head) => ({ response: head, shouldAdvance: true }));
+    expect(head).toBe(parseConvexLsn(HEAD_CURSOR));
     expect(getHeadCursor).toHaveBeenCalledTimes(1);
     expect(getHeadCursor).toHaveBeenCalledWith();
     expect(createWriteCheckpointMarker).toHaveBeenCalledTimes(1);
     expect(createWriteCheckpointMarker).toHaveBeenCalledWith();
+
+    await adapter.shutdown();
+  });
+
+  it('does not write a checkpoint marker when the callback reports no advance', async () => {
+    const adapter = createAdapter();
+    const getHeadCursor = vi.fn(async (_options?: any) => HEAD_CURSOR);
+    const createWriteCheckpointMarker = vi.fn(async (_options?: any) => undefined);
+    (adapter as any).connectionManager.client.getHeadCursor = getHeadCursor;
+    (adapter as any).connectionManager.client.createWriteCheckpointMarker = createWriteCheckpointMarker;
+
+    const head = await adapter.createReplicationHead(async (head) => ({ response: head, shouldAdvance: false }));
+    expect(head).toBe(parseConvexLsn(HEAD_CURSOR));
+    expect(getHeadCursor).toHaveBeenCalledTimes(1);
+    expect(createWriteCheckpointMarker).not.toHaveBeenCalled();
 
     await adapter.shutdown();
   });

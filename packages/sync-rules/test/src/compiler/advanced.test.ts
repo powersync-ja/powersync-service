@@ -343,4 +343,14 @@ streams:
       ).toMatchSnapshot();
     });
   });
+
+  test('row metadata', () => {
+    const serialized = compileSingleStreamAndSerialize(
+      `SELECT *, source.table_suffix() AS suffix FROM "%"."users_%" source WHERE source.schema() = auth.parameter('schema')`
+    );
+
+    // Should not be v1 if .schema() or .table_suffix() is used.
+    expect(serialized.version).toStrictEqual(2);
+    expect(serialized).toMatchSnapshot();
+  });
 });

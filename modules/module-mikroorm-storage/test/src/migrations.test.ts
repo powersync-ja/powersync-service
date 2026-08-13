@@ -27,11 +27,13 @@ describe('MikroORM migrations', () => {
 
   afterEach(async () => {
     await Promise.all(
-      dbFiles.splice(0).flatMap((file) => [
-        rm(file, { force: true }),
-        rm(`${file}-shm`, { force: true }),
-        rm(`${file}-wal`, { force: true })
-      ])
+      dbFiles
+        .splice(0)
+        .flatMap((file) => [
+          rm(file, { force: true }),
+          rm(`${file}-shm`, { force: true }),
+          rm(`${file}-wal`, { force: true })
+        ])
     );
   });
 
@@ -148,7 +150,11 @@ describe('MikroORM migrations', () => {
       });
 
       const firstWriter = orm.em.fork().transactional(async (transactionalEntityManager) => {
-        await transactionalEntityManager.execute(`update write_overlap_test set value = 'held' where id = 1`, [], 'run');
+        await transactionalEntityManager.execute(
+          `update write_overlap_test set value = 'held' where id = 1`,
+          [],
+          'run'
+        );
         firstWriterReady();
         await releaseFirstWriterPromise;
       });
@@ -159,7 +165,11 @@ describe('MikroORM migrations', () => {
       const secondWriter = orm.em
         .fork()
         .transactional(async (transactionalEntityManager) => {
-          await transactionalEntityManager.execute(`update write_overlap_test set value = 'second' where id = 1`, [], 'run');
+          await transactionalEntityManager.execute(
+            `update write_overlap_test set value = 'second' where id = 1`,
+            [],
+            'run'
+          );
         })
         .then(
           () => ({ status: 'fulfilled' as const }),
@@ -191,20 +201,16 @@ describe('MikroORM migrations', () => {
         await expect(secondWriter).resolves.toEqual({ status: 'fulfilled' });
       } else {
         expect(secondWriterState.status).toBe('rejected');
-        await orm.em
-          .fork()
-          .transactional(async (transactionalEntityManager) => {
-            await transactionalEntityManager.execute(
-              `update write_overlap_test set value = 'second' where id = 1`,
-              [],
-              'run'
-            );
-          });
+        await orm.em.fork().transactional(async (transactionalEntityManager) => {
+          await transactionalEntityManager.execute(
+            `update write_overlap_test set value = 'second' where id = 1`,
+            [],
+            'run'
+          );
+        });
       }
 
-      const finalValue = await orm.em.execute<{ value: string }[]>(
-        'select value from write_overlap_test where id = 1'
-      );
+      const finalValue = await orm.em.execute<{ value: string }[]>('select value from write_overlap_test where id = 1');
       expect(finalValue).toEqual([{ value: 'second' }]);
     } finally {
       await orm.close(true);
@@ -276,6 +282,7 @@ describe('MikroORM migrations', () => {
       expect(indexNames).toContain('current_data_pending_delete_index');
       expect(indexNames).toContain('source_table_lookup');
       expect(indexNames).toContain('write_checkpoints_user_checkpoint_index');
+      expect(indexNames).toContain('write_checkpoints_requested_at_index');
     } finally {
       await orm.close(true);
     }

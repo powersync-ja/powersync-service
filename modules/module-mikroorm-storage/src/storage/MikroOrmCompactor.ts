@@ -76,6 +76,7 @@ export class MikroOrmCompactor {
   private readonly clearBatchLimit: number;
   private readonly maxOpId: bigint;
   private readonly buckets: string[] | undefined;
+  private readonly deleteCheckpointRequestsBefore: Date | undefined;
   private readonly logger: Logger;
 
   private pendingMoves: { id: string; targetOp: bigint }[] = [];
@@ -92,10 +93,13 @@ export class MikroOrmCompactor {
     this.clearBatchLimit = options.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
     this.maxOpId = options.maxOpId ?? 0n;
     this.buckets = options.compactBuckets;
+    this.deleteCheckpointRequestsBefore = options.deleteCheckpointRequestsBefore;
     this.logger = options.logger;
   }
 
   async compact(): Promise<void> {
+    await this.deleteOldCheckpointRequests();
+
     if (this.maxOpId <= 0n) {
       return;
     }
@@ -107,6 +111,16 @@ export class MikroOrmCompactor {
     } else {
       await this.compactAllBuckets();
     }
+  }
+
+  private async deleteOldCheckpointRequests(): Promise<void> {
+    if (this.deleteCheckpointRequestsBefore == null) {
+      return;
+    }
+
+    await this.orm.em.fork().nativeDelete(this.dialect.writeCheckpointEntity, {
+      checkpointRequestedAt: { $lt: this.deleteCheckpointRequestsBefore }
+    });
   }
 
   async compactParameterData(options: storage.CompactOptions): Promise<void> {

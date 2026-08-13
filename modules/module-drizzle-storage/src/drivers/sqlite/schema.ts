@@ -118,9 +118,13 @@ export const writeCheckpoints = sqliteTable(
     userId: text('user_id').notNull(),
     checkpoint: sqliteBigInt('checkpoint').notNull(),
     heads: text('heads', { mode: 'json' }).$type<Record<string, string>>(),
+    checkpointRequestedAt: sqliteTimestampMs('checkpoint_requested_at'),
     createdAt: sqliteTimestampMs('created_at').notNull()
   },
-  (table) => [index('write_checkpoints_user_checkpoint_index').on(table.userId, table.syncRulesId, table.checkpoint)]
+  (table) => [
+    index('write_checkpoints_user_checkpoint_index').on(table.userId, table.syncRulesId, table.checkpoint),
+    index('write_checkpoints_requested_at_index').on(table.checkpointRequestedAt)
+  ]
 );
 
 export const sqliteSchema = {

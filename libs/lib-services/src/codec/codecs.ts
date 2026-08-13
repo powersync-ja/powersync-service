@@ -32,6 +32,31 @@ export const date = t.codec<Date, string | DateTimeValue>(
   }
 );
 
+export const bigint = t.codec<bigint, string | number | bigint>(
+  'bigint',
+  (value) => {
+    if (typeof value != 'bigint') {
+      throw new t.TransformError([`Expected bigint but got ${typeof value}`]);
+    }
+    return value.toString();
+  },
+  (value) => {
+    if (typeof value == 'bigint') {
+      return value;
+    }
+    if (typeof value == 'number') {
+      if (!Number.isSafeInteger(value)) {
+        throw new t.TransformError([`Expected safe integer but got ${value}`]);
+      }
+      return BigInt(value);
+    }
+    if (typeof value != 'string' || !/^-?[0-9]+$/.test(value)) {
+      throw new t.TransformError([`Expected integer string but got ${typeof value}`]);
+    }
+    return BigInt(value);
+  }
+);
+
 const assertObjectId = (value: any) => {
   if (!bson.ObjectId.isValid(value)) {
     throw new t.TransformError([`Expected an ObjectId but got ${typeof value}`]);

@@ -1,5 +1,6 @@
 import { Logger } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
+import { lt } from 'drizzle-orm';
 import * as uuid from 'uuid';
 import type { DrizzleStorageDialect } from './DrizzleStorageDialect.js';
 
@@ -75,6 +76,7 @@ export class DrizzleCompactor {
   private readonly clearBatchLimit: number;
   private readonly maxOpId: bigint;
   private readonly buckets: string[] | undefined;
+  private readonly deleteCheckpointRequestsBefore: Date | undefined;
   private readonly logger: Logger;
 
   private pendingMoves: { id: string; targetOp: bigint }[] = [];
@@ -90,10 +92,13 @@ export class DrizzleCompactor {
     this.clearBatchLimit = options.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
     this.maxOpId = options.maxOpId ?? 0n;
     this.buckets = options.compactBuckets;
+    this.deleteCheckpointRequestsBefore = options.deleteCheckpointRequestsBefore;
     this.logger = options.logger;
   }
 
   async compact(): Promise<void> {
+    this.deleteOldCheckpointRequests();
+
     if (this.maxOpId <= 0n) {
       return;
     }
@@ -105,6 +110,15 @@ export class DrizzleCompactor {
     } else {
       await this.compactAllBuckets();
     }
+  }
+
+  private deleteOldCheckpointRequests(): void {
+    if (this.deleteCheckpointRequestsBefore == null) {
+      return;
+    }
+
+    const table = this.dialect.tables.writeCheckpoints;
+    this.dialect.db.delete(table).where(lt(table.checkpointRequestedAt, this.deleteCheckpointRequestsBefore)).run();
   }
 
   async compactParameterData(options: storage.CompactOptions): Promise<void> {

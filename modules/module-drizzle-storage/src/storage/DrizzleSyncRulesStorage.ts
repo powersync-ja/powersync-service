@@ -74,19 +74,19 @@ export class DrizzleSyncRulesStorage
 
   async createManagedWriteCheckpoints(
     checkpoints: storage.ManagedWriteCheckpointOptions[]
-  ): Promise<Map<string, bigint>> {
+  ): Promise<storage.CreateManagedWriteCheckpointsResult> {
     if (this.writeCheckpointMode !== storage.WriteCheckpointMode.MANAGED) {
       throw new errors.ValidationError(
         `Attempting to create a managed Write Checkpoint when the current Write Checkpoint mode is set to "${this.writeCheckpointMode}"`
       );
     }
 
-    const uniqueCheckpoints = [...new Map(checkpoints.map((checkpoint) => [checkpoint.user_id, checkpoint])).values()];
+    const uniqueCheckpoints = storage.uniqueManagedWriteCheckpoints(checkpoints);
     if (uniqueCheckpoints.length == 0) {
-      return new Map();
+      return { writeCheckpoints: new Map(), shouldAdvance: false };
     }
     const table = this.options.dialect.tables.writeCheckpoints;
-    const createdCheckpoints = this.options.dialect.transaction((tx) => {
+    const writeCheckpoints = this.options.dialect.transaction((tx) => {
       const result = new Map<string, bigint>();
       for (const checkpoint of uniqueCheckpoints) {
         const latest = tx
@@ -96,7 +96,26 @@ export class DrizzleSyncRulesStorage
           .orderBy(desc(table.checkpoint))
           .limit(1)
           .get();
-        const value = (latest?.checkpoint ?? 0n) + 1n;
+
+        const requestedCheckpoint = checkpoint.checkpoint_request_id;
+        if (requestedCheckpoint != null && latest != null && requestedCheckpoint <= latest.checkpoint) {
+          if (requestedCheckpoint == latest.checkpoint) {
+            tx.update(table).set({ checkpointRequestedAt: new Date() }).where(eq(table.id, latest.id)).run();
+          }
+          result.set(checkpoint.user_id, latest.checkpoint);
+          continue;
+        }
+
+        if (requestedCheckpoint != null && latest != null) {
+          // A newer client-supplied id replaces the managed mapping. Keeping an
+          // older row would allow that old id to be acknowledged while the new
+          // request's source head is still pending.
+          tx.delete(table)
+            .where(and(eq(table.userId, checkpoint.user_id), isNull(table.syncRulesId)))
+            .run();
+        }
+
+        const value = requestedCheckpoint ?? (latest?.checkpoint ?? 0n) + 1n;
         tx.insert(table)
           .values({
             id: uuid.v4(),
@@ -104,6 +123,7 @@ export class DrizzleSyncRulesStorage
             userId: checkpoint.user_id,
             checkpoint: value,
             heads: checkpoint.heads,
+            checkpointRequestedAt: requestedCheckpoint == null ? null : new Date(),
             createdAt: new Date()
           })
           .run();
@@ -113,7 +133,10 @@ export class DrizzleSyncRulesStorage
     });
 
     this.factory.checkpointWatcher.notify();
-    return createdCheckpoints;
+    // This storage does not track whether each managed checkpoint has already
+    // been processed, so conservatively force the source marker for every
+    // matched request. This also makes stale retries recover a lost marker.
+    return { writeCheckpoints, shouldAdvance: true };
   }
 
   async lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {

@@ -67,9 +67,10 @@ export class TimestampCheckpointImplementation implements CheckpointImplementati
     );
   }
 
-  lsnFromResumeToken(resumeToken: mongo.ResumeToken): string {
+  lsnFromResumeToken(resumeToken: mongo.ResumeToken) {
     // The timestamp is embedded in the resume token.
-    return MongoLSN.fromResumeToken(resumeToken).comparable;
+    const lsn = MongoLSN.fromResumeToken(resumeToken);
+    return { lsn: lsn.comparable, timestamp: timestampToDate(lsn.timestamp) };
   }
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
@@ -81,31 +82,33 @@ export class TimestampCheckpointImplementation implements CheckpointImplementati
         throw new ServiceAssertionError(`clusterTime not available for write checkpoint`);
       }
 
-      const r = await callback(new MongoLSN({ timestamp: head }).comparable);
+      const { response, shouldAdvance } = await callback(new MongoLSN({ timestamp: head }).comparable);
 
-      // Trigger a change on the changestream, so that the write checkpoint
-      // is processed without waiting for other writes.
-      await this.context.db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
-        {
-          _id: STANDALONE_CHECKPOINT_ID as any
-        },
-        {
-          $inc: { i: 1 }
-        },
-        {
-          upsert: true,
-          returnDocument: 'after',
-          session
+      if (shouldAdvance) {
+        // Trigger a change on the changestream, so that the write checkpoint
+        // is processed without waiting for other writes.
+        await this.context.db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
+          {
+            _id: STANDALONE_CHECKPOINT_ID as any
+          },
+          {
+            $inc: { i: 1 }
+          },
+          {
+            upsert: true,
+            returnDocument: 'after',
+            session
+          }
+        );
+        const time = session.operationTime!;
+        if (time == null) {
+          throw new ServiceAssertionError(`operationTime not available for write checkpoint`);
+        } else if (time.lt(head)) {
+          throw new ServiceAssertionError(`operationTime must be > clusterTime`);
         }
-      );
-      const time = session.operationTime!;
-      if (time == null) {
-        throw new ServiceAssertionError(`operationTime not available for write checkpoint`);
-      } else if (time.lt(head)) {
-        throw new ServiceAssertionError(`operationTime must be > clusterTime`);
       }
 
-      return r;
+      return response;
     } finally {
       await session.endSession();
     }

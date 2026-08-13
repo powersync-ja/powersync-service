@@ -108,22 +108,24 @@ export class SentinelCheckpointImplementation implements CheckpointImplementatio
     );
   }
 
-  lsnFromResumeToken(resumeToken: mongo.ResumeToken): string {
+  lsnFromResumeToken(resumeToken: mongo.ResumeToken) {
     // Pair the bare token with the current coordinate. The coordinate is
     // frozen between checkpoint events, so a per-batch resume marker only
     // advances the token; that is all resumption needs (see the design doc).
-    return new SentinelLSN({ sentinel: this.position, resume_token: resumeToken }).comparable;
+    return { lsn: new SentinelLSN({ sentinel: this.position, resume_token: resumeToken }).comparable, timestamp: null };
   }
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
     const head = await createSentinelCheckpointLsn(this.context.client, this.context.db);
-    const result = await callback(head);
-    // Create another bump to ensure movement after the reported head. This
-    // covers the race where the head's own event is committed before the
-    // write checkpoint document is stored.
-    // Note that this checkpoint should not be associated with a change stream Id.
-    await createSentinelCheckpointLsn(this.context.client, this.context.db);
-    return result;
+    const { response, shouldAdvance } = await callback(head);
+    if (shouldAdvance) {
+      // Create another bump to ensure movement after the reported head. This
+      // covers the race where the head's own event is committed before the
+      // write checkpoint document is stored.
+      // Note that this checkpoint should not be associated with a change stream Id.
+      await createSentinelCheckpointLsn(this.context.client, this.context.db);
+    }
+    return response;
   }
 
   readonly event: CheckpointEventApi = {

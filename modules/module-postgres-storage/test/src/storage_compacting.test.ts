@@ -49,7 +49,7 @@ bucket_definitions:
       minBucketChanges: 1
     });
 
-    const batch = await test_utils.oneFromAsync(
+    const batch = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [
         bucketRequest(syncRulesContent, 'global[]', 0n)
       ])
@@ -110,7 +110,7 @@ bucket_definitions:
     })();
 
     const checkpoint = result!.flushed_op;
-    const rowsBefore = await test_utils.oneFromAsync(
+    const rowsBefore = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
     );
     const dataBefore = test_utils.getBatchData(rowsBefore);
@@ -123,7 +123,7 @@ bucket_definitions:
     );
 
     // The method wraps in a transaction; on assertion error the bucket must remain unchanged.
-    const rowsAfter = await test_utils.oneFromAsync(
+    const rowsAfter = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
     );
     expect(test_utils.getBatchData(rowsAfter)).toEqual(dataBefore);

@@ -14,6 +14,7 @@ import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { ParseSyncConfigOptions } from './PersistedSyncConfigContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
+import { SourceTableCandidateReconciler } from './SourceTableReconciler.js';
 import { StorageVersionConfig } from './StorageVersionConfig.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
@@ -133,6 +134,13 @@ export interface SyncRulesBucketStorage
    * 1. Separate buckets.
    * 2. Limit the size of each individual chunk according to options.batchSizeLimitBytes.
    *
+   * The batch may not contain all data for the checkpoint, if the checkpoint is large. The caller must
+   * continue querying if either:
+   * 1. The last chunk for any bucket has has_more = true.
+   * 2. A SyncBucketDataBatchEnd is returned with hasMore = true.
+   *
+   * The first check can be skipped if a SyncBucketDataBatchEnd is returned with hasMore = false.
+   *
    * @param checkpoint the checkpoint
    * @param dataBuckets current bucket states
    * @param options batch size options
@@ -141,7 +149,7 @@ export interface SyncRulesBucketStorage
     checkpoint: ReplicationCheckpoint,
     dataBuckets: BucketDataRequest[],
     options?: BucketDataBatchOptions
-  ): AsyncIterable<SyncBucketDataChunk>;
+  ): AsyncIterable<SyncBucketDataChunk | SyncBucketDataBatchEnd>;
 
   /**
    * Compute checksums for a given list of buckets.
@@ -205,6 +213,11 @@ export interface ResolveTablesOptions {
    * Source table or collection metadata discovered during snapshot or streaming.
    */
   source: SourceEntityDescriptor;
+  /**
+   * Classifies overlapping persisted tables. Defaults to identity-based reconciliation.
+   * This may run inside a storage transaction and must not mutate storage.
+   */
+  reconcileSourceTables?: SourceTableCandidateReconciler;
   /**
    * For tests only - custom id generator for stable ids.
    */
@@ -308,6 +321,13 @@ export interface CompactOptions {
 
   compactParameterData?: boolean;
 
+  /**
+   * Delete client-requested write checkpoints created before this time.
+   *
+   * Generated write checkpoints are not affected.
+   */
+  deleteCheckpointRequestsBefore?: Date;
+
   /** Minimum of 2 */
   clearBatchLimit?: number;
 
@@ -396,6 +416,9 @@ export interface TerminateOptions extends ClearStorageOptions {
 export interface BucketDataBatchOptions {
   requestHint?: BucketRequestHint;
 
+  /** Abort any in-progress work for this batch, including object-storage downloads. */
+  signal?: AbortSignal;
+
   /** Limit number of documents returned. Defaults to 1000. */
   limit?: number;
 
@@ -414,6 +437,20 @@ export interface BucketDataBatchOptions {
 export interface SyncBucketDataChunk {
   chunkData: util.SyncBucketData;
   targetOp: util.InternalOpId | null;
+}
+
+export interface SyncBucketDataBatchEnd {
+  /**
+   * True if there may be more data for this checkpoint, and the caller should continue querying.
+   *
+   * This is different from `SyncBucketDataChunk.has_more`, which is per-bucket. This is a global signal for the
+   * entire request, and may be true even if there is no returned chunk with has_more: true.
+   */
+  hasMore: boolean;
+}
+
+export function isBatchEnd(chunk: SyncBucketDataChunk | SyncBucketDataBatchEnd): chunk is SyncBucketDataBatchEnd {
+  return (chunk as SyncBucketDataBatchEnd).hasMore !== undefined;
 }
 
 export interface ReplicationCheckpoint {

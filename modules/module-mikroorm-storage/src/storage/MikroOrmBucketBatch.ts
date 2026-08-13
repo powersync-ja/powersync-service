@@ -477,12 +477,14 @@ export class MikroOrmBucketBatch
             userId: checkpoint.user_id,
             checkpoint: checkpoint.checkpoint,
             heads: null,
+            checkpointRequestedAt: checkpoint.checkpoint_requested_at ?? null,
             createdAt: new Date()
           });
           transactionalEntityManager.persist(row);
         } else {
           transactionalEntityManager.assign(existing, {
             checkpoint: checkpoint.checkpoint,
+            checkpointRequestedAt: checkpoint.checkpoint_requested_at ?? null,
             createdAt: new Date()
           });
         }

@@ -547,6 +547,7 @@ export class DrizzleBucketBatch
               userId: checkpoint.user_id,
               checkpoint: checkpoint.checkpoint,
               heads: null,
+              checkpointRequestedAt: checkpoint.checkpoint_requested_at ?? null,
               createdAt: new Date()
             })
             .run();
@@ -554,6 +555,7 @@ export class DrizzleBucketBatch
           tx.update(table)
             .set({
               checkpoint: checkpoint.checkpoint,
+              checkpointRequestedAt: checkpoint.checkpoint_requested_at ?? null,
               createdAt: new Date()
             })
             .where(eq(table.id, existing.id))

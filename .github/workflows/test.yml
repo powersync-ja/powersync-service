@@ -318,6 +318,10 @@ jobs:
     name: MongoDB Storage Test
     runs-on: ubuntu-latest
     needs: run-core-tests
+    env:
+      MINIO_ENDPOINT: http://127.0.0.1:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
 
     strategy:
       fail-fast: false
@@ -338,6 +342,39 @@ jobs:
         uses: ./.github/actions/start-mongodb
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
+
+      - name: Start MinIO
+        run: |
+          set -euo pipefail
+
+          docker run \
+            --name minio \
+            --publish 9000:9000 \
+            --env "MINIO_ROOT_USER=$MINIO_ACCESS_KEY" \
+            --env "MINIO_ROOT_PASSWORD=$MINIO_SECRET_KEY" \
+            --detach \
+            minio/minio:latest \
+            server /data
+
+          for i in $(seq 1 30); do
+            if curl --fail --silent "$MINIO_ENDPOINT/minio/health/live" >/dev/null; then
+              break
+            fi
+            sleep 1
+            if [ "$i" -eq 30 ]; then
+              echo "MinIO did not become ready in time"
+              docker logs minio
+              exit 1
+            fi
+          done
+
+          docker run \
+            --rm \
+            --network host \
+            --entrypoint /bin/sh \
+            minio/mc:latest \
+            -c "mc alias set local '$MINIO_ENDPOINT' '$MINIO_ACCESS_KEY' '$MINIO_SECRET_KEY' &&
+                mc mb --ignore-existing local/powersync-s3-test"
 
       - name: Setup Node and build
         uses: ./.github/actions/setup-node-build
