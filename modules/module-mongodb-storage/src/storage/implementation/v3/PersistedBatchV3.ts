@@ -235,8 +235,7 @@ export class PersistedBatchV3 extends PersistedBatch {
         this.resetBucketPersistedBytes(definitionId, bucket);
         for (const chunk of chunkBucketData(ops)) {
           const serialized = serializeBucketData(bucket, chunk);
-          this.incrementBucketChunks(definitionId, bucket);
-          this.incrementBucketPersistedBytes(definitionId, bucket, serialized.size);
+          this.incrementBucketPersistedChunk(definitionId, bucket, serialized.size);
           if (lifecycle == null || serialized.size <= this.inlineThresholdBytes) {
             createInserts.push(async () => ({
               insertOne: {

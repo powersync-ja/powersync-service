@@ -242,14 +242,15 @@ export abstract class PersistedBatch {
 
   /**
    * V3 persists operations in chunks. Keep this separate from incrementBucket:
-   * operation counts are known while evaluating rows, while chunk counts are
-   * only known after the writer has chunked a flush.
+   * operation counts are known while evaluating rows, while chunk counts and
+   * exact persisted bytes are only known after the writer has chunked a flush.
    */
-  protected incrementBucketChunks(definitionId: BucketDefinitionId, bucket: string, chunks = 1) {
+  protected incrementBucketPersistedChunk(definitionId: BucketDefinitionId, bucket: string, bytes: number) {
     const key = `${definitionId ?? ''}:${bucket}`;
     const existingState = this.bucketStates.get(key);
     if (existingState != null) {
-      existingState.incrementChunks += chunks;
+      existingState.incrementChunks += 1;
+      existingState.incrementBytes += bytes;
     }
   }
 
@@ -262,13 +263,6 @@ export abstract class PersistedBatch {
     const state = this.bucketStates.get(`${definitionId ?? ''}:${bucket}`);
     if (state != null) {
       state.incrementBytes = 0;
-    }
-  }
-
-  protected incrementBucketPersistedBytes(definitionId: BucketDefinitionId, bucket: string, bytes: number) {
-    const state = this.bucketStates.get(`${definitionId ?? ''}:${bucket}`);
-    if (state != null) {
-      state.incrementBytes += bytes;
     }
   }
 

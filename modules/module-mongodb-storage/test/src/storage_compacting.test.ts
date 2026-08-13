@@ -1018,6 +1018,40 @@ bucket_definitions:
     expect(state?.compact_lease).toBeUndefined();
   });
 
+  test('explicit compaction skips a bucket with no outstanding full-compaction work', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const document = serializeBucketData(BUCKET, [makeOp(1, 'A', 'value', ctx, sourceTableId)]);
+    await insertDocs(collection, [document]);
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 1n,
+      next_compact_check: undefined,
+      first_uncompacted_write: undefined,
+      compacted_state: {
+        op_id: 1n,
+        checksum: document.checksum,
+        count: document.count,
+        bytes: BigInt(document.size),
+        chunks: 1,
+        at: new Date()
+      },
+      last_full_compact: {
+        op_id: 1n,
+        count: document.count,
+        puts: 1,
+        at: new Date()
+      },
+      bucket_stats: { count: document.count, bytes: BigInt(document.size), chunks: 1 }
+    });
+
+    await expect(bucketStorage.compact({ compactBuckets: [BUCKET], maxOpId: 1n })).resolves.toBeUndefined();
+
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.compact_lease).toBeUndefined();
+    expect(state?.next_compact_check).toBeUndefined();
+    expect(state?.last_full_compact?.op_id).toBe(1n);
+  });
+
   test('concurrent scheduled compactors lease a bucket to one worker', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
     const document = serializeBucketData(BUCKET, [makeOp(1, 'A', 'value', ctx, sourceTableId)]);

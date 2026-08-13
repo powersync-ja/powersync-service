@@ -231,10 +231,11 @@ export class MongoCompactorV3 extends MongoCompactor {
         .toArray();
       for (const state of states) {
         await using lease = await this.claimBucket({ _id: state._id });
-        if (lease != null) {
-          const decision = this.chooseCompactionKind(lease.state, lease.startedAt);
-          await this.compactClaimedBucket(lease, CompactionKind.Full, decision);
+        if (lease == null || lease.state.first_uncompacted_write == null) {
+          continue;
         }
+        const decision = this.chooseCompactionKind(lease.state, lease.startedAt);
+        await this.compactClaimedBucket(lease, CompactionKind.Full, decision);
       }
     }
   }
