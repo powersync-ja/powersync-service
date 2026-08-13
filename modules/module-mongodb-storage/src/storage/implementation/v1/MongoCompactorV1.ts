@@ -191,6 +191,7 @@ export class MongoCompactorV1 extends MongoCompactor {
 
   private async compactSingleBucketRetried(bucket: string, _definitionId: BucketDefinitionId | null = null) {
     await this.retryCompaction(bucket, () => this.compactSingleBucket(bucket));
+    this.compactedBucketCount++;
   }
 
   private async compactDirtyBuckets() {

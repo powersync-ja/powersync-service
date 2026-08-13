@@ -274,11 +274,22 @@ export class MongoCompactorV3 extends MongoCompactor {
         break;
       }
 
-      const scheduled = states.map((state) => ({
-        state,
-        decision: this.chooseCompactionKind(state, jobStartedAt),
-        forcedKind: this.forcedCompactionKind(state, forceKind)
-      }));
+      const scheduled: {
+        state: BucketStateDocumentV3;
+        decision: CompactionDecision;
+        forcedKind: CompactionKind | null;
+      }[] = [];
+      for (const state of states) {
+        try {
+          scheduled.push({
+            state,
+            decision: this.chooseCompactionKind(state, jobStartedAt),
+            forcedKind: this.forcedCompactionKind(state, forceKind)
+          });
+        } catch (error) {
+          await this.rescheduleFailedBucket(state, rescheduleNotBefore, error);
+        }
+      }
       const noOpStates = scheduled.filter(
         ({ state, decision, forcedKind }) =>
           state.compact_lease == null && (forceKind == null ? decision.kind : forcedKind) == null
@@ -291,17 +302,21 @@ export class MongoCompactorV3 extends MongoCompactor {
           continue;
         }
 
-        await using lease = await this.claimBucket({ _id: state._id, next_compact_check: { $lte: dueBefore } });
-        if (lease == null) {
-          continue;
-        }
-        const claimedDecision = this.chooseCompactionKind(lease.state, lease.startedAt);
-        const claimedKind =
-          forceKind == null ? claimedDecision.kind : this.forcedCompactionKind(lease.state, forceKind);
-        if (claimedKind == null) {
-          await this.rescheduleClaimedBucket(lease, claimedDecision);
-        } else {
-          await this.compactClaimedBucket(lease, claimedKind, claimedDecision, rescheduleNotBefore);
+        try {
+          await using lease = await this.claimBucket({ _id: state._id, next_compact_check: { $lte: dueBefore } });
+          if (lease == null) {
+            continue;
+          }
+          const claimedDecision = this.chooseCompactionKind(lease.state, lease.startedAt);
+          const claimedKind =
+            forceKind == null ? claimedDecision.kind : this.forcedCompactionKind(lease.state, forceKind);
+          if (claimedKind == null) {
+            await this.rescheduleClaimedBucket(lease, claimedDecision);
+          } else {
+            await this.compactClaimedBucket(lease, claimedKind, claimedDecision, rescheduleNotBefore);
+          }
+        } catch (error) {
+          await this.rescheduleFailedBucket(state, rescheduleNotBefore, error);
         }
       }
     }
@@ -351,6 +366,22 @@ export class MongoCompactorV3 extends MongoCompactor {
       })),
       { ordered: false }
     );
+  }
+
+  /**
+   * Isolate a malformed bucket so it cannot prevent other scheduled buckets
+   * from compacting. The snapshot filter preserves any concurrent write or
+   * compactor result instead of overwriting its next check.
+   */
+  private async rescheduleFailedBucket(state: BucketStateDocumentV3, notBefore: Date, error: unknown) {
+    this.logger.error(`Failed to compact scheduled bucket ${state._id.b}; rescheduling it`, error);
+    try {
+      await this.db
+        .bucketState(this.group_id)
+        .updateOne(this.unclaimedSnapshotFilter(state), [{ $set: { next_compact_check: notBefore } }]);
+    } catch (rescheduleError) {
+      this.logger.error(`Failed to reschedule bucket ${state._id.b} after a compaction error`, rescheduleError);
+    }
   }
 
   /**
@@ -1036,6 +1067,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     // --- Finalize: update bucket checksums and state ---
     await this.finalizeCompactedBucket({ context, compactedOpId, compactionResult: result, puts: putCount });
 
+    this.compactedBucketCount++;
     this.logger.info(`Compacted bucket ${bucket}: ${totalOpCount} surviving ops`);
   }
 

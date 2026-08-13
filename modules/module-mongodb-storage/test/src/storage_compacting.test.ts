@@ -139,8 +139,7 @@ bucket_definitions:
       // V3's initial lite pass processes every bucket with no prior compact state.
       // Earlier storage versions use the default minimum-change threshold.
       const result0 = await bucketStorage.compactInitialReplication({
-        maxOpId: checkpoint,
-        minCompactChunkIntervalMs: 1
+        maxOpId: checkpoint
       });
       expect(result0.buckets).toEqual(storageVersion >= storage.STORAGE_VERSION_3 ? 2 : 0);
 
@@ -173,6 +172,19 @@ bucket_definitions:
         checksum: 430217650,
         count: 1
       });
+    });
+
+    test('v3 initial chunk compaction includes writer-scheduled work with a custom chunk interval', async () => {
+      const { bucketStorage, checkpoint } = await setup(storage.STORAGE_VERSION_3);
+      const result = await (bucketStorage as MongoSyncBucketStorage)
+        .createMongoCompactor({
+          maxOpId: checkpoint,
+          compactChunksOnly: true,
+          minCompactChunkIntervalMs: 1
+        })
+        .compact();
+
+      expect(result).toBe(2);
     });
 
     test('v3 replication writes initialize scheduled compaction state', async () => {
@@ -355,6 +367,55 @@ bucket_definitions:
     } finally {
       await lease?.[Symbol.asyncDispose]();
     }
+  });
+
+  test('a failed scheduled bucket does not block other scheduled buckets', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
+    const badBucket = 'bad[]';
+    const goodBucket = 'good[]';
+    const badDocument = serializeBucketData(badBucket, [
+      makeOp(2, 'bad', 'bad', { ...ctx, bucket: badBucket }, sourceTableId)
+    ]);
+    const goodDocument = serializeBucketData(goodBucket, [
+      makeOp(2, 'good', 'good', { ...ctx, bucket: goodBucket }, sourceTableId)
+    ]);
+    await insertDocs(collection, [badDocument, goodDocument]);
+    await bucketStateCollection.insertMany([
+      {
+        _id: { d: ctx.definitionId, b: badBucket },
+        last_op: 2n,
+        next_compact_check: new Date(0),
+        first_uncompacted_write: new Date(0),
+        bucket_stats: { count: 1, bytes: BigInt(badDocument.size), chunks: 1 },
+        compacted_state: {
+          op_id: 1n,
+          count: 1,
+          bytes: BigInt(badDocument.size),
+          chunks: 1,
+          checksum: 0n,
+          at: new Date(0)
+        }
+      },
+      {
+        _id: { d: ctx.definitionId, b: goodBucket },
+        last_op: 2n,
+        next_compact_check: new Date(0),
+        first_uncompacted_write: new Date(0),
+        bucket_stats: { count: 1, bytes: BigInt(goodDocument.size), chunks: 1 }
+      }
+    ]);
+
+    await (bucketStorage as MongoSyncBucketStorage)
+      .createMongoCompactor({ maxOpId: 2n, compactChunksOnly: true })
+      .compact();
+
+    const [badState, goodState] = await Promise.all([
+      bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: badBucket } }),
+      bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: goodBucket } })
+    ]);
+    expect(badState?.next_compact_check).toBeInstanceOf(Date);
+    expect(badState!.next_compact_check!.getTime()).toBeGreaterThan(0);
+    expect(goodState?.compacted_state?.op_id).toBe(2n);
   });
 
   test('1. ops[] ordering - preserves caller ordering (no implicit sort)', () => {
