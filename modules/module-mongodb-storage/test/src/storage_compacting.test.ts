@@ -2,6 +2,7 @@ import { BucketDataDoc } from '@module/storage/implementation/common/BucketDataD
 import { MongoSyncBucketStorage } from '@module/storage/implementation/createMongoSyncBucketStorage.js';
 import { loadBucketDataDocument, serializeBucketData } from '@module/storage/implementation/v3/bucket-format.js';
 import { chunkBucketData, DEFAULT_MAX_DOC_SIZE_BYTES } from '@module/storage/implementation/v3/chunking.js';
+import { CompactionLease } from '@module/storage/implementation/v3/CompactionLease.js';
 import { BucketDataDocumentV3 } from '@module/storage/implementation/v3/models.js';
 import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import {
@@ -13,7 +14,7 @@ import {
 } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
 describe('Mongo Sync Bucket Storage Compact', () => {
@@ -327,6 +328,34 @@ bucket_definitions:
       maxOpId
     });
   }
+
+  test('a successful lease renewal clears a transient renewal error', async () => {
+    const { bucketStateCollection, ctx } = await setupV3Storage();
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 1n);
+    const lease = await CompactionLease.claim(
+      bucketStateCollection,
+      { _id: { d: ctx.definitionId, b: BUCKET } },
+      undefined,
+      10 * 60 * 1000
+    );
+    expect(lease).not.toBeNull();
+
+    try {
+      const transientError = new Error('temporary MongoDB error');
+      const renew = (lease as any).renew.bind(lease);
+      const updateOne = vi.spyOn(bucketStateCollection, 'updateOne').mockRejectedValueOnce(transientError);
+      await renew().catch((error: unknown) => {
+        (lease as any).renewalError = error;
+      });
+      await expect(lease!.throwIfLost()).rejects.toBe(transientError);
+
+      updateOne.mockRestore();
+      await renew();
+      await expect(lease!.throwIfLost()).resolves.toBeUndefined();
+    } finally {
+      await lease?.[Symbol.asyncDispose]();
+    }
+  });
 
   test('1. ops[] ordering - preserves caller ordering (no implicit sort)', () => {
     const ops = [
