@@ -1308,6 +1308,7 @@ bucket_definitions:
     const bucketStorage = await f.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const bucket = bucketRequest(syncRules.syncConfigContent[0], 'mybucket[]').bucket;
 
     await writer.markAllSnapshotDone('0/1');
     await writer.save({
@@ -1386,10 +1387,7 @@ bucket_definitions:
 
     await writer.commit('0/2');
 
-    await bucketStorage.compact({
-      minBucketChanges: 1,
-      minChangeRatio: 0
-    });
+    await bucketStorage.compact({ compactBuckets: [bucket] });
 
     const lines2 = await getCheckpointLines(iter, { consume: true });
 
@@ -1470,6 +1468,7 @@ bucket_definitions:
     const bucketStorage = await f.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const highPriorityBucket = bucketRequest(syncRules.syncConfigContent[0], 'high_priority[]').bucket;
 
     await writer.markAllSnapshotDone('0/1');
     await writer.save({
@@ -1553,8 +1552,9 @@ bucket_definitions:
     await writer.commit('0/2');
 
     await bucketStorage.compact({
-      minBucketChanges: 1,
-      minChangeRatio: 0
+      // Explicitly compact the high-priority bucket: V3 schedules background
+      // compaction, while this test needs compaction at this exact point.
+      compactBuckets: [highPriorityBucket]
     });
 
     const lines = await getCheckpointLines(iter, { consume: true });
