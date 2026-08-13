@@ -138,7 +138,8 @@ bucket_definitions:
       // V3's initial lite pass processes every bucket with no prior compact state.
       // Earlier storage versions use the default minimum-change threshold.
       const result0 = await bucketStorage.compactInitialReplication({
-        maxOpId: checkpoint
+        maxOpId: checkpoint,
+        minCompactChunkIntervalMs: 1
       });
       expect(result0.buckets).toEqual(storageVersion >= storage.STORAGE_VERSION_3 ? 2 : 0);
 

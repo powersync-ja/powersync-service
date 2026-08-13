@@ -15,6 +15,7 @@ import {
 import { SourceRecordLookupState } from '../common/SourceRecordStore.js';
 import { serializeBucketData } from './bucket-format.js';
 import { chunkBucketData } from './chunking.js';
+import { DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS } from './compaction-constants.js';
 import {
   BucketDataDocumentV3,
   BucketStateDocumentV3,
@@ -396,7 +397,15 @@ export class PersistedBatchV3 extends PersistedBatch {
                 first_uncompacted_write: { $ifNull: ['$first_uncompacted_write', '$$NOW'] },
                 next_compact_check: {
                   $let: {
-                    vars: { requested: { $dateAdd: { startDate: '$$NOW', unit: 'minute', amount: 5 } } },
+                    vars: {
+                      requested: {
+                        $dateAdd: {
+                          startDate: '$$NOW',
+                          unit: 'millisecond',
+                          amount: DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS
+                        }
+                      }
+                    },
                     in: {
                       $cond: [
                         { $lt: [{ $ifNull: ['$next_compact_check', '$$requested'] }, '$$requested'] },

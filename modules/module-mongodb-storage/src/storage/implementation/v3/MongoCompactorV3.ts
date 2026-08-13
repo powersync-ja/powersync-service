@@ -9,6 +9,7 @@ import { cacheKey } from '../OperationBatch.js';
 import { loadBucketDataDocument, maxOpId, serializeBucketData } from './bucket-format.js';
 import { BucketDataContextV3 } from './BucketDataContextV3.js';
 import { DEFAULT_MAX_DOC_SIZE_BYTES } from './chunking.js';
+import { DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS } from './compaction-constants.js';
 import { CompactionLease } from './CompactionLease.js';
 import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
@@ -83,7 +84,6 @@ interface CompactionResult {
   bucketStats: BucketStats;
 }
 
-const DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_MIN_COMPACT_FULL_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_MAX_COMPACT_FULL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_COMPACT_LEASE_DURATION_MS = 10 * 60 * 1000;
@@ -202,11 +202,11 @@ export class MongoCompactorV3 extends MongoCompactor {
     if (this.buckets != null) {
       await this.compactExplicitBuckets(this.buckets);
     } else if (this.compactChunksOnly) {
-      // Writers defer their first chunk-compaction check by minCompactChunkIntervalMs.
+      // Writers defer their first chunk-compaction check by this fixed default.
       // Include that interval so this synchronous initial-replication pass
       // processes the work that existed when it started.
       await this.compactScheduledBuckets({
-        dueAheadMs: this.minCompactChunkIntervalMs,
+        dueAheadMs: DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS,
         forceKind: CompactionKind.Chunks
       });
     } else {
