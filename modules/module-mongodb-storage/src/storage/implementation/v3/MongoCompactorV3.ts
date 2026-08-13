@@ -258,7 +258,12 @@ export class MongoCompactorV3 extends MongoCompactor {
    * initial replication, dueAheadMs extends that boundary to include the first deferred interval.
    */
   private async compactScheduledBuckets(options: ScheduledCompactionOptions = {}) {
-    const jobStartedAt = new Date();
+    // Writers derive next_compact_check from MongoDB's $$NOW. Use the same
+    // clock for the fixed job boundary so clock skew cannot exclude work at
+    // the exact initial-replication interval.
+    const [{ now: jobStartedAt }] = await this.db.db
+      .aggregate<{ now: Date }>([{ $documents: [{}] }, { $project: { _id: 0, now: '$$NOW' } }])
+      .toArray();
     const dueBefore = new Date(jobStartedAt.getTime() + (options.dueAheadMs ?? 0));
     const forceKind = options.forceKind;
     const rescheduleNotBefore = new Date(dueBefore.getTime() + 1);
@@ -271,15 +276,17 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       const scheduled = states.map((state) => ({
         state,
-        decision: this.chooseCompactionKind(state, jobStartedAt)
+        decision: this.chooseCompactionKind(state, jobStartedAt),
+        forcedKind: this.forcedCompactionKind(state, forceKind)
       }));
       const noOpStates = scheduled.filter(
-        ({ state, decision }) => state.compact_lease == null && forceKind == null && decision.kind == null
+        ({ state, decision, forcedKind }) =>
+          state.compact_lease == null && (forceKind == null ? decision.kind : forcedKind) == null
       );
       await this.rescheduleUnclaimedBuckets(noOpStates);
 
-      for (const { state, decision } of scheduled) {
-        const kind = forceKind ?? decision.kind;
+      for (const { state, decision, forcedKind } of scheduled) {
+        const kind = forceKind == null ? decision.kind : forcedKind;
         if (state.compact_lease == null && kind == null) {
           continue;
         }
@@ -289,7 +296,8 @@ export class MongoCompactorV3 extends MongoCompactor {
           continue;
         }
         const claimedDecision = this.chooseCompactionKind(lease.state, lease.startedAt);
-        const claimedKind = forceKind ?? claimedDecision.kind;
+        const claimedKind =
+          forceKind == null ? claimedDecision.kind : this.forcedCompactionKind(lease.state, forceKind);
         if (claimedKind == null) {
           await this.rescheduleClaimedBucket(lease, claimedDecision);
         } else {
@@ -297,6 +305,17 @@ export class MongoCompactorV3 extends MongoCompactor {
         }
       }
     }
+  }
+
+  private forcedCompactionKind(
+    state: BucketStateDocumentV3,
+    forceKind: CompactionKind | undefined
+  ): CompactionKind | null {
+    if (forceKind == null) {
+      return null;
+    }
+    const maxOpId = this.maxOpIdCap == null || state.last_op < this.maxOpIdCap ? state.last_op : this.maxOpIdCap;
+    return state.compacted_state == null || state.compacted_state.op_id < maxOpId ? forceKind : null;
   }
 
   /** Read a bounded, priority-ordered snapshot of currently claimable scheduled work. */

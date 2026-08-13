@@ -14,7 +14,7 @@ import {
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
-import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
 describe('Mongo Sync Bucket Storage Compact', () => {
   register.registerCompactTests(INITIALIZED_MONGO_STORAGE_FACTORY);
@@ -58,15 +58,18 @@ describe('Mongo Sync Bucket Storage Compact', () => {
       return bucketStorage.getCheckpoint();
     };
 
-    const setup = async () => {
+    const setup = async (storageVersion?: number) => {
       await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
       const syncRules = await factory.updateSyncRules(
-        updateSyncRulesFromYaml(`
+        updateSyncRulesFromYaml(
+          `
 bucket_definitions:
   by_user:
     parameters: select request.user_id() as user_id
     data: [select * from test where owner_id = bucket.user_id]
-    `)
+    `,
+          { storageVersion }
+        )
       );
       const bucketStorage = factory.getInstance(syncRules);
       const syncRulesContent = syncRules.syncConfigContent[0];
@@ -110,18 +113,21 @@ bucket_definitions:
       });
     });
 
-    test('compactInitialReplication', async () => {
+    test.each(TEST_STORAGE_VERSIONS)('compactInitialReplication (storage v%s)', async (storageVersion) => {
       // Populate old replication stream
-      const { factory } = await setup();
+      const { factory } = await setup(storageVersion);
 
       // Now populate another replication stream (bucket definition name changed)
       const syncRules = await factory.updateSyncRules(
-        updateSyncRulesFromYaml(`
+        updateSyncRulesFromYaml(
+          `
 bucket_definitions:
   by_user2:
     parameters: select request.user_id() as user_id
     data: [select * from test where owner_id = bucket.user_id]
-    `)
+    `,
+          { storageVersion }
+        )
       );
       const bucketStorage = factory.getInstance(syncRules);
       const syncRulesContent = syncRules.syncConfigContent[0];
@@ -129,22 +135,25 @@ bucket_definitions:
       await populate(bucketStorage, 2);
       const { checkpoint } = await bucketStorage.getCheckpoint();
 
-      // The initial lite pass caches and merges every bucket with no prior compact state.
+      // V3's initial lite pass processes every bucket with no prior compact state.
+      // Earlier storage versions use the default minimum-change threshold.
       const result0 = await bucketStorage.compactInitialReplication({
         maxOpId: checkpoint
       });
-      expect(result0.buckets).toEqual(2);
+      expect(result0.buckets).toEqual(storageVersion >= storage.STORAGE_VERSION_3 ? 2 : 0);
 
-      // The bucket stats now match the compacted state, so another initial
-      // pass has no work.
+      // For V1/V2, lower the threshold to populate the checksum cache. V3 has
+      // already updated its compacted state, so another initial pass is a no-op.
       const result1 = await bucketStorage.compactInitialReplication({
-        maxOpId: checkpoint
+        maxOpId: checkpoint,
+        minBucketChanges: 1
       });
-      expect(result1.buckets).toEqual(0);
+      expect(result1.buckets).toEqual(storageVersion >= storage.STORAGE_VERSION_3 ? 0 : 2);
 
       // Repeating it stays a no-op.
       const result2 = await bucketStorage.compactInitialReplication({
-        maxOpId: checkpoint
+        maxOpId: checkpoint,
+        minBucketChanges: 1
       });
       expect(result2.buckets).toEqual(0);
 

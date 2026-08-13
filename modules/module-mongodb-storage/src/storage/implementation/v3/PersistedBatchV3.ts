@@ -399,12 +399,7 @@ export class PersistedBatchV3 extends PersistedBatch {
                     vars: { requested: { $dateAdd: { startDate: '$$NOW', unit: 'minute', amount: 5 } } },
                     in: {
                       $cond: [
-                        {
-                          $and: [
-                            { $ne: ['$next_compact_check', null] },
-                            { $lt: ['$next_compact_check', '$$requested'] }
-                          ]
-                        },
+                        { $lt: [{ $ifNull: ['$next_compact_check', '$$requested'] }, '$$requested'] },
                         '$next_compact_check',
                         '$$requested'
                       ]
