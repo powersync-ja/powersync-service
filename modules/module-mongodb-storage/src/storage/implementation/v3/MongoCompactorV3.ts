@@ -48,7 +48,8 @@ class CompactionContext {
   constructor(
     readonly lease: CompactionLease,
     readonly kind: CompactionKind,
-    readonly decision: CompactionDecision
+    readonly decision: CompactionDecision,
+    readonly rescheduleNotBefore: Date | undefined
   ) {}
 
   get state() {
@@ -253,13 +254,14 @@ export class MongoCompactorV3 extends MongoCompactor {
    * filtered out when claiming a compaction lease.
    *
    * We filter scheduled jobs by the job start date, so that the same bucket is not compacted
-   * multiple times in one run. One tweak to this is for the run after initial replication:
-   * We use dueAheadMs to also include buckets scheduled during initial replication.
+   * multiple times in one run. Reschedules fall beyond the fixed boundary. For the run after
+   * initial replication, dueAheadMs extends that boundary to include the first deferred interval.
    */
   private async compactScheduledBuckets(options: ScheduledCompactionOptions = {}) {
     const jobStartedAt = new Date();
     const dueBefore = new Date(jobStartedAt.getTime() + (options.dueAheadMs ?? 0));
     const forceKind = options.forceKind;
+    const rescheduleNotBefore = new Date(dueBefore.getTime() + 1);
     while (true) {
       this.signal?.throwIfAborted();
       const states = await this.findScheduledBucketBatch(dueBefore);
@@ -291,7 +293,7 @@ export class MongoCompactorV3 extends MongoCompactor {
         if (claimedKind == null) {
           await this.rescheduleClaimedBucket(lease, claimedDecision);
         } else {
-          await this.compactClaimedBucket(lease, claimedKind, claimedDecision);
+          await this.compactClaimedBucket(lease, claimedKind, claimedDecision, rescheduleNotBefore);
         }
       }
     }
@@ -357,8 +359,13 @@ export class MongoCompactorV3 extends MongoCompactor {
     return CompactionLease.claim(this.db.bucketState(this.group_id), filter, sort, this.compactLeaseDurationMs);
   }
 
-  private async compactClaimedBucket(lease: CompactionLease, kind: CompactionKind, decision: CompactionDecision) {
-    const context = new CompactionContext(lease, kind, decision);
+  private async compactClaimedBucket(
+    lease: CompactionLease,
+    kind: CompactionKind,
+    decision: CompactionDecision,
+    rescheduleNotBefore?: Date
+  ) {
+    const context = new CompactionContext(lease, kind, decision, rescheduleNotBefore);
     lease.startRenewal();
     await this.retryCompaction(context.state._id.b, () => this.compactSingleBucket(context));
   }
@@ -401,6 +408,10 @@ export class MongoCompactorV3 extends MongoCompactor {
 
   private async rescheduleClaimedBucket(lease: CompactionLease, decision: CompactionDecision) {
     await lease.reschedule(decision.nextCompactCheck);
+  }
+
+  private rescheduleAtOrAfter(nextCompactCheck: mongo.Document, notBefore: Date | undefined): mongo.Document {
+    return notBefore == null ? nextCompactCheck : { $max: [nextCompactCheck, notBefore] };
   }
 
   /**
@@ -631,13 +642,19 @@ export class MongoCompactorV3 extends MongoCompactor {
     };
     const coveredStart = compactedOpId >= context.lastOp;
     const concurrentWriteCheck = { $gt: ['$last_op', context.lastOp] };
-    const nextAfterConcurrentWrite = new Date(context.startedAt.getTime() + this.minCompactChunkIntervalMs);
-    const nextCheckForUncompactedWork = {
-      $min: [
-        new Date(firstUncompactedWrite(context.state).getTime() + this.maxCompactFullIntervalMs),
-        { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } }
-      ]
-    };
+    const nextAfterConcurrentWrite = this.rescheduleAtOrAfter(
+      new Date(context.startedAt.getTime() + this.minCompactChunkIntervalMs),
+      context.rescheduleNotBefore
+    );
+    const nextCheckForUncompactedWork = this.rescheduleAtOrAfter(
+      {
+        $min: [
+          new Date(firstUncompactedWrite(context.state).getTime() + this.maxCompactFullIntervalMs),
+          { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } }
+        ]
+      },
+      context.rescheduleNotBefore
+    );
     const update: mongo.Document = {
       compacted_state: {
         op_id: compactedOpId,
@@ -674,7 +691,20 @@ export class MongoCompactorV3 extends MongoCompactor {
   }
 
   private async finalizeSkippedBucket(context: CompactionContext) {
-    await this.rescheduleClaimedBucket(context.lease, context.decision);
+    // A maxOpId cap can exclude the first remaining document entirely. Avoid
+    // immediately claiming the same no-progress bucket again in this run.
+    await this.rescheduleClaimedBucket(context.lease, {
+      ...context.decision,
+      nextCompactCheck: this.rescheduleAtOrAfter(
+        {
+          $max: [
+            context.decision.nextCompactCheck,
+            { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } }
+          ]
+        },
+        context.rescheduleNotBefore
+      )
+    });
   }
 
   private async readBucketStats(

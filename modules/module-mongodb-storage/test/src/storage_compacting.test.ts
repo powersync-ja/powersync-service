@@ -1048,7 +1048,7 @@ bucket_definitions:
 
     const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
     expect(state?.compact_lease).toBeUndefined();
-    expect(state?.next_compact_check).toBeUndefined();
+    expect(state?.next_compact_check).toBeNull();
     expect(state?.last_full_compact?.op_id).toBe(1n);
   });
 
