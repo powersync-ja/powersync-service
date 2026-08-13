@@ -219,7 +219,7 @@ export abstract class PersistedBatch {
 
   /**
    * New bucket operations persist protocol subkeys during replication. Older
-   * V1 and V3 documents may not have one, so sync reads retain a fallback.
+   * V1 documents may not have one, so sync reads retain a fallback.
    */
   protected persistedSubkey(table: storage.SourceTableId, key: storage.ReplicaId): string {
     return replicaIdToSubkey(table, key);
