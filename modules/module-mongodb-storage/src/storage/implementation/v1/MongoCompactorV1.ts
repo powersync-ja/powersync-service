@@ -6,6 +6,7 @@ import {
   InternalOpId,
   isPartialChecksum,
   storage,
+  SyncRuleState,
   utils
 } from '@powersync/service-core';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
@@ -74,6 +75,9 @@ export class MongoCompactorV1 extends MongoCompactor {
     if (this.options?.incrementalOnly) {
       // Not supported for V1
       this.logger.info('Incremental compacting is not supported on MongoDB storage V1/V2');
+      return 0;
+    } else if (this.storage.replicationStream.state != SyncRuleState.PROCESSING) {
+      this.logger.info(`Skipping compacting of replication stream in ${this.storage.replicationStream.state} state.`);
       return 0;
     }
     await this.deleteOldCheckpointRequests();

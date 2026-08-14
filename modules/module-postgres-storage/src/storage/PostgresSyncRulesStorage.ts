@@ -16,6 +16,7 @@ import {
   ReplicationCheckpoint,
   storage,
   StorageVersionConfig,
+  SyncRuleState,
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
@@ -149,6 +150,9 @@ export class PostgresSyncRulesStorage
     if (options?.incrementalOnly) {
       // Not supported yet
       this.logger.info('Incremental compacting is not supported on Postgres storage yet.');
+      return;
+    } else if (this.replicationStream.state != SyncRuleState.PROCESSING) {
+      this.logger.info(`Skipping compacting of replication stream in ${this.replicationStream.state} state.`);
       return;
     }
     let maxOpId = options?.maxOpId;

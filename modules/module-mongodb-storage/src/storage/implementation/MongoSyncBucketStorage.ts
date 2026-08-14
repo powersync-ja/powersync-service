@@ -19,6 +19,7 @@ import {
   ReplicationCheckpoint,
   ReplicationStreamStorageIds,
   storage,
+  SyncRuleState,
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
@@ -372,7 +373,7 @@ export abstract class MongoSyncBucketStorage
     }
     await this.createMongoCompactor({ ...options, maxOpId, logger: this.logger }).compact();
 
-    if (maxOpId != null && options?.compactParameterData) {
+    if (maxOpId != null && options?.compactParameterData && this.replicationStream.state == SyncRuleState.PROCESSING) {
       await this.createMongoParameterCompactor(maxOpId, options).compact();
     }
   }
