@@ -61,6 +61,18 @@ export const SyncRules = t.object({
           maxTimeValuePrecision: t.number.optional()
         }),
         eventDescriptors: t.record(t.array(t.string)),
+        // Ordered list (matching is first-match-wins; JSONB does not preserve object key order).
+        initialSnapshotFilters: t
+          .array(
+            t.object({
+              pattern: t.string,
+              filter: t.object({
+                sql: t.string.optional(),
+                mongo: t.any.optional()
+              })
+            })
+          )
+          .optional(),
         errors: t.array(ReplicationError).optional()
       })
     )

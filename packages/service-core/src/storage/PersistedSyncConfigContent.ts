@@ -59,6 +59,12 @@ export function parsePersistedSyncConfigContent(options: ParsePersistedSyncConfi
   // This means asUpdateOptions will not change the storage version, even if the default changes.
   precompiled.storageVersion = storageVersion;
 
+  // Initial snapshot filters are not part of the compiled plan and must be restored separately, preserving
+  // their order (matching is first-match-wins).
+  precompiled.initialSnapshotFilters = new Map(
+    (compiledPlan.initialSnapshotFilters ?? []).map(({ pattern, filter }) => [pattern, filter])
+  );
+
   const errors: YamlError[] = [];
   if (compiledPlan.errors) {
     for (const error of compiledPlan.errors) {

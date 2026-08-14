@@ -45,6 +45,50 @@ bucket_definitions:
     expect(reduced.length).toEqual(150);
   });
 
+  test('applies filter when restored from a compiled sync plan (edition 3)', async () => {
+    // With edition 3, sync configs are persisted with a compiled sync plan, and replication restores the
+    // config from the stored plan instead of re-parsing the YAML. The filters must survive that round-trip.
+    await using context = await WalStreamTestContext.open(factory, {
+      storageVersion,
+      walStreamOptions: { snapshotChunkLength: 100 }
+    });
+
+    // The stream deliberately selects ALL rows: the row count in the bucket then directly measures whether
+    // the snapshot filter was pushed down to the snapshot query (150 rows) or ignored (1000 rows).
+    await context.updateSyncRules(`
+initial_snapshot_filters:
+  test_data:
+    sql: "archived = false"
+
+streams:
+  global:
+    query: SELECT id, description FROM test_data
+
+config:
+  edition: 3`);
+    // Reload the config from storage, like the replicator does on startup — replication must not depend on
+    // the in-memory config from the deploy.
+    await context.loadNextSyncRules();
+    const { pool } = context;
+
+    await pool.query(`
+      CREATE TABLE test_data(
+        id int4 primary key,
+        description text,
+        archived boolean not null default false
+      )`);
+    // 1000 rows, of which only 150 match the filter.
+    await pool.query(`
+      INSERT INTO test_data(id, description, archived)
+      SELECT i, 'row ' || i, i % 10 >= 5 OR i > 300 FROM generate_series(1, 1000) i`);
+
+    await context.replicateSnapshot();
+
+    const data = await context.getBucketData('global|0[]', undefined, {});
+    const reduced = reduceBucket(data).filter((row) => row.object_type == 'test_data');
+    expect(reduced.length).toEqual(150);
+  });
+
   test('filter with a plain table name matches the table in any schema', async () => {
     await using context = await WalStreamTestContext.open(factory, { storageVersion });
 
