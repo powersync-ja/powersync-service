@@ -4,7 +4,7 @@ import {
   storage,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { bucketRequest, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, compactActive, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
@@ -153,7 +153,7 @@ describe('V3 checksums with S3 object storage', () => {
     const checkpoint = await bucketStorage.getCheckpoint();
 
     // Compact — produces CLEAR doc from collapsed MOVEs
-    await bucketStorage.compact({
+    await compactActive(factory, {
       maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
       clearBatchLimit: 200,

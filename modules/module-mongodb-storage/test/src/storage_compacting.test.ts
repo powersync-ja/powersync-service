@@ -13,7 +13,7 @@ import {
   SyncRulesBucketStorage,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, compactActive, register, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
 import { describe, expect, test, vi } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
@@ -90,7 +90,7 @@ bucket_definitions:
       // Simulate a V1 deployment which pre-dates bucket-state population.
       await factory.db.bucket_state.deleteMany({});
 
-      await bucketStorage.compact({
+      await compactActive(factory, {
         clearBatchLimit: 200,
         moveBatchLimit: 10,
         moveBatchQueryLimit: 10,

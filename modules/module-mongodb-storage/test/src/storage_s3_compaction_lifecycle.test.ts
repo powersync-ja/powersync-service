@@ -1,5 +1,5 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { bucketRequest, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, compactActive, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
@@ -63,7 +63,7 @@ describe('S3 compaction storage lifecycle', () => {
 
     const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
-    await bucketStorage.compact({
+    await compactActive(factory, {
       maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
       minBucketChanges: 1,
@@ -107,7 +107,7 @@ describe('S3 compaction storage lifecycle', () => {
 
     const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
-    await bucketStorage.compact({
+    await compactActive(factory, {
       maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
       minBucketChanges: 1,
@@ -167,7 +167,7 @@ describe('S3 compaction storage lifecycle', () => {
 
     const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
-    await bucketStorage.compact({
+    await compactActive(factory, {
       maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
       clearBatchLimit: 200,
@@ -230,7 +230,7 @@ describe('S3 compaction storage lifecycle', () => {
     const lowerPaths = new Set(docsBefore.slice(0, 6).map((doc) => doc.storage_ref!.path));
     const upperPaths = new Set(docsBefore.slice(6).map((doc) => doc.storage_ref!.path));
 
-    await bucketStorage.compact({
+    await compactActive(factory, {
       maxOpId,
       compactBuckets: [request.bucket],
       clearBatchLimit: 200,
@@ -357,7 +357,7 @@ describe('S3 compaction storage lifecycle', () => {
     expect(expectedCompactedOpId).not.toBeNull();
 
     // Compact the bucket.
-    await bucketStorage.compact({
+    await compactActive(factory, {
       maxOpId: checkpoint.checkpoint,
       compactBuckets: [bucket],
       clearBatchLimit: 200,
