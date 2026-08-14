@@ -56,7 +56,8 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
       storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
-      rateLimiter: new PostgresErrorRateLimiter()
+      rateLimiter: new PostgresErrorRateLimiter(),
+      heartbeatIntervalSeconds: normalisedConfig.heartbeat_interval_seconds
     });
   }
 

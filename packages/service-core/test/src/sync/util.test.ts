@@ -1,6 +1,18 @@
-import { acquireSemaphoreAbortable } from '@/index.js';
+import { acquireSemaphoreAbortable, isAbortError } from '@/index.js';
 import { Semaphore, SemaphoreInterface } from 'async-mutex';
+import { AbortError } from 'ix/aborterror.js';
 import { describe, expect, test, vi } from 'vitest';
+
+describe('isAbortError', () => {
+  test('recognizes ix and native abort errors', () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    expect(isAbortError(new AbortError())).toBe(true);
+    expect(isAbortError(controller.signal.reason)).toBe(true);
+    expect(isAbortError(new Error('not aborted'))).toBe(false);
+  });
+});
 
 describe('acquireSemaphoreAbortable', () => {
   test('can acquire', async () => {

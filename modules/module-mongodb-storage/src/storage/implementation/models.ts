@@ -78,6 +78,11 @@ export interface BucketDataProperties {
   row_id?: string;
   checksum: bigint;
   data: string | null;
+  /**
+   * V1-only.
+   *
+   * V3 stores this on the BucketDataDocumentV3 instead of the individual ops.
+   */
   target_op?: bigint | null;
 }
 
@@ -105,6 +110,10 @@ export interface SourceTableDocument {
   replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
   snapshot_done: boolean | undefined;
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
+  /**
+   * Source-specific metadata. Absent for legacy records.
+   */
+  source_metadata?: storage.JsonValue;
 }
 
 export interface SourceTableDocumentSnapshotStatus {

@@ -56,7 +56,7 @@ bucket_definitions:
 
     const request = bucketRequest(syncRulesContent, 'global[]');
 
-    const batchBefore = await test_utils.oneFromAsync(
+    const batchBefore = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
     );
     const dataBefore = batchBefore.chunkData.data;
@@ -89,7 +89,7 @@ bucket_definitions:
       minChangeRatio: 0
     });
 
-    const batchAfter = await test_utils.oneFromAsync(
+    const batchAfter = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
     );
     const dataAfter = batchAfter.chunkData.data;
@@ -176,7 +176,7 @@ bucket_definitions:
     const checkpoint = writer.last_flushed_op!;
     const request = bucketRequest(syncRulesContent, 'global[]');
 
-    const batchBefore = await test_utils.oneFromAsync(
+    const batchBefore = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
     );
     const dataBefore = batchBefore.chunkData.data;
@@ -210,7 +210,7 @@ bucket_definitions:
       minChangeRatio: 0
     });
 
-    const batchAfter = await test_utils.oneFromAsync(
+    const batchAfter = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
     );
     const dataAfter = batchAfter.chunkData.data;
@@ -309,7 +309,7 @@ bucket_definitions:
       minChangeRatio: 0
     });
 
-    const batchAfter = await test_utils.oneFromAsync(
+    const batchAfter = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint2), [request])
     );
     const dataAfter = batchAfter.chunkData.data;
@@ -424,7 +424,7 @@ bucket_definitions:
       minChangeRatio: 0
     });
 
-    const batchAfter = await test_utils.fromAsync(
+    const batchAfter = await test_utils.getBatchArray(
       bucketStorage.getBucketDataBatch(
         test_utils.testCheckpoint(checkpoint),
         bucketRequestMap(syncRulesContent, [
@@ -665,7 +665,7 @@ bucket_definitions:
       minChangeRatio: 0
     });
 
-    const batchAfterDefaultCompact = await test_utils.oneFromAsync(
+    const batchAfterDefaultCompact = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(
         test_utils.testCheckpoint(checkpoint2),
         bucketRequestMap(syncRulesContent, [['global[]', 0n]])

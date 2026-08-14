@@ -39,6 +39,7 @@ This is a SourceTableRef with additional metadata used for replication:
 
 1. objectId / relation id: The underlying id of the table/collection in the source database. This is used to track renames.
 2. replicaIdColumns: The columns and types representing the "replica identity" for the table.
+3. sourceMetadata (nullable): Opaque, source-specific identity metadata. `null` means no metadata has been recorded. Storage persists and hydrates non-null values verbatim and never interprets them.
 
 ### SourceTable
 
@@ -86,13 +87,46 @@ Each matching pattern is resolved independently.
 
 Conceptually it does:
 
-1. Look up existing `SourceTable` records that match the physical identity.
-2. Resolve matching sources through the parsed sync config set's definition mapping.
-3. Determine which persisted bucket and parameter definition ids are already covered.
-4. Create missing `SourceTable` records when coverage is incomplete.
-5. Return the `SourceTable` records that should receive replicated data.
+1. Find persisted records that overlap by `(schema + name) OR object/relation id`.
+2. Let the source connector classify them as compatible or incompatible.
+3. Resolve matching sync config definitions and reuse compatible records where possible.
+4. Persist source metadata updates and create records for missing definitions.
+5. Return the records to replicate into and the incompatible records to drop.
 
 Important: one physical table can resolve to multiple `SourceTable` records when sync config definitions have been added over time.
+
+### Source-owned candidate reconciliation
+
+`resolveTables` delegates compatibility checks to the connector through `reconcileSourceTables`. If none is provided, it uses the default identity comparison.
+
+- Storage hydrates overlapping records into `SourceTable` values, then passes isolated clones to the connector through a read-only `SourceTableCandidate` type.
+- The source connector classifies those candidates and provides `sourceMetadata` for updated or new records.
+- Storage persists those changes and manages record creation, snapshot state, memberships, and incompatible records.
+
+The reconciler must not perform slow source queries. Candidate state is cloned before the callback; `withSourceMetadata()` is the supported way to return a metadata change. After reconciliation, storage rematerializes results from its original `SourceTable` values, so snapshot state, memberships, and identity remain storage-owned even if callback code mutates a candidate or bypasses the type boundary with a cast. Changes to the table identity still require a new record and snapshot.
+
+### MSSQL: the replicated table set is fixed at deploy
+
+MSSQL rejects table wildcards and requires every configured table to exist with CDC enabled at startup. This keeps the table set fixed for the life of the stream. Polling cannot detect a new table atomically with a commit, so adding a table, enabling CDC, or renaming a table into scope requires a new sync config deploy.
+
+Dropping, renaming, or recreating a replicated table, or otherwise changing its persisted source identity, fails the job with `PSYNC_S1603`. Continuing would risk committing past changes that have not been read from that table. Existing replicated data is retained; it is removed when the replacement sync config is resolved.
+
+This failure applies when none of the overlapping persisted records match the discovered source identity. If at least one record remains compatible, it anchors the current binding; other incompatible overlapping records are stale storage state and can be removed without adopting a replacement identity.
+
+### MSSQL capture-instance pinning
+
+SQL Server can keep two capture instances for one table. Each binding is pinned to the capture table's object id:
+
+- New and legacy bindings use the newest available instance.
+- A pinned binding keeps using its instance when a newer one appears and logs a warning.
+- If the pinned instance is removed, replication fails with `PSYNC_S1601`. A replacement is not adopted automatically because it may capture a different schema.
+- Conflicting persisted pins are treated as invalid state.
+
+Every configured table is resolved before streaming starts, which also backfills pins for legacy records. A table with no persisted binding that does not exist or does not have CDC enabled fails with `PSYNC_S1602`. If a persisted binding exists, a missing or identity-mismatched table fails with `PSYNC_S1603`, while a table whose CDC capture instance is unavailable fails with `PSYNC_S1601`. This preserves the original binding and its replicated data across normal job restarts.
+
+To adopt a new capture instance, deploy a new sync config. The replacement processing binds to the new
+instance and snapshots as needed. Keep the old instance available until the new sync config has finished
+its snapshots and becomes active.
 
 The parsed sync config set matters here. Source objects, hydration state, and definition mappings are identity-bound; resolving sources from one parse and writing them through a batch created from another parse can point at the wrong persisted ids.
 

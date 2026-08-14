@@ -39,7 +39,8 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
       storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
-      rateLimiter: new MongoErrorRateLimiter()
+      rateLimiter: new MongoErrorRateLimiter(),
+      heartbeatIntervalSeconds: normalisedConfig.heartbeat_interval_seconds
     });
   }
 

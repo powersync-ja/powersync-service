@@ -231,7 +231,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     const checkpoint = await this.storage!.getCheckpoint();
     const map = [bucketRequest(syncConfigContent, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
-    const batches = await test_utils.fromAsync(batch);
+    const batches = await test_utils.getBatchArray(batch);
     return batches[0]?.chunkData.data ?? [];
   }
 

@@ -43,7 +43,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   protected createPersistedBatch(writtenSize: number): PersistedBatch {
     return new PersistedBatchV3(this.db, this.replicationStreamId, this.mapping, writtenSize, {
-      logger: this.logger
+      logger: this.logger,
+      objectStorage: this.options.objectStorage,
+      inlineThresholdBytes: this.options.inlineThresholdBytes
     });
   }
 
@@ -146,23 +148,16 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const mapping = parsedOverride?.mapping ?? this.mapping;
 
     const { connection_id, source } = options;
-    const context: SourceTableReconciliationContext = {
-      connectionId: connection_id,
-      connectionTag: source.connectionTag,
-      identity: {
-        schema: source.schema,
-        name: source.name,
-        objectId: source.objectId,
-        replicaIdColumns: source.replicaIdColumns.map((column) => ({
-          name: column.name,
-          type: column.type,
-          type_oid: column.typeId
-        }))
-      },
-      storeCurrentData: source.sendsCompleteRows !== true,
-      syncConfig,
-      mapping,
-      desired: sourceTableDesiredResolution(syncConfig, source, mapping)
+    const reconcile = options.reconcileSourceTables ?? storage.defaultSourceTableReconciler;
+    const identity = {
+      schema: source.schema,
+      name: source.name,
+      objectId: source.objectId,
+      replicaIdColumns: source.replicaIdColumns.map((column) => ({
+        name: column.name,
+        type: column.type,
+        type_oid: column.typeId
+      }))
     };
 
     let result: storage.ResolveTablesResult | null = null;
@@ -172,14 +167,36 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     await session.withTransaction(async () => {
       const col = this.db.sourceTables(this.replicationStreamId);
 
-      // Fetch every persisted source-table doc that can overlap this physical table.
-      // Exact-identity docs are candidates for reuse; non-exact overlaps are possible drops.
+      // Find records that overlap by name or relation id.
       const candidateDocs = await col
-        .find(overlappingSourceTableFilter(connection_id, context.identity), { session })
+        .find(overlappingSourceTableFilter(connection_id, identity), { session })
         .toArray();
 
-      // Pure planning: which docs to retain (and narrow), whether a new doc is needed for
-      // uncovered memberships, and which docs conflict with the current identity.
+      const candidateTables = candidateDocs.map((doc) =>
+        sourceTableFromDocument(doc, source.connectionTag, syncConfig, mapping)
+      );
+      const candidates = candidateTables.map((table) => table.clone());
+      const resolution = await reconcile({ source, candidates });
+      storage.validateSourceTableCandidateResolution(candidates, resolution);
+
+      // Persist metadata from the reconciler without mutating the queried documents.
+      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
+        await col.updateOne({ _id: mongoTableId(id) }, { $set: { source_metadata: sourceMetadata } }, { session });
+      }
+
+      const context: SourceTableReconciliationContext = {
+        connectionId: connection_id,
+        connectionTag: source.connectionTag,
+        identity,
+        storeCurrentData: source.sendsCompleteRows !== true,
+        syncConfig,
+        mapping,
+        desired: sourceTableDesiredResolution(syncConfig, source, mapping),
+        sourceCompatibleTables: resolution.compatibleTables,
+        newTableSourceMetadata: resolution.newTableValues.sourceMetadata
+      };
+
+      // Plan record reuse, membership changes, creation, and removal.
       const plan = planSourceTableReconciliation(candidateDocs, context);
 
       // Persist narrowing for incomplete snapshots only. Snapshot-complete docs keep stale

@@ -1,5 +1,58 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.20.0
+
+### Minor Changes
+
+- 798d739: Add source-owned `SourceTable` reconciliation.
+
+  `resolveTables()` now queries all overlapping persisted candidates and passes them to a
+  source-provided reconciler that returns compatible and incompatible tables, can return
+  modified compatible copies, and supplies values used for potential new records. Storage persists allowlisted
+  source metadata differences but never interprets them. MongoDB v1/v3 and PostgreSQL storage were
+  refactored to this candidate-first model (PostgreSQL gains a nullable `source_metadata` JSONB column
+  via migration).
+
+### Patch Changes
+
+- Updated dependencies [27b56cb]
+- Updated dependencies [798d739]
+  - @powersync/service-core@1.25.0
+
+## 0.19.0
+
+### Minor Changes
+
+- 2189250: Add `/sync/checkpoint-request` for client-supplied checkpoint request ids, previously called write checkpoint ids. The route returns the stored `checkpoint_request_id`, storage now treats managed request ids as monotonic per user/client, custom checkpoint request ids continue to use the existing `checkpoint` field for backwards compatibility, and `checkpoint_requested_at` metadata lets compact jobs remove expired request-derived checkpoint records.
+
+  This release includes storage migrations for the checkpoint request metadata. Self-hosters should run migrations as part of the upgrade.
+
+- 922f974: Add experimental support for storing bucket data chunks on S3.
+
+### Patch Changes
+
+- 37591e9: [MongoDB Storage] Use batched deletes for clearing data.
+- 63707af: Stability and performance fixes for MongoDB storage V3.
+- be14bfe: [MongoDB Storage V3] Tweak size estimates and chunking to use actual BSON sizes.
+- aab068b: [MongoDB Storage V3] Add has_clear_op field and simplify checksum queries.
+- b3cbc25: Update "Flushed X + Y + Z updates" log to include more detail
+- Updated dependencies [087b61e]
+- Updated dependencies [2189250]
+- Updated dependencies [922f974]
+- Updated dependencies [c4860c9]
+- Updated dependencies [37591e9]
+- Updated dependencies [483415d]
+- Updated dependencies [8daa300]
+- Updated dependencies [aab068b]
+- Updated dependencies [37591e9]
+- Updated dependencies [be42e25]
+- Updated dependencies [cb4c627]
+  - @powersync/service-core@1.24.0
+  - @powersync/lib-services-framework@0.10.0
+  - @powersync/service-types@0.17.0
+  - @powersync/lib-service-mongodb@0.6.30
+  - @powersync/service-sync-rules@0.40.0
+
 ## 0.18.3
 
 ### Patch Changes

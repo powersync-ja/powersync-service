@@ -17,6 +17,50 @@ function registerStorageVersionTests(storageVersion: number) {
       tableIdStrings: storageFactory.tableIdStrings
     });
 
+    test('updates source metadata on an existing resolved table', async () => {
+      await using factory = await storageFactory.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id FROM test
+`,
+          { storageVersion }
+        )
+      );
+      const bucketStorage = factory.getInstance(syncRules);
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const source: storage.SourceEntityDescriptor = {
+        connectionTag: storage.SourceTable.DEFAULT_TAG,
+        objectId: 'test',
+        schema: 'public',
+        name: 'test',
+        replicaIdColumns: [{ name: 'id', type: 'VARCHAR', typeId: 25 }]
+      };
+
+      const initial = await writer.resolveTables({ connection_id: 1, source });
+      expect(initial.tables[0].sourceMetadata).toBeNull();
+
+      const sourceMetadata = { captureTableObjectId: 42 };
+      const updated = await writer.resolveTables({
+        connection_id: 1,
+        source,
+        reconcileSourceTables: ({ candidates }) => ({
+          compatibleTables: candidates.map((candidate) => candidate.withSourceMetadata(sourceMetadata)),
+          incompatibleTables: [],
+          newTableValues: { sourceMetadata }
+        })
+      });
+
+      expect(updated.tables.map((table) => table.id.toString())).toEqual(
+        initial.tables.map((table) => table.id.toString())
+      );
+      expect(updated.tables[0].sourceMetadata).toEqual(sourceMetadata);
+      expect((await writer.getSourceTableStatus(updated.tables[0]))?.sourceMetadata).toEqual(sourceMetadata);
+    });
+
     test('large batch (2)', async () => {
       // Test syncing a batch of data that is small in count,
       // but large enough in size to be split over multiple returned chunks.
@@ -90,7 +134,7 @@ function registerStorageVersionTests(storageVersion: number) {
 
       const options: storage.BucketDataBatchOptions = {};
 
-      const batch1 = await test_utils.fromAsync(
+      const batch1 = await test_utils.getBatchArray(
         bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [globalBucket], options)
       );
       expect(test_utils.getBatchData(batch1)).toEqual([
@@ -102,7 +146,7 @@ function registerStorageVersionTests(storageVersion: number) {
         next_after: '1'
       });
 
-      const batch2 = await test_utils.fromAsync(
+      const batch2 = await test_utils.getBatchArray(
         bucketStorage.getBucketDataBatch(
           test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch1[0].chunkData.next_after) }],
@@ -118,7 +162,7 @@ function registerStorageVersionTests(storageVersion: number) {
         next_after: '2'
       });
 
-      const batch3 = await test_utils.fromAsync(
+      const batch3 = await test_utils.getBatchArray(
         bucketStorage.getBucketDataBatch(
           test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch2[0].chunkData.next_after) }],
@@ -134,7 +178,7 @@ function registerStorageVersionTests(storageVersion: number) {
         next_after: '3'
       });
 
-      const batch4 = await test_utils.fromAsync(
+      const batch4 = await test_utils.getBatchArray(
         bucketStorage.getBucketDataBatch(
           test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch3[0].chunkData.next_after) }],

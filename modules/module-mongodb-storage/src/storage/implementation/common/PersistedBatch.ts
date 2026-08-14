@@ -10,6 +10,7 @@ import { currentBucketKey, MAX_ROW_SIZE } from '../MongoBucketBatchShared.js';
 import { MongoIdSequence } from '../MongoIdSequence.js';
 import type { VersionedPowerSyncMongo } from '../db.js';
 import { TaggedBucketParameterDocument } from '../models.js';
+import { ObjectStorage } from '../v3/object-storage/ObjectStorage.js';
 import { BucketDataDoc, BucketKey } from './BucketDataDoc.js';
 import { SourceRecordBucketState, SourceRecordLookupState } from './SourceRecordStore.js';
 
@@ -33,6 +34,8 @@ const MAX_TRANSACTION_BATCH_SIZE = 30_000_000;
  * This has an effect on error message size in some cases.
  */
 const MAX_TRANSACTION_DOC_COUNT = 2_000;
+
+export const DEFAULT_INLINE_THRESHOLD_BYTES = 16 * 1024;
 
 export interface SaveBucketDataOptions {
   op_seq: MongoIdSequence;
@@ -60,6 +63,8 @@ export interface UpsertCurrentDataOptions {
 
 export interface PersistedBatchOptions {
   logger?: Logger;
+  objectStorage?: ObjectStorage;
+  inlineThresholdBytes?: number;
 }
 
 /**
@@ -73,6 +78,9 @@ export abstract class PersistedBatch {
   bucketData: BucketDataDoc[] = [];
   bucketParameters: TaggedBucketParameterDocument[] = [];
   bucketStates: Map<string, BucketStateUpdate> = new Map();
+
+  protected readonly objectStorage?: ObjectStorage;
+  protected readonly inlineThresholdBytes: number = DEFAULT_INLINE_THRESHOLD_BYTES;
 
   /**
    * For debug logging only.
@@ -93,6 +101,10 @@ export abstract class PersistedBatch {
   ) {
     this.currentSize = writtenSize;
     this.logger = options?.logger ?? defaultLogger;
+    this.objectStorage = options?.objectStorage;
+    if (options?.inlineThresholdBytes != null) {
+      this.inlineThresholdBytes = options.inlineThresholdBytes;
+    }
   }
 
   saveBucketData(options: SaveBucketDataOptions) {
@@ -309,32 +321,32 @@ export abstract class PersistedBatch {
         const replicationLag = Math.round((Date.now() - options.oldestUncommittedChange.getTime()) / 1000);
 
         this.logger.info(
-          `Flushed ${this.bucketDataCount} + ${this.bucketParameters.length} + ${
+          `Flushed: ${this.bucketDataCount} ops, ${this.bucketParameters.length} index entries, ${
             this.currentDataCount
-          } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}. Replication lag: ${replicationLag}s`,
+          } records. ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}. Replication lag: ${replicationLag}s`,
           {
             flushed: {
               duration: duration,
               size: this.currentSize,
-              bucket_data_count: this.bucketDataCount,
-              parameter_data_count: this.bucketParameters.length,
-              current_data_count: this.currentDataCount,
+              bucket_ops_count: this.bucketDataCount,
+              parameter_indexes_count: this.bucketParameters.length,
+              source_records_count: this.currentDataCount,
               replication_lag_seconds: replicationLag
             }
           }
         );
       } else {
         this.logger.info(
-          `Flushed ${this.bucketDataCount} + ${this.bucketParameters.length} + ${
+          `Flushed: ${this.bucketDataCount} ops, ${this.bucketParameters.length} index entries, ${
             this.currentDataCount
-          } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}`,
+          } records. ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}`,
           {
             flushed: {
               duration: duration,
               size: this.currentSize,
-              bucket_data_count: this.bucketDataCount,
-              parameter_data_count: this.bucketParameters.length,
-              current_data_count: this.currentDataCount
+              bucket_ops_count: this.bucketDataCount,
+              parameter_indexes_count: this.bucketParameters.length,
+              source_records_count: this.currentDataCount
             }
           }
         );

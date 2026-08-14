@@ -4,8 +4,22 @@ import {
   ErrorCode,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { MongoNetworkError, MongoServerSelectionError } from 'mongodb';
-import { isMongoServerError } from './mongo.js';
+import { MongoNetworkError, MongoNetworkTimeoutError, MongoServerError, MongoServerSelectionError } from 'mongodb';
+import { isMongoNetworkTimeoutError, isMongoServerError } from './mongo.js';
+
+export function isMaxTimeMSExpiredError(error: unknown): error is MongoServerError {
+  return (
+    isMongoServerError(error) &&
+    (error.codeName == 'MaxTimeMSExpired' ||
+      // MongoDB documents code 50 as MaxTimeMSExpired. Azure DocumentDB reports
+      // this code with codeName ExceededTimeLimit.
+      error.code == 50)
+  );
+}
+
+export function isTimeoutError(error: unknown): error is MongoNetworkTimeoutError | MongoServerError {
+  return isMongoNetworkTimeoutError(error) || isMaxTimeMSExpiredError(error);
+}
 
 export function mapConnectionError(err: any): ServiceError {
   const cause = err.cause;
@@ -66,11 +80,9 @@ export function mapConnectionError(err: any): ServiceError {
 export function mapQueryError(err: any, context: string): ServiceError {
   if (ServiceError.isServiceError(err)) {
     return err;
+  } else if (isTimeoutError(err)) {
+    return new DatabaseQueryError(ErrorCode.PSYNC_S2403, `Query timed out ${context}`, err);
   } else if (isMongoServerError(err)) {
-    if (err.codeName == 'MaxTimeMSExpired') {
-      return new DatabaseQueryError(ErrorCode.PSYNC_S2403, `Query timed out ${context}`, err);
-    }
-
     // Fallback
     return new DatabaseQueryError(ErrorCode.PSYNC_S2404, `MongoDB server error ${context}: ${err.codeName}`, err);
   } else {
