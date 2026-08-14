@@ -119,6 +119,35 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     storageVersion,
     tableIdStrings: storageConfig.tableIdStrings
   });
+
+  test('updates source metadata on an existing resolved table', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion }));
+    const bucketStorage = factory.getInstance(syncRules);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const source = sourceDescriptor('test');
+
+    const initial = await writer.resolveTables({ connection_id: 1, source });
+    expect(initial.tables[0].sourceMetadata).toBeNull();
+
+    const sourceMetadata = { captureTableObjectId: 42 };
+    const updated = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      reconcileSourceTables: ({ candidates }) => ({
+        compatibleTables: candidates.map((candidate) => candidate.withSourceMetadata(sourceMetadata)),
+        incompatibleTables: [],
+        newTableValues: { sourceMetadata }
+      })
+    });
+
+    expect(updated.tables.map((table) => table.id.toString())).toEqual(
+      initial.tables.map((table) => table.id.toString())
+    );
+    expect(updated.tables[0].sourceMetadata).toEqual(sourceMetadata);
+    expect((await writer.getSourceTableStatus(updated.tables[0]))?.sourceMetadata).toEqual(sourceMetadata);
+  });
+
   // The split of returned results can vary depending on storage drivers
   test('large batch (2)', async () => {
     // Test syncing a batch of data that is small in count,
@@ -191,7 +220,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const checkpoint = flushResult!.flushed_op;
 
     const options: storage.BucketDataBatchOptions = {};
-    const batch1 = await test_utils.fromAsync(
+    const batch1 = await test_utils.getBatchArray(
       bucketStorage.getBucketDataBatch(
         test_utils.testCheckpoint(checkpoint),
         [bucketRequest(syncRulesContent, 'global[]', 0n)],
@@ -208,7 +237,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       next_after: '2'
     });
 
-    const batch2 = await test_utils.fromAsync(
+    const batch2 = await test_utils.getBatchArray(
       bucketStorage.getBucketDataBatch(
         test_utils.testCheckpoint(checkpoint),
         [bucketRequest(syncRulesContent, 'global[]', batch1[0].chunkData.next_after)],
@@ -224,7 +253,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       next_after: '3'
     });
 
-    const batch3 = await test_utils.fromAsync(
+    const batch3 = await test_utils.getBatchArray(
       bucketStorage.getBucketDataBatch(
         test_utils.testCheckpoint(checkpoint),
         [bucketRequest(syncRulesContent, 'global[]', batch2[0].chunkData.next_after)],
@@ -1467,6 +1496,96 @@ streams:
     expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.replicationStreamId })).toBe(0);
   });
 
+  test.runIf(storageVersion < 3)(
+    'clear removes large v1 current_data sets without affecting other streams',
+    async () => {
+      await using factory = await storageConfig.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, {
+          storageVersion
+        })
+      );
+      const bucketStorage = factory.getInstance(syncRules);
+      const mongoFactory = factory as MongoBucketStorage;
+      const sourceTableId = new bson.ObjectId();
+      const documents = Array.from({ length: 10_002 }, (_, index) => ({
+        _id: {
+          g: syncRules.replicationStreamId,
+          t: sourceTableId,
+          k: index
+        },
+        data: new bson.Binary(),
+        buckets: [],
+        lookups: []
+      }));
+      await mongoFactory.db.current_data.insertMany([
+        ...documents,
+        {
+          _id: {
+            g: syncRules.replicationStreamId + 1,
+            t: sourceTableId,
+            k: 0
+          },
+          data: new bson.Binary(),
+          buckets: [],
+          lookups: []
+        }
+      ]);
+
+      await bucketStorage.clear();
+
+      expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.replicationStreamId })).toBe(0);
+      expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.replicationStreamId + 1 })).toBe(1);
+    }
+  );
+
+  test.runIf(storageVersion < 3)(
+    'clear removes large v1 parameter index sets without affecting other streams',
+    async () => {
+      await using factory = await storageConfig.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, {
+          storageVersion
+        })
+      );
+      const bucketStorage = factory.getInstance(syncRules);
+      const mongoFactory = factory as MongoBucketStorage;
+      const sourceTableId = new bson.ObjectId();
+      const documents = Array.from({ length: 10_002 }, (_, index) => ({
+        _id: BigInt(index * 2),
+        key: {
+          g: syncRules.replicationStreamId,
+          t: sourceTableId,
+          k: index
+        },
+        lookup: new bson.Binary(),
+        bucket_parameters: []
+      }));
+      await mongoFactory.db.bucket_parameters.insertMany([
+        ...documents,
+        {
+          _id: 1n,
+          key: {
+            g: syncRules.replicationStreamId + 1,
+            t: sourceTableId,
+            k: 0
+          },
+          lookup: new bson.Binary(),
+          bucket_parameters: []
+        }
+      ]);
+
+      await bucketStorage.clear();
+
+      expect(await mongoFactory.db.bucket_parameters.countDocuments({ 'key.g': syncRules.replicationStreamId })).toBe(
+        0
+      );
+      expect(
+        await mongoFactory.db.bucket_parameters.countDocuments({ 'key.g': syncRules.replicationStreamId + 1 })
+      ).toBe(1);
+    }
+  );
+
   test.runIf(storageVersion < 3)('storage metrics include v1 current_data', async () => {
     await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(
@@ -1747,7 +1866,7 @@ describe('sync - mongodb', () => {
         async function getFilteredOps(start: number, checkpoint: number): Promise<bigint[]> {
           const { syncRules, bucketStorage } = await setupFilteringTest();
           const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', BigInt(start));
-          const batch = await test_utils.fromAsync(
+          const batch = await test_utils.getBatchArray(
             bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(BigInt(checkpoint)), [request])
           );
           const ops = batch.flatMap((b) => b.chunkData.data.map((d) => BigInt(d.op_id)));
@@ -1894,7 +2013,7 @@ describe('sync - mongodb', () => {
             const roundRequests = requests
               .filter((request) => pending.has(request.bucket))
               .map((request) => ({ ...request, start: positions.get(request.bucket)! }));
-            const batch = await test_utils.fromAsync(
+            const batch = await test_utils.getBatchArray(
               bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(end), roundRequests)
             );
             let anyHasMore = false;

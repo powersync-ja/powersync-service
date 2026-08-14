@@ -1,4 +1,4 @@
-import { container, ErrorCode, logger } from '@powersync/lib-services-framework';
+import { container, ErrorCode, logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -11,8 +11,8 @@ import { AbstractReplicationJob } from './AbstractReplicationJob.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { ConnectionTestResult } from './ReplicationModule.js';
 
-// 1 minute
-const PING_INTERVAL = 1_000_000_000n * 60n;
+// Default to 1 minute when no source-specific interval is configured.
+const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 60;
 
 // In the initial startup period, we use a short refresh interval. This helps to take over replication quickly in the case
 // of rolling deploys. After the initial period, we switch to a longer refresh interval to reduce load.
@@ -34,6 +34,10 @@ export interface AbstractReplicatorOptions {
    * This limits the effect of retries when there is a persistent issue.
    */
   rateLimiter: ErrorRateLimiter;
+  /**
+   * Interval in seconds between source connection pings. Null or undefined uses the default; 0 disables pings.
+   */
+  heartbeatIntervalSeconds?: number | null;
 }
 
 /**
@@ -51,25 +55,29 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   private replicationJobs = new Map<string, T>();
 
   /**
-   * Map of replciation stream ids to promises that are clearing the replication stream.
+   * Map of replication stream ids to promises that are clearing the replication stream.
    *
-   * We primarily do this to keep track of what we're currently clearing, but don't currently
-   * use the Promise value.
+   * We primarily do this to keep track of what we're currently clearing.
    */
-  private clearingJobs = new Map<number, Promise<void>>();
+  protected readonly clearingJobs = new Map<number, Promise<void>>();
 
   /**
    * Used for replication lag computation.
    */
   private activeReplicationJob: T | undefined = undefined;
 
-  // First ping is only after 5 minutes, not when starting
+  // The first ping is only after the configured interval, not when starting.
   private lastPing = hrtime.bigint();
+
+  private readonly heartbeatIntervalNanos: bigint | null;
 
   private abortController: AbortController | undefined;
 
   protected constructor(private options: AbstractReplicatorOptions) {
     this.logger = logger.child({ name: `Replicator:${options.id}` });
+    const heartbeatIntervalSeconds = options.heartbeatIntervalSeconds ?? DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
+    this.heartbeatIntervalNanos =
+      heartbeatIntervalSeconds === 0 ? null : BigInt(Math.round(heartbeatIntervalSeconds * 1_000_000_000));
   }
 
   /**
@@ -139,6 +147,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     for (const job of this.replicationJobs.values()) {
       promises.push(job.stop());
     }
+    promises.push(...this.clearingJobs.values());
     await Promise.all(promises);
   }
 
@@ -184,9 +193,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
         // Ensure that the replication jobs' connections are kept alive.
         // We don't ping while in error retry back-off, to avoid having too failures.
-        if (this.rateLimiter.mayPing()) {
+        if (this.heartbeatIntervalNanos != null && this.rateLimiter.mayPing()) {
           const now = hrtime.bigint();
-          if (now - this.lastPing >= PING_INTERVAL) {
+          if (now - this.lastPing >= this.heartbeatIntervalNanos) {
             for (const activeJob of this.replicationJobs.values()) {
               await activeJob.keepAlive();
             }
@@ -312,9 +321,17 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       // It is important to be able to continue running the refresh loop, otherwise we cannot
       // retry locked replication stream, for example.
       const syncRuleStorage = this.storage.getInstance(replicationStream, { skipLifecycleHooks: true });
-      const promise = this.terminateSyncRules(syncRuleStorage)
+      const promise = this.terminateStoppedReplicationStream(replicationStream, syncRuleStorage)
         .catch((e) => {
-          syncRuleStorage.logger.warn(`Failed clean up replication config`, e);
+          if (e instanceof ReplicationAbortedError) {
+            // Expected when shutdown aborts an in-progress cleanup.
+          } else if (e?.errorData?.code === ErrorCode.PSYNC_S1003) {
+            this.logReplicationStreamInfoOnce(replicationStream, 'replication-stream-cleanup-locked', () => {
+              replicationStream.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
+            });
+          } else {
+            syncRuleStorage.logger.warn(`Failed clean up replication config`, e);
+          }
         })
         .finally(() => {
           this.clearingJobs.delete(replicationStream.replicationStreamId);
@@ -368,6 +385,19 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   protected createJobId(syncRuleId: number) {
     return `${this.id}-${syncRuleId}`;
+  }
+
+  protected async terminateStoppedReplicationStream(
+    replicationStream: storage.PersistedReplicationStream,
+    syncRuleStorage: storage.SyncRulesBucketStorage
+  ) {
+    const lock = await replicationStream.lock();
+    this.clearReplicationStreamInfoLog(replicationStream, 'replication-stream-cleanup-locked');
+    try {
+      await this.terminateSyncRules(syncRuleStorage);
+    } finally {
+      await lock.release();
+    }
   }
 
   protected async terminateSyncRules(syncRuleStorage: storage.SyncRulesBucketStorage) {

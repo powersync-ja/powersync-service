@@ -126,6 +126,16 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
     ) => Multiplexer & Demultiplexer & FrameHandler,
     rawSocket: WebSocket.WebSocket
   ): void {
+    const handleInitialError = (error: Error) => {
+      // Protocol errors can occur before ws emits the first data event and a
+      // WebsocketDuplexConnection is constructed. The duplex still needs an
+      // error listener during that window, otherwise Node treats the error as
+      // unhandled and terminates the process.
+      logger.warn(`Error in WebSocket duplex connection: ${error}`);
+      socket.end();
+    };
+    socket.on('error', handleInitialError);
+
     socket.once('data', async (buffer) => {
       let frame: Frame | undefined = undefined;
       try {
@@ -140,6 +150,7 @@ export class WebsocketDuplexConnection extends Deferred implements DuplexConnect
       }
 
       const connection = new WebsocketDuplexConnection(socket, frame, multiplexerDemultiplexerFactory, rawSocket);
+      socket.removeListener('error', handleInitialError);
       if (connection.done) {
         return;
       }

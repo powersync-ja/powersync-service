@@ -31,13 +31,12 @@ export const MONGO_OPERATION_TIMEOUT_MS = 40_000;
 export const MONGO_CHECKSUM_TIMEOUT_MS = 50_000;
 
 /**
- * Same as MONGO_OPERATION_TIMEOUT_MS, but specifically for clear operations.
+ * Timeout specifically for clear operations.
  *
- * These are retried when reaching the timeout.
- *
- * Used to be 5s. Increased to attempt to improve efficiency (deleted documents / scanned documents).
+ * Previously, this was used to control batch sizes. Now we use different batching, and this is just a fallback,
+ * and we reduce batch sizes when hitting this.
  */
-export const MONGO_CLEAR_OPERATION_TIMEOUT_MS = MONGO_OPERATION_TIMEOUT_MS;
+export const MONGO_CLEAR_OPERATION_TIMEOUT_MS = 15_000;
 
 export interface MongoConnectionOptions {
   maxPoolSize?: number;

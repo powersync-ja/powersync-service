@@ -2,6 +2,7 @@ import { framework, storage, updateSyncRulesFromYaml } from '@powersync/service-
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import * as t from 'ts-codec';
 import { describe, expect, test } from 'vitest';
+import { CLEAR_BATCH_LIMIT } from '../../src/storage/PostgresSyncRulesStorage.js';
 import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
 const CheckpointRequestedAtRow = t.object({
@@ -145,6 +146,89 @@ bucket_definitions:
       await expect(customRequestedAt()).resolves.toBeNull();
     });
 
+    test('clears storage in batches', async () => {
+      await using factory = await POSTGRES_STORAGE_FACTORY.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+bucket_definitions:
+  global:
+    data: []
+    `,
+          { storageVersion }
+        )
+      );
+      const bucketStorage = factory.getInstance(syncRules);
+      const groupId = bucketStorage.replicationStreamId;
+      const otherGroupId = groupId + 1;
+      const currentDataTable = bucketStorage.storageConfig.softDeleteCurrentData ? 'v3_current_data' : 'current_data';
+
+      // Seed more than one batch of bucket data, plus rows in the other tables,
+      // directly - clear() only depends on group_id.
+      const seed = async (gid: number, bucketDataRows: number) => {
+        await factory.db.query({
+          statement: `
+            INSERT INTO bucket_data (group_id, bucket_name, op_id, op, checksum)
+            SELECT $1, 'global[]', i, 'PUT', 0 FROM generate_series(1, $2) i
+          `,
+          params: [
+            { type: 'int4', value: gid },
+            { type: 'int4', value: bucketDataRows }
+          ]
+        });
+        await factory.db.query({
+          statement: `
+            INSERT INTO bucket_parameters (group_id, source_table, source_key, lookup, bucket_parameters)
+            SELECT $1, 'test', int4send(i), ''::bytea, '[]' FROM generate_series(1, 10) i
+          `,
+          params: [{ type: 'int4', value: gid }]
+        });
+        await factory.db.query({
+          statement: `
+            INSERT INTO ${currentDataTable} (group_id, source_table, source_key, buckets, data, lookups)
+            SELECT $1, 'test', int4send(i), '[]', ''::bytea, '{}' FROM generate_series(1, 10) i
+          `,
+          params: [{ type: 'int4', value: gid }]
+        });
+        await factory.db.query({
+          statement: `
+            INSERT INTO source_tables (id, group_id, connection_id, schema_name, table_name)
+            VALUES ($2, $1, 1, 'public', 'test')
+          `,
+          params: [
+            { type: 'int4', value: gid },
+            { type: 'varchar', value: `test-${gid}` }
+          ]
+        });
+      };
+      await seed(groupId, CLEAR_BATCH_LIMIT + 100);
+      await seed(otherGroupId, 10);
+
+      const countRows = async (table: string, gid: number) => {
+        const [row] = await factory.db.queryRows<{ count: bigint }>({
+          statement: `SELECT COUNT(*) AS count FROM ${table} WHERE group_id = $1`,
+          params: [{ type: 'int4', value: gid }]
+        });
+        return Number(row.count);
+      };
+
+      await bucketStorage.clear();
+
+      for (const table of ['bucket_data', 'bucket_parameters', currentDataTable, 'source_tables']) {
+        expect(await countRows(table, groupId), table).toEqual(0);
+      }
+      // Rows of other groups are not affected.
+      expect(await countRows('bucket_data', otherGroupId)).toEqual(10);
+      expect(await countRows('bucket_parameters', otherGroupId)).toEqual(10);
+      expect(await countRows(currentDataTable, otherGroupId)).toEqual(10);
+      expect(await countRows('source_tables', otherGroupId)).toEqual(1);
+
+      // An aborted signal stops the operation.
+      await expect(bucketStorage.clear({ signal: AbortSignal.abort() })).rejects.toThrow(
+        framework.ReplicationAbortedError
+      );
+    });
+
     /**
      * The split of returned results can vary depending on storage drivers.
      * The large rows here are 2MB large while the default chunk limit is 1mb.
@@ -224,7 +308,7 @@ bucket_definitions:
 
       const options: storage.BucketDataBatchOptions = {};
 
-      const batch1 = await test_utils.fromAsync(
+      const batch1 = await test_utils.getBatchArray(
         bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [globalBucket], options)
       );
       expect(test_utils.getBatchData(batch1)).toEqual([
@@ -236,7 +320,7 @@ bucket_definitions:
         next_after: '1'
       });
 
-      const batch2 = await test_utils.fromAsync(
+      const batch2 = await test_utils.getBatchArray(
         bucketStorage.getBucketDataBatch(
           test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch1[0].chunkData.next_after) }],
@@ -252,7 +336,7 @@ bucket_definitions:
         next_after: '2'
       });
 
-      const batch3 = await test_utils.fromAsync(
+      const batch3 = await test_utils.getBatchArray(
         bucketStorage.getBucketDataBatch(
           test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch2[0].chunkData.next_after) }],
@@ -268,7 +352,7 @@ bucket_definitions:
         next_after: '3'
       });
 
-      const batch4 = await test_utils.fromAsync(
+      const batch4 = await test_utils.getBatchArray(
         bucketStorage.getBucketDataBatch(
           test_utils.testCheckpoint(checkpoint),
           [{ ...globalBucket, start: BigInt(batch3[0].chunkData.next_after) }],

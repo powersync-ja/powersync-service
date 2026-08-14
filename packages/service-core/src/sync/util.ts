@@ -2,6 +2,7 @@ import * as timers from 'timers/promises';
 
 import { SemaphoreInterface } from 'async-mutex';
 import { serialize } from 'bson';
+import { AbortError } from 'ix/aborterror.js';
 import * as util from '../util/util-index.js';
 import { RequestTracker } from './RequestTracker.js';
 
@@ -22,6 +23,17 @@ const DEFAULT_TOKEN_STREAM_OPTIONS: TokenStreamOptions = {
   keep_alive: true,
   expire_warning_period: 20_000
 };
+
+/**
+ * Recognize both ix's AbortError and native abort errors, which Node represents
+ * as DOMExceptions with the name "AbortError".
+ */
+export function isAbortError(error: unknown): boolean {
+  return (
+    error instanceof AbortError ||
+    (typeof error == 'object' && error != null && 'name' in error && error.name === 'AbortError')
+  );
+}
 
 /**
  * An iterator that periodically yields token and optionally keepalive events, and returns once the

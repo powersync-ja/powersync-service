@@ -123,15 +123,27 @@ export class ChangeStream {
 
   private isDocumentDb = false;
   private _checkpointImplementation: CheckpointImplementation | null = null;
+  /**
+   * Last persisted resume timestamp as Date.now(). This represents the equivalent timestamp from the
+   * source database, rather than the time when we persisted it.
+   */
+  private lastPersistedResumeTimestamp = 0;
+  private lastBatchCheckpoint = 0;
 
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
     this.group_id = options.storage.replicationStreamId;
     this.connections = options.connections;
-    this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
     this.keepaliveIntervalMs = options.keepaliveIntervalMs ?? 60_000;
+    if (options.maxAwaitTimeMS) {
+      this.maxAwaitTimeMS = options.maxAwaitTimeMS;
+    } else {
+      // Default to 10s, unless keepaliveIntervalMs is shorter. In that case, use keepaliveIntervalMs,
+      // but add a bit of a margin, so that our keepalive logic is triggered on each empty change stream batch.
+      this.maxAwaitTimeMS = Math.min(10_000, this.keepaliveIntervalMs + 100);
+    }
     this.storageHooks = options.storageHooks;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
@@ -598,6 +610,12 @@ export class ChangeStream {
     return this.sourceRowConverter.rawToSqliteRow(row);
   }
 
+  private async createBatchCheckpoint() {
+    const checkpoint = await this.checkpointImplementation.createBatchCheckpoint();
+    this.lastBatchCheckpoint = Date.now();
+    return checkpoint;
+  }
+
   async streamChangesInternal() {
     await this.ensureDetected();
     const transactionsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED);
@@ -643,7 +661,7 @@ export class ChangeStream {
         // Always start with a checkpoint.
         // This helps us to clear errors when restarting, even if there is
         // no data to replicate.
-        let waitForCheckpointLsn: string | null = await this.checkpointImplementation.createBatchCheckpoint();
+        let waitForCheckpointLsn: string | null = await this.createBatchCheckpoint();
 
         let splitDocument: ProjectedChangeStreamDocument | null = null;
 
@@ -663,11 +681,15 @@ export class ChangeStream {
           }
           this.touch();
           if (events.length == 0) {
-            // No changes in this batch, but we still want to keep the connection alive.
+            // No changes in this batch, but we still want to persist progress.
             // We do this by persisting a keepalive checkpoint.
             // If we don't update it on empty events, we do keep consistency, but resuming the stream
             // with old tokens may cause connection timeouts.
-            if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > this.keepaliveIntervalMs) {
+            const hadRecentKeepalive = performance.now() - lastEmptyResume < this.keepaliveIntervalMs;
+            if (waitForCheckpointLsn == null && !hadRecentKeepalive) {
+              // Case 1: We have no changes, and we are not waiting for a checkpoint to be created,
+              // and we have not recently persisted a keepalive. Persist one now, and call setResumeLsn() below.
+              // This is the normal case for an idle stream.
               // The implementation persists a keepalive (timestamp) or bumps the
               // sentinel so a later event commits (sentinel). Logging is handled
               // inside the implementation.
@@ -675,12 +697,15 @@ export class ChangeStream {
               this.touch();
               lastEmptyResume = performance.now();
               this.replicationLag.markStarted();
-            }
-
-            // If we have no changes, we can just persist the keepalive.
-            // This is throttled to once per interval.
-            if (performance.now() - lastEmptyResume < this.keepaliveIntervalMs) {
+            } else if (hadRecentKeepalive) {
+              // Case 2: We have no changes, and may or may not be waiting for a checkpoint to be created.
+              // We have recently persisted a keepalive.
+              // Continue waiting.
               continue;
+            } else {
+              // Case 3: Waiting for a checkpoint; have not had a recent keepalive.
+              // We cannot call checkpointImplementation.keepalive() here, but we do call
+              // setResumeLsn() below.
             }
           }
 
@@ -802,7 +827,7 @@ export class ChangeStream {
                 if (hasBufferedChanges && waitForCheckpointLsn == null) {
                   // Buffered changes - create a new batch checkpoint to rate limit commits
                   using _ = tracer.span('source_checkpoint');
-                  waitForCheckpointLsn = await this.checkpointImplementation.createBatchCheckpoint();
+                  waitForCheckpointLsn = await this.createBatchCheckpoint();
                   continue;
                 } else if (waitForCheckpointLsn != null) {
                   // Skip this checkpoint - wait for the batch checkpoint.
@@ -836,7 +861,7 @@ export class ChangeStream {
             ) {
               if (waitForCheckpointLsn == null) {
                 using _ = tracer.span('source_checkpoint');
-                waitForCheckpointLsn = await this.checkpointImplementation.createBatchCheckpoint();
+                waitForCheckpointLsn = await this.createBatchCheckpoint();
               }
 
               const rel = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
@@ -909,10 +934,18 @@ export class ChangeStream {
             // Batches are generally large (64MB or 6000 events, whichever comes first),
             // so this is a good natural point to flush and mark progress.
             // We avoid this when splitDocument is set, since we cannot resume in the middle of a split event.
-            const lsn = this.checkpointImplementation.lsnFromResumeToken(resumeToken);
+            const { lsn, timestamp } = this.checkpointImplementation.lsnFromResumeToken(resumeToken);
             await batch.flush({ oldestUncommittedChange: this.replicationLag.oldestUncommittedChange });
             // TODO: We should consider making this standard behavior of flush().
             await batch.setResumeLsn(lsn);
+
+            if (timestamp != null) {
+              // Note that this timestamp provided by MongoDB is not exact - it can be around 10s behind.
+              this.lastPersistedResumeTimestamp = timestamp.getTime();
+            } else {
+              // DocumentDB: No timestamp associated with the resumeToken. Just use the current time.
+              this.lastPersistedResumeTimestamp = Date.now();
+            }
           }
 
           batchSpan.end();
@@ -938,6 +971,34 @@ export class ChangeStream {
 
   getReplicationLagMillis(): number | undefined {
     return this.replicationLag.getLagMillis();
+  }
+
+  async keepAlive() {
+    // This is called on an interval of keepaliveIntervalMs.
+
+    // This writes to _powersync_checkpoints.
+    // Main use case: When there are massive bulk writes to another database or collection, the change stream may
+    // start timing out due to reading through too much data in one batch. This breaks up those bulk writes,
+    // allowing the change stream to make progress.
+
+    // When there is low replication traffic, regular calls to setResumeLsn() with recent resume tokens make this unnecessary.
+    // We track that using lastPersistedResumeTimestamp.
+    // We add a bit of a margin here, since setResumeLsn is not called on an exact interval.
+    const staleResumeLsn = Date.now() - this.lastPersistedResumeTimestamp > this.keepaliveIntervalMs * 1.1;
+
+    // When there is replication lag, that resumeToken can get too outdated. In that case, we periodically create a
+    // new back checkpoint. This interval is controlled by the frequency of the keepAlive() call,
+    // while also skipping if there was another call to createBatchCheckpoint().
+    // We use a factor of 0.9 here, to make sure this is called on every keepAlive() interval, unless there
+    // was another call to createBatchCheckpoint().
+    const staleBatchCheckpoint = Date.now() - this.lastBatchCheckpoint > this.keepaliveIntervalMs * 0.9;
+
+    // We don't use oldestUncommittedChange here, since that may be unset in some edge cases where we do need
+    // to persist new checkpoints.
+    if (staleResumeLsn && staleBatchCheckpoint) {
+      await this.ensureDetected();
+      await this.createBatchCheckpoint();
+    }
   }
 
   private lastTouchedAt = performance.now();

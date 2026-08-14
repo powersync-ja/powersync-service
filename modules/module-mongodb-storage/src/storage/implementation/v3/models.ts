@@ -1,5 +1,6 @@
 import {
   InternalOpId,
+  JsonValue,
   PersistedDefinitionMapping,
   SerializedSyncPlan,
   SyncRuleState,
@@ -157,6 +158,10 @@ export interface SourceTableDocumentV3 {
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
   latest_pending_delete?: InternalOpId | undefined;
+  /**
+   * Source-specific metadata. Absent for legacy records.
+   */
+  source_metadata?: JsonValue;
 }
 
 export interface BucketStateDocumentV3 extends BucketStateDocumentBase {
@@ -174,6 +179,18 @@ export interface BucketOperation {
   row_id?: string;
   checksum: bigint;
   data: string | null;
+}
+
+export interface StorageRef {
+  path: string;
+  file_size: number;
+}
+
+/** An S3 object that may be deleted once its grace period has elapsed. */
+export interface ObjectStorageDeletionMarker {
+  _id: bson.ObjectId;
+  path: string;
+  delete_after: Date;
 }
 
 /**
@@ -203,13 +220,14 @@ export interface BucketDataDocumentV3 {
    * invalidated when compaction changed the operations being returned.
    */
   target_op?: bigint | null;
+  ops?: BucketOperation[];
+  storage_ref?: StorageRef;
   /**
    * Present (and always true) when this document contains a CLEAR operation.
    * In that case, this is the first document in the bucket: all preceding
    * documents have been removed.
    */
   has_clear_op?: true;
-  ops: BucketOperation[];
 }
 
 export function serializeParameterLookup(lookup: ScopedParameterLookup): bson.Binary {
