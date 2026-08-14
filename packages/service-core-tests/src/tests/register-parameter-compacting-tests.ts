@@ -2,6 +2,7 @@ import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { ScopedParameterLookup } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
+import { compactActive } from './util.js';
 
 export function registerParameterCompactTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
@@ -74,7 +75,7 @@ bucket_definitions:
     expect(parameters2).toEqual([]);
 
     const statsBefore = await bucketStorage.factory.getStorageMetrics();
-    await bucketStorage.compact({ compactParameterData: true });
+    await compactActive(factory, { compactParameterData: true });
 
     // Check consistency
     const parameters1b = await checkpoint1.getParameterSets([lookup], 1000);
@@ -154,7 +155,7 @@ bucket_definitions:
       expect(parameters1).toEqual([]);
 
       const statsBefore = await bucketStorage.factory.getStorageMetrics();
-      await bucketStorage.compact({ compactParameterData: true, compactParameterCacheLimit: cacheLimit });
+      await compactActive(factory, { compactParameterData: true, compactParameterCacheLimit: cacheLimit });
 
       // Check consistency
       const parameters1b = await checkpoint1.getParameterSets([lookup], 1000);

@@ -15,6 +15,7 @@ import { fileURLToPath } from 'url';
 import { expect, test, vi } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest, METRICS_HELPER } from '../test-utils/test-utils-index.js';
+import { compactActive } from './util.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1387,7 +1388,7 @@ bucket_definitions:
 
     await writer.commit('0/2');
 
-    await bucketStorage.compact({ compactBuckets: [bucket] });
+    await compactActive(f, { compactBuckets: [bucket] });
 
     const lines2 = await getCheckpointLines(iter, { consume: true });
 
@@ -1551,7 +1552,7 @@ bucket_definitions:
     });
     await writer.commit('0/2');
 
-    await bucketStorage.compact({
+    await compactActive(f, {
       // Explicitly compact the high-priority bucket: V3 schedules background
       // compaction, while this test needs compaction at this exact point.
       compactBuckets: [highPriorityBucket]
