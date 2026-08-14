@@ -615,12 +615,34 @@ export class MongoCompactorV3 extends MongoCompactor {
       return;
     }
 
-    const tailStats = await this.readBucketStats(bucket, resolvedDefinitionId, compactedOpId, tailLowerBound);
-    const compactedStats = this.combineChunkStats(context.state, tailStats, overlappingCompactedChunk);
-    const result = {
-      compactedState: compactedStats,
-      bucketStats: this.applyCompactionDelta(bucketStats(context.state), preCompactionTail, tailStats)
-    };
+    const previousCompactedState = context.state.compacted_state;
+    let result: CompactionResult;
+    if (previousCompactedState != null && overlappingCompactedChunk == null) {
+      // A previous attempt may have committed document replacements without
+      // finalizing bucket state. When the exact cached chunk no longer exists,
+      // the cached prefix cannot be combined with the current tail. Rebuild the
+      // metadata from the authoritative documents while keeping the old op id
+      // as a conservative resume hint.
+      const [compactedState, currentBucketStats] = await Promise.all([
+        this.readBucketStats(bucket, resolvedDefinitionId, compactedOpId),
+        compactedOpId == context.lastOp
+          ? Promise.resolve(undefined)
+          : this.readBucketStats(bucket, resolvedDefinitionId, context.lastOp)
+      ]);
+      result = {
+        compactedState,
+        bucketStats: currentBucketStats ?? compactedState
+      };
+    } else {
+      const tailStats = await this.readBucketStats(bucket, resolvedDefinitionId, compactedOpId, tailLowerBound);
+      result = {
+        compactedState:
+          previousCompactedState == null || overlappingCompactedChunk == null
+            ? tailStats
+            : this.combineChunkStats(previousCompactedState, tailStats, overlappingCompactedChunk),
+        bucketStats: this.applyCompactionDelta(bucketStats(context.state), preCompactionTail, tailStats)
+      };
+    }
 
     await this.finalizeCompactedBucket({ context, compactedOpId, compactionResult: result, puts: 0 });
     this.compactedBucketCount++;
@@ -804,17 +826,10 @@ export class MongoCompactorV3 extends MongoCompactor {
   }
 
   private combineChunkStats(
-    state: BucketStateDocumentV3,
+    previous: NonNullable<BucketStateDocumentV3['compacted_state']>,
     compactedTail: BucketStatsWithChecksum,
-    overlappingCompactedChunk: BucketStatsWithChecksum | undefined
+    overlappingCompactedChunk: BucketStatsWithChecksum
   ): BucketStatsWithChecksum {
-    const previous = state.compacted_state;
-    if (previous == null) {
-      return compactedTail;
-    }
-    if (overlappingCompactedChunk == null) {
-      throw new ReplicationAssertionError(`Missing previous compacted chunk for bucket ${state._id.b}`);
-    }
     return {
       count: previous.count - overlappingCompactedChunk.count + compactedTail.count,
       bytes: previous.bytes - overlappingCompactedChunk.bytes + compactedTail.bytes,
