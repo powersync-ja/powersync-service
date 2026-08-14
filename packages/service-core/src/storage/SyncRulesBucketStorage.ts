@@ -322,6 +322,15 @@ export interface CompactOptions {
   compactParameterData?: boolean;
 
   /**
+   * Only perform compaction that can be done incrementally.
+   *
+   * This includes full bucket compaction on MongoDB V3 storage.
+   *
+   * On MongoDB v1 and Postgres storage, this makes compacting a no-op.
+   */
+  incrementalOnly?: boolean;
+
+  /**
    * Delete client-requested write checkpoints created before this time.
    *
    * Generated write checkpoints are not affected.

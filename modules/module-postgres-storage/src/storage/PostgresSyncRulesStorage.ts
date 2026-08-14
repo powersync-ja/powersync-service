@@ -146,6 +146,11 @@ export class PostgresSyncRulesStorage
   }
 
   async compact(options?: storage.CompactOptions): Promise<void> {
+    if (options?.incrementalOnly) {
+      // Not supported yet
+      this.logger.info('Incremental compacting is not supported on Postgres storage yet.');
+      return;
+    }
     let maxOpId = options?.maxOpId;
     if (maxOpId == null) {
       const checkpoint = await this.getCheckpoint();

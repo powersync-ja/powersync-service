@@ -54,7 +54,11 @@ export class MongoCompactorV1 extends MongoCompactor {
   private readonly minChangeRatio: number;
   private readonly maxOpId: bigint;
 
-  constructor(bucketStorage: MongoSyncBucketStorageV1, db: VersionedPowerSyncMongoV1, options: MongoCompactOptions) {
+  constructor(
+    bucketStorage: MongoSyncBucketStorageV1,
+    db: VersionedPowerSyncMongoV1,
+    private options: MongoCompactOptions
+  ) {
     super(bucketStorage, db, options);
     this.minBucketChanges = options.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
     this.minChangeRatio = options.minChangeRatio ?? DEFAULT_MIN_CHANGE_RATIO;
@@ -67,6 +71,11 @@ export class MongoCompactorV1 extends MongoCompactor {
    * See /docs/storage/compacting-operations.md for details.
    */
   override async compact(): Promise<number> {
+    if (this.options?.incrementalOnly) {
+      // Not supported for V1
+      this.logger.info('Incremental compacting is not supported on MongoDB storage V1/V2');
+      return 0;
+    }
     await this.deleteOldCheckpointRequests();
 
     if (this.buckets) {
