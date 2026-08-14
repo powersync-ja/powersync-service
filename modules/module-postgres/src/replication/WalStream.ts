@@ -78,6 +78,14 @@ export interface WalStreamOptions {
    * Defaults to 120_000 (2 minutes).
    */
   slotHealthCheckIntervalMs?: number;
+
+  /**
+   * Number of tables to snapshot in parallel during initial replication.
+   *
+   * Each worker uses its own source connection and its own storage writers.
+   * Defaults to 1 (sequential, the previous behavior).
+   */
+  snapshotConcurrency?: number;
 }
 
 interface InitResult {
@@ -142,6 +150,7 @@ export class WalStream {
   private startedStreaming = false;
 
   private snapshotChunkLength: number;
+  private snapshotConcurrency: number;
   private onSnapshotChunkFlushed?: () => Promise<void>;
 
   private replicationLag = new ReplicationLagTracker();
@@ -172,6 +181,7 @@ export class WalStream {
     this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
     this.onSnapshotChunkFlushed = options.onSnapshotChunkFlushed;
     this.slotHealthCheckIntervalMs = options.slotHealthCheckIntervalMs ?? 120_000;
+    this.snapshotConcurrency = options.snapshotConcurrency ?? 1;
 
     this.abort_signal = options.abort_signal;
     this.abort_signal.addEventListener(
@@ -602,9 +612,42 @@ WHERE  oid = $1::regclass`,
           }
         }
 
-        for (let table of tablesWithStatus) {
-          await this.snapshotTableInTx(batch, db, table);
-          this.touch();
+        const concurrency = Math.max(1, Math.min(this.snapshotConcurrency, Math.max(tablesWithStatus.length, 1)));
+        if (concurrency <= 1) {
+          // Sequential table snapshots, with pipelined flushes:
+          // while one chunk's flush is in flight, the next chunk is read and evaluated.
+          await using altWriter = await this.createSnapshotWriter();
+          for (let table of tablesWithStatus) {
+            await this.snapshotTableInTx(batch, db, table, undefined, altWriter);
+            this.touch();
+          }
+          // Commit rather than just flush: ops flushed by a secondary writer are only
+          // folded into the checkpoint (via keepalive_op) when that writer commits.
+          // The final commit below only covers the main batch's own persisted ops.
+          await altWriter.commit(ZERO_LSN);
+        } else {
+          this.logger.info(`Snapshotting ${tablesWithStatus.length} tables with ${concurrency} parallel workers`);
+          let nextIndex = 0;
+          let failed = false;
+          const nextTable = () => {
+            if (failed) {
+              // Don't hand out new tables after a worker failed - let the
+              // remaining workers wind down so we can surface the error.
+              return undefined;
+            }
+            return tablesWithStatus[nextIndex++];
+          };
+          const workers = Array.from({ length: concurrency }, (_, i) =>
+            this.snapshotWorker(i, nextTable).catch((e) => {
+              failed = true;
+              throw e;
+            })
+          );
+          const results = await Promise.allSettled(workers);
+          const firstError = results.find((r) => r.status == 'rejected');
+          if (firstError != null) {
+            throw (firstError as PromiseRejectedResult).reason;
+          }
         }
 
         // Always commit the initial snapshot at zero.
@@ -642,6 +685,45 @@ WHERE  oid = $1::regclass`,
     }
   }
 
+  private async createSnapshotWriter(): Promise<storage.BucketStorageBatch> {
+    return await this.storage.createWriter({
+      logger: this.logger,
+      zeroLSN: ZERO_LSN,
+      defaultSchema: POSTGRES_DEFAULT_SCHEMA,
+      storeCurrentData: true,
+      skipExistingRows: true
+    });
+  }
+
+  /**
+   * A single initial-snapshot worker: pulls tables from the shared queue and
+   * snapshots them on a dedicated source connection, with dedicated storage
+   * writers so that flushes from different workers can run concurrently.
+   */
+  private async snapshotWorker(workerId: number, nextTable: () => SourceTable | undefined) {
+    const db = await this.connections.snapshotConnection();
+    try {
+      await using writer = await this.createSnapshotWriter();
+      await using altWriter = await this.createSnapshotWriter();
+      while (!this.abort_signal.aborted) {
+        const table = nextTable();
+        if (table == null) {
+          break;
+        }
+        this.logger.info(`[snapshot-worker ${workerId}] snapshotting ${table.qualifiedName}`);
+        await this.snapshotTableInTx(writer, db, table, undefined, altWriter);
+        this.touch();
+      }
+      // Commit rather than just flush: ops flushed by these writers are only folded
+      // into the checkpoint (via keepalive_op) when the writer commits. The final
+      // snapshot commit on the main batch only covers its own persisted ops.
+      await writer.commit(ZERO_LSN);
+      await altWriter.commit(ZERO_LSN);
+    } finally {
+      await db.end().catch(() => {});
+    }
+  }
+
   static decodeRow(row: pgwire.PgRow, types: PostgresTypeResolver): SqliteInputRow {
     let result: SqliteInputRow = {};
 
@@ -665,14 +747,15 @@ WHERE  oid = $1::regclass`,
     batch: storage.BucketStorageBatch,
     db: pgwire.PgConnection,
     table: storage.SourceTable,
-    limited?: PrimaryKeyValue[]
+    limited?: PrimaryKeyValue[],
+    altWriter?: storage.BucketStorageBatch
   ): Promise<storage.SourceTable> {
     // Note: We use the default "Read Committed" isolation level here, not snapshot isolation.
     // The data may change during the transaction, but that is compensated for in the streaming
     // replication afterwards.
     await rquery(db, 'BEGIN');
     try {
-      await this.snapshotTable(batch, db, table, limited);
+      await this.snapshotTable(batch, db, table, limited, altWriter);
 
       // Get the current LSN.
       // The data will only be consistent once incremental replication has passed that point.
@@ -705,11 +788,58 @@ WHERE  oid = $1::regclass`,
     }
   }
 
+  /**
+   * Read a single chunk (up to snapshotChunkLength rows) from the snapshot query,
+   * saving the rows into the given writer.
+   */
+  private async readSnapshotChunk(
+    q: SnapshotQuery,
+    writer: storage.BucketStorageBatch,
+    table: storage.SourceTable
+  ): Promise<{ rowCount: number; hasRemainingData: boolean }> {
+    const cursor = q.nextChunk();
+    let hasRemainingData = false;
+    let rowCount = 0;
+    // pgwire streams rows in chunks.
+    // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.
+    // There are typically 100-200 rows per chunk.
+    for await (let chunk of cursor) {
+      if (chunk.tag == 'RowDescription') {
+        continue;
+      }
+
+      if (chunk.rows.length > 0) {
+        hasRemainingData = true;
+      }
+
+      for (const rawRow of chunk.rows) {
+        const record = this.sync_rules.applyRowContext<never>(WalStream.decodeRow(rawRow, this.connections.types));
+
+        // This auto-flushes when the batch reaches its size limit
+        await writer.save({
+          tag: storage.SaveOperationTag.INSERT,
+          sourceTable: table,
+          before: undefined,
+          beforeReplicaId: undefined,
+          after: record,
+          afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
+        });
+      }
+
+      rowCount += chunk.rows.length;
+      this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(chunk.rows.length);
+
+      this.touch();
+    }
+    return { rowCount, hasRemainingData };
+  }
+
   private async snapshotTable(
     batch: storage.BucketStorageBatch,
     db: pgwire.PgConnection,
     table: storage.SourceTable,
-    limited?: PrimaryKeyValue[]
+    limited?: PrimaryKeyValue[],
+    altWriter?: storage.BucketStorageBatch
   ) {
     let totalEstimatedCount = table.snapshotStatus?.totalEstimatedCount;
     let at = table.snapshotStatus?.replicatedCount ?? 0;
@@ -739,45 +869,22 @@ WHERE  oid = $1::regclass`,
     }
     await q.initialize();
 
+    if (altWriter != null && limited == null) {
+      // Pipelined path: alternate between two writers, so that one writer's
+      // flush can run while the next chunk is read into the other writer.
+      await this.snapshotTablePipelined(batch, altWriter, db, q, table, at, totalEstimatedCount);
+      return;
+    }
+
     let hasRemainingData = true;
     while (hasRemainingData) {
       // Fetch 10k at a time.
       // The balance here is between latency overhead per FETCH call,
       // and not spending too much time on each FETCH call.
       // We aim for a couple of seconds on each FETCH call.
-      const cursor = q.nextChunk();
-      hasRemainingData = false;
-      // pgwire streams rows in chunks.
-      // These chunks can be quite small (as little as 16KB), so we don't flush chunks automatically.
-      // There are typically 100-200 rows per chunk.
-      for await (let chunk of cursor) {
-        if (chunk.tag == 'RowDescription') {
-          continue;
-        }
-
-        if (chunk.rows.length > 0) {
-          hasRemainingData = true;
-        }
-
-        for (const rawRow of chunk.rows) {
-          const record = this.sync_rules.applyRowContext<never>(WalStream.decodeRow(rawRow, this.connections.types));
-
-          // This auto-flushes when the batch reaches its size limit
-          await batch.save({
-            tag: storage.SaveOperationTag.INSERT,
-            sourceTable: table,
-            before: undefined,
-            beforeReplicaId: undefined,
-            after: record,
-            afterReplicaId: getUuidReplicaIdentityBson(record, table.replicaIdColumns)
-          });
-        }
-
-        at += chunk.rows.length;
-        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(chunk.rows.length);
-
-        this.touch();
-      }
+      const result = await this.readSnapshotChunk(q, batch, table);
+      hasRemainingData = result.hasRemainingData;
+      at += result.rowCount;
 
       // Important: flush before marking progress
       await batch.flush();
@@ -818,6 +925,116 @@ WHERE  oid = $1::regclass`,
         // We only abort after flushing
         throw new ReplicationAbortedError(`Initial replication interrupted`);
       }
+    }
+  }
+
+  /**
+   * Snapshot a table using two alternating writers, so that a chunk's flush to
+   * storage runs concurrently with reading and evaluating the next chunk.
+   *
+   * Consistency notes:
+   * - Chunks cover disjoint primary key ranges, so writes from the two writers
+   *   never touch the same rows, and their relative order does not matter.
+   * - Progress (lastKey) is only recorded once that chunk's flush AND all
+   *   earlier flushes have completed, so a crash never resumes past unflushed rows.
+   *
+   * Note: for the flush pipelining to be effective, the storage batch limits
+   * (max_record_count / max_estimated_size) must be larger than one chunk,
+   * otherwise the inline auto-flush inside save() serializes the writes again.
+   */
+  private async snapshotTablePipelined(
+    batch: storage.BucketStorageBatch,
+    altWriter: storage.BucketStorageBatch,
+    db: pgwire.PgConnection,
+    q: SnapshotQuery,
+    table: storage.SourceTable,
+    at: number,
+    totalEstimatedCount: number | undefined
+  ) {
+    let lastCountTime = 0;
+    const writers = [batch, altWriter];
+    const pendingFlush: (Promise<unknown> | null)[] = [null, null];
+    // Progress updates are chained so they apply in chunk order.
+    let progressChain: Promise<void> = Promise.resolve();
+    let chainError: unknown = null;
+    let chunkIndex = 0;
+    let hasRemainingData = true;
+
+    while (hasRemainingData) {
+      const wi = chunkIndex % 2;
+      const writer = writers[wi];
+      // Wait for the previous flush on this writer before reusing it.
+      if (pendingFlush[wi] != null) {
+        await pendingFlush[wi];
+        pendingFlush[wi] = null;
+      }
+      if (chainError != null) {
+        throw chainError;
+      }
+
+      const result = await this.readSnapshotChunk(q, writer, table);
+      hasRemainingData = result.hasRemainingData;
+      at += result.rowCount;
+
+      if (lastCountTime < performance.now() - 10 * 60 * 1000) {
+        // Re-estimate the count every 10 minutes when replicating large tables.
+        // The source connection is idle between chunks, so this is safe here.
+        totalEstimatedCount = await this.estimatedCountNumber(db, table);
+        lastCountTime = performance.now();
+      }
+
+      // Capture resume state for this chunk before reading the next one.
+      const lastKey = q instanceof ChunkedSnapshotQuery ? q.getLastKeySerialized() : undefined;
+      const atSnapshot = at;
+      const totalSnapshot = totalEstimatedCount;
+
+      // Start the flush, but only await it when this writer is reused -
+      // the next chunk is read from the source while this flush is in flight.
+      const flushPromise = writer.flush();
+      pendingFlush[wi] = flushPromise;
+      progressChain = progressChain
+        .then(() => flushPromise)
+        .then(async () => {
+          table = await batch.updateTableProgress(table, {
+            lastKey: lastKey,
+            replicatedCount: atSnapshot,
+            totalEstimatedCount: totalSnapshot
+          });
+          this.relationCache.update(table);
+          this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
+        })
+        .catch((e) => {
+          chainError ??= e;
+        });
+
+      if (this.onSnapshotChunkFlushed) {
+        // Test hook - keep the original synchronous flush semantics.
+        await flushPromise;
+        await this.onSnapshotChunkFlushed();
+      }
+      const now = performance.now();
+      if (now - this.lastSlotHealthCheckTime >= this.slotHealthCheckIntervalMs) {
+        this.lastSlotHealthCheckTime = now;
+        await this.checkSlotHealth();
+      }
+
+      if (this.abort_signal.aborted) {
+        // Wait for in-flight flushes so recorded progress stays consistent.
+        await Promise.allSettled(pendingFlush.filter((p): p is Promise<unknown> => p != null));
+        throw new ReplicationAbortedError(`Initial replication interrupted`);
+      }
+      chunkIndex += 1;
+    }
+
+    // Wait for all in-flight flushes and the final progress updates.
+    for (const p of pendingFlush) {
+      if (p != null) {
+        await p;
+      }
+    }
+    await progressChain;
+    if (chainError != null) {
+      throw chainError;
     }
   }
 
