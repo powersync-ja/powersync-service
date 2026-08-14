@@ -368,12 +368,13 @@ export abstract class MongoSyncBucketStorage
   async compact(options?: storage.CompactOptions) {
     let maxOpId = options?.maxOpId;
     if (maxOpId == null) {
+      // For PROCESSING streams, this will be undefined.
       const checkpoint = await this.getCheckpointInternal();
       maxOpId = checkpoint?.checkpoint ?? undefined;
     }
     await this.createMongoCompactor({ ...options, maxOpId, logger: this.logger }).compact();
 
-    if (maxOpId != null && options?.compactParameterData && this.replicationStream.state == SyncRuleState.PROCESSING) {
+    if (maxOpId != null && options?.compactParameterData && this.replicationStream.state == SyncRuleState.ACTIVE) {
       await this.createMongoParameterCompactor(maxOpId, options).compact();
     }
   }

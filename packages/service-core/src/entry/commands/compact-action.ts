@@ -5,7 +5,7 @@ import * as v8 from 'v8';
 import * as system from '../../system/system-index.js';
 import * as utils from '../../util/util-index.js';
 
-import { modules, SyncRuleState } from '../../index.js';
+import { modules } from '../../index.js';
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
 
 const COMMAND_NAME = 'compact';
@@ -98,10 +98,6 @@ export function registerCompactAction(program: Command) {
 
       const streams = await bucketStorage.getReplicatingReplicationStreams();
       for (let stream of streams) {
-        if (!incremental && stream.state != SyncRuleState.ACTIVE) {
-          // Only compact PROCESSING streams if incremental is enabled
-          continue;
-        }
         const storage = bucketStorage.getInstance(stream);
         logger.info(`[${stream.replicationStreamName}] Performing compaction...`);
         if (buckets != null) {
