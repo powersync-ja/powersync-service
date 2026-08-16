@@ -10,7 +10,6 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b",
-    "build:benchmark-tests": "tsc --noEmit -p src/benchmarks/tsconfig.benchmarks.json",
     "clean": "rm -rf ./dist && tsc -b --clean",
     "test:benchmarks": "vitest --config src/benchmarks/vitest.config.ts --run"
   },
