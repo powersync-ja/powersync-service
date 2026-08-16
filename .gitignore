@@ -12,6 +12,7 @@ dist
 **/lib
 */public
 **/coverage
+**/benchmark-artifacts
 
 npm-error.log
 .pnpm-debug.log
