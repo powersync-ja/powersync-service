@@ -1,4 +1,4 @@
-import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { Logger, ReplicationAssertionError, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { BinLogEvent, BinLogQueryEvent, StartOptions, TableMapEntry, ZongJi } from '@powersync/mysql-zongji';
 import { TablePattern } from '@powersync/service-sync-rules';
 import async from 'async';
@@ -76,7 +76,14 @@ export interface BinLogListenerOptions {
   connectionManager: MySQLConnectionManager;
   eventHandler: BinLogEventHandler;
   sourceTables: TablePattern[];
+  /**
+   *  Id that identifies this replication client.
+   */
   serverId: number;
+  /**
+   *  The server uuid of the source MySQL server that is being replicated.
+   */
+  activeServerUuid: string;
   startGTID: common.ReplicatedGTID;
   logger?: Logger;
   keepAliveInactivitySeconds?: number;
@@ -88,8 +95,6 @@ export interface BinLogListenerOptions {
  */
 export class BinLogListener {
   private sqlParser: ParserType;
-  private connectionManager: MySQLConnectionManager;
-  private eventHandler: BinLogEventHandler;
   private binLogPosition: common.BinLogPosition;
   private currentGTID: common.ReplicatedGTID;
   private logger: Logger;
@@ -101,6 +106,7 @@ export class BinLogListener {
 
   // Flag to indicate if are currently in a transaction that involves multiple row mutation events.
   private isTransactionOpen = false;
+
   zongji: ZongJi;
   processingQueue: async.QueueObject<BinLogEvent>;
 
@@ -111,15 +117,26 @@ export class BinLogListener {
 
   constructor(public options: BinLogListenerOptions) {
     this.logger = options.logger ?? defaultLogger;
-    this.connectionManager = options.connectionManager;
-    this.eventHandler = options.eventHandler;
-    this.binLogPosition = options.startGTID.position;
+    // Copy the position: the listener mutates it as events are processed, and the caller's startGTID must not change
+    this.binLogPosition = { ...options.startGTID.position };
     this.currentGTID = options.startGTID;
     this.sqlParser = new Parser();
     this.processingQueue = this.createProcessingQueue();
     this.zongji = this.createZongjiListener();
     this.listenerError = null;
     this.databaseFilter = this.createDatabaseFilter(options.sourceTables);
+  }
+
+  private get connectionManager(): MySQLConnectionManager {
+    return this.options.connectionManager;
+  }
+
+  private get eventHandler(): BinLogEventHandler {
+    return this.options.eventHandler;
+  }
+
+  private get activeServerUuid(): string {
+    return this.options.activeServerUuid;
   }
 
   /**
@@ -292,29 +309,41 @@ export class BinLogListener {
     return async (evt: BinLogEvent) => {
       switch (true) {
         case zongji_utils.eventIsGTIDLog(evt):
-          this.currentGTID = common.ReplicatedGTID.fromBinLogEvent({
-            raw_gtid: {
-              server_id: evt.serverId,
-              transaction_range: evt.transactionRange
+          const transactionGTID = common.ReplicatedGTID.fromBinLogEvent({
+            rawGtid: {
+              serverUuid: evt.serverId, // The server uuid this transaction originated from
+              transactionId: evt.transactionRange
             },
             position: {
               filename: this.binLogPosition.filename,
               offset: evt.nextPosition
             }
           });
+
+          if (transactionGTID.serverUuid !== this.activeServerUuid) {
+            throw new ReplicationAssertionError(
+              `Detected a transaction from a different MySQL server UUID: ${transactionGTID.serverUuid} than the server that is currently being replicated from: ${this.activeServerUuid}. ` +
+                `A re-snapshot is required to ensure consistency.`
+            );
+          }
+
+          this.currentGTID = transactionGTID;
           this.binLogPosition.offset = evt.nextPosition;
+
           await this.eventHandler.onTransactionStart({ timestamp: new Date(evt.timestamp) });
           this.logger.info(`Processed GTID event: ${this.currentGTID.comparable}`);
           break;
         case zongji_utils.eventIsRotation(evt):
           // The first event when starting replication is a synthetic Rotate event
-          // It describes the last binlog file and position that the replica client processed
+          // It describes the the position and file that the replica requested to start from
+          const isNewFile = this.binLogPosition.filename !== evt.binlogName;
+
           this.binLogPosition.filename = evt.binlogName;
-          this.binLogPosition.offset = evt.nextPosition !== 0 ? evt.nextPosition : evt.position;
+          this.binLogPosition.offset = evt.position;
+
           await this.eventHandler.onRotate();
 
-          const newFile = this.binLogPosition.filename !== evt.binlogName;
-          if (newFile) {
+          if (isNewFile) {
             this.logger.info(
               `Processed Rotate event. New BinLog file is: ${this.binLogPosition.filename}:${this.binLogPosition.offset}`
             );
@@ -359,11 +388,7 @@ export class BinLogListener {
           break;
         case zongji_utils.eventIsXid(evt):
           this.isTransactionOpen = false;
-          this.binLogPosition.offset = evt.nextPosition;
-          const LSN = new common.ReplicatedGTID({
-            raw_gtid: this.currentGTID.raw,
-            position: this.binLogPosition
-          }).comparable;
+          const LSN = this.advanceCommitPosition(evt.nextPosition);
           await this.eventHandler.onCommit(LSN);
           this.logger.info(`Processed Xid event - transaction complete. LSN: ${LSN}.`);
           break;
@@ -374,6 +399,21 @@ export class BinLogListener {
 
       this.queueMemoryUsage -= evt.size;
     };
+  }
+
+  /**
+   *  Advances the binlog position to the end of a committed transaction and updates the currentGTID to match.
+   *  This ensures subsequent heartbeat keepalives report an LSN that is not behind the last commit LSN,
+   *  which would otherwise block checkpoint creation until the next transaction arrives.
+   *  Returns the commit LSN.
+   */
+  private advanceCommitPosition(nextPosition: number): string {
+    this.binLogPosition.offset = nextPosition;
+    this.currentGTID = new common.ReplicatedGTID({
+      rawGtid: this.currentGTID.raw,
+      position: { ...this.binLogPosition }
+    });
+    return this.currentGTID.comparable;
   }
 
   private async processQueryEvent(event: BinLogQueryEvent): Promise<void> {
@@ -398,11 +438,7 @@ export class BinLogListener {
       // DDL queries are auto commited, but do not come with a corresponding Xid event, in those cases we trigger a manual commit if we are not already in a transaction.
       // Some DDL queries include row events, and in those cases will include a Xid event.
       if (!this.isTransactionOpen) {
-        this.binLogPosition.offset = nextPosition;
-        const LSN = new common.ReplicatedGTID({
-          raw_gtid: this.currentGTID.raw,
-          position: this.binLogPosition
-        }).comparable;
+        const LSN = this.advanceCommitPosition(nextPosition);
         await this.eventHandler.onCommit(LSN);
       }
 
@@ -419,11 +455,7 @@ export class BinLogListener {
         await this.restartZongji();
       }
     } else if (!this.isTransactionOpen) {
-      this.binLogPosition.offset = nextPosition;
-      const LSN = new common.ReplicatedGTID({
-        raw_gtid: this.currentGTID.raw,
-        position: this.binLogPosition
-      }).comparable;
+      const LSN = this.advanceCommitPosition(nextPosition);
       await this.eventHandler.onCommit(LSN);
     }
   }

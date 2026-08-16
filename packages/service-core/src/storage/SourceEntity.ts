@@ -1,5 +1,11 @@
 import { SourceTableRef } from '@powersync/service-sync-rules';
 
+/**
+ * Source-specific JSON metadata. Storage does not interpret it. Source-table APIs use null to
+ * represent the absence of metadata.
+ */
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
 export interface ColumnDescriptor {
   name: string;
   /**
@@ -19,8 +25,6 @@ export interface SourceEntityDescriptor extends SourceTableRef {
    * If specified, this is specifically used to detect renames.
    */
   objectId: number | string | undefined;
-  schema: string;
-  name: string;
   /**
    *  The columns that are used to uniquely identify a record in the source entity.
    */

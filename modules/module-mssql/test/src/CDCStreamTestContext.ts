@@ -74,6 +74,13 @@ export class CDCStreamTestContext implements AsyncDisposable {
     return this.connectionManager.connectionTag;
   }
 
+  /**
+   * Resolves when streaming stops, or rejects with the failure that stopped it.
+   */
+  get streamingPromise() {
+    return this.streamPromise;
+  }
+
   async updateSyncRules(content: string) {
     const replicationStream = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: LEGACY_STORAGE_VERSION })

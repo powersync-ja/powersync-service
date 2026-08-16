@@ -93,6 +93,12 @@ export interface NormalizedMSSQLConnectionConfig {
   database: string;
   schema?: string;
 
+  /** PEM-encoded certificate authority used to validate the SQL Server certificate. */
+  cacert?: string;
+
+  /** Server name to use when validating the SQL Server certificate. */
+  tls_servername?: string;
+
   authentication?: Authentication;
 
   lookup?: LookupFunction;
@@ -112,6 +118,12 @@ export const MSSQLConnectionConfig = service_types.configFile.DataSourceConfig.a
     schema: t.string.optional(),
     hostname: t.string.optional(),
     port: service_types.configFile.portCodec.optional(),
+
+    /** PEM-encoded certificate authority used to validate the SQL Server certificate. */
+    cacert: t.string.optional(),
+
+    /** Server name to use when validating the SQL Server certificate. */
+    tls_servername: t.string.optional(),
 
     authentication: Authentication.optional(),
 
@@ -179,6 +191,13 @@ export function normalizeConnectionConfig(options: MSSQLConnectionConfig): Norma
     throw new ServiceError(ErrorCode.PSYNC_S1105, `MSSQL connection: database required`);
   }
 
+  if (options.cacert && options.additionalConfig?.trustServerCertificate) {
+    throw new ServiceError(
+      ErrorCode.PSYNC_S1604,
+      'MSSQL connection: cacert cannot be used with trustServerCertificate because certificate validation would be disabled'
+    );
+  }
+
   const lookup = makeHostnameLookupFunction(hostname, { reject_ip_ranges: options.reject_ip_ranges ?? [] });
 
   return {
@@ -190,6 +209,8 @@ export function normalizeConnectionConfig(options: MSSQLConnectionConfig): Norma
     hostname,
     port,
     database,
+    cacert: options.cacert,
+    tls_servername: options.tls_servername,
 
     lookup,
     authentication: options.authentication,

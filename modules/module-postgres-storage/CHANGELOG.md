@@ -1,5 +1,32 @@
 # @powersync/service-module-postgres-storage
 
+## 0.18.0
+
+### Minor Changes
+
+- 798d739: Add source-owned `SourceTable` reconciliation.
+
+  `resolveTables()` now queries all overlapping persisted candidates and passes them to a
+  source-provided reconciler that returns compatible and incompatible tables, can return
+  modified compatible copies, and supplies values used for potential new records. Storage persists allowlisted
+  source metadata differences but never interprets them. MongoDB v1/v3 and PostgreSQL storage were
+  refactored to this candidate-first model (PostgreSQL gains a nullable `source_metadata` JSONB column
+  via migration).
+
+### Patch Changes
+
+- 798d739: Fix hydration of replica id column type ids in Postgres bucket storage.
+
+  `source_tables.replica_id_columns` is persisted with a `type_oid` key, but the decoding codec declared
+  `typeId`, so every `SourceTable` read back from a row lost its column type ids. This affected
+  `getSourceTableStatus()` and the tables returned for dropping, and now also the identity comparison
+  used by source table reconciliation. The codec matches the persisted key - no data migration is
+  needed.
+
+- Updated dependencies [27b56cb]
+- Updated dependencies [798d739]
+  - @powersync/service-core@1.25.0
+
 ## 0.17.0
 
 ### Minor Changes

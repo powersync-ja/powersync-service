@@ -351,7 +351,7 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
     if (captureInstanceDetails && captureInstanceDetails.instances[0].pendingSchemaChanges.length > 0) {
       schemaDriftError = {
         level: 'warning',
-        message: `Source table ${toQualifiedTableName(schema, table.name)} has schema changes not reflected in the CDC capture instance. Please disable and re-enable CDC on the source table to update the capture instance schema.
+        message: `Source table ${toQualifiedTableName(schema, table.name)} has schema changes not reflected in the CDC capture instance. Create a replacement CDC capture instance with the intended columns, update the sync config if needed, and deploy a new sync config. If the change requires disabling CDC, re-enable CDC before deploying.
         Pending schema changes: ${captureInstanceDetails.instances[0].pendingSchemaChanges.join(', \n')}`
       };
     }

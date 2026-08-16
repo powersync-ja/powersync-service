@@ -1,3 +1,4 @@
+import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import mysql from 'mysql2/promise';
 import * as uuid from 'uuid';
 import * as mysql_utils from '../utils/mysql-utils.js';
@@ -8,7 +9,11 @@ export type BinLogPosition = {
 };
 
 export type ReplicatedGTIDSpecification = {
-  raw_gtid: string;
+  /**
+   * The raw Global Transaction ID. This is of the format `server_uuid:transaction_id`.
+   * Must be a single GTID — not a GTID set (multiple UUIDs) or interval range.
+   */
+  rawGtid: string;
   /**
    * The (end) position in a BinLog file where this transaction has been replicated in.
    */
@@ -16,12 +21,12 @@ export type ReplicatedGTIDSpecification = {
 };
 
 export type BinLogGTIDFormat = {
-  server_id: Buffer;
-  transaction_range: number;
+  serverUuid: Buffer;
+  transactionId: number;
 };
 
 export type BinLogGTIDEvent = {
-  raw_gtid: BinLogGTIDFormat;
+  rawGtid: BinLogGTIDFormat;
   position: BinLogPosition;
 };
 
@@ -31,30 +36,43 @@ export type BinLogGTIDEvent = {
  * and position where this GTID could be located.
  */
 export class ReplicatedGTID {
+  private options: ReplicatedGTIDSpecification;
+
+  constructor(options: ReplicatedGTIDSpecification) {
+    const rawGtid = options.rawGtid.trim();
+    assertSingleGtid(rawGtid);
+    this.options = { ...options, rawGtid };
+  }
+
   static fromSerialized(comparable: string): ReplicatedGTID {
     return new ReplicatedGTID(ReplicatedGTID.deserialize(comparable));
   }
 
   private static deserialize(comparable: string): ReplicatedGTIDSpecification {
     const components = comparable.split('|');
-    if (components.length < 3) {
-      throw new Error(`Invalid serialized GTID: ${comparable}`);
+    if (components.length < 4) {
+      throw new ReplicationAssertionError(`Invalid serialized GTID: ${comparable}`);
+    }
+
+    const offset = parseInt(components[3], 10);
+    if (Number.isNaN(offset)) {
+      throw new ReplicationAssertionError(`Invalid BinLog offset in serialized GTID: ${comparable}`);
     }
 
     return {
-      raw_gtid: components[1],
+      rawGtid: components[1],
       position: {
         filename: components[2],
-        offset: parseInt(components[3])
+        offset: offset
       } satisfies BinLogPosition
     };
   }
 
   static fromBinLogEvent(event: BinLogGTIDEvent) {
-    const { raw_gtid, position } = event;
-    const stringGTID = `${uuid.stringify(raw_gtid.server_id)}:${raw_gtid.transaction_range}`;
+    const { rawGtid, position } = event;
+    const stringGTID = `${uuid.stringify(rawGtid.serverUuid)}:${rawGtid.transactionId}`;
     return new ReplicatedGTID({
-      raw_gtid: stringGTID,
+      rawGtid: stringGTID,
       position
     });
   }
@@ -62,9 +80,12 @@ export class ReplicatedGTID {
   /**
    * Special case for the zero GTID which means no transactions have been executed.
    */
-  static ZERO = new ReplicatedGTID({ raw_gtid: '0:0', position: { filename: '', offset: 0 } });
-
-  constructor(protected options: ReplicatedGTIDSpecification) {}
+  static ZERO(serverUuid: string): ReplicatedGTID {
+    return new ReplicatedGTID({
+      rawGtid: `${serverUuid}:0`,
+      position: { filename: '', offset: 0 }
+    });
+  }
 
   /**
    * Get the BinLog position of this replicated GTID event
@@ -74,14 +95,17 @@ export class ReplicatedGTID {
   }
 
   /**
-   * Get the raw Global Transaction ID. This of the format `server_id:transaction_ranges`
+   * Get the raw Global Transaction ID. This is of the format `server_uuid:transaction_id`
    */
   get raw() {
-    return this.options.raw_gtid;
+    return this.options.rawGtid;
   }
 
-  get serverId() {
-    return this.options.raw_gtid.split(':')[0];
+  /**
+   * The server UUID of the server this transaction originated from
+   */
+  get serverUuid() {
+    return this.options.rawGtid.split(':')[0];
   }
 
   /**
@@ -94,21 +118,9 @@ export class ReplicatedGTID {
    */
   get comparable(): string {
     const { raw, position } = this;
-    const [, transactionRanges] = this.raw.split(':');
+    const [, transactionId] = this.raw.split(':');
 
-    // This means no transactions have been executed on the database yet
-    if (!transactionRanges) {
-      return ReplicatedGTID.ZERO.comparable;
-    }
-
-    let maxTransactionId = 0;
-
-    for (const range of transactionRanges.split(',')) {
-      const [start, end] = range.split('-');
-      maxTransactionId = Math.max(maxTransactionId, parseInt(start, 10), parseInt(end || start, 10));
-    }
-
-    const paddedTransactionId = maxTransactionId.toString().padStart(16, '0');
+    const paddedTransactionId = transactionId.toString().padStart(16, '0');
     return [paddedTransactionId, raw, position.filename, position.offset].join('|');
   }
 
@@ -159,5 +171,26 @@ export class ReplicatedGTID {
       endPosition.offset +
       logFiles.slice(startFileIndex + 1, endFileIndex).reduce((sum, file) => sum + file['File_size'], 0)
     );
+  }
+}
+
+/**
+ * Asserts that the given gtid string is a single GTID of the form `server_uuid:transaction_id`,
+ * not a GTID set such as `uuid:1-17` or `uuid1:1,uuid2:2`.
+ */
+function assertSingleGtid(gtid: string): void {
+  // GTID sets join UUID sets with commas (often with newlines: `,\n`).
+  if (gtid.includes(',') || gtid.includes('\n')) {
+    throw new ReplicationAssertionError(`Expected a single GTID (server_uuid:transaction_id), got a GTID set: ${gtid}`);
+  }
+
+  const parts = gtid.split(':');
+  if (parts.length !== 2 || parts[0].length === 0 || parts[1].length === 0) {
+    throw new ReplicationAssertionError(`Expected a single GTID (server_uuid:transaction_id), got: ${gtid}`);
+  }
+
+  // Intervals use `n-m`; a single transaction id must be a non-negative integer.
+  if (!/^\d+$/.test(parts[1])) {
+    throw new ReplicationAssertionError(`Expected a single transaction id, got: ${gtid}`);
   }
 }

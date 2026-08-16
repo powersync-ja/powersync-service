@@ -111,6 +111,24 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
     expect(eventHandler.lastKeepAlive).toEqual(binLogListener.options.startGTID.comparable);
   });
 
+  test('Keepalive LSN after a commit is not less than the commit LSN', async () => {
+    binLogListener.options.keepAliveInactivitySeconds = 1;
+    await binLogListener.start();
+
+    await insertRows(connectionManager, 1);
+    await vi.waitFor(() => expect(eventHandler.commitCount).equals(1), { timeout: 5000 });
+    const commitLsn = eventHandler.lastCommitLsn!;
+
+    // Wait for a heartbeat keepalive that arrives after the commit.
+    // A keepalive LSN behind the commit LSN blocks checkpoint creation until the next transaction arrives.
+    await vi.waitFor(() => expect(eventHandler.lastKeepAlive && eventHandler.lastKeepAlive >= commitLsn).toBeTruthy(), {
+      timeout: 10_000
+    });
+    await binLogListener.stop();
+    // No binlog rotation happens in this test, so the keepalive LSN should exactly match the commit LSN
+    expect(eventHandler.lastKeepAlive).toEqual(commitLsn);
+  });
+
   test('Schema change event: Rename table', async () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_DATA RENAME test_DATA_new`);

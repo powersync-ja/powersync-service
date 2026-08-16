@@ -1,5 +1,6 @@
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { ColumnDescriptor, InternalOpId, SourceTable, storage } from '@powersync/service-core';
+import { HydratedSyncConfig } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { calculateCheckpointState } from '../CheckpointState.js';
@@ -9,7 +10,7 @@ import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { PersistedBatchV1 } from './PersistedBatchV1.js';
 import { SourceRecordStoreV1 } from './SourceRecordStoreV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
-import { SyncRuleDocumentV1 } from './models.js';
+import { SourceTableDocumentV1, SyncRuleDocumentV1 } from './models.js';
 
 export class MongoBucketBatchV1 extends MongoBucketBatch {
   declare readonly db: VersionedPowerSyncMongoV1;
@@ -51,6 +52,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
     const syncRules = options.parsedSyncConfig?.hydratedSyncConfig ?? this.sync_rules;
+    const reconcile = options.reconcileSourceTables ?? storage.defaultSourceTableReconciler;
     const { connection_id, source } = options;
     const { schema, name, objectId, replicaIdColumns, connectionTag, sendsCompleteRows } = source;
 
@@ -63,20 +65,38 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     let result: storage.ResolveTablesResult | null = null;
     await this.db.client.withSession(async (session) => {
       const col = this.db.sourceTablesV1(this.replicationStreamId);
-      const filter: any = {
-        group_id: this.replicationStreamId,
-        connection_id,
-        schema_name: schema,
-        table_name: name,
-        replica_id_columns2: normalizedReplicaIdColumns
-      };
+
+      // Find records that overlap by name or relation id.
+      const orClauses: Record<string, unknown>[] = [{ schema_name: schema, table_name: name }];
       if (objectId != null) {
-        filter.relation_id = objectId;
+        orClauses.push({ relation_id: objectId });
+      }
+      const candidateDocs = await col
+        .find({ group_id: this.replicationStreamId, connection_id, $or: orClauses }, { session })
+        .toArray();
+
+      const candidateTables = candidateDocs.map((doc) =>
+        this.hydrateSourceTable(doc, connectionTag, syncRules, sendsCompleteRows)
+      );
+      const candidates = candidateTables.map((table) => table.clone());
+      const resolution = await reconcile({ source, candidates });
+      storage.validateSourceTableCandidateResolution(candidates, resolution);
+
+      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
+        await col.updateOne({ _id: mongoTableId(id) }, { $set: { source_metadata: sourceMetadata } }, { session });
       }
 
-      let doc = await col.findOne(filter, { session });
-      if (doc == null) {
-        doc = {
+      const materializedResolution = storage.materializeSourceTableResolution(candidateTables, resolution);
+      const compatibleTables = materializedResolution.compatibleTables;
+
+      // V1 keeps one record, preferring one that has already been snapshotted.
+      const reuse = compatibleTables.find((table) => table.snapshotComplete) ?? compatibleTables[0] ?? null;
+
+      let sourceTable: storage.SourceTable;
+      if (reuse != null) {
+        sourceTable = reuse;
+      } else {
+        const doc: SourceTableDocumentV1 = {
           _id: options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId(),
           group_id: this.replicationStreamId,
           connection_id,
@@ -86,74 +106,60 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           replica_id_columns: null,
           replica_id_columns2: normalizedReplicaIdColumns,
           snapshot_done: false,
-          snapshot_status: undefined
+          snapshot_status: undefined,
+          source_metadata: resolution.newTableValues.sourceMetadata
         };
         await col.insertOne(doc, { session });
+        sourceTable = this.hydrateSourceTable(doc, connectionTag, syncRules, sendsCompleteRows);
       }
 
-      const sourceTable = new storage.SourceTable({
-        id: doc._id,
-        ref: source,
-        objectId,
-        replicaIdColumns,
-        snapshotComplete: doc.snapshot_done ?? true,
-        ...syncRules.getMatchingSources(source)
-      });
-      sourceTable.syncEvent = syncRules.tableTriggersEvent(source);
-      sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
-      sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
-      sourceTable.storeCurrentData = sendsCompleteRows !== true;
-      sourceTable.snapshotStatus =
-        doc.snapshot_status == null
-          ? undefined
-          : {
-              lastKey: doc.snapshot_status.last_key?.buffer ?? null,
-              totalEstimatedCount: doc.snapshot_status.total_estimated_count,
-              replicatedCount: doc.snapshot_status.replicated_count
-            };
-
-      const truncateFilter = [{ schema_name: schema, table_name: name }] as any[];
-      if (objectId != null) {
-        truncateFilter.push({ relation_id: objectId });
-      }
-      const truncate = await col
-        .find(
-          {
-            group_id: this.replicationStreamId,
-            connection_id,
-            _id: { $ne: doc._id },
-            $or: truncateFilter
-          },
-          { session }
-        )
-        .toArray();
-      const dropTables = truncate.map((dropDoc) => {
-        const ref = {
-          connectionTag,
-          schema: dropDoc.schema_name,
-          name: dropDoc.table_name
-        };
-        const table = new storage.SourceTable({
-          id: dropDoc._id,
-          ref,
-          objectId: dropDoc.relation_id,
-          replicaIdColumns:
-            dropDoc.replica_id_columns2?.map(
-              (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
-            ) ?? [],
-          snapshotComplete: dropDoc.snapshot_done ?? true,
-          ...syncRules.getMatchingSources(ref)
-        });
-        table.syncEvent = syncRules.tableTriggersEvent(ref);
-        table.syncData = table.bucketDataSources.length > 0;
-        table.syncParameters = table.parameterLookupSources.length > 0;
-        return table;
-      });
+      const dropTables = [
+        ...materializedResolution.incompatibleTables,
+        // V1 only keeps one SourceTable per physical table.
+        ...compatibleTables.filter((table) => !storage.sourceTableIdEquals(table.id, sourceTable.id))
+      ];
 
       result = { tables: [sourceTable], dropTables };
     });
 
     return result!;
+  }
+
+  /**
+   * Build a SourceTable from its persisted v1 record.
+   */
+  private hydrateSourceTable(
+    doc: SourceTableDocumentV1,
+    connectionTag: string,
+    syncRules: HydratedSyncConfig,
+    sendsCompleteRows: boolean | undefined
+  ): storage.SourceTable {
+    const ref = { connectionTag, schema: doc.schema_name, name: doc.table_name };
+    const table = new storage.SourceTable({
+      id: doc._id,
+      ref,
+      objectId: doc.relation_id,
+      replicaIdColumns:
+        doc.replica_id_columns2?.map(
+          (column) => ({ name: column.name, typeId: column.type_oid, type: column.type }) satisfies ColumnDescriptor
+        ) ?? [],
+      snapshotComplete: doc.snapshot_done ?? true,
+      sourceMetadata: doc.source_metadata ?? null,
+      ...syncRules.getMatchingSources(ref)
+    });
+    table.syncEvent = syncRules.tableTriggersEvent(ref);
+    table.syncData = table.bucketDataSources.length > 0;
+    table.syncParameters = table.parameterLookupSources.length > 0;
+    table.storeCurrentData = sendsCompleteRows !== true;
+    table.snapshotStatus =
+      doc.snapshot_status == null
+        ? undefined
+        : {
+            lastKey: doc.snapshot_status.last_key?.buffer ?? null,
+            totalEstimatedCount: doc.snapshot_status.total_estimated_count,
+            replicatedCount: doc.snapshot_status.replicated_count
+          };
+    return table;
   }
 
   async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
@@ -168,34 +174,8 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       return null;
     }
 
-    const ref = {
-      connectionTag: table.ref.connectionTag,
-      schema: doc.schema_name,
-      name: doc.table_name
-    };
-    const sourceTable = new storage.SourceTable({
-      id: doc._id,
-      ref,
-      objectId: doc.relation_id,
-      replicaIdColumns:
-        doc.replica_id_columns2?.map(
-          (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
-        ) ?? [],
-      snapshotComplete: doc.snapshot_done ?? true,
-      ...this.sync_rules.getMatchingSources(ref)
-    });
-    sourceTable.syncEvent = this.sync_rules.tableTriggersEvent(ref);
-    sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
-    sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
-    sourceTable.snapshotStatus =
-      doc.snapshot_status == null
-        ? undefined
-        : {
-            lastKey: doc.snapshot_status.last_key?.buffer ?? null,
-            totalEstimatedCount: doc.snapshot_status.total_estimated_count,
-            replicatedCount: doc.snapshot_status.replicated_count
-          };
-    return sourceTable;
+    // Use the default storeCurrentData value when reading outside resolution.
+    return this.hydrateSourceTable(doc, table.ref.connectionTag, this.sync_rules, undefined);
   }
 
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {

@@ -2,6 +2,7 @@ import mysqlPromise from 'mysql2/promise';
 import * as mysql_utils from '../utils/mysql-utils.js';
 
 const MIN_SUPPORTED_VERSION = '5.7.0';
+const REPLICA_TERMINOLOGY_VERSION = '8.0.22';
 
 export async function checkSourceConfiguration(connection: mysqlPromise.Connection): Promise<string[]> {
   const errors: string[] = [];
@@ -9,6 +10,20 @@ export async function checkSourceConfiguration(connection: mysqlPromise.Connecti
   const version = await mysql_utils.getMySQLVersion(connection);
   if (!mysql_utils.isVersionAtLeast(version, MIN_SUPPORTED_VERSION)) {
     errors.push(`MySQL versions older than ${MIN_SUPPORTED_VERSION} are not supported. Your version is: ${version}.`);
+  }
+
+  const replicaStatusQuery = mysql_utils.isVersionAtLeast(version, REPLICA_TERMINOLOGY_VERSION)
+    ? 'SHOW REPLICA STATUS'
+    : 'SHOW SLAVE STATUS';
+  const [replicaStatuses] = await mysql_utils.retriedQuery({
+    connection,
+    query: replicaStatusQuery
+  });
+
+  if (replicaStatuses.length > 0) {
+    errors.push(
+      'Connecting PowerSync to a MySQL replica is not supported. Please connect PowerSync directly to the primary server.'
+    );
   }
 
   const [[result]] = await mysql_utils.retriedQuery({

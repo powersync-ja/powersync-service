@@ -1,11 +1,12 @@
 import * as types from '@module/types/types.js';
 import { logger } from '@powersync/lib-services-framework';
-import { BucketStorageFactory, ReplicationCheckpoint, TestStorageConfig } from '@powersync/service-core';
-
+import { BucketStorageFactory, ReplicationCheckpoint, storage, TestStorageConfig } from '@powersync/service-core';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 
+import { CaptureInstance } from '@module/common/CaptureInstance.js';
 import { LSN } from '@module/common/LSN.js';
+import { MSSQLSourceMetadata } from '@module/replication/CaptureReconciler.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
 import { createCheckpoint, escapeIdentifier, getLatestLSN, toQualifiedTableName } from '@module/utils/mssql.js';
 import sql from 'mssql';
@@ -242,24 +243,87 @@ export interface EnableCDCForTableOptions {
   connectionManager: MSSQLConnectionManager;
   table: string;
   captureInstance?: string;
+  /**
+   * Columns to capture. SQL Server captures all columns by default.
+   */
+  capturedColumns?: string[];
 }
 
 export async function enableCDCForTable(options: EnableCDCForTableOptions): Promise<void> {
-  const { connectionManager, table, captureInstance } = options;
+  const { connectionManager, table, captureInstance, capturedColumns } = options;
 
   await connectionManager.execute('sys.sp_cdc_enable_table', [
     { name: 'source_schema', value: connectionManager.schema },
     { name: 'source_name', value: table },
     { name: 'role_name', value: 'cdc_reader' },
     { name: 'supports_net_changes', value: 0 },
-    ...(captureInstance !== undefined ? [{ name: 'capture_instance', value: captureInstance }] : [])
+    ...(captureInstance !== undefined ? [{ name: 'capture_instance', value: captureInstance }] : []),
+    ...(capturedColumns !== undefined ? [{ name: 'captured_column_list', value: capturedColumns.join(',') }] : [])
   ]);
 }
 
-export async function disableCDCForTable(connectionManager: MSSQLConnectionManager, tableName: string) {
+/**
+ * Disable one capture instance, or all instances by default.
+ */
+export async function disableCDCForTable(
+  connectionManager: MSSQLConnectionManager,
+  tableName: string,
+  captureInstance: string = 'all'
+) {
   await connectionManager.execute('sys.sp_cdc_disable_table', [
     { name: 'source_schema', value: connectionManager.schema },
     { name: 'source_name', value: tableName },
-    { name: 'capture_instance', value: 'all' }
+    { name: 'capture_instance', value: captureInstance }
   ]);
+}
+
+/**
+ * Create a capture instance with the given capture-table object id.
+ */
+export function createCaptureInstance(objectId: number): CaptureInstance {
+  return {
+    name: `dbo_users_${objectId}`,
+    objectId,
+    minLSN: LSN.fromString(LSN.ZERO),
+    createDate: new Date(),
+    pendingSchemaChanges: []
+  };
+}
+/**
+ * Build a persisted source-table candidate with optional capture metadata.
+ */
+export function createSourceTableCandidate(
+  id: string,
+  metadata?: MSSQLSourceMetadata,
+  overrides: Partial<ConstructorParameters<typeof storage.SourceTable>[0]> = {}
+): storage.SourceTable {
+  const descriptor = createSourceDescriptor();
+
+  return new storage.SourceTable({
+    id,
+    ref: descriptor,
+    objectId: descriptor.objectId,
+    replicaIdColumns: descriptor.replicaIdColumns,
+    snapshotComplete: true,
+    bucketDataSources: [],
+    parameterLookupSources: [],
+    sourceMetadata: metadata,
+    ...overrides
+  });
+}
+
+/**
+ * Create a source descriptor with optional identity overrides.
+ */
+export function createSourceDescriptor(
+  overrides: Partial<storage.SourceEntityDescriptor> = {}
+): storage.SourceEntityDescriptor {
+  return {
+    connectionTag: 'default',
+    schema: 'dbo',
+    name: 'users',
+    objectId: 100,
+    replicaIdColumns: [{ name: 'id', type: 'int', typeId: 56 }],
+    ...overrides
+  };
 }

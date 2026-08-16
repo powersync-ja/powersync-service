@@ -1,5 +1,6 @@
 import { SourceEntityDescriptor, SourceTable } from '@powersync/service-core';
 import { ServiceAssertionError } from '@powersync/service-errors';
+import { readCaptureMetadata } from '../replication/CaptureReconciler.js';
 import { toQualifiedTableName } from '../utils/mssql.js';
 import { CaptureInstance } from './CaptureInstance.js';
 
@@ -26,9 +27,15 @@ export class MSSQLSourceTable {
 
   public readonly ref: SourceEntityDescriptor;
 
+  /**
+   * Decoded once, since the persisted metadata only changes when a SourceTable is replaced.
+   */
+  private captureObjectId: number | null;
+
   constructor(ref: SourceEntityDescriptor, sourceTables: SourceTable[]) {
     this.sourceTables = sourceTables;
     this.ref = ref;
+    this.captureObjectId = readPinnedCaptureObjectId(sourceTables);
   }
 
   updateSourceTable(updated: SourceTable): void {
@@ -37,6 +44,7 @@ export class MSSQLSourceTable {
       throw new ServiceAssertionError(`No SourceTable found for table: ${updated.id}`);
     }
     this.sourceTables[index] = updated;
+    this.captureObjectId = readPinnedCaptureObjectId(this.sourceTables);
   }
 
   getReplicatedSourceTables(): SourceTable[] {
@@ -47,12 +55,19 @@ export class MSSQLSourceTable {
     return this.captureInstance !== null;
   }
 
-  setCaptureInstance(captureInstance: CaptureInstance) {
-    this.captureInstance = captureInstance;
+  /**
+   * Persisted capture-table object id, or null for a legacy binding.
+   */
+  get pinnedCaptureObjectId(): number | null {
+    return this.captureObjectId;
   }
 
-  clearCaptureInstance() {
-    this.captureInstance = null;
+  /**
+   * Bind the available capture instance matching this table's persisted identity.
+   */
+  setCaptureInstance(availableInstances: readonly CaptureInstance[]): void {
+    this.captureInstance =
+      availableInstances.find((instance) => instance.objectId === this.pinnedCaptureObjectId) ?? null;
   }
 
   get allChangesFunction() {
@@ -83,4 +98,17 @@ export class MSSQLSourceTable {
   toQualifiedName(): string {
     return toQualifiedTableName(this.ref.schema, this.ref.name);
   }
+}
+
+/**
+ * The pinned capture-table object id shared by these records, or null for a legacy binding.
+ */
+function readPinnedCaptureObjectId(sourceTables: SourceTable[]): number | null {
+  for (const sourceTable of sourceTables) {
+    const metadata = readCaptureMetadata(sourceTable.sourceMetadata);
+    if (metadata != null) {
+      return metadata.captureTableObjectId;
+    }
+  }
+  return null;
 }

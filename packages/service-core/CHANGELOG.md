@@ -1,5 +1,22 @@
 # @powersync/service-core
 
+## 1.25.0
+
+### Minor Changes
+
+- 798d739: Add source-owned `SourceTable` reconciliation.
+
+  `resolveTables()` now queries all overlapping persisted candidates and passes them to a
+  source-provided reconciler that returns compatible and incompatible tables, can return
+  modified compatible copies, and supplies values used for potential new records. Storage persists allowlisted
+  source metadata differences but never interprets them. MongoDB v1/v3 and PostgreSQL storage were
+  refactored to this candidate-first model (PostgreSQL gains a nullable `source_metadata` JSONB column
+  via migration).
+
+### Patch Changes
+
+- 27b56cb: Optimization for generating subkey UUIDs.
+
 ## 1.24.0
 
 ### Minor Changes

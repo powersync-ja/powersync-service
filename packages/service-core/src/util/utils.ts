@@ -33,7 +33,7 @@ export interface PartialChecksum {
  */
 export type InternalOpId = bigint;
 
-export const ID_NAMESPACE = 'a396dd91-09fc-4017-a28d-3df722f651e9';
+export const ID_NAMESPACE = uuid.parse('a396dd91-09fc-4017-a28d-3df722f651e9');
 
 export function escapeIdentifier(identifier: string) {
   return `"${identifier.replace(/"/g, '""').replace(/\./g, '"."')}"`;
