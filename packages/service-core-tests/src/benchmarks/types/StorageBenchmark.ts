@@ -39,6 +39,7 @@ export interface StorageBenchmarkRunResource {
   readonly factory: storage.BucketStorageFactory;
   readonly tableIdStrings: boolean;
   readonly environment: object;
+  dispose(): Promise<void>;
 }
 
 export interface StorageBenchmarkImplementation {
@@ -48,6 +49,11 @@ export interface StorageBenchmarkImplementation {
 
 export interface PostgresStorageBenchmarkImplementationOptions {
   readonly url: string;
+}
+
+export interface MongoStorageBenchmarkImplementationOptions {
+  readonly url: string;
+  readonly isCI: boolean;
 }
 
 export interface StorageBenchmarkRunContext {

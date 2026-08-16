@@ -19,6 +19,9 @@
       "path": "../../libs/lib-services"
     },
     {
+      "path": "../../modules/module-mongodb-storage"
+    },
+    {
       "path": "../../modules/module-postgres-storage"
     }
   ]

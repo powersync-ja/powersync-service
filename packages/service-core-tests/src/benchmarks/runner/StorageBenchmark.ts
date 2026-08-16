@@ -194,7 +194,7 @@ export class StorageBenchmark extends Benchmark<
   }
 
   protected async cleanupRun(run: StorageBenchmarkRunContext): Promise<void> {
-    await run.resource.factory[Symbol.asyncDispose]();
+    await run.resource.dispose();
   }
 
   private async cleanupPartialIteration(

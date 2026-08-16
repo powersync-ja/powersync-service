@@ -6,6 +6,6 @@ export default defineConfig({
     pool: 'threads',
     fileParallelism: false,
     maxWorkers: 1,
-    tags: [{ name: 'storage' }, { name: 'quick' }, { name: 'postgres-storage' }]
+    tags: [{ name: 'storage' }, { name: 'quick' }, { name: 'postgres-storage' }, { name: 'mongodb-storage' }]
   }
 });

@@ -29,6 +29,9 @@ export class PostgresStorageBenchmarkImplementation implements StorageBenchmarkI
           implementation: this.id,
           server_version: serverVersion,
           system_identifier: systemIdentifier
+        },
+        async dispose() {
+          await factory[Symbol.asyncDispose]();
         }
       };
     } catch (error) {
