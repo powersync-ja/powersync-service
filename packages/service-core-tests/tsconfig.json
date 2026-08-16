@@ -17,6 +17,9 @@
     },
     {
       "path": "../../libs/lib-services"
+    },
+    {
+      "path": "../../modules/module-postgres-storage"
     }
   ]
 }
