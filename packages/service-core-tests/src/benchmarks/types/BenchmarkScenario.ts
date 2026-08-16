@@ -8,7 +8,6 @@ export interface BenchmarkScenario<Workload extends object = {}> {
   profile: BenchmarkProfile;
   tags: string[];
   prerequisites: string[];
-  expected_duration: 'short' | 'medium' | 'long';
   timeout_ms: number;
   warmup_iterations: number;
   measured_iterations: number;

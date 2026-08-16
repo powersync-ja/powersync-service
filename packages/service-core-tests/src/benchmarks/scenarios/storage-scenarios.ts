@@ -1,38 +1,39 @@
-import { STORAGE_VERSION_2 } from '@powersync/service-core';
 import { StorageBenchmarkImplementationId, StorageBenchmarkScenario } from '../types/StorageBenchmark.js';
 
-export function createPostgresQuickStorageScenario(): StorageBenchmarkScenario {
+export function createPostgresQuickStorageScenario(version: number): StorageBenchmarkScenario {
   return createQuickStorageScenario(
     'postgres-storage',
-    'Write 1000 rows to global bucket directly to PostgreSQL bucket storage'
+    'Write 1000 rows to global bucket directly to PostgreSQL bucket storage',
+    version
   );
 }
 
-export function createMongoQuickStorageScenario(): StorageBenchmarkScenario {
+export function createMongoQuickStorageScenario(version: number): StorageBenchmarkScenario {
   return createQuickStorageScenario(
     'mongodb-storage',
-    'Write 1000 rows to global bucket directly to MongoDB bucket storage'
+    'Write 1000 rows to global bucket directly to MongoDB bucket storage',
+    version
   );
 }
 
 function createQuickStorageScenario(
   implementation: StorageBenchmarkImplementationId,
-  description: string
+  description: string,
+  version: number
 ): StorageBenchmarkScenario {
   return {
-    id: `storage.write.baseline.direct.${implementation}.v${STORAGE_VERSION_2}.quick`,
+    id: `storage.write.${implementation}.v${version}.quick`,
     description,
     layer: 'storage',
     profile: 'quick',
     tags: ['storage', 'quick', implementation],
     prerequisites: [implementation],
-    expected_duration: 'short',
     timeout_ms: 120_000,
     warmup_iterations: 1,
     measured_iterations: 3,
     storage: {
       implementation,
-      version: STORAGE_VERSION_2
+      version: version
     },
     mode: 'write',
     flush_policy: 'automatic',
