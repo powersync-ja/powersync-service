@@ -7,6 +7,7 @@ import { CompactionLease } from '@module/storage/implementation/v3/CompactionLea
 import { BucketDataDocumentV3 } from '@module/storage/implementation/v3/models.js';
 import { ObjectStorageError } from '@module/storage/implementation/v3/object-storage/ObjectStorage.js';
 import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
+import { logger as defaultLogger } from '@powersync/lib-services-framework';
 import {
   addChecksums,
   CheckpointChecksumInvalidatedError,
@@ -450,6 +451,56 @@ bucket_definitions:
     expect(badState?.next_compact_check).toBeInstanceOf(Date);
     expect(badState!.next_compact_check!.getTime()).toBeGreaterThan(0);
     expect(goodState?.compacted_state?.op_id).toBe(2n);
+  });
+
+  test('aborting scheduled compaction does not reschedule the remaining batch', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
+    const buckets = ['first[]', 'second[]', 'third[]'];
+    const documents = buckets.map((bucket) =>
+      serializeBucketData(bucket, [makeOp(2, bucket, bucket, { ...ctx, bucket }, sourceTableId)])
+    );
+    await insertDocs(collection, documents);
+    await bucketStateCollection.insertMany(
+      documents.map((document, index) => ({
+        _id: { d: ctx.definitionId, b: buckets[index] },
+        last_op: 2n,
+        next_compact_check: new Date(0),
+        first_uncompacted_write: new Date(0),
+        bucket_stats: { count: document.count, bytes: BigInt(document.size), chunks: 1 }
+      }))
+    );
+
+    const abortController = new AbortController();
+    const testLogger = defaultLogger.child({});
+    vi.spyOn(testLogger, 'info').mockImplementation((message: unknown) => {
+      if (typeof message == 'string' && message.startsWith('Compacted bucket chunks ')) {
+        abortController.abort();
+      }
+      return testLogger;
+    });
+    const errorLog = vi.spyOn(testLogger, 'error');
+
+    await expect(
+      bucketStorage
+        .createMongoCompactor({
+          maxOpId: 2n,
+          compactChunksOnly: true,
+          signal: abortController.signal,
+          logger: testLogger
+        })
+        .compact()
+    ).rejects.toThrow();
+
+    const states = await bucketStateCollection.find({ '_id.b': { $in: buckets } }).toArray();
+    const completed = states.filter((state) => state.compacted_state != null);
+    const remaining = states.filter((state) => state.compacted_state == null);
+    expect(completed).toHaveLength(1);
+    expect(remaining).toHaveLength(2);
+    for (const state of remaining) {
+      expect(state.next_compact_check).toEqual(new Date(0));
+      expect(state.compact_lease).toBeUndefined();
+    }
+    expect(errorLog).not.toHaveBeenCalled();
   });
 
   test('1. ops[] ordering - preserves caller ordering (no implicit sort)', () => {

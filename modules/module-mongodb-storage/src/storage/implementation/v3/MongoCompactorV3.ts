@@ -214,6 +214,11 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
             await this.compactClaimedBucket(lease, claimedKind, claimedDecision, rescheduleNotBefore);
           }
         } catch (error) {
+          if (this.signal?.aborted) {
+            // When aborted, stop completely, rather than logging and re-scheduling individual buckets.
+            // The lease on the current bucket is still released automatically.
+            throw error;
+          }
           await this.rescheduleFailedBucket(state, rescheduleNotBefore, error);
         }
       }
