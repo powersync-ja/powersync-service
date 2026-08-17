@@ -126,6 +126,9 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         if (lease == null || lease.state.first_uncompacted_write == null) {
           continue;
         }
+        if (this.isCompactionTargetCovered(lease.state, CompactionKind.Full)) {
+          continue;
+        }
         const decision = chooseCompactionKind(lease.state, lease.startedAt, this);
         await this.compactClaimedBucket(lease, CompactionKind.Full, decision);
       }
@@ -203,9 +206,9 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
             forceKind == null ? claimedDecision.kind : forcedCompactionKind(lease.state, forceKind, this);
           if (claimedKind == null) {
             await this.rescheduleClaimedBucket(lease, claimedDecision, rescheduleNotBefore);
-          } else if (claimedKind == CompactionKind.Full && this.isFullCompactionTargetCovered(lease.state)) {
-            // Outstanding writes may all be above this run's fixed op limit.
-            // Keep them scheduled without rescanning an already-compacted prefix.
+          } else if (this.isCompactionTargetCovered(lease.state, claimedKind)) {
+            // The run cannot advance this kind's watermark without regressing
+            // already-published progress. Keep any newer work scheduled.
             await this.rescheduleClaimedBucket(lease, claimedDecision, rescheduleNotBefore);
           } else {
             await this.compactClaimedBucket(lease, claimedKind, claimedDecision, rescheduleNotBefore);
@@ -288,7 +291,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     decision: CompactionDecision,
     rescheduleNotBefore?: Date
   ) {
-    const context = new CompactionContext(lease, kind, decision, rescheduleNotBefore);
+    const context = new CompactionContext(
+      lease,
+      kind,
+      decision,
+      rescheduleNotBefore,
+      this.compactionTarget(lease.state)
+    );
     lease.startRenewal();
     await this.compactSingleBucket(context);
   }
@@ -301,13 +310,22 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     return notBefore == null ? nextCompactCheck : { $max: [nextCompactCheck, notBefore] };
   }
 
-  private compactMaxOpId(context: CompactionContext): InternalOpId {
-    return this.maxOpIdCap == null || context.lastOp < this.maxOpIdCap ? context.lastOp : this.maxOpIdCap;
+  private compactionTarget(state: BucketStateDocumentV3): InternalOpId {
+    return this.maxOpIdCap == null || state.last_op < this.maxOpIdCap ? state.last_op : this.maxOpIdCap;
   }
 
-  private isFullCompactionTargetCovered(state: BucketStateDocumentV3): boolean {
-    const maxOpId = this.maxOpIdCap == null || state.last_op < this.maxOpIdCap ? state.last_op : this.maxOpIdCap;
-    return state.last_full_compact != null && state.last_full_compact.op_id >= maxOpId;
+  private isCompactionTargetCovered(state: BucketStateDocumentV3, kind: CompactionKind): boolean {
+    const target = this.compactionTarget(state);
+    if (kind == CompactionKind.Chunks) {
+      return state.compacted_state != null && state.compacted_state.op_id >= target;
+    }
+    if (state.last_full_compact != null && state.last_full_compact.op_id >= target) {
+      return true;
+    }
+    // A full compact may change counts before the checksum-cache boundary.
+    // Wait for the safe target to catch up instead of publishing an older or
+    // stale cache. At the same boundary, full coverage can still advance.
+    return state.compacted_state != null && state.compacted_state.op_id > target;
   }
 
   private get objectStorageLifecycle(): ObjectStorageLifecycle {
@@ -347,7 +365,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       context.state.compacted_state?.op_id != null && context.state.compacted_state.op_id > 0n
         ? bucketContext.docId(context.state.compacted_state.op_id - 1n)
         : bucketContext.minId;
-    const upperBound = bucketContext.docId(this.compactMaxOpId(context) + 1n);
+    const upperBound = bucketContext.docId(context.targetOp + 1n);
 
     let compactedOpId: bigint | null = null;
     let overlappingCompactedChunk: BucketStatsWithChecksum | undefined;
@@ -684,7 +702,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     const collection = this.db.bucketData(this.group_id, resolvedDefinitionId);
     const dataContext = { replicationStreamId: this.group_id, definitionId: resolvedDefinitionId };
     const lowerBound = bucketContext.minId;
-    let upperBound = bucketContext.docId(this.compactMaxOpId(context) + 1n);
+    let upperBound = bucketContext.docId(context.targetOp + 1n);
 
     let totalOpCount = 0;
 

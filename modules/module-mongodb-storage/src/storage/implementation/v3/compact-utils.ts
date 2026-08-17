@@ -59,7 +59,8 @@ export class CompactionContext {
     readonly lease: CompactionLease,
     readonly kind: CompactionKind,
     readonly decision: CompactionDecision,
-    readonly rescheduleNotBefore: Date | undefined
+    readonly rescheduleNotBefore: Date | undefined,
+    readonly targetOp: InternalOpId
   ) {}
 
   get state() {
