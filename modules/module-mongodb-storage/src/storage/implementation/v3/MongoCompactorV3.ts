@@ -10,7 +10,7 @@ import { loadBucketDataDocument, maxOpId, serializeBucketData } from './bucket-f
 import { BucketDataContextV3 } from './BucketDataContextV3.js';
 import { DEFAULT_MAX_DOC_SIZE_BYTES } from './chunking.js';
 import { DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS } from './compaction-constants.js';
-import { CompactionLease } from './CompactionLease.js';
+import { AVAILABLE_LEASE_EXPR, CompactionLease } from './CompactionLease.js';
 import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { BucketDataObjectStorage, hydrateBucketDataDocuments } from './object-storage/BucketDataObjectStorage.js';
@@ -339,9 +339,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       .bucketState(this.group_id)
       .find({
         next_compact_check: { $lte: dueBefore },
-        $expr: {
-          $or: [{ $eq: [{ $type: '$compact_lease' }, 'missing'] }, { $lte: ['$compact_lease.expires_at', '$$NOW'] }]
-        }
+        ...AVAILABLE_LEASE_EXPR
       })
       .sort({ next_compact_check: 1 })
       .limit(SCHEDULED_COMPACTION_BATCH_SIZE)
@@ -398,7 +396,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       bucket_stats: state.bucket_stats,
       compacted_state: state.compacted_state ?? { $exists: false },
       last_full_compact: state.last_full_compact ?? { $exists: false },
-      compact_lease: { $exists: false }
+      ...AVAILABLE_LEASE_EXPR
     };
   }
 

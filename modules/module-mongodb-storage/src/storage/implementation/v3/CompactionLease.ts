@@ -6,6 +6,17 @@ import { BucketStateDocumentV3 } from './models.js';
 const LEASE_RENEW_INTERVAL_MS = 60 * 1000;
 
 /**
+ * Filters for buckets that have no lease or an expired lease.
+ */
+export const AVAILABLE_LEASE_EXPR = {
+  // $$NOW is evaluated by MongoDB, avoiding lease expiry races due
+  // to clocks on separate compact workers.
+  $expr: {
+    $or: [{ $eq: [{ $type: '$compact_lease' }, 'missing'] }, { $lte: ['$compact_lease.expires_at', '$$NOW'] }]
+  }
+};
+
+/**
  * Owns one V3 bucket-compaction lease, including its server-time renewal and
  * the owner-fenced operations which release it.
  *
@@ -42,16 +53,7 @@ export class CompactionLease implements AsyncDisposable {
     const id = new mongo.ObjectId();
     const state = await collection.findOneAndUpdate(
       {
-        $and: [
-          filter,
-          {
-            // $$NOW is evaluated by MongoDB, avoiding lease expiry races due
-            // to clocks on separate compact workers.
-            $expr: {
-              $or: [{ $eq: [{ $type: '$compact_lease' }, 'missing'] }, { $lte: ['$compact_lease.expires_at', '$$NOW'] }]
-            }
-          }
-        ]
+        $and: [filter, AVAILABLE_LEASE_EXPR]
       },
       [
         {
