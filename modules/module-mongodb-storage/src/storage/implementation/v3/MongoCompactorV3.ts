@@ -290,7 +290,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
   ) {
     const context = new CompactionContext(lease, kind, decision, rescheduleNotBefore);
     lease.startRenewal();
-    await this.retryCompaction(context.state._id.b, () => this.compactSingleBucket(context));
+    await this.compactSingleBucket(context);
   }
 
   private async rescheduleClaimedBucket(lease: CompactionLease, decision: CompactionDecision, notBefore?: Date) {
@@ -318,8 +318,6 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
   }
 
   private async compactSingleBucket(context: CompactionContext) {
-    // A retry restarts finalization after a transient replacement failure.
-    context.lease.restartFinalization();
     if (context.kind == CompactionKind.Chunks) {
       return this.compactSingleBucketChunks(context);
     }

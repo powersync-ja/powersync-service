@@ -29,7 +29,7 @@ function memoryS3Factory(options: { inlineThresholdBytes?: number } = {}) {
 }
 
 describe('S3 compaction storage lifecycle', () => {
-  test('retries transient object storage failures', async () => {
+  test('a later compaction recovers from a transient object storage failure', async () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
@@ -63,12 +63,14 @@ describe('S3 compaction storage lifecycle', () => {
 
     const checkpoint = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
-    await compactActive(factory, {
+    const compactOptions = {
       maxOpId: checkpoint.checkpoint,
       compactBuckets: [request.bucket],
       minBucketChanges: 1,
       minChangeRatio: 0
-    });
+    };
+    await expect(compactActive(factory, compactOptions)).rejects.toThrow('temporary object storage failure');
+    await compactActive(factory, compactOptions);
 
     expect(injectedFailure).toBe(true);
     const batch = await test_utils.getBatchArray(bucketStorage.getBucketDataBatch(checkpoint, [request]));

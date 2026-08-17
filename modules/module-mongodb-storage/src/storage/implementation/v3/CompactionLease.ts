@@ -94,11 +94,6 @@ export class CompactionLease implements AsyncDisposable {
     }
   }
 
-  /** Allow a retry after a transient error during a fenced final update. */
-  restartFinalization() {
-    this.finalizing = false;
-  }
-
   async reschedule(nextCompactCheck: mongo.Document) {
     await this.finish([{ $set: { next_compact_check: nextCompactCheck } }, { $unset: 'compact_lease' }]);
   }

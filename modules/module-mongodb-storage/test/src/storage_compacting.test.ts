@@ -1863,7 +1863,7 @@ bucket_definitions:
     });
   });
 
-  test('full compaction retry rebuilds stats after a committed replacement', async () => {
+  test('later full compaction claims fresh state after a committed replacement', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
     const documents = [
       serializeBucketData(BUCKET, [makeOp(1, 'A', 'a', ctx, sourceTableId)]),
@@ -1884,13 +1884,26 @@ bucket_definitions:
       }
     });
 
-    const compactor = bucketStorage.createMongoCompactor({ maxOpId: 4n, compactBuckets: [BUCKET] });
+    const concurrentDocument = serializeBucketData(BUCKET, [makeOp(5, 'E', 'e', ctx, sourceTableId)]);
+    const compactor = bucketStorage.createMongoCompactor({ maxOpId: 5n, compactBuckets: [BUCKET] });
     const originalFlush = (compactor as any).flushCompactionGroup.bind(compactor);
     let injectedFailure = false;
     vi.spyOn(compactor as any, 'flushCompactionGroup').mockImplementation(async (...args: any[]) => {
       const result = await originalFlush(...args);
       if (!injectedFailure) {
         injectedFailure = true;
+        await insertDocs(collection, [concurrentDocument]);
+        await bucketStateCollection.updateOne(
+          { _id: { d: ctx.definitionId, b: BUCKET } },
+          {
+            $set: { last_op: 5n },
+            $inc: {
+              'bucket_stats.count': concurrentDocument.count,
+              'bucket_stats.bytes': BigInt(concurrentDocument.size),
+              'bucket_stats.chunks': 1
+            }
+          }
+        );
         throw new ObjectStorageError('failure after committed full-compaction replacement', {
           cause: new Error('socket reset'),
           retryable: true
@@ -1899,9 +1912,18 @@ bucket_definitions:
       return result;
     });
 
-    await expect(compactor.compact()).resolves.toBe(1);
+    await expect(compactor.compact()).rejects.toThrow('failure after committed full-compaction replacement');
 
     expect(injectedFailure).toBe(true);
+    const interruptedState = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(interruptedState?.last_op).toBe(5n);
+    expect(interruptedState?.compacted_state).toBeUndefined();
+    expect(interruptedState?.compact_lease).toBeUndefined();
+
+    await expect(bucketStorage.createMongoCompactor({ maxOpId: 5n, compactBuckets: [BUCKET] }).compact()).resolves.toBe(
+      1
+    );
+
     const currentDocuments = await collection.find({ '_id.b': BUCKET }).toArray();
     expect(currentDocuments).toHaveLength(1);
     const expectedStats = {
@@ -1911,33 +1933,10 @@ bucket_definitions:
     };
     const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
     expect(state?.bucket_stats).toEqual(expectedStats);
-    expect(state?.compacted_state).toMatchObject({ op_id: 4n, ...expectedStats });
-  });
-
-  test('chunk compaction retry rebuilds state after a committed partial merge', async () => {
-    const { bucketStorage, collection, bucketStateCollection, ctx } = await setupCompactedTail();
-    const compactor = bucketStorage.createMongoCompactor({
-      maxOpId: 4n,
-      compactChunksOnly: true
-    });
-    const originalFlush = (compactor as any).flushCompactionGroup.bind(compactor);
-    let injectedFailure = false;
-    vi.spyOn(compactor as any, 'flushCompactionGroup').mockImplementation(async (...args: any[]) => {
-      const result = await originalFlush(...args);
-      if (!injectedFailure) {
-        injectedFailure = true;
-        throw new ObjectStorageError('failure after committed chunk merge', {
-          cause: new Error('socket reset'),
-          retryable: true
-        });
-      }
-      return result;
-    });
-
-    await expect(compactor.compact()).resolves.toBe(1);
-
-    expect(injectedFailure).toBe(true);
-    await expectRecoveredCompactedTail(collection, bucketStateCollection, ctx.definitionId);
+    expect(state?.compacted_state).toMatchObject({ op_id: 5n, ...expectedStats });
+    expect(state?.last_full_compact?.op_id).toBe(5n);
+    expect(state?.first_uncompacted_write).toBeUndefined();
+    expect(state?.next_compact_check).toBeUndefined();
   });
 
   test('chunk compaction treats a missing cached op as a resume hint', async () => {
