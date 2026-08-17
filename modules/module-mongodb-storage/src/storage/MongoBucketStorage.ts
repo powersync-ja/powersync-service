@@ -144,13 +144,17 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     if (next != null && next.content.replicationStreamId == replicationStreamId) {
       // We need to redo the "next" replication stream
       await this.updateSyncRules(next.content.asUpdateOptions({ forceNewReplicationStream: true }));
-      // Pro-actively stop replicating
+      const sharedActiveStream = active?.content.replicationStreamId == replicationStreamId;
+      // A v3 incremental deployment embeds the deploying config in the active stream. In that
+      // case, the source history is invalid for the whole stream, so it must no longer replicate.
       await this.db.sync_rules.updateOne(
         {
           _id: next.content.replicationStreamId,
-          state: storage.SyncRuleState.PROCESSING
+          state: sharedActiveStream ? storage.SyncRuleState.ACTIVE : storage.SyncRuleState.PROCESSING
         },
-        syncRuleStateUpdatePipeline(storage.SyncRuleState.STOP)
+        // If this is a shared with the ACTIVE sync config, we transition to ERRORED (still available for serving sync requests).
+        // Otherwise, transition to STOP.
+        syncRuleStateUpdatePipeline(sharedActiveStream ? storage.SyncRuleState.ERRORED : storage.SyncRuleState.STOP)
       );
       await this.db.notifyCheckpoint();
     } else if (next == null && active?.content.replicationStreamId == replicationStreamId) {
