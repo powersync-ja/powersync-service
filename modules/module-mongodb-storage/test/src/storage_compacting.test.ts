@@ -1774,7 +1774,6 @@ bucket_definitions:
 
   async function expectRecoveredCompactedTail(collection: any, bucketStateCollection: any, definitionId: string) {
     const documents = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
-    expect(documents).toHaveLength(2);
     expect(documents.flatMap((document: BucketDataDocumentV3) => document.ops!.map((op) => op.o))).toEqual([
       1n,
       2n,
@@ -1789,9 +1788,9 @@ bucket_definitions:
       checksum: 70n,
       count: 4,
       bytes,
-      chunks: 2
+      chunks: documents.length
     });
-    expect(state?.bucket_stats).toEqual({ count: 4, bytes, chunks: 2 });
+    expect(state?.bucket_stats).toEqual({ count: 4, bytes, chunks: documents.length });
   }
 
   test('initial compaction merges small chunks and refreshes bucket metadata', async () => {
@@ -1968,6 +1967,7 @@ bucket_definitions:
     );
 
     const currentDocuments = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    expect(currentDocuments.flatMap((document) => document.ops!.map((op) => op.o))).toEqual([1n, 3n, 4n]);
     const bytes = BigInt(currentDocuments.reduce((total, document) => total + document.size, 0));
     const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
     expect(state?.compacted_state).toMatchObject({
@@ -1975,9 +1975,9 @@ bucket_definitions:
       checksum: 56n,
       count: 3,
       bytes,
-      chunks: 2
+      chunks: currentDocuments.length
     });
-    expect(state?.bucket_stats).toEqual({ count: 3, bytes, chunks: 2 });
+    expect(state?.bucket_stats).toEqual({ count: 3, bytes, chunks: currentDocuments.length });
   });
 
   test('later chunk compaction rebuilds state after a committed partial merge', async () => {

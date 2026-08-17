@@ -359,13 +359,18 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     });
     const collection = this.db.bucketData(this.group_id, resolvedDefinitionId);
     const dataContext = { replicationStreamId: this.group_id, definitionId: resolvedDefinitionId };
+    let previousCompactedState = context.state.compacted_state;
+    // A zero boundary represents an empty prefix, so there is no stored chunk
+    // whose statistics need to be carried into this pass.
+    if (previousCompactedState?.op_id === 0n) {
+      previousCompactedState = undefined;
+    }
     // Include the last previously compacted chunk as well as new chunks. It
     // is the only old chunk which can become mergeable with the new tail.
     let lowerBound =
-      context.state.compacted_state?.op_id != null && context.state.compacted_state.op_id > 0n
-        ? bucketContext.docId(context.state.compacted_state.op_id - 1n)
-        : bucketContext.minId;
+      previousCompactedState != null ? bucketContext.docId(previousCompactedState.op_id - 1n) : bucketContext.minId;
     const upperBound = bucketContext.docId(context.targetOp + 1n);
+    let cachedBoundaryToVerify = previousCompactedState?.op_id;
 
     let compactedOpId: bigint | null = null;
     let overlappingCompactedChunk: BucketStatsWithChecksum | undefined;
@@ -410,6 +415,20 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         }
       );
 
+      if (cachedBoundaryToVerify != null) {
+        const cachedBoundary = cachedBoundaryToVerify;
+        cachedBoundaryToVerify = undefined;
+        if (batch.documents[0]?._id.o !== cachedBoundary) {
+          // A previous attempt may have replaced the cached boundary before
+          // finalizing bucket state. Keep the persisted cache available to
+          // readers, but ignore it in this attempt and calculate its
+          // replacement through the normal scan from the bucket beginning.
+          previousCompactedState = undefined;
+          lowerBound = bucketContext.minId;
+          continue;
+        }
+      }
+
       if (batch.documents.length == 0) {
         break;
       }
@@ -417,7 +436,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       for (const doc of batch.documents) {
         compactedOpId = maxOpId(compactedOpId, doc._id.o);
         const documentStats = statsForDocument(doc);
-        if (context.state.compacted_state?.op_id === doc._id.o) {
+        if (previousCompactedState?.op_id === doc._id.o) {
           overlappingCompactedChunk = documentStats;
         }
 
@@ -449,34 +468,18 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       return;
     }
 
-    const previousCompactedState = context.state.compacted_state;
-    let result: CompactionResult;
-    if (previousCompactedState != null && overlappingCompactedChunk == null) {
-      // A previous attempt may have committed document replacements without
-      // finalizing bucket state. When the exact cached chunk no longer exists,
-      // the cached prefix cannot be combined with the current tail. Rebuild the
-      // metadata from the authoritative documents while keeping the old op id
-      // as a conservative resume hint.
-      result = await this.readAuthoritativeCompactionResult(context, bucketContext, compactedOpId);
-    } else {
-      const compactedState =
-        previousCompactedState == null
-          ? compactedTail
-          : combineChunkStats(previousCompactedState, compactedTail, overlappingCompactedChunk!);
-      const tailStats =
-        compactedOpId == context.lastOp
-          ? undefined
-          : await this.readBucketStats(
-              bucket,
-              resolvedDefinitionId,
-              context.lastOp,
-              bucketContext.docId(compactedOpId)
-            );
-      result = {
-        compactedState,
-        bucketStats: tailStats == null ? compactedState : combineAdjacentStats(compactedState, tailStats)
-      };
-    }
+    const compactedState =
+      previousCompactedState == null
+        ? compactedTail
+        : combineChunkStats(previousCompactedState, compactedTail, overlappingCompactedChunk!);
+    const tailStats =
+      compactedOpId == context.lastOp
+        ? undefined
+        : await this.readBucketStats(bucket, resolvedDefinitionId, context.lastOp, bucketContext.docId(compactedOpId));
+    const result: CompactionResult = {
+      compactedState,
+      bucketStats: tailStats == null ? compactedState : combineAdjacentStats(compactedState, tailStats)
+    };
 
     await this.finalizeCompactedBucket({ context, compactedOpId, compactionResult: result, puts: 0 });
     this.compactedBucketCount++;
@@ -615,33 +618,6 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       },
       context.rescheduleNotBefore
     );
-  }
-
-  /**
-   * Recover chunk statistics from the data that is currently stored.
-   *
-   * Chunk compaction normally calculates statistics while processing its
-   * working range. If a previous attempt replaced the cached boundary before
-   * failing, that range no longer contains enough information to update the
-   * older cached prefix. In that case, rebuild the prefix and include any
-   * untouched data after an operation limit in the bucket total.
-   */
-  private async readAuthoritativeCompactionResult(
-    context: CompactionContext,
-    bucketContext: BucketDataContextV3,
-    compactedOpId: InternalOpId
-  ): Promise<CompactionResult> {
-    const { bucket, definitionId } = bucketContext.key;
-    const [compactedState, tailStats] = await Promise.all([
-      this.readBucketStats(bucket, definitionId, compactedOpId),
-      compactedOpId == context.lastOp
-        ? Promise.resolve(undefined)
-        : this.readBucketStats(bucket, definitionId, context.lastOp, bucketContext.docId(compactedOpId))
-    ]);
-    return {
-      compactedState,
-      bucketStats: tailStats == null ? compactedState : combineAdjacentStats(compactedState, tailStats)
-    };
   }
 
   /**
