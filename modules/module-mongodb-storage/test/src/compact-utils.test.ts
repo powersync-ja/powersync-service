@@ -1,5 +1,6 @@
 import {
   applyCompactionDelta,
+  applyStatsReplacement,
   bucketStats,
   chooseCompactionKind,
   combineAdjacentStats,
@@ -9,7 +10,8 @@ import {
   emptyBucketStats,
   forcedCompactionKind,
   fullCompactionCheckAt,
-  statsForDocument
+  statsForDocument,
+  statsForDocuments
 } from '@module/storage/implementation/v3/compact-utils.js';
 import { BucketStateDocumentV3 } from '@module/storage/implementation/v3/models.js';
 import { describe, expect, test } from 'vitest';
@@ -179,6 +181,12 @@ describe('V3 compact utilities', () => {
       checksum: 10
     });
     expect(
+      statsForDocuments([
+        { count: 2, size: 20, checksum: 10n },
+        { count: 3, size: 30, checksum: 20n }
+      ])
+    ).toEqual({ count: 5, bytes: 50n, chunks: 2, checksum: 30 });
+    expect(
       combineAdjacentStats(
         { count: 2, bytes: 20n, chunks: 1, checksum: 10 },
         { count: 3, bytes: 30n, chunks: 2, checksum: 20 }
@@ -204,5 +212,15 @@ describe('V3 compact utilities', () => {
         { count: 3, bytes: 30n, chunks: 1, checksum: 10 }
       )
     ).toEqual({ count: 18, bytes: 180n, chunks: 6 });
+  });
+
+  test('applies a stored range replacement to statistics including its checksum', () => {
+    expect(
+      applyStatsReplacement(
+        { count: 20, bytes: 200n, chunks: 8, checksum: 100 },
+        { count: 5, bytes: 50n, chunks: 3, checksum: 40 },
+        { count: 3, bytes: 30n, chunks: 1, checksum: 20 }
+      )
+    ).toEqual({ count: 18, bytes: 180n, chunks: 6, checksum: 80 });
   });
 });

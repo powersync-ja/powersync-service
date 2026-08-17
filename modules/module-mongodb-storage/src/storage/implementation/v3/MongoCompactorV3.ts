@@ -11,6 +11,7 @@ import { BucketDataContextV3 } from './BucketDataContextV3.js';
 import { DEFAULT_MAX_DOC_SIZE_BYTES } from './chunking.js';
 import {
   applyCompactionDelta,
+  applyStatsReplacement,
   bucketStats,
   BucketStatsWithChecksum,
   chooseCompactionKind,
@@ -29,6 +30,7 @@ import {
   readCompactionBatch,
   ScheduledCompactionOptions,
   statsForDocument,
+  statsForDocuments,
   unclaimedSnapshotFilter
 } from './compact-utils.js';
 import { DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS } from './compaction-constants.js';
@@ -43,6 +45,20 @@ const DEFAULT_MIN_COMPACT_FULL_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_MAX_COMPACT_FULL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_COMPACT_LEASE_DURATION_MS = 10 * 60 * 1000;
 const SCHEDULED_COMPACTION_BATCH_SIZE = 100;
+
+interface CompactionGroupResult {
+  documentId: BucketDataKey;
+  stats: BucketStatsWithChecksum;
+}
+
+interface CompactionStatsReplacement {
+  before: BucketStatsWithChecksum;
+  after: BucketStatsWithChecksum;
+}
+
+interface ClearCompactionResult extends CompactionStatsReplacement {
+  opCountDiff: number;
+}
 
 export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalConfig, CompactTargetConfig {
   declare protected readonly db: VersionedPowerSyncMongoV3;
@@ -326,7 +342,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     let compactedOpId: bigint | null = null;
     let overlappingCompactedChunk: BucketStatsWithChecksum | undefined;
     let preCompactionTail = emptyBucketStats();
-    const tailLowerBound = lowerBound;
+    let compactedTail = emptyBucketStats();
     let pendingChunks: BucketDataDocumentV3[] = [];
     let pendingSize = 0;
 
@@ -381,7 +397,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
 
         const nextSize = pendingSize + doc.size;
         if (pendingChunks.length > 0 && nextSize > DEFAULT_MAX_DOC_SIZE_BYTES) {
-          await this.flushChunkMerge(bucket, pendingChunks, collection, dataContext, bucketContext);
+          const groupStats = await this.flushChunkMerge(bucket, pendingChunks, collection, dataContext, bucketContext);
+          compactedTail = combineAdjacentStats(compactedTail, groupStats);
           pendingChunks = [];
           pendingSize = 0;
         }
@@ -396,8 +413,9 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       }
     }
 
-    if (pendingChunks.length > 1) {
-      await this.flushChunkMerge(bucket, pendingChunks, collection, dataContext, bucketContext);
+    if (pendingChunks.length > 0) {
+      const groupStats = await this.flushChunkMerge(bucket, pendingChunks, collection, dataContext, bucketContext);
+      compactedTail = combineAdjacentStats(compactedTail, groupStats);
     }
 
     if (compactedOpId == null) {
@@ -415,13 +433,12 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       // as a conservative resume hint.
       result = await this.readAuthoritativeCompactionResult(context, bucketContext, compactedOpId);
     } else {
-      const tailStats = await this.readBucketStats(bucket, resolvedDefinitionId, compactedOpId, tailLowerBound);
       result = {
         compactedState:
           previousCompactedState == null || overlappingCompactedChunk == null
-            ? tailStats
-            : combineChunkStats(previousCompactedState, tailStats, overlappingCompactedChunk),
-        bucketStats: applyCompactionDelta(bucketStats(context.state), preCompactionTail, tailStats)
+            ? compactedTail
+            : combineChunkStats(previousCompactedState, compactedTail, overlappingCompactedChunk),
+        bucketStats: applyCompactionDelta(bucketStats(context.state), preCompactionTail, compactedTail)
       };
     }
 
@@ -438,9 +455,9 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     collection: mongo.Collection<BucketDataDocumentV3>,
     context: { replicationStreamId: number; definitionId: string },
     bucketContext: BucketDataContextV3
-  ) {
-    if (inputs.length < 2) {
-      return;
+  ): Promise<BucketStatsWithChecksum> {
+    if (inputs.length == 1) {
+      return statsForDocument(inputs[0]);
     }
 
     // The metadata scan deliberately excluded ops. Read inline payloads only
@@ -463,7 +480,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       (maxTarget, input) => maxOpId(maxTarget, input.target_op),
       null
     );
-    await this.flushCompactionGroup(
+    const result = await this.flushCompactionGroup(
       bucket,
       {
         inputs,
@@ -474,6 +491,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       bucketContext,
       context
     );
+    return result.stats;
   }
 
   private async finalizeCompactedBucket({
@@ -563,15 +581,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
   }
 
   /**
-   * Calculate bucket statistics from the data that is currently stored.
+   * Recover chunk statistics from the data that is currently stored.
    *
-   * A previous attempt may have saved some compacted data before it failed,
-   * without updating the bucket summary. Reading the stored data again avoids
-   * carrying that outdated summary into the successful attempt.
-   *
-   * Most compactions cover the whole bucket and need only one calculation. If
-   * this compaction stops at an operation limit, also include the unchanged
-   * data after that limit in the bucket total.
+   * Chunk compaction normally calculates statistics while processing its
+   * working range. If a previous attempt replaced the cached boundary before
+   * failing, that range no longer contains enough information to update the
+   * older cached prefix. In that case, rebuild the prefix and include any
+   * untouched data after an operation limit in the bucket total.
    */
   private async readAuthoritativeCompactionResult(
     context: CompactionContext,
@@ -657,6 +673,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     let opsSincePut = 0;
     let compactedOpId: bigint | null = null;
     let clearBoundary: { opId: bigint; documentId: BucketDataKey } | null = null;
+    let compactedStats = emptyBucketStats();
     const seen = new Map<string, bigint>();
     let trackingSize = 0;
     let putCount = 0;
@@ -793,13 +810,14 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
             };
           } else {
             const flushedGroup = pendingGroup;
-            const documentId = await this.flushCompactionGroup(bucket, flushedGroup, bucketContext, dataContext);
+            const result = await this.flushCompactionGroup(bucket, flushedGroup, bucketContext, dataContext);
+            compactedStats = combineAdjacentStats(compactedStats, result.stats);
             if (
               lastNotPut != null &&
               flushedGroup.ops[0].o <= lastNotPut &&
               flushedGroup.ops[flushedGroup.ops.length - 1].o >= lastNotPut
             ) {
-              clearBoundary = { opId: lastNotPut, documentId };
+              clearBoundary = { opId: lastNotPut, documentId: result.documentId };
             }
             pendingGroup = candidate;
           }
@@ -817,13 +835,14 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     }
 
     if (pendingGroup != null) {
-      const documentId = await this.flushCompactionGroup(bucket, pendingGroup, bucketContext, dataContext);
+      const result = await this.flushCompactionGroup(bucket, pendingGroup, bucketContext, dataContext);
+      compactedStats = combineAdjacentStats(compactedStats, result.stats);
       if (
         lastNotPut != null &&
         pendingGroup.ops[0].o <= lastNotPut &&
         pendingGroup.ops[pendingGroup.ops.length - 1].o >= lastNotPut
       ) {
-        clearBoundary = { opId: lastNotPut, documentId };
+        clearBoundary = { opId: lastNotPut, documentId: result.documentId };
       }
     }
     if (compactedOpId == null) {
@@ -837,16 +856,25 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         throw new ReplicationAssertionError(`Missing CLEAR boundary document for bucket ${bucket}`);
       }
 
-      totalOpCount += await this.clearBucketLeading(
+      const clearResult = await this.clearBucketLeading(
         lastNotPut,
         clearBoundary.documentId,
         bucketContext,
         collection,
         dataContext
       );
+      totalOpCount += clearResult.opCountDiff;
+      compactedStats = applyStatsReplacement(compactedStats, clearResult.before, clearResult.after);
     }
 
-    const result = await this.readAuthoritativeCompactionResult(context, bucketContext, compactedOpId);
+    const tailStats =
+      compactedOpId == context.lastOp
+        ? undefined
+        : await this.readBucketStats(bucket, resolvedDefinitionId, context.lastOp, bucketContext.docId(compactedOpId));
+    const result: CompactionResult = {
+      compactedState: compactedStats,
+      bucketStats: tailStats == null ? compactedStats : combineAdjacentStats(compactedStats, tailStats)
+    };
 
     // --- Finalize: update bucket checksums and state ---
     await this.finalizeCompactedBucket({ context, compactedOpId, compactionResult: result, puts: putCount });
@@ -868,9 +896,12 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     group: PendingCompactionGroup,
     bucketContext: BucketDataContextV3,
     context: { replicationStreamId: number; definitionId: string }
-  ): Promise<BucketDataKey> {
+  ): Promise<CompactionGroupResult> {
     if (group.inputs.length == 1 && !group.changed) {
-      return group.inputs[0]._id;
+      return {
+        documentId: group.inputs[0]._id,
+        stats: statsForDocument(group.inputs[0])
+      };
     }
 
     const inputs = group.inputs;
@@ -928,7 +959,10 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     } finally {
       await session.endSession();
     }
-    return documents[0]._id;
+    return {
+      documentId: documents[0]._id,
+      stats: statsForDocuments(documents)
+    };
   }
 
   /**
@@ -937,7 +971,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
    * before the known boundary document, then splits that boundary document
    * if it contains ops on both sides of lastNotPut.
    *
-   * Returns the op count diff after replacing cleared ops with CLEAR ops.
+   * Returns the op count and stored-stat changes after replacing cleared ops
+   * with CLEAR ops.
    */
   private async clearBucketLeading(
     lastNotPut: bigint,
@@ -945,8 +980,10 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     bucketContext: BucketDataContextV3,
     collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
     context: { replicationStreamId: number; definitionId: string }
-  ): Promise<number> {
+  ): Promise<ClearCompactionResult> {
     let opCountDiff = 0;
+    let before = emptyBucketStats();
+    let after = emptyBucketStats();
     const session = this.db.client.startSession();
     try {
       let done = false;
@@ -963,11 +1000,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         );
         done = batch.done;
         opCountDiff += batch.opCountDiff;
+        before = combineAdjacentStats(before, batch.before);
+        after = combineAdjacentStats(after, batch.after);
       }
 
       // The final step is to process the "boundary" document: It may contain some CLEAR/MOVE/REMOVE operations,
       // potentially followed by PUT operations. This is only a single document, so no need for batching.
-      opCountDiff += await this.clearBoundaryDocument(
+      const boundaryResult = await this.clearBoundaryDocument(
         session,
         lastNotPut,
         boundaryDocId,
@@ -975,11 +1014,14 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         collection,
         context
       );
+      opCountDiff += boundaryResult.opCountDiff;
+      before = combineAdjacentStats(before, boundaryResult.before);
+      after = combineAdjacentStats(after, boundaryResult.after);
     } finally {
       await session.endSession();
     }
 
-    return opCountDiff;
+    return { opCountDiff, before, after };
   }
 
   private async clearLeadingFullDocuments(
@@ -989,17 +1031,21 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     bucketContext: BucketDataContextV3,
     collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
     context: { replicationStreamId: number; definitionId: string }
-  ): Promise<{ done: boolean; opCountDiff: number }> {
+  ): Promise<{ done: boolean; opCountDiff: number } & CompactionStatsReplacement> {
     const bucket = bucketContext.key.bucket;
     this.signal?.throwIfAborted();
     let prepared: PreparedObjectStorageUpload[] | undefined;
     let done = false;
     let opCountDiff = 0;
+    let before = emptyBucketStats();
+    let after = emptyBucketStats();
 
     await session.withTransaction(
       async () => {
         done = false;
         opCountDiff = 0;
+        before = emptyBucketStats();
+        after = emptyBucketStats();
         const oldStoragePaths: string[] = [];
         const query = collection.find(
           {
@@ -1016,6 +1062,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
               min_op: 1,
               checksum: 1,
               count: 1,
+              size: 1,
               target_op: 1,
               has_clear_op: 1,
               storage_ref: 1
@@ -1030,6 +1077,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         let lastDocId: BucketDataKey | null = null;
         let clearOpCount = 0;
         let gotNonClearOp = false;
+        const inputStats = emptyBucketStats();
 
         for await (const doc of query.stream()) {
           if (doc.min_op > lastNotPut) {
@@ -1039,6 +1087,11 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           }
 
           lastDocId = doc._id;
+          const documentStats = statsForDocument(doc);
+          inputStats.count += documentStats.count;
+          inputStats.bytes += documentStats.bytes;
+          inputStats.chunks += documentStats.chunks;
+          inputStats.checksum = addChecksums(inputStats.checksum, documentStats.checksum);
           if (doc.storage_ref) {
             oldStoragePaths.push(doc.storage_ref.path);
           }
@@ -1093,6 +1146,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         await this.finishObjectStorageReplacement(oldStoragePaths, persisted.storagePaths, persisted.uploads, session);
 
         opCountDiff = -clearedOpCount + 1;
+        before = inputStats;
+        after = statsForDocuments(persisted.documents);
       },
       {
         writeConcern: { w: 'majority' },
@@ -1100,7 +1155,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       }
     );
 
-    return { done, opCountDiff };
+    return { done, opCountDiff, before, after };
   }
 
   private async clearBoundaryDocument(
@@ -1110,15 +1165,19 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     bucketContext: BucketDataContextV3,
     collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
     context: { replicationStreamId: number; definitionId: string }
-  ): Promise<number> {
+  ): Promise<ClearCompactionResult> {
     const bucket = bucketContext.key.bucket;
     this.signal?.throwIfAborted();
     const prepared = await this.prepareCompactionUploads(bucket, context, [lastNotPut, boundaryDocId.o]);
     let opCountDiff = 0;
+    let before = emptyBucketStats();
+    let after = emptyBucketStats();
 
     await session.withTransaction(
       async () => {
         opCountDiff = 0;
+        before = emptyBucketStats();
+        after = emptyBucketStats();
         const oldStoragePaths: string[] = [];
         const query = collection.find(
           {
@@ -1138,6 +1197,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
               min_op: 1,
               checksum: 1,
               count: 1,
+              size: 1,
               target_op: 1,
               ops: 1,
               storage_ref: 1
@@ -1151,12 +1211,19 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         let clearedOpCount = 0;
         let maxTargetOp: bigint | null = null;
         const boundarySurvivors: BucketDataDoc[] = [];
+        const inputStats = emptyBucketStats();
 
         for await (const doc of query.stream()) {
           docsRead++;
           if (docsRead > 2) {
             throw new ReplicationAssertionError(`Unexpected extra document before CLEAR boundary in bucket ${bucket}`);
           }
+
+          const documentStats = statsForDocument(doc);
+          inputStats.count += documentStats.count;
+          inputStats.bytes += documentStats.bytes;
+          inputStats.chunks += documentStats.chunks;
+          inputStats.checksum = addChecksums(inputStats.checksum, documentStats.checksum);
 
           const isBoundaryDoc = doc._id.o == boundaryDocId.o;
           if (doc.storage_ref) {
@@ -1224,6 +1291,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         await this.finishObjectStorageReplacement(oldStoragePaths, persisted.storagePaths, persisted.uploads, session);
 
         opCountDiff = -clearedOpCount + 1;
+        before = inputStats;
+        after = statsForDocuments(persisted.documents);
       },
       {
         writeConcern: { w: 'majority' },
@@ -1231,7 +1300,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       }
     );
 
-    return opCountDiff;
+    return { opCountDiff, before, after };
   }
 
   /**

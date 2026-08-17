@@ -116,6 +116,16 @@ export function statsForDocument(
   };
 }
 
+export function statsForDocuments(
+  documents: Iterable<Pick<BucketDataDocumentV3, 'count' | 'size' | 'checksum'>>
+): BucketStatsWithChecksum {
+  let result = emptyBucketStats();
+  for (const document of documents) {
+    result = combineAdjacentStats(result, statsForDocument(document));
+  }
+  return result;
+}
+
 /** A scheduled bucket always has writes awaiting a full compact. */
 export function firstUncompactedWrite(state: BucketStateDocumentV3): Date {
   if (state.first_uncompacted_write == null) {
@@ -161,6 +171,18 @@ export function applyCompactionDelta(
     count: total.count - before.count + after.count,
     bytes: total.bytes - before.bytes + after.bytes,
     chunks: total.chunks - before.chunks + after.chunks
+  };
+}
+
+/** Replace one stored range in an accumulated statistics snapshot. */
+export function applyStatsReplacement(
+  total: BucketStatsWithChecksum,
+  before: BucketStatsWithChecksum,
+  after: BucketStatsWithChecksum
+): BucketStatsWithChecksum {
+  return {
+    ...applyCompactionDelta(total, before, after),
+    checksum: addChecksums(addChecksums(total.checksum, -before.checksum), after.checksum)
   };
 }
 
