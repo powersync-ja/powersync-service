@@ -10,7 +10,6 @@ import { loadBucketDataDocument, maxOpId, serializeBucketData } from './bucket-f
 import { BucketDataContextV3 } from './BucketDataContextV3.js';
 import { DEFAULT_MAX_DOC_SIZE_BYTES } from './chunking.js';
 import {
-  applyCompactionDelta,
   applyStatsReplacement,
   bucketStats,
   BucketStatsWithChecksum,
@@ -345,7 +344,6 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
 
     let compactedOpId: bigint | null = null;
     let overlappingCompactedChunk: BucketStatsWithChecksum | undefined;
-    let preCompactionTail = emptyBucketStats();
     let compactedTail = emptyBucketStats();
     let pendingChunks: BucketDataDocumentV3[] = [];
     let pendingSize = 0;
@@ -394,7 +392,6 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       for (const doc of batch.documents) {
         compactedOpId = maxOpId(compactedOpId, doc._id.o);
         const documentStats = statsForDocument(doc);
-        preCompactionTail = combineAdjacentStats(preCompactionTail, documentStats);
         if (context.state.compacted_state?.op_id === doc._id.o) {
           overlappingCompactedChunk = documentStats;
         }
@@ -437,12 +434,22 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       // as a conservative resume hint.
       result = await this.readAuthoritativeCompactionResult(context, bucketContext, compactedOpId);
     } else {
+      const compactedState =
+        previousCompactedState == null
+          ? compactedTail
+          : combineChunkStats(previousCompactedState, compactedTail, overlappingCompactedChunk!);
+      const tailStats =
+        compactedOpId == context.lastOp
+          ? undefined
+          : await this.readBucketStats(
+              bucket,
+              resolvedDefinitionId,
+              context.lastOp,
+              bucketContext.docId(compactedOpId)
+            );
       result = {
-        compactedState:
-          previousCompactedState == null || overlappingCompactedChunk == null
-            ? compactedTail
-            : combineChunkStats(previousCompactedState, compactedTail, overlappingCompactedChunk),
-        bucketStats: applyCompactionDelta(bucketStats(context.state), preCompactionTail, compactedTail)
+        compactedState,
+        bucketStats: tailStats == null ? compactedState : combineAdjacentStats(compactedState, tailStats)
       };
     }
 

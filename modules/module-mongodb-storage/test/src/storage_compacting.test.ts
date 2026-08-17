@@ -1757,6 +1757,52 @@ bucket_definitions:
     });
   });
 
+  test('capped chunk compaction repairs stale bucket stats after a committed first merge', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const operations = [
+      makeOp(1, 'A', 'a', ctx, sourceTableId),
+      makeOp(2, 'B', 'b', ctx, sourceTableId),
+      makeOp(3, 'C', 'c', ctx, sourceTableId),
+      makeOp(4, 'D', 'd', ctx, sourceTableId)
+    ];
+    const originalDocuments = [
+      serializeBucketData(BUCKET, operations.slice(0, 2)),
+      serializeBucketData(BUCKET, operations.slice(2))
+    ];
+    const committedMerge = serializeBucketData(BUCKET, operations);
+    const untouchedTail = serializeBucketData(BUCKET, [makeOp(5, 'E', 'e', ctx, sourceTableId)]);
+    await insertDocs(collection, [committedMerge, untouchedTail]);
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 5n,
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(0),
+      bucket_stats: {
+        count: originalDocuments.reduce((total, document) => total + document.count, untouchedTail.count),
+        bytes: BigInt(originalDocuments.reduce((total, document) => total + document.size, untouchedTail.size)),
+        chunks: originalDocuments.length + 1
+      }
+    });
+
+    const result = await bucketStorage.compactInitialReplication({ maxOpId: 4n });
+
+    expect(result).toEqual({ buckets: 1 });
+    const expectedStats = {
+      count: committedMerge.count + untouchedTail.count,
+      bytes: BigInt(committedMerge.size + untouchedTail.size),
+      chunks: 2
+    };
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.bucket_stats).toEqual(expectedStats);
+    expect(state?.compacted_state).toMatchObject({
+      op_id: 4n,
+      checksum: committedMerge.checksum,
+      count: committedMerge.count,
+      bytes: BigInt(committedMerge.size),
+      chunks: 1
+    });
+  });
+
   test('full compaction retry rebuilds stats after a committed replacement', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
     const documents = [
