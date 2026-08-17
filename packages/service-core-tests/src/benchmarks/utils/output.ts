@@ -7,5 +7,6 @@ export const getArtifactFilename = (runId: string) => {
 export const createArtifactsFolder = async () => {
   try {
     await mkdir('./benchmark-artifacts/json', { recursive: true });
+    await mkdir('./benchmark-artifacts/report', { recursive: true });
   } catch {}
 };

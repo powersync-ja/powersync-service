@@ -57,6 +57,7 @@ function summarizeSamples(samples: readonly number[]): BenchmarkStatisticSummary
     sample_count: sorted.length,
     min: sorted[0],
     median: quantile(sorted, 0.5),
+    avg: sorted.reduce((a, b) => a + b, 0) / sorted.length,
     p95: quantile(sorted, 0.95),
     p99: quantile(sorted, 0.99),
     max: sorted.at(-1)!

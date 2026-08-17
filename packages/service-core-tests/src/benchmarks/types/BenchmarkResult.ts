@@ -7,6 +7,7 @@ export interface BenchmarkStatisticSummary {
   sample_count: number;
   min: number;
   median: number;
+  avg: number;
   p95: number;
   p99: number;
   max: number;
