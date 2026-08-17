@@ -33,6 +33,14 @@ const benchmarkCases: readonly StorageBenchmarkCase[] = [
     unavailableMonitorReason: 'PostgreSQL database resource monitoring is not implemented'
   },
   {
+    scenario: createPostgresQuickStorageScenario(STORAGE_VERSION_1),
+    implementation: new PostgresStorageBenchmarkImplementation({
+      url: process.env.PG_STORAGE_TEST_URL ?? 'postgres://postgres:postgres@localhost:5432/powersync_storage_test'
+    }),
+    expectedStorage: { implementation: 'postgres-storage', version: 1 },
+    unavailableMonitorReason: 'PostgreSQL database resource monitoring is not implemented'
+  },
+  {
     scenario: createMongoQuickStorageScenario(STORAGE_VERSION_1),
     implementation: new MongoStorageBenchmarkImplementation({
       url: process.env.MONGO_TEST_URL ?? 'mongodb://localhost:27017/powersync_test',
@@ -135,10 +143,10 @@ describe.each(benchmarkCases)('$scenario.id', (benchmarkCase) => {
         storage_write: { sample_count: 3 }
       },
       counters: {
-        source_rows: { sample_count: 3, min: 1_000, max: 1_000 },
-        payload_bytes: { sample_count: 3, min: 256_000, max: 256_000 },
-        writer_save_calls: { sample_count: 3, min: 1_000, max: 1_000 },
-        bucket_operations: { sample_count: 3, min: 1_000, max: 1_000 },
+        source_rows: { sample_count: 3, min: 10_000, max: 10_000 },
+        payload_bytes: { sample_count: 3, min: 2_560_000, max: 2_560_000 },
+        writer_save_calls: { sample_count: 3, min: 10_000, max: 10_000 },
+        bucket_operations: { sample_count: 3, min: 10_000, max: 10_000 },
         parameter_operations: { sample_count: 3, min: 0, max: 0 },
         distinct_buckets: { sample_count: 3, min: 1, max: 1 }
       }

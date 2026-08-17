@@ -38,7 +38,7 @@ function createQuickStorageScenario(
     mode: 'write',
     flush_policy: 'automatic',
     workload: {
-      row_count: 1_000,
+      row_count: 10_000,
       payload_bytes: 256
     }
   };
