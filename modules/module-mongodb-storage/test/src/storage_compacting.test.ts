@@ -374,20 +374,20 @@ bucket_definitions:
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
     const badBucket = 'bad[]';
     const goodBucket = 'good[]';
-    const badDocument = serializeBucketData(badBucket, [
-      makeOp(2, 'bad', 'bad', { ...ctx, bucket: badBucket }, sourceTableId)
-    ]);
     const goodDocument = serializeBucketData(goodBucket, [
       makeOp(2, 'good', 'good', { ...ctx, bucket: goodBucket }, sourceTableId)
     ]);
-    await insertDocs(collection, [badDocument, goodDocument]);
+    await insertDocs(collection, [goodDocument]);
     await bucketStateCollection.insertMany([
       {
         _id: { d: ctx.definitionId, b: badBucket },
         last_op: 2n,
         next_compact_check: new Date(0),
+        // A malformed scheduled bucket with an expired lease must be
+        // rescheduled without preventing valid buckets from compacting.
         first_uncompacted_write: new Date(0),
-        bucket_stats: { count: 1, bytes: BigInt(badDocument.size), chunks: 1 }
+        bucket_stats: { count: 1, bytes: 1n, chunks: 1 },
+        compact_lease: { id: new bson.ObjectId(), expires_at: new Date(0) }
       },
       {
         _id: { d: ctx.definitionId, b: goodBucket },
@@ -397,19 +397,14 @@ bucket_definitions:
         bucket_stats: { count: 1, bytes: BigInt(goodDocument.size), chunks: 1 }
       }
     ]);
+    await bucketStateCollection.updateOne(
+      { _id: { d: ctx.definitionId, b: badBucket } },
+      { $unset: { first_uncompacted_write: '' } }
+    );
 
-    const compactor = (bucketStorage as MongoSyncBucketStorage).createMongoCompactor({
-      maxOpId: 2n,
-      compactChunksOnly: true
-    });
-    const compactSingleBucket = (compactor as any).compactSingleBucket.bind(compactor);
-    vi.spyOn(compactor as any, 'compactSingleBucket').mockImplementation(async (context: any) => {
-      if (context.state._id.b == badBucket) {
-        throw new Error('malformed bucket');
-      }
-      return compactSingleBucket(context);
-    });
-    await compactor.compact();
+    await (bucketStorage as MongoSyncBucketStorage)
+      .createMongoCompactor({ maxOpId: 2n, compactChunksOnly: true })
+      .compact();
 
     const [badState, goodState] = await Promise.all([
       bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: badBucket } }),
