@@ -770,12 +770,21 @@ importers:
       '@opentelemetry/sdk-metrics':
         specifier: ^1.30.1
         version: 1.30.1(@opentelemetry/api@1.9.0)
+      '@powersync/lib-service-mongodb':
+        specifier: workspace:*
+        version: link:../../libs/lib-mongodb
+      '@powersync/service-module-mongodb':
+        specifier: workspace:*
+        version: link:../../modules/module-mongodb
       '@powersync/service-module-mongodb-storage':
         specifier: workspace:*
         version: link:../../modules/module-mongodb-storage
       '@powersync/service-module-postgres-storage':
         specifier: workspace:*
         version: link:../../modules/module-postgres-storage
+      ts-node:
+        specifier: ^10.9.2
+        version: 10.9.2(@types/node@25.5.0)(typescript@6.0.3)
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

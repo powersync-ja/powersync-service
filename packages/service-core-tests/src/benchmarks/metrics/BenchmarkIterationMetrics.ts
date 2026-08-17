@@ -40,6 +40,26 @@ export class BenchmarkIterationMetrics {
     });
   }
 
+  recordBoundary(name: string, startEvent: string, endEvent: string, startedAtMs: number, endedAtMs: number): void {
+    if (this.completedBoundaries.has(name) || this.activeBoundaries.some((boundary) => boundary.name === name)) {
+      throw new Error(`Boundary ${name} has already started`);
+    }
+    if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs)) {
+      throw new Error('Benchmark boundary timestamps must be finite');
+    }
+    if (endedAtMs < startedAtMs) {
+      throw new Error(`Boundary ${name} ended before it started`);
+    }
+
+    this.completedBoundaries.set(name, {
+      start_event: startEvent,
+      end_event: endEvent,
+      started_at_ms: startedAtMs,
+      ended_at_ms: endedAtMs,
+      duration_ms: endedAtMs - startedAtMs
+    });
+  }
+
   setCounter(name: string, value: number): void {
     validateCounter(value);
     this.counters.set(name, value);

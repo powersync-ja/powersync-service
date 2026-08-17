@@ -6,6 +6,18 @@ export default defineConfig({
     pool: 'threads',
     fileParallelism: false,
     maxWorkers: 1,
-    tags: [{ name: 'storage' }, { name: 'quick' }, { name: 'postgres-storage' }, { name: 'mongodb-storage' }]
+    tags: [
+      { name: 'storage' },
+      { name: 'replication' },
+      { name: 'quick' },
+      { name: 'baseline' },
+      { name: 'snapshot' },
+      { name: 'streaming' },
+      { name: 'synthetic-source' },
+      { name: 'mongodb-source' },
+      { name: 'postgres-storage' },
+      { name: 'mongodb-storage' },
+      { name: 'storage-v2' }
+    ]
   }
 });

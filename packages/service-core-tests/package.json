@@ -25,8 +25,11 @@
   },
   "devDependencies": {
     "@opentelemetry/sdk-metrics": "^1.30.1",
+    "@powersync/lib-service-mongodb": "workspace:*",
+    "@powersync/service-module-mongodb": "workspace:*",
     "@powersync/service-module-mongodb-storage": "workspace:*",
     "@powersync/service-module-postgres-storage": "workspace:*",
+    "ts-node": "^10.9.2",
     "typescript": "catalog:"
   }
 }
