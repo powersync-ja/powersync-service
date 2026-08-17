@@ -203,6 +203,10 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
             forceKind == null ? claimedDecision.kind : forcedCompactionKind(lease.state, forceKind, this);
           if (claimedKind == null) {
             await this.rescheduleClaimedBucket(lease, claimedDecision, rescheduleNotBefore);
+          } else if (claimedKind == CompactionKind.Full && this.isFullCompactionTargetCovered(lease.state)) {
+            // Outstanding writes may all be above this run's fixed op limit.
+            // Keep them scheduled without rescanning an already-compacted prefix.
+            await this.rescheduleClaimedBucket(lease, claimedDecision, rescheduleNotBefore);
           } else {
             await this.compactClaimedBucket(lease, claimedKind, claimedDecision, rescheduleNotBefore);
           }
@@ -299,6 +303,11 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
 
   private compactMaxOpId(context: CompactionContext): InternalOpId {
     return this.maxOpIdCap == null || context.lastOp < this.maxOpIdCap ? context.lastOp : this.maxOpIdCap;
+  }
+
+  private isFullCompactionTargetCovered(state: BucketStateDocumentV3): boolean {
+    const maxOpId = this.maxOpIdCap == null || state.last_op < this.maxOpIdCap ? state.last_op : this.maxOpIdCap;
+    return state.last_full_compact != null && state.last_full_compact.op_id >= maxOpId;
   }
 
   private get objectStorageLifecycle(): ObjectStorageLifecycle {
@@ -523,10 +532,11 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       bytes: compactionResult.bucketStats.bytes - startedStats.bytes,
       chunks: compactionResult.bucketStats.chunks - startedStats.chunks
     };
-    const coveredStart = compactedOpId >= context.lastOp;
+    const coveredClaimedHead = compactedOpId >= context.lastOp;
     const concurrentWriteCheck = { $gt: ['$last_op', context.lastOp] };
-    const nextAfterConcurrentWrite = this.rescheduleAtOrAfter(
-      new Date(context.startedAt.getTime() + this.minCompactChunkIntervalMs),
+    const remainingFullWorkCheck = coveredClaimedHead ? concurrentWriteCheck : true;
+    const nextAfterPartialFullCompact = this.rescheduleAtOrAfter(
+      { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: this.minCompactChunkIntervalMs } },
       context.rescheduleNotBefore
     );
     const nextCheckForUncompactedWork = this.rescheduleAtOrAfter(
@@ -553,18 +563,18 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         chunks: { $add: ['$bucket_stats.chunks', delta.chunks] }
       },
       first_uncompacted_write:
-        context.kind == CompactionKind.Full && coveredStart
-          ? { $cond: [concurrentWriteCheck, context.startedAt, '$$REMOVE'] }
+        context.kind == CompactionKind.Full
+          ? { $cond: [remainingFullWorkCheck, '$$NOW', '$$REMOVE'] }
           : '$first_uncompacted_write',
       next_compact_check:
-        context.kind == CompactionKind.Full && coveredStart
-          ? { $cond: [concurrentWriteCheck, nextAfterConcurrentWrite, '$$REMOVE'] }
+        context.kind == CompactionKind.Full
+          ? { $cond: [remainingFullWorkCheck, nextAfterPartialFullCompact, '$$REMOVE'] }
           : nextCheckForUncompactedWork
     };
-    if (context.kind == CompactionKind.Full && coveredStart) {
+    if (context.kind == CompactionKind.Full) {
       update.last_full_compact = {
         op_id: compactedOpId,
-        count: compactionResult.bucketStats.count,
+        count: compactionResult.compactedState.count,
         puts,
         at: '$$NOW'
       };

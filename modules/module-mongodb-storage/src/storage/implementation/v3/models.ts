@@ -174,7 +174,10 @@ export interface BucketStateDocumentV3 {
 
   /** The next time a compact worker should inspect this bucket. */
   next_compact_check: Date | undefined;
-  /** The oldest write that has not been covered by a full compact. */
+  /**
+   * Scheduling epoch for work not covered by a full compact. Writers set the
+   * first actual write time; a partial full compact advances it to completion.
+   */
   first_uncompacted_write: Date | undefined;
 
   /**
@@ -191,7 +194,7 @@ export interface BucketStateDocumentV3 {
     chunks: number;
   };
 
-  /** Statistics from the most recent full compact. */
+  /** Statistics for the prefix covered by the most recent full compact. */
   last_full_compact?: {
     op_id: InternalOpId;
     count: number;

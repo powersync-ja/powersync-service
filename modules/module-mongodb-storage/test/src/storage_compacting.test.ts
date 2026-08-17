@@ -1152,6 +1152,66 @@ bucket_definitions:
     expect(state?.compact_lease).toBeUndefined();
   });
 
+  test('capped full compaction records its prefix and starts a fresh scheduling window', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const prefix = serializeBucketData(BUCKET, [makeOp(1, 'A', 'a', ctx, sourceTableId)]);
+    const untouchedTail = serializeBucketData(BUCKET, [makeOp(2, 'B', 'b', ctx, sourceTableId)]);
+    await insertDocs(collection, [prefix, untouchedTail]);
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 2n,
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(0),
+      bucket_stats: {
+        count: prefix.count + untouchedTail.count,
+        bytes: BigInt(prefix.size + untouchedTail.size),
+        chunks: 2
+      }
+    });
+
+    await bucketStorage.compact({ maxOpId: 1n });
+
+    const partialState = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(partialState?.last_full_compact).toMatchObject({
+      op_id: 1n,
+      count: prefix.count,
+      puts: 1
+    });
+    expect(partialState?.first_uncompacted_write).toBeInstanceOf(Date);
+    expect(partialState!.first_uncompacted_write!.getTime()).toBeGreaterThan(0);
+    expect(partialState!.next_compact_check!.getTime()).toBeGreaterThanOrEqual(
+      partialState!.first_uncompacted_write!.getTime() + DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS
+    );
+
+    const lastFullCompactAt = partialState!.last_full_compact!.at;
+    const freshFirstUncompactedWrite = partialState!.first_uncompacted_write!;
+    await bucketStateCollection.updateOne(
+      { _id: { d: ctx.definitionId, b: BUCKET } },
+      { $set: { next_compact_check: new Date(0) } }
+    );
+
+    await bucketStorage.compact({ maxOpId: 2n });
+
+    const deferredState = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(deferredState?.last_full_compact?.at).toEqual(lastFullCompactAt);
+    expect(deferredState?.first_uncompacted_write).toEqual(freshFirstUncompactedWrite);
+    expect(deferredState!.next_compact_check!.getTime()).toBeGreaterThan(Date.now());
+
+    // Even after the scheduling window has elapsed, a run with the old cap
+    // must not scan and record the same full-compaction prefix again.
+    await bucketStateCollection.updateOne(
+      { _id: { d: ctx.definitionId, b: BUCKET } },
+      { $set: { first_uncompacted_write: new Date(0), next_compact_check: new Date(0) } }
+    );
+
+    await bucketStorage.compact({ maxOpId: 1n });
+
+    const rescheduledState = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(rescheduledState?.last_full_compact?.at).toEqual(lastFullCompactAt);
+    expect(rescheduledState?.first_uncompacted_write).toEqual(new Date(0));
+    expect(rescheduledState!.next_compact_check!.getTime()).toBeGreaterThan(0);
+  });
+
   test('explicit compaction skips a bucket with no outstanding full-compaction work', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
     const document = serializeBucketData(BUCKET, [makeOp(1, 'A', 'value', ctx, sourceTableId)]);

@@ -51,7 +51,7 @@ The delay before a full compact is inversely related to the amount of work since
 
 To assist with deciding whether to perform a full compact, a chunk compact, or no compact, we store current aggregate counts and sizes, a cached snapshot at the latest compact, and the figures from the last full compact needed to schedule the next one.
 
-To allow configuring minimum and maximum intervals between compacts, we also store timestamps of the oldest uncompacted write, the latest compact, and the most recent full compact.
+To allow configuring minimum and maximum intervals between compacts, we also store a scheduling timestamp for outstanding full-compaction work, the latest compact, and the most recent full compact. Writers initially set that scheduling timestamp from the first uncompacted write. A full compact that leaves a capped or concurrently-written tail advances it to the completion time, starting a fresh scheduling window for the remaining work.
 
 ## Concurrency
 
@@ -65,7 +65,7 @@ To cater for this, the compact process calculates the delta of statistics while 
 
 Some care needs to be taken to take into account the "tail" of a bucket that exists while compacting, but cannot be included in the compact job.
 
-`next_compact_check` and `first_uncompacted_write` are also affected by this: We cannot unilaterally clear these values if there were further writes to the bucket while compacting, but we also do not capture new values for writes during compacting. If writes are detected while finalizing (by checking `last_op` for the bucket), the compact process retains conservative scheduling values for them. Since they are only used for scheduling, the values do not have to be exact, as long as they are set.
+`next_compact_check` and `first_uncompacted_write` are also affected by this. A full compact clears them only when it reaches the claimed bucket head and no later writes are visible during finalization. If a configured operation limit or concurrent writes leave a tail, the compact records statistics for the prefix it covered and advances `first_uncompacted_write` to the database completion time. This prevents common concurrent writes from immediately triggering another full scan while keeping the tail scheduled. Since the timestamp is only used for scheduling, it does not have to equal the oldest tail write exactly.
 
 ## Initial replication
 
