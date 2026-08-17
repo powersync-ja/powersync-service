@@ -280,6 +280,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         created_at: new Date(),
         storage_version: storageVersion,
         content: options.config.yaml,
+        version_label: options.version_label,
         serialized_plan: options.config.plan,
         rule_mapping: mapping.serialize()
       };
@@ -432,6 +433,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       created_at: new Date(),
       storage_version: storageVersion,
       content: updateOptions.config.yaml,
+      version_label: updateOptions.version_label,
       serialized_plan: updateOptions.config.plan,
       rule_mapping: mapping.serialize()
     };
@@ -522,6 +524,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         _id: id,
         storage_version: storageVersion,
         content: options.config.yaml,
+        version_label: options.version_label,
         serialized_plan: options.config.plan,
         last_checkpoint: null,
         last_checkpoint_lsn: null,

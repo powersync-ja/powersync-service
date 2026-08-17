@@ -2,6 +2,7 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
   BaseObserver,
+  logger as defaultLogger,
   DO_NOT_LOG,
   Logger,
   ReplicationAbortedError,
@@ -117,7 +118,22 @@ export abstract class MongoSyncBucketStorage
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
       sync_rules_id: replicationStreamId
     });
-    this.logger = replicationStream.logger;
+
+    // Include both replication stream name and sync config version labels in log prefix.
+    // Examples:
+    // No sync config with a label: [stream]
+    // All sync configs have a label: [stream][v5,v6]
+    // Mixed: [stream][?,v6]
+    const hasVersionLabel = replicationStream.syncConfigContent.some((config) => config.version_label != null);
+    const versionLabels = hasVersionLabel
+      ? replicationStream.syncConfigContent.map((config) => config.version_label ?? '?')
+      : [];
+    this.logger =
+      versionLabels.length == 0
+        ? replicationStream.logger
+        : defaultLogger.child({
+            prefix: `[${replicationStreamName}][${versionLabels.join(',')}] `
+          });
   }
 
   /**

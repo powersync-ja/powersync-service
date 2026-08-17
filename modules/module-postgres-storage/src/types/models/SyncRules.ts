@@ -50,6 +50,7 @@ export const SyncRules = t.object({
   last_fatal_error: t.Null.or(t.string),
   keepalive_op: t.Null.or(bigint),
   storage_version: t.Null.or(pgwire_number).optional(),
+  version_label: t.Null.or(t.string).optional(),
   content: t.string,
   sync_plan: t.Null.or(
     jsonContainerObject(

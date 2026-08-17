@@ -156,7 +156,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
     let configuredLock: storage.ReplicationLock | undefined = undefined;
     if (loadedSyncConfig != null) {
-      this.logger.info('Loaded sync config');
+      const versionLabel = this.syncRuleProvider.versionLabel;
+      this.logger.info(`Loaded sync config${versionLabel == null ? '' : ` ${versionLabel}`}`);
       try {
         // Configure new sync config, if they have changed.
         // In that case, also immediately take out a lock, so that another process doesn't start replication on it.
@@ -165,7 +166,11 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         // the same time.
 
         const { lock } = await this.storage.configureSyncRules(
-          storage.updateSyncRulesFromYaml(loadedSyncConfig, { lock: true, validate: this.syncRuleProvider.exitOnError })
+          storage.updateSyncRulesFromYaml(loadedSyncConfig, {
+            lock: true,
+            validate: this.syncRuleProvider.exitOnError,
+            version_label: versionLabel
+          })
         );
         if (lock) {
           configuredLock = lock;

@@ -215,6 +215,9 @@ export interface SyncRuleDocumentBase {
   } | null;
 
   storage_version?: number;
+
+  /** Optional operator-supplied label identifying the sync config version. */
+  version_label?: string;
 }
 
 export interface SyncRuleCheckpointFields {

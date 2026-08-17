@@ -144,6 +144,8 @@ export interface StorageMetrics {
 }
 
 export interface UpdateSyncRulesOptions {
+  /** Optional operator-supplied label identifying this deployed sync config version. */
+  version_label?: string;
   config: {
     yaml: string;
     /**
