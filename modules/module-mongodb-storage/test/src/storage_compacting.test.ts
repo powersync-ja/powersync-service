@@ -1720,6 +1720,57 @@ bucket_definitions:
     });
   });
 
+  test('full compaction retry rebuilds stats after a committed replacement', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const documents = [
+      serializeBucketData(BUCKET, [makeOp(1, 'A', 'a', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(2, 'B', 'b', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(3, 'C', 'c', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(4, 'D', 'd', ctx, sourceTableId)])
+    ];
+    await insertDocs(collection, documents);
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 4n,
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(0),
+      bucket_stats: {
+        count: documents.reduce((total, document) => total + document.count, 0),
+        bytes: BigInt(documents.reduce((total, document) => total + document.size, 0)),
+        chunks: documents.length
+      }
+    });
+
+    const compactor = bucketStorage.createMongoCompactor({ maxOpId: 4n, compactBuckets: [BUCKET] });
+    const originalFlush = (compactor as any).flushCompactionGroup.bind(compactor);
+    let injectedFailure = false;
+    vi.spyOn(compactor as any, 'flushCompactionGroup').mockImplementation(async (...args: any[]) => {
+      const result = await originalFlush(...args);
+      if (!injectedFailure) {
+        injectedFailure = true;
+        throw new ObjectStorageError('failure after committed full-compaction replacement', {
+          cause: new Error('socket reset'),
+          retryable: true
+        });
+      }
+      return result;
+    });
+
+    await expect(compactor.compact()).resolves.toBe(1);
+
+    expect(injectedFailure).toBe(true);
+    const currentDocuments = await collection.find({ '_id.b': BUCKET }).toArray();
+    expect(currentDocuments).toHaveLength(1);
+    const expectedStats = {
+      count: currentDocuments.reduce((total, document) => total + document.count, 0),
+      bytes: BigInt(currentDocuments.reduce((total, document) => total + document.size, 0)),
+      chunks: currentDocuments.length
+    };
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.bucket_stats).toEqual(expectedStats);
+    expect(state?.compacted_state).toMatchObject({ op_id: 4n, ...expectedStats });
+  });
+
   test('chunk compaction retry rebuilds state after a committed partial merge', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx } = await setupCompactedTail();
     const compactor = bucketStorage.createMongoCompactor({
@@ -1933,6 +1984,13 @@ bucket_definitions:
     expect(op600).toBeDefined();
     expect(op600!.op).toBe('PUT');
     expect(op600!.row_id).toBe('F');
+
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.bucket_stats).toEqual({
+      count: docsAfter.reduce((total, document) => total + document.count, 0),
+      bytes: BigInt(docsAfter.reduce((total, document) => total + document.size, 0)),
+      chunks: docsAfter.length
+    });
   });
 
   test('3. seen map overflow - some old ops pass through without tombstoning', async () => {

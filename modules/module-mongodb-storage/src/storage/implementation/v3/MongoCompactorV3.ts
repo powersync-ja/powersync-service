@@ -247,6 +247,11 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     }
   }
 
+  /**
+   * Given a bucket filter, claim a lease on the bucket. The filter should include a filter on _id.
+   *
+   * Resolves to null if the bucket is already claimed, not found, or filtered out.
+   */
   private async claimBucket(
     filter: mongo.Filter<BucketStateDocumentV3>,
     sort?: mongo.Sort
@@ -408,16 +413,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       // the cached prefix cannot be combined with the current tail. Rebuild the
       // metadata from the authoritative documents while keeping the old op id
       // as a conservative resume hint.
-      const [compactedState, currentBucketStats] = await Promise.all([
-        this.readBucketStats(bucket, resolvedDefinitionId, compactedOpId),
-        compactedOpId == context.lastOp
-          ? Promise.resolve(undefined)
-          : this.readBucketStats(bucket, resolvedDefinitionId, context.lastOp)
-      ]);
-      result = {
-        compactedState,
-        bucketStats: currentBucketStats ?? compactedState
-      };
+      result = await this.readAuthoritativeCompactionResult(context, bucketContext, compactedOpId);
     } else {
       const tailStats = await this.readBucketStats(bucket, resolvedDefinitionId, compactedOpId, tailLowerBound);
       result = {
@@ -566,6 +562,38 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     );
   }
 
+  /**
+   * Calculate bucket statistics from the data that is currently stored.
+   *
+   * A previous attempt may have saved some compacted data before it failed,
+   * without updating the bucket summary. Reading the stored data again avoids
+   * carrying that outdated summary into the successful attempt.
+   *
+   * Most compactions cover the whole bucket and need only one calculation. If
+   * this compaction stops at an operation limit, also include the unchanged
+   * data after that limit in the bucket total.
+   */
+  private async readAuthoritativeCompactionResult(
+    context: CompactionContext,
+    bucketContext: BucketDataContextV3,
+    compactedOpId: InternalOpId
+  ): Promise<CompactionResult> {
+    const { bucket, definitionId } = bucketContext.key;
+    const [compactedState, tailStats] = await Promise.all([
+      this.readBucketStats(bucket, definitionId, compactedOpId),
+      compactedOpId == context.lastOp
+        ? Promise.resolve(undefined)
+        : this.readBucketStats(bucket, definitionId, context.lastOp, bucketContext.docId(compactedOpId))
+    ]);
+    return {
+      compactedState,
+      bucketStats: tailStats == null ? compactedState : combineAdjacentStats(compactedState, tailStats)
+    };
+  }
+
+  /**
+   * Read bucket stats directly from bucket_data documents.
+   */
   private async readBucketStats(
     bucket: string,
     definitionId: BucketDefinitionId,
@@ -624,7 +652,6 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     let upperBound = bucketContext.docId(this.compactMaxOpId(context) + 1n);
 
     let totalOpCount = 0;
-    let preCompactionPrefix = emptyBucketStats();
 
     let lastNotPut: bigint | null = null;
     let opsSincePut = 0;
@@ -688,7 +715,6 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       // merging is useful, and writes each final object at most once.
       for (const doc of batchDocs) {
         compactedOpId ??= doc._id.o;
-        preCompactionPrefix = combineAdjacentStats(preCompactionPrefix, statsForDocument(doc));
         const originalOps = Array.from(loadBucketDataDocument(dataContext, doc));
 
         let changed = false;
@@ -820,11 +846,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       );
     }
 
-    const compactedStats = await this.readBucketStats(bucket, resolvedDefinitionId, compactedOpId);
-    const result = {
-      compactedState: compactedStats,
-      bucketStats: applyCompactionDelta(bucketStats(context.state), preCompactionPrefix, compactedStats)
-    };
+    const result = await this.readAuthoritativeCompactionResult(context, bucketContext, compactedOpId);
 
     // --- Finalize: update bucket checksums and state ---
     await this.finalizeCompactedBucket({ context, compactedOpId, compactionResult: result, puts: putCount });
