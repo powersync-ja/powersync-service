@@ -1160,6 +1160,44 @@ streams:
   );
 
   test.runIf(storageVersion >= 3)(
+    'restart creates a replacement stream instead of appending to the active stream',
+    async () => {
+      await using factory = await storageConfig.factory();
+
+      const active = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+          { storageVersion }
+        )
+      );
+      const activeStorage = factory.getInstance(active) as MongoSyncBucketStorage;
+      await using activeWriter = await activeStorage.createWriter(test_utils.BATCH_OPTIONS);
+      await activeWriter.markAllSnapshotDone('1/1');
+      await activeWriter.commit('1/1');
+
+      await factory.restartReplication(active.replicationStreamId);
+
+      const replicatingStreams = await factory.getReplicatingReplicationStreams();
+      expect(replicatingStreams).toHaveLength(1);
+      expect(replicatingStreams[0].replicationStreamId).not.toEqual(active.replicationStreamId);
+      expect(replicatingStreams[0].state).toBe(storage.SyncRuleState.PROCESSING);
+
+      const oldStream = (await (factory as MongoBucketStorage).db.sync_rules.findOne({
+        _id: active.replicationStreamId
+      })) as ReplicationStreamDocumentV3;
+      expect(oldStream.state).toBe(storage.SyncRuleState.ERRORED);
+      expect(oldStream.sync_configs.map((config) => config.state)).toEqual([storage.SyncRuleState.ERRORED]);
+    }
+  );
+
+  test.runIf(storageVersion >= 3)(
     'appended compatible config adopts the stream checkpoint instead of regressing to 0',
     async () => {
       await using factory = await storageConfig.factory();

@@ -143,7 +143,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     if (next != null && next.content.replicationStreamId == replicationStreamId) {
       // We need to redo the "next" replication stream
-      await this.updateSyncRules(next.content.asUpdateOptions());
+      await this.updateSyncRules(next.content.asUpdateOptions({ forceNewReplicationStream: true }));
       // Pro-actively stop replicating
       await this.db.sync_rules.updateOne(
         {
@@ -155,7 +155,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       await this.db.notifyCheckpoint();
     } else if (next == null && active?.content.replicationStreamId == replicationStreamId) {
       // Slot removed for "active" replication stream, while there is no "next" one.
-      await this.updateSyncRules(active.content.asUpdateOptions());
+      await this.updateSyncRules(active.content.asUpdateOptions({ forceNewReplicationStream: true }));
 
       // In this case we keep the old one as active for clients, so that that existing clients
       // can still get the latest data while we replicate the new ones.
@@ -205,6 +205,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         const existingConfigDocs = await this.loadSyncConfigDefinitions(versioned, active, session);
 
         if (
+          !options.forceNewReplicationStream &&
           this.options.supportsMultipleSyncConfigs &&
           isCompatible(
             existingConfigDocs.map((d) => d.serialized_plan ?? null),
