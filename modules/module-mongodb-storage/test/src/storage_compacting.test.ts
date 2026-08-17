@@ -2,6 +2,7 @@ import { BucketDataDoc } from '@module/storage/implementation/common/BucketDataD
 import { MongoSyncBucketStorage } from '@module/storage/implementation/createMongoSyncBucketStorage.js';
 import { loadBucketDataDocument, serializeBucketData } from '@module/storage/implementation/v3/bucket-format.js';
 import { chunkBucketData, DEFAULT_MAX_DOC_SIZE_BYTES } from '@module/storage/implementation/v3/chunking.js';
+import { DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS } from '@module/storage/implementation/v3/compaction-constants.js';
 import { CompactionLease } from '@module/storage/implementation/v3/CompactionLease.js';
 import { BucketDataDocumentV3 } from '@module/storage/implementation/v3/models.js';
 import { ObjectStorageError } from '@module/storage/implementation/v3/object-storage/ObjectStorage.js';
@@ -186,6 +187,42 @@ bucket_definitions:
         .compact();
 
       expect(result).toBe(2);
+    });
+
+    test('v3 repeated initial chunk compaction reschedules overdue full work beyond the current run', async () => {
+      const { bucketStorage, checkpoint } = await setup(storage.STORAGE_VERSION_3);
+      const firstResult = await bucketStorage.compactInitialReplication({ maxOpId: checkpoint });
+      expect(firstResult.buckets).toBe(2);
+
+      const bucketStateCollection = (bucketStorage.db as VersionedPowerSyncMongoV3).bucketState(
+        bucketStorage.replicationStreamId
+      );
+      await bucketStateCollection.updateMany(
+        {},
+        {
+          $set: {
+            first_uncompacted_write: new Date(0),
+            next_compact_check: new Date(0)
+          }
+        }
+      );
+
+      const [{ now }] = await (bucketStorage.db as VersionedPowerSyncMongoV3).db
+        .aggregate<{ now: Date }>([{ $documents: [{}] }, { $project: { _id: 0, now: '$$NOW' } }])
+        .toArray();
+      const result = await bucketStorage.compactInitialReplication({
+        maxOpId: checkpoint,
+        signal: AbortSignal.timeout(2_000)
+      });
+
+      expect(result.buckets).toBe(0);
+      const states = await bucketStateCollection.find({}).toArray();
+      expect(states).toHaveLength(2);
+      for (const state of states) {
+        expect(state.next_compact_check!.getTime()).toBeGreaterThan(
+          now.getTime() + DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS
+        );
+      }
     });
 
     test('v3 replication writes initialize scheduled compaction state', async () => {

@@ -186,7 +186,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         ({ state, decision, forcedKind }) =>
           state.compact_lease == null && (forceKind == null ? decision.kind : forcedKind) == null
       );
-      await this.rescheduleUnclaimedBuckets(noOpStates);
+      await this.rescheduleUnclaimedBuckets(noOpStates, rescheduleNotBefore);
 
       for (const { state, decision, forcedKind } of scheduled) {
         const kind = forceKind == null ? decision.kind : forcedKind;
@@ -230,9 +230,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
   /**
    * Reschedule snapshots that were already known to be no-ops without first
    * taking a lease. Every decision input is compared so a concurrent writer
-   * or compactor simply makes the update a no-op instead of losing work.
+   * or compactor simply makes the update a no-op instead of losing work. A
+   * successful reschedule moves beyond this run's fixed selection boundary.
    */
-  private async rescheduleUnclaimedBuckets(states: { state: BucketStateDocumentV3; decision: CompactionDecision }[]) {
+  private async rescheduleUnclaimedBuckets(
+    states: { state: BucketStateDocumentV3; decision: CompactionDecision }[],
+    notBefore: Date
+  ) {
     if (states.length == 0) {
       return;
     }
@@ -240,7 +244,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       states.map(({ state, decision }) => ({
         updateOne: {
           filter: unclaimedSnapshotFilter(state),
-          update: [{ $set: { next_compact_check: decision.nextCompactCheck } }]
+          update: [{ $set: { next_compact_check: this.rescheduleAtOrAfter(decision.nextCompactCheck, notBefore) } }]
         }
       })),
       { ordered: false }
