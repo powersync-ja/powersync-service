@@ -310,8 +310,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         )
       ) {
         logger.info(`Using incremental reprocessing`);
-        await this.stopProcessingReplicationStreams(session);
-        await this.stopEmbeddedProcessingConfigs(active, session);
+        await this.stopExistingProcessingWork(session);
         rules = await this.appendSyncConfigToStream({
           versioned,
           existing: active,
@@ -322,11 +321,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         });
         return rules;
       }
-
-      await this.stopEmbeddedProcessingConfigs(active, session);
     }
 
-    await this.stopProcessingReplicationStreams(session);
+    await this.stopExistingProcessingWork(session);
 
     const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
       {
@@ -442,34 +439,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       .toArray();
   }
 
-  /**
-   * An ACTIVE stream may contain sync configs that are PROCESSING. Stop them.
-   */
-  private async stopEmbeddedProcessingConfigs(existing: ReplicationStreamDocumentV3, session: mongo.ClientSession) {
-    const deployingConfigs = existing.sync_configs
-      .filter((config) => config.state == storage.SyncRuleState.PROCESSING)
-      .map((config) => config._id);
-    if (deployingConfigs.length == 0) {
-      return;
-    }
-
-    await this.db.sync_rules.updateOne(
-      {
-        _id: existing._id,
-        'sync_configs._id': { $in: deployingConfigs }
-      },
-      {
-        $set: {
-          'sync_configs.$[config].state': storage.SyncRuleState.STOP
-        }
-      },
-      {
-        session,
-        arrayFilters: [{ 'config._id': { $in: deployingConfigs } }]
-      }
-    );
-  }
-
   private logIncrementalDefinitionChanges(changes: ReturnType<typeof describeIncrementalSyncConfigUpdate>) {
     logger.info(`Incremental reprocessing sync config update:\n${formatIncrementalSyncConfigUpdateLog(changes)}`);
   }
@@ -577,7 +546,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     storageVersion: number,
     session: mongo.ClientSession
   ): Promise<MongoPersistedReplicationStream> {
-    await this.stopProcessingReplicationStreams(session);
+    await this.stopExistingProcessingWork(session);
 
     const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
       {
@@ -627,9 +596,27 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   }
 
   /**
-   * When we create a new "PROCESSING" replication stream, we need to stop all others.
+   * Stop top-level and embedded processing work before creating a replacement stream.
+   *
+   * Use in the same transaction that the replacement stream is created.
    */
-  private async stopProcessingReplicationStreams(session: mongo.ClientSession) {
+  private async stopExistingProcessingWork(session: mongo.ClientSession) {
+    await this.db.sync_rules.updateMany(
+      {
+        state: storage.SyncRuleState.ACTIVE,
+        'sync_configs.state': storage.SyncRuleState.PROCESSING
+      },
+      {
+        $set: {
+          'sync_configs.$[config].state': storage.SyncRuleState.STOP
+        }
+      },
+      {
+        session,
+        arrayFilters: [{ 'config.state': storage.SyncRuleState.PROCESSING }]
+      }
+    );
+
     await this.db.sync_rules.updateMany(
       {
         state: storage.SyncRuleState.PROCESSING
