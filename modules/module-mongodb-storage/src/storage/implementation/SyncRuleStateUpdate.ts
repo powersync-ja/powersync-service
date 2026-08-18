@@ -12,10 +12,14 @@ import { storage } from '@powersync/service-core';
  *
  * The difference is that this also handles v1 storage cases, where `sync_configs` is not present.
  *
- * To use this, the update operatoin MUST use a top-level { state: PROCESSING } filter. This is not
- * safe to use when the replication stream may be ACTIVE.
+ * This can be used for specific use cases:
+ * 1. Stop an existing PROCESSING stream, when it is being replaced by a new PROCESSING one.
+ * 2. Stop an existing ACTIVE or ERRORED stream, when it is being replaced by a new ACTIVE one.
+ *
+ * Do not use this when an ACTIVE stream transitions to ERRORED, and is being replaced by a new PROCESSING one.
+ * In that case, we need to maintain the ERRORED state, which this pipeline does not cover.
  */
-export function stopProcessingSyncRuleStateUpdatePipeline(): mongo.Document[] {
+export function stopReplicationStreamPipeline(): mongo.Document[] {
   return [
     {
       $set: {

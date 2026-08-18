@@ -31,7 +31,7 @@ import { PowerSyncMongo } from './implementation/db.js';
 import { getMongoStorageConfig, StorageConfig, SyncRuleDocumentBase } from './implementation/models.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 import { MongoPersistedReplicationStream } from './implementation/MongoPersistedReplicationStream.js';
-import { stopProcessingSyncRuleStateUpdatePipeline } from './implementation/SyncRuleStateUpdate.js';
+import { stopReplicationStreamPipeline } from './implementation/SyncRuleStateUpdate.js';
 import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
 import { ObjectStorage } from './implementation/v3/object-storage/ObjectStorage.js';
 import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyncMongoV3.js';
@@ -165,7 +165,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
               _id: next.content.replicationStreamId,
               state: storage.SyncRuleState.PROCESSING
             },
-            stopProcessingSyncRuleStateUpdatePipeline(),
+            stopReplicationStreamPipeline(),
             { session: this.session }
           );
         }
@@ -634,7 +634,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       {
         state: storage.SyncRuleState.PROCESSING
       },
-      stopProcessingSyncRuleStateUpdatePipeline(),
+      stopReplicationStreamPipeline(),
       { session }
     );
   }
