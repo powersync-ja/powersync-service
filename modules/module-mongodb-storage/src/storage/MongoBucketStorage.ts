@@ -238,7 +238,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       {
         session,
         arrayFilters: [
-          { 'activeConfig._id': activeConfigObjectId, 'activeConfig.state': storage.SyncRuleState.ACTIVE },
+          {
+            'activeConfig._id': activeConfigObjectId,
+            'activeConfig.state': { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
+          },
           {
             'processingConfig._id': { $ne: activeConfigObjectId },
             'processingConfig.state': storage.SyncRuleState.PROCESSING
@@ -596,7 +599,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   private async stopExistingProcessingWork(session: mongo.ClientSession) {
     await this.db.sync_rules.updateMany(
       {
-        state: storage.SyncRuleState.ACTIVE,
+        state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] },
         'sync_configs.state': storage.SyncRuleState.PROCESSING
       },
       {
