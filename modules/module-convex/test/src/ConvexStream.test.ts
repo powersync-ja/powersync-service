@@ -173,7 +173,7 @@ function createFakeStorage(options?: {
   };
   Object.assign(storage, {
     clear: vi.fn(async () => undefined),
-    populatePersistentChecksumCache: vi.fn(async () => ({ buckets: 0 })),
+    compactInitialReplication: vi.fn(async () => ({ buckets: 0 })),
     createWriter: vi.fn(async (_options: any) => batch),
     startBatch: vi.fn(async (_options: any, callback: (batch: any) => Promise<void>) => {
       await callback(batch);

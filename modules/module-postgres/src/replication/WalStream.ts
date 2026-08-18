@@ -10,6 +10,7 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BucketStorageBatch,
+  formatBytes,
   getUuidReplicaIdentityBson,
   MetricsEngine,
   RelationCache,
@@ -47,7 +48,7 @@ import {
   SimpleSnapshotQuery,
   SnapshotQuery
 } from './SnapshotQuery.js';
-import { computeWalBudgetReport, formatBytes, formatWalBudgetLine } from './wal-budget-utils.js';
+import { computeWalBudgetReport, formatWalBudgetLine } from './wal-budget-utils.js';
 
 export interface WalStreamOptions {
   logger?: Logger;
@@ -633,8 +634,8 @@ WHERE  oid = $1::regclass`,
 
     const lastOp = flushResults?.flushed_op;
     if (lastOp != null) {
-      // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
-      await this.storage.populatePersistentChecksumCache({
+      // Compact storage _after_ initial replication, but _before_ we switch to this replication stream.
+      await this.storage.compactInitialReplication({
         // No checkpoint yet, but we do have the opId.
         maxOpId: lastOp,
         signal: this.abort_signal

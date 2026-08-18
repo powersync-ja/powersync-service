@@ -28,7 +28,11 @@ export function registerCompactAction(program: Command) {
     .command(COMMAND_NAME)
     .option(`-b, --buckets [buckets]`, 'Full bucket names, comma-separated (e.g., "global[],mybucket[\\"user1\\"]")')
     .option('-p, --parameter-indexes', 'Compacting parameter indexes. Defaults to set unless --buckets is provided.')
-    .option('--no-parameter-indexes', 'Disabling compacting parameter indexes.');
+    .option('--no-parameter-indexes', 'Disabling compacting parameter indexes.')
+    .option(
+      '--incremental-only',
+      '[EXPERIMENTAL] Perform incremental compacting only. Implies --no-parameter-indexes.'
+    );
 
   wrapConfigCommand(compactCommand);
 
@@ -48,7 +52,12 @@ export function registerCompactAction(program: Command) {
       }
     }
 
+    const incremental: boolean = options.incrementalOnly ?? false;
+
     let compactParameters: boolean | null = options.parameterIndexes;
+    if (incremental) {
+      compactParameters = false;
+    }
 
     if (buckets == null) {
       logger.info('Compacting storage for all buckets...');
@@ -87,29 +96,30 @@ export function registerCompactAction(program: Command) {
         Date.now() - config.api_parameters.checkpoint_request_retention_minutes * MINUTE_MS
       );
 
-      const active = (await bucketStorage.getActiveSyncConfig())?.storage;
-      if (active == null) {
-        logger.info('No active instance to compact');
-        return;
+      const streams = await bucketStorage.getReplicatingReplicationStreams();
+      for (let stream of streams) {
+        const storage = bucketStorage.getInstance(stream);
+        logger.info(`[${stream.replicationStreamName}] Performing compaction...`);
+        if (buckets != null) {
+          await storage.compact({
+            memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
+            compactBuckets: buckets,
+            compactParameterData: compactParameters ?? false,
+            incrementalOnly: incremental,
+            deleteCheckpointRequestsBefore,
+            signal: abortController.signal
+          });
+        } else {
+          await storage.compact({
+            memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
+            compactParameterData: compactParameters ?? true,
+            incrementalOnly: incremental,
+            deleteCheckpointRequestsBefore,
+            signal: abortController.signal
+          });
+        }
+        logger.info(`[${stream.replicationStreamName}] Successfully compacted storage.`);
       }
-      if (buckets != null) {
-        logger.info('Performing compaction...');
-        await active.compact({
-          memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
-          compactBuckets: buckets,
-          compactParameterData: compactParameters ?? false,
-          deleteCheckpointRequestsBefore,
-          signal: abortController.signal
-        });
-      } else {
-        await active.compact({
-          memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
-          compactParameterData: compactParameters ?? true,
-          deleteCheckpointRequestsBefore,
-          signal: abortController.signal
-        });
-      }
-      logger.info('Successfully compacted storage.');
     } catch (e) {
       logger.error(`Failed to compact:`, e);
       // Indirectly triggers lifeCycleEngine.stop

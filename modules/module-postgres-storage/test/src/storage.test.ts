@@ -1,5 +1,5 @@
 import { framework, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, compactActive, register, test_utils } from '@powersync/service-core-tests';
 import * as t from 'ts-codec';
 import { describe, expect, test } from 'vitest';
 import { CLEAR_BATCH_LIMIT } from '../../src/storage/PostgresSyncRulesStorage.js';
@@ -105,7 +105,12 @@ bucket_definitions:
         WHERE
           user_id = 'user2'
       `.execute();
-      await bucketStorage.compact({
+      {
+        await using activationWriter = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+        await activationWriter.markAllSnapshotDone('1/1');
+        await activationWriter.keepalive('1/1');
+      }
+      await compactActive(factory, {
         compactBuckets: [],
         deleteCheckpointRequestsBefore: new Date('2024-02-01T00:00:00.000Z')
       });
