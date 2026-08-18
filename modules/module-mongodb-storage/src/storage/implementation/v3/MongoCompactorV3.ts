@@ -299,6 +299,7 @@ export class MongoCompactorV3 extends MongoCompactor {
                 row_id: undefined,
                 source_table: undefined,
                 source_key: undefined,
+                subkey: undefined,
                 data: null
               });
               changed = true;
