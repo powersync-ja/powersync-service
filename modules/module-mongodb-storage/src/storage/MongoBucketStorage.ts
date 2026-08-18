@@ -381,6 +381,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     await this.db.sync_rules.insertOne(doc, { session });
     const rules = new MongoPersistedReplicationStream(this.db, doc, [syncConfigDoc]);
     if (options.lock) {
+      // We only lock when creating a new stream - otherwise we'll likely get lock contention
+      // from an existing job on the stream, which would fail the entire transaction.
       // The lock is persisted on rules.current_lock
       await rules.lock(session);
     }
