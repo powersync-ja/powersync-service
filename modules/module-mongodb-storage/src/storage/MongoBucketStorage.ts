@@ -62,7 +62,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   [DO_NOT_LOG] = true;
 
   private readonly client: mongo.MongoClient;
-  private readonly session: mongo.ClientSession;
   public readonly replicationStreamNamePrefix: string;
 
   private activeStorageCache: MongoSyncBucketStorage | undefined;
@@ -76,7 +75,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     super();
     this.client = db.client;
     this.db = db;
-    this.session = this.client.startSession();
     this.replicationStreamNamePrefix = options.replicationStreamNamePrefix;
   }
 
@@ -144,20 +142,20 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   }
 
   async restartReplication(replicationStreamId: number) {
-    await this.session.withTransaction(async () => {
-      const next = await this.getDeployingSyncConfigInternal(this.session);
-      const active = await this.getActiveSyncConfigInternal(this.session);
+    await this.withTransaction(async (session) => {
+      const next = await this.getDeployingSyncConfigInternal(session);
+      const active = await this.getActiveSyncConfigInternal(session);
 
       if (next != null && next.content.replicationStreamId == replicationStreamId) {
         // We need to redo the "next" replication stream.
         // This creates a new stream.
         await this.updateSyncRulesInTransaction(
           next.content.asUpdateOptions({ forceNewReplicationStream: true }),
-          this.session
+          session
         );
         const sharedActiveStream = active?.content.replicationStreamId == replicationStreamId;
         if (sharedActiveStream) {
-          await this.errorActiveStreamForReplacement(active, this.session);
+          await this.errorActiveStreamForReplacement(active, session);
         } else {
           // A separate deploying stream no longer needs replication after its replacement exists.
           await this.db.sync_rules.updateOne(
@@ -166,23 +164,23 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
               state: storage.SyncRuleState.PROCESSING
             },
             stopReplicationStreamPipeline(),
-            { session: this.session }
+            { session }
           );
         }
       } else if (next == null && active?.content.replicationStreamId == replicationStreamId) {
         // Slot removed for "active" replication stream, while there is no "next" one.
         await this.updateSyncRulesInTransaction(
           active.content.asUpdateOptions({ forceNewReplicationStream: true }),
-          this.session
+          session
         );
 
         // In this case we keep the old one as active for clients, so that that existing clients
         // can still get the latest data while we replicate the new ones.
         // It will however not replicate anymore.
-        await this.errorActiveStreamForReplacement(active, this.session);
+        await this.errorActiveStreamForReplacement(active, session);
       } else if (next != null && active?.content.replicationStreamId == replicationStreamId) {
         // Already have next replication stream, but need to stop replicating the active one.
-        await this.errorActiveStreamForReplacement(active, this.session);
+        await this.errorActiveStreamForReplacement(active, session);
       } else {
         // replicationStreamId does not match the ACTIVE or PROCESSING streams - no-op.
       }
@@ -529,11 +527,15 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<MongoPersistedReplicationStream> {
     let rules: MongoPersistedReplicationStream | undefined;
-    await this.session.withTransaction(async () => {
-      rules = await this.updateSyncRulesInTransaction(options, this.session);
+    await this.withTransaction(async (session) => {
+      rules = await this.updateSyncRulesInTransaction(options, session);
     });
     await this.db.notifyCheckpoint();
     return rules!;
+  }
+
+  private async withTransaction<T>(callback: (session: mongo.ClientSession) => Promise<T>): Promise<T> {
+    return this.client.withSession((session) => session.withTransaction(callback));
   }
 
   /**
