@@ -1271,8 +1271,12 @@ streams:
     expect(oldStream.state).toBe(storage.SyncRuleState.ERRORED);
     expect(oldStream.sync_configs.map((config) => config.state)).toEqual([
       storage.SyncRuleState.ERRORED,
-      storage.SyncRuleState.ERRORED
+      storage.SyncRuleState.STOP
     ]);
+    const oldActive = await factory.getActiveSyncConfig();
+    expect(oldActive).not.toBeNull();
+    expect(oldActive!.replicationStream.syncConfigContent).toHaveLength(1);
+    await expect(oldActive!.storage.getCheckpoint()).resolves.toBeDefined();
   });
 
   test.runIf(storageVersion >= 3)(
