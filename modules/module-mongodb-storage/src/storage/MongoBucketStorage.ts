@@ -279,7 +279,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     storageConfig: StorageConfig,
     session: mongo.ClientSession
   ): Promise<MongoPersistedReplicationStream> {
-    let rules: MongoPersistedReplicationStream | undefined = undefined;
     const versioned = this.db.versioned(storageConfig) as VersionedPowerSyncMongoV3;
 
     const active = await this.db.sync_rules.findOne<ReplicationStreamDocumentV3>(
@@ -303,7 +302,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       ) {
         logger.info(`Using incremental reprocessing`);
         await this.stopExistingProcessingWork(session);
-        rules = await this.appendSyncConfigToStream({
+        return await this.appendSyncConfigToStream({
           versioned,
           existing: active,
           existingConfigDocs,
@@ -311,7 +310,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           storageVersion,
           session
         });
-        return rules;
       }
     }
 
@@ -381,12 +379,12 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     };
 
     await this.db.sync_rules.insertOne(doc, { session });
-    rules = new MongoPersistedReplicationStream(this.db, doc, [syncConfigDoc]);
+    const rules = new MongoPersistedReplicationStream(this.db, doc, [syncConfigDoc]);
     if (options.lock) {
       // The lock is persisted on rules.current_lock
       await rules.lock(session);
     }
-    return rules!;
+    return rules;
   }
 
   private async loadSyncConfigDefinitions(
