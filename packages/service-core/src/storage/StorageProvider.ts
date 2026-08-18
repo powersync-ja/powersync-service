@@ -19,6 +19,7 @@ export interface ActiveStorage {
 export interface GetStorageOptions {
   // TODO: This should just be the storage config. Update once the slot name prefix coupling has been removed from the storage
   resolvedConfig: util.ResolvedPowerSyncConfig;
+  serviceMode: string;
 }
 
 /**

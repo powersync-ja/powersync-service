@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1783955536218,
+      "tag": "0000_real_harpoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1784130979161,
+      "tag": "0001_true_matthew_murdock",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786603516642,
+      "tag": "0002_illegal_maria_hill",
+      "breakpoints": true
+    }
+  ]
+}

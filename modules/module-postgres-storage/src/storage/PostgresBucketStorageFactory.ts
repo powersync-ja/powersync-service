@@ -15,6 +15,7 @@ export type PostgresBucketStorageOptions = {
   config: NormalizedPostgresStorageConfig;
   replicationStreamNamePrefix: string;
   checksumCacheTtlMs?: number;
+  bucketDataQueryHook?: (db: lib_postgres.DatabaseClient, query: pg_wire.Statement) => Promise<void>;
 };
 
 export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
@@ -57,7 +58,8 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       db: this.db,
       replicationStream,
       batchLimits: this.options.config.batch_limits,
-      checksumCacheTtlMs: this.options.checksumCacheTtlMs
+      checksumCacheTtlMs: this.options.checksumCacheTtlMs,
+      bucketDataQueryHook: this.options.bucketDataQueryHook
     });
     if (!options?.skipLifecycleHooks) {
       this.iterateListeners((cb) => cb.syncStorageCreated?.(syncRuleStorage));

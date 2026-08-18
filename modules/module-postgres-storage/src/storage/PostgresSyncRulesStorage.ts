@@ -47,6 +47,7 @@ export type PostgresSyncRulesStorageOptions = {
   write_checkpoint_mode?: storage.WriteCheckpointMode;
   batchLimits: RequiredOperationBatchLimits;
   checksumCacheTtlMs?: number;
+  bucketDataQueryHook?: (db: lib_postgres.DatabaseClient, query: Statement) => Promise<void>;
 };
 
 /**

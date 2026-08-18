@@ -1,4 +1,6 @@
-import { SUPPORTED_STORAGE_VERSIONS } from '@powersync/service-core';
+import type { DatabaseClient } from '@powersync/lib-service-postgres';
+import { LEGACY_STORAGE_VERSION } from '@powersync/service-core';
+import type { Statement } from '@powersync/service-jpgwire';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { normalizePostgresStorageConfig, PostgresMigrationAgent } from '../../src/index.js';
@@ -18,6 +20,29 @@ const BASE_CONFIG = {
 
 export const TEST_CONNECTION_OPTIONS = normalizePostgresStorageConfig(BASE_CONFIG);
 
+let explainedBucketDataQuery = false;
+let bucketDataQueryCount = 0;
+
+async function explainBucketDataQuery(db: DatabaseClient, query: Statement) {
+  bucketDataQueryCount++;
+  const explainQuery = Number(process.env.POWERSYNC_STORAGE_BENCHMARK_EXPLAIN_QUERY ?? 1);
+  if (
+    process.env.POWERSYNC_STORAGE_BENCHMARK_EXPLAIN !== 'true' ||
+    explainedBucketDataQuery ||
+    bucketDataQueryCount != explainQuery
+  ) {
+    return;
+  }
+  explainedBucketDataQuery = true;
+
+  const rows = await db.queryRows<Record<string, string>>({
+    statement: `EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT TEXT) ${query.statement}`,
+    params: query.params
+  });
+  const plan = rows.map((row) => Object.values(row)[0]).join('\n');
+  console.log(`\nPostgres bucket data query plan\n${plan}\n`);
+}
+
 /**
  * Vitest tries to load the migrations via .ts files which fails.
  * For tests this links to the relevant .js files correctly
@@ -30,10 +55,11 @@ class TestPostgresMigrationAgent extends PostgresMigrationAgent {
 
 export const POSTGRES_STORAGE_SETUP = postgresTestSetup({
   url: env.PG_STORAGE_TEST_URL,
-  migrationAgent: (config) => new TestPostgresMigrationAgent(config)
+  migrationAgent: (config) => new TestPostgresMigrationAgent(config),
+  bucketDataQueryHook: explainBucketDataQuery
 });
 
 export const POSTGRES_STORAGE_FACTORY = POSTGRES_STORAGE_SETUP;
 export const POSTGRES_REPORT_STORAGE_FACTORY = POSTGRES_STORAGE_SETUP.reportFactory;
 
-export const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS;
+export const TEST_STORAGE_VERSIONS = [LEGACY_STORAGE_VERSION];

@@ -1,0 +1,124 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`MikroORM SQLite Sync Bucket Storage - Compaction - v1 > partial checksums after compacting (2) 1`] = `
+{
+  "bucket": "1#global[]",
+  "checksum": 1196713877,
+  "count": 1,
+}
+`;
+
+exports[`MikroORM SQLite Sync Bucket Storage - Compaction - v1 > partial checksums after compacting 1`] = `
+{
+  "bucket": "1#global[]",
+  "checksum": -134691003,
+  "count": 4,
+}
+`;
+
+exports[`MikroORM SQLite Sync Bucket Storage - Compaction - v2 > partial checksums after compacting (2) 1`] = `
+{
+  "bucket": "1#global[]",
+  "checksum": 1196713877,
+  "count": 1,
+}
+`;
+
+exports[`MikroORM SQLite Sync Bucket Storage - Compaction - v2 > partial checksums after compacting 1`] = `
+{
+  "bucket": "1#global[]",
+  "checksum": -134691003,
+  "count": 4,
+}
+`;
+
+exports[`MikroORM SQLite Sync Bucket Storage - Compaction - v3 > partial checksums after compacting (2) 1`] = `
+{
+  "bucket": "1#global[]",
+  "checksum": 1196713877,
+  "count": 1,
+}
+`;
+
+exports[`MikroORM SQLite Sync Bucket Storage - Compaction - v3 > partial checksums after compacting 1`] = `
+{
+  "bucket": "1#global[]",
+  "checksum": -134691003,
+  "count": 4,
+}
+`;
+
+exports[`MikroORM SQLite Sync Bucket Storage - Data - v1 > (insert, delete, insert), (delete) 1`] = `
+[
+  {
+    "checksum": 2871785649,
+    "object_id": "test1",
+    "op": "PUT",
+  },
+  {
+    "checksum": 2872534815,
+    "object_id": "test1",
+    "op": "REMOVE",
+  },
+  {
+    "checksum": 2871785649,
+    "object_id": "test1",
+    "op": "PUT",
+  },
+  {
+    "checksum": 2872534815,
+    "object_id": "test1",
+    "op": "REMOVE",
+  },
+]
+`;
+
+exports[`MikroORM SQLite Sync Bucket Storage - Data - v2 > (insert, delete, insert), (delete) 1`] = `
+[
+  {
+    "checksum": 2871785649,
+    "object_id": "test1",
+    "op": "PUT",
+  },
+  {
+    "checksum": 2872534815,
+    "object_id": "test1",
+    "op": "REMOVE",
+  },
+  {
+    "checksum": 2871785649,
+    "object_id": "test1",
+    "op": "PUT",
+  },
+  {
+    "checksum": 2872534815,
+    "object_id": "test1",
+    "op": "REMOVE",
+  },
+]
+`;
+
+exports[`MikroORM SQLite Sync Bucket Storage - Data - v3 > (insert, delete, insert), (delete) 1`] = `
+[
+  {
+    "checksum": 2871785649,
+    "object_id": "test1",
+    "op": "PUT",
+  },
+  {
+    "checksum": 2872534815,
+    "object_id": "test1",
+    "op": "REMOVE",
+  },
+  {
+    "checksum": 2871785649,
+    "object_id": "test1",
+    "op": "PUT",
+  },
+  {
+    "checksum": 2872534815,
+    "object_id": "test1",
+    "op": "REMOVE",
+  },
+]
+`;
