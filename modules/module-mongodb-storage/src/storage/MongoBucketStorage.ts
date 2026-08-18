@@ -148,24 +148,15 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
       if (next != null && next.content.replicationStreamId == replicationStreamId) {
         // We need to redo the "next" replication stream.
-        // This creates a new stream.
+        // This creates a new stream, and stops the existing PROCESSING one.
         await this.updateSyncRulesInTransaction(
           next.content.asUpdateOptions({ forceNewReplicationStream: true }),
           session
         );
         const sharedActiveStream = active?.content.replicationStreamId == replicationStreamId;
         if (sharedActiveStream) {
+          // The same stream was also used for the ACTIVE config. Transition that to ERRORED
           await this.errorActiveStreamForReplacement(active, session);
-        } else {
-          // A separate deploying stream no longer needs replication after its replacement exists.
-          await this.db.sync_rules.updateOne(
-            {
-              _id: next.content.replicationStreamId,
-              state: storage.SyncRuleState.PROCESSING
-            },
-            stopReplicationStreamPipeline(),
-            { session }
-          );
         }
       } else if (next == null && active?.content.replicationStreamId == replicationStreamId) {
         // Slot removed for "active" replication stream, while there is no "next" one.
