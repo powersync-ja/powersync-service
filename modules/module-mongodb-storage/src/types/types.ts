@@ -27,7 +27,7 @@ export const MongoStorageReadPreference = t
 
 export type MongoStorageReadPreference = t.Encoded<typeof MongoStorageReadPreference>;
 
-export const MongoStorageConfig = lib_mongo.BaseMongoConfig.and(
+export const MongoStorageConfig = service_types.configFile.BaseStorageConfig.and(lib_mongo.BaseMongoConfig).and(
   t.object({
     /**
      * Read preference for bulk checksum and bucket data reads.
