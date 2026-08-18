@@ -204,7 +204,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       const result = await this.db.sync_rules.updateOne(
         {
           _id: active.content.replicationStreamId,
-          state: storage.SyncRuleState.ACTIVE
+          state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
         },
         {
           $set: {
@@ -227,12 +227,12 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const result = await this.db.sync_rules.updateOne(
       {
         _id: active.content.replicationStreamId,
-        state: storage.SyncRuleState.ACTIVE,
+        state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] },
         sync_configs: {
-          // Confirm that this is still the ACTIVE one.
+          // Confirm that this is still the ACTIVE/ERRORED one.
           $elemMatch: {
             _id: activeConfigObjectId,
-            state: storage.SyncRuleState.ACTIVE
+            state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
           }
         }
       },
