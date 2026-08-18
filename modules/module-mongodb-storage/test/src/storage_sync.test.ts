@@ -16,6 +16,7 @@ import { MongoPersistedSyncConfigContentV3 } from '../../src/storage/implementat
 import { BucketDataDoc, BucketKey } from '../../src/storage/implementation/common/BucketDataDoc.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { getMongoStorageConfig } from '../../src/storage/implementation/models.js';
+import { loadBucketDataDocumentV1, serializeBucketDataV1 } from '../../src/storage/implementation/v1/models.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { serializeBucketData } from '../../src/storage/implementation/v3/bucket-format.js';
@@ -113,6 +114,31 @@ function bucketDefinitionId(bucket: string) {
   }
   return parseInt(match[1], 16);
 }
+
+test('V1 bucket data retains an optional persisted subkey', () => {
+  const sourceTable = new bson.ObjectId();
+  const document = serializeBucketDataV1({
+    bucketKey: {
+      replicationStreamId: 1,
+      definitionId: '0',
+      bucket: 'global[]'
+    },
+    o: 1n,
+    op: 'PUT',
+    source_table: sourceTable,
+    source_key: 'source-key',
+    subkey: 'persisted-subkey',
+    table: 'items',
+    row_id: 'item-1',
+    checksum: 1n,
+    data: '{"id":"item-1"}'
+  });
+
+  expect(loadBucketDataDocumentV1(document).subkey).toBe('persisted-subkey');
+
+  const { subkey: _subkey, ...legacyDocument } = document;
+  expect(loadBucketDataDocumentV1(legacyDocument).subkey).toBeUndefined();
+});
 
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
   register.registerSyncTests(storageConfig.factory, {
