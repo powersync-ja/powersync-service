@@ -200,6 +200,7 @@ export class MongoCompactorV1 extends MongoCompactor {
                   $unset: {
                     source_table: 1,
                     source_key: 1,
+                    subkey: 1,
                     table: 1,
                     row_id: 1,
                     data: 1
