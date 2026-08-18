@@ -140,7 +140,7 @@ export class ConvexStream {
 
     const { lastOpId } = await this.initialReplication(status.snapshotLsn);
     if (lastOpId != null) {
-      await this.storage.populatePersistentChecksumCache({
+      await this.storage.compactInitialReplication({
         signal: this.abortSignal,
         maxOpId: lastOpId
       });

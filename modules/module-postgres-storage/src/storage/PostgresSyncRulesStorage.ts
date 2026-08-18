@@ -4,6 +4,8 @@ import {
   BucketChecksum,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
+  CompactInitialReplicationOptions,
+  CompactInitialReplicationResults,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
@@ -11,11 +13,10 @@ import {
   maxLsn,
   ParameterSetLimitExceededError,
   PartialChecksum,
-  PopulateChecksumCacheOptions,
-  PopulateChecksumCacheResults,
   ReplicationCheckpoint,
   storage,
   StorageVersionConfig,
+  SyncRuleState,
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
@@ -146,6 +147,14 @@ export class PostgresSyncRulesStorage
   }
 
   async compact(options?: storage.CompactOptions): Promise<void> {
+    if (options?.incrementalOnly) {
+      // Not supported yet
+      this.logger.info('Incremental compacting is not supported on Postgres storage yet.');
+      return;
+    } else if (this.replicationStream.state != SyncRuleState.ACTIVE) {
+      this.logger.info(`Skipping compacting of replication stream in ${this.replicationStream.state} state.`);
+      return;
+    }
     let maxOpId = options?.maxOpId;
     if (maxOpId == null) {
       const checkpoint = await this.getCheckpoint();
@@ -160,7 +169,9 @@ export class PostgresSyncRulesStorage
     }).compact();
   }
 
-  async populatePersistentChecksumCache(_options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
+  async compactInitialReplication(
+    _options: CompactInitialReplicationOptions
+  ): Promise<CompactInitialReplicationResults> {
     // no-op - checksum cache is not implemented for Postgres yet
     return { buckets: 0 };
   }

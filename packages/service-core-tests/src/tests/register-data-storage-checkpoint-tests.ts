@@ -1,6 +1,7 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
+import { compactActive } from './util.js';
 
 /**
  * @example
@@ -399,11 +400,12 @@ bucket_definitions:
       checkpoint_requested_at: new Date('2024-01-01T00:00:00.000Z')
     });
     await writer.flush();
+    await writer.keepalive('1/1');
 
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'persistent' })).resolves.toEqual(5n);
     await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'temporary' })).resolves.toEqual(6n);
 
-    await bucketStorage.compact({
+    await compactActive(factory, {
       compactBuckets: [],
       deleteCheckpointRequestsBefore: new Date(Date.now() + 1_000)
     });

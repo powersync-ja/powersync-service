@@ -12,14 +12,15 @@ import {
   BroadcastIterable,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
+  CompactInitialReplicationOptions,
+  CompactInitialReplicationResults,
   GetCheckpointChangesOptions,
   InternalOpId,
   mergeAsyncIterables,
-  PopulateChecksumCacheOptions,
-  PopulateChecksumCacheResults,
   ReplicationCheckpoint,
   ReplicationStreamStorageIds,
   storage,
+  SyncRuleState,
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
@@ -383,42 +384,28 @@ export abstract class MongoSyncBucketStorage
   async compact(options?: storage.CompactOptions) {
     let maxOpId = options?.maxOpId;
     if (maxOpId == null) {
+      // For PROCESSING streams, this will be undefined.
       const checkpoint = await this.getCheckpointInternal();
       maxOpId = checkpoint?.checkpoint ?? undefined;
     }
     await this.createMongoCompactor({ ...options, maxOpId, logger: this.logger }).compact();
 
-    if (maxOpId != null && options?.compactParameterData) {
+    if (maxOpId != null && options?.compactParameterData && this.replicationStream.state == SyncRuleState.ACTIVE) {
       await this.createMongoParameterCompactor(maxOpId, options).compact();
     }
   }
 
+  abstract compactInitialReplication(
+    options: CompactInitialReplicationOptions
+  ): Promise<CompactInitialReplicationResults>;
+
   /**
    * The highest op id persisted for this stream, whether or not covered by a checkpoint.
    *
-   * Used as the default `maxOpId` for {@link populatePersistentChecksumCache}, which runs after
+   * Used as the default `maxOpId` for {@link compactInitialReplication}, which runs after
    * initial replication but before the first checkpoint exists.
    */
   protected abstract fetchPersistedOpHead(): Promise<InternalOpId | null>;
-
-  async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
-    this.logger.info(`Populating persistent checksum cache...`);
-    const start = Date.now();
-    const maxOpId = options.maxOpId ?? (await this.fetchPersistedOpHead()) ?? undefined;
-    const compactor = this.createMongoCompactor({
-      ...options,
-      maxOpId,
-      memoryLimitMB: 0,
-      logger: this.logger
-    });
-
-    const result = await compactor.populateChecksums({
-      minBucketChanges: options.minBucketChanges ?? 10
-    });
-    const duration = Date.now() - start;
-    this.logger.info(`Populated persistent checksum cache in ${(duration / 1000).toFixed(1)}s`);
-    return result;
-  }
 
   private async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<ReplicationCheckpoint> {
     if (signal.aborted) {

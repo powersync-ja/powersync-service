@@ -15,6 +15,7 @@ import {
 import { SourceRecordLookupState } from '../common/SourceRecordStore.js';
 import { serializeBucketData } from './bucket-format.js';
 import { chunkBucketData } from './chunking.js';
+import { DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS } from './compaction-constants.js';
 import {
   BucketDataDocumentV3,
   BucketStateDocumentV3,
@@ -232,8 +233,10 @@ export class PersistedBatchV3 extends PersistedBatch {
       const createInserts: (() => Promise<mongo.AnyBulkWriteOperation<BucketDataDocumentV3>>)[] = [];
 
       for (const [bucket, ops] of operationsByBucket) {
+        this.resetBucketPersistedBytes(definitionId, bucket);
         for (const chunk of chunkBucketData(ops)) {
           const serialized = serializeBucketData(bucket, chunk);
+          this.incrementBucketPersistedChunk(definitionId, bucket, serialized.size);
           if (lifecycle == null || serialized.size <= this.inlineThresholdBytes) {
             createInserts.push(async () => ({
               insertOne: {
@@ -379,15 +382,42 @@ export class PersistedBatchV3 extends PersistedBatch {
               b: state.bucket
             }
           },
-          update: {
-            $set: {
-              last_op: state.lastOp
-            },
-            $inc: {
-              'estimate_since_compact.count': state.incrementCount,
-              'estimate_since_compact.bytes': state.incrementBytes
+          // A pipeline update makes initialisation and scheduling one atomic
+          // writer operation. In particular, a later write cannot move an
+          // already-due compact check into the future.
+          update: [
+            {
+              $set: {
+                last_op: state.lastOp,
+                bucket_stats: {
+                  count: { $add: [{ $ifNull: ['$bucket_stats.count', 0] }, state.incrementCount] },
+                  bytes: { $add: [{ $ifNull: ['$bucket_stats.bytes', 0n] }, BigInt(state.incrementBytes)] },
+                  chunks: { $add: [{ $ifNull: ['$bucket_stats.chunks', 0] }, state.incrementChunks] }
+                },
+                first_uncompacted_write: { $ifNull: ['$first_uncompacted_write', '$$NOW'] },
+                next_compact_check: {
+                  $let: {
+                    vars: {
+                      requested: {
+                        $dateAdd: {
+                          startDate: '$$NOW',
+                          unit: 'millisecond',
+                          amount: DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS
+                        }
+                      }
+                    },
+                    in: {
+                      $cond: [
+                        { $lt: [{ $ifNull: ['$next_compact_check', '$$requested'] }, '$$requested'] },
+                        '$next_compact_check',
+                        '$$requested'
+                      ]
+                    }
+                  }
+                }
+              }
             }
-          },
+          ],
           upsert: true
         }
       } satisfies mongo.AnyBulkWriteOperation<BucketStateDocumentV3>;

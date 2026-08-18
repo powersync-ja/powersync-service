@@ -1,5 +1,5 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, compactActive, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { PostgresCompactor } from '../../src/storage/PostgresCompactor.js';
 import { POSTGRES_STORAGE_FACTORY } from './util.js';
@@ -44,7 +44,7 @@ bucket_definitions:
 
     // Compact with an explicit bucket name — exercises the this.buckets
     // iteration path, NOT the compactAllBuckets discovery path.
-    await bucketStorage.compact({
+    await compactActive(factory, {
       compactBuckets: [bucketRequest(syncRulesContent, 'global[]').bucket],
       minBucketChanges: 1
     });
