@@ -15,6 +15,7 @@ import { fileURLToPath } from 'url';
 import { expect, test, vi } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest, METRICS_HELPER } from '../test-utils/test-utils-index.js';
+import { compactActive } from './util.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1308,6 +1309,7 @@ bucket_definitions:
     const bucketStorage = await f.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const bucket = bucketRequest(syncRules.syncConfigContent[0], 'mybucket[]').bucket;
 
     await writer.markAllSnapshotDone('0/1');
     await writer.save({
@@ -1386,10 +1388,7 @@ bucket_definitions:
 
     await writer.commit('0/2');
 
-    await bucketStorage.compact({
-      minBucketChanges: 1,
-      minChangeRatio: 0
-    });
+    await compactActive(f, { compactBuckets: [bucket] });
 
     const lines2 = await getCheckpointLines(iter, { consume: true });
 
@@ -1470,6 +1469,7 @@ bucket_definitions:
     const bucketStorage = await f.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const highPriorityBucket = bucketRequest(syncRules.syncConfigContent[0], 'high_priority[]').bucket;
 
     await writer.markAllSnapshotDone('0/1');
     await writer.save({
@@ -1552,9 +1552,10 @@ bucket_definitions:
     });
     await writer.commit('0/2');
 
-    await bucketStorage.compact({
-      minBucketChanges: 1,
-      minChangeRatio: 0
+    await compactActive(f, {
+      // Explicitly compact the high-priority bucket: V3 schedules background
+      // compaction, while this test needs compaction at this exact point.
+      compactBuckets: [highPriorityBucket]
     });
 
     const lines = await getCheckpointLines(iter, { consume: true });

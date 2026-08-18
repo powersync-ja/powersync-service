@@ -3,6 +3,8 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   CheckpointChanges,
+  CompactInitialReplicationOptions,
+  CompactInitialReplicationResults,
   deserializeParameterLookup,
   GetCheckpointChangesOptions,
   InternalOpId,
@@ -29,7 +31,7 @@ import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageCheckpoint.js';
 import { SourceKey } from '../models.js';
 import { MongoChecksums } from '../MongoChecksums.js';
-import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
+import { MongoCompactOptions } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
@@ -186,8 +188,29 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     });
   }
 
-  createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
+  createMongoCompactor(options: MongoCompactOptions): MongoCompactorV1 {
     return new MongoCompactorV1(this, this.db, options);
+  }
+
+  async compactInitialReplication(
+    options: CompactInitialReplicationOptions
+  ): Promise<CompactInitialReplicationResults> {
+    this.logger.info(`Compacting after initial replication...`);
+    const start = Date.now();
+    const maxOpId = options.maxOpId ?? (await this.fetchPersistedOpHead()) ?? undefined;
+    const compactor = this.createMongoCompactor({
+      ...options,
+      maxOpId,
+      memoryLimitMB: 0,
+      logger: this.logger
+    });
+
+    const result = await compactor.populateChecksums({
+      minBucketChanges: options.minBucketChanges ?? 10
+    });
+    const duration = Date.now() - start;
+    this.logger.info(`Compacted after initial replication in ${(duration / 1000).toFixed(1)}s`);
+    return result;
   }
 
   protected createMongoParameterCompactor(

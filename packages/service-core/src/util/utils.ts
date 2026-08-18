@@ -309,3 +309,17 @@ export function estimateRowSize(record: sync_rules.ToastableSqliteRow | undefine
   }
   return size;
 }
+
+export function formatBytes(bytes: number | bigint): string {
+  if (typeof bytes == 'bigint') {
+    bytes = Number(bytes); // We round either way
+  }
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
+  } else if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  } else if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(1)}KB`;
+  }
+  return `${bytes}B`;
+}
