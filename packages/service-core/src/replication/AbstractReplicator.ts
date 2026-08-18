@@ -189,7 +189,11 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     while (!this.stopped) {
       await container.probes.touch();
       try {
-        const refreshResult = await this.refresh({ configuredLock, loadedSyncConfig });
+        const refreshResult = await this.refresh({
+          configuredLock,
+          loadedSyncConfig,
+          loadedVersionLabel: this.syncRuleProvider.versionLabel
+        });
         if (refreshResult.replicationJobStarted || Date.now() >= fastRefreshDeadline) {
           useFastRefresh = false;
         }
@@ -221,6 +225,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   private async refresh(options?: {
     configuredLock?: storage.ReplicationLock;
     loadedSyncConfig?: string;
+    loadedVersionLabel?: string;
   }): Promise<{ replicationJobStarted: boolean }> {
     if (this.stopped) {
       return { replicationJobStarted: false };
@@ -238,7 +243,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       const jobId = replicationStream.replicationJobId;
       const existingJob = existingJobs.get(jobId);
       const syncConfigMismatchMessage = 'Ignoring replication stream for sync config not loaded by this process';
-      if (!this.shouldHandleReplicationStream(replicationStream, options?.loadedSyncConfig)) {
+      if (
+        !this.shouldHandleReplicationStream(replicationStream, options?.loadedSyncConfig, options?.loadedVersionLabel)
+      ) {
         this.logReplicationStreamInfoOnce(replicationStream, 'sync-config-mismatch', () => {
           replicationStream.logger.info(syncConfigMismatchMessage);
         });
@@ -376,7 +383,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
    */
   private shouldHandleReplicationStream(
     replicationStream: storage.PersistedReplicationStream,
-    loadedSyncRules: string | undefined
+    loadedSyncRules: string | undefined,
+    loadedVersionLabel: string | undefined
   ) {
     if (loadedSyncRules == null) {
       return true;
@@ -385,7 +393,10 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     const processingConfig = replicationStream.syncConfigContent.find(
       (syncConfig) => syncConfig.syncConfigState == storage.SyncRuleState.PROCESSING
     );
-    return processingConfig == null || processingConfig.sync_rules_content == loadedSyncRules;
+    return (
+      processingConfig == null ||
+      (processingConfig.sync_rules_content == loadedSyncRules && processingConfig.version_label == loadedVersionLabel)
+    );
   }
 
   protected createJobId(syncRuleId: number) {
