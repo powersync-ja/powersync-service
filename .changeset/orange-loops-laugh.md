@@ -3,4 +3,4 @@
 '@powersync/service-core': patch
 ---
 
-[MongoDB Storage V3] Force create new replication stream when the old one is invalidated.
+[MongoDB Storage V3] Force create new replication stream when the old one is invalidated, and fix other consistency issues with V3 replication stream updates.
