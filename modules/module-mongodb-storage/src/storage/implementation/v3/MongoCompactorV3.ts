@@ -769,6 +769,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
                 row_id: undefined,
                 source_table: undefined,
                 source_key: undefined,
+                subkey: undefined,
                 data: null
               });
               changed = true;

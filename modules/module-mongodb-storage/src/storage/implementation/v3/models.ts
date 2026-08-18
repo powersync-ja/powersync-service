@@ -221,6 +221,7 @@ export interface BucketOperation {
   op: OpType;
   source_table?: bson.ObjectId;
   source_key?: ReplicaId;
+  subkey?: string;
   table?: string;
   row_id?: string;
   checksum: bigint;
