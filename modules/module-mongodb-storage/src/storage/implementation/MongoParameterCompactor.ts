@@ -14,7 +14,6 @@ type ParameterCompactionReadDocument = {
 export type ParameterCompactionResult = {
   collections: number;
   scannedEntries: number;
-  distinctIdentities: number;
   deletedEntries: number;
 };
 
@@ -83,7 +82,7 @@ export abstract class MongoParameterCompactor {
     const durationSeconds = (Date.now() - startedAt) / 1000;
     this.logger.info(
       `Incremental parameter compaction completed for sync config ${this.replicationStreamId}: ` +
-        `collections=${result.collections}, scanned=${result.scannedEntries}, distinct=${result.distinctIdentities}, ` +
+        `collections=${result.collections}, scanned=${result.scannedEntries}, ` +
         `deleted=${result.deletedEntries}, cursor=${compactedBefore}->${this.checkpoint}, ` +
         `fence=${this.#invalidationFencePersisted ? this.checkpoint : 'unchanged'}, duration=${durationSeconds.toFixed(1)}s`
     );
@@ -160,7 +159,6 @@ export abstract class MongoParameterCompactor {
 
   protected async compactCollections(compactedBefore: InternalOpId): Promise<ParameterCompactionResult> {
     let scannedEntries = 0;
-    let distinctIdentities = 0;
     let deletedEntries = 0;
     let collections = 0;
 
@@ -169,11 +167,10 @@ export abstract class MongoParameterCompactor {
       collections++;
       const result = await this.compactCollection(collection, compactedBefore);
       scannedEntries += result.scannedEntries;
-      distinctIdentities += result.distinctIdentities;
       deletedEntries += result.deletedEntries;
     }
 
-    return { collections, scannedEntries, distinctIdentities, deletedEntries };
+    return { collections, scannedEntries, deletedEntries };
   }
 
   protected async compactCollection(
@@ -181,7 +178,6 @@ export abstract class MongoParameterCompactor {
     compactedBefore: InternalOpId
   ): Promise<Omit<ParameterCompactionResult, 'collections'>> {
     let scannedEntries = 0;
-    let distinctIdentities = 0;
     let deletedEntries = 0;
     let lastId: InternalOpId | undefined;
     // This is used to optimize deletes. It is safe for items to be evicted: That just
@@ -231,8 +227,6 @@ export abstract class MongoParameterCompactor {
         }
         newestByIdentity.set(identity, document);
       }
-
-      distinctIdentities += newestByIdentity.size;
 
       const leadingHistoryDeletes = new Map<string, LeadingHistoryDelete>();
       const tombstoneIds: InternalOpId[] = [];
@@ -316,7 +310,7 @@ export abstract class MongoParameterCompactor {
       this.logger.info(
         `Compacted parameter batch in ${collection.collectionName}: ` +
           `_id ${batch[0]._id}..${lastId}, scanned=${batch.length} (${scannedEntries} total), ` +
-          `identities=${newestByIdentity.size}, exactIds=${supersededIds.length + tombstoneIds.length}, ` +
+          `batchIdentities=${newestByIdentity.size}, exactIds=${supersededIds.length + tombstoneIds.length}, ` +
           `lookupGroups=${leadingHistoryDeletes.size}, deleted=${deletedEntries - deletedBeforeBatch}, ` +
           `duration=${batchDurationSeconds.toFixed(1)}s`
       );
@@ -325,11 +319,11 @@ export abstract class MongoParameterCompactor {
     if (scannedEntries > 0) {
       this.logger.info(
         `Parameter compaction completed for ${collection.collectionName}: ` +
-          `scanned=${scannedEntries}, identities=${distinctIdentities}, deleted=${deletedEntries}`
+          `scanned=${scannedEntries}, deleted=${deletedEntries}`
       );
     }
 
-    return { scannedEntries, distinctIdentities, deletedEntries };
+    return { scannedEntries, deletedEntries };
   }
 
   /** Deletes documents by `_id`, chunked to bound the command size. Returns the number deleted. */
