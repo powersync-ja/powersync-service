@@ -1,5 +1,5 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { BATCH_OPTIONS, resolveTestTable, StorageDataHelpers } from '../../test-utils/test-utils-index.js';
+import { BATCH_OPTIONS, resolveTestTable, StorageDataHelpers } from '@powersync/service-core-tests';
 import { generateBaselineStorageRows } from '../generators/generate-baseline-storage-rows.js';
 import { BenchmarkCorrectnessCheck, BenchmarkCorrectnessResult } from '../types/BenchmarkIteration.js';
 import { BenchmarkRunOptions } from '../types/BenchmarkRunOptions.js';

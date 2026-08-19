@@ -1,4 +1,4 @@
-import { ReplicationChildController } from '../../../fixtures/replication/ReplicationChildController.js';
+import { ReplicationChildController } from '../../../replication/ReplicationChildController.js';
 import {
   ReplicationBenchmarkIterationResource,
   ReplicationBenchmarkIterationSetup,

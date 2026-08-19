@@ -770,6 +770,9 @@ importers:
       '@powersync/lib-service-mongodb':
         specifier: workspace:*
         version: link:../../libs/lib-mongodb
+      '@powersync/service-core-tests':
+        specifier: workspace:*
+        version: link:../service-core-tests
       '@powersync/service-module-mongodb':
         specifier: workspace:*
         version: link:../../modules/module-mongodb

@@ -1,9 +1,9 @@
-import { ForkedReplicationChildTransport } from '../../../fixtures/replication/ForkedReplicationChildTransport.js';
+import { ReplicationChildResourceMonitor } from '../../../monitors/ReplicationChildResourceMonitor.js';
+import { ForkedReplicationChildTransport } from '../../../replication/ForkedReplicationChildTransport.js';
 import {
   ReplicationChildController,
   ReplicationChildTransport
-} from '../../../fixtures/replication/ReplicationChildController.js';
-import { ReplicationChildResourceMonitor } from '../../../monitors/ReplicationChildResourceMonitor.js';
+} from '../../../replication/ReplicationChildController.js';
 import {
   ReplicationBenchmarkImplementation,
   ReplicationBenchmarkRunResource

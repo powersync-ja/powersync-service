@@ -9,16 +9,15 @@ import {
   updateSyncRulesFromYaml,
   utils
 } from '@powersync/service-core';
+import { METRICS_HELPER, StorageDataHelpers } from '@powersync/service-core-tests';
 import { MongoModule } from '@powersync/service-module-mongodb';
-import { METRICS_HELPER } from '../../../test-utils/MetricsHelper.js';
-import { StorageDataHelpers } from '../../../test-utils/StorageDataHelpers.js';
-import { SyntheticReplicationModule } from '../../implementations/replication/synthetic/SyntheticReplicationModule.js';
-import { SyntheticReplicationSource } from '../../implementations/replication/synthetic/SyntheticReplicationSource.js';
-import { SyntheticReplicator } from '../../implementations/replication/synthetic/SyntheticReplicator.js';
-import { MongoStorageBenchmarkImplementation } from '../../implementations/storage/MongoStorageBenchmarkImplementation.js';
-import { PostgresStorageBenchmarkImplementation } from '../../implementations/storage/PostgresStorageBenchmarkImplementation.js';
-import { ReplicationBenchmarkManifest, ReplicationBenchmarkObservation } from '../../types/ReplicationBenchmark.js';
-import { StorageBenchmarkRunResource } from '../../types/StorageBenchmark.js';
+import { SyntheticReplicationModule } from '../implementations/replication/synthetic/SyntheticReplicationModule.js';
+import { SyntheticReplicationSource } from '../implementations/replication/synthetic/SyntheticReplicationSource.js';
+import { SyntheticReplicator } from '../implementations/replication/synthetic/SyntheticReplicator.js';
+import { MongoStorageBenchmarkImplementation } from '../implementations/storage/MongoStorageBenchmarkImplementation.js';
+import { PostgresStorageBenchmarkImplementation } from '../implementations/storage/PostgresStorageBenchmarkImplementation.js';
+import { ReplicationBenchmarkManifest, ReplicationBenchmarkObservation } from '../types/ReplicationBenchmark.js';
+import { StorageBenchmarkRunResource } from '../types/StorageBenchmark.js';
 import {
   REPLICATION_CHILD_PROTOCOL_VERSION,
   ReplicationChildCommand,

@@ -1,5 +1,5 @@
-import { monotonicMilliseconds } from '../fixtures/replication/replication-child-protocol.js';
 import { generateBaselineReplicationManifest } from '../generators/generate-baseline-replication-manifest.js';
+import { monotonicMilliseconds } from '../replication/replication-child-protocol.js';
 import { BenchmarkCorrectnessCheck, BenchmarkCorrectnessResult } from '../types/BenchmarkIteration.js';
 import { BenchmarkRunOptions } from '../types/BenchmarkRunOptions.js';
 import {
