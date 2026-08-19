@@ -18,7 +18,6 @@ export type ParameterCompactionResult = {
 };
 
 const PARAMETER_COMPACTION_BATCH_SIZE = 10_000;
-const PARAMETER_COMPACTION_DELETE_BATCH_SIZE = 1_000;
 
 /**
  * Compacts parameter lookup data (the bucket_parameters collection).
@@ -64,14 +63,6 @@ export abstract class MongoParameterCompactor {
 
   protected abstract getCollections(): Promise<mongo.Collection<mongo.Document>[]>;
 
-  /**
-   * V1 and V3 both scan in operation-id order. V3 additionally supplies a persisted lower
-   * cursor boundary.
-   */
-  protected compactionSort(): mongo.Document {
-    return { _id: 1 };
-  }
-
   protected abstract compactionFilter(compactedBefore: InternalOpId): mongo.Document;
 
   protected abstract shouldCompactDocument(doc: ParameterCompactionReadDocument): boolean;
@@ -102,73 +93,63 @@ export abstract class MongoParameterCompactor {
     compactedBefore: InternalOpId
   ): Promise<Omit<ParameterCompactionResult, 'collections'>> {
     const cursor = collection.find(this.compactionFilter(compactedBefore), {
-      sort: this.compactionSort(),
+      sort: { _id: 1 },
       batchSize: this.parameterCompactionBatchSize,
       projection: { _id: 1, key: 1, lookup: 1, bucket_parameters: { $slice: 1 } }
     });
+    await using _ = { [Symbol.asyncDispose]: () => cursor.close() };
 
     let scannedEntries = 0;
     let distinctIdentities = 0;
     let deletedEntries = 0;
-    let deleteOperations: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
-    let tombstoneDeleteOperations: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
 
-    const flushDeletes = async (force: boolean) => {
+    while (await cursor.hasNext()) {
+      const batch = cursor.readBufferedDocuments() as unknown as ParameterCompactionReadDocument[];
+      scannedEntries += batch.length;
+
+      // Optimization: Only keep the latest doc in each batch
+      const newestByIdentity = new Map<string, ParameterCompactionReadDocument>();
+      for (const document of batch) {
+        if (!this.shouldCompactDocument(document)) {
+          continue;
+        }
+        const identity = (bson.serialize({ k: document.key, l: document.lookup }) as Buffer).toString('base64');
+        const previous = newestByIdentity.get(identity);
+        if (previous == null || previous._id < document._id) {
+          newestByIdentity.set(identity, document);
+        }
+      }
+
+      distinctIdentities += newestByIdentity.size;
+
+      let deleteOperations: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
+      let tombstoneDeleteOperations: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
+      for (const document of newestByIdentity.values()) {
+        const filter = this.deleteFilter(document);
+        if (document.bucket_parameters?.length == 0) {
+          deleteOperations.push({ deleteMany: { filter } });
+          tombstoneDeleteOperations.push({
+            deleteOne: { filter: this.deleteTombstoneFilter(document) }
+          });
+        } else {
+          deleteOperations.push({ deleteMany: { filter } });
+        }
+      }
+
       // Tombstone cleanup has two phases. Delete its preceding history while the tombstone is
       // still present, then delete the tombstone itself. This avoids leaving an older value
       // visible if a non-transactional deleteMany is interrupted after deleting the tombstone.
-      const flushTombstones = force || tombstoneDeleteOperations.length >= PARAMETER_COMPACTION_DELETE_BATCH_SIZE;
-      const flushHistory =
-        force || deleteOperations.length >= PARAMETER_COMPACTION_DELETE_BATCH_SIZE || flushTombstones;
-
-      if (flushHistory && deleteOperations.length > 0) {
+      if (deleteOperations.length > 0) {
         const result = await collection.bulkWrite(deleteOperations, { ordered: false });
         deletedEntries += result.deletedCount;
         deleteOperations = [];
       }
 
-      if (flushTombstones && tombstoneDeleteOperations.length > 0) {
+      if (tombstoneDeleteOperations.length > 0) {
         const result = await collection.bulkWrite(tombstoneDeleteOperations, { ordered: false });
         deletedEntries += result.deletedCount;
         tombstoneDeleteOperations = [];
       }
-    };
-
-    try {
-      while (await cursor.hasNext()) {
-        const batch = cursor.readBufferedDocuments() as unknown as ParameterCompactionReadDocument[];
-        scannedEntries += batch.length;
-
-        const newestByIdentity = new Map<string, ParameterCompactionReadDocument>();
-        for (const document of batch) {
-          if (!this.shouldCompactDocument(document)) {
-            continue;
-          }
-          const identity = (bson.serialize({ k: document.key, l: document.lookup }) as Buffer).toString('base64');
-          const previous = newestByIdentity.get(identity);
-          if (previous == null || previous._id < document._id) {
-            newestByIdentity.set(identity, document);
-          }
-        }
-
-        distinctIdentities += newestByIdentity.size;
-        for (const document of newestByIdentity.values()) {
-          const filter = this.deleteFilter(document);
-          if (document.bucket_parameters?.length == 0) {
-            deleteOperations.push({ deleteMany: { filter } });
-            tombstoneDeleteOperations.push({
-              deleteOne: { filter: this.deleteTombstoneFilter(document) }
-            });
-          } else {
-            deleteOperations.push({ deleteMany: { filter } });
-          }
-        }
-
-        await flushDeletes(false);
-      }
-      await flushDeletes(true);
-    } finally {
-      await cursor.close();
     }
 
     return { scannedEntries, distinctIdentities, deletedEntries };
