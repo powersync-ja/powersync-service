@@ -2,7 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { InternalOpId, ReplicationCheckpoint } from '@powersync/service-core';
 import * as bson from 'bson';
 
-export interface MongoSyncBucketStorageCheckpoint {
+export interface MongoSyncBucketStorageCheckpoint extends ReplicationCheckpoint {
   checkpoint: InternalOpId;
   snapshotTime: bson.Timestamp;
   clusterTime: mongo.ClusterTime;
@@ -27,5 +27,5 @@ export interface MongoSyncBucketStorageCheckpoint {
  */
 export interface MongoGetCheckpointChangesOptions {
   lastCheckpoint: ReplicationCheckpoint;
-  nextCheckpoint: ReplicationCheckpoint & MongoSyncBucketStorageCheckpoint;
+  nextCheckpoint: MongoSyncBucketStorageCheckpoint;
 }

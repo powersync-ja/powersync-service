@@ -598,7 +598,7 @@ export abstract class MongoSyncBucketStorage
   private async getParameterBucketChanges(
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
-    const nextCheckpoint = options.nextCheckpoint as MongoReplicationCheckpoint;
+    const nextCheckpoint = requireMongoCheckpoint(options.nextCheckpoint);
     if (options.lastCheckpoint.checkpoint < nextCheckpoint.parameterChangesInvalidBefore) {
       // Parameter compaction may have deleted parameter entries in the range we'd have to query
       // to find the individual changed lookups. Invalidate all parameter buckets instead.
@@ -643,7 +643,7 @@ export abstract class MongoSyncBucketStorage
   async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<InternalCheckpointChanges> {
     // The invalidation fence is part of the identity: the same checkpoint pair read before and
     // after a compaction pass produces different results (specific lookups vs. invalidate-all).
-    const fence = (options.nextCheckpoint as MongoReplicationCheckpoint).parameterChangesInvalidBefore;
+    const fence = requireMongoCheckpoint(options.nextCheckpoint).parameterChangesInvalidBefore;
     const key = `${options.lastCheckpoint.checkpoint}_${options.lastCheckpoint.lsn}__${options.nextCheckpoint.checkpoint}_${options.nextCheckpoint.lsn}_${fence}`;
     const result = await this.checkpointChangesCache.fetch(key, { context: { options } });
     return result!;
@@ -662,7 +662,19 @@ export abstract class MongoSyncBucketStorage
   }
 }
 
-class MongoReplicationCheckpoint implements ReplicationCheckpoint, MongoSyncBucketStorageCheckpoint {
+/**
+ * We don't support any other constructions of ReplicationCheckpoint.
+ */
+function requireMongoCheckpoint(checkpoint: ReplicationCheckpoint): MongoReplicationCheckpoint {
+  if (!(checkpoint instanceof MongoReplicationCheckpoint)) {
+    throw new ServiceAssertionError(
+      `Checkpoint changes require a checkpoint from getCheckpointInternal(), got ${checkpoint.constructor.name}`
+    );
+  }
+  return checkpoint;
+}
+
+class MongoReplicationCheckpoint implements MongoSyncBucketStorageCheckpoint {
   #storage: MongoSyncBucketStorage;
 
   constructor(
@@ -671,7 +683,7 @@ class MongoReplicationCheckpoint implements ReplicationCheckpoint, MongoSyncBuck
     public readonly lsn: string | null,
     public snapshotTime: mongo.Timestamp,
     public clusterTime: mongo.ClusterTime,
-    /** Captured in the same snapshot as the checkpoint - see {@link MongoSyncBucketStorageCheckpoint}. */
+    /** Captured in the same snapshot as the checkpoint. */
     public readonly parameterChangesInvalidBefore: InternalOpId
   ) {
     this.#storage = storage;
@@ -682,10 +694,13 @@ class MongoReplicationCheckpoint implements ReplicationCheckpoint, MongoSyncBuck
   }
 }
 
+/**
+ * Used when no checkpoint has been persisted yet. This has no snapshot or invalidation fence, so
+ * it cannot be used for checkpoint change detection - see {@link requireMongoCheckpoint}.
+ */
 class EmptyReplicationCheckpoint implements ReplicationCheckpoint {
   readonly checkpoint: InternalOpId = 0n;
   readonly lsn: string | null = null;
-  readonly parameterChangesInvalidBefore: InternalOpId = 0n;
 
   async getParameterSets(_lookups: ScopedParameterLookup[], _limit: number): Promise<ParameterLookupRows[]> {
     return [];
