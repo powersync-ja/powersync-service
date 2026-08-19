@@ -3,7 +3,7 @@ import { MapSourceVisitor, visitExpr } from '../sync_plan/expression_visitor.js'
 import * as plan from '../sync_plan/plan.js';
 import { compiledEventDefinitionId } from '../sync_plan/serialize.js';
 import * as resolver from './bucket_resolver.js';
-import { CompiledStreamQueries } from './compiler.js';
+import type { SyncPlanCompilerModel } from './compiler.js';
 import { Equality, HashMap, StableHasher, unorderedEquality } from './equality.js';
 import { ColumnInRow, ExpressionInput, RowMetadata, SyncExpression } from './expression.js';
 import * as rows from './rows.js';
@@ -47,12 +47,12 @@ export class CompilerModelToSyncPlan {
     return mapped;
   }
 
-  translate(source: CompiledStreamQueries): plan.SyncPlan {
-    const queriersByStream = Object.groupBy(source.resolvers, (r) => r.options.name);
+  translate(source: SyncPlanCompilerModel): plan.SyncPlan {
+    const queriersByStream = Object.groupBy(source.streams.resolvers, (r) => r.options.name);
 
     return {
-      dataSources: source.evaluators.map((e) => this.translateRowEvaluator(e)),
-      parameterIndexes: source.pointLookups.map((p, i) => this.translatePointLookup(p, i)),
+      dataSources: source.streams.evaluators.map((e) => this.translateRowEvaluator(e)),
+      parameterIndexes: source.streams.pointLookups.map((p, i) => this.translatePointLookup(p, i)),
       // Note: data sources and parameter indexes must be translated first because we reference them in stream
       // resolvers.
       streams: Object.values(queriersByStream).map((resolvers) => {
@@ -63,7 +63,7 @@ export class CompilerModelToSyncPlan {
       }),
       buckets: this.buckets,
       events: source.events.map((event) => {
-        const definition: Omit<plan.CompiledEventDescriptor, 'id'> = {
+        const definition: plan.CompiledEventDescriptorContent = {
           name: event.name,
           sourceQueries: event.sourceQueries.map((query) => ({
             sql: query.sql,

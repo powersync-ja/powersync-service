@@ -69,7 +69,7 @@ export class QuerierGraphBuilder {
       return [];
     }
 
-    this.compiler.output.resolvers.push(...buckets);
+    this.compiler.output.streams.resolvers.push(...buckets);
     return buckets;
   }
 
@@ -164,7 +164,7 @@ class PendingQuerierPath {
     const state = this.resolveResultSet(this.query.sourceTable);
     const [partitions, partitionValues] = state.resolvePartitions();
 
-    const evaluator = this.builder.compiler.output.canonicalizeEvaluator(
+    const evaluator = this.builder.compiler.output.streams.canonicalizeEvaluator(
       new RowEvaluator({
         columns: this.query.resultColumns,
         syntacticSource: this.query.sourceTable,
@@ -435,7 +435,7 @@ class PendingQuerierPath {
         if (data.type == 'point') {
           const resultSet = data.resultSet;
           const [partitionKeys, partitionInputs] = resultSet.resolvePartitions();
-          const canonicalized = this.builder.compiler.output.canonicalizePointLookup(
+          const canonicalized = this.builder.compiler.output.streams.canonicalizePointLookup(
             new PointLookup({
               syntacticSource: data.source,
               filters: resultSet.filters,

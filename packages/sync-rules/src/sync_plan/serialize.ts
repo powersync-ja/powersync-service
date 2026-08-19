@@ -1,4 +1,3 @@
-import type { EventDefinitionId } from '../events/EventDescriptor.js';
 import { ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { SqlExpression } from './expression.js';
@@ -7,6 +6,7 @@ import {
   ColumnSource,
   ColumnSqlParameterValue,
   CompiledEventDescriptor,
+  CompiledEventDescriptorContent,
   CompiledSyncStream,
   EvaluateTableValuedFunction,
   EventRowEvaluator,
@@ -98,9 +98,7 @@ function createTableProcessorSerializer() {
     };
   }
 
-  function serializeEventDefinition(
-    event: Pick<CompiledEventDescriptor, 'name' | 'sourceQueries'>
-  ): Omit<SerializedEventDescriptor, 'id'> {
+  function serializeEventDefinition(event: CompiledEventDescriptorContent): SerializedEventDescriptorContent {
     return {
       name: event.name,
       sourceQueries: event.sourceQueries.map((query) => ({
@@ -452,9 +450,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
 }
 
 /** Derive the ID assigned while finalizing a compiled event definition. */
-export function compiledEventDefinitionId(
-  event: Pick<CompiledEventDescriptor, 'name' | 'sourceQueries'>
-): EventDefinitionId {
+export function compiledEventDefinitionId(event: CompiledEventDescriptorContent): string {
   const definition = createTableProcessorSerializer().serializeEventDefinition(event);
   return serializedEventDefinitionId(definition);
 }
@@ -538,11 +534,14 @@ export interface SerializedDataSource {
   partitionBy: SerializedPartitionKey[];
 }
 
-export interface SerializedEventDescriptor {
-  /** Content-addressed identity derived from the rest of this event definition. */
-  id: EventDefinitionId;
+export interface SerializedEventDescriptorContent {
   name: string;
   sourceQueries: SerializedEventSourceQuery[];
+}
+
+export interface SerializedEventDescriptor extends SerializedEventDescriptorContent {
+  /** Content-addressed identity derived from the rest of this event definition. */
+  id: string;
 }
 
 export interface SerializedEventSourceQuery {
