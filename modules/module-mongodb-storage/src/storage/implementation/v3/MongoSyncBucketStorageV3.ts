@@ -38,6 +38,7 @@ import {
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
+import { MongoParameterCompactorV3 } from './MongoParameterCompactorV3.js';
 import { MongoStoppedSyncConfigCleanup } from './MongoStoppedSyncConfigCleanup.js';
 import { hydrateBucketDataDocuments } from './object-storage/BucketDataObjectStorage.js';
 import { ObjectStorage } from './object-storage/ObjectStorage.js';
@@ -214,13 +215,17 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     checkpoint: InternalOpId,
     options: storage.CompactOptions
   ): MongoParameterCompactor {
-    return new MongoParameterCompactor(this.db, this.replicationStreamId, checkpoint, options, () =>
+    return new MongoParameterCompactorV3(this.db, this.replicationStreamId, checkpoint, options, () =>
       this.db
         .listParameterIndexCollections(this.replicationStreamId)
         .then((collections) =>
           collections.map((c) => c.collection as unknown as lib_mongo.mongo.Collection<lib_mongo.mongo.Document>)
         )
     );
+  }
+
+  override supportsIncrementalParameterCompaction(): boolean {
+    return true;
   }
 
   protected async fetchPersistedOpHead(): Promise<InternalOpId | null> {
@@ -329,7 +334,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         },
         $unset: {
           resume_lsn: 1,
-          last_persisted_op: 1
+          last_persisted_op: 1,
+          parameter_compaction: 1
         }
       },
       {

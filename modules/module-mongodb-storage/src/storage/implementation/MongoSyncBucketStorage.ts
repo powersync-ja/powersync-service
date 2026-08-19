@@ -134,6 +134,14 @@ export abstract class MongoSyncBucketStorage
     options: storage.CompactOptions
   ): MongoParameterCompactor;
 
+  /**
+   * V3 parameter indexes have a stream-wide operation-id cursor. Older storage versions retain
+   * the full-scan compactor and therefore do not support incremental-only parameter compaction.
+   */
+  public supportsIncrementalParameterCompaction(): boolean {
+    return false;
+  }
+
   get writeCheckpointMode() {
     return this.writeCheckpointAPI.writeCheckpointMode;
   }
@@ -374,7 +382,12 @@ export abstract class MongoSyncBucketStorage
     }
     await this.createMongoCompactor({ ...options, maxOpId, logger: this.logger }).compact();
 
-    if (maxOpId != null && options?.compactParameterData && this.replicationStream.state == SyncRuleState.ACTIVE) {
+    if (
+      maxOpId != null &&
+      options?.compactParameterData &&
+      this.replicationStream.state == SyncRuleState.ACTIVE &&
+      (!options.incrementalOnly || this.supportsIncrementalParameterCompaction())
+    ) {
       await this.createMongoParameterCompactor(maxOpId, options).compact();
     }
   }

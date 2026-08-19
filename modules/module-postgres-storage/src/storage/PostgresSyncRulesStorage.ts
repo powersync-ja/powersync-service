@@ -146,6 +146,10 @@ export class PostgresSyncRulesStorage
     `.execute();
   }
 
+  supportsIncrementalParameterCompaction(): boolean {
+    return false;
+  }
+
   async compact(options?: storage.CompactOptions): Promise<void> {
     if (options?.incrementalOnly) {
       // Not supported yet
