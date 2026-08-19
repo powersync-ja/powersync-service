@@ -49,20 +49,22 @@ export interface CompiledEventSourceQueryModel {
 }
 
 /**
- * State for compiling sync streams.
+ * State for compiling sync streams and replication events into a sync plan.
  *
- * The output of compiling all sync streams is a {@link SyncPlan}, a declarative description of the sync process that
- * can be serialized to bucket storage. The compiler stores a mutable intermediate representation that is essentially a
- * copy of the sync plan, except that we're using JavaScript classes with methods to compute hash codes and equality
- * relations. This allows the compiler to efficiently de-duplicate parameters and buckets.
+ * The compiler stores a mutable intermediate representation that is essentially a copy of the resulting
+ * {@link SyncPlan}, except that we're using JavaScript classes with methods to compute hash codes and equality
+ * relations. Stream queries and event definitions remain separate within that model.
  *
- * Overall, the compilation process is as follows: Each data query for a stream is first parsed by
+ * The stream compilation process is as follows: Each data query for a stream is first parsed by
  * {@link StreamQueryParser} into a canonicalized intermediate representation (see that class for details).
  * Then, {@link QuerierGraphBuilder} analyzes a chain of `AND` expressions to identify parameters (as partition keys)
  * and their instantiation, as well as static filters that need to be added to reach row.
  */
 export class SyncStreamsCompiler {
-  readonly output = new CompiledStreamQueries();
+  readonly output: SyncPlanCompilerModel = {
+    streams: new CompiledStreamQueries(),
+    events: []
+  };
   private readonly locations = new NodeLocations();
 
   constructor(readonly options: SyncStreamsCompilerOptions) {}
@@ -222,6 +224,14 @@ export class SyncStreamsCompiler {
       }
     };
   }
+
+  /**
+   * @returns A sync plan representing an immutable snapshot of the compiler output.
+   */
+  toSyncPlan(): SyncPlan {
+    const translator = new CompilerModelToSyncPlan();
+    return translator.translate(this.output);
+  }
 }
 
 /**
@@ -250,7 +260,7 @@ export function compileEventDefinitions(
     }
   }
 
-  return { events: compiler.output.toSyncPlan().events, errors };
+  return { events: compiler.toSyncPlan().events, errors };
 }
 
 function tryParse(sql: string, errors: ParsingErrorListener): Statement | null {
@@ -332,7 +342,6 @@ export class CompiledStreamQueries {
   });
 
   readonly resolvers: StreamResolver[] = [];
-  readonly events: CompiledEvent[] = [];
 
   get evaluators(): RowEvaluator[] {
     return [...this._evaluators];
@@ -349,12 +358,16 @@ export class CompiledStreamQueries {
   canonicalizePointLookup(lookup: PointLookup): PointLookup {
     return this._pointLookups.getOrInsert(lookup)[0];
   }
+}
 
-  /**
-   * @returns A sync plan representing an immutable snapshot of this intermediate representation.
-   */
-  toSyncPlan(): SyncPlan {
-    const translator = new CompilerModelToSyncPlan();
-    return translator.translate(this);
-  }
+/**
+ * Top-level compiler output used to assemble a complete sync plan.
+ *
+ * Streams and events are sibling sync-config concerns. Keeping their intermediate state separate prevents stream
+ * compilation abstractions from acquiring event-specific responsibilities just because both are persisted in one
+ * {@link SyncPlan}.
+ */
+export interface SyncPlanCompilerModel {
+  readonly streams: CompiledStreamQueries;
+  readonly events: CompiledEvent[];
 }

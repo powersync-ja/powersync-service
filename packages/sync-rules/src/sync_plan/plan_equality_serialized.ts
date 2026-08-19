@@ -1,10 +1,9 @@
 import * as uuid from 'uuid';
 import type { Equality } from '../compiler/equality.js';
-import type { EventDefinitionId } from '../events/EventDescriptor.js';
 import type {
   SerializedBucketDataSource,
   SerializedDataSource,
-  SerializedEventDescriptor,
+  SerializedEventDescriptorContent,
   SerializedEventRowEvaluator,
   SerializedEventSourceQuery,
   SerializedParameterIndexLookupCreator
@@ -23,16 +22,12 @@ export interface SerializedEventSourceDefinition {
 }
 
 /** Returns the serialized event definition without its derived ID. */
-export function serializedEventDefinitionIdentity(
-  event: Pick<SerializedEventDescriptor, 'name' | 'sourceQueries'>
-): string {
+export function serializedEventDefinitionIdentity(event: SerializedEventDescriptorContent): string {
   return JSON.stringify({ name: event.name, sourceQueries: event.sourceQueries });
 }
 
 /** Generate the content-addressed ID persisted with and exposed by a compiled event definition. */
-export function serializedEventDefinitionId(
-  event: Pick<SerializedEventDescriptor, 'name' | 'sourceQueries'>
-): EventDefinitionId {
+export function serializedEventDefinitionId(event: SerializedEventDescriptorContent): string {
   return uuid.v5(serializedEventDefinitionIdentity(event), EVENT_DEFINITION_ID_NAMESPACE);
 }
 

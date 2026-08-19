@@ -1,5 +1,4 @@
 import { BucketPriority } from '../BucketDescription.js';
-import type { EventDefinitionId } from '../events/EventDescriptor.js';
 import { ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
@@ -139,13 +138,17 @@ export interface StreamDataSource extends RowProjection {
 export type ColumnSource = 'star' | { expr: SqlExpression<TableProcessorData>; alias: string };
 
 /**
- * A named replication event compiled from `event_definitions`.
+ * The content of a named replication event compiled from `event_definitions`.
  */
-export interface CompiledEventDescriptor {
-  /** Content-addressed identity assigned when compiler output is finalized or restored from a serialized plan. */
-  id: EventDefinitionId;
+export interface CompiledEventDescriptorContent {
   name: string;
   sourceQueries: CompiledEventSourceQuery[];
+}
+
+/** A compiled replication event together with its content-addressed identity. */
+export interface CompiledEventDescriptor extends CompiledEventDescriptorContent {
+  /** Content-addressed identity assigned when compiler output is finalized or restored from a serialized plan. */
+  id: string;
 }
 
 /**

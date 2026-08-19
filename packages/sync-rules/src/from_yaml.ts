@@ -131,7 +131,7 @@ export class SyncConfigFromYaml {
 
       const eventCompiler = new SyncStreamsCompiler(this.options);
       this.#compileEventDefinitions(eventMap, eventCompiler);
-      const eventPlan = eventCompiler.output.toSyncPlan();
+      const eventPlan = eventCompiler.toSyncPlan();
       result = this.#legacyParseBucketDefinitionsAndStreams(bucketMap, streamMap, compatibility, eventPlan.events);
     }
 
@@ -291,7 +291,7 @@ export class SyncConfigFromYaml {
 
     this.#compileEventDefinitions(eventMap, compiler);
 
-    return new PrecompiledSyncConfig(compiler.output.toSyncPlan(), compatibility, {
+    return new PrecompiledSyncConfig(compiler.toSyncPlan(), compatibility, {
       defaultSchema: this.options.defaultSchema,
       sourceText: this.yaml
     });

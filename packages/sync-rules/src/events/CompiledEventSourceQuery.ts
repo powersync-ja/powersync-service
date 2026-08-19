@@ -7,16 +7,11 @@ import {
 } from '../sync_plan/plan.js';
 import { TablePattern } from '../TablePattern.js';
 import { EvaluateRowOptions, SqliteRow } from '../types.js';
-import {
-  EvaluatedEventRowWithErrors,
-  EventDefinition,
-  EventDefinitionId,
-  HydratedEventDescriptor
-} from './EventDescriptor.js';
+import { EvaluatedEventRowWithErrors, EventDefinition, HydratedEventDescriptor } from './EventDescriptor.js';
 
 /** A named event prepared from a compiled sync plan, before scalar expressions are prepared for evaluation. */
 export class PreparedEventDefinition implements EventDefinition {
-  readonly id: EventDefinitionId;
+  readonly id: string;
   readonly name: string;
   readonly sourceQueries: PreparedEventSourceQuery[];
 
@@ -67,7 +62,7 @@ export class PreparedEventSourceQuery {
 
 class HydratedCompiledEventDescriptor implements HydratedEventDescriptor {
   constructor(
-    readonly id: EventDefinitionId,
+    readonly id: string,
     readonly name: string,
     readonly sourceQueries: HydratedCompiledEventSourceQuery[]
   ) {}
