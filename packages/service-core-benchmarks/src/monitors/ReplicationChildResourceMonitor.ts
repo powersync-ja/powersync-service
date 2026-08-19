@@ -1,32 +1,33 @@
-import { ReplicationChildCommandKind } from '../replication/replication-child-protocol.js';
+import {
+  ReplicationChildCommandPayloads,
+  ReplicationChildResourceSamplePayload,
+  ReplicationChildResponsePayloads
+} from '../replication/replication-child-protocol.js';
 import { ResourceMonitor, ResourceMonitorContext, ResourceMonitorResult } from '../types/BenchmarkResource.js';
 
-interface ChildResourceSample {
-  readonly pid: number;
-  readonly cpu: { readonly user: number; readonly system: number };
-  readonly memory: { readonly rss: number };
-  readonly sampledAtNs: string;
-}
-
 export interface ReplicationChildRequestClient {
-  request<T = unknown>(kind: ReplicationChildCommandKind, payload: unknown, iterationId?: string): Promise<T>;
+  request<Kind extends 'monitor_start' | 'monitor_stop'>(
+    kind: Kind,
+    payload: ReplicationChildCommandPayloads[Kind],
+    iterationId?: string
+  ): Promise<ReplicationChildResponsePayloads[Kind]>;
 }
 
 export class ReplicationChildResourceMonitor implements ResourceMonitor {
   readonly component = 'service' as const;
-  private baseline?: ChildResourceSample;
+  private baseline?: ReplicationChildResourceSamplePayload;
 
   constructor(private readonly getClient: () => ReplicationChildRequestClient) {}
 
   async start(_context: ResourceMonitorContext): Promise<void> {
     if (this.baseline != null) throw new Error('Replication child resource monitor is already running');
-    this.baseline = await this.getClient().request<ChildResourceSample>('monitor_start', {});
+    this.baseline = await this.getClient().request('monitor_start', {});
   }
 
   async stop(_context: ResourceMonitorContext): Promise<ResourceMonitorResult> {
     const baseline = this.baseline;
     if (baseline == null) throw new Error('Replication child resource monitor is not running');
-    const final = await this.getClient().request<ChildResourceSample>('monitor_stop', {});
+    const final = await this.getClient().request('monitor_stop', {});
     this.baseline = undefined;
     const cpuUserMs = (final.cpu.user - baseline.cpu.user) / 1_000;
     const cpuSystemMs = (final.cpu.system - baseline.cpu.system) / 1_000;

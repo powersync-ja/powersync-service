@@ -1,21 +1,29 @@
+import { CURRENT_STORAGE_VERSION } from '@powersync/service-core';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { beforeAll, describe, expect, test } from 'vitest';
+import { assertDistinctMongoSourceAndStorage } from '../implementations/replication/mongodb/MongoSourceBenchmarkConfiguration.js';
 import { NodeProcessResourceMonitor } from '../monitors/NodeProcessResourceMonitor.js';
 import { UnavailableResourceMonitor } from '../monitors/UnavailableResourceMonitor.js';
 import { ReplicationBenchmark } from '../runner/ReplicationBenchmark.js';
-import { mongoSourceCase } from '../scenarios/replication-scenarios.js';
+import {
+  mongoReplicationStorage,
+  mongoSourceCase,
+  postgresReplicationStorage
+} from '../scenarios/replication-scenarios.js';
 import { createArtifactsFolder, getArtifactFilename } from '../utils/output.js';
 
 beforeAll(async () => {
   await createArtifactsFolder();
 });
 
+const postgresStorage = postgresReplicationStorage(CURRENT_STORAGE_VERSION);
+const mongoStorage = mongoReplicationStorage(CURRENT_STORAGE_VERSION);
 const cases = [
-  mongoSourceCase('snapshot', 'postgres-storage'),
-  mongoSourceCase('streaming', 'postgres-storage'),
-  mongoSourceCase('snapshot', 'mongodb-storage'),
-  mongoSourceCase('streaming', 'mongodb-storage')
+  mongoSourceCase('snapshot', postgresStorage),
+  mongoSourceCase('streaming', postgresStorage),
+  mongoSourceCase('snapshot', mongoStorage, assertDistinctMongoSourceAndStorage),
+  mongoSourceCase('streaming', mongoStorage, assertDistinctMongoSourceAndStorage)
 ];
 
 describe.each(cases)('$scenario.id', ({ scenario, implementation }) => {

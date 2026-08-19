@@ -1,37 +1,20 @@
-import { StorageBenchmarkImplementationId } from '../../../types/StorageBenchmark.js';
-
-export interface MongoSourceBenchmarkUrls {
+export interface MongoSourceBenchmarkConfiguration {
   readonly sourceUrl: string;
-  readonly storageUrl: string;
 }
 
 export function resolveMongoSourceBenchmarkConfiguration(
-  storage: StorageBenchmarkImplementationId,
   environment: Readonly<Record<string, string | undefined>> = process.env
-): MongoSourceBenchmarkUrls {
+): MongoSourceBenchmarkConfiguration {
   const sourceUrl = requiredEnvironmentUrl(environment, 'BENCHMARK_MONGODB_SOURCE_URL');
-  const storageVariable =
-    storage === 'mongodb-storage' ? 'BENCHMARK_MONGODB_STORAGE_URL' : 'BENCHMARK_POSTGRES_STORAGE_URL';
-  const storageUrl = requiredEnvironmentUrl(environment, storageVariable);
-  const sourceAuthority = canonicalMongoAuthority(sourceUrl);
-
-  if (storage === 'mongodb-storage') {
-    if (sourceAuthority === canonicalMongoAuthority(storageUrl)) {
-      throw new Error('MongoDB source and storage must use distinct server authorities');
-    }
-  } else {
-    assertPostgresUrl(storageUrl, storageVariable);
-  }
-
-  return { sourceUrl, storageUrl };
+  canonicalMongoAuthority(sourceUrl);
+  return { sourceUrl };
 }
 
-function assertPostgresUrl(url: string, variable: string): void {
-  try {
-    const parsed = new URL(url);
-    if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || parsed.hostname.length === 0) throw new Error();
-  } catch {
-    throw new Error(`${variable} must be a valid PostgreSQL URL`);
+export function assertDistinctMongoSourceAndStorage(environment: Readonly<Record<string, string | undefined>>): void {
+  const sourceUrl = requiredEnvironmentUrl(environment, 'BENCHMARK_MONGODB_SOURCE_URL');
+  const storageUrl = requiredEnvironmentUrl(environment, 'BENCHMARK_MONGODB_STORAGE_URL');
+  if (canonicalMongoAuthority(sourceUrl) === canonicalMongoAuthority(storageUrl)) {
+    throw new Error('MongoDB source and storage must use distinct server authorities');
   }
 }
 

@@ -3,7 +3,6 @@ import { BSON_DESERIALIZE_DATA_OPTIONS } from '@powersync/service-core';
 import { createCheckpoint } from '@powersync/service-module-mongodb';
 import { createHash } from 'node:crypto';
 import {
-  REPLICATION_SOURCE_CAPABILITIES,
   ReplicationBenchmarkManifest,
   ReplicationBenchmarkSourceAdapter,
   ReplicationBenchmarkTarget,
@@ -26,9 +25,16 @@ export function mongoAtomicityForHello(hello: Record<string, unknown>): MongoBen
 
 const COLLECTION_NAME = 'benchmark_items';
 
+export const MONGODB_REPLICATION_SOURCE_CAPABILITIES: ReplicationSourceCapabilities = {
+  positionKind: 'mongo-lsn',
+  positionsComparable: true,
+  atomicity: 'topology-dependent',
+  keepalive: 'marker'
+};
+
 export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSourceAdapter {
   readonly id = 'mongodb-source' as const;
-  readonly capabilities = REPLICATION_SOURCE_CAPABILITIES[this.id];
+  readonly capabilities = MONGODB_REPLICATION_SOURCE_CAPABILITIES;
 
   private readonly client: mongo.MongoClient;
   private readonly transactions = new Map<string, ReplicationBenchmarkTransaction>();

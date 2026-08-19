@@ -69,23 +69,6 @@ export interface ReplicationSourceCapabilities {
   readonly keepalive: 'native' | 'marker' | 'polling';
 }
 
-export const REPLICATION_SOURCE_CAPABILITIES: Readonly<
-  Record<ReplicationBenchmarkProducerId, ReplicationSourceCapabilities>
-> = {
-  'postgres-source': {
-    positionKind: 'wal-lsn',
-    positionsComparable: true,
-    atomicity: 'transaction',
-    keepalive: 'marker'
-  },
-  'mongodb-source': {
-    positionKind: 'mongo-lsn',
-    positionsComparable: true,
-    atomicity: 'topology-dependent',
-    keepalive: 'marker'
-  }
-};
-
 export interface ReplicationPositionComparison {
   readonly comparable: boolean;
   readonly reached: boolean;
@@ -99,6 +82,7 @@ export interface ReplicationBenchmarkSourceAdapter {
   populateSnapshot(manifest: ReplicationBenchmarkManifest): Promise<ReplicationBenchmarkTarget>;
   prepareTransactions(manifest: ReplicationBenchmarkManifest): Promise<void>;
   commitTransaction(transaction: ReplicationBenchmarkTransaction): Promise<ReplicationBenchmarkTarget>;
+  keepalive(): Promise<ReplicationBenchmarkTarget>;
   comparePosition(checkpoint: string, target: ReplicationBenchmarkTarget): ReplicationPositionComparison;
   collectMetadata(): Promise<object>;
   cleanup(): Promise<void>;

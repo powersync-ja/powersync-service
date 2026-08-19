@@ -1,24 +1,19 @@
-import { ReplicationChildController } from '../../../replication/ReplicationChildController.js';
+import { ReplicationChildController } from '../../replication/ReplicationChildController.js';
+import { ReplicationChildEvidencePayload } from '../../replication/replication-child-protocol.js';
 import {
   ReplicationBenchmarkIterationResource,
   ReplicationBenchmarkIterationSetup,
   ReplicationBenchmarkObservation,
+  ReplicationBenchmarkSourceAdapter,
   ReplicationBenchmarkTarget,
   ReplicationPositionComparison,
   ReplicationReleaseObservation
-} from '../../../types/ReplicationBenchmark.js';
-import { MongoReplicationSourceAdapter } from './MongoReplicationSourceAdapter.js';
-
-export interface ReplicationEvidence {
-  readonly checkpoint: string | null;
-  readonly operations: ReplicationBenchmarkObservation['operations'];
-  readonly snapshotDone: boolean;
-}
+} from '../../types/ReplicationBenchmark.js';
 
 export interface TargetEvidenceOptions {
   readonly target: ReplicationBenchmarkTarget;
   readonly releasedAtNs?: string;
-  readonly collectEvidence: () => Promise<ReplicationEvidence>;
+  readonly collectEvidence: () => Promise<ReplicationChildEvidencePayload>;
   readonly comparePosition: (checkpoint: string, target: ReplicationBenchmarkTarget) => ReplicationPositionComparison;
   readonly delay?: () => Promise<void>;
 }
@@ -50,29 +45,25 @@ export async function waitForTargetEvidence(options: TargetEvidenceOptions): Pro
   }
 }
 
-export class ControlledMongoIterationResource implements ReplicationBenchmarkIterationResource {
+export class ControlledReplicationIterationResource implements ReplicationBenchmarkIterationResource {
   private disposed = false;
 
   constructor(
     private readonly controller: ReplicationChildController,
     private readonly setup: ReplicationBenchmarkIterationSetup,
-    private readonly source: MongoReplicationSourceAdapter,
+    private readonly source: ReplicationBenchmarkSourceAdapter,
     private readonly snapshotTarget: ReplicationBenchmarkTarget,
     private readonly onDispose: () => void
   ) {}
 
   async releaseReplication(waitForSnapshot: boolean = false): Promise<ReplicationReleaseObservation> {
-    const release = await this.controller.request<ReplicationReleaseObservation>(
-      'release_replication',
-      { waitForSnapshot },
-      this.setup.iterationId
-    );
+    const release = await this.controller.request('release_replication', { waitForSnapshot }, this.setup.iterationId);
     return { ...release, target: this.snapshotTarget };
   }
 
   async commitTransaction(transactionId: string): Promise<ReplicationBenchmarkTarget> {
     const transaction = this.setup.manifest.transactions.find((candidate) => candidate.id === transactionId);
-    if (transaction == null) throw new Error(`Unknown MongoDB benchmark transaction ${transactionId}`);
+    if (transaction == null) throw new Error(`Unknown benchmark transaction ${transactionId}`);
     return await this.source.commitTransaction(transaction);
   }
 
@@ -86,8 +77,7 @@ export class ControlledMongoIterationResource implements ReplicationBenchmarkIte
   }): Promise<ReplicationBenchmarkObservation> {
     return await waitForTargetEvidence({
       ...options,
-      collectEvidence: () =>
-        this.controller.request<ReplicationEvidence>('collect_evidence', {}, this.setup.iterationId),
+      collectEvidence: () => this.controller.request('collect_evidence', {}, this.setup.iterationId),
       comparePosition: (checkpoint, target) => this.source.comparePosition(checkpoint, target)
     });
   }
@@ -112,7 +102,7 @@ export class ControlledMongoIterationResource implements ReplicationBenchmarkIte
     } finally {
       this.onDispose();
     }
-    if (errors.length > 0) throw new AggregateError(errors, 'Controlled MongoDB replication iteration cleanup failed');
+    if (errors.length > 0) throw new AggregateError(errors, 'Controlled replication iteration cleanup failed');
   }
 }
 

@@ -1,19 +1,39 @@
 import { ChildProcess, fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ReplicationChildTransport } from './ReplicationChildController.js';
-import { ReplicationChildCommand, ReplicationChildEvent } from './replication-child-protocol.js';
+import {
+  ReplicationChildCommandEnvelope,
+  ReplicationChildCommandKind,
+  ReplicationChildEvent
+} from './replication-child-protocol.js';
 
 export interface ForkedReplicationChildTransportOptions {
   readonly stdout?: (chunk: string) => void;
   readonly stderr?: (chunk: string) => void;
 }
 
+export interface ReplicationChildProcessOptions {
+  readonly entrypoint: URL;
+  readonly execArgv: readonly string[];
+}
+
+export function resolveReplicationChildProcessOptions(
+  transportModuleUrl: string = import.meta.url
+): ReplicationChildProcessOptions {
+  const sourceMode = fileURLToPath(transportModuleUrl).endsWith('.ts');
+  return {
+    entrypoint: new URL(sourceMode ? './replication-child.ts' : './replication-child.js', transportModuleUrl),
+    execArgv: sourceMode ? ['--loader', 'ts-node/esm'] : []
+  };
+}
+
 export class ForkedReplicationChildTransport implements ReplicationChildTransport {
   private readonly child: ChildProcess;
 
   constructor(options: ForkedReplicationChildTransportOptions = {}) {
-    this.child = fork(fileURLToPath(new URL('./replication-child.ts', import.meta.url)), [], {
-      execArgv: ['--loader', 'ts-node/esm'],
+    const processOptions = resolveReplicationChildProcessOptions();
+    this.child = fork(fileURLToPath(processOptions.entrypoint), [], {
+      execArgv: [...processOptions.execArgv],
       serialization: 'advanced',
       stdio: ['ignore', 'pipe', 'pipe', 'ipc']
     });
@@ -27,7 +47,7 @@ export class ForkedReplicationChildTransport implements ReplicationChildTranspor
     return this.child.pid;
   }
 
-  send(command: ReplicationChildCommand): void {
+  send<Kind extends ReplicationChildCommandKind>(command: ReplicationChildCommandEnvelope<Kind>): void {
     if (!this.child.connected) throw new Error('Replication child IPC channel is closed');
     this.child.send(command);
   }

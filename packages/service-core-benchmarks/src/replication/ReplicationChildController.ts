@@ -1,12 +1,14 @@
 import {
   REPLICATION_CHILD_PROTOCOL_VERSION,
-  ReplicationChildCommand,
+  ReplicationChildCommandEnvelope,
   ReplicationChildCommandKind,
-  ReplicationChildEvent
+  ReplicationChildCommandPayloads,
+  ReplicationChildEvent,
+  ReplicationChildResponsePayloads
 } from './replication-child-protocol.js';
 
 export interface ReplicationChildTransport {
-  send(command: ReplicationChildCommand): void;
+  send<Kind extends ReplicationChildCommandKind>(command: ReplicationChildCommandEnvelope<Kind>): void;
   onMessage(listener: (event: ReplicationChildEvent) => void): () => void;
   onExit(listener: (code: number | null, signal: NodeJS.Signals | null) => void): () => void;
   kill(signal: NodeJS.Signals): void;
@@ -20,7 +22,7 @@ export interface ReplicationChildControllerOptions {
 type ChildState = 'new' | 'initialized' | 'iteration-ready' | 'running' | 'shutting-down' | 'failed' | 'stopped';
 
 interface PendingRequest {
-  readonly command: ReplicationChildCommand;
+  readonly command: { readonly kind: ReplicationChildCommandKind; readonly iterationId?: string };
   readonly resolve: (payload: unknown) => void;
   readonly reject: (error: Error) => void;
 }
@@ -54,10 +56,14 @@ export class ReplicationChildController {
     transport.onExit((code, signal) => this.handleExit(code, signal));
   }
 
-  request<T = unknown>(kind: ReplicationChildCommandKind, payload: unknown, iterationId?: string): Promise<T> {
+  request<Kind extends ReplicationChildCommandKind>(
+    kind: Kind,
+    payload: ReplicationChildCommandPayloads[Kind],
+    iterationId?: string
+  ): Promise<ReplicationChildResponsePayloads[Kind]> {
     this.assertAllowed(kind);
     const requestId = `request-${++this.requestSequence}`;
-    const command: ReplicationChildCommand = {
+    const command: ReplicationChildCommandEnvelope<Kind> = {
       protocolVersion: REPLICATION_CHILD_PROTOCOL_VERSION,
       direction: 'command',
       kind,
@@ -67,8 +73,12 @@ export class ReplicationChildController {
       payload
     };
     this.transitionOnSend(kind);
-    const response = new Promise<T>((resolve, reject) => {
-      this.pending.set(requestId, { command, resolve: resolve as (payload: unknown) => void, reject });
+    const response = new Promise<ReplicationChildResponsePayloads[Kind]>((resolve, reject) => {
+      this.pending.set(requestId, {
+        command,
+        resolve: resolve as (payload: unknown) => void,
+        reject
+      });
     });
     try {
       this.transport.send(command);

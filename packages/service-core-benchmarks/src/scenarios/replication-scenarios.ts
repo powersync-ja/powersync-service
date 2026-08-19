@@ -1,5 +1,12 @@
-import { CURRENT_STORAGE_VERSION } from '@powersync/service-core';
-import { ControlledMongoReplicationBenchmarkImplementation } from '../implementations/replication/mongodb/ControlledMongoReplicationBenchmarkImplementation.js';
+import {
+  ControlledReplicationBenchmarkImplementation,
+  ReplicationBenchmarkStorageSelection
+} from '../implementations/replication/ControlledReplicationBenchmarkImplementation.js';
+import { MongoReplicationSourceAdapter } from '../implementations/replication/mongodb/MongoReplicationSourceAdapter.js';
+import {
+  canonicalMongoAuthority,
+  resolveMongoSourceBenchmarkConfiguration
+} from '../implementations/replication/mongodb/MongoSourceBenchmarkConfiguration.js';
 import { ReplicationBenchmarkPhase, ReplicationBenchmarkScenario } from '../types/ReplicationBenchmark.js';
 import { StorageBenchmarkImplementationId } from '../types/StorageBenchmark.js';
 
@@ -32,21 +39,91 @@ export function createMongoSourceQuickReplicationScenario(
   };
 }
 
+export function postgresReplicationStorage(version: number): ReplicationBenchmarkStorageSelection {
+  return {
+    id: 'postgres-storage',
+    version,
+    createChildDescriptor(environment) {
+      const url = requiredEnvironmentUrl(environment, 'BENCHMARK_POSTGRES_STORAGE_URL', 'PostgreSQL storage');
+      assertPostgresUrl(url, 'BENCHMARK_POSTGRES_STORAGE_URL');
+      return {
+        moduleUrl: import.meta.resolve('../implementations/storage/PostgresStorageBenchmarkImplementation.js'),
+        exportName: 'PostgresStorageBenchmarkImplementation',
+        constructorArgs: [{ url }]
+      };
+    }
+  };
+}
+
+export function mongoReplicationStorage(version: number): ReplicationBenchmarkStorageSelection {
+  return {
+    id: 'mongodb-storage',
+    version,
+    createChildDescriptor(environment) {
+      const url = requiredEnvironmentUrl(environment, 'BENCHMARK_MONGODB_STORAGE_URL', 'MongoDB storage');
+      canonicalMongoAuthority(url);
+      return {
+        moduleUrl: import.meta.resolve('../implementations/storage/MongoStorageBenchmarkImplementation.js'),
+        exportName: 'MongoStorageBenchmarkImplementation',
+        constructorArgs: [{ url, isCI: environment.CI === 'true' }]
+      };
+    }
+  };
+}
+
 export function mongoSourceCase(
   phase: ReplicationBenchmarkPhase,
-  storage: StorageBenchmarkImplementationId
+  storage: ReplicationBenchmarkStorageSelection,
+  validateEnvironment?: (environment: Readonly<Record<string, string | undefined>>) => void
 ): {
   scenario: ReplicationBenchmarkScenario;
-  implementation: ControlledMongoReplicationBenchmarkImplementation;
+  implementation: ControlledReplicationBenchmarkImplementation;
 } {
   return {
-    scenario: createMongoSourceQuickReplicationScenario(phase, storage, CURRENT_STORAGE_VERSION),
-    implementation: new ControlledMongoReplicationBenchmarkImplementation({
-      storage: {
-        implementation: storage,
-        version: CURRENT_STORAGE_VERSION,
-        isCI: process.env.CI === 'true'
-      }
+    scenario: createMongoSourceQuickReplicationScenario(phase, storage.id, storage.version),
+    implementation: new ControlledReplicationBenchmarkImplementation({
+      source: {
+        id: 'mongodb-source',
+        resolveIterationFactory(environment) {
+          const { sourceUrl } = resolveMongoSourceBenchmarkConfiguration(environment);
+          return () => {
+            const adapter = new MongoReplicationSourceAdapter(sourceUrl);
+            return {
+              adapter,
+              createChildDescriptor() {
+                return {
+                  moduleUrl: import.meta.resolve(
+                    '../implementations/replication/mongodb/MongoReplicationChildImplementation.js'
+                  ),
+                  exportName: 'MongoReplicationChildImplementation',
+                  constructorArgs: [adapter.sourceConfig]
+                };
+              }
+            };
+          };
+        }
+      },
+      storage,
+      validateEnvironment
     })
   };
+}
+
+function assertPostgresUrl(url: string, variable: string): void {
+  try {
+    const parsed = new URL(url);
+    if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || parsed.hostname.length === 0) throw new Error();
+  } catch {
+    throw new Error(`${variable} must be a valid PostgreSQL URL`);
+  }
+}
+
+function requiredEnvironmentUrl(
+  environment: Readonly<Record<string, string | undefined>>,
+  variable: string,
+  description: string
+): string {
+  const value = environment[variable]?.trim();
+  if (value == null || value.length === 0) throw new Error(`${variable} is required for ${description} benchmarks`);
+  return value;
 }

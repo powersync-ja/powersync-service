@@ -1,4 +1,54 @@
-export const REPLICATION_CHILD_PROTOCOL_VERSION = 1 as const;
+import type { ReplicationBenchmarkObservation, ReplicationReleaseObservation } from '../types/ReplicationBenchmark.js';
+import type { ReplicationChildClassDescriptor } from './ReplicationChildClassLoader.js';
+
+export const REPLICATION_CHILD_PROTOCOL_VERSION = 2 as const;
+
+export interface ReplicationChildInitializePayload {
+  readonly storage: ReplicationChildClassDescriptor;
+}
+
+export interface ReplicationChildSetupIterationPayload {
+  readonly syncRules: string;
+  readonly storageVersion: number;
+  readonly source: ReplicationChildClassDescriptor;
+}
+
+export interface ReplicationChildCommandPayloads {
+  readonly initialize: ReplicationChildInitializePayload;
+  readonly setup_iteration: ReplicationChildSetupIterationPayload;
+  readonly release_replication: { readonly waitForSnapshot?: boolean };
+  readonly collect_evidence: Record<string, never>;
+  readonly cleanup_iteration: Record<string, never>;
+  readonly monitor_start: Record<string, never>;
+  readonly monitor_stop: Record<string, never>;
+  readonly shutdown: Record<string, never>;
+  readonly abort: Record<string, never>;
+}
+
+export interface ReplicationChildEvidencePayload {
+  readonly checkpoint: string | null;
+  readonly operations: ReplicationBenchmarkObservation['operations'];
+  readonly snapshotDone: boolean;
+}
+
+export interface ReplicationChildResourceSamplePayload {
+  readonly pid: number;
+  readonly cpu: { readonly user: number; readonly system: number };
+  readonly memory: { readonly rss: number };
+  readonly sampledAtNs: string;
+}
+
+export interface ReplicationChildResponsePayloads {
+  readonly initialize: { readonly environment: object; readonly pid: number };
+  readonly setup_iteration: { readonly replicationStreamName: string };
+  readonly release_replication: ReplicationReleaseObservation;
+  readonly collect_evidence: ReplicationChildEvidencePayload;
+  readonly cleanup_iteration: Record<string, never>;
+  readonly monitor_start: ReplicationChildResourceSamplePayload;
+  readonly monitor_stop: ReplicationChildResourceSamplePayload;
+  readonly shutdown: Record<string, never>;
+  readonly abort: Record<string, never>;
+}
 
 export type ReplicationChildCommandKind =
   | 'initialize'
@@ -11,15 +61,19 @@ export type ReplicationChildCommandKind =
   | 'shutdown'
   | 'abort';
 
-export interface ReplicationChildCommand {
+export interface ReplicationChildCommandEnvelope<Kind extends ReplicationChildCommandKind> {
   readonly protocolVersion: typeof REPLICATION_CHILD_PROTOCOL_VERSION;
   readonly direction: 'command';
-  readonly kind: ReplicationChildCommandKind;
+  readonly kind: Kind;
   readonly runId: string;
   readonly iterationId?: string;
   readonly requestId: string;
-  readonly payload: unknown;
+  readonly payload: ReplicationChildCommandPayloads[Kind];
 }
+
+export type ReplicationChildCommand = {
+  [Kind in ReplicationChildCommandKind]: ReplicationChildCommandEnvelope<Kind>;
+}[ReplicationChildCommandKind];
 
 export interface ReplicationChildResponseEvent {
   readonly protocolVersion: typeof REPLICATION_CHILD_PROTOCOL_VERSION;

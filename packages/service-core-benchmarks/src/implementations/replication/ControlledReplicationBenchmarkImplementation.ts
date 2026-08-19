@@ -1,36 +1,47 @@
-import { ReplicationChildResourceMonitor } from '../../../monitors/ReplicationChildResourceMonitor.js';
-import { ForkedReplicationChildTransport } from '../../../replication/ForkedReplicationChildTransport.js';
-import {
-  ReplicationChildController,
-  ReplicationChildTransport
-} from '../../../replication/ReplicationChildController.js';
+import { ReplicationChildResourceMonitor } from '../../monitors/ReplicationChildResourceMonitor.js';
+import { ForkedReplicationChildTransport } from '../../replication/ForkedReplicationChildTransport.js';
+import { ReplicationChildClassDescriptor } from '../../replication/ReplicationChildClassLoader.js';
+import { ReplicationChildController, ReplicationChildTransport } from '../../replication/ReplicationChildController.js';
 import {
   ReplicationBenchmarkImplementation,
-  ReplicationBenchmarkRunResource
-} from '../../../types/ReplicationBenchmark.js';
-import { StorageBenchmarkImplementationId } from '../../../types/StorageBenchmark.js';
-import { ControlledMongoIterationResource } from './ControlledMongoIterationResource.js';
-import { MongoReplicationSourceAdapter } from './MongoReplicationSourceAdapter.js';
-import { resolveMongoSourceBenchmarkConfiguration } from './MongoSourceBenchmarkConfiguration.js';
+  ReplicationBenchmarkProducerId,
+  ReplicationBenchmarkRunResource,
+  ReplicationBenchmarkSourceAdapter
+} from '../../types/ReplicationBenchmark.js';
+import { StorageBenchmarkImplementationId } from '../../types/StorageBenchmark.js';
+import { ControlledReplicationIterationResource } from './ControlledReplicationIterationResource.js';
 
-export interface ControlledMongoReplicationBenchmarkImplementationOptions {
-  readonly storage: {
-    readonly implementation: StorageBenchmarkImplementationId;
-    readonly version: number;
-    readonly isCI?: boolean;
+export interface ReplicationBenchmarkSourceSelection {
+  readonly id: ReplicationBenchmarkProducerId;
+  resolveIterationFactory(environment: Readonly<Record<string, string | undefined>>): () => {
+    readonly adapter: ReplicationBenchmarkSourceAdapter;
+    createChildDescriptor(): ReplicationChildClassDescriptor;
   };
+}
+
+export interface ReplicationBenchmarkStorageSelection {
+  readonly id: StorageBenchmarkImplementationId;
+  readonly version: number;
+  createChildDescriptor(environment: Readonly<Record<string, string | undefined>>): ReplicationChildClassDescriptor;
+}
+
+export interface ControlledReplicationBenchmarkImplementationOptions {
+  readonly source: ReplicationBenchmarkSourceSelection;
+  readonly storage: ReplicationBenchmarkStorageSelection;
+  validateEnvironment?(environment: Readonly<Record<string, string | undefined>>): void;
   readonly environment?: Readonly<Record<string, string | undefined>>;
   readonly transportFactory?: () => ReplicationChildTransport;
 }
 
-export class ControlledMongoReplicationBenchmarkImplementation implements ReplicationBenchmarkImplementation {
-  readonly sourceId = 'mongodb-source' as const;
-  readonly storageId: StorageBenchmarkImplementationId;
-  readonly storageVersion: number;
+export class ControlledReplicationBenchmarkImplementation implements ReplicationBenchmarkImplementation {
+  readonly sourceId;
+  readonly storageId;
+  readonly storageVersion;
   private activeController?: ReplicationChildController;
 
-  constructor(private readonly options: ControlledMongoReplicationBenchmarkImplementationOptions) {
-    this.storageId = options.storage.implementation;
+  constructor(private readonly options: ControlledReplicationBenchmarkImplementationOptions) {
+    this.sourceId = options.source.id;
+    this.storageId = options.storage.id;
     this.storageVersion = options.storage.version;
   }
 
@@ -43,12 +54,12 @@ export class ControlledMongoReplicationBenchmarkImplementation implements Replic
 
   async open(signal: AbortSignal, runId: string): Promise<ReplicationBenchmarkRunResource> {
     signal.throwIfAborted();
-    const urls = resolveMongoSourceBenchmarkConfiguration(
-      this.options.storage.implementation,
-      this.options.environment ?? process.env
-    );
+    const fixtureEnvironment = this.options.environment ?? process.env;
+    const createIterationSource = this.options.source.resolveIterationFactory(fixtureEnvironment);
+    const storageDescriptor = this.options.storage.createChildDescriptor(fixtureEnvironment);
+    this.options.validateEnvironment?.(fixtureEnvironment);
     const environment: Record<string, unknown> = {};
-    let activeIteration: ControlledMongoIterationResource | undefined;
+    let activeIteration: ControlledReplicationIterationResource | undefined;
     let disposed = false;
 
     const transport = this.options.transportFactory?.() ?? new ForkedReplicationChildTransport();
@@ -58,15 +69,9 @@ export class ControlledMongoReplicationBenchmarkImplementation implements Replic
     signal.addEventListener('abort', onAbort, { once: true });
 
     try {
-      const storage =
-        this.options.storage.implementation === 'postgres-storage'
-          ? { implementation: 'postgres-storage' as const, url: urls.storageUrl }
-          : {
-              implementation: 'mongodb-storage' as const,
-              url: urls.storageUrl,
-              isCI: this.options.storage.isCI ?? process.env.CI === 'true'
-            };
-      const initialized = await controller.request<{ environment: object; pid: number }>('initialize', { storage });
+      const initialized = await controller.request('initialize', {
+        storage: storageDescriptor
+      });
       Object.assign(environment, initialized.environment, {
         child_pid: initialized.pid,
         source_implementation: this.sourceId,
@@ -86,24 +91,29 @@ export class ControlledMongoReplicationBenchmarkImplementation implements Replic
         if (activeIteration != null) throw new Error('A replication benchmark iteration is already active');
         signal.throwIfAborted();
 
-        const source = new MongoReplicationSourceAdapter(urls.sourceUrl);
+        const iterationSource = createIterationSource();
+        const source = iterationSource.adapter;
         let setupSent = false;
         try {
+          if (source.id !== this.sourceId) {
+            throw new Error(`Replication source fixture ${this.sourceId} created adapter ${source.id}`);
+          }
           await source.createSchema(setup.iterationId);
           const snapshotTarget = await source.populateSnapshot(setup.manifest);
           await source.prepareTransactions(setup.manifest);
           Object.assign(environment, await source.collectMetadata());
+          const sourceDescriptor = iterationSource.createChildDescriptor();
           setupSent = true;
           await controller.request(
             'setup_iteration',
             {
               syncRules: createSyncRules(setup.iterationId),
               storageVersion: setup.scenario.storage.version,
-              source: { implementation: this.sourceId, ...source.sourceConfig }
+              source: sourceDescriptor
             },
             setup.iterationId
           );
-          activeIteration = new ControlledMongoIterationResource(
+          activeIteration = new ControlledReplicationIterationResource(
             controller,
             setup,
             source,
@@ -124,7 +134,7 @@ export class ControlledMongoReplicationBenchmarkImplementation implements Replic
           }
           throw errors.length === 1
             ? error
-            : new AggregateError(errors, 'MongoDB replication iteration setup and cleanup failed');
+            : new AggregateError(errors, 'Replication iteration setup and cleanup failed');
         }
       },
       dispose: async () => {
