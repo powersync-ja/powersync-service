@@ -1,4 +1,4 @@
-import { ReplicationChildCommandKind } from '../fixtures/replication/replication-child-protocol.js';
+import { ReplicationChildCommandKind } from '../replication/replication-child-protocol.js';
 import { ResourceMonitor, ResourceMonitorContext, ResourceMonitorResult } from '../types/BenchmarkResource.js';
 
 interface ChildResourceSample {

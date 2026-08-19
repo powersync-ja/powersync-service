@@ -2,7 +2,7 @@ import { BenchmarkIterationRuntime } from './BenchmarkRunOptions.js';
 import { BenchmarkScenario } from './BenchmarkScenario.js';
 import { StorageBenchmarkImplementationId } from './StorageBenchmark.js';
 
-export type ReplicationBenchmarkProducerId = 'synthetic-source' | 'postgres-source' | 'mongodb-source';
+export type ReplicationBenchmarkProducerId = 'postgres-source' | 'mongodb-source';
 
 export type ReplicationBenchmarkPhase = 'snapshot' | 'streaming' | 'catch-up';
 
@@ -63,7 +63,7 @@ export interface ReplicationBenchmarkManifest {
 }
 
 export interface ReplicationSourceCapabilities {
-  readonly positionKind: 'synthetic' | 'wal-lsn' | 'mongo-lsn' | 'gtid' | 'cdc-lsn' | 'convex-cursor';
+  readonly positionKind: 'wal-lsn' | 'mongo-lsn' | 'gtid' | 'cdc-lsn' | 'convex-cursor';
   readonly positionsComparable: boolean;
   readonly atomicity: 'transaction' | 'ordered-batch' | 'single-mutation' | 'topology-dependent';
   readonly keepalive: 'native' | 'marker' | 'polling';
@@ -72,12 +72,6 @@ export interface ReplicationSourceCapabilities {
 export const REPLICATION_SOURCE_CAPABILITIES: Readonly<
   Record<ReplicationBenchmarkProducerId, ReplicationSourceCapabilities>
 > = {
-  'synthetic-source': {
-    positionKind: 'synthetic',
-    positionsComparable: true,
-    atomicity: 'transaction',
-    keepalive: 'native'
-  },
   'postgres-source': {
     positionKind: 'wal-lsn',
     positionsComparable: true,

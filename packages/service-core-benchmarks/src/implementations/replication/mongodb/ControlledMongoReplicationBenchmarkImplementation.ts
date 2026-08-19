@@ -97,7 +97,6 @@ export class ControlledMongoReplicationBenchmarkImplementation implements Replic
           await controller.request(
             'setup_iteration',
             {
-              manifest: setup.manifest,
               syncRules: createSyncRules(setup.iterationId),
               storageVersion: setup.scenario.storage.version,
               source: { implementation: this.sourceId, ...source.sourceConfig }

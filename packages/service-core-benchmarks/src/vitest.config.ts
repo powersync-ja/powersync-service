@@ -13,7 +13,6 @@ export default defineConfig({
       { name: 'baseline' },
       { name: 'snapshot' },
       { name: 'streaming' },
-      { name: 'synthetic-source' },
       { name: 'mongodb-source' },
       { name: 'postgres-storage' },
       { name: 'mongodb-storage' },

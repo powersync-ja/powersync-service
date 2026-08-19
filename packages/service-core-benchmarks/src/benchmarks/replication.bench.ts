@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, test } from 'vitest';
 import { NodeProcessResourceMonitor } from '../monitors/NodeProcessResourceMonitor.js';
 import { UnavailableResourceMonitor } from '../monitors/UnavailableResourceMonitor.js';
 import { ReplicationBenchmark } from '../runner/ReplicationBenchmark.js';
-import { mongoCase, mongoSourceCase, postgresCase } from '../scenarios/replication-scenarios.js';
+import { mongoSourceCase } from '../scenarios/replication-scenarios.js';
 import { createArtifactsFolder, getArtifactFilename } from '../utils/output.js';
 
 beforeAll(async () => {
@@ -12,10 +12,6 @@ beforeAll(async () => {
 });
 
 const cases = [
-  postgresCase('snapshot'),
-  postgresCase('streaming'),
-  mongoCase('snapshot'),
-  mongoCase('streaming'),
   mongoSourceCase('snapshot', 'postgres-storage'),
   mongoSourceCase('streaming', 'postgres-storage'),
   mongoSourceCase('snapshot', 'mongodb-storage'),

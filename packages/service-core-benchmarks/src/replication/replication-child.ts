@@ -11,12 +11,9 @@ import {
 } from '@powersync/service-core';
 import { METRICS_HELPER, StorageDataHelpers } from '@powersync/service-core-tests';
 import { MongoModule } from '@powersync/service-module-mongodb';
-import { SyntheticReplicationModule } from '../implementations/replication/synthetic/SyntheticReplicationModule.js';
-import { SyntheticReplicationSource } from '../implementations/replication/synthetic/SyntheticReplicationSource.js';
-import { SyntheticReplicator } from '../implementations/replication/synthetic/SyntheticReplicator.js';
 import { MongoStorageBenchmarkImplementation } from '../implementations/storage/MongoStorageBenchmarkImplementation.js';
 import { PostgresStorageBenchmarkImplementation } from '../implementations/storage/PostgresStorageBenchmarkImplementation.js';
-import { ReplicationBenchmarkManifest, ReplicationBenchmarkObservation } from '../types/ReplicationBenchmark.js';
+import { ReplicationBenchmarkObservation } from '../types/ReplicationBenchmark.js';
 import { StorageBenchmarkRunResource } from '../types/StorageBenchmark.js';
 import {
   REPLICATION_CHILD_PROTOCOL_VERSION,
@@ -32,7 +29,6 @@ type StorageOptions =
 interface ChildState {
   resource?: StorageBenchmarkRunResource;
   context?: system.ServiceContextContainer;
-  source?: SyntheticReplicationSource;
   replicationStream?: storage.PersistedReplicationStream;
   bucketStorage?: storage.SyncRulesBucketStorage;
   syncRulesContent?: storage.PersistedSyncConfigContent;
@@ -85,38 +81,19 @@ async function execute(command: ReplicationChildCommand): Promise<unknown> {
     case 'setup_iteration':
       return await setupIteration(
         command.payload as {
-          manifest: ReplicationBenchmarkManifest;
           syncRules: string;
           storageVersion: number;
-          source?: ReplicationSourceOptions;
+          source: ReplicationSourceOptions;
         }
       );
     case 'release_replication': {
       const context = required(state.context, 'service context');
-      const releasedAtNs = state.source?.releaseReplication() ?? process.hrtime.bigint().toString();
+      const releasedAtNs = process.hrtime.bigint().toString();
       await context.lifeCycleEngine.start();
       state.lifecycleStarted = true;
       const waitForSnapshot = (command.payload as { waitForSnapshot?: boolean }).waitForSnapshot === true;
       return { releasedAtNs, snapshot: waitForSnapshot ? await waitForSnapshotCompletion() : undefined };
     }
-    case 'commit_transaction':
-      return required(state.source, 'source').commitTransaction(
-        (command.payload as { transactionId: string }).transactionId
-      );
-    case 'keepalive': {
-      const source = required(state.source, 'source');
-      const target = source.keepalive();
-      const visible = await source.waitForPosition(target.nativePosition!);
-      return { target, visible };
-    }
-    case 'observe_checkpoint':
-      return await observeCheckpoint(
-        command.payload as {
-          markerId: string;
-          target: ReplicationBenchmarkObservation['target'];
-          releasedAtNs?: string;
-        }
-      );
     case 'collect_evidence':
       return await collectEvidence();
     case 'cleanup_iteration':
@@ -157,22 +134,19 @@ async function initialize(payload: { storage: StorageOptions }): Promise<object>
 }
 
 async function setupIteration(payload: {
-  manifest: ReplicationBenchmarkManifest;
   syncRules: string;
   storageVersion: number;
-  source?: ReplicationSourceOptions;
+  source: ReplicationSourceOptions;
 }): Promise<object> {
   const resource = required(state.resource, 'storage resource');
   if (state.context != null) throw new Error('An iteration is already configured');
-  const source = payload.source ?? { implementation: 'synthetic-source' as const };
+  const source = payload.source;
   state.context = createServiceContext(resource, source);
   const context = state.context;
-  state.source =
-    source.implementation === 'synthetic-source' ? new SyntheticReplicationSource(payload.manifest) : undefined;
   state.replicationStream = await resource.factory.updateSyncRules(
     updateSyncRulesFromYaml(payload.syncRules, {
       validate: true,
-      defaultSchema: source.implementation === 'mongodb-source' ? source.database : 'public',
+      defaultSchema: source.database,
       storageVersion: payload.storageVersion
     })
   );
@@ -182,25 +156,7 @@ async function setupIteration(payload: {
   const engine = new replication.ReplicationEngine();
   context.register(replication.ReplicationEngine, engine);
   context.register(MetricsEngine, METRICS_HELPER.metricsEngine);
-  const rateLimiter: replication.ErrorRateLimiter = {
-    async waitUntilAllowed() {},
-    reportError() {},
-    mayPing: () => true
-  };
-  if (source.implementation === 'synthetic-source') {
-    const replicator = new SyntheticReplicator({
-      id: 'synthetic-benchmark',
-      storageEngine: context.storageEngine,
-      metricsEngine: METRICS_HELPER.metricsEngine,
-      syncRuleProvider: { get: async () => undefined, exitOnError: true },
-      rateLimiter,
-      heartbeatIntervalSeconds: 0,
-      source: () => required(state.source, 'source')
-    });
-    await new SyntheticReplicationModule(replicator).initialize(context);
-  } else {
-    await new MongoModule().initialize(context);
-  }
+  await new MongoModule().initialize(context);
   context.lifeCycleEngine.withLifecycle(engine, {
     start: (component) => component.start(),
     stop: (component) => component.shutDown()
@@ -208,9 +164,11 @@ async function setupIteration(payload: {
   return { replicationStreamName: state.replicationStream.replicationStreamName };
 }
 
-type ReplicationSourceOptions =
-  | { readonly implementation: 'synthetic-source' }
-  | { readonly implementation: 'mongodb-source'; readonly uri: string; readonly database: string };
+type ReplicationSourceOptions = {
+  readonly implementation: 'mongodb-source';
+  readonly uri: string;
+  readonly database: string;
+};
 
 function createServiceContext(
   resource: StorageBenchmarkRunResource,
@@ -238,18 +196,15 @@ function createServiceContext(
     parameters: {},
     base_config: {},
     client_keystore: {},
-    connections:
-      source.implementation === 'mongodb-source'
-        ? [
-            {
-              type: 'mongodb',
-              uri: source.uri,
-              database: source.database,
-              post_images: 'off',
-              heartbeat_interval_seconds: 5
-            }
-          ]
-        : undefined
+    connections: [
+      {
+        type: 'mongodb',
+        uri: source.uri,
+        database: source.database,
+        post_images: 'off',
+        heartbeat_interval_seconds: 5
+      }
+    ]
   } as unknown as utils.ResolvedPowerSyncConfig;
   const context = new system.ServiceContextContainer({
     serviceMode: system.ServiceContextMode.SYNC,
@@ -272,7 +227,6 @@ function createServiceContext(
 }
 
 async function waitForSnapshotCompletion(): Promise<{ position: string; visibleAtNs: string }> {
-  if (state.source != null) return await state.source.waitForSnapshot();
   const bucketStorage = required(state.bucketStorage, 'bucket storage');
   while (true) {
     const [status, checkpoint] = await Promise.all([bucketStorage.getStatus(), bucketStorage.getCheckpoint()]);
@@ -281,28 +235,6 @@ async function waitForSnapshotCompletion(): Promise<{ position: string; visibleA
     }
     await new Promise((resolve) => setTimeout(resolve, 30));
   }
-}
-
-async function observeCheckpoint(payload: {
-  markerId: string;
-  target: ReplicationBenchmarkObservation['target'];
-  releasedAtNs?: string;
-}): Promise<ReplicationBenchmarkObservation> {
-  const source = required(state.source, 'source');
-  const visible = await source.waitForTarget(payload.markerId);
-  const evidence = await collectEvidence();
-  if (evidence.checkpoint == null) throw new Error('Synthetic target was visible before its source position');
-  return {
-    target: payload.target,
-    checkpoint: evidence.checkpoint,
-    checkpointVisibleAtNs: visible.visibleAtNs,
-    replicationReleasedAtNs: payload.releasedAtNs,
-    operations: evidence.operations,
-    snapshotDone: evidence.snapshotDone,
-    keepalives: 0,
-    retries: 0,
-    restarts: 0
-  };
 }
 
 async function collectEvidence(): Promise<{
@@ -332,7 +264,6 @@ async function collectEvidence(): Promise<{
 
 async function cleanupIteration(): Promise<void> {
   const errors: unknown[] = [];
-  state.source?.stop();
   if (state.lifecycleStarted && state.context != null) {
     try {
       await state.context.lifeCycleEngine.stop();
@@ -357,7 +288,6 @@ async function cleanupIteration(): Promise<void> {
     }
   }
   state.context = undefined;
-  state.source = undefined;
   state.replicationStream = undefined;
   state.bucketStorage = undefined;
   state.syncRulesContent = undefined;

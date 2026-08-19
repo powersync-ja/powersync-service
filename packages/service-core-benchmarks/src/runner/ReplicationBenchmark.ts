@@ -36,7 +36,7 @@ export class ReplicationBenchmark extends Benchmark<
     signal: AbortSignal
   ): Promise<ReplicationBenchmarkRunContext<ReplicationBenchmarkRunResource>> {
     if (this.scenario.phase === 'catch-up') {
-      throw new Error('Synthetic replication catch-up is not supported by the initial benchmark implementation');
+      throw new Error('Replication catch-up is not supported by the current benchmark implementation');
     }
     if (this.implementation.sourceId !== this.scenario.producer) {
       throw new Error(`Source implementation ${this.implementation.sourceId} does not match ${this.scenario.producer}`);
