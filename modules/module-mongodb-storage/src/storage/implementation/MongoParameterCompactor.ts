@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { logger } from '@powersync/lib-services-framework';
+import { logger as defaultLogger, Logger } from '@powersync/lib-services-framework';
 import { bson, CompactOptions, InternalOpId } from '@powersync/service-core';
 import { LRUCache } from 'lru-cache';
 import type { VersionedPowerSyncMongo } from './db.js';
@@ -46,13 +46,19 @@ type LeadingHistoryDelete = {
  * For background, see the `/docs/storage/parameter-lookups.md` file.
  */
 export abstract class MongoParameterCompactor {
+  protected readonly logger: Logger;
+  protected readonly signal?: AbortSignal;
+
   constructor(
     protected readonly db: VersionedPowerSyncMongo,
     protected readonly replicationStreamId: number,
     protected readonly checkpoint: InternalOpId,
     protected readonly options: CompactOptions,
     protected readonly parameterCompactionBatchSize = PARAMETER_COMPACTION_BATCH_SIZE
-  ) {}
+  ) {
+    this.logger = options.logger ?? defaultLogger;
+    this.signal = options.signal;
+  }
 
   /**
    * Set once the invalidation fence for this pass has been persisted. See
@@ -62,8 +68,9 @@ export abstract class MongoParameterCompactor {
 
   async compact() {
     const startedAt = Date.now();
+    this.signal?.throwIfAborted();
     const compactedBefore = await this.readCompactedBefore();
-    logger.info(
+    this.logger.info(
       `Incrementally compacting parameters for sync config ${this.replicationStreamId} from ${compactedBefore} up to checkpoint ${this.checkpoint}`
     );
 
@@ -74,7 +81,7 @@ export abstract class MongoParameterCompactor {
     await this.persistCompactedBefore(this.checkpoint);
 
     const durationSeconds = (Date.now() - startedAt) / 1000;
-    logger.info(
+    this.logger.info(
       `Incremental parameter compaction completed for sync config ${this.replicationStreamId}: ` +
         `collections=${result.collections}, scanned=${result.scannedEntries}, distinct=${result.distinctIdentities}, ` +
         `deleted=${result.deletedEntries}, cursor=${compactedBefore}->${this.checkpoint}, ` +
@@ -158,6 +165,7 @@ export abstract class MongoParameterCompactor {
     let collections = 0;
 
     for (const collection of await this.getCollections()) {
+      this.signal?.throwIfAborted();
       collections++;
       const result = await this.compactCollection(collection, compactedBefore);
       scannedEntries += result.scannedEntries;
@@ -183,6 +191,11 @@ export abstract class MongoParameterCompactor {
     });
 
     while (true) {
+      // Interrupting between batches is equivalent to a crash: deletes are idempotent, and the
+      // cursor is not advanced, so a later pass repeats the remaining range.
+      this.signal?.throwIfAborted();
+      const batchStartedAt = Date.now();
+      const deletedBeforeBatch = deletedEntries;
       const filter: mongo.Document = {
         _id: {
           ...(lastId == null ? { $gte: compactedBefore } : { $gt: lastId }),
@@ -261,6 +274,9 @@ export abstract class MongoParameterCompactor {
         if (deleteOperations.length == 0) {
           return;
         }
+        // Safe to stop here: an interrupted batch leaves phase 3 tombstones in place, and the
+        // remaining deletes are repeated by the next pass.
+        this.signal?.throwIfAborted();
         await this.ensureInvalidationFence();
         const result = await collection.bulkWrite(deleteOperations, { ordered: false });
         deletedEntries += result.deletedCount;
@@ -295,6 +311,22 @@ export abstract class MongoParameterCompactor {
           retainedId: document.bucket_parameters?.length == 0 ? null : document._id
         });
       }
+
+      const batchDurationSeconds = (Date.now() - batchStartedAt) / 1000;
+      this.logger.info(
+        `Compacted parameter batch in ${collection.collectionName}: ` +
+          `_id ${batch[0]._id}..${lastId}, scanned=${batch.length} (${scannedEntries} total), ` +
+          `identities=${newestByIdentity.size}, exactIds=${supersededIds.length + tombstoneIds.length}, ` +
+          `lookupGroups=${leadingHistoryDeletes.size}, deleted=${deletedEntries - deletedBeforeBatch}, ` +
+          `duration=${batchDurationSeconds.toFixed(1)}s`
+      );
+    }
+
+    if (scannedEntries > 0) {
+      this.logger.info(
+        `Parameter compaction completed for ${collection.collectionName}: ` +
+          `scanned=${scannedEntries}, identities=${distinctIdentities}, deleted=${deletedEntries}`
+      );
     }
 
     return { scannedEntries, distinctIdentities, deletedEntries };
@@ -304,6 +336,7 @@ export abstract class MongoParameterCompactor {
   private async deleteByIds(collection: mongo.Collection<mongo.Document>, ids: InternalOpId[]): Promise<number> {
     let deletedEntries = 0;
     for (const idBatch of chunk(ids, PARAMETER_COMPACTION_DELETE_BATCH_SIZE)) {
+      this.signal?.throwIfAborted();
       await this.ensureInvalidationFence();
       // Cast: `_id` here is an InternalOpId (bigint), not the driver's default ObjectId.
       const result = await collection.deleteMany({ _id: { $in: idBatch } } as any);

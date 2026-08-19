@@ -54,14 +54,15 @@ describe('parameter compaction invalidation fence', () => {
         db: VersionedPowerSyncMongo,
         streamId: number,
         checkpoint: InternalOpId,
-        options: { failDeletes?: boolean } = {}
+        options: storage.CompactOptions & { failDeletes?: boolean } = {}
       ): MongoParameterCompactor {
+        const { failDeletes, ...compactOptions } = options;
         if (storageVersion >= 3) {
-          const Compactor = options.failDeletes ? FailingParameterCompactorV3 : MongoParameterCompactorV3;
-          return new Compactor(db, streamId, checkpoint, {});
+          const Compactor = failDeletes ? FailingParameterCompactorV3 : MongoParameterCompactorV3;
+          return new Compactor(db, streamId, checkpoint, compactOptions);
         }
-        const Compactor = options.failDeletes ? FailingParameterCompactorV1 : MongoParameterCompactorV1;
-        return new Compactor(db, streamId, checkpoint, {});
+        const Compactor = failDeletes ? FailingParameterCompactorV1 : MongoParameterCompactorV1;
+        return new Compactor(db, streamId, checkpoint, compactOptions);
       }
 
       async function readCompactionState(db: VersionedPowerSyncMongo, streamId: number) {
@@ -225,6 +226,23 @@ describe('parameter compaction invalidation fence', () => {
         expect(await readCompactionState(db, streamId)).toEqual({
           compactedBefore: checkpoint3.checkpoint,
           invalidBefore: checkpoint3.checkpoint
+        });
+      });
+
+      test('an aborted pass does not advance the cursor', async () => {
+        await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+        const { bucketStorage, streamId, checkpoint3 } = await replicateParameterHistory(factory);
+        const db = bucketStorage.db;
+
+        const controller = new AbortController();
+        controller.abort();
+        await expect(
+          createCompactor(db, streamId, checkpoint3.checkpoint, { signal: controller.signal }).compact()
+        ).rejects.toThrow();
+
+        expect(await readCompactionState(db, streamId)).toEqual({
+          compactedBefore: null,
+          invalidBefore: null
         });
       });
 
