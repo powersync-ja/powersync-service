@@ -3,6 +3,8 @@ import { BucketDefinitionMapping, ColumnDescriptor, JsonValue, storage } from '@
 import {
   BucketDataSource,
   BucketDefinitionId,
+  EventDefinitionId,
+  HydratedEventDescriptor,
   HydratedSyncConfig,
   MatchingSources,
   ParameterIndexId,
@@ -22,12 +24,13 @@ export interface SourceTableIdentity {
 export interface SourceTableMembershipIds {
   bucketDataSourceIds: BucketDefinitionId[];
   parameterLookupSourceIds: ParameterIndexId[];
+  eventDefinitionIds: EventDefinitionId[];
 }
 
 export interface SourceTableDesiredResolution {
   bucketSourceById: Map<BucketDefinitionId, BucketDataSource>;
   parameterLookupSourceById: Map<ParameterIndexId, ParameterIndexLookupCreator>;
-  triggersEvent: boolean;
+  eventDefinitionById: Map<EventDefinitionId, HydratedEventDescriptor>;
 }
 
 export interface SourceTableReconciliationContext {
@@ -55,7 +58,7 @@ export interface SourceTableReconciliationPlan {
   narrowingUpdates: SourceTableMembershipUpdate[];
   /**
    * Memberships for a new source-table doc covering desired ids no existing doc covers,
-   * or null if no new doc is needed. Empty memberships indicate an event-only table.
+   * or null if no new doc is needed.
    */
   newTableMemberships: SourceTableMembershipIds | null;
   /** Identity-overlapping docs that conflict with the current identity and must be dropped. */
@@ -85,7 +88,11 @@ export function sourceTableDesiredResolution(
     parameterLookupSourceById: new Map(
       matchingSources.parameterLookupSources.map((source) => [mapping.parameterLookupId(source), source] as const)
     ),
-    triggersEvent: syncConfig.tableTriggersEvent(ref)
+    eventDefinitionById: new Map(
+      syncConfig.eventDescriptors
+        .filter((event) => event.tableTriggersEvent(ref))
+        .map((event) => [event.id, event] as const)
+    )
   };
 }
 
@@ -116,28 +123,33 @@ function intersectMembershipIds(
 ): SourceTableMembershipIds {
   return {
     bucketDataSourceIds: doc.bucket_data_source_ids.filter((id) => desired.bucketSourceById.has(id)),
-    parameterLookupSourceIds: doc.parameter_lookup_source_ids.filter((id) => desired.parameterLookupSourceById.has(id))
+    parameterLookupSourceIds: doc.parameter_lookup_source_ids.filter((id) => desired.parameterLookupSourceById.has(id)),
+    eventDefinitionIds: doc.event_definition_ids.filter((id) => desired.eventDefinitionById.has(id))
   };
 }
 
 function hasMembershipIds(memberships: SourceTableMembershipIds) {
-  return memberships.bucketDataSourceIds.length > 0 || memberships.parameterLookupSourceIds.length > 0;
+  return (
+    memberships.bucketDataSourceIds.length > 0 ||
+    memberships.parameterLookupSourceIds.length > 0 ||
+    memberships.eventDefinitionIds.length > 0
+  );
 }
 
 function sameMembershipIds(doc: SourceTableDocumentV3, memberships: SourceTableMembershipIds) {
   return (
     sameStringArray(doc.bucket_data_source_ids, memberships.bucketDataSourceIds) &&
-    sameStringArray(doc.parameter_lookup_source_ids, memberships.parameterLookupSourceIds)
+    sameStringArray(doc.parameter_lookup_source_ids, memberships.parameterLookupSourceIds) &&
+    sameStringArray(doc.event_definition_ids, memberships.eventDefinitionIds)
   );
 }
 
 class SourceTableReconciliationPlanner {
   private readonly coveredBucketDataSourceIds = new Set<string>();
   private readonly coveredParameterLookupSourceIds = new Set<string>();
-  private readonly retainedDocIds = new Set<string>();
+  private readonly coveredEventDefinitionIds = new Set<string>();
   private readonly tables: storage.SourceTable[] = [];
   private readonly narrowingUpdates: SourceTableMembershipUpdate[] = [];
-  private retainedEventOnlyTable = false;
 
   constructor(private readonly context: SourceTableReconciliationContext) {}
 
@@ -168,22 +180,13 @@ class SourceTableReconciliationPlanner {
   private retainDoc(doc: SourceTableDocumentV3) {
     const memberships = intersectMembershipIds(doc, this.context.desired);
     const coversDesiredMembership = hasMembershipIds(memberships);
-    const coversEventOnlyTable =
-      !this.desiredHasMembership() && this.context.desired.triggersEvent && !this.retainedEventOnlyTable;
 
     this.recordCoverage(doc, memberships);
-    this.planNarrowingUpdate(doc, memberships, coversDesiredMembership, coversEventOnlyTable);
+    this.planNarrowingUpdate(doc, memberships, coversDesiredMembership);
 
-    if (coversDesiredMembership || coversEventOnlyTable) {
-      this.retainedEventOnlyTable ||= coversEventOnlyTable;
-      this.retainedDocIds.add(doc._id.toHexString());
+    if (coversDesiredMembership) {
       this.tables.push(this.sourceTableFor(doc, memberships));
     }
-  }
-
-  private desiredHasMembership() {
-    const { desired } = this.context;
-    return desired.bucketSourceById.size > 0 || desired.parameterLookupSourceById.size > 0;
   }
 
   private recordCoverage(doc: SourceTableDocumentV3, memberships: SourceTableMembershipIds) {
@@ -194,6 +197,7 @@ class SourceTableReconciliationPlanner {
       this.coveredParameterLookupSourceIds,
       memberships.parameterLookupSourceIds
     );
+    this.addCoverage(doc, 'event definition', this.coveredEventDefinitionIds, memberships.eventDefinitionIds);
   }
 
   // Membership sets must be pairwise disjoint across the docs of one physical table:
@@ -215,11 +219,9 @@ class SourceTableReconciliationPlanner {
   private planNarrowingUpdate(
     doc: SourceTableDocumentV3,
     memberships: SourceTableMembershipIds,
-    coversDesiredMembership: boolean,
-    coversEventOnlyTable: boolean
+    coversDesiredMembership: boolean
   ) {
-    const shouldNarrow =
-      (coversDesiredMembership || coversEventOnlyTable) && !doc.snapshot_done && !sameMembershipIds(doc, memberships);
+    const shouldNarrow = coversDesiredMembership && !doc.snapshot_done && !sameMembershipIds(doc, memberships);
 
     if (!shouldNarrow) {
       return;
@@ -239,9 +241,12 @@ class SourceTableReconciliationPlanner {
       ),
       parameterLookupSourceIds: [...desired.parameterLookupSourceById.keys()].filter(
         (id) => !this.coveredParameterLookupSourceIds.has(id)
+      ),
+      eventDefinitionIds: [...desired.eventDefinitionById.keys()].filter(
+        (id) => !this.coveredEventDefinitionIds.has(id)
       )
     };
-    if (hasMembershipIds(uncovered) || (desired.triggersEvent && this.tables.length == 0)) {
+    if (hasMembershipIds(uncovered)) {
       return uncovered;
     }
     return null;
@@ -306,6 +311,7 @@ export function createNewSourceTable(
     snapshot_status: undefined,
     bucket_data_source_ids: memberships.bucketDataSourceIds,
     parameter_lookup_source_ids: memberships.parameterLookupSourceIds,
+    event_definition_ids: memberships.eventDefinitionIds,
     // Records created together share the same source metadata.
     source_metadata: newTableSourceMetadata
   };
@@ -320,17 +326,6 @@ export function createNewSourceTable(
   table.storeCurrentData = storeCurrentData;
 
   return { doc, table };
-}
-
-export function designateEventCarrier(tables: storage.SourceTable[], triggersEvent: boolean) {
-  if (!triggersEvent) {
-    return;
-  }
-
-  const eventCarrier = tables.find((table) => table.snapshotComplete) ?? tables[0];
-  for (const table of tables) {
-    table.syncEvent = table === eventCarrier;
-  }
 }
 
 function sourceTableMembershipsFromDocument(
@@ -364,6 +359,9 @@ export function sourceTableFromDocument(
     bucketDataSourceIds: resolvedMemberships.bucketDataSources.map((source) => mapping.bucketSourceId(source)),
     parameterLookupSourceIds: resolvedMemberships.parameterLookupSources.map((source) =>
       mapping.parameterLookupId(source)
+    ),
+    eventDefinitionIds: doc.event_definition_ids.filter((id) =>
+      syncConfig.eventDescriptors.some((event) => event.id == id)
     )
   };
   const table = new storage.SourceTable({
@@ -383,11 +381,12 @@ export function sourceTableFromDocument(
     parameterLookupSources: resolvedMemberships.parameterLookupSources,
     bucketDataSourceIds: new Set(resolvedMembershipIds.bucketDataSourceIds),
     parameterLookupSourceIds: new Set(resolvedMembershipIds.parameterLookupSourceIds),
+    eventDefinitionIds: new Set(resolvedMembershipIds.eventDefinitionIds),
     sourceMetadata: doc.source_metadata ?? null
   });
   table.syncData = table.bucketDataSources.length > 0;
   table.syncParameters = table.parameterLookupSources.length > 0;
-  table.syncEvent = syncConfig.tableTriggersEvent(table.ref);
+  table.syncEvent = table.eventDefinitionIds!.size > 0;
   table.snapshotStatus =
     doc.snapshot_status == null
       ? undefined

@@ -118,8 +118,11 @@ export class HydratedSyncConfig {
       this.bucketParameterLookupSources
     ).evaluateParameterRow;
 
-    this.eventDescriptors = definitions.flatMap((definition) =>
-      definition.eventDefinitions.map((event) => event.createEvaluator(this.hydrationInput))
+    this.eventDescriptors = uniqueBy(
+      definitions.flatMap((definition) =>
+        definition.eventDefinitions.map((event) => event.createEvaluator(this.hydrationInput))
+      ),
+      (event) => event.id
     );
 
     if (definitions.length == 1) {

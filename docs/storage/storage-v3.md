@@ -73,8 +73,9 @@ Each source table document stores:
 2. Snapshot state.
 3. `bucket_data_source_ids`: bucket definitions covered by this source table.
 4. `parameter_lookup_source_ids`: parameter indexes covered by this source table.
+5. `event_definition_ids`: content-addressed compiled event definitions covered by this source table.
 
-Memberships are narrowed when stopped configs are cleaned up. New memberships are covered by creating a new source table document rather than expanding an existing one. Empty memberships represent an event-only source table.
+Memberships are narrowed when stopped configs are cleaned up. New memberships are covered by creating a new source table document rather than expanding an existing one. An event-only source table has empty bucket and parameter memberships and one or more event definition ids.
 
 ## source_records (previously current_data)
 
@@ -128,7 +129,7 @@ Incremental streams can contain stopped sync config state while the stream conti
 
 1. Bucket data collections, parameter index collections, and bucket state are removed only for ids no live config still uses.
 2. Source table memberships for unused ids are removed from retained source tables.
-3. Source tables whose data and parameter memberships become empty are deleted with their source records collections unless a live config still triggers events for that table.
-4. Source tables kept only for live events become event-only; their source records collections are dropped.
-5. Event-only source tables are deleted with their source records collections when no live config still triggers events for them.
+3. Unused event definition ids are removed from source table memberships using the same stopped-versus-live comparison.
+4. Source tables whose data, parameter, and event memberships become empty are deleted with their source records collections.
+5. Source tables kept only by event memberships become event-only; their source records collections are dropped.
 6. The stopped sync config entries are pruned from `sync_rules.sync_configs`.

@@ -2,6 +2,7 @@ import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   BucketDataSource,
   BucketDefinitionId,
+  EventDefinitionId,
   HashMap,
   ParameterIndexId,
   ParameterIndexLookupCreator,
@@ -20,12 +21,12 @@ export interface SerializedSyncConfigWithMapping {
   mapping: SingleSyncConfigBucketDefinitionMapping;
 }
 
-export type IncrementalMappingDefinitionType = 'bucket_data' | 'parameter_lookup';
+export type IncrementalMappingDefinitionType = 'bucket_data' | 'parameter_lookup' | 'event';
 
 export interface IncrementalMappingDefinitionChange {
   type: IncrementalMappingDefinitionType;
   name: string;
-  id: BucketDefinitionId | ParameterIndexId;
+  id: BucketDefinitionId | ParameterIndexId | EventDefinitionId;
 }
 
 export interface IncrementalMappingChanges {
@@ -84,7 +85,8 @@ export interface BucketDefinitionMapping {
     selectedSyncConfigIds: string[],
     table: SourceTableRef,
     bucketDataSourceIds: BucketDefinitionId[],
-    parameterLookupSourceIds: ParameterIndexId[]
+    parameterLookupSourceIds: ParameterIndexId[],
+    eventDefinitionIds: EventDefinitionId[]
   ): string[];
 
   snapshotBlockingSourceTablesFilter(syncConfigId: string): Record<string, unknown>;
@@ -297,9 +299,12 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
     selectedSyncConfigIds: string[],
     _table: SourceTableRef,
     bucketDataSourceIds: BucketDefinitionId[],
-    parameterLookupSourceIds: ParameterIndexId[]
+    parameterLookupSourceIds: ParameterIndexId[],
+    eventDefinitionIds: EventDefinitionId[]
   ): string[] {
-    return bucketDataSourceIds.length > 0 || parameterLookupSourceIds.length > 0 ? selectedSyncConfigIds : [];
+    return bucketDataSourceIds.length > 0 || parameterLookupSourceIds.length > 0 || eventDefinitionIds.length > 0
+      ? selectedSyncConfigIds
+      : [];
   }
 
   snapshotBlockingSourceTablesFilter(_syncConfigId: string): Record<string, unknown> {
@@ -337,6 +342,7 @@ export class MultiSyncConfigBucketDefinitionMapping implements BucketDefinitionM
   private bucketDataSourceSyncConfigIdsById = new Map<BucketDefinitionId, Set<string>>();
   private parameterLookupMappings = new WeakMap<ParameterIndexLookupCreator, SingleSyncConfigBucketDefinitionMapping>();
   private parameterLookupSyncConfigIdsById = new Map<ParameterIndexId, Set<string>>();
+  private eventDefinitionSyncConfigIdsById = new Map<EventDefinitionId, Set<string>>();
   private syncConfigsById = new Map<string, SyncConfigWithRequiredMapping>();
   private mappings: SingleSyncConfigBucketDefinitionMapping[];
 
@@ -356,6 +362,9 @@ export class MultiSyncConfigBucketDefinitionMapping implements BucketDefinitionM
           config.mapping.parameterLookupId(source),
           config.syncConfigId
         );
+      }
+      for (const event of config.syncConfig.config.eventDefinitions) {
+        addSetEntry(this.eventDefinitionSyncConfigIdsById, event.id, config.syncConfigId);
       }
     }
   }
@@ -390,9 +399,10 @@ export class MultiSyncConfigBucketDefinitionMapping implements BucketDefinitionM
 
   syncConfigIdsForSourceTable(
     _selectedSyncConfigIds: string[],
-    table: SourceTableRef,
+    _table: SourceTableRef,
     bucketDataSourceIds: BucketDefinitionId[],
-    parameterLookupSourceIds: ParameterIndexId[]
+    parameterLookupSourceIds: ParameterIndexId[],
+    eventDefinitionIds: EventDefinitionId[]
   ): string[] {
     const ids = new Set<string>();
     for (const sourceId of bucketDataSourceIds) {
@@ -401,10 +411,8 @@ export class MultiSyncConfigBucketDefinitionMapping implements BucketDefinitionM
     for (const sourceId of parameterLookupSourceIds) {
       addAll(ids, this.parameterLookupSyncConfigIdsById.get(sourceId));
     }
-    for (const [syncConfigId, config] of this.syncConfigsById) {
-      if (config.syncConfig.config.tableTriggersEvent(table)) {
-        ids.add(syncConfigId);
-      }
+    for (const eventDefinitionId of eventDefinitionIds) {
+      addAll(ids, this.eventDefinitionSyncConfigIdsById.get(eventDefinitionId));
     }
     return [...ids];
   }
@@ -415,7 +423,24 @@ export class MultiSyncConfigBucketDefinitionMapping implements BucketDefinitionM
       throw new ServiceAssertionError(`No mapping found for sync config ${syncConfigId}`);
     }
 
-    return config.mapping.snapshotBlockingSourceTablesFilter(syncConfigId);
+    const mappingFilter = config.mapping.snapshotBlockingSourceTablesFilter(syncConfigId) as {
+      $or?: Record<string, unknown>[];
+    };
+    const clauses = [...(mappingFilter.$or ?? [])];
+    const eventDefinitionIds = config.syncConfig.config.eventDefinitions.map((event) => event.id);
+    if (eventDefinitionIds.length > 0) {
+      clauses.push({ event_definition_ids: { $in: eventDefinitionIds } });
+    }
+    if (clauses.length == 0) {
+      return {
+        snapshot_done: false,
+        _id: { $exists: false }
+      };
+    }
+    return {
+      snapshot_done: false,
+      $or: clauses
+    };
   }
 }
 
