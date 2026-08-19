@@ -4,15 +4,15 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.18.0",
+  "version": "0.0.1",
   "exports": "./dist/index.js",
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "scripts": {
     "build": "tsc -b",
     "clean": "rm -rf ./dist && tsc -b --clean",
-    "test:benchmarks": "vitest --config src/vitest.config.ts --run",
-    "report:benchmarks": "node ./src/scripts/report.ts"
+    "benchmark:test": "vitest --config src/vitest.config.ts --run",
+    "benchmark:report": "node ./src/scripts/report.ts"
   },
   "dependencies": {
     "@powersync/lib-services-framework": "workspace:^",

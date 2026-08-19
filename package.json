@@ -7,8 +7,8 @@
   "keywords": [],
   "author": "PowerSync",
   "scripts": {
-    "benchmark:test": "pnpm --filter @powersync/service-core-benchmarks test:benchmarks && pnpm --filter @powersync/service-core-benchmarks report:benchmarks",
-    "benchmark:report": "pnpm --filter @powersync/service-core-benchmarks report:benchmarks",
+    "benchmark:test": "pnpm --filter @powersync/service-core-benchmarks benchmark:test",
+    "benchmark:report": "pnpm --filter @powersync/service-core-benchmarks benchmark:report",
     "check-updates": "ncu -u --deep",
     "validate:tsconfig-references": "node scripts/validate-tsconfig-references.mts",
     "format": "prettier --write .",
