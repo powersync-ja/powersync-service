@@ -86,6 +86,24 @@ describe('Mongo parameter compaction V1', () => {
     expect(BigInt(secondStreamDoc.parameter_compaction!.compacted_before)).toBe(300n);
   });
 
+  test('seeds the compaction cursor when a V1 stream is created', async () => {
+    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+    // Stand in for parameter history written by earlier deployments: all V1 streams share the
+    // `main` op id sequence and the `bucket_parameters` collection.
+    await factory.db.op_id_sequence.updateOne({ _id: 'main' }, { $set: { op_id: 500n } }, { upsert: true });
+
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(PARAMETER_RULES, { storageVersion: storage.STORAGE_VERSION_2 })
+    );
+
+    // Entries for this stream can only be written above the sequence head, so its first compaction
+    // does not have to scan the older entries of other streams.
+    const streamDoc = (await factory.db.sync_rules.findOne({
+      _id: syncRules.replicationStreamId
+    })) as SyncRuleDocumentV1;
+    expect(BigInt(streamDoc.parameter_compaction!.compacted_before)).toBe(500n);
+  });
+
   test('clearing a V1 stream clears the parameter compaction cursor', async () => {
     const { factory, storage: bucketStorage, streamId } = await createActiveStorage();
     await using _factory = factory;

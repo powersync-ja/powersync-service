@@ -46,7 +46,7 @@ One big consideration is sync clients may still need some of that data. To cover
 
 Compaction does not scan the entire collection. Since parameter entries use the replication stream's monotonic operation id as `_id`, those operation ids double as a work log. Each stream persists `parameter_compaction.compacted_before` on its `sync_rules` document: an exclusive operation-id boundary through which every parameter collection of the stream has been processed. A pass scans only `[compacted_before, checkpoint)`, and advances the cursor only after every collection has completed that range. All deletes are idempotent, so an interrupted pass is safely repeated.
 
-V1 scans that range on the shared `bucket_parameters` collection using its `_id` index, and filters entries belonging to other streams in code. V3 scans each `parameter_index_${stream_id}_${index_id}` collection separately, sharing the one stream-level cursor.
+V1 scans that range on the shared `bucket_parameters` collection using its `_id` index, and filters entries belonging to other streams in code. Since all V1 streams share the `main` op id sequence, a new stream's cursor is seeded with the sequence head when the stream is created - every entry it writes gets a higher op id, so its first compaction does not scan the history of previous deployments. V3 scans each `parameter_index_${stream_id}_${index_id}` collection separately, sharing the one stream-level cursor.
 
 ### Checkpoint change detection
 

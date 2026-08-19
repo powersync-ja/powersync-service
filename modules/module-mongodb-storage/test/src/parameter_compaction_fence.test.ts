@@ -210,6 +210,10 @@ describe('parameter compaction invalidation fence', () => {
         const { bucketStorage, streamId, checkpoint3 } = await replicateParameterHistory(factory);
         const db = bucketStorage.db;
 
+        // V1 seeds the cursor when the stream is created, V3 leaves it unset.
+        const initialState = await readCompactionState(db, streamId);
+        expect(initialState.invalidBefore).toBeNull();
+
         await expect(
           createCompactor(db, streamId, checkpoint3.checkpoint, { failDeletes: true }).compact()
         ).rejects.toThrow('simulated delete failure');
@@ -217,7 +221,7 @@ describe('parameter compaction invalidation fence', () => {
         // The fence was committed before the first delete was attempted, but the interrupted pass
         // may not skip any deletion work on a retry, so the cursor stays where it was.
         expect(await readCompactionState(db, streamId)).toEqual({
-          compactedBefore: null,
+          compactedBefore: initialState.compactedBefore,
           invalidBefore: checkpoint3.checkpoint
         });
 
@@ -234,16 +238,15 @@ describe('parameter compaction invalidation fence', () => {
         const { bucketStorage, streamId, checkpoint3 } = await replicateParameterHistory(factory);
         const db = bucketStorage.db;
 
+        const initialState = await readCompactionState(db, streamId);
         const controller = new AbortController();
         controller.abort();
         await expect(
           createCompactor(db, streamId, checkpoint3.checkpoint, { signal: controller.signal }).compact()
         ).rejects.toThrow();
 
-        expect(await readCompactionState(db, streamId)).toEqual({
-          compactedBefore: null,
-          invalidBefore: null
-        });
+        expect(await readCompactionState(db, streamId)).toEqual(initialState);
+        expect(initialState.invalidBefore).toBeNull();
       });
 
       test('does not advance the fence for a pass without deletes', async () => {
