@@ -221,6 +221,7 @@ export async function getSyncRulesStatus(
   }
 
   return {
+    version_label: syncConfig.version_label,
     content: include_content ? syncConfig.sync_rules_content : undefined,
     connections: [
       {

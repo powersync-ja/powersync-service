@@ -282,6 +282,11 @@ export type GenericStorageConfig = t.Encoded<typeof GenericStorageConfig>;
 
 export const SyncConfig = t
   .object({
+    version_label: t.string
+      .meta({
+        description: 'Optional label identifying this deployed sync config version.'
+      })
+      .optional(),
     path: t.string
       .meta({
         description: 'Path to the sync config YAML file.'

@@ -35,6 +35,10 @@ export const TableInfo = t.object({
 export type TableInfo = t.Encoded<typeof TableInfo>;
 
 export const SyncRulesStatus = t.object({
+  /**
+   * Optional label identifying this deployed sync config version.
+   */
+  version_label: t.string.optional(),
   content: t.string.optional(),
   connections: t.array(
     t.object({

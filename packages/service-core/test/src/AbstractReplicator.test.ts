@@ -44,6 +44,14 @@ class TestReplicator extends AbstractReplicator {
   get heartbeatIntervalNanosForTest(): bigint | null {
     return (this as any).heartbeatIntervalNanos;
   }
+
+  shouldHandleStreamForTest(
+    replicationStream: PersistedReplicationStream,
+    loadedSyncRules: string | undefined,
+    loadedVersionLabel: string | undefined
+  ): boolean {
+    return (this as any).shouldHandleReplicationStream(replicationStream, loadedSyncRules, loadedVersionLabel);
+  }
 }
 
 describe('AbstractReplicator heartbeat interval', () => {
@@ -143,5 +151,27 @@ describe('AbstractReplicator stopped stream cleanup', () => {
     finishCleanup!();
     await stop;
     expect(stopped).toBe(true);
+  });
+});
+
+describe('AbstractReplicator rolling deployment config matching', () => {
+  const processingStream = (version_label: string | undefined): PersistedReplicationStream =>
+    ({
+      syncConfigContent: [
+        {
+          syncConfigState: 'PROCESSING',
+          sync_rules_content: 'bucket_definitions: {}',
+          version_label
+        }
+      ]
+    }) as unknown as PersistedReplicationStream;
+
+  it('requires both YAML and version label to match a processing config', () => {
+    const replicator = new TestReplicator(async () => {});
+    const stream = processingStream('v2');
+
+    expect(replicator.shouldHandleStreamForTest(stream, 'bucket_definitions: {}', 'v2')).toBe(true);
+    expect(replicator.shouldHandleStreamForTest(stream, 'bucket_definitions: {}', 'v1')).toBe(false);
+    expect(replicator.shouldHandleStreamForTest(stream, 'bucket_definitions: {}', undefined)).toBe(false);
   });
 });

@@ -5,6 +5,7 @@ export interface SyncRulesProvider {
   get(): Promise<string | undefined>;
 
   readonly exitOnError: boolean;
+  readonly versionLabel: string | undefined;
 }
 
 export class ConfigurationFileSyncRulesProvider implements SyncRulesProvider {
@@ -20,5 +21,9 @@ export class ConfigurationFileSyncRulesProvider implements SyncRulesProvider {
 
   get exitOnError() {
     return this.config.exit_on_error;
+  }
+
+  get versionLabel() {
+    return this.config.version_label;
   }
 }
