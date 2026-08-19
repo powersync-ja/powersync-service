@@ -215,17 +215,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     checkpoint: InternalOpId,
     options: storage.CompactOptions
   ): MongoParameterCompactor {
-    return new MongoParameterCompactorV3(this.db, this.replicationStreamId, checkpoint, options, () =>
-      this.db
-        .listParameterIndexCollections(this.replicationStreamId)
-        .then((collections) =>
-          collections.map((c) => c.collection as unknown as lib_mongo.mongo.Collection<lib_mongo.mongo.Document>)
-        )
-    );
-  }
-
-  override supportsIncrementalParameterCompaction(): boolean {
-    return true;
+    return new MongoParameterCompactorV3(this.db, this.replicationStreamId, checkpoint, options);
   }
 
   protected async fetchPersistedOpHead(): Promise<InternalOpId | null> {

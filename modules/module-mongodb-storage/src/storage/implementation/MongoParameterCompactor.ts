@@ -32,17 +32,17 @@ const PARAMETER_COMPACTION_DELETE_BATCH_SIZE = 1_000;
 export abstract class MongoParameterCompactor {
   constructor(
     protected readonly db: VersionedPowerSyncMongo,
-    protected readonly group_id: number,
+    protected readonly replicationStreamId: number,
     protected readonly checkpoint: InternalOpId,
     protected readonly options: CompactOptions,
-    protected readonly getCollectionsCb?: () => Promise<mongo.Collection<mongo.Document>[]>
+    protected readonly parameterCompactionBatchSize = PARAMETER_COMPACTION_BATCH_SIZE
   ) {}
 
   async compact() {
     const startedAt = Date.now();
     const compactedBefore = await this.readCompactedBefore();
     logger.info(
-      `Incrementally compacting parameters for sync config ${this.group_id} from ${compactedBefore} up to checkpoint ${this.checkpoint}`
+      `Incrementally compacting parameters for sync config ${this.replicationStreamId} from ${compactedBefore} up to checkpoint ${this.checkpoint}`
     );
 
     const result = await this.compactCollections(compactedBefore);
@@ -53,7 +53,7 @@ export abstract class MongoParameterCompactor {
 
     const durationSeconds = (Date.now() - startedAt) / 1000;
     logger.info(
-      `Incremental parameter compaction completed for sync config ${this.group_id}: ` +
+      `Incremental parameter compaction completed for sync config ${this.replicationStreamId}: ` +
         `collections=${result.collections}, scanned=${result.scannedEntries}, distinct=${result.distinctIdentities}, ` +
         `deleted=${result.deletedEntries}, cursor=${compactedBefore}->${this.checkpoint}, duration=${durationSeconds.toFixed(1)}s`
     );
@@ -62,15 +62,7 @@ export abstract class MongoParameterCompactor {
   protected abstract readCompactedBefore(): Promise<InternalOpId>;
   protected abstract persistCompactedBefore(compactedBefore: InternalOpId): Promise<void>;
 
-  protected async getCollections(): Promise<mongo.Collection<mongo.Document>[]> {
-    if (this.getCollectionsCb == null) {
-      throw new Error('getCollections callback not provided');
-    }
-    const collections = await this.getCollectionsCb();
-    // Cast from the version-specific collection type to the generic Document type
-    // used by the parameter compactor base class.
-    return collections.map((collection) => collection as unknown as mongo.Collection<mongo.Document>);
-  }
+  protected abstract getCollections(): Promise<mongo.Collection<mongo.Document>[]>;
 
   /**
    * V1 and V3 both scan in operation-id order. V3 additionally supplies a persisted lower
@@ -80,39 +72,15 @@ export abstract class MongoParameterCompactor {
     return { _id: 1 };
   }
 
-  /**
-   * V3 overrides this with its persisted half-open operation-id range. V1 scans from the start
-   * of the eligible operation-id range using MongoDB's default `_id` index.
-   */
-  protected compactionFilter(_compactedBefore?: InternalOpId): mongo.Document {
-    return { _id: { $lt: this.checkpoint } };
-  }
+  protected abstract compactionFilter(compactedBefore: InternalOpId): mongo.Document;
 
-  /**
-   * V1 shares its parameter collection across streams, so it filters `key.g` after the
-   * `_id`-ordered MongoDB scan. V3's collection is already scoped to one stream.
-   */
-  protected shouldCompactDocument(doc: ParameterCompactionReadDocument): boolean {
-    return doc._id < this.checkpoint;
-  }
+  protected abstract shouldCompactDocument(doc: ParameterCompactionReadDocument): boolean;
 
-  protected deleteFilter(doc: ParameterCompactionReadDocument): mongo.Document {
-    return {
-      lookup: doc.lookup,
-      _id: this.deleteIdFilter(doc._id),
-      key: doc.key
-    };
-  }
+  protected abstract deleteFilter(doc: ParameterCompactionReadDocument): mongo.Document;
 
-  protected deleteTombstoneFilter(doc: ParameterCompactionReadDocument): mongo.Document {
-    return {
-      lookup: doc.lookup,
-      _id: doc._id,
-      key: doc.key
-    };
-  }
+  protected abstract deleteTombstoneFilter(doc: ParameterCompactionReadDocument): mongo.Document;
 
-  protected async compactCollections(compactedBefore?: InternalOpId): Promise<ParameterCompactionResult> {
+  protected async compactCollections(compactedBefore: InternalOpId): Promise<ParameterCompactionResult> {
     let scannedEntries = 0;
     let distinctIdentities = 0;
     let deletedEntries = 0;
@@ -131,7 +99,7 @@ export abstract class MongoParameterCompactor {
 
   protected async compactCollection(
     collection: mongo.Collection<mongo.Document>,
-    compactedBefore?: InternalOpId
+    compactedBefore: InternalOpId
   ): Promise<Omit<ParameterCompactionResult, 'collections'>> {
     const cursor = collection.find(this.compactionFilter(compactedBefore), {
       sort: this.compactionSort(),
@@ -204,15 +172,5 @@ export abstract class MongoParameterCompactor {
     }
 
     return { scannedEntries, distinctIdentities, deletedEntries };
-  }
-
-  protected get parameterCompactionBatchSize(): number {
-    return PARAMETER_COMPACTION_BATCH_SIZE;
-  }
-
-  private deleteIdFilter(operationId: InternalOpId): mongo.Document {
-    // The scan normally guarantees operationId < checkpoint. Keep this calculation explicit so
-    // the delete remains safe if a future scan starts returning entries at the checkpoint.
-    return { $lt: operationId >= this.checkpoint ? this.checkpoint : operationId };
   }
 }

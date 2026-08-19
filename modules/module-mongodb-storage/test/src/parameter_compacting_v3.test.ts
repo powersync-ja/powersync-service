@@ -88,14 +88,7 @@ describe('Mongo parameter compaction V3', () => {
 
     // Use a small batch to exercise identities that span multiple reads. The exact-target entry
     // becomes eligible only after the target advances.
-    const incremental = new MongoParameterCompactorV3(
-      db,
-      streamId,
-      300n,
-      {},
-      async () => parameterCollections.map(({ collection }) => collection as any),
-      2
-    );
+    const incremental = new MongoParameterCompactorV3(db, streamId, 300n, {}, 2);
     await incremental.compact();
 
     const secondPass = await collection.find({}, { sort: { _id: 1 } }).toArray();

@@ -13,7 +13,7 @@ export class MongoParameterCompactorV1 extends MongoParameterCompactor {
 
   protected async readCompactedBefore(): Promise<InternalOpId> {
     const stream = (await this.db.sync_rules.findOne(
-      { _id: this.group_id },
+      { _id: this.replicationStreamId },
       { projection: { parameter_compaction: 1 } }
     )) as SyncRuleDocumentV1 | null;
     return stream?.parameter_compaction?.compacted_before == null
@@ -22,26 +22,30 @@ export class MongoParameterCompactorV1 extends MongoParameterCompactor {
   }
 
   protected async persistCompactedBefore(compactedBefore: InternalOpId): Promise<void> {
-    await this.db.sync_rules.updateOne({ _id: this.group_id }, {
-      $max: { 'parameter_compaction.compacted_before': compactedBefore }
-    } as any);
+    await this.db.sync_rules.updateOne(
+      { _id: this.replicationStreamId },
+      {
+        $max: { 'parameter_compaction.compacted_before': compactedBefore }
+      }
+    );
   }
 
   /**
    * The shared V1 collection is scanned using only its default `_id` index. Group filtering is
    * deliberately done in shouldCompactDocument(), avoiding an index requirement on `key.g`.
    */
-  protected override compactionFilter(compactedBefore?: InternalOpId): mongo.Document {
-    if (compactedBefore == null) {
-      throw new Error('Missing V1 parameter compaction cursor');
-    }
+  protected override compactionFilter(compactedBefore: InternalOpId): mongo.Document {
     return { _id: { $gte: compactedBefore, $lt: this.checkpoint } };
   }
 
   protected override shouldCompactDocument(doc: { _id: bigint; key: mongo.Document }): boolean {
-    return doc._id < this.checkpoint && doc.key.g === this.group_id;
+    return doc._id < this.checkpoint && doc.key.g === this.replicationStreamId;
   }
 
+  /**
+   * Uses the legacy `{ 'key.g': 1, lookup: 1, _id: 1 }` index to narrow the stream, lookup and
+   * operation-id range. `key` is a residual predicate because it follows the `_id` range.
+   */
   protected deleteFilter(doc: mongo.Document): mongo.Document {
     return {
       'key.g': doc.key.g as number,
@@ -51,6 +55,7 @@ export class MongoParameterCompactorV1 extends MongoParameterCompactor {
     };
   }
 
+  /** Uses the default `_id` index for the exact operation-id match. */
   protected deleteTombstoneFilter(doc: mongo.Document): mongo.Document {
     return {
       'key.g': doc.key.g as number,

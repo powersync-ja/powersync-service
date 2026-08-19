@@ -221,10 +221,6 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     return new MongoParameterCompactorV1(this.db, this.replicationStreamId, checkpoint, options);
   }
 
-  override supportsIncrementalParameterCompaction(): boolean {
-    return true;
-  }
-
   protected get versionContext(): MongoSyncBucketStorageContextV1 {
     return {
       db: this.db,

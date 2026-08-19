@@ -77,7 +77,7 @@ describe('Mongo parameter compaction V1', () => {
       parameterDocument(210n, streamId, key, lookup, [{ id: 'later' }]),
       parameterDocument(220n, streamId, { ...key, k: 'row' }, lookup, [])
     ]);
-    const incremental = new MongoParameterCompactorV1(db, streamId, 300n, {}, undefined);
+    const incremental = new MongoParameterCompactorV1(db, streamId, 300n, {});
     await incremental.compact();
 
     const secondPass = await collection.find({}, { sort: { _id: 1 } }).toArray();
