@@ -8,12 +8,22 @@ import {
 } from '@powersync/service-sync-rules';
 import { bson } from '../index.js';
 import * as util from '../util/util-index.js';
-import { ColumnDescriptor } from './SourceEntity.js';
+import { ColumnDescriptor, JsonValue } from './SourceEntity.js';
 
 /**
  * Format of the id depends on the bucket storage module. It should be consistent within the module.
  */
 export type SourceTableId = string | bson.ObjectId;
+
+/**
+ * Compare source-table ids without coercing between storage-specific types.
+ */
+export function sourceTableIdEquals(left: SourceTableId, right: SourceTableId): boolean {
+  if (typeof left === 'string' || typeof right === 'string') {
+    return typeof left === 'string' && typeof right === 'string' && left === right;
+  }
+  return left.equals(right);
+}
 
 export interface SourceTableOptions {
   id: SourceTableId;
@@ -25,6 +35,10 @@ export interface SourceTableOptions {
   parameterLookupSources: ParameterIndexLookupCreator[];
   bucketDataSourceIds?: Set<BucketDefinitionId>;
   parameterLookupSourceIds?: Set<ParameterIndexId>;
+  /**
+   * Source-specific metadata. Null when no metadata has been recorded.
+   */
+  sourceMetadata?: JsonValue;
 }
 
 export interface TableSnapshotStatus {
@@ -136,6 +150,10 @@ export class SourceTable {
     return this.options.parameterLookupSourceIds;
   }
 
+  get sourceMetadata() {
+    return this.options.sourceMetadata ?? null;
+  }
+
   /**
    * Sanitized name of the entity in the format of "{schema}.{entity name}".
    * Suitable for safe use in Postgres queries.
@@ -152,23 +170,41 @@ export class SourceTable {
    * In-memory clone of the table status.
    */
   clone() {
+    return this.copyWithSourceMetadata(this.sourceMetadata);
+  }
+
+  /**
+   * Copy this table with different source metadata, preserving its resolved state.
+   */
+  withSourceMetadata(sourceMetadata: JsonValue) {
+    return this.copyWithSourceMetadata(sourceMetadata);
+  }
+
+  private copyWithSourceMetadata(sourceMetadata: JsonValue) {
     const copy = new SourceTable({
       id: this.id,
-      ref: this.options.ref,
+      ref: { ...this.options.ref },
       objectId: this.objectId,
-      replicaIdColumns: this.replicaIdColumns,
+      replicaIdColumns: this.replicaIdColumns.map((column) => ({ ...column })),
       snapshotComplete: this.snapshotComplete,
-      bucketDataSources: this.bucketDataSources,
-      parameterLookupSources: this.parameterLookupSources,
+      bucketDataSources: [...this.bucketDataSources],
+      parameterLookupSources: [...this.parameterLookupSources],
       bucketDataSourceIds: this.bucketDataSourceIds == null ? undefined : new Set(this.bucketDataSourceIds),
       parameterLookupSourceIds:
-        this.parameterLookupSourceIds == null ? undefined : new Set(this.parameterLookupSourceIds)
+        this.parameterLookupSourceIds == null ? undefined : new Set(this.parameterLookupSourceIds),
+      sourceMetadata: structuredClone(sourceMetadata)
     });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;
     copy.syncEvent = this.syncEvent;
     copy.storeCurrentData = this.storeCurrentData;
-    copy.snapshotStatus = this.snapshotStatus;
+    copy.snapshotStatus =
+      this.snapshotStatus == null
+        ? undefined
+        : {
+            ...this.snapshotStatus,
+            lastKey: this.snapshotStatus.lastKey?.slice() ?? null
+          };
     return copy;
   }
 
@@ -183,3 +219,11 @@ export class SourceTable {
     }
   }
 }
+
+/**
+ * A cloned SourceTable exposed to reconciliation with public fields typed as read-only.
+ * `options` is omitted so callers cannot mutate the underlying option bag without an explicit cast.
+ */
+export type SourceTableCandidate = Omit<Readonly<SourceTable>, 'options' | 'withSourceMetadata'> & {
+  withSourceMetadata(sourceMetadata: JsonValue): SourceTableCandidate;
+};

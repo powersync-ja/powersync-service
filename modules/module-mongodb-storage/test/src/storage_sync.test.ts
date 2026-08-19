@@ -16,6 +16,7 @@ import { MongoPersistedSyncConfigContentV3 } from '../../src/storage/implementat
 import { BucketDataDoc, BucketKey } from '../../src/storage/implementation/common/BucketDataDoc.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { getMongoStorageConfig } from '../../src/storage/implementation/models.js';
+import { loadBucketDataDocumentV1, serializeBucketDataV1 } from '../../src/storage/implementation/v1/models.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { serializeBucketData } from '../../src/storage/implementation/v3/bucket-format.js';
@@ -114,11 +115,65 @@ function bucketDefinitionId(bucket: string) {
   return parseInt(match[1], 16);
 }
 
+test('V1 bucket data retains an optional persisted subkey', () => {
+  const sourceTable = new bson.ObjectId();
+  const document = serializeBucketDataV1({
+    bucketKey: {
+      replicationStreamId: 1,
+      definitionId: '0',
+      bucket: 'global[]'
+    },
+    o: 1n,
+    op: 'PUT',
+    source_table: sourceTable,
+    source_key: 'source-key',
+    subkey: 'persisted-subkey',
+    table: 'items',
+    row_id: 'item-1',
+    checksum: 1n,
+    data: '{"id":"item-1"}'
+  });
+
+  expect(loadBucketDataDocumentV1(document).subkey).toBe('persisted-subkey');
+
+  const { subkey: _subkey, ...legacyDocument } = document;
+  expect(loadBucketDataDocumentV1(legacyDocument).subkey).toBeUndefined();
+});
+
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
   register.registerSyncTests(storageConfig.factory, {
     storageVersion,
     tableIdStrings: storageConfig.tableIdStrings
   });
+
+  test('updates source metadata on an existing resolved table', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion }));
+    const bucketStorage = factory.getInstance(syncRules);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const source = sourceDescriptor('test');
+
+    const initial = await writer.resolveTables({ connection_id: 1, source });
+    expect(initial.tables[0].sourceMetadata).toBeNull();
+
+    const sourceMetadata = { captureTableObjectId: 42 };
+    const updated = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      reconcileSourceTables: ({ candidates }) => ({
+        compatibleTables: candidates.map((candidate) => candidate.withSourceMetadata(sourceMetadata)),
+        incompatibleTables: [],
+        newTableValues: { sourceMetadata }
+      })
+    });
+
+    expect(updated.tables.map((table) => table.id.toString())).toEqual(
+      initial.tables.map((table) => table.id.toString())
+    );
+    expect(updated.tables[0].sourceMetadata).toEqual(sourceMetadata);
+    expect((await writer.getSourceTableStatus(updated.tables[0]))?.sourceMetadata).toEqual(sourceMetadata);
+  });
+
   // The split of returned results can vary depending on storage drivers
   test('large batch (2)', async () => {
     // Test syncing a batch of data that is small in count,

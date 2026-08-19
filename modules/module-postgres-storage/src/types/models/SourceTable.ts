@@ -1,3 +1,4 @@
+import { JsonValue } from '@powersync/service-core';
 import * as t from 'ts-codec';
 import { bigint, hexBuffer, jsonb, jsonb_raw, pgwire_number } from '../codecs.js';
 
@@ -14,7 +15,7 @@ export const ColumnDescriptor = t.object({
   /**
    *  Some data sources have a type id that can be used to identify the type of the column
    */
-  typeId: t.number.optional()
+  type_oid: t.number.optional()
 });
 
 export const SourceTable = t.object({
@@ -28,7 +29,11 @@ export const SourceTable = t.object({
   snapshot_done: t.boolean,
   snapshot_total_estimated_count: t.Null.or(bigint),
   snapshot_replicated_count: t.Null.or(bigint),
-  snapshot_last_key: t.Null.or(hexBuffer)
+  snapshot_last_key: t.Null.or(hexBuffer),
+  /**
+   * Source-specific metadata. Null for legacy records.
+   */
+  source_metadata: t.Null.or(jsonb_raw<JsonValue>())
 });
 
 export type SourceTable = t.Encoded<typeof SourceTable>;

@@ -28,6 +28,13 @@ Keep this file concise. Use it to route agents to the right docs and nearby impl
 
 Use this section when working on source replication modules, replication streams, source connector behavior, bucket storage writers, checkpoints, write checkpoints, initial snapshots, sync config deployment, or replication tests.
 
+### User-Facing Sync Config Terminology
+
+- In changesets, documentation, warnings, and errors, describe the operator action as **deploy a new sync config** (or **redeploy the sync config** when no config edit is required).
+- Do not tell users to create or deploy a sync config "as a new replication stream." Replication streams, processing configs, and jobs are implementation details, not additional operator actions.
+- When the internal effect is useful context, explain it separately: a sync config deployment starts replacement processing, and the active sync config can keep serving clients while the replacement snapshots and catches up. Depending on storage support, that work may use a separate replication stream or a processing config in the existing stream.
+- For rolling source schema changes, state that the old table or capture instance must remain available until the new sync config becomes active. Call out expected downtime separately when the change requires disabling CDC or otherwise removes the active binding first.
+
 ### Load Spec Context Selectively
 
 Do not load every replication spec page by default. Start with the entry point, then load only the pages that match the task.
@@ -59,3 +66,12 @@ After loading the relevant spec context, inspect the closest existing implementa
 - Import real test storage factories from storage modules, such as `@powersync/service-module-mongodb-storage` and `@powersync/service-module-postgres-storage`, and use `describeWithStorage`-style coverage where practical.
 - Add a stream test context for new modules, following existing examples such as `WalStreamTestContext`, `ChangeStreamTestContext`, `BinlogStreamTestContext`, `CDCStreamTestContext`, or `ConvexStreamTestContext`.
 - For when to use spies versus mocks, follow the General Workflow testing guidance above.
+
+### Backwards-compatibility
+
+The NPM packages here do not follow semver: We do not guarantee any backwards-compatibility on package APIs. Backwards-compatibility is only relevant for the service itself.
+
+For storage:
+
+1. We preserve backwards-compatibility for Postres storage and MongoDB storage with storage_version: 1 and 2, and future even versions.
+2. We do not preserve backwards-compatibility for MongoDB storage with storage_version: 3, or any future odd version numbers.

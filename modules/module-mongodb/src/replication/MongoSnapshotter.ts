@@ -345,10 +345,10 @@ export class MongoSnapshotter {
       return;
     }
 
-    // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
+    // Compact storage _after_ initial replication, but _before_ we switch to this replication stream.
     // Keeping snapshot_done false until this completes makes this resumable after interruption.
     // No checkpoint exists yet - storage defaults to its highest persisted op id.
-    await this.storage.populatePersistentChecksumCache({
+    await this.storage.compactInitialReplication({
       signal: this.abortSignal
     });
 
