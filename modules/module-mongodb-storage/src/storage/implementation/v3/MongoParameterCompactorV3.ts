@@ -35,20 +35,6 @@ export class MongoParameterCompactorV3 extends MongoParameterCompactor {
     );
   }
 
-  /**
-   * Uses each parameter index collection's default `_id` index for the half-open op-id range.
-   * The cursor update deliberately happens in the shared base class only after all collections
-   * have completed.
-   */
-  protected override compactionFilter(compactedBefore: InternalOpId): mongo.Document {
-    return {
-      _id: {
-        $gte: compactedBefore,
-        $lt: this.checkpoint
-      }
-    };
-  }
-
   protected shouldCompactDocument(_doc: { _id: bigint; key: mongo.Document }): boolean {
     return true;
   }

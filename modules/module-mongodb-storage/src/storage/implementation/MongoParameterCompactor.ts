@@ -63,8 +63,6 @@ export abstract class MongoParameterCompactor {
 
   protected abstract getCollections(): Promise<mongo.Collection<mongo.Document>[]>;
 
-  protected abstract compactionFilter(compactedBefore: InternalOpId): mongo.Document;
-
   protected abstract shouldCompactDocument(doc: ParameterCompactionReadDocument): boolean;
 
   protected abstract deleteFilter(doc: ParameterCompactionReadDocument): mongo.Document;
@@ -92,19 +90,30 @@ export abstract class MongoParameterCompactor {
     collection: mongo.Collection<mongo.Document>,
     compactedBefore: InternalOpId
   ): Promise<Omit<ParameterCompactionResult, 'collections'>> {
-    const cursor = collection.find(this.compactionFilter(compactedBefore), {
-      sort: { _id: 1 },
-      batchSize: this.parameterCompactionBatchSize,
-      projection: { _id: 1, key: 1, lookup: 1, bucket_parameters: { $slice: 1 } }
-    });
-    await using _ = { [Symbol.asyncDispose]: () => cursor.close() };
-
     let scannedEntries = 0;
     let distinctIdentities = 0;
     let deletedEntries = 0;
+    let lastId: InternalOpId | undefined;
 
-    while (await cursor.hasNext()) {
-      const batch = cursor.readBufferedDocuments() as unknown as ParameterCompactionReadDocument[];
+    while (true) {
+      const filter: mongo.Document = {
+        _id: {
+          ...(lastId == null ? { $gte: compactedBefore } : { $gt: lastId }),
+          $lt: this.checkpoint
+        }
+      };
+      const batch = (await collection
+        .find(filter, {
+          sort: { _id: 1 },
+          limit: this.parameterCompactionBatchSize,
+          batchSize: this.parameterCompactionBatchSize + 1,
+          projection: { _id: 1, key: 1, lookup: 1, bucket_parameters: { $slice: 1 } }
+        })
+        .toArray()) as unknown as ParameterCompactionReadDocument[];
+      if (batch.length == 0) {
+        break;
+      }
+      lastId = batch.at(-1)!._id;
       scannedEntries += batch.length;
 
       // Optimization: Only keep the latest doc in each batch

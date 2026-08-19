@@ -30,14 +30,8 @@ export class MongoParameterCompactorV1 extends MongoParameterCompactor {
     );
   }
 
-  /**
-   * The shared V1 collection is scanned using only its default `_id` index. Group filtering is
-   * deliberately done in shouldCompactDocument(), avoiding an index requirement on `key.g`.
-   */
-  protected override compactionFilter(compactedBefore: InternalOpId): mongo.Document {
-    return { _id: { $gte: compactedBefore, $lt: this.checkpoint } };
-  }
-
+  // The shared V1 collection is scanned using only its default `_id` index. Filter the stream in
+  // code so compaction does not require an index on `key.g`.
   protected override shouldCompactDocument(doc: { key: mongo.Document }): boolean {
     return doc.key.g === this.replicationStreamId;
   }
