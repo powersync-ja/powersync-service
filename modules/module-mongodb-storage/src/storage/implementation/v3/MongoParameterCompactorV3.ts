@@ -40,20 +40,11 @@ export class MongoParameterCompactorV3 extends MongoParameterCompactor {
   }
 
   /** Uses the `{ lookup: 1, key: 1, _id: -1 }` `lookup_op_id` index. */
-  protected deleteFilter(doc: mongo.Document): mongo.Document {
+  protected leadingHistoryDeleteFilter(lookup: unknown, keys: mongo.Document[], before: InternalOpId): mongo.Document {
     return {
-      lookup: doc.lookup,
-      key: doc.key,
-      _id: { $lt: doc._id }
-    };
-  }
-
-  /** Uses the default `_id` index for the exact operation-id match. */
-  protected deleteTombstoneFilter(doc: mongo.Document): mongo.Document {
-    return {
-      _id: doc._id,
-      lookup: doc.lookup,
-      key: doc.key
+      lookup,
+      key: { $in: keys },
+      _id: { $lt: before }
     };
   }
 }
