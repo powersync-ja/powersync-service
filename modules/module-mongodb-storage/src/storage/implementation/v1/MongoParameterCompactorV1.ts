@@ -9,10 +9,8 @@ export class MongoParameterCompactorV1 extends MongoParameterCompactor {
     return [this.db.parameterIndexV1 as unknown as mongo.Collection<mongo.Document>];
   }
 
-  protected collectionFilter(): mongo.Document {
-    return {
-      'key.g': this.group_id
-    };
+  protected override shouldCompactDocument(doc: { _id: bigint; key: mongo.Document }): boolean {
+    return doc._id < this.checkpoint && doc.key.g === this.group_id;
   }
 
   protected deleteFilter(doc: mongo.Document): mongo.Document {

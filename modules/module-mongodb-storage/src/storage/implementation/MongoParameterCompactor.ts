@@ -1,7 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { logger } from '@powersync/lib-services-framework';
 import { bson, CompactOptions, InternalOpId } from '@powersync/service-core';
-import { LRUCache } from 'lru-cache';
 import type { VersionedPowerSyncMongo } from './db.js';
 
 type ParameterCompactionReadDocument = {
@@ -11,15 +10,22 @@ type ParameterCompactionReadDocument = {
   bucket_parameters?: unknown[] | null;
 };
 
-type LastParameterEntry = {
-  id: InternalOpId;
-  tombstone: boolean;
+export type ParameterCompactionResult = {
+  collections: number;
+  scannedEntries: number;
+  distinctIdentities: number;
+  deletedEntries: number;
 };
+
+const PARAMETER_COMPACTION_BATCH_SIZE = 10_000;
+const PARAMETER_COMPACTION_DELETE_BATCH_SIZE = 1_000;
 
 /**
  * Compacts parameter lookup data (the bucket_parameters collection).
  *
- * This scans through the entire collection to find data to compact.
+ * V1 scans the eligible operation-id range and filters its shared collection by stream in code.
+ * V3 supplies a persisted stream cursor so this common compaction model scans only entries in
+ * its un-compacted operation-id range.
  *
  * For background, see the `/docs/storage/parameter-lookups.md` file.
  */
@@ -34,9 +40,12 @@ export class MongoParameterCompactor {
 
   async compact() {
     logger.info(`Compacting parameters for sync config ${this.group_id} up to checkpoint ${this.checkpoint}`);
-    for (const collection of await this.getCollections()) {
-      await this.compactCollection(collection);
-    }
+    const result = await this.compactCollections();
+    logger.info(
+      `Parameter compaction completed for sync config ${this.group_id}: ` +
+        `collections=${result.collections}, scanned=${result.scannedEntries}, distinct=${result.distinctIdentities}, ` +
+        `deleted=${result.deletedEntries}`
+    );
   }
 
   protected async getCollections(): Promise<mongo.Collection<mongo.Document>[]> {
@@ -49,19 +58,39 @@ export class MongoParameterCompactor {
     return collections.map((collection) => collection as unknown as mongo.Collection<mongo.Document>);
   }
 
-  protected collectionFilter(): mongo.Document {
-    return {};
+  /**
+   * V1 and V3 both scan in operation-id order. V3 additionally supplies a persisted lower
+   * cursor boundary.
+   */
+  protected compactionSort(): mongo.Document {
+    return { _id: 1 };
   }
 
-  protected deleteFilter(doc: mongo.Document): mongo.Document {
+  /**
+   * V3 overrides this with its persisted half-open operation-id range. V1 scans from the start
+   * of the eligible operation-id range using MongoDB's default `_id` index.
+   */
+  protected compactionFilter(_compactedBefore?: InternalOpId): mongo.Document {
+    return { _id: { $lt: this.checkpoint } };
+  }
+
+  /**
+   * V1 shares its parameter collection across streams, so it filters `key.g` after the
+   * `_id`-ordered MongoDB scan. V3's collection is already scoped to one stream.
+   */
+  protected shouldCompactDocument(doc: ParameterCompactionReadDocument): boolean {
+    return doc._id < this.checkpoint;
+  }
+
+  protected deleteFilter(doc: ParameterCompactionReadDocument): mongo.Document {
     return {
       lookup: doc.lookup,
-      _id: { $lt: doc._id },
+      _id: this.deleteIdFilter(doc._id),
       key: doc.key
     };
   }
 
-  protected deleteTombstoneFilter(doc: mongo.Document): mongo.Document {
+  protected deleteTombstoneFilter(doc: ParameterCompactionReadDocument): mongo.Document {
     return {
       lookup: doc.lookup,
       _id: doc._id,
@@ -69,114 +98,107 @@ export class MongoParameterCompactor {
     };
   }
 
-  protected async compactCollection(collection: mongo.Collection<mongo.Document>) {
-    // This is the currently-active checkpoint.
-    // We do not remove any data that may be used by this checkpoint.
-    // snapshot queries ensure that if any clients are still using older checkpoints, they would
-    // not be affected by this compaction.
-    const checkpoint = this.checkpoint;
+  protected async compactCollections(compactedBefore?: InternalOpId): Promise<ParameterCompactionResult> {
+    let scannedEntries = 0;
+    let distinctIdentities = 0;
+    let deletedEntries = 0;
+    let collections = 0;
 
-    // Index on {'key.g': 1, lookup: 1, _id: 1}
-    // In theory, we could let MongoDB do more of the work here, by grouping by (key, lookup)
-    // in MongoDB already. However, that risks running into cases where MongoDB needs to process
-    // very large amounts of data before returning results, which could lead to timeouts.
-    const cursor = collection.find(this.collectionFilter(), {
-      sort: { lookup: 1, _id: 1 },
-      batchSize: 10_000,
-      projection: { _id: 1, key: 1, lookup: 1, bucket_parameters: 1 }
+    for (const collection of await this.getCollections()) {
+      collections++;
+      const result = await this.compactCollection(collection, compactedBefore);
+      scannedEntries += result.scannedEntries;
+      distinctIdentities += result.distinctIdentities;
+      deletedEntries += result.deletedEntries;
+    }
+
+    return { collections, scannedEntries, distinctIdentities, deletedEntries };
+  }
+
+  protected async compactCollection(
+    collection: mongo.Collection<mongo.Document>,
+    compactedBefore?: InternalOpId
+  ): Promise<Omit<ParameterCompactionResult, 'collections'>> {
+    const cursor = collection.find(this.compactionFilter(compactedBefore), {
+      sort: this.compactionSort(),
+      batchSize: this.parameterCompactionBatchSize,
+      projection: { _id: 1, key: 1, lookup: 1, bucket_parameters: { $slice: 1 } }
     });
 
-    // The index doesn't cover sorting by key, so we keep our own cache of the last seen key.
-    let lastByKey = new LRUCache<string, LastParameterEntry>({
-      max: this.options.compactParameterCacheLimit ?? 10_000
-    });
-    let removeIds: InternalOpId[] = [];
-    let removeDeleted: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
-    let removeTombstones: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
-    let checkedEntries = 0;
-    let checkedEntriesAtLastLog = 0;
-    let lastProgressLogTime = Date.now();
+    let scannedEntries = 0;
+    let distinctIdentities = 0;
+    let deletedEntries = 0;
+    let deleteOperations: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
+    let tombstoneDeleteOperations: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
 
-    const flush = async (force: boolean) => {
-      // Tombstone deletes remove the tombstone and all preceding history. Drain any pending
-      // ordinary deletes first, even when they have not reached their own batch threshold.
-      const flushDeleted = removeDeleted.length > 10 || (force && removeDeleted.length > 0);
-      const flushTombstones = removeTombstones.length > 10 || (force && removeTombstones.length > 0);
-      const flushIds = removeIds.length >= 1000 || (force && removeIds.length > 0) || flushDeleted || flushTombstones;
+    const flushDeletes = async (force: boolean) => {
+      // Tombstone cleanup has two phases. Delete its preceding history while the tombstone is
+      // still present, then delete the tombstone itself. This avoids leaving an older value
+      // visible if a non-transactional deleteMany is interrupted after deleting the tombstone.
+      const flushTombstones = force || tombstoneDeleteOperations.length >= PARAMETER_COMPACTION_DELETE_BATCH_SIZE;
+      const flushHistory =
+        force || deleteOperations.length >= PARAMETER_COMPACTION_DELETE_BATCH_SIZE || flushTombstones;
 
-      if (flushIds && removeIds.length > 0) {
-        // MongoDB Filter<T> doesn't fully match our dynamic delete filter shape here.
-        const results = await collection.deleteMany({ _id: { $in: removeIds } } as any);
-        logger.info(`Removed ${results.deletedCount} (${removeIds.length}) superseded parameter entries`);
-        removeIds = [];
+      if (flushHistory && deleteOperations.length > 0) {
+        const result = await collection.bulkWrite(deleteOperations, { ordered: false });
+        deletedEntries += result.deletedCount;
+        deleteOperations = [];
       }
 
-      if (flushDeleted) {
-        const results = await collection.bulkWrite(removeDeleted);
-        logger.info(`Removed ${results.deletedCount} (${removeDeleted.length}) deleted parameter entries`);
-        removeDeleted = [];
-      }
-
-      if (flushTombstones) {
-        const results = await collection.bulkWrite(removeTombstones);
-        logger.info(`Removed ${results.deletedCount} (${removeTombstones.length}) tombstone parameter entries`);
-        removeTombstones = [];
+      if (flushTombstones && tombstoneDeleteOperations.length > 0) {
+        const result = await collection.bulkWrite(tombstoneDeleteOperations, { ordered: false });
+        deletedEntries += result.deletedCount;
+        tombstoneDeleteOperations = [];
       }
     };
 
-    while (await cursor.hasNext()) {
-      // readBufferedDocuments returns a generic type; we know the shape from our projection.
-      const batch = cursor.readBufferedDocuments() as unknown as ParameterCompactionReadDocument[];
-      checkedEntries += batch.length;
-      const now = Date.now();
-      if (now - lastProgressLogTime >= 60_000) {
-        const elapsedSeconds = (now - lastProgressLogTime) / 1000;
-        const rate = (checkedEntries - checkedEntriesAtLastLog) / elapsedSeconds;
-        logger.info(`Checked ${checkedEntries} parameter index entries for compaction (${rate.toFixed(1)} entries/s)`);
-        lastProgressLogTime = now;
-        checkedEntriesAtLastLog = checkedEntries;
+    try {
+      while (await cursor.hasNext()) {
+        const batch = cursor.readBufferedDocuments() as unknown as ParameterCompactionReadDocument[];
+        scannedEntries += batch.length;
+
+        const newestByIdentity = new Map<string, ParameterCompactionReadDocument>();
+        for (const document of batch) {
+          if (!this.shouldCompactDocument(document)) {
+            continue;
+          }
+          const identity = (bson.serialize({ k: document.key, l: document.lookup }) as Buffer).toString('base64');
+          const previous = newestByIdentity.get(identity);
+          if (previous == null || previous._id < document._id) {
+            newestByIdentity.set(identity, document);
+          }
+        }
+
+        distinctIdentities += newestByIdentity.size;
+        for (const document of newestByIdentity.values()) {
+          const filter = this.deleteFilter(document);
+          if (document.bucket_parameters?.length == 0) {
+            deleteOperations.push({ deleteMany: { filter } });
+            tombstoneDeleteOperations.push({
+              deleteOne: { filter: this.deleteTombstoneFilter(document) }
+            });
+          } else {
+            deleteOperations.push({ deleteMany: { filter } });
+          }
+        }
+
+        await flushDeletes(false);
       }
-
-      for (const doc of batch) {
-        if (doc._id >= checkpoint) {
-          continue;
-        }
-        const uniqueKey = (
-          bson.serialize({
-            k: doc.key,
-            l: doc.lookup
-          }) as Buffer
-        ).toString('base64');
-        const previous = lastByKey.get(uniqueKey);
-        if (previous != null && previous.id < doc._id && !previous.tombstone) {
-          // We have a newer entry for the same key, so we can remove the old one.
-          removeIds.push(previous.id);
-        }
-        const tombstone = doc.bucket_parameters?.length == 0;
-        lastByKey.set(uniqueKey, { id: doc._id, tombstone });
-
-        if (tombstone) {
-          // This is a delete operation, so we can remove it completely.
-          // For this we cannot remove the operation itself only: There is a possibility that
-          // there is still an earlier operation with the same key and lookup, that we don't have
-          // in the cache due to cache size limits. So we need to explicitly remove all earlier operations.
-          removeDeleted.push({
-            deleteMany: {
-              filter: this.deleteFilter(doc)
-            }
-          });
-          removeTombstones.push({
-            deleteOne: {
-              filter: this.deleteTombstoneFilter(doc)
-            }
-          });
-        }
-      }
-
-      await flush(false);
+      await flushDeletes(true);
+    } finally {
+      await cursor.close();
     }
 
-    await flush(true);
-    logger.info(`Parameter compaction completed for ${collection.collectionName}`);
+    return { scannedEntries, distinctIdentities, deletedEntries };
+  }
+
+  protected get parameterCompactionBatchSize(): number {
+    return PARAMETER_COMPACTION_BATCH_SIZE;
+  }
+
+  private deleteIdFilter(operationId: InternalOpId): mongo.Document {
+    // The scan normally guarantees operationId < checkpoint. Keep this calculation explicit so
+    // the delete remains safe if a future scan starts returning entries at the checkpoint.
+    return { $lt: operationId >= this.checkpoint ? this.checkpoint : operationId };
   }
 }
