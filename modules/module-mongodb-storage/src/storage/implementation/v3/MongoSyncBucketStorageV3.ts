@@ -20,12 +20,19 @@ import * as bson from 'bson';
 import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
-import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageCheckpoint.js';
+import {
+  MongoGetCheckpointChangesOptions,
+  MongoSyncBucketStorageCheckpoint
+} from '../common/MongoSyncBucketStorageCheckpoint.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
+import {
+  MongoCheckpointState,
+  MongoSyncBucketStorage,
+  MongoSyncBucketStorageOptions
+} from '../MongoSyncBucketStorage.js';
 import { loadBucketDataDocument, maxOpId } from './bucket-format.js';
 import {
   BucketDataDocumentV3,
@@ -241,16 +248,15 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     });
   }
 
-  protected async fetchCheckpointState(
-    session: mongo.ClientSession
-  ): Promise<{ checkpoint: bigint; lsn: string | null } | null> {
+  protected async fetchCheckpointState(session: mongo.ClientSession): Promise<MongoCheckpointState | null> {
     const doc = await this.syncRulesCollection.findOne(
       this.syncConfigMatch({
         state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
       }),
       {
         session,
-        projection: this.syncConfigProjection()
+        // The invalidation fence must be read in the same snapshot as the checkpoint.
+        projection: this.syncConfigProjection({ 'parameter_compaction.checkpoint_changes_invalid_before': 1 })
       }
     );
     // Checkpoints are served from the single active config. A PROCESSING config in the same
@@ -271,7 +277,10 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     }
     return {
       checkpoint: syncConfig.last_checkpoint ?? 0n,
-      lsn: syncConfig.last_checkpoint_lsn ?? null
+      lsn: syncConfig.last_checkpoint_lsn ?? null,
+      // Stream-level state: shared by all sync configs. Defaults to 0n for streams that have
+      // never been compacted.
+      parameterChangesInvalidBefore: doc?.parameter_compaction?.checkpoint_changes_invalid_before ?? 0n
     };
   }
 
@@ -463,7 +472,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected getParameterBucketChangesImpl(
-    options: GetCheckpointChangesOptions
+    options: MongoGetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
     return getParameterBucketChangesV3(this.versionContext, options);
   }
@@ -798,9 +807,17 @@ export async function getDataBucketChangesV3(
   };
 }
 
+/**
+ * Query the parameter entries changed between the two checkpoints, to determine which parameter
+ * lookups need to be re-evaluated.
+ *
+ * This runs at the next checkpoint's snapshot, so it still sees entries that parameter compaction
+ * deleted after that snapshot. Compaction that deleted entries before the snapshot is covered by
+ * the invalidation fence, checked before we get here.
+ */
 export async function getParameterBucketChangesV3(
   ctx: MongoSyncBucketStorageContextV3,
-  options: GetCheckpointChangesOptions
+  options: MongoGetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
   const limit = 1000;
   const indexIds = ctx.mapping.allParameterIndexIds();
@@ -830,28 +847,38 @@ export async function getParameterBucketChangesV3(
     }
   ];
   const [firstCollection, ...remainingCollections] = collections;
-  const parameterUpdates = await firstCollection.collection
-    .aggregate<{ lookup: bson.Binary; indexId: string }>(
-      [
-        ...pipelineForCollection(firstCollection.indexId),
-        ...remainingCollections.map((collection) => {
-          return {
-            $unionWith: {
-              coll: collection.collection.collectionName,
-              pipeline: pipelineForCollection(collection.indexId)
-            }
-          };
-        }),
+  const parameterUpdates = await ctx.db.client.withSession({ snapshot: true }, async (session) => {
+    setSessionSnapshotTime(session, options.nextCheckpoint.snapshotTime);
+    return await firstCollection.collection
+      .aggregate<{ lookup: bson.Binary; indexId: string }>(
+        [
+          ...pipelineForCollection(firstCollection.indexId),
+          ...remainingCollections.map((collection) => {
+            return {
+              $unionWith: {
+                coll: collection.collection.collectionName,
+                pipeline: pipelineForCollection(collection.indexId)
+              }
+            };
+          }),
+          {
+            $limit: limit + 1
+          }
+        ],
         {
-          $limit: limit + 1
+          session,
+          readConcern: 'snapshot',
+          batchSize: limit + 2,
+          maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
         }
-      ],
-      {
-        batchSize: limit + 2,
-        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-      }
-    )
-    .toArray();
+      )
+      .toArray()
+      .catch((e) => {
+        // Includes the case where the checkpoint snapshot is no longer available. There is no
+        // safe non-snapshot fallback: it could miss compacted entries.
+        throw lib_mongo.mapQueryError(e, 'while querying parameter changes');
+      });
+  });
 
   const invalidateParameterUpdates = parameterUpdates.length > limit;
 

@@ -54,6 +54,12 @@ export abstract class MongoParameterCompactor {
     protected readonly parameterCompactionBatchSize = PARAMETER_COMPACTION_BATCH_SIZE
   ) {}
 
+  /**
+   * Set once the invalidation fence for this pass has been persisted. See
+   * {@link ensureInvalidationFence}.
+   */
+  #invalidationFencePersisted = false;
+
   async compact() {
     const startedAt = Date.now();
     const compactedBefore = await this.readCompactedBefore();
@@ -63,20 +69,76 @@ export abstract class MongoParameterCompactor {
 
     const result = await this.compactCollections(compactedBefore);
 
-    // Persist only after every collection has completed. Implementations use $max so an
-    // overlapping compactor cannot move the cursor backwards.
+    // Persist only after every collection has completed. This uses $max so an overlapping
+    // compactor cannot move the cursor backwards.
     await this.persistCompactedBefore(this.checkpoint);
 
     const durationSeconds = (Date.now() - startedAt) / 1000;
     logger.info(
       `Incremental parameter compaction completed for sync config ${this.replicationStreamId}: ` +
         `collections=${result.collections}, scanned=${result.scannedEntries}, distinct=${result.distinctIdentities}, ` +
-        `deleted=${result.deletedEntries}, cursor=${compactedBefore}->${this.checkpoint}, duration=${durationSeconds.toFixed(1)}s`
+        `deleted=${result.deletedEntries}, cursor=${compactedBefore}->${this.checkpoint}, ` +
+        `fence=${this.#invalidationFencePersisted ? this.checkpoint : 'unchanged'}, duration=${durationSeconds.toFixed(1)}s`
     );
   }
 
-  protected abstract readCompactedBefore(): Promise<InternalOpId>;
-  protected abstract persistCompactedBefore(compactedBefore: InternalOpId): Promise<void>;
+  /**
+   * The exclusive operation-id boundary through which this stream's parameter indexes have all
+   * been compacted.
+   */
+  protected async readCompactedBefore(): Promise<InternalOpId> {
+    const stream = await this.db.sync_rules.findOne(
+      { _id: this.replicationStreamId },
+      { projection: { parameter_compaction: 1 } }
+    );
+    return stream?.parameter_compaction?.compacted_before == null
+      ? 0n
+      : BigInt(stream.parameter_compaction.compacted_before);
+  }
+
+  protected async persistCompactedBefore(compactedBefore: InternalOpId): Promise<void> {
+    await this.db.sync_rules.updateOne(
+      { _id: this.replicationStreamId },
+      {
+        $max: { 'parameter_compaction.compacted_before': compactedBefore }
+      }
+    );
+  }
+
+  /**
+   * Commits the checkpoint-change invalidation fence before the first delete of this pass.
+   *
+   * Checkpoint change detection finds changed lookups by querying parameter entries in
+   * (lastCheckpoint, nextCheckpoint]. Compaction physically removes entries in that range, so a
+   * checkpoint that can no longer see the full history must instead invalidate all parameter
+   * buckets. The fence records the boundary below which that history may be missing.
+   *
+   * The fence must be committed before the first delete: MongoDB snapshot ordering then
+   * guarantees that a checkpoint snapshot which observes a deletion also observes the fence.
+   *
+   * This deliberately isn't the same value as the compaction cursor. If the pass fails halfway,
+   * the fence only causes conservative invalidation, while an advanced cursor would skip
+   * deletion work that never completed.
+   */
+  private async ensureInvalidationFence(): Promise<void> {
+    // We can consider incrementally updating the fence based on the current cursor position instead
+    // of the checkpoint. That would result in lower risk of triggering invalidations, but it would
+    // result in a higher number of updates to the `sync_rules` collection, which can make it
+    // counter-productive.
+    // Another option is to introduce an artificial delay of a couple of seconds before writing the fence,
+    // giving some chance for every API process to catch up. Note that the delay would have to apply
+    // to both the deletes and the fence - the fence write must still happen before we do any deletes.
+    if (this.#invalidationFencePersisted) {
+      return;
+    }
+    await this.db.sync_rules.updateOne(
+      { _id: this.replicationStreamId },
+      {
+        $max: { 'parameter_compaction.checkpoint_changes_invalid_before': this.checkpoint }
+      }
+    );
+    this.#invalidationFencePersisted = true;
+  }
 
   protected abstract getCollections(): Promise<mongo.Collection<mongo.Document>[]>;
 
@@ -199,6 +261,7 @@ export abstract class MongoParameterCompactor {
         if (deleteOperations.length == 0) {
           return;
         }
+        await this.ensureInvalidationFence();
         const result = await collection.bulkWrite(deleteOperations, { ordered: false });
         deletedEntries += result.deletedCount;
         deleteOperations = [];
@@ -241,6 +304,7 @@ export abstract class MongoParameterCompactor {
   private async deleteByIds(collection: mongo.Collection<mongo.Document>, ids: InternalOpId[]): Promise<number> {
     let deletedEntries = 0;
     for (const idBatch of chunk(ids, PARAMETER_COMPACTION_DELETE_BATCH_SIZE)) {
+      await this.ensureInvalidationFence();
       // Cast: `_id` here is an InternalOpId (bigint), not the driver's default ObjectId.
       const result = await collection.deleteMany({ _id: { $in: idBatch } } as any);
       deletedEntries += result.deletedCount;

@@ -28,13 +28,20 @@ import {
   setSessionSnapshotTime
 } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
-import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageCheckpoint.js';
+import {
+  MongoGetCheckpointChangesOptions,
+  MongoSyncBucketStorageCheckpoint
+} from '../common/MongoSyncBucketStorageCheckpoint.js';
 import { SourceKey } from '../models.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
+import {
+  MongoCheckpointState,
+  MongoSyncBucketStorage,
+  MongoSyncBucketStorageOptions
+} from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV1,
   BucketDataKeyV1,
@@ -102,14 +109,20 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     });
   }
 
-  protected async fetchCheckpointState(
-    session: mongo.ClientSession
-  ): Promise<{ checkpoint: bigint; lsn: string | null } | null> {
+  protected async fetchCheckpointState(session: mongo.ClientSession): Promise<MongoCheckpointState | null> {
     const doc = (await this.db.sync_rules.findOne(
       { _id: this.replicationStreamId },
       {
         session,
-        projection: { _id: 1, state: 1, last_checkpoint: 1, last_checkpoint_lsn: 1, snapshot_done: 1 }
+        projection: {
+          _id: 1,
+          state: 1,
+          last_checkpoint: 1,
+          last_checkpoint_lsn: 1,
+          snapshot_done: 1,
+          // Must be read in the same snapshot as the checkpoint.
+          'parameter_compaction.checkpoint_changes_invalid_before': 1
+        }
       }
     )) as SyncRuleDocumentV1;
     if (!doc?.snapshot_done || ![storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED].includes(doc.state)) {
@@ -117,7 +130,9 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     }
     return {
       checkpoint: doc.last_checkpoint ?? 0n,
-      lsn: doc.last_checkpoint_lsn ?? null
+      lsn: doc.last_checkpoint_lsn ?? null,
+      // Defaults to 0n for streams that have never been compacted.
+      parameterChangesInvalidBefore: doc.parameter_compaction?.checkpoint_changes_invalid_before ?? 0n
     };
   }
 
@@ -327,7 +342,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   }
 
   protected getParameterBucketChangesImpl(
-    options: GetCheckpointChangesOptions
+    options: MongoGetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
     return getParameterBucketChangesV1(this.versionContext, options);
   }
@@ -572,27 +587,45 @@ export async function getDataBucketChangesV1(
   };
 }
 
+/**
+ * Query the parameter entries changed between the two checkpoints, to determine which parameter
+ * lookups need to be re-evaluated.
+ *
+ * This runs at the next checkpoint's snapshot, so it still sees entries that parameter compaction
+ * deleted after that snapshot. Compaction that deleted entries before the snapshot is covered by
+ * the invalidation fence, checked before we get here.
+ */
 export async function getParameterBucketChangesV1(
   ctx: MongoSyncBucketStorageContextV1,
-  options: GetCheckpointChangesOptions
+  options: MongoGetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
   const limit = 1000;
-  const parameterUpdates = await ctx.db.parameterIndexV1
-    .find(
-      {
-        _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint },
-        'key.g': ctx.replicationStreamId
-      },
-      {
-        projection: {
-          lookup: 1
+  const parameterUpdates = await ctx.db.client.withSession({ snapshot: true }, async (session) => {
+    setSessionSnapshotTime(session, options.nextCheckpoint.snapshotTime);
+    return await ctx.db.parameterIndexV1
+      .find(
+        {
+          _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint },
+          'key.g': ctx.replicationStreamId
         },
-        limit: limit + 1,
-        batchSize: limit + 2,
-        singleBatch: true
-      }
-    )
-    .toArray();
+        {
+          session,
+          readConcern: 'snapshot',
+          projection: {
+            lookup: 1
+          },
+          limit: limit + 1,
+          batchSize: limit + 2,
+          singleBatch: true
+        }
+      )
+      .toArray()
+      .catch((e) => {
+        // Includes the case where the checkpoint snapshot is no longer available. There is no
+        // safe non-snapshot fallback: it could miss compacted entries.
+        throw lib_mongo.mapQueryError(e, 'while querying parameter changes');
+      });
+  });
   const invalidateParameterUpdates = parameterUpdates.length > limit;
 
   return {

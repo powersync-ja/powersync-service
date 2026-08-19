@@ -59,17 +59,6 @@ export interface ReplicationStreamDocumentV3 extends SyncRuleDocumentBase {
   sync_configs: SyncRuleConfigStateV3[];
 
   /**
-   * The exclusive operation-id boundary through which every parameter index in this stream has
-   * been compacted.
-   *
-   * This is a stream-level cursor because operation ids are allocated across all parameter
-   * indexes in the stream.
-   */
-  parameter_compaction?: {
-    compacted_before: InternalOpId;
-  };
-
-  /**
    * The monotonic head of the stream's op sequence: the highest op id persisted to bucket data,
    * whether or not yet covered by a checkpoint.
    *
