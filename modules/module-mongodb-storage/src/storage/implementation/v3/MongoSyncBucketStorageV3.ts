@@ -874,8 +874,11 @@ export async function getParameterBucketChangesV3(
       )
       .toArray()
       .catch((e) => {
-        // Includes the case where the checkpoint snapshot is no longer available. There is no
-        // safe non-snapshot fallback: it could miss compacted entries.
+        // Includes the case where the checkpoint snapshot has expired. Degrading to
+        // invalidateParameterBuckets would be safe in itself - it reads nothing - but it gains
+        // nothing: the caller responds to that by re-evaluating the parameter queries at this
+        // same snapshot, which fails too. The checkpoint has to be refetched instead, which is
+        // what the existing sync retry behavior does.
         throw lib_mongo.mapQueryError(e, 'while querying parameter changes');
       });
   });
