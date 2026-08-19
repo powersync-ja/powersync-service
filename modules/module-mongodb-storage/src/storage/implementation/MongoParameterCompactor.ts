@@ -7,7 +7,7 @@ import type { VersionedPowerSyncMongo } from './db.js';
 type ParameterCompactionReadDocument = {
   _id: InternalOpId;
   key: mongo.Document;
-  lookup: unknown;
+  lookup: bson.Binary;
   bucket_parameters?: unknown[] | null;
 };
 
@@ -23,20 +23,25 @@ const PARAMETER_COMPACTION_DELETE_BATCH_SIZE = 1_000;
 const PARAMETER_COMPACTION_CACHE_SIZE = 50_000;
 
 type CachedIdentity = {
+  /**
+   * The `_id` of the document retained for this identity in a previous batch, or null if that
+   * document was a tombstone - in which case it has been deleted along with all its history, and
+   * nothing remains to delete for the identity.
+   */
   retainedId: InternalOpId | null;
 };
 
 type LeadingHistoryDelete = {
-  lookup: unknown;
+  lookup: bson.Binary;
   keys: mongo.Document[];
 };
 
 /**
  * Compacts parameter lookup data (the bucket_parameters collection).
  *
- * V1 scans the eligible operation-id range and filters its shared collection by stream in code.
- * V3 supplies a persisted stream cursor so this common compaction model scans only entries in
- * its un-compacted operation-id range.
+ * Both storage versions persist a per-stream compaction cursor, so a run only scans entries in the
+ * un-compacted operation-id range. V1 scans its shared collection using only the `_id` index, so it
+ * additionally filters by stream in code.
  *
  * For background, see the `/docs/storage/parameter-lookups.md` file.
  */
@@ -79,7 +84,7 @@ export abstract class MongoParameterCompactor {
 
   /** Deletes history preceding a batch for several identities sharing a lookup. */
   protected abstract leadingHistoryDeleteFilter(
-    lookup: unknown,
+    lookup: bson.Binary,
     keys: mongo.Document[],
     before: InternalOpId
   ): mongo.Document;
@@ -162,7 +167,7 @@ export abstract class MongoParameterCompactor {
           // Have not seen this (key, lookup) before, or it has been evicted from the cache.
           // Delete the entire leading range.
           // This should have decent performance on V3 storage; can be slow in some cases on V1.
-          const lookupIdentity = (bson.serialize({ l: document.lookup }) as Buffer).toString('base64');
+          const lookupIdentity = document.lookup.toString('base64');
           const existing = leadingHistoryDeletes.get(lookupIdentity);
           if (existing == null) {
             leadingHistoryDeletes.set(lookupIdentity, { lookup: document.lookup, keys: [document.key] });
@@ -181,14 +186,11 @@ export abstract class MongoParameterCompactor {
       }
 
       // Phase 1: Delete documents read in this batch, plus retained documents from a prior batch.
-      for (const ids of chunk(supersededIds, PARAMETER_COMPACTION_DELETE_BATCH_SIZE)) {
-        const result = await collection.deleteMany({ _id: { $in: ids as any[] } });
-        deletedEntries += result.deletedCount;
-      }
+      deletedEntries += await this.deleteByIds(collection, supersededIds);
 
-      // Phase 2: Delete leading history once per lookup group. The batch start is always below
-      // the checkpoint; min() nevertheless keeps the range explicitly checkpoint-bounded.
-      const deleteBefore = batch[0]._id < this.checkpoint ? batch[0]._id : this.checkpoint;
+      // Phase 2: Delete leading history once per lookup group. The batch is read with
+      // `_id < checkpoint`, so this range is checkpoint-bounded.
+      const deleteBefore = batch[0]._id;
       // The deletes are collected into bulkWrite commands: With high lookup cardinality there is a
       // group per identity, and a command per group would mean a round trip per identity.
       let deleteOperations: mongo.AnyBulkWriteOperation[] = [];
@@ -219,14 +221,13 @@ export abstract class MongoParameterCompactor {
       await flushDeleteOperations();
 
       // Phase 3: A tombstone is removed only after all preceding history has been removed.
-      for (const ids of chunk(tombstoneIds, PARAMETER_COMPACTION_DELETE_BATCH_SIZE)) {
-        const result = await collection.deleteMany({ _id: { $in: ids } } as any);
-        deletedEntries += result.deletedCount;
-      }
+      deletedEntries += await this.deleteByIds(collection, tombstoneIds);
 
       // Update the LRU only after all phases succeed. An evicted identity safely falls back to a
       // grouped leading-history delete when it appears again.
       for (const [identity, document] of newestByIdentity) {
+        // Tombstones are recorded as `retainedId: null`: phases 2 and 3 removed the entire history
+        // for the identity, including the tombstone, so a later sighting needs neither delete.
         previousByIdentity.set(identity, {
           retainedId: document.bucket_parameters?.length == 0 ? null : document._id
         });
@@ -234,6 +235,17 @@ export abstract class MongoParameterCompactor {
     }
 
     return { scannedEntries, distinctIdentities, deletedEntries };
+  }
+
+  /** Deletes documents by `_id`, chunked to bound the command size. Returns the number deleted. */
+  private async deleteByIds(collection: mongo.Collection<mongo.Document>, ids: InternalOpId[]): Promise<number> {
+    let deletedEntries = 0;
+    for (const idBatch of chunk(ids, PARAMETER_COMPACTION_DELETE_BATCH_SIZE)) {
+      // Cast: `_id` here is an InternalOpId (bigint), not the driver's default ObjectId.
+      const result = await collection.deleteMany({ _id: { $in: idBatch } } as any);
+      deletedEntries += result.deletedCount;
+    }
+    return deletedEntries;
   }
 }
 

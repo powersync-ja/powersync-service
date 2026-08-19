@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { InternalOpId } from '@powersync/service-core';
+import { bson, InternalOpId } from '@powersync/service-core';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { SyncRuleDocumentV1 } from './models.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
@@ -38,15 +38,20 @@ export class MongoParameterCompactorV1 extends MongoParameterCompactor {
 
   /**
    * Uses the legacy `{ 'key.g': 1, lookup: 1, _id: 1 }` index to narrow the stream, lookup and
-   * operation-id range. `key` is a residual predicate because it follows the `_id` range.
+   * operation-id range. `key` is not part of that index at all, so it is a residual predicate applied
+   * to every document the range scan returns.
    *
-   * This is not super efficient - it my require filtering through many keys for the same lookup.
-   * Note that in those cases, the reads for this lookup would also be slow - this is not fundamentally
-   * worse.
+   * That scan may therefore have to filter through many keys for the same lookup, but the cost is
+   * amortized: a single scan covers up to 1000 keys, and identities seen again in a later batch skip
+   * the scan entirely - they are deleted by `_id`.
    *
    * The V3 storage format uses an index more suitable for this.
    */
-  protected leadingHistoryDeleteFilter(lookup: unknown, keys: mongo.Document[], before: InternalOpId): mongo.Document {
+  protected leadingHistoryDeleteFilter(
+    lookup: bson.Binary,
+    keys: mongo.Document[],
+    before: InternalOpId
+  ): mongo.Document {
     return {
       'key.g': this.replicationStreamId,
       lookup,

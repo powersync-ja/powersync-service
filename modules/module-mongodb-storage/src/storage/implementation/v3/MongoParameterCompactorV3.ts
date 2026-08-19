@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { InternalOpId } from '@powersync/service-core';
+import { bson, InternalOpId } from '@powersync/service-core';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { ReplicationStreamDocumentV3 } from './models.js';
 import type { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
@@ -40,7 +40,11 @@ export class MongoParameterCompactorV3 extends MongoParameterCompactor {
   }
 
   /** Uses the `{ lookup: 1, key: 1, _id: -1 }` `lookup_op_id` index. */
-  protected leadingHistoryDeleteFilter(lookup: unknown, keys: mongo.Document[], before: InternalOpId): mongo.Document {
+  protected leadingHistoryDeleteFilter(
+    lookup: bson.Binary,
+    keys: mongo.Document[],
+    before: InternalOpId
+  ): mongo.Document {
     return {
       lookup,
       key: { $in: keys },
