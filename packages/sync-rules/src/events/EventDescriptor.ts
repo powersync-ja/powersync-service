@@ -3,6 +3,9 @@ import { SourceTableRef } from '../SourceTableRef.js';
 import { TablePattern } from '../TablePattern.js';
 import { EvaluateRowOptions, EvaluationError, SqliteJsonRow } from '../types.js';
 
+/** Deterministic, content-addressed identity of a compiled event definition. */
+export type EventDefinitionId = string;
+
 export type EvaluatedEventSourceRow = {
   data: SqliteJsonRow;
 };

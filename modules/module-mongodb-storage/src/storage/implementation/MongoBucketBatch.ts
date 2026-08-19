@@ -768,9 +768,9 @@ export abstract class MongoBucketBatch
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
-    // syncEvent is the per-table designation from resolveTables. With v3 storage, multiple
-    // SourceTables can exist for the same ref, with a row change saved once per table -
-    // only the designated event carrier may fire events, so each event fires once per row.
+    // V3 source tables own disjoint event-definition ids, so a definition is fired by
+    // exactly one SourceTable even when bucket and parameter memberships are split.
+    // Legacy storage leaves eventDefinitionIds undefined and selects by table ref.
     if (sourceTable.syncEvent) {
       for (const event of this.getTableEvents(sourceTable)) {
         this.iterateListeners((cb) =>
@@ -943,8 +943,10 @@ export abstract class MongoBucketBatch
    * Gets relevant {@link HydratedEventDescriptor}s for the given {@link SourceTable}
    */
   protected getTableEvents(table: storage.SourceTable): HydratedEventDescriptor[] {
-    return this.sync_rules.eventDescriptors.filter((evt) =>
-      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table.ref))
+    return this.sync_rules.eventDescriptors.filter(
+      (event) =>
+        (table.eventDefinitionIds == null || table.eventDefinitionIds.has(event.id)) &&
+        event.tableTriggersEvent(table.ref)
     );
   }
 }

@@ -1,4 +1,10 @@
-import { BucketDataSource, ParameterIndexLookupCreator, SyncConfigWithErrors } from '@powersync/service-sync-rules';
+import {
+  BucketDataSource,
+  EventDefinition,
+  ParameterIndexLookupCreator,
+  SerializedEventDescriptor,
+  SyncConfigWithErrors
+} from '@powersync/service-sync-rules';
 import {
   IncrementalMappingChanges,
   IncrementalMappingDefinitionChange,
@@ -28,14 +34,30 @@ export function describeIncrementalSyncConfigUpdate(options: {
   newMapping: SingleSyncConfigBucketDefinitionMapping;
   newSyncConfig: SyncConfigWithErrors;
   mappingChanges: IncrementalMappingChanges;
+  activeEventDefinitions?: Pick<SerializedEventDescriptor, 'id' | 'name'>[];
 }): IncrementalSyncConfigUpdateLog {
-  const { activeMappings, newMapping, newSyncConfig, mappingChanges } = options;
-  const newDefinitionKeys = new Set(newMapping.allDefinitionEntries().map(definitionKey));
-  const activeDefinitions = uniqueDefinitions(activeMappings.flatMap((mapping) => mapping.allDefinitionEntries()));
+  const { activeMappings, newMapping, newSyncConfig, mappingChanges, activeEventDefinitions = [] } = options;
+  const activeEventIds = new Set(activeEventDefinitions.map((event) => event.id));
+  const eventChanges = newSyncConfig.config.eventDefinitions.map(
+    (event): IncrementalMappingDefinitionChange => ({
+      type: 'event',
+      name: event.name,
+      id: event.id
+    })
+  );
+  const reusedEvents = eventChanges.filter((event) => activeEventIds.has(event.id));
+  const addedEvents = eventChanges.filter((event) => !activeEventIds.has(event.id));
+  const newDefinitionKeys = new Set([...newMapping.allDefinitionEntries(), ...eventChanges].map(definitionKey));
+  const activeDefinitions = uniqueDefinitions([
+    ...activeMappings.flatMap((mapping) => mapping.allDefinitionEntries()),
+    ...activeEventDefinitions.map(
+      (event): IncrementalMappingDefinitionChange => ({ type: 'event', name: event.name, id: event.id })
+    )
+  ]);
 
   return {
-    reusedDefinitions: mappingChanges.reusedDefinitions,
-    addedDefinitions: mappingChanges.addedDefinitions.map((definition) => {
+    reusedDefinitions: [...mappingChanges.reusedDefinitions, ...reusedEvents],
+    addedDefinitions: [...mappingChanges.addedDefinitions, ...addedEvents].map((definition) => {
       const sourceTables = sourceTablesForDefinition(newSyncConfig, newMapping, definition);
       return {
         ...definition,
@@ -57,15 +79,23 @@ function sourceTablesForDefinition(
     );
   }
 
-  return sourceTablesForSources(
-    syncConfig.config.bucketParameterLookupSources.filter(
-      (source) => mapping.parameterLookupId(source) == definition.id
-    )
-  );
+  if (definition.type == 'parameter_lookup') {
+    return sourceTablesForSources(
+      syncConfig.config.bucketParameterLookupSources.filter(
+        (source) => mapping.parameterLookupId(source) == definition.id
+      )
+    );
+  }
+
+  return sourceTablesForEvents(syncConfig.config.eventDefinitions.filter((event) => event.id == definition.id));
 }
 
 function sourceTablesForSources(sources: Array<BucketDataSource | ParameterIndexLookupCreator>) {
   return uniqueSorted(sources.flatMap((source) => [...source.getSourceTables()].map((table) => table.tablePattern)));
+}
+
+function sourceTablesForEvents(events: EventDefinition[]) {
+  return uniqueSorted(events.flatMap((event) => [...event.getSourceTables()].map((table) => table.tablePattern)));
 }
 
 function definitionKey(definition: IncrementalMappingDefinitionChange) {

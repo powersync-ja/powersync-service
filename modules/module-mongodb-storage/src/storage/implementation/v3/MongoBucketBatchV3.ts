@@ -15,7 +15,6 @@ import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { ReplicationStreamDocumentV3, SourceTableDocumentV3 } from './models.js';
 import {
   createNewSourceTable,
-  designateEventCarrier,
   overlappingSourceTableFilter,
   planSourceTableReconciliation,
   sourceTableDesiredResolution,
@@ -92,7 +91,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         this.syncConfigIds.map((id) => id.toHexString()),
         table.ref,
         bucketDataSourceIds,
-        parameterLookupSourceIds
+        parameterLookupSourceIds,
+        [...table.eventDefinitionIds!]
       )
     );
   }
@@ -211,7 +211,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           {
             $set: {
               bucket_data_source_ids: update.memberships.bucketDataSourceIds,
-              parameter_lookup_source_ids: update.memberships.parameterLookupSourceIds
+              parameter_lookup_source_ids: update.memberships.parameterLookupSourceIds,
+              event_definition_ids: update.memberships.eventDefinitionIds
             }
           },
           { session }
@@ -228,9 +229,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         await this.db.initializeSourceRecordsCollection(this.replicationStreamId, doc._id, session);
         plan.tables.push(table);
       }
-
-      // If memberships are split across multiple source tables, only one may fire events.
-      designateEventCarrier(plan.tables, context.desired.triggersEvent);
 
       result = {
         tables: plan.tables,
@@ -249,12 +247,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       return null;
     }
 
-    const refreshed = sourceTableFromDocument(doc, table.ref.connectionTag, this.sync_rules, this.mapping);
-    // The event-carrier designation is decided per resolveTables result and not persisted -
-    // preserve the caller's designation instead of recomputing it from the ref, so that
-    // refreshing a non-carrier table does not make it fire events.
-    refreshed.syncEvent = table.syncEvent;
-    return refreshed;
+    return sourceTableFromDocument(doc, table.ref.connectionTag, this.sync_rules, this.mapping);
   }
 
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
