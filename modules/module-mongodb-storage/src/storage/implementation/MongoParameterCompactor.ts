@@ -11,6 +11,11 @@ type ParameterCompactionReadDocument = {
   bucket_parameters?: unknown[] | null;
 };
 
+type LastParameterEntry = {
+  id: InternalOpId;
+  tombstone: boolean;
+};
+
 /**
  * Compacts parameter lookup data (the bucket_parameters collection).
  *
@@ -51,7 +56,15 @@ export class MongoParameterCompactor {
   protected deleteFilter(doc: mongo.Document): mongo.Document {
     return {
       lookup: doc.lookup,
-      _id: { $lte: doc._id },
+      _id: { $lt: doc._id },
+      key: doc.key
+    };
+  }
+
+  protected deleteTombstoneFilter(doc: mongo.Document): mongo.Document {
+    return {
+      lookup: doc.lookup,
+      _id: doc._id,
       key: doc.key
     };
   }
@@ -74,11 +87,12 @@ export class MongoParameterCompactor {
     });
 
     // The index doesn't cover sorting by key, so we keep our own cache of the last seen key.
-    let lastByKey = new LRUCache<string, InternalOpId>({
+    let lastByKey = new LRUCache<string, LastParameterEntry>({
       max: this.options.compactParameterCacheLimit ?? 10_000
     });
     let removeIds: InternalOpId[] = [];
     let removeDeleted: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
+    let removeTombstones: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
     let checkedEntries = 0;
     let checkedEntriesAtLastLog = 0;
     let lastProgressLogTime = Date.now();
@@ -87,7 +101,8 @@ export class MongoParameterCompactor {
       // Tombstone deletes remove the tombstone and all preceding history. Drain any pending
       // ordinary deletes first, even when they have not reached their own batch threshold.
       const flushDeleted = removeDeleted.length > 10 || (force && removeDeleted.length > 0);
-      const flushIds = removeIds.length >= 1000 || (force && removeIds.length > 0) || flushDeleted;
+      const flushTombstones = removeTombstones.length > 10 || (force && removeTombstones.length > 0);
+      const flushIds = removeIds.length >= 1000 || (force && removeIds.length > 0) || flushDeleted || flushTombstones;
 
       if (flushIds && removeIds.length > 0) {
         // MongoDB Filter<T> doesn't fully match our dynamic delete filter shape here.
@@ -100,6 +115,12 @@ export class MongoParameterCompactor {
         const results = await collection.bulkWrite(removeDeleted);
         logger.info(`Removed ${results.deletedCount} (${removeDeleted.length}) deleted parameter entries`);
         removeDeleted = [];
+      }
+
+      if (flushTombstones) {
+        const results = await collection.bulkWrite(removeTombstones);
+        logger.info(`Removed ${results.deletedCount} (${removeTombstones.length}) tombstone parameter entries`);
+        removeTombstones = [];
       }
     };
 
@@ -127,13 +148,14 @@ export class MongoParameterCompactor {
           }) as Buffer
         ).toString('base64');
         const previous = lastByKey.get(uniqueKey);
-        if (previous != null && previous < doc._id) {
+        if (previous != null && previous.id < doc._id && !previous.tombstone) {
           // We have a newer entry for the same key, so we can remove the old one.
-          removeIds.push(previous);
+          removeIds.push(previous.id);
         }
-        lastByKey.set(uniqueKey, doc._id);
+        const tombstone = doc.bucket_parameters?.length == 0;
+        lastByKey.set(uniqueKey, { id: doc._id, tombstone });
 
-        if (doc.bucket_parameters?.length == 0) {
+        if (tombstone) {
           // This is a delete operation, so we can remove it completely.
           // For this we cannot remove the operation itself only: There is a possibility that
           // there is still an earlier operation with the same key and lookup, that we don't have
@@ -141,6 +163,11 @@ export class MongoParameterCompactor {
           removeDeleted.push({
             deleteMany: {
               filter: this.deleteFilter(doc)
+            }
+          });
+          removeTombstones.push({
+            deleteOne: {
+              filter: this.deleteTombstoneFilter(doc)
             }
           });
         }

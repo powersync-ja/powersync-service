@@ -19,7 +19,16 @@ export class MongoParameterCompactorV1 extends MongoParameterCompactor {
     return {
       'key.g': doc.key.g as number,
       lookup: doc.lookup,
-      _id: { $lte: doc._id },
+      _id: { $lt: doc._id },
+      key: doc.key
+    };
+  }
+
+  protected deleteTombstoneFilter(doc: mongo.Document): mongo.Document {
+    return {
+      'key.g': doc.key.g as number,
+      lookup: doc.lookup,
+      _id: doc._id,
       key: doc.key
     };
   }

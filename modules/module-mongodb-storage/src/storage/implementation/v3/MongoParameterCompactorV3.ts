@@ -104,13 +104,14 @@ export class MongoParameterCompactorV3 extends MongoParameterCompactor {
     let tombstoneDeleteOperations: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
 
     const flushDeletes = async (force: boolean) => {
-      // Tombstone deletes remove the tombstone and all preceding history. Keep them in a
-      // separate phase so they cannot run before ordinary superseded-entry deletes.
+      // Tombstone cleanup has two phases. Delete its preceding history while the tombstone is
+      // still present, then delete the tombstone itself. This avoids leaving an older value
+      // visible if a non-transactional deleteMany is interrupted after deleting the tombstone.
       const flushTombstones = force || tombstoneDeleteOperations.length >= PARAMETER_COMPACTION_DELETE_BATCH_SIZE;
-      const flushOrdinary =
+      const flushHistory =
         force || deleteOperations.length >= PARAMETER_COMPACTION_DELETE_BATCH_SIZE || flushTombstones;
 
-      if (flushOrdinary && deleteOperations.length > 0) {
+      if (flushHistory && deleteOperations.length > 0) {
         const result = await collection.bulkWrite(deleteOperations, { ordered: false });
         deletedEntries += result.deletedCount;
         deleteOperations = [];
@@ -141,17 +142,28 @@ export class MongoParameterCompactorV3 extends MongoParameterCompactor {
         distinctIdentities += newestByIdentity.size;
         for (const document of newestByIdentity.values()) {
           const tombstone = document.bucket_parameters?.length == 0;
-          const operation = {
-            deleteMany: {
-              filter: {
-                key: document.key,
-                lookup: document.lookup,
-                // Apply the checkpoint bound in code even though document._id is in the range.
-                _id: this.deleteIdFilter(document._id, tombstone)
-              } as any
-            }
-          } satisfies mongo.AnyBulkWriteOperation<mongo.Document>;
-          (tombstone ? tombstoneDeleteOperations : deleteOperations).push(operation);
+          const filter = {
+            key: document.key,
+            lookup: document.lookup,
+            // Apply the checkpoint bound in code even though document._id is in the range.
+            _id: this.deleteIdFilter(document._id)
+          } as any;
+
+          if (tombstone) {
+            deleteOperations.push({ deleteMany: { filter } });
+            tombstoneDeleteOperations.push({
+              deleteOne: {
+                filter: {
+                  key: document.key,
+                  lookup: document.lookup,
+                  // The scan guarantees this exact tombstone is below the checkpoint.
+                  _id: document._id
+                } as any
+              }
+            });
+          } else {
+            deleteOperations.push({ deleteMany: { filter } });
+          }
         }
 
         await flushDeletes(false);
@@ -164,13 +176,13 @@ export class MongoParameterCompactorV3 extends MongoParameterCompactor {
     return { scannedEntries, distinctIdentities, deletedEntries };
   }
 
-  private deleteIdFilter(operationId: InternalOpId, tombstone: boolean): mongo.Document {
+  private deleteIdFilter(operationId: InternalOpId): mongo.Document {
     // The scan already guarantees operationId < checkpoint. Keep this calculation explicit so
     // the delete remains safe if the scan bounds change later, without asking MongoDB to combine
     // two predicates on _id.
     if (operationId >= this.checkpoint) {
       return { $lt: this.checkpoint };
     }
-    return tombstone ? { $lte: operationId } : { $lt: operationId };
+    return { $lt: operationId };
   }
 }
