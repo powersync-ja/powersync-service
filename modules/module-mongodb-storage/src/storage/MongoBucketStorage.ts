@@ -42,6 +42,7 @@ export interface MongoBucketStorageOptions {
   readPreference?: mongo.ReadPreference;
   checksumCacheTtlMs?: number;
   clearBatchThrottleRate?: number;
+  defaultStorageVersion?: number;
   /**
    * Reuse a compatible active replication stream by appending a new sync config.
    *
@@ -478,7 +479,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<MongoPersistedReplicationStream> {
     const storageVersion =
-      options.storageVersion ?? options.config.parsed.config.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
+      options.storageVersion ??
+      options.config.parsed.config.storageVersion ??
+      this.options.defaultStorageVersion ??
+      storage.CURRENT_STORAGE_VERSION;
 
     const storageConfig = getMongoStorageConfig(storageVersion);
     if (storageConfig.incrementalReprocessing) {
