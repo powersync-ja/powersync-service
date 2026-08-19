@@ -1,0 +1,65 @@
+name: Benchmark a Pull Request
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  run:
+    permissions:
+      pull-requests: write
+      contents: read
+    name: Build and run benchmarks on PR
+    # If the comment is against a PR from a member and starts with "benchmark this"
+    if: ${{ github.event.issue.pull_request && (github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'OWNER') && (startsWith(github.event.comment.body, 'benchmark this') || startsWith(github.event.comment.body, 'Benchmark this'))}}
+    runs-on: ubuntu-latest
+
+    env:
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
+      BENCHMARK_POSTGRES_STORAGE_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
+      BENCHMARK_MONGODB_SOURCE_URL: mongodb://localhost:27017/powersync_test_data
+      BENCHMARK_MONGODB_STORAGE_URL: mongodb://localhost:27018/powersync_test
+      MONGO_TEST_URL: mongodb://localhost:27018/powersync_test
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
+
+      - name: Start PostgreSQL (Storage)
+        uses: ./.github/actions/start-postgres-storage
+
+      - name: Start MongoDB (Storage)
+        uses: ./.github/actions/start-mongodb
+        with:
+          mongodb-port: 27018
+
+      - name: Start MongoDB (Source)
+        uses: ./.github/actions/start-mongodb
+        with:
+          mongodb-port: 27017
+
+      - name: Run Benchmarks
+        run: pnpm benchmark:test
+
+      - name: Run Report
+        run: pnpm benchmark:report
+
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              // TODO: Replace with benchmark results...
+              body: 'Benchmark complete!'
+            })

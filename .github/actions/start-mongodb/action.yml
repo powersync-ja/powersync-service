@@ -6,6 +6,14 @@ inputs:
     description: MongoDB version to start
     required: false
     default: '8.0'
+  mongodb-port:
+    description: The port MongoDB should run on
+    required: false
+    default: 27017
+  mongodb-container-name:
+    description: The Docker container name to use (defaults to mongodb-<port>)
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -18,24 +26,26 @@ runs:
       run: |
         set -euo pipefail
 
-        container_name="mongodb"
+        port="${{ inputs.mongodb-port }}"
+        container_name="${{ inputs.mongodb-container-name }}"
+        container_name="${container_name:-mongodb-${port}}"
         image="mongo:${{ inputs.mongodb-version }}"
 
         docker rm -f "$container_name" >/dev/null 2>&1 || true
 
         docker run \
           --name "$container_name" \
-          --publish 27017:27017 \
+          --publish "$port:$port" \
           --detach \
           "$image" \
           mongod \
-          --port 27017 \
+          --port "$port" \
           --replSet test-rs \
           --bind_ip_all \
           --setParameter enableTestCommands=1
 
         for i in $(seq 1 30); do
-          if docker exec "$container_name" mongosh --quiet --port 27017 --eval "db.adminCommand({ ping: 1 })" >/dev/null; then
+          if docker exec "$container_name" mongosh --quiet --port "$port" --eval "db.adminCommand({ ping: 1 })" >/dev/null; then
             break
           fi
           sleep 1
@@ -46,11 +56,11 @@ runs:
           fi
         done
 
-        docker exec "$container_name" mongosh --quiet --port 27017 --eval \
-          'rs.initiate({_id:"test-rs", members:[{_id:0, host:"localhost:27017"}]})'
+        docker exec "$container_name" mongosh --quiet --port "$port" --eval \
+          "rs.initiate({_id:'test-rs', members:[{_id:0, host:'localhost:$port'}]})"
 
         for i in $(seq 1 30); do
-          if docker exec "$container_name" mongosh --quiet --port 27017 --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)' >/dev/null; then
+          if docker exec "$container_name" mongosh --quiet --port "$port" --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)' >/dev/null; then
             break
           fi
           sleep 1
