@@ -84,14 +84,19 @@ export class MongoParameterCompactor {
     let lastProgressLogTime = Date.now();
 
     const flush = async (force: boolean) => {
-      if (removeIds.length >= 1000 || (force && removeIds.length > 0)) {
+      // Tombstone deletes remove the tombstone and all preceding history. Drain any pending
+      // ordinary deletes first, even when they have not reached their own batch threshold.
+      const flushDeleted = removeDeleted.length > 10 || (force && removeDeleted.length > 0);
+      const flushIds = removeIds.length >= 1000 || (force && removeIds.length > 0) || flushDeleted;
+
+      if (flushIds && removeIds.length > 0) {
         // MongoDB Filter<T> doesn't fully match our dynamic delete filter shape here.
         const results = await collection.deleteMany({ _id: { $in: removeIds } } as any);
         logger.info(`Removed ${results.deletedCount} (${removeIds.length}) superseded parameter entries`);
         removeIds = [];
       }
 
-      if (removeDeleted.length > 10 || (force && removeDeleted.length > 0)) {
+      if (flushDeleted) {
         const results = await collection.bulkWrite(removeDeleted);
         logger.info(`Removed ${results.deletedCount} (${removeDeleted.length}) deleted parameter entries`);
         removeDeleted = [];
