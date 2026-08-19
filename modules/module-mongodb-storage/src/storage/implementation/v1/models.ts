@@ -83,6 +83,11 @@ export interface SyncRuleDocumentV1 extends SyncRuleDocumentBase, SyncRuleCheckp
   content: string;
   serialized_plan?: SerializedSyncPlan | null;
 
+  /** The exclusive operation-id boundary through which parameter history has been compacted. */
+  parameter_compaction?: {
+    compacted_before: bigint;
+  };
+
   /**
    * True if initial snapshot has been replicated.
    *

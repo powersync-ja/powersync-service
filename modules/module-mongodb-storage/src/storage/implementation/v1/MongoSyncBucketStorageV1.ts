@@ -173,7 +173,8 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
           no_checkpoint_before: null
         },
         $unset: {
-          snapshot_lsn: 1
+          snapshot_lsn: 1,
+          parameter_compaction: 1
         }
       },
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
@@ -218,6 +219,10 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     options: storage.CompactOptions
   ): MongoParameterCompactor {
     return new MongoParameterCompactorV1(this.db, this.replicationStreamId, checkpoint, options);
+  }
+
+  override supportsIncrementalParameterCompaction(): boolean {
+    return true;
   }
 
   protected get versionContext(): MongoSyncBucketStorageContextV1 {

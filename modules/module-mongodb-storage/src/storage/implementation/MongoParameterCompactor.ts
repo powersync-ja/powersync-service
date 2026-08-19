@@ -29,7 +29,7 @@ const PARAMETER_COMPACTION_DELETE_BATCH_SIZE = 1_000;
  *
  * For background, see the `/docs/storage/parameter-lookups.md` file.
  */
-export class MongoParameterCompactor {
+export abstract class MongoParameterCompactor {
   constructor(
     protected readonly db: VersionedPowerSyncMongo,
     protected readonly group_id: number,
@@ -39,14 +39,28 @@ export class MongoParameterCompactor {
   ) {}
 
   async compact() {
-    logger.info(`Compacting parameters for sync config ${this.group_id} up to checkpoint ${this.checkpoint}`);
-    const result = await this.compactCollections();
+    const startedAt = Date.now();
+    const compactedBefore = await this.readCompactedBefore();
     logger.info(
-      `Parameter compaction completed for sync config ${this.group_id}: ` +
+      `Incrementally compacting parameters for sync config ${this.group_id} from ${compactedBefore} up to checkpoint ${this.checkpoint}`
+    );
+
+    const result = await this.compactCollections(compactedBefore);
+
+    // Persist only after every collection has completed. Implementations use $max so an
+    // overlapping compactor cannot move the cursor backwards.
+    await this.persistCompactedBefore(this.checkpoint);
+
+    const durationSeconds = (Date.now() - startedAt) / 1000;
+    logger.info(
+      `Incremental parameter compaction completed for sync config ${this.group_id}: ` +
         `collections=${result.collections}, scanned=${result.scannedEntries}, distinct=${result.distinctIdentities}, ` +
-        `deleted=${result.deletedEntries}`
+        `deleted=${result.deletedEntries}, cursor=${compactedBefore}->${this.checkpoint}, duration=${durationSeconds.toFixed(1)}s`
     );
   }
+
+  protected abstract readCompactedBefore(): Promise<InternalOpId>;
+  protected abstract persistCompactedBefore(compactedBefore: InternalOpId): Promise<void>;
 
   protected async getCollections(): Promise<mongo.Collection<mongo.Document>[]> {
     if (this.getCollectionsCb == null) {
