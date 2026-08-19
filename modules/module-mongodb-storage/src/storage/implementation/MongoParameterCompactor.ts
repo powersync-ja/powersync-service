@@ -189,12 +189,34 @@ export abstract class MongoParameterCompactor {
       // Phase 2: Delete leading history once per lookup group. The batch start is always below
       // the checkpoint; min() nevertheless keeps the range explicitly checkpoint-bounded.
       const deleteBefore = batch[0]._id < this.checkpoint ? batch[0]._id : this.checkpoint;
+      // The deletes are collected into bulkWrite commands: With high lookup cardinality there is a
+      // group per identity, and a command per group would mean a round trip per identity.
+      let deleteOperations: mongo.AnyBulkWriteOperation[] = [];
+      let pendingKeys = 0;
+      const flushDeleteOperations = async () => {
+        if (deleteOperations.length == 0) {
+          return;
+        }
+        const result = await collection.bulkWrite(deleteOperations, { ordered: false });
+        deletedEntries += result.deletedCount;
+        deleteOperations = [];
+        pendingKeys = 0;
+      };
       for (const { lookup, keys } of leadingHistoryDeletes.values()) {
         for (const keyBatch of chunk(keys, PARAMETER_COMPACTION_DELETE_BATCH_SIZE)) {
-          const result = await collection.deleteMany(this.leadingHistoryDeleteFilter(lookup, keyBatch, deleteBefore));
-          deletedEntries += result.deletedCount;
+          deleteOperations.push({
+            deleteMany: { filter: this.leadingHistoryDeleteFilter(lookup, keyBatch, deleteBefore) }
+          });
+          // Bound the command size by the total number of keys it covers, not by the number of
+          // operations: a single group may already cover the entire batch.
+          pendingKeys += keyBatch.length;
+          if (pendingKeys >= PARAMETER_COMPACTION_DELETE_BATCH_SIZE) {
+            await flushDeleteOperations();
+          }
         }
       }
+      // Phase 3 requires all leading history to be deleted first.
+      await flushDeleteOperations();
 
       // Phase 3: A tombstone is removed only after all preceding history has been removed.
       for (const ids of chunk(tombstoneIds, PARAMETER_COMPACTION_DELETE_BATCH_SIZE)) {
