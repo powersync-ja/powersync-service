@@ -38,13 +38,19 @@ export class MongoParameterCompactorV1 extends MongoParameterCompactor {
     return { _id: { $gte: compactedBefore, $lt: this.checkpoint } };
   }
 
-  protected override shouldCompactDocument(doc: { _id: bigint; key: mongo.Document }): boolean {
-    return doc._id < this.checkpoint && doc.key.g === this.replicationStreamId;
+  protected override shouldCompactDocument(doc: { key: mongo.Document }): boolean {
+    return doc.key.g === this.replicationStreamId;
   }
 
   /**
    * Uses the legacy `{ 'key.g': 1, lookup: 1, _id: 1 }` index to narrow the stream, lookup and
    * operation-id range. `key` is a residual predicate because it follows the `_id` range.
+   *
+   * This is not super efficient - it my require filtering through many keys for the same lookup.
+   * Note that in those cases, the reads for this lookup would also be slow - this is not fundamentally
+   * worse.
+   *
+   * The V3 storage format uses an index more suitable for this.
    */
   protected deleteFilter(doc: mongo.Document): mongo.Document {
     return {

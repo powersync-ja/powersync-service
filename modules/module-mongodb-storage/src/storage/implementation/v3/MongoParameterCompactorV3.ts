@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { CompactOptions, InternalOpId } from '@powersync/service-core';
+import { InternalOpId } from '@powersync/service-core';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { ReplicationStreamDocumentV3 } from './models.js';
 import type { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
@@ -10,16 +10,6 @@ import type { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
  */
 export class MongoParameterCompactorV3 extends MongoParameterCompactor {
   declare protected readonly db: VersionedPowerSyncMongoV3;
-
-  constructor(
-    db: VersionedPowerSyncMongoV3,
-    replicationStreamId: number,
-    checkpoint: InternalOpId,
-    options: CompactOptions,
-    private readonly batchSize = 10_000
-  ) {
-    super(db, replicationStreamId, checkpoint, options, batchSize);
-  }
 
   protected async getCollections(): Promise<mongo.Collection<mongo.Document>[]> {
     const collections = await this.db.listParameterIndexCollections(this.replicationStreamId);

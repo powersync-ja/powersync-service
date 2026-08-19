@@ -126,13 +126,11 @@ export abstract class MongoParameterCompactor {
       let tombstoneDeleteOperations: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
       for (const document of newestByIdentity.values()) {
         const filter = this.deleteFilter(document);
+        deleteOperations.push({ deleteMany: { filter } });
         if (document.bucket_parameters?.length == 0) {
-          deleteOperations.push({ deleteMany: { filter } });
           tombstoneDeleteOperations.push({
             deleteOne: { filter: this.deleteTombstoneFilter(document) }
           });
-        } else {
-          deleteOperations.push({ deleteMany: { filter } });
         }
       }
 

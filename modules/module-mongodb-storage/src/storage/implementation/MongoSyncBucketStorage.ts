@@ -379,12 +379,7 @@ export abstract class MongoSyncBucketStorage
     }
     await this.createMongoCompactor({ ...options, maxOpId, logger: this.logger }).compact();
 
-    if (
-      maxOpId != null &&
-      options?.compactParameterData &&
-      this.replicationStream.state == SyncRuleState.ACTIVE &&
-      (!options.incrementalOnly || this.supportsIncrementalParameterCompaction())
-    ) {
+    if (maxOpId != null && options?.compactParameterData && this.replicationStream.state == SyncRuleState.ACTIVE) {
       await this.createMongoParameterCompactor(maxOpId, options).compact();
     }
   }
