@@ -162,6 +162,12 @@ export interface UpdateSyncRulesOptions {
   storageVersion?: number;
 
   /**
+   * Start a replacement replication stream instead of incrementally reprocessing a
+   * compatible active stream. Used when the current stream needs a full reprocess.
+   */
+  forceNewReplicationStream?: boolean;
+
+  /**
    * Only relevant if the result is used. This does not affect the persisted config.
    */
   defaultSchema?: string;
