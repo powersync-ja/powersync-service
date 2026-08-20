@@ -937,10 +937,13 @@ export abstract class MongoBucketBatch
    * Gets relevant {@link HydratedEventDescriptor}s for the given {@link SourceTable}
    */
   protected getTableEvents(table: storage.SourceTable): HydratedEventDescriptor[] {
-    return this.sync_rules.eventDescriptors.filter(
-      (event) =>
-        (table.eventDefinitionIds == null || table.eventDefinitionIds.has(event.id)) &&
-        event.tableTriggersEvent(table.ref)
-    );
+    // V3 storage assigns event-definition ids to each source table, so membership is authoritative
+    // (ids are only ever assigned for events that match the ref). Legacy storage leaves this
+    // undefined and selects by table ref.
+    if (table.eventDefinitionIds != null) {
+      return this.sync_rules.eventDescriptors.filter((event) => table.eventDefinitionIds!.has(event.id));
+    }
+
+    return this.sync_rules.eventDescriptors.filter((event) => event.tableTriggersEvent(table.ref));
   }
 }
