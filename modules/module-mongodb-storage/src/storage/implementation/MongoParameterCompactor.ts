@@ -95,9 +95,7 @@ export abstract class MongoParameterCompactor {
     const startedAt = Date.now();
     this.signal?.throwIfAborted();
     const compactedBefore = await this.readCompactedBefore();
-    this.logger.info(
-      `Incrementally compacting parameters for sync config ${this.replicationStreamId} from ${compactedBefore} up to checkpoint ${this.checkpoint}`
-    );
+    this.logger.info(`Incrementally compacting parameters from ${compactedBefore} up to checkpoint ${this.checkpoint}`);
 
     const result = await this.compactCollections(compactedBefore);
 
@@ -107,7 +105,7 @@ export abstract class MongoParameterCompactor {
 
     const durationSeconds = (Date.now() - startedAt) / 1000;
     this.logger.info(
-      `Incremental parameter compaction completed for sync config ${this.replicationStreamId}: ` +
+      `Incremental parameter compaction completed: ` +
         `collections=${result.collections}, scanned=${result.scannedEntries}, ` +
         `deleted=${result.deletedEntries}, cursor=${compactedBefore}->${this.checkpoint}, ` +
         `fence=${this.#invalidationFencePersisted ? this.checkpoint : 'unchanged'}, duration=${durationSeconds.toFixed(1)}s`
@@ -222,10 +220,7 @@ export abstract class MongoParameterCompactor {
         await this.persistCompactedBefore(frontier);
         persistedFrontier = frontier;
         lastPersistedAt = Date.now();
-        this.logger.info(
-          `Parameter compaction progress for sync config ${this.replicationStreamId}: ` +
-            `cursor=${frontier}, target=${this.checkpoint}`
-        );
+        this.logger.info(`Parameter compaction progress: ` + `cursor=${frontier}, target=${this.checkpoint}`);
       }
 
       if (scope == null) {
