@@ -1,3 +1,5 @@
+import { EventDefinitionId, HydratedSyncConfig } from '@powersync/service-sync-rules';
+
 export enum WriteCheckpointMode {
   /**
    * Raw mappings of `user_id` to `write_checkpoint`s should
@@ -31,7 +33,14 @@ export interface ClientRequestedCheckpointOptions {
   checkpoint_request_id?: bigint;
 }
 
-export interface CustomWriteCheckpointFilters extends BaseWriteCheckpointIdentifier {
+export interface SyncStorageCustomWriteCheckpointFilters extends BaseWriteCheckpointIdentifier {
+  /**
+   * Active sync config served by this read operation.
+   */
+  syncConfig: HydratedSyncConfig;
+}
+
+export interface CustomWriteCheckpointFilters extends SyncStorageCustomWriteCheckpointFilters {
   /**
    * Replication stream which was active when this checkpoint was created.
    */
@@ -44,6 +53,14 @@ export interface BatchedCustomWriteCheckpointOptions extends BaseWriteCheckpoint
    * "write checkpoint" in storage APIs for backwards compatibility.
    */
   checkpoint: bigint;
+  /**
+   * Compiled event definition which created the checkpoint.
+   *
+   * Incremental replication uses this to keep checkpoint records produced by
+   * active and processing sync configs separate. This is required by v3
+   * storage and unused by legacy storage versions.
+   */
+  event_id?: EventDefinitionId;
   /**
    * Required when this custom checkpoint was created from a client checkpoint
    * request and should be eligible for checkpoint request retention cleanup.
@@ -155,12 +172,30 @@ function shouldReplaceManagedWriteCheckpoint(
   return candidateRequestId > existingRequestId;
 }
 
-export type SyncStorageLastWriteCheckpointFilters = BaseWriteCheckpointIdentifier | ManagedWriteCheckpointFilters;
+export type SyncStorageLastWriteCheckpointFilters =
+  | SyncStorageCustomWriteCheckpointFilters
+  | ManagedWriteCheckpointFilters;
 export type LastWriteCheckpointFilters = CustomWriteCheckpointFilters | ManagedWriteCheckpointFilters;
+
+export type CustomWriteCheckpointEventIdResolver = (syncConfig: HydratedSyncConfig) => EventDefinitionId;
+
+export type WriteCheckpointModeConfig =
+  | {
+      mode: WriteCheckpointMode.CUSTOM;
+      /**
+       * Resolves the custom checkpoint event served by the supplied active sync
+       * config. Required by storage implementations that scope custom
+       * checkpoints by event definition.
+       */
+      resolveEventId?: CustomWriteCheckpointEventIdResolver;
+    }
+  | {
+      mode: WriteCheckpointMode.MANAGED;
+    };
 
 export interface BaseWriteCheckpointAPI {
   readonly writeCheckpointMode: WriteCheckpointMode;
-  setWriteCheckpointMode(mode: WriteCheckpointMode): void;
+  setWriteCheckpointMode(config: WriteCheckpointModeConfig): void;
   createManagedWriteCheckpoints(
     checkpoints: ManagedWriteCheckpointOptions[]
   ): Promise<CreateManagedWriteCheckpointsResult>;

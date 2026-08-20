@@ -1945,7 +1945,8 @@ streams:
       const nextCheckpoint = await bucketStorage.getCheckpoint();
       const changes = await bucketStorage.getCheckpointChanges({
         lastCheckpoint: previousCheckpoint,
-        nextCheckpoint
+        nextCheckpoint,
+        syncConfig: bucketStorage.getParsedSyncRules({ defaultSchema: 'public' })
       });
 
       expect(changes.invalidateParameterBuckets).toBe(false);

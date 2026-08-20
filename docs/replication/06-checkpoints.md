@@ -127,6 +127,8 @@ Custom checkpoint requests are useful when the source write is asynchronous or w
 
 Custom checkpoint request ids continue to use `checkpoint` as the supplied id in the legacy storage API. Callers that queue request-derived custom checkpoints should pass `checkpoint_requested_at` to `addCustomWriteCheckpoint()`. Storage keeps that nullable timestamp on custom checkpoint rows, just like managed checkpoint requests, so compact jobs can remove expired request-derived rows without deleting persistent custom checkpoint request rows. Omit or clear `checkpoint_requested_at` for persistent custom checkpoints owned by the source or integration.
 
+With MongoDB v3, incremental replication event handlers must pass the compiled event definition id as `event_id`. A custom write checkpoint integration configures `setWriteCheckpointMode({ mode: CUSTOM, resolveEventId })`, where the resolver selects the corresponding event id from the active sync config. Custom checkpoint reads then match the user, replication stream, and resolved event definition, allowing records from the active and processing sync configs to coexist until activation. MongoDB v3 rejects custom checkpoint writes and reads without an event association, and removes scoped records when their event definition is no longer used by a live sync config. Legacy storage versions continue to use unscoped custom checkpoints.
+
 Managed mode is the default.
 
 ## Idle Sources

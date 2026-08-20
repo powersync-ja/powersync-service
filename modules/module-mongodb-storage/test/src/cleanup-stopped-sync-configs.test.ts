@@ -360,6 +360,12 @@ event_definitions:
       },
       afterReplicaId: test_utils.rid('todo-1')
     });
+    const eventDefinitionId = [...resolved.tables[0].eventDefinitionIds!][0];
+    firstWriter.addCustomWriteCheckpoint({
+      user_id: 'user-1',
+      checkpoint: 1n,
+      event_id: eventDefinitionId
+    });
     await firstWriter.markAllSnapshotDone('1/1');
     await firstWriter.commit('1/1');
 
@@ -423,6 +429,14 @@ event_definitions:
     expect(sourceTable?.parameter_lookup_source_ids).toEqual([]);
     expect(sourceTable?.event_definition_ids).toEqual(eventDefinitionIds);
     expect(await collectionExists(db, sourceRecordsCollection)).toBe(false);
+    await expect(
+      db
+        .customCheckpointRequests({
+          replicationStreamId: first.replicationStreamId,
+          eventId: eventDefinitionId
+        })
+        .findOne({ user_id: 'user-1' })
+    ).resolves.not.toBeNull();
 
     const streamDoc = (await db.sync_rules.findOne({ _id: first.replicationStreamId })) as ReplicationStreamDocumentV3;
     expect(streamDoc.sync_configs.map((config) => config.state)).toEqual([storage.SyncRuleState.ACTIVE]);
@@ -487,6 +501,12 @@ event_definitions:
       },
       afterReplicaId: test_utils.rid('audit-1')
     });
+    const auditEventDefinitionId = [...auditTable.eventDefinitionIds!][0];
+    firstWriter.addCustomWriteCheckpoint({
+      user_id: 'audit-user',
+      checkpoint: 1n,
+      event_id: auditEventDefinitionId
+    });
     await firstWriter.markAllSnapshotDone('1/1');
     await firstWriter.commit('1/1');
 
@@ -539,6 +559,11 @@ streams:
     // The orphaned event-only table and its source records are removed...
     expect(await db.sourceTables(first.replicationStreamId).countDocuments({ _id: auditTableId })).toBe(0);
     expect(await collectionExists(db, auditRecordsCollection)).toBe(false);
+    const auditCheckpointCollection = db.customCheckpointRequests({
+      replicationStreamId: first.replicationStreamId,
+      eventId: auditEventDefinitionId
+    }).collectionName;
+    expect(await collectionExists(db, auditCheckpointCollection)).toBe(false);
     // ...while the data table still used by the live config is retained.
     expect(await db.sourceTables(first.replicationStreamId).countDocuments({ _id: todosTableId })).toBe(1);
 

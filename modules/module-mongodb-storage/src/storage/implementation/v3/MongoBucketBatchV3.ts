@@ -1,6 +1,7 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
-import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { storage } from '@powersync/service-core';
+import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
+import { InternalOpId, storage } from '@powersync/service-core';
+import { EventDefinitionId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { canCheckpointState } from '../CheckpointState.js';
@@ -12,7 +13,7 @@ import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { PersistedBatchV3 } from './PersistedBatchV3.js';
 import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-import { ReplicationStreamDocumentV3, SourceTableDocumentV3 } from './models.js';
+import { CustomCheckpointRequestDocumentV3, ReplicationStreamDocumentV3, SourceTableDocumentV3 } from './models.js';
 import {
   createNewSourceTable,
   overlappingSourceTableFilter,
@@ -26,6 +27,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   declare readonly db: VersionedPowerSyncMongoV3;
 
   private readonly store: SourceRecordStore;
+  /** Avoid repeating idempotent createIndexes calls for every checkpoint flush. */
+  private readonly initializedCustomCheckpointEventIds = new Set<EventDefinitionId>();
+  // Used only to validate supplied checkpoint ids; it does not initialize collections.
+  private readonly knownEventIds: ReadonlySet<EventDefinitionId>;
   private readonly syncConfigIds: bson.ObjectId[];
   private needsActivationV3 = true;
   private lastWaitingLogThrottledV3 = 0;
@@ -37,6 +42,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       throw new ReplicationAssertionError('Missing sync config id for v3 batch');
     }
     this.syncConfigIds = syncConfigIds;
+    this.knownEventIds = new Set(this.sync_rules.eventDescriptors.map((event) => event.id));
     this.store = new SourceRecordStoreV3(this.db, this.replicationStreamId, this.mapping);
   }
 
@@ -686,5 +692,97 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       copy.snapshotComplete = true;
       return copy;
     });
+  }
+
+  protected override async batchCreateCustomWriteCheckpoints(
+    session: lib_mongo.mongo.ClientSession,
+    opId: InternalOpId
+  ): Promise<void> {
+    if (this.write_checkpoint_batch.length == 0) {
+      return;
+    }
+
+    const checkpointsByEvent = Map.groupBy(this.write_checkpoint_batch, (checkpoint) =>
+      this.validateCustomCheckpointEventId(checkpoint.event_id)
+    );
+
+    for (const [eventId, checkpoints] of checkpointsByEvent) {
+      await this.batchCreateEventCustomWriteCheckpoints(session, opId, eventId, checkpoints);
+    }
+  }
+
+  protected override async prepareCustomWriteCheckpoints(): Promise<void> {
+    // Most events never produce custom checkpoints, so create collections lazily
+    // only for the event ids present in this batch. This hook runs before the
+    // replication transaction because MongoDB cannot create indexes within it.
+    const eventIds = new Set(
+      this.write_checkpoint_batch.map((checkpoint) => this.validateCustomCheckpointEventId(checkpoint.event_id))
+    );
+    for (const eventId of eventIds) {
+      if (this.initializedCustomCheckpointEventIds.has(eventId)) {
+        continue;
+      }
+      await this.db.initializeCustomCheckpointRequestsCollection({
+        replicationStreamId: this.replicationStreamId,
+        eventId
+      });
+      this.initializedCustomCheckpointEventIds.add(eventId);
+    }
+  }
+
+  private validateCustomCheckpointEventId(eventId: EventDefinitionId | undefined): EventDefinitionId {
+    if (eventId == null) {
+      throw new ServiceAssertionError('V3 custom checkpoints require an event definition id');
+    }
+
+    if (!this.knownEventIds.has(eventId)) {
+      throw new ServiceAssertionError(`Unknown custom checkpoint event definition ${eventId}`);
+    }
+    return eventId;
+  }
+
+  private async batchCreateEventCustomWriteCheckpoints(
+    session: lib_mongo.mongo.ClientSession,
+    opId: InternalOpId,
+    eventId: EventDefinitionId,
+    checkpoints: storage.CustomWriteCheckpointOptions[]
+  ): Promise<void> {
+    await this.db
+      .customCheckpointRequests({
+        eventId,
+        replicationStreamId: this.replicationStreamId
+      })
+      .bulkWrite(
+        checkpoints.map((checkpointOptions) => {
+          const set: Partial<CustomCheckpointRequestDocumentV3> = {
+            user_id: checkpointOptions.user_id,
+            checkpoint: checkpointOptions.checkpoint,
+            op_id: opId
+          };
+          if (checkpointOptions.checkpoint_requested_at != null) {
+            set.checkpoint_requested_at = checkpointOptions.checkpoint_requested_at;
+          }
+
+          return {
+            updateOne: {
+              filter: {
+                user_id: checkpointOptions.user_id
+              },
+              update: {
+                $set: set,
+                ...(checkpointOptions.checkpoint_requested_at == null
+                  ? {
+                      $unset: {
+                        checkpoint_requested_at: 1
+                      }
+                    }
+                  : {})
+              },
+              upsert: true
+            }
+          };
+        }),
+        { session }
+      );
   }
 }

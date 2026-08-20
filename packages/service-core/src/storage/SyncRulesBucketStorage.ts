@@ -542,6 +542,9 @@ export interface WatchWriteCheckpointOptions {
   /** user_id and client_id combined. */
   user_id: string;
 
+  /** Active sync config served by this watcher. */
+  syncConfig: HydratedSyncConfig;
+
   signal: AbortSignal;
 }
 
@@ -563,6 +566,8 @@ export interface StorageCheckpointUpdate extends WriteCheckpoint {
 export interface GetCheckpointChangesOptions {
   lastCheckpoint: ReplicationCheckpoint;
   nextCheckpoint: ReplicationCheckpoint;
+  /** Active sync config served by this read operation. */
+  syncConfig: HydratedSyncConfig;
 }
 
 export interface CheckpointChanges {
