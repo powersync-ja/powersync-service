@@ -1,5 +1,12 @@
 import { Logger, ReplicationAssertionError, logger as defaultLogger } from '@powersync/lib-services-framework';
-import { BinLogEvent, BinLogQueryEvent, StartOptions, TableMapEntry, ZongJi } from '@powersync/mysql-zongji';
+import {
+  BinLogEvent,
+  BinLogQueryEvent,
+  MySQLConnection,
+  StartOptions,
+  TableMapEntry,
+  ZongJi
+} from '@powersync/mysql-zongji';
 import { TablePattern } from '@powersync/service-sync-rules';
 import async from 'async';
 import pkg, {
@@ -33,6 +40,16 @@ const { Parser } = pkg;
  *  Seconds of inactivity after which a keepalive event is sent by the MySQL server.
  */
 export const KEEPALIVE_INACTIVITY_THRESHOLD = 30;
+
+/**
+ *  Maximum time in milliseconds to wait for Zongji to stop before force-closing its control connection.
+ */
+export const ZONGJI_STOP_TIMEOUT = 5_000;
+
+// The Zongji type definitions do not expose the control connection it uses for table metadata
+// queries and the KILL query issued during stop.
+type ZongJiWithControlConnection = ZongJi & { ctrlConnection: MySQLConnection };
+
 export type Row = Record<string, any>;
 
 /**
@@ -222,12 +239,24 @@ export class BinLogListener {
   private async stopZongji(): Promise<void> {
     if (!this.zongji.stopped) {
       this.logger.info('Stopping BinLog Listener...');
-      await new Promise<void>((resolve) => {
+      let stopped = false;
+      const stopPromise = new Promise<void>((resolve) => {
         this.zongji.once('stopped', () => {
+          stopped = true;
           resolve();
         });
         this.zongji.stop();
       });
+      // Zongji only emits 'stopped' once the KILL query on its control connection has completed.
+      // If that connection has been dead for a while, the query can block on TCP retransmissions
+      // for many minutes, so we destroy the socket after a timeout to unblock the stop.
+      const timeout = timers.setTimeout(ZONGJI_STOP_TIMEOUT, undefined, { ref: false }).then(() => {
+        if (!stopped) {
+          this.logger.warn('Timed out waiting for the BinLog Listener to stop. Closing the control connection.');
+          (this.zongji as ZongJiWithControlConnection).ctrlConnection._socket?.destroy();
+        }
+      });
+      await Promise.race([stopPromise, timeout]);
       this.logger.info('BinLog Listener stopped.');
     }
   }
