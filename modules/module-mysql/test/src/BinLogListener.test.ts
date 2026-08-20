@@ -70,18 +70,18 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
 
     expect(stopSpy).toHaveBeenCalled();
     expect(queueStopSpy).toHaveBeenCalled();
+    // Zongji does not destroy connections it did not create, so the listener has to.
+    expect(binLogListener.controlConnection.state).toBe('disconnected');
   });
 
   test('TCP keepalive is enabled on the binlog and control connections', async () => {
     // Without keepalive, the control connection can idle for hours and be silently dropped by
     // stateful firewalls. The next metadata query then blocks until the kernel gives up on TCP
     // retransmissions, freezing the whole binlog pipeline for ~15 minutes.
-    const { connection, ctrlConnection } = binLogListener.zongji as unknown as {
-      connection: ConnectionWithConfig;
-      ctrlConnection: ConnectionWithConfig;
-    };
+    const { connection } = binLogListener.zongji as unknown as { connection: ConnectionWithConfig };
+    const controlConnection = binLogListener.controlConnection as ConnectionWithConfig;
 
-    for (const conn of [connection, ctrlConnection]) {
+    for (const conn of [connection, controlConnection]) {
       expect(conn.config.enableKeepAlive).toBe(true);
       expect(conn.config.keepAliveInitialDelay).toBe(TCP_KEEPALIVE_INITIAL_DELAY);
     }
@@ -92,8 +92,7 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
 
     // Simulate a control connection that was silently dropped by the network: the KILL query
     // issued by zongji.stop() never gets a response.
-    const { ctrlConnection } = binLogListener.zongji as unknown as { ctrlConnection: MySQLConnection };
-    vi.spyOn(ctrlConnection, 'query').mockImplementation(() => {});
+    vi.spyOn(binLogListener.controlConnection, 'query').mockImplementation(() => {});
 
     await binLogListener.stop();
 
@@ -112,8 +111,7 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
 
     // Queries to the control connection never get a response, like a connection that died
     // without either side being notified.
-    const { ctrlConnection } = binLogListener.zongji as unknown as { ctrlConnection: MySQLConnection };
-    vi.spyOn(ctrlConnection, 'query').mockImplementation(() => {});
+    vi.spyOn(binLogListener.controlConnection, 'query').mockImplementation(() => {});
 
     await expect(binLogListener.replicateUntilStopped()).rejects.toThrow('control connection is unresponsive');
     expect(binLogListener.zongji.stopped).toBeTruthy();
