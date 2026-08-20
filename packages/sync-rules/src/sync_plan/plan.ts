@@ -145,9 +145,9 @@ export interface CompiledEventDescriptorContent {
   sourceQueries: CompiledEventSourceQuery[];
 }
 
-/** A compiled replication event together with its content-addressed identity. */
+/** A compiled replication event together with its canonical behavioral identity. */
 export interface CompiledEventDescriptor extends CompiledEventDescriptorContent {
-  /** Content-addressed identity assigned when compiler output is finalized or restored from a serialized plan. */
+  /** Identity excluding non-functional SQL formatting, ordering, and compiler hash changes. */
   id: string;
 }
 
@@ -161,7 +161,7 @@ export interface CompiledEventDescriptor extends CompiledEventDescriptorContent 
 export interface CompiledEventSourceQuery {
   /**
    * Original SQL retained as a compatibility mirror for services using the legacy event evaluator.
-   * It remains part of the exact serialized event definition used to derive the event ID.
+   * It is deliberately excluded from the event ID.
    */
   sql: string;
   sourceTable: ImplicitSchemaTablePattern;

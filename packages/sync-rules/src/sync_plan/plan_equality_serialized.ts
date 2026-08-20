@@ -16,53 +16,39 @@ export interface SerializedBucketDataSourceWithDataSources {
   dataSources: readonly SerializedDataSource[];
 }
 
-export interface SerializedEventSourceDefinition {
-  eventName: string;
-  source: SerializedEventSourceQuery;
-}
-
-/** Returns the serialized event definition without its derived ID. */
+/**
+ * Returns the canonical, versioned identity input for a complete named event.
+ *
+ * Raw SQL and compiler hash codes are excluded because they do not define event behavior. Filter variants and source
+ * queries are sorted because their order is not significant.
+ *
+ * This normalizes formatting and ordering, but not deeper SQL equivalences (e.g. commutative operands like
+ * `a = b` vs `b = a`). Two behaviorally-identical definitions may therefore still produce different identities. That
+ * only ever causes redundant reprocessing, never a missed change — which is the safe direction for incremental
+ * reprocessing, and it still avoids reprocessing on the common formatting/ordering edits.
+ */
 export function serializedEventDefinitionIdentity(event: SerializedEventDescriptorContent): string {
-  return JSON.stringify({ name: event.name, sourceQueries: event.sourceQueries });
+  return JSON.stringify({
+    version: 1,
+    name: event.name,
+    sourceQueries: event.sourceQueries.map((source) => JSON.stringify(eventSourceQueryIdentity(source))).sort()
+  });
 }
 
-/** Generate the content-addressed ID persisted with and exposed by a compiled event definition. */
+/**
+ * Generate the content-addressed ID persisted with and exposed by a compiled event definition.
+ *
+ * We hash the canonical identity into a wide UUIDv5 rather than reusing the compiler's structural hash code, because
+ * event ids are compared directly across sync configs (equality of persisted id strings) with no `equals()` fallback
+ * to resolve collisions. The identifier must therefore be collision-resistant: a collision would make two different
+ * events look identical and silently skip an event's reprocessing. The 32-bit structural hash is only safe where it is
+ * paired with a full-equality check (e.g. bucket data sources).
+ */
 export function serializedEventDefinitionId(event: SerializedEventDescriptorContent): string {
   return uuid.v5(serializedEventDefinitionIdentity(event), EVENT_DEFINITION_ID_NAMESPACE);
 }
 
-/**
- * Compiled-plan equality for an individual event source query.
- *
- * Event source identity is independent of the containing sync config. The identity deliberately excludes raw SQL and
- * compiler hash codes, preserves table references as represented in the plan, and normalizes unordered filter variants
- * so callers can use it as stable input to a persisted fingerprint. Callers must still verify equality after a
- * fingerprint lookup.
- */
-export const serializedEventSourceDefinitionEquality: Equality<SerializedEventSourceDefinition> = {
-  hash(hasher, value) {
-    hasher.addString(serializedEventSourceDefinitionIdentity(value));
-  },
-  equals(a, b) {
-    return a === b || serializedEventSourceDefinitionIdentity(a) == serializedEventSourceDefinitionIdentity(b);
-  }
-};
-
-/**
- * Returns the canonical, versioned identity input for one event source query.
- *
- * This is intentionally not a durable identifier by itself. Complete named events use
- * {@link serializedEventDefinitionId}; source-level callers can use this value for semantic comparisons.
- */
-export function serializedEventSourceDefinitionIdentity(value: SerializedEventSourceDefinition): string {
-  return JSON.stringify({
-    version: 1,
-    eventName: value.eventName,
-    ...eventSourceQueryIdentity(value.source)
-  });
-}
-
-/** Canonical identity fields for a source query without the containing event name. */
+/** Canonical identity fields for a source query without raw SQL or compiler hashes. */
 function eventSourceQueryIdentity(source: SerializedEventSourceQuery) {
   return {
     sourceTable: source.table,

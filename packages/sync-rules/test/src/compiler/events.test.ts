@@ -7,8 +7,6 @@ import {
   PrecompiledSyncConfig,
   serializedEventDefinitionId,
   serializedEventDefinitionIdentity,
-  serializedEventSourceDefinitionEquality,
-  serializedEventSourceDefinitionIdentity,
   serializeSyncPlan,
   SqlSyncRules
 } from '../../../src/index.js';
@@ -73,42 +71,41 @@ describe('compiled replication events', () => {
     ).toEqual({ errors: [] });
   });
 
-  test('uses canonical semantic identity independent of formatting and filter order', () => {
-    const first = eventSourceFromQuery(
-      'SELECT user_id, checkpoint FROM checkpoints WHERE active = true AND checkpoint > 0'
-    );
-    const equivalent = eventSourceFromQuery(
-      ' select user_id, checkpoint from checkpoints AS c where c.checkpoint > 0 and c.active = true '
-    );
-    const changed = eventSourceFromQuery(
-      'SELECT user_id, checkpoint FROM checkpoints WHERE active = true AND checkpoint > 1'
-    );
-
-    expect(serializedEventSourceDefinitionEquality.equals(first, equivalent)).toBe(true);
-    expect(serializedEventSourceDefinitionIdentity(first)).toBe(serializedEventSourceDefinitionIdentity(equivalent));
-    expect(serializedEventSourceDefinitionEquality.equals(first, changed)).toBe(false);
-  });
-
-  test('derives a content-addressed id from the exact serialized event definition', () => {
+  test('derives a canonical id independent of formatting, filter order and payload query order', () => {
     const first = eventDefinitionFromQueries(
-      'SELECT user_id, checkpoint FROM checkpoints WHERE active = true',
+      'SELECT user_id, checkpoint FROM checkpoints WHERE active = true AND checkpoint > 0',
       'SELECT user_id, checkpoint FROM archived_checkpoints'
     );
     const reordered = eventDefinitionFromQueries(
-      ' select user_id, checkpoint from archived_checkpoints ',
-      'select user_id, checkpoint from checkpoints c where c.active = true'
+      ' select "user_id", "checkpoint" from "archived_checkpoints" ',
+      'select "user_id", "checkpoint" from "checkpoints" c where c."checkpoint" > 0 and c."active" = true'
     );
     const changed = eventDefinitionFromQueries(
-      'SELECT user_id, checkpoint FROM checkpoints WHERE active = false',
+      'SELECT user_id, checkpoint FROM checkpoints WHERE active = true AND checkpoint > 1',
       'SELECT user_id, checkpoint FROM archived_checkpoints'
     );
 
     expect(first.id).toBe(serializedEventDefinitionId(first.event));
-    expect(reordered.id).not.toBe(first.id);
+    expect(reordered.id).toBe(first.id);
     expect(changed.id).not.toBe(first.id);
+    expect(serializedEventDefinitionIdentity(reordered.event)).toBe(serializedEventDefinitionIdentity(first.event));
+  });
 
-    const { id: _id, ...definition } = first.event;
-    expect(serializedEventDefinitionIdentity(first.event)).toBe(JSON.stringify(definition));
+  test('excludes raw SQL, compiler hashes and variant order from the id', () => {
+    const first = eventDefinitionFromQueries('SELECT user_id, checkpoint FROM checkpoints WHERE active = true');
+    const second = eventDefinitionFromQueries('SELECT user_id, checkpoint FROM checkpoints WHERE checkpoint > 0');
+    const definition = structuredClone(first.event);
+    definition.sourceQueries[0].variants.push(structuredClone(second.event.sourceQueries[0].variants[0]));
+    const modified = structuredClone(definition);
+    modified.sourceQueries[0].sql = 'raw sql is compatibility metadata';
+    modified.sourceQueries[0].variants.reverse();
+    for (const variant of modified.sourceQueries[0].variants) {
+      variant.hash += 1;
+    }
+
+    expect(modified.sourceQueries[0].variants).toHaveLength(2);
+    expect(serializedEventDefinitionIdentity(modified)).toBe(serializedEventDefinitionIdentity(definition));
+    expect(serializedEventDefinitionId(modified)).toBe(serializedEventDefinitionId(definition));
   });
 
   test('derives the id from the plan without loading context', () => {
@@ -147,19 +144,6 @@ describe('compiled replication events', () => {
     expect(errors.map((error) => error.message)).toContain('Each payload query should query a unique table');
   });
 });
-
-function eventSourceFromQuery(query: string) {
-  const plan = serializeSyncPlan(
-    (
-      SqlSyncRules.fromYaml(yamlWithEventQueries(query), {
-        defaultSchema: 'test_schema'
-      }).config as PrecompiledSyncConfig
-    ).plan
-  );
-  const source = plan.events![0].sourceQueries[0];
-
-  return { eventName: 'write_checkpoints', source };
-}
 
 function eventDefinitionFromQueries(...queries: string[]) {
   return eventDefinitionForSchema('test_schema', ...queries);
