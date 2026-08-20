@@ -191,7 +191,8 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
             sync_plan,
             state,
             slot_name,
-            storage_version
+            storage_version,
+            parameter_compacted_before
           )
         VALUES
           (
@@ -215,7 +216,17 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
               '_',
               ${{ type: 'varchar', value: crypto.randomBytes(2).toString('hex') }}
             ),
-            ${{ type: 'int4', value: storageVersion }}
+            ${{ type: 'int4', value: storageVersion }},
+            --- All replication streams share the op_id_sequence and the bucket_parameters table,
+            --- so every parameter entry this stream writes gets an id above the current head.
+            --- Seeding the parameter compaction cursor with that head keeps the stream's first
+            --- compaction from scanning other streams' history, which would otherwise be repeated
+            --- for every new deployment. A concurrent replication flush can only advance the head
+            --- after this read, which makes the seed conservative, never too high.
+            COALESCE(
+              pg_sequence_last_value ('op_id_sequence'::regclass),
+              0
+            )
           )
         RETURNING
           *

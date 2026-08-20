@@ -275,4 +275,12 @@ export interface TestStorageConfig {
   tableIdStrings: boolean;
   storageVersion?: number;
   compressedBucketStorage?: boolean;
+  /**
+   * Set for storage where deleting rows does not immediately reduce the size reported by
+   * {@link BucketStorageFactory.getStorageMetrics} - Postgres only returns the space to the table
+   * itself, and reports the same relation size until a VACUUM FULL.
+   *
+   * Tests that check for space freed by compaction skip that assertion when this is set.
+   */
+  deletesRetainSpace?: boolean;
 }

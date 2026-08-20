@@ -50,6 +50,11 @@ export const SyncRules = t.object({
   last_fatal_error: t.Null.or(t.string),
   keepalive_op: t.Null.or(bigint),
   storage_version: t.Null.or(pgwire_number).optional(),
+  /**
+   * Exclusive operation-id boundary through which this stream's parameter entries have all been
+   * compacted. Null if parameter compaction has never completed a pass for the stream.
+   */
+  parameter_compacted_before: t.Null.or(bigint).optional(),
   content: t.string,
   sync_plan: t.Null.or(
     jsonContainerObject(

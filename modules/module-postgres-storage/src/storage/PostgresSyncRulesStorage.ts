@@ -40,6 +40,7 @@ import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpoin
 import { PostgresCurrentDataStore } from './current-data-store.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresCompactor } from './PostgresCompactor.js';
+import { PostgresParameterCompactor } from './PostgresParameterCompactor.js';
 
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
@@ -146,16 +147,13 @@ export class PostgresSyncRulesStorage
     `.execute();
   }
 
+  /** Postgres parameter compaction uses a persisted operation-id cursor. */
   supportsIncrementalParameterCompaction(): boolean {
-    return false;
+    return true;
   }
 
   async compact(options?: storage.CompactOptions): Promise<void> {
-    if (options?.incrementalOnly) {
-      // Not supported yet
-      this.logger.info('Incremental compacting is not supported on Postgres storage yet.');
-      return;
-    } else if (this.replicationStream.state != SyncRuleState.ACTIVE) {
+    if (this.replicationStream.state != SyncRuleState.ACTIVE) {
       this.logger.info(`Skipping compacting of replication stream in ${this.replicationStream.state} state.`);
       return;
     }
@@ -166,11 +164,24 @@ export class PostgresSyncRulesStorage
       maxOpId = checkpoint.checkpoint;
     }
 
-    return new PostgresCompactor(this.db, this.replicationStreamId, {
-      ...options,
-      maxOpId,
-      logger: this.logger
-    }).compact();
+    if (options?.incrementalOnly) {
+      // Only parameter compaction below is incremental.
+      this.logger.info('Incremental bucket data compacting is not supported on Postgres storage yet.');
+    } else {
+      await new PostgresCompactor(this.db, this.replicationStreamId, {
+        ...options,
+        maxOpId,
+        logger: this.logger
+      }).compact();
+    }
+
+    if (options?.compactParameterData && maxOpId > 0n) {
+      // Use the stream-scoped logger, matching bucket compaction above.
+      await new PostgresParameterCompactor(this.db, this.replicationStreamId, maxOpId, {
+        ...options,
+        logger: this.logger
+      }).compact();
+    }
   }
 
   async compactInitialReplication(

@@ -83,9 +83,11 @@ bucket_definitions:
     expect(parameters1b).toEqual([{ lookup, rows: [{ id: 't1' }] }]);
     expect(parameters2b).toEqual([]);
 
-    // Check storage size
-    const statsAfter = await bucketStorage.factory.getStorageMetrics();
-    expect(statsAfter.parameters_size_bytes).toBeLessThan(statsBefore.parameters_size_bytes);
+    if (!config.deletesRetainSpace) {
+      // Check storage size
+      const statsAfter = await bucketStorage.factory.getStorageMetrics();
+      expect(statsAfter.parameters_size_bytes).toBeLessThan(statsBefore.parameters_size_bytes);
+    }
   });
 
   for (let cacheLimit of [1, 10]) {
@@ -161,9 +163,11 @@ bucket_definitions:
       const parameters1b = await checkpoint1.getParameterSets([lookup], 1000);
       expect(parameters1b).toEqual([]);
 
-      // Check storage size
-      const statsAfter = await bucketStorage.factory.getStorageMetrics();
-      expect(statsAfter.parameters_size_bytes).toBeLessThan(statsBefore.parameters_size_bytes);
+      if (!config.deletesRetainSpace) {
+        // Check storage size
+        const statsAfter = await bucketStorage.factory.getStorageMetrics();
+        expect(statsAfter.parameters_size_bytes).toBeLessThan(statsBefore.parameters_size_bytes);
+      }
     });
   }
 }

@@ -58,6 +58,15 @@ This is a narrower version of the "Globally invalidate checkpoints" alternative 
 
 See [incremental-parameter-compaction.md](./incremental-parameter-compaction.md) for the full design, including the ordering requirements and failure handling.
 
+### Postgres storage
+
+Postgres storage keeps the same index in a single `bucket_parameters` table, using `(group_id, source_table, source_key, lookup)` in place of `(key, lookup)`, and the operation id as the `id` primary key. `PostgresParameterCompactor` runs the same incremental algorithm, with two differences:
+
+- The cursor is the `sync_rules.parameter_compacted_before` column, and there is a single scan to track rather than one per parameter index, so no lock-step processing is needed. Like V1, the range scan uses the `id` primary key with `group_id` as a residual filter, and a new stream seeds its cursor with the `op_id_sequence` head so its first pass does not scan the history of previous deployments.
+- There is no invalidation fence. Postgres storage does not implement incremental checkpoint change detection - `getCheckpointChanges()` always invalidates everything - so it never queries parameter history. Adding incremental change detection there would require the equivalent of `checkpoint_changes_invalid_before` first.
+
+Deletes reuse the existing indexes: exact deletes by `id` use the primary key, and leading-history deletes use `bucket_parameters_lookup_index` on `(group_id, lookup, id DESC)` with the source rows as a residual predicate - the same trade-off as the V1 `{ 'key.g': 1, lookup: 1, _id: 1 }` index, amortized over up to 1000 source rows per statement.
+
 # Alternatives
 
 ## Future Option: Snapshot queries
