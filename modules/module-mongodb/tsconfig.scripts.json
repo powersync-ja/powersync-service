@@ -8,5 +8,6 @@
     "composite": false,
     "types": ["node"]
   },
-  "include": ["scripts/**/*.mts"]
+  "include": ["scripts/**/*.mts"],
+  "references": [{ "path": "./" }]
 }

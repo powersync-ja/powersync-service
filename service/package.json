@@ -6,7 +6,6 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b",
-    "watch": "nodemon -w ../ -e ts -e js --delay 1 -x node --loader ts-node/esm src/entry.ts start",
     "clean": "rm -rf ./lib && tsc -b --clean"
   },
   "dependencies": {
@@ -24,8 +23,6 @@
     "@sentry/node": "^10.2.0"
   },
   "devDependencies": {
-    "@sentry/types": "^10.2.0",
-    "nodemon": "^3.1.14",
-    "ts-node": "^10.9.2"
+    "@sentry/types": "^10.2.0"
   }
 }
