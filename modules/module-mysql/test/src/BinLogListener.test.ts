@@ -100,6 +100,25 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
     expect(binLogListener.zongji.stopped).toBeTruthy();
   });
 
+  test('Keepalive probe detects an unresponsive control connection', { timeout: 20_000 }, async () => {
+    binLogListener = await createBinlogListener({
+      connectionManager,
+      sourceTables: [new TablePattern(connectionManager.databaseName, 'test_DATA')],
+      eventHandler,
+      ctrlConnectionKeepAliveIntervalMs: 1_000,
+      ctrlConnectionKeepAliveTimeoutMs: 500
+    });
+    await binLogListener.start();
+
+    // Queries to the control connection never get a response, like a connection that died
+    // without either side being notified.
+    const { ctrlConnection } = binLogListener.zongji as unknown as { ctrlConnection: MySQLConnection };
+    vi.spyOn(ctrlConnection, 'query').mockImplementation(() => {});
+
+    await expect(binLogListener.replicateUntilStopped()).rejects.toThrow('control connection is unresponsive');
+    expect(binLogListener.zongji.stopped).toBeTruthy();
+  });
+
   test('Zongji listener is stopped when processing queue reaches maximum memory size', async () => {
     const stopSpy = vi.spyOn(binLogListener.zongji, 'stop');
 

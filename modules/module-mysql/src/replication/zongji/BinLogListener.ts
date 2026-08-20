@@ -46,6 +46,16 @@ export const KEEPALIVE_INACTIVITY_THRESHOLD = 30;
  */
 export const ZONGJI_STOP_TIMEOUT = 5_000;
 
+/**
+ *  Interval in milliseconds between liveness probes on the Zongji control connection.
+ */
+export const CTRL_CONNECTION_KEEPALIVE_INTERVAL = 60_000;
+
+/**
+ *  Maximum time in milliseconds to wait for a control connection liveness probe to respond.
+ */
+export const CTRL_CONNECTION_KEEPALIVE_TIMEOUT = 5_000;
+
 // The Zongji type definitions do not expose the control connection it uses for table metadata
 // queries and the KILL query issued during stop.
 type ZongJiWithControlConnection = ZongJi & { ctrlConnection: MySQLConnection };
@@ -104,6 +114,8 @@ export interface BinLogListenerOptions {
   startGTID: common.ReplicatedGTID;
   logger?: Logger;
   keepAliveInactivitySeconds?: number;
+  ctrlConnectionKeepAliveIntervalMs?: number;
+  ctrlConnectionKeepAliveTimeoutMs?: number;
 }
 
 /**
@@ -272,13 +284,53 @@ export class BinLogListener {
   }
 
   public async replicateUntilStopped(): Promise<void> {
+    const keepAlive = this.keepAliveControlConnectionUntilStopped();
     while (!this.isStopped) {
       await timers.setTimeout(1_000);
     }
+    await keepAlive;
 
     if (this.listenerError) {
       this.logger.error('BinLog Listener stopped due to an error:', this.listenerError);
       throw this.listenerError;
+    }
+  }
+
+  /**
+   *  The binlog connection is kept alive by the MySQL server heartbeat, but the control connection
+   *  carries no traffic between metadata queries. TCP keepalive stops it from being dropped when idle,
+   *  but detects an already dead connection slowly, so we additionally probe it with a lightweight
+   *  query and restart replication if it does not respond in time.
+   */
+  private async keepAliveControlConnectionUntilStopped(): Promise<void> {
+    const interval = this.options.ctrlConnectionKeepAliveIntervalMs ?? CTRL_CONNECTION_KEEPALIVE_INTERVAL;
+    let idleTime = 0;
+    while (!this.isStopped) {
+      await timers.setTimeout(1_000);
+      idleTime += 1_000;
+      if (idleTime >= interval && !(this.isStopped || this.isStopping)) {
+        idleTime = 0;
+        await this.probeControlConnection();
+      }
+    }
+  }
+
+  private async probeControlConnection(): Promise<void> {
+    const zongji = this.zongji as ZongJiWithControlConnection;
+    if (zongji.stopped) {
+      return;
+    }
+    const timeout = this.options.ctrlConnectionKeepAliveTimeoutMs ?? CTRL_CONNECTION_KEEPALIVE_TIMEOUT;
+    const responded = await new Promise<boolean>((resolve) => {
+      zongji.ctrlConnection.query('SELECT 1', (error) => resolve(!error));
+      timers.setTimeout(timeout, undefined, { ref: false }).then(() => resolve(false));
+    });
+    // Only act if the probe failed on a connection that is still supposed to be alive.
+    if (!responded && this.zongji === zongji && !zongji.stopped && !(this.isStopped || this.isStopping)) {
+      this.logger.warn('MySQL control connection is unresponsive. Stopping the BinLog Listener...');
+      this.listenerError = new Error('MySQL control connection is unresponsive.');
+      zongji.ctrlConnection._socket?.destroy();
+      await this.stop();
     }
   }
 
