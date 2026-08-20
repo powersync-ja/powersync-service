@@ -1,4 +1,5 @@
 import { HydrationInput } from '../BucketSource.js';
+import { EventDefinitionId } from '../HydrationState.js';
 import { SourceTableRef } from '../SourceTableRef.js';
 import { TablePattern } from '../TablePattern.js';
 import { EvaluateRowOptions, EvaluationError, SqliteJsonRow } from '../types.js';
@@ -19,7 +20,7 @@ export interface EventDefinition {
    * unchanged definitions are recognized and not reprocessed; behaviorally-equal but differently-written definitions
    * may still differ, which only over-reprocesses and never misses a change.
    */
-  readonly id: string;
+  readonly id: EventDefinitionId;
   readonly name: string;
 
   createEvaluator(input: HydrationInput): HydratedEventDescriptor;
@@ -34,7 +35,7 @@ export interface HydratedEventDescriptor {
    * unchanged definitions are recognized and not reprocessed; behaviorally-equal but differently-written definitions
    * may still differ, which only over-reprocesses and never misses a change.
    */
-  readonly id: string;
+  readonly id: EventDefinitionId;
   readonly name: string;
 
   evaluateRowWithErrors(options: EvaluateRowOptions): EvaluatedEventRowWithErrors;

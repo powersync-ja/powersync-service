@@ -1,4 +1,4 @@
-import { ParameterLookupDefinitionId } from '../HydrationState.js';
+import { EventDefinitionId, ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { SqlExpression } from './expression.js';
 import { MapSourceVisitor, visitExpr } from './expression_visitor.js';
@@ -450,7 +450,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
 }
 
 /** Derive the ID assigned while finalizing a compiled event definition. */
-export function compiledEventDefinitionId(event: CompiledEventDescriptorContent): string {
+export function compiledEventDefinitionId(event: CompiledEventDescriptorContent): EventDefinitionId {
   const definition = createTableProcessorSerializer().serializeEventDefinition(event);
   return serializedEventDefinitionId(definition);
 }
@@ -536,7 +536,7 @@ export interface SerializedEventDescriptorContent {
 
 export interface SerializedEventDescriptor extends SerializedEventDescriptorContent {
   /** Canonical behavioral identity derived without raw SQL or compiler hashes. */
-  id: string;
+  id: EventDefinitionId;
 }
 
 export interface SerializedEventSourceQuery {
