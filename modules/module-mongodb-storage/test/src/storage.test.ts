@@ -3,6 +3,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { compactActive, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
+import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { env } from './env.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -122,28 +123,195 @@ bucket_definitions:
       // The request is now both expired and processed, so it can be removed.
       await expect(factory.db.write_checkpoints.findOne({ user_id: 'user2' })).resolves.toBeNull();
 
-      bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
-      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-      await writer.markAllSnapshotDone('1/1');
-      const customCheckpointRequestedAt = new Date('2024-01-01T00:00:00.000Z');
-      writer.addCustomWriteCheckpoint({
-        user_id: 'custom1',
-        checkpoint: 51n,
-        checkpoint_requested_at: customCheckpointRequestedAt
-      });
-      await writer.flush();
-      const customRequested = await factory.db.custom_write_checkpoints.findOne({ user_id: 'custom1' });
-      expect(customRequested?.checkpoint_requested_at).toEqual(customCheckpointRequestedAt);
+      if (storageVersion < 3) {
+        bucketStorage.setWriteCheckpointMode({
+          mode: storage.WriteCheckpointMode.CUSTOM
+        });
+        await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+        await writer.markAllSnapshotDone('1/1');
+        const customCheckpointRequestedAt = new Date('2024-01-01T00:00:00.000Z');
+        writer.addCustomWriteCheckpoint({
+          user_id: 'custom1',
+          checkpoint: 51n,
+          checkpoint_requested_at: customCheckpointRequestedAt
+        });
+        await writer.flush();
+        const customRequested = await factory.db.custom_write_checkpoints.findOne({ user_id: 'custom1' });
+        expect(customRequested?.checkpoint_requested_at).toEqual(customCheckpointRequestedAt);
 
-      writer.addCustomWriteCheckpoint({
-        user_id: 'custom1',
-        checkpoint: 52n
-      });
-      await writer.flush();
-      const customGenerated = await factory.db.custom_write_checkpoints.findOne({ user_id: 'custom1' });
-      expect(customGenerated).not.toBeNull();
-      expect(customGenerated?.checkpoint_requested_at).toBeUndefined();
+        writer.addCustomWriteCheckpoint({
+          user_id: 'custom1',
+          checkpoint: 52n
+        });
+        await writer.flush();
+        const customGenerated = await factory.db.custom_write_checkpoints.findOne({ user_id: 'custom1' });
+        expect(customGenerated).not.toBeNull();
+        expect(customGenerated?.checkpoint_requested_at).toBeUndefined();
+      }
     });
+
+    test.runIf(storageVersion >= 3)(
+      'stores and streams checkpoints from different event definitions independently',
+      async (context) => {
+        await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+        const syncRules = await factory.updateSyncRules(
+          updateSyncRulesFromYaml(
+            `
+config:
+  edition: 3
+
+streams:
+  global:
+    query: SELECT * FROM checkpoints
+
+event_definitions:
+  checkpoint_a:
+    payloads:
+      - SELECT id FROM checkpoints WHERE kind = 'a'
+  checkpoint_b:
+    payloads:
+      - SELECT id FROM checkpoints WHERE kind = 'b'
+  unrelated_event:
+    payloads:
+      - SELECT id FROM checkpoints WHERE kind = 'unrelated'
+    `,
+            { storageVersion }
+          )
+        );
+        const bucketStorage = factory.getInstance(syncRules);
+        const db = bucketStorage.db as VersionedPowerSyncMongoV3;
+        const activeSyncConfig = bucketStorage.getParsedSyncRules({ defaultSchema: 'public' });
+        const eventA = activeSyncConfig.eventDescriptors.find((event) => event.name == 'checkpoint_a')!;
+        const eventB = activeSyncConfig.eventDescriptors.find((event) => event.name == 'checkpoint_b')!;
+        const unrelatedEvent = activeSyncConfig.eventDescriptors.find((event) => event.name == 'unrelated_event')!;
+        expect(() =>
+          bucketStorage.setWriteCheckpointMode({
+            mode: storage.WriteCheckpointMode.CUSTOM
+          })
+        ).toThrow('resolveEventId resolver');
+        bucketStorage.setWriteCheckpointMode({
+          mode: storage.WriteCheckpointMode.CUSTOM,
+          resolveEventId: () => 'unknown-event'
+        });
+        await expect(
+          bucketStorage.lastWriteCheckpoint({ user_id: 'user1', syncConfig: activeSyncConfig })
+        ).rejects.toThrow('Unknown custom checkpoint event definition unknown-event');
+
+        let activeEventId = eventA.id;
+        bucketStorage.setWriteCheckpointMode({
+          mode: storage.WriteCheckpointMode.CUSTOM,
+          resolveEventId: () => activeEventId
+        });
+        // Reads before the first checkpoint must behave like an empty result;
+        // they must not require the lazily-created collection to exist.
+        await expect(
+          bucketStorage.lastWriteCheckpoint({ user_id: 'user1', syncConfig: activeSyncConfig })
+        ).resolves.toBeNull();
+
+        await using invalidWriter = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+        invalidWriter.addCustomWriteCheckpoint({ user_id: 'invalid', checkpoint: 1n });
+        await expect(invalidWriter.flush()).rejects.toThrow('require an event definition id');
+        await expect(db.listCustomCheckpointRequestCollections(syncRules.replicationStreamId)).resolves.toEqual([]);
+
+        await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+        await writer.markAllSnapshotDone('1/1');
+        const abortController = new AbortController();
+        context.onTestFinished(() => abortController.abort());
+        const iter = bucketStorage
+          .watchCheckpointChanges({
+            user_id: 'user1',
+            syncConfig: activeSyncConfig,
+            signal: abortController.signal
+          })
+          [Symbol.asyncIterator]();
+
+        writer.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 5n, event_id: eventA.id });
+        writer.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 8n, event_id: eventB.id });
+        await writer.flush();
+        await writer.keepalive('5/0');
+
+        const eventACollection = db.customCheckpointRequests({
+          replicationStreamId: syncRules.replicationStreamId,
+          eventId: eventA.id
+        });
+        const eventBCollection = db.customCheckpointRequests({
+          replicationStreamId: syncRules.replicationStreamId,
+          eventId: eventB.id
+        });
+        await expect(eventACollection.findOne({ user_id: 'user1' })).resolves.toMatchObject({ checkpoint: 5n });
+        await expect(eventBCollection.findOne({ user_id: 'user1' })).resolves.toMatchObject({ checkpoint: 8n });
+        const checkpointCollectionNames = (
+          await db.listCustomCheckpointRequestCollections(syncRules.replicationStreamId)
+        )
+          .map((collection) => collection.collectionName)
+          .sort();
+        expect(checkpointCollectionNames).toEqual(
+          [eventACollection.collectionName, eventBCollection.collectionName].sort()
+        );
+        expect(checkpointCollectionNames).not.toContain(
+          db.customCheckpointRequests({
+            replicationStreamId: syncRules.replicationStreamId,
+            eventId: unrelatedEvent.id
+          }).collectionName
+        );
+        await expect(eventACollection.indexExists(['user_unique', 'op_id', 'checkpoint_requested_at'])).resolves.toBe(
+          true
+        );
+        await expect(
+          bucketStorage.lastWriteCheckpoint({ user_id: 'user1', syncConfig: activeSyncConfig })
+        ).resolves.toEqual(5n);
+        await expect(iter.next()).resolves.toMatchObject({
+          done: false,
+          value: { writeCheckpoint: 5n }
+        });
+
+        writer.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 9n, event_id: eventB.id });
+        await writer.flush();
+        await writer.keepalive('6/0');
+        // The processing event's record does not advance clients still served by
+        // the active event definition.
+        await expect(iter.next()).resolves.toMatchObject({
+          done: false,
+          value: { writeCheckpoint: 5n }
+        });
+
+        activeEventId = eventB.id;
+        await expect(
+          bucketStorage.lastWriteCheckpoint({ user_id: 'user1', syncConfig: activeSyncConfig })
+        ).resolves.toEqual(9n);
+
+        writer.addCustomWriteCheckpoint({
+          user_id: 'temporary',
+          checkpoint: 10n,
+          event_id: eventB.id,
+          checkpoint_requested_at: new Date('2024-01-01T00:00:00.000Z')
+        });
+        await writer.flush();
+        await compactActive(factory, {
+          compactBuckets: [],
+          deleteCheckpointRequestsBefore: new Date('2024-01-02T00:00:00.000Z')
+        });
+        await expect(eventBCollection.findOne({ user_id: 'temporary' })).resolves.toBeNull();
+
+        // A fresh storage instance has an empty initialization cache, just like
+        // one created after a service restart. Recreating the existing indexes
+        // must be idempotent before another checkpoint is written.
+        const freshBucketStorage = factory.getInstance(syncRules);
+        await using freshWriter = await freshBucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+        freshWriter.addCustomWriteCheckpoint({
+          user_id: 'after-restart',
+          checkpoint: 11n,
+          event_id: eventA.id
+        });
+        await freshWriter.flush();
+        await expect(eventACollection.findOne({ user_id: 'after-restart' })).resolves.toMatchObject({
+          checkpoint: 11n
+        });
+
+        await bucketStorage.clear();
+        await expect(db.listCustomCheckpointRequestCollections(syncRules.replicationStreamId)).resolves.toEqual([]);
+      }
+    );
 
     /**
      * It's extremely rare (but technically possible) to have duplicate write checkpoint records

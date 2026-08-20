@@ -30,7 +30,6 @@ import type { VersionedPowerSyncMongo } from './db.js';
 import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
-import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 
@@ -106,7 +105,7 @@ export abstract class MongoBucketBatch
   protected readonly mapping: BucketDefinitionMapping;
 
   private batch: OperationBatch | null = null;
-  private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
+  protected write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private hooks: storage.StorageHooks | undefined;
   private clearedError = false;
@@ -185,6 +184,11 @@ export abstract class MongoBucketBatch
     no_checkpoint_before_lsn?: string
   ): Promise<storage.SourceTable[]>;
 
+  protected abstract batchCreateCustomWriteCheckpoints(session: mongo.ClientSession, opId: InternalOpId): Promise<void>;
+
+  /** Perform any version-specific setup required before writing custom checkpoints. */
+  protected async prepareCustomWriteCheckpoints(): Promise<void> {}
+
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;
     // One flush may be split over multiple transactions.
@@ -207,6 +211,10 @@ export abstract class MongoBucketBatch
     using _ = this.tracer.span('storage', 'flush');
 
     await this.hooks?.beforeBatchFlush?.(this);
+    if (this.write_checkpoint_batch.length > 0) {
+      // Collection/index creation cannot run inside the replication transaction.
+      await this.prepareCustomWriteCheckpoints();
+    }
 
     await this.withReplicationTransaction(`Flushing ${batch?.length ?? 0} ops`, async (session, opSeq) => {
       clearedError = false;
@@ -218,7 +226,7 @@ export abstract class MongoBucketBatch
 
       if (this.write_checkpoint_batch.length > 0) {
         this.logger.info(`Writing ${this.write_checkpoint_batch.length} custom write checkpoints`);
-        await batchCreateCustomWriteCheckpoints(this.db, session, this.write_checkpoint_batch, opSeq.next());
+        await this.batchCreateCustomWriteCheckpoints(session, opSeq.next());
         this.write_checkpoint_batch = [];
       }
 

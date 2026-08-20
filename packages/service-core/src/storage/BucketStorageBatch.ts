@@ -176,7 +176,8 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * Queue a custom checkpoint request to be persisted after operations are
    * flushed. Set `checkpoint_requested_at` when the custom checkpoint came from
    * a client checkpoint request and should be cleaned up by request-retention
-   * compaction; omit it for persistent source-owned checkpoints.
+   * compaction; omit it for persistent source-owned checkpoints. Incremental
+   * event handlers should set `event_id` to the id of the event being handled.
    */
   addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void;
 }

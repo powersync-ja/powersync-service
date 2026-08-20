@@ -24,7 +24,8 @@ import {
   CurrentDataDocument
 } from './v1/models.js';
 import { VersionedPowerSyncMongoV1 } from './v1/VersionedPowerSyncMongoV1.js';
-import { BucketDataDocumentV3 } from './v3/models.js';
+import { BucketDataDocumentV3, CustomCheckpointRequestDocumentV3 } from './v3/models.js';
+import type { CustomCheckpointRequestCollectionSpecifier } from './v3/VersionedPowerSyncMongoV3.js';
 import { VersionedPowerSyncMongoV3 } from './v3/VersionedPowerSyncMongoV3.js';
 
 export interface PowerSyncMongoOptions {
@@ -137,6 +138,20 @@ export class PowerSyncMongo {
     return `source_table_${replicationStreamId}`;
   }
 
+  customCheckpointRequestCollectionName(options: CustomCheckpointRequestCollectionSpecifier) {
+    return `custom_checkpoint_requests_${options.replicationStreamId}_${options.eventId}`;
+  }
+
+  async listCustomCheckpointRequestCollections(
+    replicationStreamId?: number
+  ): Promise<mongo.Collection<CustomCheckpointRequestDocumentV3>[]> {
+    const prefix =
+      replicationStreamId == null
+        ? 'custom_checkpoint_requests_'
+        : `custom_checkpoint_requests_${replicationStreamId}_`;
+    return this.collectionsByPrefix(prefix);
+  }
+
   async listSourceTableCollections(
     replicationStreamId?: number
   ): Promise<mongo.Collection<CommonSourceTableDocument>[]> {
@@ -178,6 +193,9 @@ export class PowerSyncMongo {
     await this.locks.deleteMany({});
     await this.bucket_state.deleteMany({});
     await this.custom_write_checkpoints.deleteMany({});
+    for (const collection of await this.listCustomCheckpointRequestCollections()) {
+      await collection.drop();
+    }
   }
 
   /**

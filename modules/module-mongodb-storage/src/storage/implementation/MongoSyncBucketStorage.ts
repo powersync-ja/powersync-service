@@ -38,7 +38,7 @@ import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import { MongoPersistedReplicationStream } from './MongoPersistedReplicationStream.js';
-import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
+import { MongoCheckpointAPIOptions, MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 
 export interface MongoSyncBucketStorageOptions {
@@ -113,10 +113,10 @@ export abstract class MongoSyncBucketStorage
     this.clearBatchThrottleRate = options.clearBatchThrottleRate ?? DEFAULT_CLEAR_BATCH_THROTTLE_RATE;
     this.db = factory.db.versioned(this.storageConfig);
     this.checksums = this.createMongoChecksums(options);
-    this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
+    this.writeCheckpointAPI = this.createWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
-      sync_rules_id: replicationStreamId
+      replicationStreamId
     });
     this.logger = replicationStream.logger;
   }
@@ -129,6 +129,10 @@ export abstract class MongoSyncBucketStorage
   abstract createMongoCompactor(options: MongoCompactOptions): MongoCompactor;
 
   protected abstract createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums;
+  protected createWriteCheckpointAPI(options: MongoCheckpointAPIOptions): MongoWriteCheckpointAPI {
+    return new MongoWriteCheckpointAPI(options);
+  }
+
   protected abstract createMongoParameterCompactor(
     checkpoint: InternalOpId,
     options: storage.CompactOptions
@@ -145,8 +149,8 @@ export abstract class MongoSyncBucketStorage
     return this.replicationStream.storageIds;
   }
 
-  setWriteCheckpointMode(mode: storage.WriteCheckpointMode): void {
-    this.writeCheckpointAPI.setWriteCheckpointMode(mode);
+  setWriteCheckpointMode(config: storage.WriteCheckpointModeConfig): void {
+    this.writeCheckpointAPI.setWriteCheckpointMode(config);
   }
 
   createManagedWriteCheckpoints(
@@ -330,6 +334,7 @@ export abstract class MongoSyncBucketStorage
   protected abstract clearBucketState(signal?: AbortSignal): Promise<void>;
 
   protected abstract clearSourceTables(signal?: AbortSignal): Promise<void>;
+  protected async clearCustomCheckpointRequests(_signal?: AbortSignal): Promise<void> {}
   protected abstract clearSyncRuleState(): Promise<void>;
 
   async clear(options?: storage.ClearStorageOptions): Promise<void> {
@@ -346,6 +351,7 @@ export abstract class MongoSyncBucketStorage
     await this.clearSourceRecords(signal);
     await this.clearBucketState(signal);
     await this.clearSourceTables(signal);
+    await this.clearCustomCheckpointRequests(signal);
 
     this.#storageInitialized = false;
   }
@@ -432,6 +438,7 @@ export abstract class MongoSyncBucketStorage
         writeCheckpoint = await this.writeCheckpointAPI.lastWriteCheckpoint({
           sync_rules_id: this.replicationStreamId,
           user_id: options.user_id,
+          syncConfig: options.syncConfig,
           heads: {
             '1': nextCheckpoint.lsn
           }
@@ -457,7 +464,8 @@ export abstract class MongoSyncBucketStorage
       } else {
         const updates = await this.getCheckpointChanges({
           lastCheckpoint,
-          nextCheckpoint
+          nextCheckpoint,
+          syncConfig: options.syncConfig
         });
 
         let updatedWriteCheckpoint = updates.updatedWriteCheckpoints.get(options.user_id) ?? null;
@@ -465,6 +473,7 @@ export abstract class MongoSyncBucketStorage
           updatedWriteCheckpoint = await this.writeCheckpointAPI.lastWriteCheckpoint({
             sync_rules_id: this.replicationStreamId,
             user_id: options.user_id,
+            syncConfig: options.syncConfig,
             heads: {
               '1': nextCheckpoint.lsn!
             }

@@ -121,6 +121,7 @@ async function* streamResponseInner(
   });
   const stream = bucketStorage.watchCheckpointChanges({
     user_id: checkpointUserId,
+    syncConfig: syncRules,
     signal
   });
   const newCheckpoints = stream[Symbol.asyncIterator]();

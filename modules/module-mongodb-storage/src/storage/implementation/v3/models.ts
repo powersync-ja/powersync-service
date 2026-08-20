@@ -282,6 +282,31 @@ export interface BucketDataDocumentV3 {
   has_clear_op?: true;
 }
 
+/**
+ * v3 Custom checkpoints (new name for legacy write checkpoints) are related to
+ * a replication stream and a specific event (in a sync config) which created them.
+ * Unchanged events, between sync configs, can share the documents.
+ * For v3, we store each replication stream's custom checkpoint requests in their own collection:
+ * `custom_checkpoint_requests_${replicationStreamId}_${eventId}`
+ */
+export interface CustomCheckpointRequestDocumentV3 {
+  _id: bson.ObjectId;
+  user_id: string;
+  checkpoint: bigint;
+  /**
+   * Unlike managed write checkpoints, custom write checkpoints are flushed together with
+   * normal ops. This means we can assign an op_id for ordering / correlating with read checkpoints.
+   *
+   * This is not unique - multiple write checkpoints can have the same op_id.
+   */
+  op_id?: InternalOpId;
+  /**
+   * Set when this checkpoint was created from a client-supplied checkpoint
+   * request rather than a persistent custom write checkpoint.
+   */
+  checkpoint_requested_at?: Date | null;
+}
+
 export function serializeParameterLookup(lookup: ScopedParameterLookup): bson.Binary {
   return new bson.Binary(bson.serialize({ l: lookup.values.slice(2) }));
 }

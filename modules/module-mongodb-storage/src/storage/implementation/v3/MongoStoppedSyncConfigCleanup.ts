@@ -107,6 +107,7 @@ export class MongoStoppedSyncConfigCleanup {
         unusedEventDefinitionIds,
         result
       );
+      await this.dropCustomCheckpointRequestCollections(unusedEventDefinitionIds);
       result.bucketDataCollectionsDropped = await this.dropBucketDataCollections(unusedBucketDefinitionIds);
       result.bucketStateDocumentsDeleted = await this.deleteBucketStateDocuments(unusedBucketDefinitionIds);
       result.parameterIndexCollectionsDropped = await this.dropParameterIndexCollections(unusedParameterIndexIds);
@@ -340,6 +341,18 @@ export class MongoStoppedSyncConfigCleanup {
       return { _id: { $exists: false } };
     }
     return { $or: clauses };
+  }
+
+  private async dropCustomCheckpointRequestCollections(eventDefinitionIds: EventDefinitionId[]) {
+    for (const eventId of eventDefinitionIds) {
+      this.throwIfAborted();
+      await this.dropCollection(
+        this.db.customCheckpointRequests({
+          replicationStreamId: this.replicationStreamId,
+          eventId
+        })
+      );
+    }
   }
 
   private async dropBucketDataCollections(definitionIds: BucketDefinitionId[]): Promise<number> {
