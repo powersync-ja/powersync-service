@@ -58,6 +58,31 @@ This is a narrower version of the "Globally invalidate checkpoints" alternative 
 
 See [incremental-parameter-compaction.md](./incremental-parameter-compaction.md) for the full design, including the ordering requirements and failure handling.
 
+### Postgres storage
+
+Postgres storage keeps the same index in a single `bucket_parameters` table, using `(group_id, source_table, source_key, lookup)` in place of `(key, lookup)`, and the operation id as the `id` primary key. `PostgresParameterCompactor` runs the same incremental algorithm, with two differences:
+
+- The cursor is the `sync_rules.parameter_compacted_before` column, and there is a single scan to track rather than one per parameter index, so no lock-step processing is needed. Like V1, the range scan uses the `id` primary key with `group_id` as a residual filter, and a new stream seeds its cursor with the `op_id_sequence` head so its first pass does not scan the history of previous deployments.
+- The fence guards parameter _reads_ rather than checkpoint change detection. Postgres change detection always invalidates all parameter buckets, so it never queries the `(lastCheckpoint, nextCheckpoint]` history that `checkpoint_changes_invalid_before` protects. What it lacks instead is MongoDB's snapshot-pinned parameter reads - see below.
+
+Deletes reuse the existing indexes: exact deletes by `id` use the primary key, and leading-history deletes use `bucket_parameters_lookup_index` on `(group_id, lookup, id DESC)` with the source rows as a residual predicate - the same trade-off as the V1 `{ 'key.g': 1, lookup: 1, _id: 1 }` index, amortized over up to 1000 source rows per statement.
+
+#### Read safety without snapshot reads
+
+MongoDB evaluates parameter queries with `readConcern: snapshot` at the checkpoint's snapshot time, so a compaction pass that deletes entries afterwards cannot affect a reader on an older checkpoint. Postgres has no equivalent - there is no way to read as of a past timestamp, and the alternatives (a long-lived `REPEATABLE READ` transaction, or `pg_export_snapshot()`) hold back the global `xmin` horizon and block vacuum on the far busier `bucket_data` and `current_data` tables.
+
+Instead, `getParameterSets()` filters `id <= checkpoint`, so removing the entry that was newest at an older checkpoint `C` would leave a reader at `C` with incomplete history. That is prevented by a second boundary, `sync_rules.parameter_reads_invalid_before`:
+
+1. A pass raises the fence to its target `C_target` before issuing its first delete.
+2. `getParameterSets()` selects the fence **in the same statement** as the parameter entries, and throws `CheckpointParametersInvalidatedError` if it is above the checkpoint being read.
+3. The sync loop drops that checkpoint line without advancing connection state - the same handling as `CheckpointChecksumInvalidatedError` - and continues with the next checkpoint, which is at or above the fence.
+
+One statement is one snapshot, which is what makes step 2 sound: if the snapshot sees a fence at or below `C`, then a pass targeting anything above `C` has not committed its fence, so it has not committed any deletes either, and the entries read in that same snapshot are intact. A pass that already completed with `C_target <= C` only removed entries that a reader at `C >= C_target` does not need, since compaction retains the newest entry below the target per identity.
+
+Because compaction targets the active checkpoint, the fence equals the checkpoint readers are normally on, and `fence > checkpoint` is false. It only fires for a reader that is strictly behind the compaction target.
+
+The fence is deliberately a separate value from the compaction cursor: a pass that fails halfway must leave the fence raised (rejecting stale checkpoints is conservative but safe) while leaving the cursor where it was, so the retry does not skip deletion work that never completed.
+
 # Alternatives
 
 ## Future Option: Snapshot queries

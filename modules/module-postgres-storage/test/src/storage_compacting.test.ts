@@ -129,3 +129,6 @@ bucket_definitions:
     expect(test_utils.getBatchData(rowsAfter)).toEqual(dataBefore);
   });
 });
+
+describe('Postgres Sync Parameter Storage Compact', () =>
+  register.registerParameterCompactTests(POSTGRES_STORAGE_FACTORY));

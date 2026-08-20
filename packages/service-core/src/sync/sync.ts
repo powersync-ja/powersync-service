@@ -148,17 +148,18 @@ async function* streamResponseInner(
       const line = await checksumState.buildNextCheckpointLine(next.value, trace.tracer);
       return { done: false, value: { checkpoint: cp, line, trace: line == null ? null : trace } };
     } catch (e) {
-      if (e instanceof storage.CheckpointChecksumInvalidatedError) {
-        // The checksum was not usable, so buildNextCheckpointLine has not advanced
-        // the connection state. Drop this candidate and wait for a checkpoint that
-        // is not split by a compaction-produced bucket-data document.
-        // This is different from other checkpoint_invalidated cases in that we hit
-        // this during checksum calculation, instead of on data read.
+      if (e instanceof storage.CheckpointInvalidatedError) {
+        // Compaction removed data that serving this checkpoint would need, so buildNextCheckpointLine
+        // has not advanced the connection state. Drop this candidate and wait for a checkpoint that
+        // compaction has not passed.
         trace.span.end();
-        checksumState.invalidateChecksumBaseline();
+        if (e instanceof storage.CheckpointChecksumInvalidatedError) {
+          // This is different from other checkpoint_invalidated cases in that we hit
+          // this during checksum calculation, instead of on data read.
+          checksumState.invalidateChecksumBaseline();
+        }
         logger.info(`checkpoint_invalidated: ${cp.checkpoint}`, {
-          reason: 'compacted_before_checkpoint_line',
-          bucket: e.bucket,
+          ...e.logMetadata,
           checkpoint: cp.checkpoint,
           user_id: tokenPayload.userIdJson
         });

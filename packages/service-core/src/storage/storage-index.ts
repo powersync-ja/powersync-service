@@ -3,6 +3,8 @@ export * from './BucketStorage.js';
 export * from './BucketStorageBatch.js';
 export * from './BucketStorageFactory.js';
 export * from './CheckpointChecksumInvalidatedError.js';
+export * from './CheckpointInvalidatedError.js';
+export * from './CheckpointParametersInvalidatedError.js';
 export * from './ChecksumCache.js';
 export * from './ParsedSyncConfigSet.js';
 export * from './PersistedReplicationStream.js';
