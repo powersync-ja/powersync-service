@@ -1,5 +1,5 @@
 import { BucketPriority } from '../BucketDescription.js';
-import { ParameterLookupDefinitionId } from '../HydrationState.js';
+import { EventDefinitionId, ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
 import { SqlExpression } from './expression.js';
@@ -148,7 +148,7 @@ export interface CompiledEventDescriptorContent {
 /** A compiled replication event together with its canonical behavioral identity. */
 export interface CompiledEventDescriptor extends CompiledEventDescriptorContent {
   /** Identity excluding non-functional SQL formatting, ordering, and compiler hash changes. */
-  id: string;
+  id: EventDefinitionId;
 }
 
 /**

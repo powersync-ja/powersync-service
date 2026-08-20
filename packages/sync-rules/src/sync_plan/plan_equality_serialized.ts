@@ -1,5 +1,6 @@
 import * as uuid from 'uuid';
 import type { Equality } from '../compiler/equality.js';
+import type { EventDefinitionId } from '../HydrationState.js';
 import type {
   SerializedBucketDataSource,
   SerializedDataSource,
@@ -44,7 +45,7 @@ export function serializedEventDefinitionIdentity(event: SerializedEventDescript
  * events look identical and silently skip an event's reprocessing. The 32-bit structural hash is only safe where it is
  * paired with a full-equality check (e.g. bucket data sources).
  */
-export function serializedEventDefinitionId(event: SerializedEventDescriptorContent): string {
+export function serializedEventDefinitionId(event: SerializedEventDescriptorContent): EventDefinitionId {
   return uuid.v5(serializedEventDefinitionIdentity(event), EVENT_DEFINITION_ID_NAMESPACE);
 }
 
