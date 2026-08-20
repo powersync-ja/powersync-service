@@ -11,11 +11,13 @@ export type MongoCheckpointAPIV3Options = Omit<MongoCheckpointAPIOptions, 'db'> 
 export class MongoWriteCheckpointAPIV3 extends MongoWriteCheckpointAPI {
   declare db: VersionedPowerSyncMongoV3;
 
-  // Supplied by the setWriteCheckpointMode setter.
+  // Supplied via the constructor or the setWriteCheckpointMode setter.
   private _resolveCustomWriteCheckpointEventId: storage.CustomWriteCheckpointEventIdResolver | undefined;
 
   constructor(options: MongoCheckpointAPIV3Options) {
     super(options);
+    // Enforce the CUSTOM-requires-resolver invariant on construction too, not only setWriteCheckpointMode.
+    this._resolveCustomWriteCheckpointEventId = this.requireCustomEventIdResolver(options.writeCheckpointMode);
   }
 
   protected resolveEventId(syncConfig: HydratedSyncConfig): EventDefinitionId {
@@ -48,18 +50,24 @@ export class MongoWriteCheckpointAPIV3 extends MongoWriteCheckpointAPI {
   }
 
   override setWriteCheckpointMode(config: storage.WriteCheckpointModeConfig): void {
-    if (config.mode == storage.WriteCheckpointMode.CUSTOM) {
-      if (!config.resolveEventId) {
-        throw new ServiceAssertionError(
-          `V3 incremental reprocessing requires a resolveEventId resolver to be supplied.`
-        );
-      } else {
-        this._resolveCustomWriteCheckpointEventId = config.resolveEventId;
-      }
-    } else {
-      this._resolveCustomWriteCheckpointEventId = undefined;
-    }
+    this._resolveCustomWriteCheckpointEventId = this.requireCustomEventIdResolver(config);
     super.setWriteCheckpointMode(config);
+  }
+
+  /**
+   * Validates and returns the event-id resolver for the given mode config. Shared by the constructor and
+   * {@link setWriteCheckpointMode} so both paths enforce that CUSTOM mode always has a resolver.
+   */
+  private requireCustomEventIdResolver(
+    config: storage.WriteCheckpointModeConfig
+  ): storage.CustomWriteCheckpointEventIdResolver | undefined {
+    if (config.mode != storage.WriteCheckpointMode.CUSTOM) {
+      return undefined;
+    }
+    if (!config.resolveEventId) {
+      throw new ServiceAssertionError(`V3 incremental reprocessing requires a resolveEventId resolver to be supplied.`);
+    }
+    return config.resolveEventId;
   }
 
   protected override async getCustomWriteCheckpointChanges(

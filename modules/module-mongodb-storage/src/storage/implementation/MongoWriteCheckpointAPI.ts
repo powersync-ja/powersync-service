@@ -4,7 +4,7 @@ import { VersionedPowerSyncMongo } from './db.js';
 
 export type MongoCheckpointAPIOptions = {
   db: VersionedPowerSyncMongo;
-  mode: storage.WriteCheckpointMode;
+  writeCheckpointMode: storage.WriteCheckpointModeConfig;
   replicationStreamId: number;
 };
 
@@ -16,7 +16,7 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
 
   constructor(options: MongoCheckpointAPIOptions) {
     this.db = options.db;
-    this._mode = options.mode;
+    this._mode = options.writeCheckpointMode.mode;
     this.replicationStreamId = options.replicationStreamId;
   }
 

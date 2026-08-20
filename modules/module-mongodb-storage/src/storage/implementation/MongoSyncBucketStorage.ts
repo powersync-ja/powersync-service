@@ -130,7 +130,7 @@ export abstract class MongoSyncBucketStorage
     this.checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = this.createWriteCheckpointAPI({
       db: this.db,
-      mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
+      writeCheckpointMode: { mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED },
       replicationStreamId
     });
 
