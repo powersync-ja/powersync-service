@@ -214,11 +214,10 @@ export class MongoStoppedSyncConfigCleanup {
     );
 
     // A retained source table whose data and parameter memberships become empty is event-only.
-    // Event-only save() never reads
-    // or writes current_data, so its source_records collection is now dead weight. Drop it before
-    // the $pull below, so the obsolete membership ids remain as a recovery marker if interrupted.
-    // Existing source-table docs only ever shrink their memberships, so this table cannot resume
-    // data sync on the same doc and need current_data again.
+    // Event-only save() never reads or writes current_data, so its source_records collection is now
+    // dead weight. Drop it before the $pull below, so the obsolete membership ids remain as a recovery
+    // marker if interrupted. Existing source-table docs only ever shrink their memberships, so this
+    // table cannot resume data sync on the same doc and need current_data again.
     const becomingEventOnlySourceTableIds = retainedSourceTables
       .filter((sourceTable) =>
         this.dataMembershipsBecomeEmpty(sourceTable, unusedBucketDefinitionIds, unusedParameterIndexIds)
