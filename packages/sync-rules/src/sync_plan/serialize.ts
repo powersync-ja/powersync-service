@@ -455,11 +455,6 @@ export function compiledEventDefinitionId(event: CompiledEventDescriptorContent)
   return serializedEventDefinitionId(definition);
 }
 
-/** Serialize a single compiled event using the exact representation persisted in a sync plan. */
-export function serializeEventDescriptor(event: CompiledEventDescriptor): SerializedEventDescriptor {
-  return createTableProcessorSerializer().serializeEvent(event);
-}
-
 /**
  * Changes to {@link SerializedSyncPlan} require a version bump when older services would interpret the plan
  * incorrectly. Optional additive fields are only safe without a bump when older readers can ignore them while another
@@ -540,12 +535,12 @@ export interface SerializedEventDescriptorContent {
 }
 
 export interface SerializedEventDescriptor extends SerializedEventDescriptorContent {
-  /** Content-addressed identity derived from the rest of this event definition. */
+  /** Canonical behavioral identity derived without raw SQL or compiler hashes. */
   id: string;
 }
 
 export interface SerializedEventSourceQuery {
-  /** Raw SQL retained for the legacy compatibility mirror and as part of the exact serialized event definition. */
+  /** Raw SQL retained for the legacy compatibility mirror, but excluded from the event ID. */
   sql: string;
   table: SerializedTablePattern;
   variants: SerializedEventRowEvaluator[];
@@ -553,6 +548,11 @@ export interface SerializedEventSourceQuery {
 
 export interface SerializedEventRowEvaluator {
   table: SerializedTablePattern;
+  /**
+   * The compiler's structural hash, retained only for round-trip symmetry with data sources (which reuse the same
+   * projection shape). It is NOT part of event identity: the event {@link SerializedEventDescriptor.id} is derived from
+   * the canonical definition and deliberately excludes this hash, and events are never deduplicated by it at runtime.
+   */
   hash: number;
   columns: SerializedColumnSource[];
   filters: SqlExpression<SerializedTableProcessorData>[];
