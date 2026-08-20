@@ -15,10 +15,21 @@ bucket_definitions:
     data: []
 `;
 
-async function createActiveStorage() {
+/** Two parameter indexes over the same lookup values, so both store identical (key, lookup) pairs. */
+const TWO_INDEX_PARAMETER_RULES = `
+bucket_definitions:
+  test1:
+    parameters: select id from test where id = request.user_id()
+    data: []
+  test2:
+    parameters: select id from test where id = request.user_id()
+    data: []
+`;
+
+async function createActiveStorage(rules = PARAMETER_RULES) {
   const factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
   const syncRules = await factory.updateSyncRules(
-    updateSyncRulesFromYaml(PARAMETER_RULES, { storageVersion: storage.STORAGE_VERSION_3 })
+    updateSyncRulesFromYaml(rules, { storageVersion: storage.STORAGE_VERSION_3 })
   );
   const processingStorage = factory.getInstance(syncRules);
   await using writer = await processingStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -95,6 +106,73 @@ describe('Mongo parameter compaction V3', () => {
     expect(secondPass.map((document: any) => BigInt(document._id))).toEqual([]);
     const secondStreamDoc = (await db.sync_rules.findOne({ _id: streamId })) as ReplicationStreamDocumentV3;
     expect(BigInt(secondStreamDoc.parameter_compaction!.compacted_before)).toBe(300n);
+  });
+
+  test('keeps identities scoped per parameter index while compacting them in lock-step', async () => {
+    const { factory, storage: bucketStorage, streamId } = await createActiveStorage(TWO_INDEX_PARAMETER_RULES);
+    await using _factory = factory;
+
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
+    const parameterCollections = await db.listParameterIndexCollections(streamId);
+    expect(parameterCollections).toHaveLength(2);
+    const [first, second] = parameterCollections.map(({ collection }) => collection as any);
+
+    // The same source row and lookup values in both indexes. V3 keeps the index id in the
+    // collection name rather than in the lookup, so these documents are byte-identical apart from
+    // their op ids - the compactor must not carry what it deleted in one index over to the other.
+    const key = { t: new bson.ObjectId(), k: 'row' };
+    const lookup = new bson.Binary(Buffer.from('lookup'));
+    await first.insertMany([
+      parameterDocument(10n, key, lookup, [{ id: 'first' }]),
+      parameterDocument(40n, key, lookup, [])
+    ]);
+    await second.insertMany([
+      parameterDocument(20n, key, lookup, [{ id: 'second' }]),
+      parameterDocument(30n, key, lookup, [])
+    ]);
+
+    // One document per batch, so the two indexes are processed in interleaved turns.
+    await new MongoParameterCompactorV3(db, streamId, 100n, {}, 1).compact();
+
+    // Each tombstone removed its own index's history, and only that.
+    await expect(first.countDocuments({})).resolves.toBe(0);
+    await expect(second.countDocuments({})).resolves.toBe(0);
+  });
+
+  test('persists progress during a pass', async () => {
+    const { factory, storage: bucketStorage, streamId } = await createActiveStorage(TWO_INDEX_PARAMETER_RULES);
+    await using _factory = factory;
+
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
+    const parameterCollections = await db.listParameterIndexCollections(streamId);
+    const [first, second] = parameterCollections.map(({ collection }) => collection as any);
+    const lookup = new bson.Binary(Buffer.from('lookup'));
+    const key = (k: string) => ({ t: new bson.ObjectId(), k });
+    await first.insertMany([
+      parameterDocument(10n, key('a'), lookup, [{ id: 'a' }]),
+      parameterDocument(30n, key('b'), lookup, [{ id: 'b' }])
+    ]);
+    await second.insertMany([
+      parameterDocument(20n, key('c'), lookup, [{ id: 'c' }]),
+      parameterDocument(40n, key('d'), lookup, [{ id: 'd' }])
+    ]);
+
+    const persisted: bigint[] = [];
+    class RecordingCompactor extends MongoParameterCompactorV3 {
+      protected override async persistCompactedBefore(compactedBefore: bigint): Promise<void> {
+        persisted.push(compactedBefore);
+        return super.persistCompactedBefore(compactedBefore);
+      }
+    }
+
+    // One document per batch, and no throttling of progress writes.
+    await new RecordingCompactor(db, streamId, 100n, {}, 1, 0).compact();
+
+    // The cursor only ever covers what both indexes have passed, and it moves before the pass
+    // completes, so an interruption does not lose all progress.
+    expect(persisted).toEqual([...persisted].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)));
+    expect(persisted.some((value) => value > 0n && value < 100n)).toBe(true);
+    expect(persisted.at(-1)).toBe(100n);
   });
 
   test('clearing a V3 stream clears the parameter compaction cursor', async () => {
