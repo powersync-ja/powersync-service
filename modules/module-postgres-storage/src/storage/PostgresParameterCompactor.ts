@@ -61,15 +61,17 @@ type LeadingHistoryDelete = {
  * per-stream compaction cursor is persisted, so a run only scans entries in the un-compacted
  * operation-id range, and within each batch only the newest entry per identity is retained.
  *
- * Two things are simpler here than on MongoDB:
+ * The two differences from MongoDB are both about what the boundaries protect:
  *
  * 1. All parameter indexes of a stream live in the single `bucket_parameters` table, so there is
  *    one scan to keep track of rather than one per index, and the cursor is just the position of
  *    that scan.
- * 2. Postgres checkpoint change detection always invalidates all buckets
- *    (`getCheckpointChanges()`), so it never queries parameter history and no invalidation fence
- *    is needed. Adding incremental change detection to this storage would require one - see
- *    `checkpoint_changes_invalid_before` in the MongoDB implementation.
+ * 2. The fence guards parameter *reads*, not checkpoint change detection. Postgres change detection
+ *    always invalidates all parameter buckets (`getCheckpointChanges()`), so it never queries the
+ *    `(lastCheckpoint, nextCheckpoint]` history that MongoDB's
+ *    `checkpoint_changes_invalid_before` protects. What it lacks instead is MongoDB's
+ *    snapshot-pinned parameter reads, so a checkpoint older than the compaction target could
+ *    otherwise be served with incomplete parameter history - see {@link ensureReadFence}.
  *
  * For background, see the `/docs/storage/parameter-lookups.md` and
  * `/docs/storage/incremental-parameter-compaction.md` files.
@@ -90,6 +92,11 @@ export class PostgresParameterCompactor {
     this.signal = options.signal;
   }
 
+  /**
+   * Set once the read fence for this pass has been persisted. See {@link ensureReadFence}.
+   */
+  #readFencePersisted = false;
+
   async compact(): Promise<ParameterCompactionResult> {
     const startedAt = Date.now();
     this.signal?.throwIfAborted();
@@ -106,7 +113,9 @@ export class PostgresParameterCompactor {
     this.logger.info(
       `Incremental parameter compaction completed: ` +
         `scanned=${result.scannedEntries}, deleted=${result.deletedEntries}, ` +
-        `cursor=${compactedBefore}->${this.checkpoint}, duration=${durationSeconds.toFixed(1)}s`
+        `cursor=${compactedBefore}->${this.checkpoint}, ` +
+        `fence=${this.#readFencePersisted ? this.checkpoint : 'unchanged'}, ` +
+        `duration=${durationSeconds.toFixed(1)}s`
     );
     return result;
   }
@@ -144,6 +153,49 @@ export class PostgresParameterCompactor {
       WHERE
         id = ${{ type: 'int4', value: this.group_id }}
     `.execute();
+  }
+
+  /**
+   * Raises the parameter read fence before the first delete of this pass.
+   *
+   * MongoDB evaluates parameter queries in a snapshot pinned to the checkpoint, so a pass that
+   * deletes entries afterwards cannot affect a reader on an older checkpoint. Postgres has no
+   * pinned snapshot: `getParameterSets()` only filters `id <= checkpoint`, so removing the entry
+   * that was newest at an older checkpoint C leaves a reader at C with incomplete history.
+   *
+   * The fence records the boundary below which that history may be missing.
+   * {@link PostgresSyncRulesStorage.getParameterSets} reads it in the same statement as the
+   * parameter entries - one statement is one snapshot - and refuses to serve a checkpoint below it.
+   * Committing the fence before the first delete is what makes that check sound: a snapshot that
+   * observes a deletion also observes the fence.
+   *
+   * The fence is deliberately not the same value as the compaction cursor. If the pass fails
+   * halfway, the fence only causes conservative rejection of stale checkpoints, while an advanced
+   * cursor would skip deletion work that never completed.
+   *
+   * In steady state the fence equals the checkpoint readers are already on - compaction targets the
+   * active checkpoint - so it rejects nothing. It is therefore raised for any pass that issues a
+   * delete, without first establishing that the delete matches anything: distinguishing those would
+   * cost a read per lookup group to save a rejection that only a lagging reader can hit.
+   */
+  private async ensureReadFence(): Promise<void> {
+    if (this.#readFencePersisted) {
+      return;
+    }
+    await this.db.sql`
+      UPDATE sync_rules
+      SET
+        parameter_reads_invalid_before = GREATEST(
+          COALESCE(parameter_reads_invalid_before, 0),
+          ${{
+        type: 'int8',
+        value: this.checkpoint
+      }}
+        )
+      WHERE
+        id = ${{ type: 'int4', value: this.group_id }}
+    `.execute();
+    this.#readFencePersisted = true;
   }
 
   /**
@@ -376,6 +428,9 @@ export class PostgresParameterCompactor {
       return 0;
     }
     this.signal?.throwIfAborted();
+    // Every delete of this pass goes through here, so this is the only place the fence has to be
+    // committed. It is a separate statement, so it commits strictly before the deletes.
+    await this.ensureReadFence();
     const result = await this.db.query(...statements);
     // `DatabaseClient.query()` prepends a `SET search_path` statement, which contributes 0.
     return result.results.reduce((total, sub) => total + deletedRowCount(sub.status), 0);

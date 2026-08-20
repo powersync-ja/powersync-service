@@ -114,6 +114,8 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
     tableIdStrings: true,
     // Deleted rows only return their space to the table itself, so pg_total_relation_size() does
     // not drop after compaction.
-    deletesRetainSpace: true
+    deletesRetainSpace: true,
+    // Parameter reads are not snapshot-pinned; checkpoints below the compaction fence are rejected.
+    snapshotParameterReads: false
   };
 }

@@ -4,6 +4,7 @@ import {
   BucketChecksum,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
+  CheckpointParametersInvalidatedError,
   CompactInitialReplicationOptions,
   CompactInitialReplicationResults,
   GetCheckpointChangesOptions,
@@ -283,8 +284,30 @@ export class PostgresSyncRulesStorage
     lookups: sync_rules.ScopedParameterLookup[],
     limit: number
   ): Promise<sync_rules.ParameterLookupRows[]> {
+    // The read fence is selected in this same statement on purpose: one statement is one snapshot,
+    // so a fence at or below the checkpoint proves that no compaction pass targeting a higher
+    // checkpoint had committed a delete in this snapshot. Parameter compaction commits the fence
+    // before its first delete - see PostgresParameterCompactor.ensureReadFence(). This stands in for
+    // the snapshot-pinned parameter reads that MongoDB storage uses.
+    //
+    // `fence` has no FROM, so it always yields exactly one row, and the LEFT JOIN keeps that row
+    // even when no parameter entries match. Those rows have a null index and are skipped below.
     const rows = await this.db.sql`
       WITH
+        fence AS (
+          SELECT
+            COALESCE(
+              (
+                SELECT
+                  parameter_reads_invalid_before
+                FROM
+                  sync_rules
+                WHERE
+                  id = ${{ type: 'int4', value: this.replicationStreamId }}
+              ),
+              0
+            ) AS invalid_before
+        ),
         rows AS (
           SELECT DISTINCT
             ON (lookup, source_table, source_key) requested.index - 1 AS index,
@@ -306,21 +329,33 @@ export class PostgresSyncRulesStorage
             id DESC
         )
       SELECT
-        index,
-        bucket_parameters
+        fence.invalid_before,
+        rows.index,
+        rows.bucket_parameters
       FROM
-        rows
-      WHERE
-        bucket_parameters != '[]'
+        fence
+        LEFT JOIN rows ON rows.bucket_parameters != '[]'
       LIMIT
         ${{ type: 'int4', value: limit + 1 }}
     `
       .decoded(parameterSetsRow)
       .rows();
 
+    const invalidBefore = rows[0]?.invalid_before ?? 0n;
+    if (invalidBefore > checkpoint.checkpoint) {
+      // Parameter compaction has passed this checkpoint, so the history needed to evaluate parameter
+      // queries at it may be gone. The sync loop drops the checkpoint and continues with the next
+      // one, which is at or above the fence.
+      throw new CheckpointParametersInvalidatedError(checkpoint.checkpoint, invalidBefore);
+    }
+
     let totalRows = 0;
     const resultsByLookup = new Map<sync_rules.ScopedParameterLookup, sync_rules.SqliteJsonRow[]>();
     for (const row of rows) {
+      if (row.index == null || row.bucket_parameters == null) {
+        // The fence-only row returned when nothing matched.
+        continue;
+      }
       const parameterRows = JSONBig.parse(row.bucket_parameters) as sync_rules.SqliteJsonRow[];
       const lookup = lookups[Number(row.index)];
       totalRows += parameterRows.length;
@@ -879,8 +914,11 @@ class PostgresReplicationCheckpoint implements storage.ReplicationCheckpoint {
 }
 
 const parameterSetsRow = t.object({
-  index: bigint,
-  bucket_parameters: t.string
+  /** Parameter history below this operation id may have been compacted away. */
+  invalid_before: bigint,
+  /** Null on the fence-only row, returned when no parameter entries matched. */
+  index: t.Null.or(bigint),
+  bucket_parameters: t.Null.or(t.string)
 });
 
 function requireActiveCheckpointDocument(doc: models.ActiveCheckpointDecoded | null): models.ActiveCheckpointDecoded {

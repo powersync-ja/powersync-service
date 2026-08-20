@@ -1,6 +1,7 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { updateSyncRulesFromYaml } from '@powersync/service-core';
+import { CheckpointParametersInvalidatedError, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
+import { ScopedParameterLookup } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { PostgresParameterCompactor } from '../../src/storage/PostgresParameterCompactor.js';
 import type { PostgresSyncRulesStorage } from '../../src/storage/PostgresSyncRulesStorage.js';
@@ -104,6 +105,18 @@ async function compactedBefore(db: lib_postgres.DatabaseClient, groupId: number)
   return row!.parameter_compacted_before;
 }
 
+async function readFence(db: lib_postgres.DatabaseClient, groupId: number): Promise<bigint | null> {
+  const row = await db.sql`
+    SELECT
+      parameter_reads_invalid_before
+    FROM
+      sync_rules
+    WHERE
+      id = ${{ type: 'int4', value: groupId }}
+  `.first<{ parameter_reads_invalid_before: bigint | null }>();
+  return row!.parameter_reads_invalid_before;
+}
+
 describe('Postgres parameter compaction', () => {
   test('compacts incrementally and persists the cursor', async () => {
     const { factory, storage: bucketStorage, groupId } = await createActiveStorage();
@@ -165,6 +178,51 @@ describe('Postgres parameter compaction', () => {
     // Progress is persisted past every batch, and once more at the end of the pass.
     expect(persisted).toEqual([101n, 111n, 121n, 200n, 200n]);
     expect(await parameterIds(db)).toEqual([120n]);
+  });
+
+  test('rejects parameter reads below the read fence', async () => {
+    const { factory, storage: bucketStorage, groupId } = await createActiveStorage();
+    await using _factory = factory;
+    const db = factory.db;
+
+    expect(await readFence(db, groupId)).toBe(null);
+
+    await insertParameterRows(db, [
+      entry(100n, groupId, 'row', [{ id: 'old' }]),
+      entry(110n, groupId, 'row', [{ id: 'new' }])
+    ]);
+
+    await new PostgresParameterCompactor(db, groupId, 200n, {}).compact();
+
+    // Raised to the pass target, not to the last entry it deleted.
+    expect(await readFence(db, groupId)).toBe(200n);
+    expect(await parameterIds(db)).toEqual([110n]);
+
+    const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['t1']);
+
+    // The entry that was newest at 150 was deleted, so this checkpoint can no longer be evaluated.
+    await expect(bucketStorage.getParameterSets(test_utils.testCheckpoint(150n), [lookup], 1000)).rejects.toThrow(
+      CheckpointParametersInvalidatedError
+    );
+
+    // At and above the target, the retained entry is the correct one for the checkpoint.
+    await expect(bucketStorage.getParameterSets(test_utils.testCheckpoint(200n), [lookup], 1000)).resolves.toEqual([]);
+    await expect(bucketStorage.getParameterSets(test_utils.testCheckpoint(300n), [lookup], 1000)).resolves.toEqual([]);
+  });
+
+  test('leaves the fence unset for a pass with no entries to compact', async () => {
+    const { factory, storage: bucketStorage, groupId } = await createActiveStorage();
+    await using _factory = factory;
+    const db = factory.db;
+
+    await new PostgresParameterCompactor(db, groupId, 200n, {}).compact();
+
+    // The cursor advances, but the pass issued no deletes, so no checkpoint is fenced.
+    expect(await compactedBefore(db, groupId)).toBe(200n);
+    expect(await readFence(db, groupId)).toBe(null);
+
+    const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['t1']);
+    await expect(bucketStorage.getParameterSets(test_utils.testCheckpoint(150n), [lookup], 1000)).resolves.toEqual([]);
   });
 
   test('seeds the compaction cursor when a stream is created', async () => {

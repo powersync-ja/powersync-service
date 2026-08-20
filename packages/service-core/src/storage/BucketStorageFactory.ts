@@ -283,4 +283,16 @@ export interface TestStorageConfig {
    * Tests that check for space freed by compaction skip that assertion when this is set.
    */
   deletesRetainSpace?: boolean;
+
+  /**
+   * Whether parameter queries are evaluated in a snapshot pinned to the checkpoint, so that a read
+   * at a checkpoint older than the parameter compaction target still returns the value as of that
+   * checkpoint. True unless set.
+   *
+   * MongoDB storage does this with snapshot reads. Postgres storage has no pinned snapshot and
+   * rejects such a checkpoint with a {@link CheckpointParametersInvalidatedError} instead. Both
+   * satisfy the actual requirement - never answer with incomplete parameter history - so tests
+   * assert one or the other based on this.
+   */
+  snapshotParameterReads?: boolean;
 }

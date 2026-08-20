@@ -77,10 +77,21 @@ bucket_definitions:
     const statsBefore = await bucketStorage.factory.getStorageMetrics();
     await compactActive(factory, { compactParameterData: true });
 
-    // Check consistency
-    const parameters1b = await checkpoint1.getParameterSets([lookup], 1000);
+    // Check consistency. checkpoint1 is older than the compaction target, so it is the case that
+    // needs the storage to either still see the pre-compaction history, or refuse to serve it.
+    if (config.snapshotParameterReads ?? true) {
+      const parameters1b = await checkpoint1.getParameterSets([lookup], 1000);
+      expect(parameters1b).toEqual([{ lookup, rows: [{ id: 't1' }] }]);
+    } else {
+      // No pinned snapshot: the entry that was newest at checkpoint1 may be gone, so the checkpoint
+      // must be rejected rather than answered with incomplete history.
+      await expect(checkpoint1.getParameterSets([lookup], 1000)).rejects.toThrow(
+        storage.CheckpointParametersInvalidatedError
+      );
+    }
+
+    // checkpoint2 is the compaction target, so it is served by every implementation.
     const parameters2b = await checkpoint2.getParameterSets([lookup], 1000);
-    expect(parameters1b).toEqual([{ lookup, rows: [{ id: 't1' }] }]);
     expect(parameters2b).toEqual([]);
 
     if (!config.deletesRetainSpace) {
