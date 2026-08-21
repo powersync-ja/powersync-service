@@ -146,6 +146,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const parsedOverride = options.parsedSyncConfig as MongoParsedSyncConfigSet | undefined;
     const syncConfig = parsedOverride?.hydratedSyncConfig ?? this.sync_rules;
     const mapping = parsedOverride?.mapping ?? this.mapping;
+    const eventById = (parsedOverride ?? this.options.parsedSyncConfig).eventById;
 
     const { connection_id, source } = options;
     const reconcile = options.reconcileSourceTables ?? storage.defaultSourceTableReconciler;
@@ -173,7 +174,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         .toArray();
 
       const candidateTables = candidateDocs.map((doc) =>
-        sourceTableFromDocument(doc, source.connectionTag, syncConfig, mapping)
+        sourceTableFromDocument(doc, source.connectionTag, syncConfig, mapping, eventById)
       );
       const candidates = candidateTables.map((table) => table.clone());
       const resolution = await reconcile({ source, candidates });
@@ -191,7 +192,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         storeCurrentData: source.sendsCompleteRows !== true,
         syncConfig,
         mapping,
-        desired: sourceTableDesiredResolution(syncConfig, source, mapping),
+        desired: sourceTableDesiredResolution(syncConfig, source, mapping, eventById),
         sourceCompatibleTables: resolution.compatibleTables,
         newTableSourceMetadata: resolution.newTableValues.sourceMetadata
       };
@@ -230,7 +231,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
       result = {
         tables: plan.tables,
-        dropTables: plan.dropDocs.map((doc) => sourceTableFromDocument(doc, context.connectionTag, syncConfig, mapping))
+        dropTables: plan.dropDocs.map((doc) =>
+          sourceTableFromDocument(doc, context.connectionTag, syncConfig, mapping, eventById)
+        )
       };
     });
 
@@ -245,7 +248,13 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       return null;
     }
 
-    return sourceTableFromDocument(doc, table.ref.connectionTag, this.sync_rules, this.mapping);
+    return sourceTableFromDocument(
+      doc,
+      table.ref.connectionTag,
+      this.sync_rules,
+      this.mapping,
+      this.options.parsedSyncConfig.eventById
+    );
   }
 
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {

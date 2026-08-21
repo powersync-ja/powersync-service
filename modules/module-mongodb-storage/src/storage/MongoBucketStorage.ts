@@ -469,8 +469,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         ),
         newMapping: mapping,
         newSyncConfig: updateOptions.config.parsed,
-        mappingChanges: mappingResult.changes,
-        activeEventDefinitions: existingConfigDocs.flatMap((doc) => doc.serialized_plan?.plan.events ?? [])
+        mappingChanges: mappingResult.changes
       })
     );
 

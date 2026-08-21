@@ -2,7 +2,6 @@ import {
   BucketDataSource,
   EventDefinition,
   ParameterIndexLookupCreator,
-  SerializedEventDescriptor,
   SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
 import {
@@ -34,30 +33,16 @@ export function describeIncrementalSyncConfigUpdate(options: {
   newMapping: SingleSyncConfigBucketDefinitionMapping;
   newSyncConfig: SyncConfigWithErrors;
   mappingChanges: IncrementalMappingChanges;
-  activeEventDefinitions?: Pick<SerializedEventDescriptor, 'id' | 'name'>[];
 }): IncrementalSyncConfigUpdateLog {
-  const { activeMappings, newMapping, newSyncConfig, mappingChanges, activeEventDefinitions = [] } = options;
-  const activeEventIds = new Set(activeEventDefinitions.map((event) => event.id));
-  const eventChanges = newSyncConfig.config.eventDefinitions.map(
-    (event): IncrementalMappingDefinitionChange => ({
-      type: 'event',
-      name: event.name,
-      id: event.id
-    })
-  );
-  const reusedEvents = eventChanges.filter((event) => activeEventIds.has(event.id));
-  const addedEvents = eventChanges.filter((event) => !activeEventIds.has(event.id));
-  const newDefinitionKeys = new Set([...newMapping.allDefinitionEntries(), ...eventChanges].map(definitionKey));
-  const activeDefinitions = uniqueDefinitions([
-    ...activeMappings.flatMap((mapping) => mapping.allDefinitionEntries()),
-    ...activeEventDefinitions.map(
-      (event): IncrementalMappingDefinitionChange => ({ type: 'event', name: event.name, id: event.id })
-    )
-  ]);
+  const { activeMappings, newMapping, newSyncConfig, mappingChanges } = options;
+  // Buckets, parameter lookups and events all flow through the mapping's assigned ids, so their changes are
+  // already present in mappingChanges and allDefinitionEntries().
+  const newDefinitionKeys = new Set(newMapping.allDefinitionEntries().map(definitionKey));
+  const activeDefinitions = uniqueDefinitions(activeMappings.flatMap((mapping) => mapping.allDefinitionEntries()));
 
   return {
-    reusedDefinitions: [...mappingChanges.reusedDefinitions, ...reusedEvents],
-    addedDefinitions: [...mappingChanges.addedDefinitions, ...addedEvents].map((definition) => {
+    reusedDefinitions: mappingChanges.reusedDefinitions,
+    addedDefinitions: mappingChanges.addedDefinitions.map((definition) => {
       const sourceTables = sourceTablesForDefinition(newSyncConfig, newMapping, definition);
       return {
         ...definition,
@@ -87,7 +72,9 @@ function sourceTablesForDefinition(
     );
   }
 
-  return sourceTablesForEvents(syncConfig.config.eventDefinitions.filter((event) => event.id == definition.id));
+  return sourceTablesForEvents(
+    syncConfig.config.eventDefinitions.filter((event) => mapping.eventId(event) == definition.id)
+  );
 }
 
 function sourceTablesForSources(sources: Array<BucketDataSource | ParameterIndexLookupCreator>) {

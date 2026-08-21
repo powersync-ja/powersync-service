@@ -1,7 +1,7 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { Logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
 import { SingleSyncConfigBucketDefinitionMapping, storage } from '@powersync/service-core';
-import { BucketDefinitionId, EventDefinitionId, ParameterIndexId, SyncConfig } from '@powersync/service-sync-rules';
+import { BucketDefinitionId, EventDefinitionId, ParameterIndexId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { clearCollectionInIdRanges, idPrefixFilter } from '../../../utils/util.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
@@ -46,7 +46,6 @@ export class MongoStoppedSyncConfigCleanup {
   private readonly signal: AbortSignal | undefined;
   private readonly logger: Logger;
   private readonly objectStorage: ObjectStorage | undefined;
-  private readonly defaultSchema: string;
   private readonly clearBatchThrottleRate: number;
 
   constructor(options: MongoStoppedSyncConfigCleanupOptions) {
@@ -55,7 +54,6 @@ export class MongoStoppedSyncConfigCleanup {
     this.signal = options.signal;
     this.logger = options.logger;
     this.objectStorage = options.objectStorage;
-    this.defaultSchema = options.defaultSchema;
     this.clearBatchThrottleRate = options.clearBatchThrottleRate;
   }
 
@@ -140,9 +138,7 @@ export class MongoStoppedSyncConfigCleanup {
     return {
       bucketDefinitionIds: [...new Set(mappings.flatMap((mapping) => mapping.allBucketDefinitionIds()))],
       parameterIndexIds: [...new Set(mappings.flatMap((mapping) => mapping.allParameterIndexIds()))],
-      eventDefinitionIds: [
-        ...new Set(this.parseSyncConfigs(configs).flatMap((config) => config.eventDefinitions.map((event) => event.id)))
-      ]
+      eventDefinitionIds: [...new Set(mappings.flatMap((mapping) => mapping.allEventDefinitionIds()))]
     };
   }
 
@@ -323,21 +319,6 @@ export class MongoStoppedSyncConfigCleanup {
       parameter_lookup_source_ids: { $not: { $elemMatch: { $nin: unusedParameterIndexIds } } },
       event_definition_ids: { $not: { $elemMatch: { $nin: unusedEventDefinitionIds } } }
     };
-  }
-
-  private parseSyncConfigs(configDocs: SyncConfigDefinition[]): SyncConfig[] {
-    // This is ugly - we should not need to re-parse to achieve this.
-    // Revisit persistence for this later.
-    return configDocs.map((config) => {
-      return storage.parsePersistedSyncConfigContent({
-        content: config.content,
-        compiledPlan: config.serialized_plan ?? null,
-        storageVersion: config.storage_version,
-        parseOptions: {
-          defaultSchema: this.defaultSchema
-        }
-      }).config;
-    });
   }
 
   private sourceTableMembershipFilter(
