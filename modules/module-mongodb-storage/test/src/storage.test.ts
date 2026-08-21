@@ -3,6 +3,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { compactActive, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
+import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { env } from './env.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
@@ -184,23 +185,26 @@ event_definitions:
         const eventA = activeSyncConfig.eventDescriptors.find((event) => event.name == 'checkpoint_a')!;
         const eventB = activeSyncConfig.eventDescriptors.find((event) => event.name == 'checkpoint_b')!;
         const unrelatedEvent = activeSyncConfig.eventDescriptors.find((event) => event.name == 'unrelated_event')!;
+        const mapping = syncRules.syncConfigContent[0].mapping;
+        const eventAId = mapping.eventId(eventA);
+        const eventBId = mapping.eventId(eventB);
+        const unrelatedEventId = mapping.eventId(unrelatedEvent);
         expect(() =>
           bucketStorage.setWriteCheckpointMode({
             mode: storage.WriteCheckpointMode.CUSTOM
           })
-        ).toThrow('resolveEventId resolver');
+        ).toThrow('eventName');
         bucketStorage.setWriteCheckpointMode({
           mode: storage.WriteCheckpointMode.CUSTOM,
-          resolveEventId: () => 'unknown-event'
+          eventName: 'unknown-event'
         });
         await expect(
           bucketStorage.lastWriteCheckpoint({ user_id: 'user1', syncConfig: activeSyncConfig })
         ).rejects.toThrow('Unknown custom checkpoint event definition unknown-event');
 
-        let activeEventId = eventA.id;
         bucketStorage.setWriteCheckpointMode({
           mode: storage.WriteCheckpointMode.CUSTOM,
-          resolveEventId: () => activeEventId
+          eventName: eventA.name
         });
         // Reads before the first checkpoint must behave like an empty result;
         // they must not require the lazily-created collection to exist.
@@ -225,18 +229,18 @@ event_definitions:
           })
           [Symbol.asyncIterator]();
 
-        writer.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 5n, event_id: eventA.id });
-        writer.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 8n, event_id: eventB.id });
+        writer.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 5n, event_id: eventAId });
+        writer.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 8n, event_id: eventBId });
         await writer.flush();
         await writer.keepalive('5/0');
 
         const eventACollection = db.customCheckpointRequests({
           replicationStreamId: syncRules.replicationStreamId,
-          eventId: eventA.id
+          eventId: eventAId
         });
         const eventBCollection = db.customCheckpointRequests({
           replicationStreamId: syncRules.replicationStreamId,
-          eventId: eventB.id
+          eventId: eventBId
         });
         await expect(eventACollection.findOne({ user_id: 'user1' })).resolves.toMatchObject({ checkpoint: 5n });
         await expect(eventBCollection.findOne({ user_id: 'user1' })).resolves.toMatchObject({ checkpoint: 8n });
@@ -251,7 +255,7 @@ event_definitions:
         expect(checkpointCollectionNames).not.toContain(
           db.customCheckpointRequests({
             replicationStreamId: syncRules.replicationStreamId,
-            eventId: unrelatedEvent.id
+            eventId: unrelatedEventId
           }).collectionName
         );
         await expect(eventACollection.indexExists(['user_unique', 'op_id', 'checkpoint_requested_at'])).resolves.toBe(
@@ -265,7 +269,7 @@ event_definitions:
           value: { writeCheckpoint: 5n }
         });
 
-        writer.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 9n, event_id: eventB.id });
+        writer.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 9n, event_id: eventBId });
         await writer.flush();
         await writer.keepalive('6/0');
         // The processing event's record does not advance clients still served by
@@ -275,7 +279,10 @@ event_definitions:
           value: { writeCheckpoint: 5n }
         });
 
-        activeEventId = eventB.id;
+        bucketStorage.setWriteCheckpointMode({
+          mode: storage.WriteCheckpointMode.CUSTOM,
+          eventName: eventB.name
+        });
         await expect(
           bucketStorage.lastWriteCheckpoint({ user_id: 'user1', syncConfig: activeSyncConfig })
         ).resolves.toEqual(9n);
@@ -283,7 +290,7 @@ event_definitions:
         writer.addCustomWriteCheckpoint({
           user_id: 'temporary',
           checkpoint: 10n,
-          event_id: eventB.id,
+          event_id: eventBId,
           checkpoint_requested_at: new Date('2024-01-01T00:00:00.000Z')
         });
         await writer.flush();
@@ -301,7 +308,7 @@ event_definitions:
         freshWriter.addCustomWriteCheckpoint({
           user_id: 'after-restart',
           checkpoint: 11n,
-          event_id: eventA.id
+          event_id: eventAId
         });
         await freshWriter.flush();
         await expect(eventACollection.findOne({ user_id: 'after-restart' })).resolves.toMatchObject({
@@ -310,6 +317,92 @@ event_definitions:
 
         await bucketStorage.clear();
         await expect(db.listCustomCheckpointRequestCollections(syncRules.replicationStreamId)).resolves.toEqual([]);
+      }
+    );
+
+    test.runIf(storageVersion >= 3)(
+      'resolves custom checkpoints through the active event mapping across deployments',
+      async () => {
+        await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+        const syncConfigYaml = (predicate: string, includeExtraStream: boolean) => `
+config:
+  edition: 3
+
+streams:
+  global:
+    query: SELECT * FROM checkpoints
+${includeExtraStream ? '  todos:\n    query: SELECT * FROM todos' : ''}
+
+event_definitions:
+  write_checkpoints:
+    payloads:
+      - SELECT user_id, checkpoint FROM checkpoints WHERE ${predicate}
+`;
+
+        const first = await factory.updateSyncRules(
+          updateSyncRulesFromYaml(syncConfigYaml("kind = 'write'", false), { storageVersion })
+        );
+        const firstEventId = first.syncConfigContent[0].mapping.eventDefinitionIdByName('write_checkpoints');
+        const firstStorage = factory.getInstance(first);
+        await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+        firstWriter.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 5n, event_id: firstEventId });
+        await firstWriter.markAllSnapshotDone('1/1');
+        await firstWriter.commit('1/1');
+
+        const unchanged = await factory.updateSyncRules(
+          updateSyncRulesFromYaml(syncConfigYaml("kind = 'write'", true), { storageVersion })
+        );
+        const unchangedEventId = unchanged.syncConfigContent[1].mapping.eventDefinitionIdByName('write_checkpoints');
+        expect(unchangedEventId).toBe(firstEventId);
+
+        await using unchangedWriter = await factory.getInstance(unchanged).createWriter(test_utils.BATCH_OPTIONS);
+        await unchangedWriter.markAllSnapshotDone('2/1');
+        await unchangedWriter.commit('2/1');
+
+        const unchangedActiveStorage = (await factory.getActiveSyncConfig())!.storage as MongoSyncBucketStorage;
+        unchangedActiveStorage.setWriteCheckpointMode({
+          mode: storage.WriteCheckpointMode.CUSTOM,
+          eventName: 'write_checkpoints'
+        });
+        await expect(
+          unchangedActiveStorage.lastWriteCheckpoint({
+            user_id: 'user1',
+            syncConfig: unchangedActiveStorage.getParsedSyncRules({ defaultSchema: 'public' })
+          })
+        ).resolves.toBe(5n);
+
+        const changed = await factory.updateSyncRules(
+          updateSyncRulesFromYaml(syncConfigYaml("kind = 'processed'", true), { storageVersion })
+        );
+        const changedEventId = changed.syncConfigContent[1].mapping.eventDefinitionIdByName('write_checkpoints');
+        expect(changedEventId).not.toBe(unchangedEventId);
+
+        await using changedWriter = await factory.getInstance(changed).createWriter(test_utils.BATCH_OPTIONS);
+        changedWriter.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 9n, event_id: changedEventId });
+        await changedWriter.flush();
+
+        // Until activation, reads still use the previous config's assigned id and collection.
+        await expect(
+          unchangedActiveStorage.lastWriteCheckpoint({
+            user_id: 'user1',
+            syncConfig: unchangedActiveStorage.getParsedSyncRules({ defaultSchema: 'public' })
+          })
+        ).resolves.toBe(5n);
+
+        await changedWriter.markAllSnapshotDone('3/1');
+        await changedWriter.commit('3/1');
+
+        const changedActiveStorage = (await factory.getActiveSyncConfig())!.storage as MongoSyncBucketStorage;
+        changedActiveStorage.setWriteCheckpointMode({
+          mode: storage.WriteCheckpointMode.CUSTOM,
+          eventName: 'write_checkpoints'
+        });
+        await expect(
+          changedActiveStorage.lastWriteCheckpoint({
+            user_id: 'user1',
+            syncConfig: changedActiveStorage.getParsedSyncRules({ defaultSchema: 'public' })
+          })
+        ).resolves.toBe(9n);
       }
     );
 

@@ -1,37 +1,42 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { CustomWriteCheckpointFilters, GetCheckpointChangesOptions, storage } from '@powersync/service-core';
+import {
+  CustomWriteCheckpointFilters,
+  GetCheckpointChangesOptions,
+  SingleSyncConfigBucketDefinitionMapping,
+  storage
+} from '@powersync/service-core';
 import { EventDefinitionId, HydratedSyncConfig } from '@powersync/service-sync-rules';
 import { MongoCheckpointAPIOptions, MongoWriteCheckpointAPI } from '../MongoWriteCheckpointAPI.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export type MongoCheckpointAPIV3Options = Omit<MongoCheckpointAPIOptions, 'db'> & {
   db: VersionedPowerSyncMongoV3;
+  syncConfigMapping: () => SingleSyncConfigBucketDefinitionMapping;
 };
 
 export class MongoWriteCheckpointAPIV3 extends MongoWriteCheckpointAPI {
   declare db: VersionedPowerSyncMongoV3;
 
   // Supplied via the constructor or the setWriteCheckpointMode setter.
-  private _resolveCustomWriteCheckpointEventId: storage.CustomWriteCheckpointEventIdResolver | undefined;
+  private _customWriteCheckpointEventName: string | undefined;
+  private readonly syncConfigMapping: () => SingleSyncConfigBucketDefinitionMapping;
 
   constructor(options: MongoCheckpointAPIV3Options) {
     super(options);
-    // Enforce the CUSTOM-requires-resolver invariant on construction too, not only setWriteCheckpointMode.
-    this._resolveCustomWriteCheckpointEventId = this.requireCustomEventIdResolver(options.writeCheckpointMode);
+    this.syncConfigMapping = options.syncConfigMapping;
+    // Enforce the CUSTOM-requires-event-name invariant on construction too, not only setWriteCheckpointMode.
+    this._customWriteCheckpointEventName = this.requireCustomEventName(options.writeCheckpointMode);
   }
 
   protected resolveEventId(syncConfig: HydratedSyncConfig): EventDefinitionId {
-    if (!this._resolveCustomWriteCheckpointEventId) {
-      throw new ServiceAssertionError(`No resolveEventId resolver has been supplied via setWriteCheckpointMode.`);
+    const eventName = this._customWriteCheckpointEventName;
+    if (!eventName) {
+      throw new ServiceAssertionError(`No eventName has been supplied via setWriteCheckpointMode.`);
     }
-    const eventId = this._resolveCustomWriteCheckpointEventId(syncConfig);
-    if (eventId == null) {
-      throw new ServiceAssertionError('V3 custom checkpoints require an event definition id');
+    if (!syncConfig.eventDescriptors.some((event) => event.name == eventName)) {
+      throw new ServiceAssertionError(`Unknown custom checkpoint event definition ${eventName}`);
     }
-    if (!syncConfig.eventDescriptors.some((event) => event.id == eventId)) {
-      throw new ServiceAssertionError(`Unknown custom checkpoint event definition ${eventId}`);
-    }
-    return eventId;
+    return this.syncConfigMapping().eventDefinitionIdByName(eventName);
   }
 
   protected override async lastCustomWriteCheckpoint(filters: CustomWriteCheckpointFilters): Promise<bigint | null> {
@@ -50,24 +55,22 @@ export class MongoWriteCheckpointAPIV3 extends MongoWriteCheckpointAPI {
   }
 
   override setWriteCheckpointMode(config: storage.WriteCheckpointModeConfig): void {
-    this._resolveCustomWriteCheckpointEventId = this.requireCustomEventIdResolver(config);
+    this._customWriteCheckpointEventName = this.requireCustomEventName(config);
     super.setWriteCheckpointMode(config);
   }
 
   /**
-   * Validates and returns the event-id resolver for the given mode config. Shared by the constructor and
-   * {@link setWriteCheckpointMode} so both paths enforce that CUSTOM mode always has a resolver.
+   * Validates and returns the event name for the given mode config. Shared by the constructor and
+   * {@link setWriteCheckpointMode} so both paths enforce that CUSTOM mode always names its checkpoint event.
    */
-  private requireCustomEventIdResolver(
-    config: storage.WriteCheckpointModeConfig
-  ): storage.CustomWriteCheckpointEventIdResolver | undefined {
+  private requireCustomEventName(config: storage.WriteCheckpointModeConfig): string | undefined {
     if (config.mode != storage.WriteCheckpointMode.CUSTOM) {
       return undefined;
     }
-    if (!config.resolveEventId) {
-      throw new ServiceAssertionError(`V3 incremental reprocessing requires a resolveEventId resolver to be supplied.`);
+    if (!config.eventName) {
+      throw new ServiceAssertionError(`V3 incremental reprocessing requires an eventName to be supplied.`);
     }
-    return config.resolveEventId;
+    return config.eventName;
   }
 
   protected override async getCustomWriteCheckpointChanges(
