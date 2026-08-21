@@ -77,6 +77,100 @@ export class SyncExpression implements EqualsIgnoringResultSet {
   }
 }
 
+/**
+ * A stable identity for expression behavior across syntactic operand ordering changes.
+ *
+ * Boolean conjunction/disjunction and equality are commutative. Comparisons are normalized to one direction, so
+ * `a > b` and `b < a` also match. Operators and constructs where order affects behavior retain their original order.
+ */
+export function expressionBehaviorIdentity(expression: SqlExpression<ExpressionInput>): string {
+  switch (expression.type) {
+    case 'data':
+      return JSON.stringify(['data', expressionInputIdentity(expression.source)]);
+    case 'unary':
+      return JSON.stringify(['unary', expression.operator, expressionBehaviorIdentity(expression.operand)]);
+    case 'binary': {
+      if (expression.operator == 'and' || expression.operator == 'or') {
+        const operands: SqlExpression<ExpressionInput>[] = [];
+        collectAssociativeOperands(expression, expression.operator, operands);
+        return JSON.stringify(['binary', expression.operator, operands.map(expressionBehaviorIdentity).sort()]);
+      }
+
+      let operator = expression.operator;
+      let left = expression.left;
+      let right = expression.right;
+      if (operator == '>' || operator == '>=') {
+        operator = operator == '>' ? '<' : '<=';
+        [left, right] = [right, left];
+      }
+
+      const operands = [expressionBehaviorIdentity(left), expressionBehaviorIdentity(right)];
+      if (operator == '=' || operator == 'is') {
+        operands.sort();
+      }
+      return JSON.stringify(['binary', operator, operands]);
+    }
+    case 'between':
+      return JSON.stringify([
+        'between',
+        expressionBehaviorIdentity(expression.value),
+        expressionBehaviorIdentity(expression.low),
+        expressionBehaviorIdentity(expression.high)
+      ]);
+    case 'scalar_in':
+      return JSON.stringify([
+        'scalar_in',
+        expressionBehaviorIdentity(expression.target),
+        expression.in.map(expressionBehaviorIdentity)
+      ]);
+    case 'case_when':
+      return JSON.stringify([
+        'case_when',
+        expression.operand == null ? null : expressionBehaviorIdentity(expression.operand),
+        expression.whens.map((branch) => [
+          expressionBehaviorIdentity(branch.when),
+          expressionBehaviorIdentity(branch.then)
+        ]),
+        expression.else == null ? null : expressionBehaviorIdentity(expression.else)
+      ]);
+    case 'cast':
+      return JSON.stringify(['cast', expression.cast_as, expressionBehaviorIdentity(expression.operand)]);
+    case 'function':
+      return JSON.stringify(['function', expression.function, expression.parameters.map(expressionBehaviorIdentity)]);
+    case 'lit_null':
+      return JSON.stringify(['lit_null']);
+    case 'lit_double':
+      return JSON.stringify(['lit_double', expression.value]);
+    case 'lit_int':
+      return JSON.stringify(['lit_int', expression.base10]);
+    case 'lit_string':
+      return JSON.stringify(['lit_string', expression.value]);
+  }
+}
+
+function collectAssociativeOperands(
+  expression: SqlExpression<ExpressionInput>,
+  operator: 'and' | 'or',
+  output: SqlExpression<ExpressionInput>[]
+): void {
+  if (expression.type == 'binary' && expression.operator == operator) {
+    collectAssociativeOperands(expression.left, operator, output);
+    collectAssociativeOperands(expression.right, operator, output);
+  } else {
+    output.push(expression);
+  }
+}
+
+function expressionInputIdentity(input: ExpressionInput): readonly string[] {
+  if (input instanceof ColumnInRow) {
+    return ['column', input.column];
+  } else if (input instanceof RowMetadata) {
+    return ['row_metadata', input.kind];
+  } else {
+    return ['connection_parameter', input.source];
+  }
+}
+
 class FindExternalData extends RecursiveExpressionVisitor<ExpressionInput, void, ExpressionInput[]> {
   defaultExpression(expr: SqlExpression<ExpressionInput>, arg: ExpressionInput[]): void {
     this.visitChildren(expr, arg);

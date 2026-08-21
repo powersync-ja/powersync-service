@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { HydratedSyncConfig, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
+import { HydratedEventDescriptor, HydratedSyncConfig, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
@@ -934,9 +934,9 @@ export abstract class MongoBucketBatch
   }
 
   /**
-   * Gets relevant {@link SqlEventDescriptor}s for the given {@link SourceTable}
+   * Gets relevant {@link HydratedEventDescriptor}s for the given {@link SourceTable}
    */
-  protected getTableEvents(table: storage.SourceTable): SqlEventDescriptor[] {
+  protected getTableEvents(table: storage.SourceTable): HydratedEventDescriptor[] {
     return this.sync_rules.eventDescriptors.filter((evt) =>
       [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table.ref))
     );

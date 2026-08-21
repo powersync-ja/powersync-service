@@ -1,16 +1,19 @@
 import { NodeLocation, parse, PGNode, Statement } from 'pgsql-ast-parser';
-import { StreamOptions, SyncPlan } from '../sync_plan/plan.js';
+import { SqlRuleError } from '../errors.js';
+import { CompiledEventDescriptor, StreamOptions, SyncPlan } from '../sync_plan/plan.js';
 import { SourceSchema } from '../types.js';
 import { StreamResolver } from './bucket_resolver.js';
 import { DangerousParameterDetector } from './detect_dangerous_parameters.js';
-import { HashSet } from './equality.js';
-import { NodeLocations } from './expression.js';
+import { Equality, HashSet } from './equality.js';
+import { expressionBehaviorIdentity, NodeLocations } from './expression.js';
+import { RowExpression, SingleDependencyExpression } from './filter.js';
 import { CompilerModelToSyncPlan } from './ir_to_sync_plan.js';
 import { StreamQueryParser } from './parser.js';
 import { QuerierGraphBuilder } from './querier_graph.js';
-import { PointLookup, RowEvaluator } from './rows.js';
+import { EventRowEvaluator, ExpressionColumnSource, PointLookup, RowEvaluator, StarColumnSource } from './rows.js';
 import { SqlScope } from './scope.js';
 import { CommonTableExpression, PreparedSubquery } from './sqlite.js';
+import { PhysicalSourceResultSet } from './table.js';
 
 export interface SyncStreamsCompilerOptions {
   /**
@@ -34,21 +37,84 @@ export interface ParseStreamOptions extends StreamOptions {
   warnOnDangerousParameter: boolean;
 }
 
+export interface CompiledEvent {
+  name: string;
+  sourceQueries: CompiledEventSourceQueryModel[];
+}
+
+export interface CompiledEventSourceQueryModel {
+  sql: string;
+  sourceTable: PhysicalSourceResultSet;
+  variants: EventRowEvaluator[];
+}
+
 /**
- * State for compiling sync streams.
+ * Behavioral equality for replication events in the compiler's JavaScript plan model.
  *
- * The output of compiling all sync streams is a {@link SyncPlan}, a declarative description of the sync process that
- * can be serialized to bucket storage. The compiler stores a mutable intermediate representation that is essentially a
- * copy of the sync plan, except that we're using JavaScript classes with methods to compute hash codes and equality
- * relations. This allows the compiler to efficiently de-duplicate parameters and buckets.
+ * Raw SQL and payload-query order are deliberately ignored. The row evaluators compare the tables, filters and
+ * projected payload through the same compatibility model used while compiling stream plans.
+ */
+export const compiledEventDefinitionEquality: Equality<CompiledEvent> = {
+  hash(hasher, value) {
+    hasher.addString(compiledEventDefinitionIdentity(value));
+  },
+  equals(a, b) {
+    return a === b || compiledEventDefinitionIdentity(a) == compiledEventDefinitionIdentity(b);
+  }
+};
+
+function compiledEventDefinitionIdentity(event: CompiledEvent): string {
+  return JSON.stringify([
+    event.name,
+    event.sourceQueries
+      .map((query) =>
+        JSON.stringify([
+          tablePatternIdentity(query.sourceTable),
+          query.variants.map(compiledEventVariantIdentity).sort()
+        ])
+      )
+      .sort()
+  ]);
+}
+
+function compiledEventVariantIdentity(variant: EventRowEvaluator): string {
+  return JSON.stringify([
+    tablePatternIdentity(variant.syntacticSource),
+    variant.filters.map((filter) => expressionBehaviorIdentity(filter.expression.node)).sort(),
+    variant.columns.map((column) => {
+      if (column instanceof StarColumnSource) {
+        return 'star';
+      }
+      const expressionColumn = column as ExpressionColumnSource;
+      return [expressionColumn.alias, expressionBehaviorIdentity(expressionColumn.expression.expression.node)];
+    }),
+    variant.partitionBy.length,
+    variant.addedFunctions.length
+  ]);
+}
+
+function tablePatternIdentity(source: PhysicalSourceResultSet): readonly (string | null)[] {
+  const pattern = source.tablePattern;
+  return [pattern.connectionTag, pattern.schema, pattern.tablePattern];
+}
+
+/**
+ * State for compiling sync streams and replication events into a sync plan.
  *
- * Overall, the compilation process is as follows: Each data query for a stream is first parsed by
+ * The compiler stores a mutable intermediate representation that is essentially a copy of the resulting
+ * {@link SyncPlan}, except that we're using JavaScript classes with methods to compute hash codes and equality
+ * relations. Stream queries and event definitions remain separate within that model.
+ *
+ * The stream compilation process is as follows: Each data query for a stream is first parsed by
  * {@link StreamQueryParser} into a canonicalized intermediate representation (see that class for details).
  * Then, {@link QuerierGraphBuilder} analyzes a chain of `AND` expressions to identify parameters (as partition keys)
  * and their instantiation, as well as static filters that need to be added to reach row.
  */
 export class SyncStreamsCompiler {
-  readonly output = new CompiledStreamQueries();
+  readonly output: SyncPlanCompilerModel = {
+    streams: new CompiledStreamQueries(),
+    events: []
+  };
   private readonly locations = new NodeLocations();
 
   constructor(readonly options: SyncStreamsCompilerOptions) {}
@@ -124,11 +190,173 @@ export class SyncStreamsCompiler {
       }
     };
   }
+
+  /**
+   * Compiles the payload queries for a named replication event.
+   *
+   * Event queries intentionally support a smaller surface than stream queries: They must project and filter a single
+   * physical source table and cannot depend on request parameters, joins, subqueries or table-valued functions.
+   */
+  event(name: string): IndividualEventCompiler {
+    const event: CompiledEvent = { name, sourceQueries: [] };
+    this.output.events.push(event);
+
+    return {
+      addSourceQuery: (sql: string, errors: ParsingErrorListener) => {
+        const stmt = tryParse(sql, errors);
+        if (stmt == null) {
+          return;
+        }
+
+        const parser = new StreamQueryParser({
+          compiler: this,
+          originalText: sql,
+          locations: this.locations,
+          parentScope: new SqlScope({}),
+          errors
+        });
+        const query = parser.parse(stmt);
+        if (query == null) {
+          return;
+        }
+
+        if (query.joined.length != 0) {
+          errors.report('Event payload queries must SELECT from a single physical source table.', query.span.location);
+          return;
+        }
+
+        const defaultSchema = this.options.defaultSchema ?? '';
+        const sourceTable = query.sourceTable.tablePattern.toTablePattern(defaultSchema);
+        if (
+          event.sourceQueries.some((source) =>
+            source.sourceTable.tablePattern.toTablePattern(defaultSchema).equals(sourceTable)
+          )
+        ) {
+          errors.report('Each payload query should query a unique table', query.span.location);
+          return;
+        }
+
+        const variants: EventRowEvaluator[] = [];
+        let valid = true;
+        for (const variant of query.where.terms) {
+          const filters: RowExpression[] = [];
+          for (const term of variant.terms) {
+            if (
+              !(term instanceof SingleDependencyExpression) ||
+              term.dependsOnConnection ||
+              (term.resultSet != null && term.resultSet !== query.sourceTable)
+            ) {
+              errors.report(
+                'Event payload queries cannot depend on request parameters or other tables.',
+                term instanceof SingleDependencyExpression ? term.expression.location.location : term.location!
+              );
+              valid = false;
+              continue;
+            }
+
+            filters.push(new RowExpression(term));
+          }
+
+          variants.push(
+            new EventRowEvaluator({
+              columns: query.resultColumns,
+              syntacticSource: query.sourceTable,
+              filters,
+              partitionBy: [],
+              addedFunctions: []
+            })
+          );
+        }
+
+        if (valid) {
+          event.sourceQueries.push({ sql, sourceTable: query.sourceTable, variants });
+        }
+      }
+    };
+  }
+
+  /**
+   * @returns A sync plan representing an immutable snapshot of the compiler output.
+   */
+  toSyncPlan(): SyncPlan {
+    const translator = new CompilerModelToSyncPlan();
+    return translator.translate(this.output);
+  }
+}
+
+/**
+ * Compiles raw event SQL stored alongside older sync plans into the current plan representation.
+ *
+ * This is the compatibility boundary for plans written before compiled events were added. Callers should reject fatal
+ * errors rather than carrying legacy event evaluators into a {@link SyncPlan}.
+ */
+export function compileEventDefinitions(
+  definitions: Readonly<Record<string, readonly string[]>>,
+  options: SyncStreamsCompilerOptions
+): { events: CompiledEventDescriptor[]; errors: SqlRuleError[] } {
+  const { compiler, errors } = compileEventDefinitionsIntoCompiler(definitions, options);
+  return { events: compiler.toSyncPlan().events, errors };
+}
+
+/**
+ * Compiles raw event SQL and retains the compiler's JavaScript model for behavioral compatibility checks.
+ */
+export function compileEventDefinitionsToCompilerModel(
+  definitions: Readonly<Record<string, readonly string[]>>,
+  options: SyncStreamsCompilerOptions
+): { events: CompiledEvent[]; errors: SqlRuleError[] } {
+  const { compiler, errors } = compileEventDefinitionsIntoCompiler(definitions, options);
+  return { events: compiler.output.events, errors };
+}
+
+/**
+ * Shared compilation step for the two event representations above.
+ *
+ * Returning the compiler, rather than one of its outputs, is intentional: persisted-plan normalization translates the
+ * result into serializable sync-plan data, while compatibility matching needs the JavaScript compiler model and its
+ * behavioral structure. Keeping both paths on this helper ensures they compile the same SQL with the same options.
+ */
+function compileEventDefinitionsIntoCompiler(
+  definitions: Readonly<Record<string, readonly string[]>>,
+  options: SyncStreamsCompilerOptions
+): { compiler: SyncStreamsCompiler; errors: SqlRuleError[] } {
+  // Use one compiler for the complete event collection, matching normal sync-config compilation. In particular, this
+  // keeps all compiler-owned expression locations and intermediate event models in one coherent output snapshot.
+  const compiler = new SyncStreamsCompiler(options);
+  const errors: SqlRuleError[] = [];
+
+  for (const [name, queries] of Object.entries(definitions)) {
+    // event() registers the named model immediately; each payload query then contributes one validated physical-table
+    // source to that model. Invalid queries report errors and are not added to the compiled event.
+    const event = compiler.event(name);
+    for (const sql of queries) {
+      event.addSourceQuery(sql, {
+        report(message, location, reportOptions) {
+          // Locations are offsets into this specific payload SQL string, so bind every reported compiler diagnostic to
+          // that source before accumulating it with diagnostics from the other event queries.
+          const error = new SqlRuleError(message, sql, location);
+          error.type = reportOptions?.isWarning ? 'warning' : 'fatal';
+          errors.push(error);
+        }
+      });
+    }
+  }
+
+  return { compiler, errors };
 }
 
 function tryParse(sql: string, errors: ParsingErrorListener): Statement | null {
   try {
-    const [stmt] = parse(sql, { locationTracking: true });
+    const statements = parse(sql, { locationTracking: true });
+    if (statements.length != 1) {
+      errors.report(
+        'Only a single SELECT statement is supported',
+        statements[1]?._location ?? { start: 0, end: sql.length }
+      );
+      return null;
+    }
+
+    const [stmt] = statements;
     return stmt;
   } catch (e: any) {
     const location: NodeLocation | undefined = e.token?._location;
@@ -159,6 +387,13 @@ export interface IndividualSyncStreamCompiler {
    * Merges added queries into compatible bucket groups and adds them to the compiled sync plan.
    */
   finish(): void;
+}
+
+export interface IndividualEventCompiler {
+  /**
+   * Validates and adds one payload query to this event.
+   */
+  addSourceQuery(sql: string, errors: ParsingErrorListener): void;
 }
 
 /**
@@ -205,12 +440,16 @@ export class CompiledStreamQueries {
   canonicalizePointLookup(lookup: PointLookup): PointLookup {
     return this._pointLookups.getOrInsert(lookup)[0];
   }
+}
 
-  /**
-   * @returns A sync plan representing an immutable snapshot of this intermediate representation.
-   */
-  toSyncPlan(): SyncPlan {
-    const translator = new CompilerModelToSyncPlan();
-    return translator.translate(this);
-  }
+/**
+ * Top-level compiler output used to assemble a complete sync plan.
+ *
+ * Streams and events are sibling sync-config concerns. Keeping their intermediate state separate prevents stream
+ * compilation abstractions from acquiring event-specific responsibilities just because both are persisted in one
+ * {@link SyncPlan}.
+ */
+export interface SyncPlanCompilerModel {
+  readonly streams: CompiledStreamQueries;
+  readonly events: CompiledEvent[];
 }

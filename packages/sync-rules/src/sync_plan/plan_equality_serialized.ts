@@ -1,5 +1,5 @@
-import { Equality } from '../compiler/equality.js';
-import {
+import type { Equality } from '../compiler/equality.js';
+import type {
   SerializedBucketDataSource,
   SerializedDataSource,
   SerializedParameterIndexLookupCreator
