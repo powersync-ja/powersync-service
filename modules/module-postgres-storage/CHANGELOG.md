@@ -1,5 +1,20 @@
 # @powersync/service-module-postgres-storage
 
+## 0.18.1
+
+### Patch Changes
+
+- 332d649: [MongoDB Storage] Support incremental parameter compacting jobs.
+- 4037e8f: Add storage.default_storage_version config option.
+- a997c88: Restructure MongoDB V3 bucket compacting.
+- Updated dependencies [332d649]
+- Updated dependencies [cc121b3]
+- Updated dependencies [4037e8f]
+- Updated dependencies [a997c88]
+  - @powersync/service-core@1.26.0
+  - @powersync/service-types@0.17.1
+  - @powersync/lib-service-postgres@0.5.4
+
 ## 0.18.0
 
 ### Minor Changes

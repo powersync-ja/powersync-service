@@ -1,5 +1,16 @@
 # @powersync/service-core-tests
 
+## 0.18.1
+
+### Patch Changes
+
+- a997c88: Restructure MongoDB V3 bucket compacting.
+- Updated dependencies [332d649]
+- Updated dependencies [cc121b3]
+- Updated dependencies [4037e8f]
+- Updated dependencies [a997c88]
+  - @powersync/service-core@1.26.0
+
 ## 0.18.0
 
 ### Minor Changes

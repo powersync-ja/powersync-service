@@ -1,5 +1,22 @@
 # @powersync/service-module-postgres
 
+## 0.23.0
+
+### Minor Changes
+
+- 2725f87: Add a `snapshot_socket_timeout` connection option for the idle timeout of snapshot connection sockets. Defaults to the previous fixed 30 seconds. When storage flushes stall the snapshot loop for longer than the timeout (for example when replicating while an active sync rules instance is streaming on the same storage), the source connection is killed mid-snapshot; raising the timeout avoids the reconnect cycle.
+
+### Patch Changes
+
+- a997c88: Restructure MongoDB V3 bucket compacting.
+- Updated dependencies [332d649]
+- Updated dependencies [cc121b3]
+- Updated dependencies [4037e8f]
+- Updated dependencies [a997c88]
+  - @powersync/service-core@1.26.0
+  - @powersync/service-types@0.17.1
+  - @powersync/lib-service-postgres@0.5.4
+
 ## 0.22.1
 
 ### Patch Changes
