@@ -1,6 +1,12 @@
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
 import { BinLogListener, SchemaChange, SchemaChangeType } from '@module/replication/zongji/BinLogListener.js';
-import { getMySQLVersion, qualifiedMySQLTable, satisfiesVersion } from '@module/utils/mysql-utils.js';
+import {
+  getMySQLVersion,
+  qualifiedMySQLTable,
+  satisfiesVersion,
+  TCP_KEEPALIVE_INITIAL_DELAY
+} from '@module/utils/mysql-utils.js';
+import { MySQLConnection } from '@powersync/mysql-zongji';
 import { TablePattern } from '@powersync/service-sync-rules';
 import crypto from 'crypto';
 import { v4 as uuid } from 'uuid';
@@ -12,6 +18,11 @@ import {
   TEST_CONNECTION_OPTIONS,
   TestBinLogEventHandler
 } from './util.js';
+
+// The zongji type definitions do not expose the connection config or the control connection.
+type ConnectionWithConfig = MySQLConnection & {
+  config: { enableKeepAlive?: boolean; keepAliveInitialDelay?: number };
+};
 
 describe('BinlogListener tests', { timeout: 60_000 }, () => {
   const MAX_QUEUE_CAPACITY_MB = 1;
@@ -59,6 +70,51 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
 
     expect(stopSpy).toHaveBeenCalled();
     expect(queueStopSpy).toHaveBeenCalled();
+    // Zongji does not destroy connections it did not create, so the listener has to.
+    expect(binLogListener.controlConnection.state).toBe('disconnected');
+  });
+
+  test('TCP keepalive is enabled on the binlog and control connections', async () => {
+    // Without keepalive, the control connection can idle for hours and be silently dropped by
+    // stateful firewalls. The next metadata query then blocks until the kernel gives up on TCP
+    // retransmissions, freezing the whole binlog pipeline for ~15 minutes.
+    const { connection } = binLogListener.zongji as unknown as { connection: ConnectionWithConfig };
+    const controlConnection = binLogListener.controlConnection as ConnectionWithConfig;
+
+    for (const conn of [connection, controlConnection]) {
+      expect(conn.config.enableKeepAlive).toBe(true);
+      expect(conn.config.keepAliveInitialDelay).toBe(TCP_KEEPALIVE_INITIAL_DELAY);
+    }
+  });
+
+  test('Stop completes when the control connection is unresponsive', { timeout: 20_000 }, async () => {
+    await binLogListener.start();
+
+    // Simulate a control connection that was silently dropped by the network: the KILL query
+    // issued by zongji.stop() never gets a response.
+    vi.spyOn(binLogListener.controlConnection, 'query').mockImplementation(() => {});
+
+    await binLogListener.stop();
+
+    expect(binLogListener.zongji.stopped).toBeTruthy();
+  });
+
+  test('Keepalive probe detects an unresponsive control connection', { timeout: 20_000 }, async () => {
+    binLogListener = await createBinlogListener({
+      connectionManager,
+      sourceTables: [new TablePattern(connectionManager.databaseName, 'test_DATA')],
+      eventHandler,
+      ctrlConnectionKeepAliveIntervalMs: 1_000,
+      ctrlConnectionKeepAliveTimeoutMs: 500
+    });
+    await binLogListener.start();
+
+    // Queries to the control connection never get a response, like a connection that died
+    // without either side being notified.
+    vi.spyOn(binLogListener.controlConnection, 'query').mockImplementation(() => {});
+
+    await expect(binLogListener.replicateUntilStopped()).rejects.toThrow('control connection is unresponsive');
+    expect(binLogListener.zongji.stopped).toBeTruthy();
   });
 
   test('Zongji listener is stopped when processing queue reaches maximum memory size', async () => {

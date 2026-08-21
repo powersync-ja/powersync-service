@@ -1,5 +1,6 @@
 import { BaseObserver, logger } from '@powersync/lib-services-framework';
-import { ZongJi } from '@powersync/mysql-zongji';
+import { ZongJi, ZongjiOptions } from '@powersync/mysql-zongji';
+import { createConnection, VlaskyConnection } from '@vlasky/mysql';
 import mysql, { FieldPacket, RowDataPacket } from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import { NormalizedMySQLConnectionConfig } from '../types/types.js';
@@ -7,6 +8,16 @@ import * as mysql_utils from '../utils/mysql-utils.js';
 
 export interface MySQLConnectionManagerListener {
   onEnded(): void;
+}
+
+export interface BinlogListenerConnections {
+  zongji: ZongJi;
+  /**
+   *  The connection Zongji uses for table metadata queries and the KILL query issued during stop.
+   *  Created by us so that we keep a handle on it: Zongji does not destroy connections it did not
+   *  create, so the owner of the BinLogListener is responsible for destroying it.
+   */
+  controlConnection: VlaskyConnection;
 }
 
 export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerListener> {
@@ -20,6 +31,7 @@ export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerL
   private readonly promisePool: mysqlPromise.Pool;
 
   private binlogListeners: ZongJi[] = [];
+  private controlConnections: VlaskyConnection[] = [];
 
   private isClosed = false;
 
@@ -46,22 +58,33 @@ export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerL
   }
 
   /**
-   * Create a new replication listener
+   * Create a new replication listener, along with the control connection it uses.
    */
-  createBinlogListener(): ZongJi {
-    const listener = new ZongJi({
+  createBinlogListener(): BinlogListenerConnections {
+    // We create the control connection ourselves and pass it to Zongji, so that we keep a handle
+    // on it for liveness probes and cleanup. Zongji creates its binlog connection from a copy of
+    // this connection's config, so the options here apply to both connections.
+    const controlConnection = createConnection({
       host: this.options.hostname,
       port: this.options.port,
       user: this.options.username,
       password: this.options.password,
+      // TCP keepalive is disabled by default in @vlasky/mysql. Without it, the idle control
+      // connection can be silently dropped by stateful firewalls, freezing replication on the
+      // next table metadata query until the TCP retransmission timeout (~950s).
+      enableKeepAlive: true,
+      keepAliveInitialDelay: mysql_utils.TCP_KEEPALIVE_INITIAL_DELAY,
       // We want to avoid parsing date/time values to Date, because that drops sub-millisecond precision.
       dateStrings: true,
       timeZone: 'Z'
     });
+    // The published ZongjiOptions type does not cover passing in an existing connection yet.
+    const listener = new ZongJi(controlConnection as unknown as ZongjiOptions);
 
     this.binlogListeners.push(listener);
+    this.controlConnections.push(controlConnection);
 
-    return listener;
+    return { zongji: listener, controlConnection };
   }
 
   /**
@@ -112,6 +135,11 @@ export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerL
 
     for (const listener of this.binlogListeners) {
       listener.stop();
+    }
+
+    // Zongji does not destroy connections it did not create.
+    for (const connection of this.controlConnections) {
+      connection.destroy();
     }
 
     try {

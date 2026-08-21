@@ -94,6 +94,8 @@ export interface CreateBinlogListenerParams {
   eventHandler: BinLogEventHandler;
   sourceTables: TablePattern[];
   startGTID?: common.ReplicatedGTID;
+  ctrlConnectionKeepAliveIntervalMs?: number;
+  ctrlConnectionKeepAliveTimeoutMs?: number;
 }
 export async function createBinlogListener(params: CreateBinlogListenerParams): Promise<BinLogListener> {
   let { connectionManager, eventHandler, sourceTables, startGTID } = params;
@@ -110,7 +112,9 @@ export async function createBinlogListener(params: CreateBinlogListenerParams): 
     startGTID: startGTID!,
     sourceTables: sourceTables,
     serverId: createRandomServerId(1),
-    activeServerUuid: activeServerUuid
+    activeServerUuid: activeServerUuid,
+    ctrlConnectionKeepAliveIntervalMs: params.ctrlConnectionKeepAliveIntervalMs,
+    ctrlConnectionKeepAliveTimeoutMs: params.ctrlConnectionKeepAliveTimeoutMs
   });
 }
 

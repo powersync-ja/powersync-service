@@ -427,6 +427,9 @@ importers:
       '@powersync/service-types':
         specifier: workspace:*
         version: link:../../packages/types
+      '@vlasky/mysql':
+        specifier: ^2.18.6
+        version: 2.18.6
       async:
         specifier: ^3.2.4
         version: 3.2.5
