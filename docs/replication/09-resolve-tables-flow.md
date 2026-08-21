@@ -49,11 +49,11 @@ A `SourceTable` is a replicated table with state:
 2. It stores the specific metadata from the `SourceEntityDescriptor` - any changes would result in a new `SourceTable`.
 3. It tracks snapshot lifecycle state (complete/in-progress, progress markers).
 4. It carries resolved sync participation flags (used for data, parameters, events).
-5. It tracks which persisted bucket data definitions and parameter indexes are used with it.
+5. It tracks which persisted bucket data definitions, parameter indexes, and compiled event definitions are used with it.
 
 There may be multiple `SourceTable`s per `SourceTableRef`. Historically it was generally 1:1, but incremental reprocessing now uses multiple records when a new bucket data source or parameter index is added. Instead of re-snapshotting an existing `SourceTable`, storage creates a new `SourceTable` with the same `SourceTableRef`. The new snapshot then only affects the new definitions, not existing compatible ones.
 
-When multiple records exist for one physical table, their bucket and parameter memberships must be disjoint so each definition receives each source row once. Storage also designates a single event carrier so row-change events are not duplicated.
+When multiple records exist for one physical table, their bucket, parameter, and event memberships must be disjoint so each definition receives each source row once. An unchanged event id can reuse a snapshotted record, while a new or changed event id creates new snapshot work.
 
 `SourceTable` is also used to track changes that may require a re-snapshot:
 

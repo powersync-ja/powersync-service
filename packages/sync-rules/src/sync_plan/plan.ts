@@ -139,6 +139,9 @@ export type ColumnSource = 'star' | { expr: SqlExpression<TableProcessorData>; a
 
 /**
  * A named replication event compiled from `event_definitions`.
+ *
+ * Events have no content id of their own: storage assigns and persists a stable id for each one, matching definitions
+ * across sync configs with the compiler model's behavioral equality.
  */
 export interface CompiledEventDescriptor {
   name: string;

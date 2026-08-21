@@ -559,6 +559,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const source = sourceDescriptor('memberships', { objectId: 'memberships-relation' });
     const dataOnlyTableId = new bson.ObjectId('6544e3899293153fa7b38348');
     const addedParameterTableId = new bson.ObjectId('6544e3899293153fa7b38349');
+    const addedEventTableId = new bson.ObjectId('6544e3899293153fa7b3834a');
 
     const dataOnly = await writer.resolveTables({
       connection_id: 1,
@@ -616,15 +617,13 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const eventOnly = await writer.resolveTables({
       connection_id: 1,
       source,
-      idGenerator: () => {
-        throw new Error('resolve should reuse existing v3 source table');
-      },
+      idGenerator: () => addedEventTableId,
       parsedSyncConfig: eventOnlyRules
     });
 
-    // Event-only table can re-use any existing table.
+    // A newly-added event gets its own source table so that its existing rows are snapshotted.
     expect(eventOnly.tables).toHaveLength(1);
-    expect([dataOnlyTableId.toString(), addedParameterTableId.toString()]).toContain(eventOnly.tables[0].id.toString());
+    expect(eventOnly.tables[0].id).toEqual(addedEventTableId);
     expect(eventOnly.dropTables.map((table) => table.id)).toEqual([]);
     expect(eventOnly.tables[0].bucketDataSources).toHaveLength(0);
     expect(eventOnly.tables[0].parameterLookupSources).toHaveLength(0);
@@ -633,13 +632,11 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     expect(eventOnly.tables[0].syncEvent).toBe(true);
   });
 
-  test.runIf(storageVersion >= 3)(
-    'resolveTables designates a single event carrier across split source tables',
-    async () => {
-      // When memberships are split over multiple SourceTables for the same ref, a row change
-      // is saved once per table. Only one table may fire events, otherwise the same event
-      // would fire once per table for every row change.
-      const dataOnlyEventYaml = `
+  test.runIf(storageVersion >= 3)('resolveTables assigns an event definition to one split source table', async () => {
+    // When memberships are split over multiple SourceTables for the same ref, a row change
+    // is saved once per table. Only one table may fire events, otherwise the same event
+    // would fire once per table for every row change.
+    const dataOnlyEventYaml = `
     bucket_definitions:
       by_owner:
         parameters:
@@ -652,7 +649,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
         payloads:
           - SELECT id, owner_id FROM memberships
     `;
-      const fullEventYaml = `
+    const fullEventYaml = `
     bucket_definitions:
       by_owner:
         parameters:
@@ -666,42 +663,201 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
           - SELECT id, owner_id FROM memberships
     `;
 
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(dataOnlyEventYaml, { storageVersion }));
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const dataOnlyRules = parsedSyncConfigSetFor(dataOnlyEventYaml, storageVersion);
+    const fullRules = parsedSyncConfigSetFor(fullEventYaml, storageVersion);
+    const source = sourceDescriptor('memberships', { objectId: 'memberships-relation' });
+
+    const initial = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      idGenerator: objectIdGenerator('6544e3899293153fa7b3834b'),
+      parsedSyncConfig: dataOnlyRules
+    });
+    expect(initial.tables).toHaveLength(1);
+    expect(initial.tables[0].syncEvent).toBe(true);
+
+    // Adding the table-based parameter lookup creates a second SourceTable for the same ref.
+    const split = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      idGenerator: objectIdGenerator('6544e3899293153fa7b3834c'),
+      parsedSyncConfig: fullRules
+    });
+    expect(split.tables).toHaveLength(2);
+    // Both tables match the event by ref, but the event id belongs to only one of them.
+    const carriers = split.tables.filter((table) => table.syncEvent);
+    expect(carriers).toHaveLength(1);
+
+    // getSourceTableStatus rehydrates the persisted event memberships rather than recomputing
+    // them from the ref, so refreshing the other table does not make it fire the event.
+    const nonCarrier = split.tables.find((table) => !table.syncEvent)!;
+    const refreshed = await writer.getSourceTableStatus(nonCarrier);
+    expect(refreshed!.syncEvent).toBe(false);
+  });
+
+  test.runIf(storageVersion >= 3)(
+    'reuses an unchanged event definition without resnapshotting or firing it twice',
+    async () => {
+      const firstYaml = `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+
+event_definitions:
+  write_checkpoints:
+    payloads:
+      - SELECT user_id, checkpoint FROM checkpoints WHERE active = true AND checkpoint > 0
+`;
+      const secondYaml = `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+  by_project:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+
+event_definitions:
+  write_checkpoints:
+    payloads:
+      - SELECT user_id, checkpoint FROM checkpoints WHERE checkpoint > 0 AND true = active
+`;
+
       await using factory = await storageConfig.factory();
-      const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(dataOnlyEventYaml, { storageVersion }));
-      const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
-      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-      const dataOnlyRules = parsedSyncConfigSetFor(dataOnlyEventYaml, storageVersion);
-      const fullRules = parsedSyncConfigSetFor(fullEventYaml, storageVersion);
-      const source = sourceDescriptor('memberships', { objectId: 'memberships-relation' });
-
-      const initial = await writer.resolveTables({
-        connection_id: 1,
-        source,
-        idGenerator: objectIdGenerator('6544e3899293153fa7b3834b'),
-        parsedSyncConfig: dataOnlyRules
+      const emittedEventNames: string[] = [];
+      const disposeListener = factory.registerListener({
+        replicationEvent: ({ event }) => emittedEventNames.push(event.name)
       });
-      expect(initial.tables).toHaveLength(1);
-      expect(initial.tables[0].syncEvent).toBe(true);
+      try {
+        const first = await factory.updateSyncRules(updateSyncRulesFromYaml(firstYaml, { storageVersion }));
+        const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+        await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+        const source = sourceDescriptor('checkpoints', { objectId: 'checkpoints-relation' });
+        const firstResolved = await firstWriter.resolveTables({
+          connection_id: 1,
+          source,
+          idGenerator: objectIdGenerator('6544e3899293153fa7b38351')
+        });
+        const eventId = [...firstResolved.tables[0].eventDefinitionIds!][0];
+        expect(eventId).toBeDefined();
+        await firstWriter.markTableSnapshotDone(firstResolved.tables, '1/1');
+        await firstWriter.markAllSnapshotDone('1/1');
+        await firstWriter.commit('1/1');
 
-      // Adding the table-based parameter lookup creates a second SourceTable for the same ref.
-      const split = await writer.resolveTables({
-        connection_id: 1,
-        source,
-        idGenerator: objectIdGenerator('6544e3899293153fa7b3834c'),
-        parsedSyncConfig: fullRules
-      });
-      expect(split.tables).toHaveLength(2);
-      // Both tables match the event by ref, but only one may carry it.
-      const carriers = split.tables.filter((table) => table.syncEvent);
-      expect(carriers).toHaveLength(1);
+        const second = await factory.updateSyncRules(updateSyncRulesFromYaml(secondYaml, { storageVersion }));
+        expect(second.replicationStreamId).toBe(first.replicationStreamId);
+        const secondStorage = factory.getInstance(second) as MongoSyncBucketStorage;
+        await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
+        const resolved = await secondWriter.resolveTables({
+          connection_id: 1,
+          source,
+          idGenerator: () => {
+            throw new Error('unchanged event definition should reuse the snapshotted source table');
+          }
+        });
 
-      // getSourceTableStatus preserves the carrier designation rather than recomputing it
-      // from the ref, so refreshing a non-carrier table does not make it fire events.
-      const nonCarrier = split.tables.find((table) => !table.syncEvent)!;
-      const refreshed = await writer.getSourceTableStatus(nonCarrier);
-      expect(refreshed!.syncEvent).toBe(false);
+        expect(resolved.tables).toHaveLength(1);
+        expect(resolved.tables[0].id).toEqual(firstResolved.tables[0].id);
+        expect(resolved.tables[0].snapshotComplete).toBe(true);
+        expect([...resolved.tables[0].eventDefinitionIds!]).toEqual([eventId]);
+
+        emittedEventNames.length = 0;
+        await secondWriter.save({
+          sourceTable: resolved.tables[0],
+          tag: storage.SaveOperationTag.INSERT,
+          after: { id: 'checkpoint-1', user_id: 'user-1', checkpoint: 1n, active: 1 },
+          afterReplicaId: test_utils.rid('checkpoint-1')
+        });
+        expect(emittedEventNames).toEqual(['write_checkpoints']);
+      } finally {
+        disposeListener();
+      }
     }
   );
+
+  test.runIf(storageVersion >= 3)('creates snapshot work for a changed event definition', async () => {
+    const yaml = (active: boolean) => `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+
+event_definitions:
+  write_checkpoints:
+    payloads:
+      - SELECT user_id, checkpoint FROM checkpoints WHERE active = ${active}
+`;
+
+    await using factory = await storageConfig.factory();
+    const emittedEventNames: string[] = [];
+    const disposeListener = factory.registerListener({
+      replicationEvent: ({ event }) => emittedEventNames.push(event.name)
+    });
+    try {
+      const first = await factory.updateSyncRules(updateSyncRulesFromYaml(yaml(true), { storageVersion }));
+      const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+      await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const source = sourceDescriptor('checkpoints', { objectId: 'checkpoints-relation' });
+      const firstResolved = await firstWriter.resolveTables({
+        connection_id: 1,
+        source,
+        idGenerator: objectIdGenerator('6544e3899293153fa7b38352')
+      });
+      const oldEventId = [...firstResolved.tables[0].eventDefinitionIds!][0];
+      await firstWriter.markTableSnapshotDone(firstResolved.tables, '1/1');
+      await firstWriter.markAllSnapshotDone('1/1');
+      await firstWriter.commit('1/1');
+
+      const second = await factory.updateSyncRules(updateSyncRulesFromYaml(yaml(false), { storageVersion }));
+      expect(second.replicationStreamId).toBe(first.replicationStreamId);
+      const secondStorage = factory.getInstance(second) as MongoSyncBucketStorage;
+      await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const resolved = await secondWriter.resolveTables({
+        connection_id: 1,
+        source,
+        idGenerator: objectIdGenerator('6544e3899293153fa7b38353')
+      });
+
+      expect(resolved.tables).toHaveLength(2);
+      const oldTable = resolved.tables.find((table) => table.eventDefinitionIds?.has(oldEventId))!;
+      const newTable = resolved.tables.find((table) => !table.eventDefinitionIds?.has(oldEventId))!;
+      const newEventId = [...newTable.eventDefinitionIds!][0];
+      expect(newEventId).toBeDefined();
+      expect(newEventId).not.toBe(oldEventId);
+      expect(oldTable.snapshotComplete).toBe(true);
+      expect(newTable.snapshotComplete).toBe(false);
+      expect(newTable.bucketDataSources).toEqual([]);
+      expect(newTable.parameterLookupSources).toEqual([]);
+
+      await expect(secondWriter.markSnapshotDone('2/1')).rejects.toThrow(
+        'Cannot mark snapshot done while source tables still require snapshotting'
+      );
+
+      emittedEventNames.length = 0;
+      await secondWriter.save({
+        sourceTable: newTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'checkpoint-2', user_id: 'user-2', checkpoint: 2n, active: 0 },
+        afterReplicaId: test_utils.rid('checkpoint-2')
+      });
+      expect(emittedEventNames).toEqual(['write_checkpoints']);
+
+      await secondWriter.markTableSnapshotDone([newTable], '2/1');
+      await secondWriter.markSnapshotDone('2/1');
+    } finally {
+      disposeListener();
+    }
+  });
 
   test.runIf(storageVersion >= 3)('uses v3 mongodb model shapes', async () => {
     await using factory = await storageConfig.factory();
@@ -1829,6 +1985,7 @@ streams:
         snapshot_status: undefined,
         bucket_data_source_ids: [],
         parameter_lookup_source_ids: [],
+        event_definition_ids: [],
         latest_pending_delete: 9n
       },
       {
@@ -1842,6 +1999,7 @@ streams:
         snapshot_status: undefined,
         bucket_data_source_ids: [],
         parameter_lookup_source_ids: [],
+        event_definition_ids: [],
         latest_pending_delete: 12n
       }
     ]);

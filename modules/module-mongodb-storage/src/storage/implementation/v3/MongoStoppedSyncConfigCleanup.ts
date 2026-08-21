@@ -1,7 +1,7 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { Logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
 import { SingleSyncConfigBucketDefinitionMapping, storage } from '@powersync/service-core';
-import { BucketDefinitionId, ParameterIndexId, SyncConfig } from '@powersync/service-sync-rules';
+import { BucketDefinitionId, EventDefinitionId, ParameterIndexId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { clearCollectionInIdRanges, idPrefixFilter } from '../../../utils/util.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
@@ -46,8 +46,6 @@ export class MongoStoppedSyncConfigCleanup {
   private readonly signal: AbortSignal | undefined;
   private readonly logger: Logger;
   private readonly objectStorage: ObjectStorage | undefined;
-  private readonly defaultSchema: string;
-  private readonly sourceConnectionTag: string;
   private readonly clearBatchThrottleRate: number;
 
   constructor(options: MongoStoppedSyncConfigCleanupOptions) {
@@ -56,8 +54,6 @@ export class MongoStoppedSyncConfigCleanup {
     this.signal = options.signal;
     this.logger = options.logger;
     this.objectStorage = options.objectStorage;
-    this.defaultSchema = options.defaultSchema;
-    this.sourceConnectionTag = options.sourceConnectionTag;
     this.clearBatchThrottleRate = options.clearBatchThrottleRate;
   }
 
@@ -91,27 +87,30 @@ export class MongoStoppedSyncConfigCleanup {
       liveStorageIds.bucketDefinitionIds
     );
     const unusedParameterIndexIds = difference(stoppedStorageIds.parameterIndexIds, liveStorageIds.parameterIndexIds);
+    const unusedEventDefinitionIds = difference(
+      stoppedStorageIds.eventDefinitionIds,
+      liveStorageIds.eventDefinitionIds
+    );
 
     const result: storage.CleanupStoppedSyncConfigsResult = {
       ...EMPTY_RESULT
     };
 
-    if (unusedBucketDefinitionIds.length > 0 || unusedParameterIndexIds.length > 0) {
+    if (
+      unusedBucketDefinitionIds.length > 0 ||
+      unusedParameterIndexIds.length > 0 ||
+      unusedEventDefinitionIds.length > 0
+    ) {
       await this.cleanupSourceTableMemberships(
         unusedBucketDefinitionIds,
         unusedParameterIndexIds,
-        liveConfigDocs,
+        unusedEventDefinitionIds,
         result
       );
       result.bucketDataCollectionsDropped = await this.dropBucketDataCollections(unusedBucketDefinitionIds);
       result.bucketStateDocumentsDeleted = await this.deleteBucketStateDocuments(unusedBucketDefinitionIds);
       result.parameterIndexCollectionsDropped = await this.dropParameterIndexCollections(unusedParameterIndexIds);
     }
-
-    // Event-only source tables carry empty membership arrays, so they are never selected by the
-    // membership filter above. Clean them up separately, regardless of whether any bucket or
-    // parameter ids became unused (a stopped config may have contributed only an event trigger).
-    await this.cleanupEventOnlySourceTables(liveConfigDocs, result);
 
     result.stoppedSyncConfigsRemoved = await this.pruneStoppedSyncConfigStates(stoppedStates);
 
@@ -132,20 +131,21 @@ export class MongoStoppedSyncConfigCleanup {
     return this.db.syncConfigDefinitions.find({ _id: { $in: ids } }).toArray();
   }
 
-  private storageIdsFor(configs: Pick<SyncConfigDefinition, 'rule_mapping'>[]) {
+  private storageIdsFor(configs: SyncConfigDefinition[]) {
     const mappings = configs.map((config) =>
       SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(config.rule_mapping)
     );
     return {
       bucketDefinitionIds: [...new Set(mappings.flatMap((mapping) => mapping.allBucketDefinitionIds()))],
-      parameterIndexIds: [...new Set(mappings.flatMap((mapping) => mapping.allParameterIndexIds()))]
+      parameterIndexIds: [...new Set(mappings.flatMap((mapping) => mapping.allParameterIndexIds()))],
+      eventDefinitionIds: [...new Set(mappings.flatMap((mapping) => mapping.allEventDefinitionIds()))]
     };
   }
 
   private async cleanupSourceTableMemberships(
     unusedBucketDefinitionIds: BucketDefinitionId[],
     unusedParameterIndexIds: ParameterIndexId[],
-    liveConfigDocs: SyncConfigDefinition[],
+    unusedEventDefinitionIds: EventDefinitionId[],
     result: storage.CleanupStoppedSyncConfigsResult
   ) {
     const update: Record<string, unknown> = {};
@@ -155,11 +155,18 @@ export class MongoStoppedSyncConfigCleanup {
     if (unusedParameterIndexIds.length > 0) {
       update.parameter_lookup_source_ids = { $in: unusedParameterIndexIds };
     }
+    if (unusedEventDefinitionIds.length > 0) {
+      update.event_definition_ids = { $in: unusedEventDefinitionIds };
+    }
 
     // Keep obsolete membership ids as the durable cleanup marker until each source table is
     // either deleted or retained. If interrupted after dropping a source_records collection,
     // the next run can still rediscover the source table from these obsolete ids and retry.
-    const filter = this.sourceTableMembershipFilter(unusedBucketDefinitionIds, unusedParameterIndexIds);
+    const filter = this.sourceTableMembershipFilter(
+      unusedBucketDefinitionIds,
+      unusedParameterIndexIds,
+      unusedEventDefinitionIds
+    );
     const candidateSourceTables = await this.db
       .sourceTables(this.replicationStreamId)
       .find(filter, {
@@ -167,6 +174,7 @@ export class MongoStoppedSyncConfigCleanup {
           _id: 1,
           bucket_data_source_ids: 1,
           parameter_lookup_source_ids: 1,
+          event_definition_ids: 1,
           schema_name: 1,
           table_name: 1
         }
@@ -175,12 +183,13 @@ export class MongoStoppedSyncConfigCleanup {
     if (candidateSourceTables.length == 0) {
       return;
     }
-    const liveSyncConfigs = this.parseSyncConfigs(liveConfigDocs);
-
-    const deletableSourceTables = candidateSourceTables.filter(
-      (sourceTable) =>
-        this.membershipsBecomeEmpty(sourceTable, unusedBucketDefinitionIds, unusedParameterIndexIds) &&
-        !this.triggersLiveEvent(sourceTable, liveSyncConfigs)
+    const deletableSourceTables = candidateSourceTables.filter((sourceTable) =>
+      this.membershipsBecomeEmpty(
+        sourceTable,
+        unusedBucketDefinitionIds,
+        unusedParameterIndexIds,
+        unusedEventDefinitionIds
+      )
     );
     const retainedSourceTables = candidateSourceTables.filter(
       (sourceTable) => !deletableSourceTables.some((deletable) => deletable._id.equals(sourceTable._id))
@@ -189,19 +198,24 @@ export class MongoStoppedSyncConfigCleanup {
 
     await this.deleteSourceTables(
       deletableSourceTables.map((table) => table._id),
-      (ids) => this.deletableSourceTableFilter(ids, unusedBucketDefinitionIds, unusedParameterIndexIds),
+      (ids) =>
+        this.deletableSourceTableFilter(
+          ids,
+          unusedBucketDefinitionIds,
+          unusedParameterIndexIds,
+          unusedEventDefinitionIds
+        ),
       result
     );
 
-    // A retained source table whose memberships become empty is kept alive only by a live event
-    // (otherwise it would be deletable). It becomes event-only, and event-only save() never reads
-    // or writes current_data, so its source_records collection is now dead weight. Drop it before
-    // the $pull below, so the obsolete membership ids remain as a recovery marker if interrupted.
-    // Existing source-table docs only ever shrink their memberships, so this table cannot resume
-    // data sync on the same doc and need current_data again.
+    // A retained source table whose data and parameter memberships become empty is event-only.
+    // Event-only save() never reads or writes current_data, so its source_records collection is now
+    // dead weight. Drop it before the $pull below, so the obsolete membership ids remain as a recovery
+    // marker if interrupted. Existing source-table docs only ever shrink their memberships, so this
+    // table cannot resume data sync on the same doc and need current_data again.
     const becomingEventOnlySourceTableIds = retainedSourceTables
       .filter((sourceTable) =>
-        this.membershipsBecomeEmpty(sourceTable, unusedBucketDefinitionIds, unusedParameterIndexIds)
+        this.dataMembershipsBecomeEmpty(sourceTable, unusedBucketDefinitionIds, unusedParameterIndexIds)
       )
       .map((sourceTable) => sourceTable._id);
     for (const sourceTableId of becomingEventOnlySourceTableIds) {
@@ -221,42 +235,6 @@ export class MongoStoppedSyncConfigCleanup {
       );
       result.sourceTablesUpdated += updateResult.modifiedCount;
     }
-  }
-
-  /**
-   * Clean up event-only source tables that no live sync config still triggers events for.
-   *
-   * Event-only source tables carry empty membership arrays (see source-table-utils:
-   * "Empty memberships indicate an event-only table"), so the membership filter never selects
-   * them. Without this, the source_tables row and its source_records collection leak when the
-   * config that contributed the event trigger is stopped.
-   */
-  private async cleanupEventOnlySourceTables(
-    liveConfigDocs: SyncConfigDefinition[],
-    result: storage.CleanupStoppedSyncConfigsResult
-  ) {
-    const candidateSourceTables = await this.db
-      .sourceTables(this.replicationStreamId)
-      .find(this.eventOnlySourceTableFilter(), {
-        projection: {
-          _id: 1,
-          bucket_data_source_ids: 1,
-          parameter_lookup_source_ids: 1,
-          schema_name: 1,
-          table_name: 1
-        }
-      })
-      .toArray();
-    if (candidateSourceTables.length == 0) {
-      return;
-    }
-
-    const liveSyncConfigs = this.parseSyncConfigs(liveConfigDocs);
-    const deletableSourceTableIds = candidateSourceTables
-      .filter((sourceTable) => !this.triggersLiveEvent(sourceTable, liveSyncConfigs))
-      .map((sourceTable) => sourceTable._id);
-
-    await this.deleteSourceTables(deletableSourceTableIds, (ids) => this.eventOnlyDeletableFilter(ids), result);
   }
 
   /**
@@ -298,6 +276,25 @@ export class MongoStoppedSyncConfigCleanup {
   }
 
   private membershipsBecomeEmpty(
+    sourceTable: Pick<
+      SourceTableDocumentV3,
+      'bucket_data_source_ids' | 'parameter_lookup_source_ids' | 'event_definition_ids'
+    >,
+    unusedBucketDefinitionIds: BucketDefinitionId[],
+    unusedParameterIndexIds: ParameterIndexId[],
+    unusedEventDefinitionIds: EventDefinitionId[]
+  ): boolean {
+    const unusedBucketDefinitionIdSet = new Set(unusedBucketDefinitionIds);
+    const unusedParameterIndexIdSet = new Set(unusedParameterIndexIds);
+    const unusedEventDefinitionIdSet = new Set(unusedEventDefinitionIds);
+    return (
+      sourceTable.bucket_data_source_ids.every((id) => unusedBucketDefinitionIdSet.has(id)) &&
+      sourceTable.parameter_lookup_source_ids.every((id) => unusedParameterIndexIdSet.has(id)) &&
+      sourceTable.event_definition_ids.every((id) => unusedEventDefinitionIdSet.has(id))
+    );
+  }
+
+  private dataMembershipsBecomeEmpty(
     sourceTable: Pick<SourceTableDocumentV3, 'bucket_data_source_ids' | 'parameter_lookup_source_ids'>,
     unusedBucketDefinitionIds: BucketDefinitionId[],
     unusedParameterIndexIds: ParameterIndexId[]
@@ -313,57 +310,21 @@ export class MongoStoppedSyncConfigCleanup {
   private deletableSourceTableFilter(
     ids: bson.ObjectId[],
     unusedBucketDefinitionIds: BucketDefinitionId[],
-    unusedParameterIndexIds: ParameterIndexId[]
+    unusedParameterIndexIds: ParameterIndexId[],
+    unusedEventDefinitionIds: EventDefinitionId[]
   ): Record<string, unknown> {
     return {
       _id: { $in: ids },
       bucket_data_source_ids: { $not: { $elemMatch: { $nin: unusedBucketDefinitionIds } } },
-      parameter_lookup_source_ids: { $not: { $elemMatch: { $nin: unusedParameterIndexIds } } }
+      parameter_lookup_source_ids: { $not: { $elemMatch: { $nin: unusedParameterIndexIds } } },
+      event_definition_ids: { $not: { $elemMatch: { $nin: unusedEventDefinitionIds } } }
     };
-  }
-
-  private eventOnlySourceTableFilter(): Record<string, unknown> {
-    return {
-      bucket_data_source_ids: { $size: 0 },
-      parameter_lookup_source_ids: { $size: 0 }
-    };
-  }
-
-  private eventOnlyDeletableFilter(ids: bson.ObjectId[]): Record<string, unknown> {
-    return {
-      _id: { $in: ids },
-      ...this.eventOnlySourceTableFilter()
-    };
-  }
-
-  private parseSyncConfigs(configDocs: SyncConfigDefinition[]): SyncConfig[] {
-    // This is ugly - we should not need to re-parse to achieve this.
-    // Revisit persistence for this later.
-    return configDocs.map((config) => {
-      return storage.parsePersistedSyncConfigContent({
-        content: config.content,
-        compiledPlan: config.serialized_plan ?? null,
-        storageVersion: config.storage_version,
-        parseOptions: {
-          defaultSchema: this.defaultSchema
-        }
-      }).config;
-    });
-  }
-
-  private triggersLiveEvent(sourceTable: SourceTableDocumentV3, liveSyncConfigs: SyncConfig[]): boolean {
-    return liveSyncConfigs.some((syncConfig) =>
-      syncConfig.tableTriggersEvent({
-        connectionTag: this.sourceConnectionTag,
-        schema: sourceTable.schema_name,
-        name: sourceTable.table_name
-      })
-    );
   }
 
   private sourceTableMembershipFilter(
     bucketDefinitionIds: BucketDefinitionId[],
-    parameterIndexIds: ParameterIndexId[]
+    parameterIndexIds: ParameterIndexId[],
+    eventDefinitionIds: EventDefinitionId[]
   ): Partial<SourceTableDocumentV3> | Record<string, unknown> {
     const clauses: Record<string, unknown>[] = [];
     if (bucketDefinitionIds.length > 0) {
@@ -371,6 +332,9 @@ export class MongoStoppedSyncConfigCleanup {
     }
     if (parameterIndexIds.length > 0) {
       clauses.push({ parameter_lookup_source_ids: { $in: parameterIndexIds } });
+    }
+    if (eventDefinitionIds.length > 0) {
+      clauses.push({ event_definition_ids: { $in: eventDefinitionIds } });
     }
     if (clauses.length == 0) {
       return { _id: { $exists: false } };
