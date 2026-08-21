@@ -157,9 +157,7 @@ export interface SourceTableDocumentV3 {
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
-  /**
-   * Content-addressed compiled event definitions evaluated by this source table.
-   */
+  /** Stream-assigned event definition ids evaluated by this source table. */
   event_definition_ids: EventDefinitionId[];
   latest_pending_delete?: InternalOpId | undefined;
   /**

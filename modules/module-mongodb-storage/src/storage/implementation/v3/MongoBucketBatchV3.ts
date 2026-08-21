@@ -42,7 +42,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       throw new ReplicationAssertionError('Missing sync config id for v3 batch');
     }
     this.syncConfigIds = syncConfigIds;
-    this.knownEventIds = new Set(this.sync_rules.eventDescriptors.map((event) => event.id));
+    this.knownEventIds = new Set(this.mapping.allEventDefinitionIds());
     this.store = new SourceRecordStoreV3(this.db, this.replicationStreamId, this.mapping);
   }
 

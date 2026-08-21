@@ -177,17 +177,16 @@ export type SyncStorageLastWriteCheckpointFilters =
   | ManagedWriteCheckpointFilters;
 export type LastWriteCheckpointFilters = CustomWriteCheckpointFilters | ManagedWriteCheckpointFilters;
 
-export type CustomWriteCheckpointEventIdResolver = (syncConfig: HydratedSyncConfig) => EventDefinitionId;
-
+/** Configures checkpoint ownership and generation for a storage instance. */
 export type WriteCheckpointModeConfig =
   | {
       mode: WriteCheckpointMode.CUSTOM;
       /**
-       * Resolves the custom checkpoint event served by the supplied active sync
-       * config. Required by storage implementations that scope custom
-       * checkpoints by event definition.
+       * Name of the event whose custom checkpoints are served. Storage resolves this name through the active sync
+       * config's persisted mapping; integrations must not construct or persist event ids themselves. Required by
+       * storage implementations that scope custom checkpoints by event definition.
        */
-      resolveEventId?: CustomWriteCheckpointEventIdResolver;
+      eventName?: string;
     }
   | {
       mode: WriteCheckpointMode.MANAGED;

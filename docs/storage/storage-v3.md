@@ -133,12 +133,12 @@ Bucket state documents for a definition id are removed when stopped config clean
 
 ## custom checkpoint requests
 
-Scoped by replication stream and compiled event definition.
+Scoped by replication stream and stream-assigned event definition id.
 
 Collection: `custom_checkpoint_requests_${stream_id}_${event_id}`
 
-Each collection stores one custom checkpoint per user for an event definition. An event id is required for all v3
-custom checkpoint reads and writes. Reused event definitions share their
+Each collection stores one custom checkpoint per user for an event definition. An assigned event id is required for
+all v3 custom checkpoint reads and writes. Reused event definitions share their
 collection across active and processing sync configs, while changed definitions use separate collections until
 activation. Collections and their indexes are created lazily when the first custom checkpoint for an event is
 flushed; unrelated events do not get a collection. Stopped sync config cleanup drops a collection once no live sync

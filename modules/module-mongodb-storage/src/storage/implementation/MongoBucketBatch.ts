@@ -1,5 +1,11 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { HydratedEventDescriptor, HydratedSyncConfig, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
+import {
+  EventDefinitionId,
+  HydratedEventDescriptor,
+  HydratedSyncConfig,
+  SqliteRow,
+  SqliteValue
+} from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
@@ -774,7 +780,7 @@ export abstract class MongoBucketBatch
     // exactly one SourceTable even when bucket and parameter memberships are split.
     // Legacy storage leaves eventDefinitionIds undefined and selects by table ref.
     if (sourceTable.syncEvent) {
-      for (const event of this.getTableEvents(sourceTable)) {
+      for (const { event, eventId } of this.getTableEvents(sourceTable)) {
         this.iterateListeners((cb) =>
           cb.replicationEvent?.({
             batch: this,
@@ -784,7 +790,8 @@ export abstract class MongoBucketBatch
               after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
               before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
             },
-            event
+            event,
+            event_id: eventId
           })
         );
       }
@@ -944,23 +951,27 @@ export abstract class MongoBucketBatch
   /**
    * Gets relevant {@link HydratedEventDescriptor}s for the given {@link SourceTable}
    */
-  protected getTableEvents(table: storage.SourceTable): HydratedEventDescriptor[] {
+  protected getTableEvents(
+    table: storage.SourceTable
+  ): { event: HydratedEventDescriptor; eventId?: EventDefinitionId }[] {
     // V3 storage assigns event-definition ids to each source table, so membership is authoritative.
     // Iterate the table's distinct ids and resolve each through the stream's deduped event map, so a
     // definition reused across configs fires exactly once. Legacy storage leaves this undefined and
     // selects by table ref.
     if (table.eventDefinitionIds != null) {
       const eventById = this.options.parsedSyncConfig.eventById;
-      const events: HydratedEventDescriptor[] = [];
+      const events: { event: HydratedEventDescriptor; eventId: EventDefinitionId }[] = [];
       for (const id of table.eventDefinitionIds) {
         const event = eventById.get(id);
         if (event != null && event.tableTriggersEvent(table.ref)) {
-          events.push(event);
+          events.push({ event, eventId: id });
         }
       }
       return events;
     }
 
-    return this.sync_rules.eventDescriptors.filter((event) => event.tableTriggersEvent(table.ref));
+    return this.sync_rules.eventDescriptors
+      .filter((event) => event.tableTriggersEvent(table.ref))
+      .map((event) => ({ event }));
   }
 }

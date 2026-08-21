@@ -193,7 +193,11 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected override createWriteCheckpointAPI(options: MongoCheckpointAPIOptions): MongoWriteCheckpointAPIV3 {
-    return new MongoWriteCheckpointAPIV3({ ...options, db: this.db });
+    return new MongoWriteCheckpointAPIV3({
+      ...options,
+      db: this.db,
+      syncConfigMapping: () => this.singleSyncConfigMapping()
+    });
   }
 
   createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
