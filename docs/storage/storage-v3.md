@@ -48,9 +48,17 @@ A specific sync config definition never moves between replication streams. When 
 
 ## rule_mapping
 
-Each sync config definition has a `rule_mapping` that maps bucket data sources and parameter lookup sources to stable ids within the replication stream.
+Each sync config definition has a `rule_mapping` that maps bucket data sources, parameter lookup sources, and events to stable ids within the replication stream.
 
-Compatible incremental updates reuse ids for equivalent serialized bucket and parameter definitions. Added definitions receive new ids. Historical mappings are included when allocating new ids so dropped ids are not accidentally reused inside the same stream.
+Compatible incremental updates reuse ids for equivalent serialized bucket and parameter definitions. Event definitions are recompiled from their retained SQL and compared with the compiler's JavaScript plan model, which ignores payload-query order and normalizes safe operand reordering such as reordered conjunctions. Added definitions receive new ids. Historical mappings are included when allocating new ids so dropped ids are not accidentally reused inside the same stream.
+
+### Event mapping and matching
+
+Event ids are opaque, hexadecimal counters scoped to one replication stream. Each sync config persists an event-name-to-id mapping. A new event receives one more than the largest event id in any current or historical mapping. The service does not calculate an id by hashing the event definition: a compatible event reuses the id recorded in an earlier mapping, while an incompatible event receives the next counter value. Historical mappings continue to reserve an id after its event is removed, preventing that value from later being assigned to a different event definition in the same stream.
+
+When deploying a sync config, each event is matched independently against events in compatible active configs using its name and compiled behavior. Matching includes source tables, filters, and projected payloads while ignoring raw SQL formatting, event-definition order, payload-query order, and safe expression operand reordering. A match reuses the existing id; otherwise, a new id is allocated. Consequently, reordering unchanged `event_definitions` does not create ids or snapshot work. Ordering only determines which opaque counter values are assigned when multiple genuinely new events are introduced together.
+
+Source-table documents store event ids as memberships. A reused id can reuse existing snapshot-complete source-table coverage. A new or changed event has a new, uncovered id, so reconciliation creates separate source-table snapshot work for it. The in-memory reverse mapping from event id to sync config ids ensures that this work affects only configs using that id. Compatibility matching must remain conservative: failing to match only causes another snapshot, while incorrectly matching could reuse incompatible event state.
 
 These ids are used by:
 
@@ -65,7 +73,7 @@ Scoped to a replication stream.
 
 Collection: `source_table_${stream_id}`
 
-There may be multiple copies per physical table per stream. This is how incremental reprocessing snapshots new bucket or parameter definitions without reprocessing already-compatible definitions.
+There may be multiple copies per physical table per stream. This is how incremental reprocessing snapshots new bucket, parameter, or event definitions without reprocessing already-compatible definitions.
 
 Each source table document stores:
 
@@ -73,7 +81,7 @@ Each source table document stores:
 2. Snapshot state.
 3. `bucket_data_source_ids`: bucket definitions covered by this source table.
 4. `parameter_lookup_source_ids`: parameter indexes covered by this source table.
-5. `event_definition_ids`: content-addressed compiled event definitions covered by this source table.
+5. `event_definition_ids`: assigned event definition ids covered by this source table.
 
 Memberships are narrowed when stopped configs are cleaned up. New memberships are covered by creating a new source table document rather than expanding an existing one. An event-only source table has empty bucket and parameter memberships and one or more event definition ids.
 

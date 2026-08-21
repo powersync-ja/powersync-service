@@ -559,6 +559,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const source = sourceDescriptor('memberships', { objectId: 'memberships-relation' });
     const dataOnlyTableId = new bson.ObjectId('6544e3899293153fa7b38348');
     const addedParameterTableId = new bson.ObjectId('6544e3899293153fa7b38349');
+    const addedEventTableId = new bson.ObjectId('6544e3899293153fa7b3834a');
 
     const dataOnly = await writer.resolveTables({
       connection_id: 1,
@@ -616,15 +617,13 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const eventOnly = await writer.resolveTables({
       connection_id: 1,
       source,
-      idGenerator: () => {
-        throw new Error('resolve should reuse existing v3 source table');
-      },
+      idGenerator: () => addedEventTableId,
       parsedSyncConfig: eventOnlyRules
     });
 
-    // Event-only table can re-use any existing table.
+    // A newly-added event gets its own source table so that its existing rows are snapshotted.
     expect(eventOnly.tables).toHaveLength(1);
-    expect([dataOnlyTableId.toString(), addedParameterTableId.toString()]).toContain(eventOnly.tables[0].id.toString());
+    expect(eventOnly.tables[0].id).toEqual(addedEventTableId);
     expect(eventOnly.dropTables.map((table) => table.id)).toEqual([]);
     expect(eventOnly.tables[0].bucketDataSources).toHaveLength(0);
     expect(eventOnly.tables[0].parameterLookupSources).toHaveLength(0);
@@ -714,7 +713,7 @@ streams:
 event_definitions:
   write_checkpoints:
     payloads:
-      - SELECT user_id, checkpoint FROM checkpoints WHERE active = true
+      - SELECT user_id, checkpoint FROM checkpoints WHERE active = true AND checkpoint > 0
 `;
       const secondYaml = `
 config:
@@ -729,13 +728,13 @@ streams:
 event_definitions:
   write_checkpoints:
     payloads:
-      - SELECT user_id, checkpoint FROM checkpoints WHERE active = true
+      - SELECT user_id, checkpoint FROM checkpoints WHERE checkpoint > 0 AND true = active
 `;
 
       await using factory = await storageConfig.factory();
-      const emittedEventIds: string[] = [];
+      const emittedEventNames: string[] = [];
       const disposeListener = factory.registerListener({
-        replicationEvent: ({ event }) => emittedEventIds.push(event.id)
+        replicationEvent: ({ event }) => emittedEventNames.push(event.name)
       });
       try {
         const first = await factory.updateSyncRules(updateSyncRulesFromYaml(firstYaml, { storageVersion }));
@@ -770,14 +769,14 @@ event_definitions:
         expect(resolved.tables[0].snapshotComplete).toBe(true);
         expect([...resolved.tables[0].eventDefinitionIds!]).toEqual([eventId]);
 
-        emittedEventIds.length = 0;
+        emittedEventNames.length = 0;
         await secondWriter.save({
           sourceTable: resolved.tables[0],
           tag: storage.SaveOperationTag.INSERT,
           after: { id: 'checkpoint-1', user_id: 'user-1', checkpoint: 1n, active: 1 },
           afterReplicaId: test_utils.rid('checkpoint-1')
         });
-        expect(emittedEventIds).toEqual([eventId]);
+        expect(emittedEventNames).toEqual(['write_checkpoints']);
       } finally {
         disposeListener();
       }
@@ -800,9 +799,9 @@ event_definitions:
 `;
 
     await using factory = await storageConfig.factory();
-    const emittedEventIds: string[] = [];
+    const emittedEventNames: string[] = [];
     const disposeListener = factory.registerListener({
-      replicationEvent: ({ event }) => emittedEventIds.push(event.id)
+      replicationEvent: ({ event }) => emittedEventNames.push(event.name)
     });
     try {
       const first = await factory.updateSyncRules(updateSyncRulesFromYaml(yaml(true), { storageVersion }));
@@ -844,14 +843,14 @@ event_definitions:
         'Cannot mark snapshot done while source tables still require snapshotting'
       );
 
-      emittedEventIds.length = 0;
+      emittedEventNames.length = 0;
       await secondWriter.save({
         sourceTable: newTable,
         tag: storage.SaveOperationTag.INSERT,
         after: { id: 'checkpoint-2', user_id: 'user-2', checkpoint: 2n, active: 0 },
         afterReplicaId: test_utils.rid('checkpoint-2')
       });
-      expect(emittedEventIds).toEqual([newEventId]);
+      expect(emittedEventNames).toEqual(['write_checkpoints']);
 
       await secondWriter.markTableSnapshotDone([newTable], '2/1');
       await secondWriter.markSnapshotDone('2/1');

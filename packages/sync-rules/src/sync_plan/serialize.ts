@@ -531,7 +531,8 @@ export interface SerializedEventRowEvaluator {
   table: SerializedTablePattern;
   /**
    * The compiler's structural hash, retained only for round-trip symmetry with data sources (which reuse the same
-   * projection shape). It has no behavioral meaning for events.
+   * projection shape). It is not part of event identity (the compiler model compares behavior directly), and events
+   * are never deduplicated by it at runtime.
    */
   hash: number;
   columns: SerializedColumnSource[];

@@ -78,7 +78,8 @@ export interface NewSourceTable {
 export function sourceTableDesiredResolution(
   syncConfig: HydratedSyncConfig,
   ref: SourceTableRef,
-  mapping: BucketDefinitionMapping
+  mapping: BucketDefinitionMapping,
+  eventById: ReadonlyMap<EventDefinitionId, HydratedEventDescriptor>
 ): SourceTableDesiredResolution {
   const matchingSources = syncConfig.getMatchingSources(ref);
   return {
@@ -88,11 +89,7 @@ export function sourceTableDesiredResolution(
     parameterLookupSourceById: new Map(
       matchingSources.parameterLookupSources.map((source) => [mapping.parameterLookupId(source), source] as const)
     ),
-    eventDefinitionById: new Map(
-      syncConfig.eventDescriptors
-        .filter((event) => event.tableTriggersEvent(ref))
-        .map((event) => [event.id, event] as const)
-    )
+    eventDefinitionById: new Map([...eventById].filter(([, event]) => event.tableTriggersEvent(ref)))
   };
 }
 
@@ -259,6 +256,7 @@ class SourceTableReconciliationPlanner {
       connectionTag,
       syncConfig,
       mapping,
+      desired.eventDefinitionById,
       matchingSourcesFor(desired, memberships),
       memberships
     );
@@ -320,6 +318,7 @@ export function createNewSourceTable(
     connectionTag,
     syncConfig,
     mapping,
+    desired.eventDefinitionById,
     matchingSourcesFor(desired, memberships),
     memberships
   );
@@ -351,6 +350,7 @@ export function sourceTableFromDocument(
   connectionTag: string,
   syncConfig: HydratedSyncConfig,
   mapping: BucketDefinitionMapping,
+  eventById: ReadonlyMap<EventDefinitionId, HydratedEventDescriptor>,
   memberships?: MatchingSources,
   membershipIds?: SourceTableMembershipIds
 ): storage.SourceTable {
@@ -360,9 +360,7 @@ export function sourceTableFromDocument(
     parameterLookupSourceIds: resolvedMemberships.parameterLookupSources.map((source) =>
       mapping.parameterLookupId(source)
     ),
-    eventDefinitionIds: doc.event_definition_ids.filter((id) =>
-      syncConfig.eventDescriptors.some((event) => event.id == id)
-    )
+    eventDefinitionIds: doc.event_definition_ids.filter((id) => eventById.has(id))
   };
   const table = new storage.SourceTable({
     id: doc._id,
