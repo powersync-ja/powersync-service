@@ -97,6 +97,14 @@ export interface SyncRulesBucketStorage
    */
   reportError(e: any): Promise<void>;
 
+  /**
+   * Whether parameter compaction can run when {@link CompactOptions.incrementalOnly} is set.
+   *
+   * Storage implementations that do not support incremental parameter compaction must return
+   * false; the compact command will skip parameter compaction in that mode.
+   */
+  supportsIncrementalParameterCompaction(): boolean;
+
   compact(options?: CompactOptions): Promise<void>;
 
   /**

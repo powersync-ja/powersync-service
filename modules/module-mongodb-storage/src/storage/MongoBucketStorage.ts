@@ -567,6 +567,14 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const id = Number(id_doc!.op_id);
     const slot_name = generateReplicationStreamName(this.replicationStreamNamePrefix, id);
 
+    // All V1 replication streams share both the `main` op id sequence and the `bucket_parameters`
+    // collection, so every parameter entry this stream writes gets an op id above the current
+    // head. Seeding the parameter compaction cursor with that head keeps the stream's first
+    // compaction from scanning other streams' history, which would otherwise be repeated for
+    // every new deployment. A concurrent replication flush can only advance the head after this
+    // read, which makes the seed conservative, never too high.
+    const opSequence = await this.db.op_id_sequence.findOne({ _id: 'main' }, { session });
+
     const doc: SyncRuleDocumentV1 = {
       _id: id,
       storage_version: storageVersion,
@@ -583,7 +591,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       last_checkpoint_ts: null,
       last_fatal_error: null,
       last_fatal_error_ts: null,
-      last_keepalive_ts: null
+      last_keepalive_ts: null,
+      parameter_compaction: { compacted_before: opSequence?.op_id ?? 0n }
     };
 
     await this.db.sync_rules.insertOne(doc, { session });
