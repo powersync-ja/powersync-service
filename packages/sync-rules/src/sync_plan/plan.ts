@@ -139,9 +139,6 @@ export type ColumnSource = 'star' | { expr: SqlExpression<TableProcessorData>; a
 
 /**
  * A named replication event compiled from `event_definitions`.
- *
- * Events have no content id of their own: storage assigns and persists a stable id for each one, matching definitions
- * across sync configs with {@link serializedEventDefinitionEquality}.
  */
 export interface CompiledEventDescriptor {
   name: string;
@@ -157,8 +154,8 @@ export interface CompiledEventDescriptor {
  */
 export interface CompiledEventSourceQuery {
   /**
-   * Original SQL retained as a compatibility mirror for services using the legacy event evaluator.
-   * It is deliberately excluded from the event ID.
+   * Original SQL retained as a compatibility mirror for services using the legacy event evaluator. Compiled event
+   * evaluation uses the remaining fields.
    */
   sql: string;
   sourceTable: ImplicitSchemaTablePattern;

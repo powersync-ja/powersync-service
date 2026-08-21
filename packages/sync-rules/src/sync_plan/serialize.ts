@@ -521,7 +521,7 @@ export interface SerializedEventDescriptor {
 }
 
 export interface SerializedEventSourceQuery {
-  /** Raw SQL retained for the legacy compatibility mirror, but excluded from event identity. */
+  /** Raw SQL retained for the legacy compatibility mirror. */
   sql: string;
   table: SerializedTablePattern;
   variants: SerializedEventRowEvaluator[];
@@ -531,8 +531,7 @@ export interface SerializedEventRowEvaluator {
   table: SerializedTablePattern;
   /**
    * The compiler's structural hash, retained only for round-trip symmetry with data sources (which reuse the same
-   * projection shape). It is not part of event identity ({@link serializedEventDefinitionEquality} compares the
-   * structure directly) and events are never deduplicated by it at runtime.
+   * projection shape). It has no behavioral meaning for events.
    */
   hash: number;
   columns: SerializedColumnSource[];

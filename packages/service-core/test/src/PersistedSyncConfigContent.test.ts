@@ -3,7 +3,6 @@ import {
   DEFAULT_TAG,
   nodeSqlite,
   PrecompiledSyncConfig,
-  serializedEventDefinitionEquality,
   serializeSyncPlan,
   SqlSyncRules
 } from '@powersync/service-sync-rules';
@@ -67,9 +66,9 @@ describe('persisted compiled replication events', () => {
     expect(legacyView.config).not.toHaveProperty('eventDescriptors');
     expect(legacyView.config.eventDefinitions).toHaveLength(1);
     expect(legacyView.config.eventDefinitions[0].name).toBe('write_checkpoints');
-    // The event recompiled from the raw SQL mirror is structurally identical to the original.
+    // Recompiling the raw SQL mirror produces the same serialized event plan.
     const legacyEvent = serializeSyncPlan((legacyView.config as PrecompiledSyncConfig).plan).events![0];
-    expect(serializedEventDefinitionEquality.equals(legacyEvent, originalEvent)).toBe(true);
+    expect(legacyEvent).toEqual(originalEvent);
   });
 
   test('restores raw event descriptors attached to version 1 and 2 plans', () => {
