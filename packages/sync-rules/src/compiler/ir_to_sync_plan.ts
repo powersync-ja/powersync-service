@@ -1,7 +1,6 @@
 import { SqlExpression } from '../sync_plan/expression.js';
 import { MapSourceVisitor, visitExpr } from '../sync_plan/expression_visitor.js';
 import * as plan from '../sync_plan/plan.js';
-import { compiledEventDefinitionId } from '../sync_plan/serialize.js';
 import * as resolver from './bucket_resolver.js';
 import type { SyncPlanCompilerModel } from './compiler.js';
 import { Equality, HashMap, StableHasher, unorderedEquality } from './equality.js';
@@ -62,8 +61,8 @@ export class CompilerModelToSyncPlan {
         };
       }),
       buckets: this.buckets,
-      events: source.events.map((event) => {
-        const definition: plan.CompiledEventDescriptorContent = {
+      events: source.events.map((event): plan.CompiledEventDescriptor => {
+        return {
           name: event.name,
           sourceQueries: event.sourceQueries.map((query) => ({
             sql: query.sql,
@@ -71,8 +70,6 @@ export class CompilerModelToSyncPlan {
             variants: query.variants.map((variant) => this.translateRowProjection(variant))
           }))
         };
-
-        return { id: compiledEventDefinitionId(definition), ...definition };
       })
     };
   }

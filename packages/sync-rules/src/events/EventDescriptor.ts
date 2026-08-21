@@ -1,5 +1,4 @@
 import { HydrationInput } from '../BucketSource.js';
-import { EventDefinitionId } from '../HydrationState.js';
 import { SourceTableRef } from '../SourceTableRef.js';
 import { TablePattern } from '../TablePattern.js';
 import { EvaluateRowOptions, EvaluationError, SqliteJsonRow } from '../types.js';
@@ -15,12 +14,6 @@ export type EvaluatedEventRowWithErrors = {
 
 /** A parsed event definition whose compiled expressions have not yet been prepared for evaluation. */
 export interface EventDefinition {
-  /**
-   * Deterministic identity generated from canonical compiled behavior. Stable across SQL formatting and ordering, so
-   * unchanged definitions are recognized and not reprocessed; behaviorally-equal but differently-written definitions
-   * may still differ, which only over-reprocesses and never misses a change.
-   */
-  readonly id: EventDefinitionId;
   readonly name: string;
 
   createEvaluator(input: HydrationInput): HydratedEventDescriptor;
@@ -30,12 +23,6 @@ export interface EventDefinition {
 
 /** An event definition whose payload queries can evaluate replicated rows. */
 export interface HydratedEventDescriptor {
-  /**
-   * Deterministic identity generated from canonical compiled behavior. Stable across SQL formatting and ordering, so
-   * unchanged definitions are recognized and not reprocessed; behaviorally-equal but differently-written definitions
-   * may still differ, which only over-reprocesses and never misses a change.
-   */
-  readonly id: EventDefinitionId;
   readonly name: string;
 
   evaluateRowWithErrors(options: EvaluateRowOptions): EvaluatedEventRowWithErrors;

@@ -1,5 +1,5 @@
 import { BucketPriority } from '../BucketDescription.js';
-import { EventDefinitionId, ParameterLookupDefinitionId } from '../HydrationState.js';
+import { ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
 import { SqlExpression } from './expression.js';
@@ -138,17 +138,14 @@ export interface StreamDataSource extends RowProjection {
 export type ColumnSource = 'star' | { expr: SqlExpression<TableProcessorData>; alias: string };
 
 /**
- * The content of a named replication event compiled from `event_definitions`.
+ * A named replication event compiled from `event_definitions`.
+ *
+ * Events have no content id of their own: storage assigns and persists a stable id for each one, matching definitions
+ * across sync configs with {@link serializedEventDefinitionEquality}.
  */
-export interface CompiledEventDescriptorContent {
+export interface CompiledEventDescriptor {
   name: string;
   sourceQueries: CompiledEventSourceQuery[];
-}
-
-/** A compiled replication event together with its canonical behavioral identity. */
-export interface CompiledEventDescriptor extends CompiledEventDescriptorContent {
-  /** Identity excluding non-functional SQL formatting, ordering, and compiler hash changes. */
-  id: EventDefinitionId;
 }
 
 /**
