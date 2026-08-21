@@ -3,6 +3,8 @@ import {
   DEFAULT_TAG,
   nodeSqlite,
   PrecompiledSyncConfig,
+  serializedEventDefinitionEquality,
+  serializeSyncPlan,
   SqlSyncRules
 } from '@powersync/service-sync-rules';
 import * as sqlite from 'node:sqlite';
@@ -34,18 +36,18 @@ describe('persisted compiled replication events', () => {
     const parsed = SqlSyncRules.fromYaml(yamlWithEvents, { defaultSchema: 'test_schema' });
     const update = updateSyncRulesFromConfig(parsed);
     const compiled = update.config.plan!;
-    const eventDefinitionId = parsed.config.eventDefinitions[0].id;
+    const originalEvent = compiled.plan.events![0];
 
     expect(compiled.plan.version).toBeLessThanOrEqual(2);
     expect(compiled.plan.events).toHaveLength(1);
-    expect(compiled.plan.events![0].id).toBe(eventDefinitionId);
+    expect(originalEvent.name).toBe('write_checkpoints');
     expect(compiled.eventDescriptors).toEqual({ write_checkpoints: [EVENT_QUERY] });
 
     const restored = restore(compiled);
     expect(restored.config).toBeInstanceOf(PrecompiledSyncConfig);
     expect(restored.config).not.toHaveProperty('eventDescriptors');
     expect(restored.config.eventDefinitions).toHaveLength(1);
-    expect(restored.config.eventDefinitions[0].id).toBe(eventDefinitionId);
+    expect(restored.config.eventDefinitions[0].name).toBe('write_checkpoints');
 
     const hydrated = restored.config.hydrate({
       hydrationState: DEFAULT_HYDRATION_STATE,
@@ -64,8 +66,10 @@ describe('persisted compiled replication events', () => {
     const legacyView = restore({ ...compiled, plan: planWithoutCompiledEvents });
     expect(legacyView.config).not.toHaveProperty('eventDescriptors');
     expect(legacyView.config.eventDefinitions).toHaveLength(1);
-    expect(legacyView.config.eventDefinitions[0].id).toBe(eventDefinitionId);
-    expect((legacyView.config as PrecompiledSyncConfig).plan.events).toHaveLength(1);
+    expect(legacyView.config.eventDefinitions[0].name).toBe('write_checkpoints');
+    // The event recompiled from the raw SQL mirror is structurally identical to the original.
+    const legacyEvent = serializeSyncPlan((legacyView.config as PrecompiledSyncConfig).plan).events![0];
+    expect(serializedEventDefinitionEquality.equals(legacyEvent, originalEvent)).toBe(true);
   });
 
   test('restores raw event descriptors attached to version 1 and 2 plans', () => {

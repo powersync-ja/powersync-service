@@ -1,4 +1,4 @@
-import { EventDefinitionId, ParameterLookupDefinitionId } from '../HydrationState.js';
+import { ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { SqlExpression } from './expression.js';
 import { MapSourceVisitor, visitExpr } from './expression_visitor.js';
@@ -6,7 +6,6 @@ import {
   ColumnSource,
   ColumnSqlParameterValue,
   CompiledEventDescriptor,
-  CompiledEventDescriptorContent,
   CompiledSyncStream,
   EvaluateTableValuedFunction,
   EventRowEvaluator,
@@ -27,7 +26,6 @@ import {
   TableProcessorTableValuedFunction,
   TableProcessorTableValuedFunctionOutput
 } from './plan.js';
-import { serializedEventDefinitionId } from './plan_equality_serialized.js';
 
 function createTableProcessorSerializer() {
   const addedTableValuedFunctions = new Map<TableProcessorTableValuedFunction, number>();
@@ -98,7 +96,7 @@ function createTableProcessorSerializer() {
     };
   }
 
-  function serializeEventDefinition(event: CompiledEventDescriptorContent): SerializedEventDescriptorContent {
+  function serializeEventDefinition(event: CompiledEventDescriptor): SerializedEventDescriptor {
     return {
       name: event.name,
       sourceQueries: event.sourceQueries.map((query) => ({
@@ -109,10 +107,6 @@ function createTableProcessorSerializer() {
     };
   }
 
-  function serializeEvent(event: CompiledEventDescriptor): SerializedEventDescriptor {
-    return { id: event.id, ...serializeEventDefinition(event) };
-  }
-
   return {
     get usesRowMetadataSqlValue() {
       return usesRowMetadataSqlValue;
@@ -121,8 +115,7 @@ function createTableProcessorSerializer() {
     serializeTablePattern,
     serializeTableValued,
     translateParameters,
-    serializeEventDefinition,
-    serializeEvent
+    serializeEventDefinition
   };
 }
 
@@ -232,7 +225,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
     };
   }
 
-  const events = plan.events.map(tableProcessorSerializer.serializeEvent);
+  const events = plan.events.map(tableProcessorSerializer.serializeEventDefinition);
   const serialized: SerializedSyncPlan = {
     dataSources: serializeDataSources(),
     buckets: plan.buckets.map((bkt, index) => {
@@ -370,7 +363,6 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   const serializedEvents = plan.events ?? [];
   const events = serializedEvents.map((event): CompiledEventDescriptor => {
     return {
-      id: event.id,
       name: event.name,
       sourceQueries: event.sourceQueries.map((query) => ({
         sql: query.sql,
@@ -449,12 +441,6 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   };
 }
 
-/** Derive the ID assigned while finalizing a compiled event definition. */
-export function compiledEventDefinitionId(event: CompiledEventDescriptorContent): EventDefinitionId {
-  const definition = createTableProcessorSerializer().serializeEventDefinition(event);
-  return serializedEventDefinitionId(definition);
-}
-
 /**
  * Changes to {@link SerializedSyncPlan} require a version bump when older services would interpret the plan
  * incorrectly. Optional additive fields are only safe without a bump when older readers can ignore them while another
@@ -529,18 +515,13 @@ export interface SerializedDataSource {
   partitionBy: SerializedPartitionKey[];
 }
 
-export interface SerializedEventDescriptorContent {
+export interface SerializedEventDescriptor {
   name: string;
   sourceQueries: SerializedEventSourceQuery[];
 }
 
-export interface SerializedEventDescriptor extends SerializedEventDescriptorContent {
-  /** Canonical behavioral identity derived without raw SQL or compiler hashes. */
-  id: EventDefinitionId;
-}
-
 export interface SerializedEventSourceQuery {
-  /** Raw SQL retained for the legacy compatibility mirror, but excluded from the event ID. */
+  /** Raw SQL retained for the legacy compatibility mirror, but excluded from event identity. */
   sql: string;
   table: SerializedTablePattern;
   variants: SerializedEventRowEvaluator[];
@@ -550,8 +531,8 @@ export interface SerializedEventRowEvaluator {
   table: SerializedTablePattern;
   /**
    * The compiler's structural hash, retained only for round-trip symmetry with data sources (which reuse the same
-   * projection shape). It is NOT part of event identity: the event {@link SerializedEventDescriptor.id} is derived from
-   * the canonical definition and deliberately excludes this hash, and events are never deduplicated by it at runtime.
+   * projection shape). It is not part of event identity ({@link serializedEventDefinitionEquality} compares the
+   * structure directly) and events are never deduplicated by it at runtime.
    */
   hash: number;
   columns: SerializedColumnSource[];

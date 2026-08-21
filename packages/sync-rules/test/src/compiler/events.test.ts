@@ -5,8 +5,7 @@ import {
   deserializeSyncPlan,
   nodeSqlite,
   PrecompiledSyncConfig,
-  serializedEventDefinitionId,
-  serializedEventDefinitionIdentity,
+  serializedEventDefinitionEquality,
   serializeSyncPlan,
   SqlSyncRules
 } from '../../../src/index.js';
@@ -41,17 +40,12 @@ describe('compiled replication events', () => {
     // Compiled events are additive and do not require a new plan version.
     expect(serialized.version).toBe(1);
     expect(serialized.events).toHaveLength(1);
-    expect(compiled.eventDefinitions[0].id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-    );
-    expect(serialized.events![0].id).toBe(compiled.eventDefinitions[0].id);
     const deserialized = deserializeSyncPlan(JSON.parse(JSON.stringify(serialized)));
     expect(deserialized.events).toMatchObject(compiled.plan.events);
-    expect(deserialized.events[0].id).toBe(compiled.eventDefinitions[0].id);
 
     const hydrated = compiled.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) });
     const event = hydrated.eventDescriptors[0];
-    expect(event.id).toBe(compiled.eventDefinitions[0].id);
+    expect(event.name).toBe('write_checkpoints');
     const checkpoints = new TestSourceTable('checkpoints');
 
     expect(
@@ -71,49 +65,41 @@ describe('compiled replication events', () => {
     ).toEqual({ errors: [] });
   });
 
-  test('derives a canonical id independent of formatting, filter order and payload query order', () => {
+  test('matches definitions independent of formatting, quoting and payload-query order', () => {
     const first = eventDefinitionFromQueries(
       'SELECT user_id, checkpoint FROM checkpoints WHERE active = true AND checkpoint > 0',
       'SELECT user_id, checkpoint FROM archived_checkpoints'
     );
-    const reordered = eventDefinitionFromQueries(
+    const equivalent = eventDefinitionFromQueries(
       ' select "user_id", "checkpoint" from "archived_checkpoints" ',
-      'select "user_id", "checkpoint" from "checkpoints" c where c."checkpoint" > 0 and c."active" = true'
+      'select "user_id", "checkpoint" from "checkpoints" where "active" = true and "checkpoint" > 0'
     );
     const changed = eventDefinitionFromQueries(
       'SELECT user_id, checkpoint FROM checkpoints WHERE active = true AND checkpoint > 1',
       'SELECT user_id, checkpoint FROM archived_checkpoints'
     );
 
-    expect(first.id).toBe(serializedEventDefinitionId(first.event));
-    expect(reordered.id).toBe(first.id);
-    expect(changed.id).not.toBe(first.id);
-    expect(serializedEventDefinitionIdentity(reordered.event)).toBe(serializedEventDefinitionIdentity(first.event));
+    expect(serializedEventDefinitionEquality.equals(first, equivalent)).toBe(true);
+    expect(serializedEventDefinitionEquality.equals(first, changed)).toBe(false);
   });
 
-  test('excludes raw SQL, compiler hashes and variant order from the id', () => {
-    const first = eventDefinitionFromQueries('SELECT user_id, checkpoint FROM checkpoints WHERE active = true');
-    const second = eventDefinitionFromQueries('SELECT user_id, checkpoint FROM checkpoints WHERE checkpoint > 0');
-    const definition = structuredClone(first.event);
-    definition.sourceQueries[0].variants.push(structuredClone(second.event.sourceQueries[0].variants[0]));
-    const modified = structuredClone(definition);
-    modified.sourceQueries[0].sql = 'raw sql is compatibility metadata';
-    modified.sourceQueries[0].variants.reverse();
-    for (const variant of modified.sourceQueries[0].variants) {
-      variant.hash += 1;
-    }
+  test('excludes the raw SQL mirror from the identity', () => {
+    const original = eventDefinitionFromQueries('SELECT user_id, checkpoint FROM checkpoints WHERE active = true');
+    const differentSql = structuredClone(original);
+    differentSql.sourceQueries[0].sql = 'raw sql is compatibility metadata only';
 
-    expect(modified.sourceQueries[0].variants).toHaveLength(2);
-    expect(serializedEventDefinitionIdentity(modified)).toBe(serializedEventDefinitionIdentity(definition));
-    expect(serializedEventDefinitionId(modified)).toBe(serializedEventDefinitionId(definition));
+    expect(serializedEventDefinitionEquality.equals(original, differentSql)).toBe(true);
   });
 
-  test('derives the id from the plan without loading context', () => {
+  test('matches independent of the default schema used to compile', () => {
     const query = 'SELECT user_id, checkpoint FROM checkpoints WHERE active = true';
 
-    expect(eventDefinitionForSchema('first_schema', query).id).toBe(
-      eventDefinitionForSchema('second_schema', query).id
-    );
+    expect(
+      serializedEventDefinitionEquality.equals(
+        eventDefinitionForSchema('first_schema', query),
+        eventDefinitionForSchema('second_schema', query)
+      )
+    ).toBe(true);
   });
 
   test.each([
@@ -153,9 +139,8 @@ function eventDefinitionForSchema(defaultSchema: string, ...queries: string[]) {
   const config = SqlSyncRules.fromYaml(yamlWithEventQueries(...queries), {
     defaultSchema
   }).config as PrecompiledSyncConfig;
-  const plan = serializeSyncPlan(config.plan);
 
-  return { id: config.eventDefinitions[0].id, event: plan.events![0] };
+  return serializeSyncPlan(config.plan).events![0];
 }
 
 function yamlWithEventQueries(...queries: string[]): string {

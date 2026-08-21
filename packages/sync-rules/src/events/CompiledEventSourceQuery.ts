@@ -1,5 +1,4 @@
 import { HydrationInput } from '../BucketSource.js';
-import { EventDefinitionId } from '../HydrationState.js';
 import { SourceTableRef } from '../SourceTableRef.js';
 import { EvaluatedRowProjection, PendingRowProjection } from '../sync_plan/evaluator/row_projection.js';
 import {
@@ -12,19 +11,16 @@ import { EvaluatedEventRowWithErrors, EventDefinition, HydratedEventDescriptor }
 
 /** A named event prepared from a compiled sync plan, before scalar expressions are prepared for evaluation. */
 export class PreparedEventDefinition implements EventDefinition {
-  readonly id: EventDefinitionId;
   readonly name: string;
   readonly sourceQueries: PreparedEventSourceQuery[];
 
   constructor(source: CompiledEventDescriptorPlan, defaultSchema: string) {
-    this.id = source.id;
     this.name = source.name;
     this.sourceQueries = source.sourceQueries.map((query) => new PreparedEventSourceQuery(query, defaultSchema));
   }
 
   createEvaluator(input: HydrationInput): HydratedEventDescriptor {
     return new HydratedCompiledEventDescriptor(
-      this.id,
       this.name,
       this.sourceQueries.map((query) => query.createEvaluator(input))
     );
@@ -63,7 +59,6 @@ export class PreparedEventSourceQuery {
 
 class HydratedCompiledEventDescriptor implements HydratedEventDescriptor {
   constructor(
-    readonly id: EventDefinitionId,
     readonly name: string,
     readonly sourceQueries: HydratedCompiledEventSourceQuery[]
   ) {}
