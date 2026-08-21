@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.17.1
+
+### Patch Changes
+
+- 4037e8f: Add storage.default_storage_version config option.
+
 ## 0.17.0
 
 ### Minor Changes

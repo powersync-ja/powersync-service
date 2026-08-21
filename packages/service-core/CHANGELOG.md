@@ -1,5 +1,19 @@
 # @powersync/service-core
 
+## 1.26.0
+
+### Minor Changes
+
+- 332d649: [MongoDB Storage] Support incremental parameter compacting jobs.
+- a997c88: Restructure MongoDB V3 bucket compacting.
+
+### Patch Changes
+
+- cc121b3: [MongoDB Storage V3] Force create new replication stream when the old one is invalidated, and fix other consistency issues with V3 replication stream updates.
+- 4037e8f: Add storage.default_storage_version config option.
+- Updated dependencies [4037e8f]
+  - @powersync/service-types@0.17.1
+
 ## 1.25.0
 
 ### Minor Changes

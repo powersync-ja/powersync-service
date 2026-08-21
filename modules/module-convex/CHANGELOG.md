@@ -1,5 +1,17 @@
 # @powersync/service-module-convex
 
+## 0.3.2
+
+### Patch Changes
+
+- a997c88: Restructure MongoDB V3 bucket compacting.
+- Updated dependencies [332d649]
+- Updated dependencies [cc121b3]
+- Updated dependencies [4037e8f]
+- Updated dependencies [a997c88]
+  - @powersync/service-core@1.26.0
+  - @powersync/service-types@0.17.1
+
 ## 0.3.1
 
 ### Patch Changes
