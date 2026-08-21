@@ -10,6 +10,7 @@ import {
   GetQuerierOptions,
   HydrateSyncConfigParams,
   HydrationInput,
+  InitialSnapshotFilter,
   isEvaluatedParameters,
   isEvaluatedRow,
   isEvaluationError,
@@ -156,6 +157,16 @@ export class HydratedSyncConfig {
 
   tableSyncsParameters(table: SourceTableRef): boolean {
     return this.sourceDefinitions.some((definition) => definition.tableSyncsParameters(table));
+  }
+
+  getInitialSnapshotFilter(table: SourceTableRef): InitialSnapshotFilter | undefined {
+    for (const definition of this.sourceDefinitions) {
+      const filter = definition.getInitialSnapshotFilter(table.connectionTag, table.schema, table.name);
+      if (filter != null) {
+        return filter;
+      }
+    }
+    return undefined;
   }
 
   getMatchingSources(source: SourceTableRef): MatchingSources {

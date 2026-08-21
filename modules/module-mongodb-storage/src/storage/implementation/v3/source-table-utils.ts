@@ -366,13 +366,14 @@ export function sourceTableFromDocument(
       mapping.parameterLookupId(source)
     )
   };
+  const ref = {
+    connectionTag,
+    schema: doc.schema_name,
+    name: doc.table_name
+  };
   const table = new storage.SourceTable({
     id: doc._id,
-    ref: {
-      connectionTag,
-      schema: doc.schema_name,
-      name: doc.table_name
-    },
+    ref,
     objectId: doc.relation_id,
     replicaIdColumns:
       doc.replica_id_columns?.map(
@@ -383,7 +384,8 @@ export function sourceTableFromDocument(
     parameterLookupSources: resolvedMemberships.parameterLookupSources,
     bucketDataSourceIds: new Set(resolvedMembershipIds.bucketDataSourceIds),
     parameterLookupSourceIds: new Set(resolvedMembershipIds.parameterLookupSourceIds),
-    sourceMetadata: doc.source_metadata ?? null
+    sourceMetadata: doc.source_metadata ?? null,
+    initialSnapshotFilter: syncConfig.getInitialSnapshotFilter(ref)
   });
   table.syncData = table.bucketDataSources.length > 0;
   table.syncParameters = table.parameterLookupSources.length > 0;

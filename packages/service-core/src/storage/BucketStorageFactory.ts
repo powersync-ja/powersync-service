@@ -1,5 +1,6 @@
 import { BaseObserver, logger } from '@powersync/lib-services-framework';
 import {
+  InitialSnapshotFilter,
   PrecompiledSyncConfig,
   SerializedSyncPlan as RawSerializedSyncPlan,
   SerializedCompatibilityContext,
@@ -173,6 +174,11 @@ export interface UpdateSyncRulesOptions {
   defaultSchema?: string;
 }
 
+export interface SerializedInitialSnapshotFilter {
+  pattern: string;
+  filter: InitialSnapshotFilter;
+}
+
 export interface SerializedSyncPlan {
   /**
    * The serialized plan, from {@link serializeSyncPlan}.
@@ -187,6 +193,16 @@ export interface SerializedSyncPlan {
    * them.
    */
   eventDescriptors: Record<string, string[]>;
+  /**
+   * Initial snapshot filters are not represented in the sync plan either — like event descriptors, they are persisted
+   * here so they survive the round-trip through the stored plan.
+   *
+   * Stored as an ordered list rather than a map: filter matching is first-match-wins, and JSONB storage does not
+   * preserve object key order.
+   *
+   * Absent on plans serialized before this field existed; those are treated as having no filters.
+   */
+  initialSnapshotFilters?: SerializedInitialSnapshotFilter[];
   errors?: ReplicationError[];
 }
 
@@ -220,6 +236,7 @@ export function updateSyncRulesFromConfig(
       compatibility: config.compatibility.serialize(),
       plan: serializeSyncPlan(config.plan),
       eventDescriptors,
+      initialSnapshotFilters: [...config.initialSnapshotFilters].map(([pattern, filter]) => ({ pattern, filter })),
       errors: errors.map((e) => syncConfigYamlErrorToReplicationError(e))
     };
   }

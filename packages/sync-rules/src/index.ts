@@ -19,7 +19,7 @@ export * from './sqliteBool.js';
 export * from './SqlSyncRules.js';
 export * from './StaticSchema.js';
 export * from './StorageVersion.js';
-export { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
+export { DatabaseType, InitialSnapshotFilter, SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 export * from './TablePattern.js';
 export * from './types.js';
 export * from './types/custom_sqlite_value.js';
