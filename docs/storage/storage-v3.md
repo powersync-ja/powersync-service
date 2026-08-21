@@ -131,6 +131,19 @@ Collection: `bucket_state_${stream_id}`.
 
 Bucket state documents for a definition id are removed when stopped config cleanup drops that definition.
 
+## custom checkpoint requests
+
+Scoped by replication stream and stream-assigned event definition id.
+
+Collection: `custom_checkpoint_requests_${stream_id}_${event_id}`
+
+Each collection stores one custom checkpoint per user for an event definition. An assigned event id is required for
+all v3 custom checkpoint reads and writes. Reused event definitions share their
+collection across active and processing sync configs, while changed definitions use separate collections until
+activation. Collections and their indexes are created lazily when the first custom checkpoint for an event is
+flushed; unrelated events do not get a collection. Stopped sync config cleanup drops a collection once no live sync
+config uses its event definition.
+
 ## Cleanup of stopped sync configs
 
 Incremental streams can contain stopped sync config state while the stream continues serving live config state. Cleanup compares stopped configs with live configs using their persisted mappings. Live means `ACTIVE`, `PROCESSING`, or `ERRORED`.
@@ -138,6 +151,7 @@ Incremental streams can contain stopped sync config state while the stream conti
 1. Bucket data collections, parameter index collections, and bucket state are removed only for ids no live config still uses.
 2. Source table memberships for unused ids are removed from retained source tables.
 3. Unused event definition ids are removed from source table memberships using the same stopped-versus-live comparison.
-4. Source tables whose data, parameter, and event memberships become empty are deleted with their source records collections.
-5. Source tables kept only by event memberships become event-only; their source records collections are dropped.
-6. The stopped sync config entries are pruned from `sync_rules.sync_configs`.
+4. Custom checkpoint request collections for unused event definition ids are dropped.
+5. Source tables whose data, parameter, and event memberships become empty are deleted with their source records collections.
+6. Source tables kept only by event memberships become event-only; their source records collections are dropped.
+7. The stopped sync config entries are pruned from `sync_rules.sync_configs`.

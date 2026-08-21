@@ -48,6 +48,7 @@ const checkpointTests = ({ factory, storageVersion }: StorageVersionTestContext)
     try {
       const stream = storage.watchCheckpointChanges({
         user_id: checkpointUserId('test_user', 'test_client'),
+        syncConfig: storage.getParsedSyncRules(api.getParseSyncRulesOptions()),
         signal: controller.signal
       });
 

@@ -732,9 +732,9 @@ event_definitions:
 `;
 
       await using factory = await storageConfig.factory();
-      const emittedEventNames: string[] = [];
+      const emittedEvents: { name: string; eventId: string | undefined }[] = [];
       const disposeListener = factory.registerListener({
-        replicationEvent: ({ event }) => emittedEventNames.push(event.name)
+        replicationEvent: ({ event, event_id }) => emittedEvents.push({ name: event.name, eventId: event_id })
       });
       try {
         const first = await factory.updateSyncRules(updateSyncRulesFromYaml(firstYaml, { storageVersion }));
@@ -769,14 +769,14 @@ event_definitions:
         expect(resolved.tables[0].snapshotComplete).toBe(true);
         expect([...resolved.tables[0].eventDefinitionIds!]).toEqual([eventId]);
 
-        emittedEventNames.length = 0;
+        emittedEvents.length = 0;
         await secondWriter.save({
           sourceTable: resolved.tables[0],
           tag: storage.SaveOperationTag.INSERT,
           after: { id: 'checkpoint-1', user_id: 'user-1', checkpoint: 1n, active: 1 },
           afterReplicaId: test_utils.rid('checkpoint-1')
         });
-        expect(emittedEventNames).toEqual(['write_checkpoints']);
+        expect(emittedEvents).toEqual([{ name: 'write_checkpoints', eventId }]);
       } finally {
         disposeListener();
       }
@@ -799,9 +799,9 @@ event_definitions:
 `;
 
     await using factory = await storageConfig.factory();
-    const emittedEventNames: string[] = [];
+    const emittedEvents: { name: string; eventId: string | undefined }[] = [];
     const disposeListener = factory.registerListener({
-      replicationEvent: ({ event }) => emittedEventNames.push(event.name)
+      replicationEvent: ({ event, event_id }) => emittedEvents.push({ name: event.name, eventId: event_id })
     });
     try {
       const first = await factory.updateSyncRules(updateSyncRulesFromYaml(yaml(true), { storageVersion }));
@@ -843,14 +843,14 @@ event_definitions:
         'Cannot mark snapshot done while source tables still require snapshotting'
       );
 
-      emittedEventNames.length = 0;
+      emittedEvents.length = 0;
       await secondWriter.save({
         sourceTable: newTable,
         tag: storage.SaveOperationTag.INSERT,
         after: { id: 'checkpoint-2', user_id: 'user-2', checkpoint: 2n, active: 0 },
         afterReplicaId: test_utils.rid('checkpoint-2')
       });
-      expect(emittedEventNames).toEqual(['write_checkpoints']);
+      expect(emittedEvents).toEqual([{ name: 'write_checkpoints', eventId: newEventId }]);
 
       await secondWriter.markTableSnapshotDone([newTable], '2/1');
       await secondWriter.markSnapshotDone('2/1');
@@ -1944,7 +1944,8 @@ streams:
       const nextCheckpoint = await bucketStorage.getCheckpoint();
       const changes = await bucketStorage.getCheckpointChanges({
         lastCheckpoint: previousCheckpoint,
-        nextCheckpoint
+        nextCheckpoint,
+        syncConfig: bucketStorage.getParsedSyncRules({ defaultSchema: 'public' })
       });
 
       expect(changes.invalidateParameterBuckets).toBe(false);
