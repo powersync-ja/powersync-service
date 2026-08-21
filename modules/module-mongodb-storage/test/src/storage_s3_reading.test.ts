@@ -7,7 +7,10 @@ import { MongoSyncBucketStorage } from '../../src/storage/implementation/createM
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { hydrateBucketDataDocuments } from '../../src/storage/implementation/v3/object-storage/BucketDataObjectStorage.js';
 import { ObjectStorageError } from '../../src/storage/implementation/v3/object-storage/ObjectStorage.js';
-import { S3ObjectStorage } from '../../src/storage/implementation/v3/object-storage/S3ObjectStorage.js';
+import {
+  resolveTimeoutProfile,
+  S3ObjectStorage
+} from '../../src/storage/implementation/v3/object-storage/S3ObjectStorage.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 import { createMemoryS3TestStorageSuite, createS3TestStorageSuite } from './helpers/s3TestFactory.js';
@@ -60,6 +63,67 @@ describe('S3 object storage reads', () => {
     expect(() => new S3ObjectStorage({ bucket: 'test', region: 'test', prefix: 'prefix/' })).toThrowError(
       /must not end with/
     );
+  });
+
+  test('derives request timeouts from the AWS defaults mode', () => {
+    // legacy - the mode used when nothing is configured - defines no timeouts of its own,
+    // and uses the same baseline as standard.
+    expect(resolveTimeoutProfile('legacy')).toEqual({
+      connectionTimeoutMs: 3_100,
+      requestTimeoutMs: 15_500,
+      operationTimeoutMs: 31_000
+    });
+    expect(resolveTimeoutProfile('standard')).toEqual(resolveTimeoutProfile('legacy'));
+    expect(resolveTimeoutProfile('cross-region')).toEqual(resolveTimeoutProfile('legacy'));
+    expect(resolveTimeoutProfile('in-region')).toEqual({
+      connectionTimeoutMs: 1_100,
+      requestTimeoutMs: 5_500,
+      operationTimeoutMs: 11_000
+    });
+    expect(resolveTimeoutProfile('mobile')).toEqual({
+      connectionTimeoutMs: 30_000,
+      requestTimeoutMs: 150_000,
+      operationTimeoutMs: 300_000
+    });
+  });
+
+  test('uses the configured defaults mode for the client', async () => {
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', defaultsMode: 'in-region' });
+    const defaultsMode = objectStorage.client.config.defaultsMode as () => Promise<string>;
+    await expect(defaultsMode()).resolves.toEqual('in-region');
+  });
+
+  test('combines the caller signal with the operation deadline', async () => {
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
+    const controller = new AbortController();
+    let requestSignal: AbortSignal | undefined;
+    objectStorage.client.send = async (_command: any, options: any) => {
+      requestSignal = options.abortSignal;
+      // The deadline signal is only aborted by a timeout, so abort through the caller instead.
+      controller.abort();
+      throw requestSignal!.reason;
+    };
+
+    await expect(objectStorage.get('object', { signal: controller.signal })).rejects.toMatchObject({
+      name: 'AbortError'
+    });
+    expect(requestSignal).not.toBe(controller.signal);
+    expect(requestSignal!.aborted).toBe(true);
+  });
+
+  test('treats operation deadline timeouts as retryable', async () => {
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
+    // What the SDK throws when the request is aborted by AbortSignal.timeout().
+    const timeoutCause = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    objectStorage.client.send = async () => {
+      throw timeoutCause;
+    };
+
+    await expect(objectStorage.get('stalled-object')).rejects.toMatchObject({
+      name: 'ObjectStorageError',
+      retryable: true,
+      cause: timeoutCause
+    } satisfies Partial<ObjectStorageError>);
   });
 
   test('rejects complete S3 keys over the safe byte limit', async () => {
