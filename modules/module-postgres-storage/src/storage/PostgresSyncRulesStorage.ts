@@ -4,6 +4,8 @@ import {
   BucketChecksum,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
+  CompactInitialReplicationOptions,
+  CompactInitialReplicationResults,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
@@ -11,11 +13,10 @@ import {
   maxLsn,
   ParameterSetLimitExceededError,
   PartialChecksum,
-  PopulateChecksumCacheOptions,
-  PopulateChecksumCacheResults,
   ReplicationCheckpoint,
   storage,
   StorageVersionConfig,
+  SyncRuleState,
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
@@ -28,9 +29,11 @@ import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
 
 import * as framework from '@powersync/lib-services-framework';
-import { StatementParam } from '@powersync/service-jpgwire';
+import type { Statement } from '@powersync/service-jpgwire';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import * as t from 'ts-codec';
+import { ActiveCheckpointDecoded } from '../types/models/ActiveCheckpoint.js';
+import * as checkpointUtils from '../utils/checkpoints.js';
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
@@ -46,6 +49,11 @@ export type PostgresSyncRulesStorageOptions = {
   batchLimits: RequiredOperationBatchLimits;
   checksumCacheTtlMs?: number;
 };
+
+/**
+ * Number of rows deleted per batch when clearing storage for a replication stream.
+ */
+export const CLEAR_BATCH_LIMIT = 50_000;
 
 export class PostgresSyncRulesStorage
   extends framework.BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -138,7 +146,19 @@ export class PostgresSyncRulesStorage
     `.execute();
   }
 
+  supportsIncrementalParameterCompaction(): boolean {
+    return false;
+  }
+
   async compact(options?: storage.CompactOptions): Promise<void> {
+    if (options?.incrementalOnly) {
+      // Not supported yet
+      this.logger.info('Incremental compacting is not supported on Postgres storage yet.');
+      return;
+    } else if (this.replicationStream.state != SyncRuleState.ACTIVE) {
+      this.logger.info(`Skipping compacting of replication stream in ${this.replicationStream.state} state.`);
+      return;
+    }
     let maxOpId = options?.maxOpId;
     if (maxOpId == null) {
       const checkpoint = await this.getCheckpoint();
@@ -153,7 +173,9 @@ export class PostgresSyncRulesStorage
     }).compact();
   }
 
-  async populatePersistentChecksumCache(_options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
+  async compactInitialReplication(
+    _options: CompactInitialReplicationOptions
+  ): Promise<CompactInitialReplicationResults> {
     // no-op - checksum cache is not implemented for Postgres yet
     return { buckets: 0 };
   }
@@ -169,7 +191,9 @@ export class PostgresSyncRulesStorage
     return this.writeCheckpointAPI.setWriteCheckpointMode(mode);
   }
 
-  createManagedWriteCheckpoints(checkpoints: storage.ManagedWriteCheckpointOptions[]): Promise<Map<string, bigint>> {
+  createManagedWriteCheckpoints(
+    checkpoints: storage.ManagedWriteCheckpointOptions[]
+  ): Promise<storage.CreateManagedWriteCheckpointsResult> {
     return this.writeCheckpointAPI.createManagedWriteCheckpoints(checkpoints);
   }
 
@@ -327,7 +351,7 @@ export class PostgresSyncRulesStorage
     // not match up with chunks.
 
     const end = checkpoint.checkpoint ?? BIGINT_MAX;
-    const filters = dataBuckets.map((request) => ({ bucket_name: request.bucket, start: request.start }));
+    const sortedBuckets = [...dataBuckets].sort((a, b) => a.bucket.localeCompare(b.bucket));
     const startOpByBucket = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
 
     const batchRowLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
@@ -338,65 +362,66 @@ export class PostgresSyncRulesStorage
     let targetOp: InternalOpId | null = null;
     let batchRowCount = 0;
 
-    /**
-     * It is possible to perform this query with JSONB join. e.g.
-     * ```sql
-     * WITH
-     * filter_data AS (
-     * SELECT
-     * FILTER ->> 'bucket_name' AS bucket_name,
-     * (FILTER ->> 'start')::BIGINT AS start_op_id
-     * FROM
-     * jsonb_array_elements($1::jsonb) AS FILTER
-     * )
-     * SELECT
-     * b.*,
-     * octet_length(b.data) AS data_size
-     * FROM
-     * bucket_data b
-     * JOIN filter_data f ON b.bucket_name = f.bucket_name
-     * AND b.op_id > f.start_op_id
-     * AND b.op_id <= $2
-     * WHERE
-     * b.group_id = $3
-     * ORDER BY
-     * b.bucket_name ASC,
-     * b.op_id ASC
-     * LIMIT
-     * $4;
-     * ```
-     * Which might be better for large volumes of buckets, but in testing the JSON method
-     * was significantly slower than the method below. Syncing 2.5 million rows in a single
-     * bucket takes 2 minutes and 11 seconds with the method below. With the JSON method
-     * 1 million rows were only synced before a 5 minute timeout.
-     */
-    for await (const rows of this.db.streamRows({
+    const requestedBuckets = sortedBuckets
+      .map((_, index) => `($${index * 2 + 4}, $${index * 2 + 5}, ${index})`)
+      .join(', ');
+
+    // Use one round trip while keeping a parameterized index range scan per bucket. Ordering the non-flattened request
+    // subquery gives Postgres a presorted bucket key, allowing an incremental sort and the outer limit to stop the
+    // nested loop early. The inner limit cannot exclude rows needed by the outer batch because both limits are equal.
+    const query: Statement = {
       statement: `
-          SELECT
-            *
-          FROM
-            bucket_data 
-          WHERE
-            group_id = $1
-            and op_id <= $2
-            and (
-            ${filters.map((f, index) => `(bucket_name = $${index * 2 + 4} and op_id > $${index * 2 + 5})`).join(' OR ')}
-            ) 
-          ORDER BY
-            bucket_name ASC,
-            op_id ASC
-          LIMIT
-            $3;`,
+        SELECT
+          bucket_data.*
+        FROM
+          (
+            SELECT
+              *
+            FROM
+              (
+                VALUES ${requestedBuckets}
+              ) AS bucket_requests(bucket_name, start_op_id, bucket_order)
+            -- Present requests in bucket order so the final sort can be incremental.
+            ORDER BY
+              bucket_order ASC
+            -- Prevent the planner from flattening away the ordered request path.
+            OFFSET
+              0
+          ) AS requested
+          CROSS JOIN LATERAL (
+            SELECT
+              *
+            FROM
+              bucket_data
+            WHERE
+              group_id = $1
+              AND bucket_name = requested.bucket_name
+              AND op_id > requested.start_op_id
+              AND op_id <= $2
+            -- Keep each bucket's index range scan ordered and bounded.
+            ORDER BY
+              op_id ASC
+            LIMIT
+              $3
+          ) AS bucket_data
+        -- Guarantee contiguous bucket chunks while allowing the presorted bucket key to stop scans early.
+        ORDER BY
+          requested.bucket_order ASC,
+          bucket_data.op_id ASC
+        LIMIT
+          $3;`,
       params: [
         { type: 'int4', value: this.replicationStreamId },
         { type: 'int8', value: end },
         { type: 'int4', value: batchRowLimit },
-        ...filters.flatMap((f) => [
-          { type: 'varchar' as const, value: f.bucket_name },
-          { type: 'int8' as const, value: f.start } satisfies StatementParam
+        ...sortedBuckets.flatMap((request) => [
+          { type: 'varchar' as const, value: request.bucket },
+          { type: 'int8' as const, value: request.start }
         ])
       ]
-    })) {
+    };
+
+    for await (const rows of this.db.streamRows(query)) {
       const decodedRows = rows.map((r) => models.BucketData.decode(r as any));
 
       for (const row of decodedRows) {
@@ -535,7 +560,11 @@ export class PostgresSyncRulesStorage
   }
 
   async clear(options?: storage.ClearStorageOptions): Promise<void> {
-    // TODO: Cleanly abort the cleanup when the provided signal is aborted.
+    const signal = options?.signal;
+    if (signal?.aborted) {
+      throw new framework.ReplicationAbortedError('Aborted clearing data', signal.reason);
+    }
+
     await this.db.sql`
       UPDATE sync_rules
       SET
@@ -547,25 +576,68 @@ export class PostgresSyncRulesStorage
         id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
 
-    await this.db.sql`
-      DELETE FROM bucket_data
-      WHERE
-        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
-    `.execute();
+    // Delete in batches - a single DELETE covering the entire group can run for
+    // hours on large deployments, never completing once it exceeds statement or
+    // socket timeouts. Each batch is its own autocommit statement, so progress
+    // is durable and a retry continues where the previous attempt stopped.
+    await this.clearBatched('bucket_data', signal, () => this.deleteGroupBatch('bucket_data'));
+    await this.clearBatched('bucket_parameters', signal, () => this.deleteGroupBatch('bucket_parameters'));
+    await this.clearBatched('current_data', signal, () =>
+      this.currentDataStore.deleteGroupRowsBatch(this.db, {
+        groupId: this.replicationStreamId,
+        limit: CLEAR_BATCH_LIMIT
+      })
+    );
+    await this.clearBatched('source_tables', signal, () => this.deleteGroupBatch('source_tables'));
+  }
 
-    await this.db.sql`
-      DELETE FROM bucket_parameters
-      WHERE
-        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
-    `.execute();
+  private async clearBatched(
+    label: string,
+    signal: AbortSignal | undefined,
+    deleteBatch: () => Promise<bigint>
+  ): Promise<void> {
+    while (true) {
+      if (signal?.aborted) {
+        throw new framework.ReplicationAbortedError('Aborted clearing data', signal.reason);
+      }
+      const count = await deleteBatch();
+      if (count < CLEAR_BATCH_LIMIT) {
+        return;
+      }
+      this.logger.info(`Cleared batch of ${count} ${label} rows, continuing...`);
+    }
+  }
 
-    await this.currentDataStore.deleteGroupRows(this.db, { groupId: this.replicationStreamId });
-
-    await this.db.sql`
-      DELETE FROM source_tables
-      WHERE
-        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
-    `.execute();
+  /**
+   * Delete up to {@link CLEAR_BATCH_LIMIT} rows for this group from the given table,
+   * returning the number of candidate rows found by the scan.
+   *
+   * The count is taken from the scan (`batch`) rather than the delete: with a
+   * concurrent process deleting the same rows, the delete may remove fewer rows
+   * than the scan found, and counting deleted rows could stop the loop while
+   * rows remain.
+   */
+  private async deleteGroupBatch(table: 'bucket_data' | 'bucket_parameters' | 'source_tables'): Promise<bigint> {
+    const [row] = await this.db.queryRows<{ count: bigint }>({
+      statement: `
+        WITH batch AS (
+          SELECT ctid FROM ${table}
+          WHERE group_id = $1
+          LIMIT $2
+        ),
+        deleted AS (
+          DELETE FROM ${table}
+          WHERE ctid IN (SELECT ctid FROM batch)
+          RETURNING 1
+        )
+        SELECT COUNT(*) AS count FROM batch
+      `,
+      params: [
+        { type: 'int4', value: this.replicationStreamId },
+        { type: 'int4', value: CLEAR_BATCH_LIMIT }
+      ]
+    });
+    return row?.count ?? 0n;
   }
 
   private async getChecksumsInternal(batch: storage.FetchPartialBucketChecksum[]): Promise<storage.PartialChecksumMap> {
@@ -634,25 +706,8 @@ export class PostgresSyncRulesStorage
   }
 
   async getActiveCheckpoint(): Promise<storage.ReplicationCheckpoint> {
-    const activeCheckpoint = await this.db.sql`
-      SELECT
-        id,
-        last_checkpoint,
-        last_checkpoint_lsn
-      FROM
-        sync_rules
-      WHERE
-        state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
-        OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
-      ORDER BY
-        id DESC
-      LIMIT
-        1
-    `
-      .decoded(models.ActiveCheckpoint)
-      .first();
-
-    return this.makeActiveCheckpoint(activeCheckpoint);
+    const activeCheckpointDocument = await checkpointUtils.getActiveCheckpointDocument({ db: this.db });
+    return this.makeActiveCheckpoint(activeCheckpointDocument);
   }
 
   async *watchCheckpointChanges(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
@@ -698,61 +753,92 @@ export class PostgresSyncRulesStorage
   }
 
   protected async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<storage.ReplicationCheckpoint> {
-    const doc = await this.db.sql`
-      SELECT
-        id,
-        last_checkpoint,
-        last_checkpoint_lsn
-      FROM
-        sync_rules
-      WHERE
-        state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
-        OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
-      LIMIT
-        1
-    `
-      .decoded(models.ActiveCheckpoint)
-      .first();
+    const sink = new LastValueSink<string | null>(null);
 
-    if (doc == null) {
-      // Abort the connections - clients will have to retry later.
-      throw new framework.ServiceError(framework.ErrorCode.PSYNC_S2302, 'No active replication stream available');
-    }
-
-    const sink = new LastValueSink<string>(undefined);
-
+    // Listen for changes before reading the initial doc
     const disposeListener = this.db.registerListener({
-      notification: (notification) => sink.write(notification.payload)
+      notificationEvent: (event) => {
+        switch (event.type) {
+          case 'notification':
+            sink.write(event.notification.payload);
+            break;
+          case 'channels-registered':
+            // Add a null value to the stream, indicating the loop should query the value.
+            sink.write(null);
+            break;
+          case 'connection-error':
+            // End the watcher after reconnect attempts are exhausted. Consumers will
+            // retry the watcher, which registers a new listener and pokes the slot.
+            sink.error(event.error);
+            break;
+        }
+      }
     });
 
-    signal.addEventListener('aborted', async () => {
+    try {
+      const initialCheckpointDocument = requireActiveCheckpointDocument(
+        await checkpointUtils.getActiveCheckpointDocument({ db: this.db })
+      );
+      const initialCheckpoint = this.makeActiveCheckpoint(initialCheckpointDocument);
+      let lastOp = initialCheckpoint;
+
+      yield initialCheckpoint;
+
+      for await (const payload of sink.withSignal(signal)) {
+        if (signal.aborted) {
+          return;
+        }
+
+        let baseActiveCheckpoint: ActiveCheckpointDecoded | null = null;
+        if (payload == null) {
+          // Reconnected (or manually triggered) - re-query the current checkpoint.
+          // Unlike the initial read, a missing document here (e.g. sync rules being
+          // replaced) must not abort the stream: keep waiting for the next notification.
+          baseActiveCheckpoint = await checkpointUtils.getActiveCheckpointDocument({ db: this.db });
+          if (baseActiveCheckpoint == null) {
+            continue;
+          }
+        } else {
+          let notification: models.ActiveCheckpointNotificationDecoded;
+          try {
+            notification = models.ActiveCheckpointNotification.decode(payload);
+          } catch (error) {
+            // A malformed payload must not abort the shared stream for every
+            // subscriber. Skip it and wait for the next notification.
+            this.logger.warn('Failed to decode active checkpoint notification, ignoring', error);
+            continue;
+          }
+          if (notification.active_checkpoint == null) {
+            continue;
+          }
+          baseActiveCheckpoint = notification.active_checkpoint;
+        }
+
+        if (baseActiveCheckpoint.id != initialCheckpointDocument.id) {
+          // Active replication stream changed - abort and restart the stream
+          break;
+        }
+
+        const activeCheckpoint = this.makeActiveCheckpoint(baseActiveCheckpoint);
+
+        const checkpointAdvanced = activeCheckpoint.checkpoint > lastOp.checkpoint;
+        const checkpointRegressed = activeCheckpoint.checkpoint < lastOp.checkpoint;
+        const lsnAdvanced =
+          lastOp.lsn == null
+            ? activeCheckpoint.lsn != null
+            : activeCheckpoint.lsn != null && activeCheckpoint.lsn > lastOp.lsn;
+        const lsnRegressed = lastOp.lsn != null && (activeCheckpoint.lsn == null || activeCheckpoint.lsn < lastOp.lsn);
+
+        // Notifications buffered before a query or reconnect may be stale. Neither
+        // coordinate may regress, but only one needs to advance: an empty checkpoint
+        // updates the LSN while keeping the operation checkpoint unchanged.
+        if (!checkpointRegressed && !lsnRegressed && (checkpointAdvanced || lsnAdvanced)) {
+          lastOp = activeCheckpoint;
+          yield activeCheckpoint;
+        }
+      }
+    } finally {
       disposeListener();
-      sink.end();
-    });
-
-    yield this.makeActiveCheckpoint(doc);
-
-    let lastOp: storage.ReplicationCheckpoint | null = null;
-    for await (const payload of sink.withSignal(signal)) {
-      if (signal.aborted) {
-        return;
-      }
-
-      const notification = models.ActiveCheckpointNotification.decode(payload);
-      if (notification.active_checkpoint == null) {
-        continue;
-      }
-      if (Number(notification.active_checkpoint.id) != doc.id) {
-        // Active replication stream changed - abort and restart the stream
-        break;
-      }
-
-      const activeCheckpoint = this.makeActiveCheckpoint(notification.active_checkpoint);
-
-      if (lastOp == null || activeCheckpoint.lsn != lastOp.lsn || activeCheckpoint.checkpoint != lastOp.checkpoint) {
-        lastOp = activeCheckpoint;
-        yield activeCheckpoint;
-      }
     }
   }
 
@@ -785,3 +871,14 @@ const parameterSetsRow = t.object({
   index: bigint,
   bucket_parameters: t.string
 });
+
+function requireActiveCheckpointDocument(doc: models.ActiveCheckpointDecoded | null): models.ActiveCheckpointDecoded {
+  if (doc == null) {
+    // Used for the initial checkpoint read only: with no active replication stream
+    // at stream start, fail fast so clients disconnect and retry later. Mid-stream
+    // reconnects tolerate a transiently missing document instead of aborting.
+    throw new framework.ServiceError(framework.ErrorCode.PSYNC_S2302, 'No active replication stream available');
+  }
+
+  return doc;
+}

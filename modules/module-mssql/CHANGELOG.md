@@ -1,5 +1,129 @@
 # @powersync/service-module-mssql
 
+## 0.10.0
+
+### Minor Changes
+
+- 3ca835d: Add custom CA certificate support for MSSQL connections.
+
+  The new `cacert` option allows PowerSync to validate SQL Server certificates issued by a private CA
+  without enabling `trustServerCertificate`. An optional `tls_servername` can be specified when the connection
+  hostname differs from the name in the server certificate.
+
+- 798d739: Pin MSSQL source-table bindings to a specific CDC capture instance.
+
+  A source table now persists the object ID of the CDC change table it replicates from, and restores that
+  binding across restarts, so a stream always replicates the capture schema it started with. Existing
+  bindings without this metadata are backfilled at job startup with the same capture instance the previous
+  streaming logic would have selected.
+
+  SQL Server allows two capture instances per table. When a newer one appears, the current replication
+  process keeps polling the instance it is bound to and warns. Deploy a new sync config to use the newer
+  instance; the active sync config can continue serving clients through the old instance while the new sync
+  config snapshots and catches up. Keep the old instance available until the new sync config becomes active.
+
+  If CDC is disabled for a bound table, or its capture instance is removed while the source table and replica
+  identity remain unchanged, replication stops with `PSYNC_S1601`. A newly configured table that cannot be
+  replicated yet — it does not exist, or CDC has not been enabled for it — stops replication with
+  `PSYNC_S1602` rather than being skipped. Dropping, recreating, or otherwise changing the source identity of
+  a previously bound table stops replication with `PSYNC_S1603`.
+
+- 798d739: [Breaking Change]
+
+  Pin the replicated schema at the start of replication for SQL Server connections.
+
+  SQL Server does not deliver schema changes in the replication stream, so they can only be found by
+  polling, and a poll is never atomic with a commit. That leaves a gap where checkpoints are committed
+  against a schema that has already changed — producing a state the source database was never in, which
+  clients cannot detect. PowerSync therefore no longer adopts schema changes automatically.
+
+  The recommended schema-change workflow treats a sync config deployment as the consistency boundary. A
+  replication stream keeps the exact table set and CDC capture-instance identities it selected when it
+  started; it does not adopt schema or table changes in place. Tables must therefore be listed explicitly
+  rather than selected with wildcards.
+
+  What this means when making schema changes:
+
+  - **Add a table:** create the table, enable CDC, add its exact qualified name to the sync config, and
+    deploy a new sync config. The new sync config snapshots the table before becoming active.
+  - **Change captured columns:** where SQL Server allows a rolling change, apply the DDL and create a second
+    capture instance with the desired captured columns. Update explicit sync queries if needed, deploy a
+    new sync config, wait for its snapshots to finish and for it to become active, and only then remove the
+    old capture instance.
+  - **Make an identity-breaking change:** for a primary-key change, identity-column rename, or another
+    change that requires CDC to be disabled, disable CDC, apply the DDL, re-enable CDC, update the sync
+    config if needed, and deploy a new sync config. The current replication process cannot adopt the
+    replacement in place, so this results in downtime. If it observes CDC being disabled first, it stops
+    with `PSYNC_S1601` because its capture instance was removed. If it next reconciles after the replica
+    identity has changed, it stops with `PSYNC_S1603` instead. Disabling and re-enabling CDC without changing
+    the replica identity stops with `PSYNC_S1601`.
+  - **Drop a table:** remove it from the sync config, deploy a new sync config and wait for it to become
+    active, and only then drop the source table. Dropping the table first stops replication with
+    `PSYNC_S1603`; already-replicated data is retained until the new sync config becomes active.
+  - **Rename or drop/recreate a table:** update the sync config to express the intended table explicitly,
+    ensure the resulting table is CDC-enabled with the expected schema and replica identity, and deploy a
+    new sync config. The current replication process stops with `PSYNC_S1603` if its bound table is removed.
+  - **No deployment is needed** for changes that do not affect the captured row shape or replica identity,
+    such as many index, constraint, or default changes. A non-identity column change also needs no PowerSync
+    action if that changed column does not need to be replicated; otherwise use the rolling capture-instance
+    workflow above.
+
+  This sequencing keeps the old table or capture instance available while the new sync config snapshots and
+  becomes active whenever a rolling transition is possible. If a pinned capture instance or bound table is
+  removed first, the current replication process stops and a new sync config must be deployed.
+
+- 9d0b129: MSSQL CDCPoller improvements and fixes:
+
+  - Ensure correct ordering of CDC results which previously could cause inconsistencies when handling deferred updates
+  - Correctly count processed transactions in each polling cycle
+  - CDC polling query now streams results
+
+### Patch Changes
+
+- Updated dependencies [27b56cb]
+- Updated dependencies [798d739]
+  - @powersync/service-core@1.25.0
+
+## 0.9.0
+
+### Minor Changes
+
+- 087b61e: Configurable heartbeat_interval_seconds for MongoDB, Postgres, SQL Server.
+- 2189250: Add `/sync/checkpoint-request` for client-supplied checkpoint request ids, previously called write checkpoint ids. The route returns the stored `checkpoint_request_id`, storage now treats managed request ids as monotonic per user/client, custom checkpoint request ids continue to use the existing `checkpoint` field for backwards compatibility, and `checkpoint_requested_at` metadata lets compact jobs remove expired request-derived checkpoint records.
+
+  This release includes storage migrations for the checkpoint request metadata. Self-hosters should run migrations as part of the upgrade.
+
+### Patch Changes
+
+- be42e25: Throw a clear error (`PSYNC_R2201`) when a schema wildcard is used in a table pattern with MongoDB, MySQL, SQL Server or Convex connections, instead of silently discovering no tables.
+- Updated dependencies [087b61e]
+- Updated dependencies [2189250]
+- Updated dependencies [922f974]
+- Updated dependencies [c4860c9]
+- Updated dependencies [483415d]
+- Updated dependencies [8daa300]
+- Updated dependencies [aab068b]
+- Updated dependencies [37591e9]
+- Updated dependencies [be42e25]
+- Updated dependencies [be42e25]
+- Updated dependencies [cb4c627]
+  - @powersync/service-core@1.24.0
+  - @powersync/lib-services-framework@0.10.0
+  - @powersync/service-types@0.17.0
+  - @powersync/service-sync-rules@0.40.0
+  - @powersync/service-errors@0.5.0
+
+## 0.8.3
+
+### Patch Changes
+
+- Updated dependencies [ea71bf3]
+- Updated dependencies [ea31f64]
+- Updated dependencies [edc6ed4]
+  - @powersync/service-sync-rules@0.39.0
+  - @powersync/service-core@1.23.3
+  - @powersync/lib-services-framework@0.9.8
+
 ## 0.8.2
 
 ### Patch Changes

@@ -1,10 +1,14 @@
 import { MongoSyncBucketStorageV3 } from '@module/storage/implementation/v3/MongoSyncBucketStorageV3.js';
+import { ObjectStorageLifecycle } from '@module/storage/implementation/v3/object-storage/ObjectStorageLifecycle.js';
+import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { ReplicationStreamDocumentV3 } from '../../src/storage/implementation/v3/models.js';
+import { env } from './env.js';
+import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 
 function sourceDescriptor(name: string, options: { objectId?: string } = {}): storage.SourceEntityDescriptor {
@@ -47,7 +51,14 @@ async function cleanupStoppedSyncConfigs(bucketStorage: MongoSyncBucketStorageV3
 
 describe('cleanupStoppedSyncConfigs - mongodb', () => {
   test('cleans up unused stopped sync config storage', async () => {
-    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+    const objectStorage = new MemoryObjectStorage();
+    const storageFactory = mongoTestStorageFactoryGenerator({
+      url: env.MONGO_TEST_URL,
+      isCI: env.CI,
+      supportsMultipleSyncConfigs: true,
+      objectStorage
+    });
+    await using factory = await storageFactory.factory();
 
     const first = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
@@ -149,6 +160,16 @@ streams:
     await secondWriter.markAllSnapshotDone('2/1');
     await secondWriter.commit('2/1');
 
+    const lifecycle = new ObjectStorageLifecycle(db, first.replicationStreamId, objectStorage);
+    const stoppedObject = `${lifecycle.definitionPrefix(stoppedBucketDefinitionId!)}stopped.bson`;
+    const similarDefinitionObject = `${lifecycle.definitionPrefix(`${stoppedBucketDefinitionId!}0`)}live.bson`;
+    for (const path of [stoppedObject, similarDefinitionObject]) {
+      await objectStorage.put(path, new Uint8Array(), {
+        contentType: 'application/bson',
+        contentEncoding: null
+      });
+    }
+
     const result = await cleanupStoppedSyncConfigs(
       (await factory.getActiveSyncConfig())!.storage as MongoSyncBucketStorageV3
     );
@@ -166,6 +187,8 @@ streams:
     expect(await collectionExists(db, parameterIndexCollection)).toBe(false);
     expect(await collectionExists(db, sceneRecordsCollection)).toBe(false);
     expect(await collectionExists(db, invitationRecordsCollection)).toBe(false);
+    expect(objectStorage.store.has(stoppedObject)).toBe(false);
+    expect(objectStorage.store.has(similarDefinitionObject)).toBe(true);
     expect(
       await db.sourceTables(first.replicationStreamId).countDocuments({ _id: sceneTable.id as bson.ObjectId })
     ).toBe(0);

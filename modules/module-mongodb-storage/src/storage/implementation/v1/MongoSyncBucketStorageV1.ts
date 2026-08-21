@@ -3,6 +3,8 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   CheckpointChanges,
+  CompactInitialReplicationOptions,
+  CompactInitialReplicationResults,
   deserializeParameterLookup,
   GetCheckpointChangesOptions,
   InternalOpId,
@@ -16,16 +18,28 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
+import {
+  clearCollectionInIdBatches,
+  clearCollectionInIdRanges,
+  idPrefixFilter,
+  mapOpEntry,
+  readSingleBatch,
+  retryOnMongoMaxTimeMSExpired,
+  setSessionSnapshotTime
+} from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
-import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageCheckpoint.js';
+import {
+  MongoGetCheckpointChangesOptions,
+  MongoSyncBucketStorageCheckpoint
+} from '../common/MongoSyncBucketStorageCheckpoint.js';
 import { SourceKey } from '../models.js';
 import { MongoChecksums } from '../MongoChecksums.js';
-import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
+import { MongoCompactOptions } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
 import {
   BucketRowEstimate,
+  MongoCheckpointState,
   MongoSyncBucketStorage,
   MongoSyncBucketStorageOptions,
   TopBucketCandidate,
@@ -99,14 +113,20 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     });
   }
 
-  protected async fetchCheckpointState(
-    session: mongo.ClientSession
-  ): Promise<{ checkpoint: bigint; lsn: string | null } | null> {
+  protected async fetchCheckpointState(session: mongo.ClientSession): Promise<MongoCheckpointState | null> {
     const doc = (await this.db.sync_rules.findOne(
       { _id: this.replicationStreamId },
       {
         session,
-        projection: { _id: 1, state: 1, last_checkpoint: 1, last_checkpoint_lsn: 1, snapshot_done: 1 }
+        projection: {
+          _id: 1,
+          state: 1,
+          last_checkpoint: 1,
+          last_checkpoint_lsn: 1,
+          snapshot_done: 1,
+          // Must be read in the same snapshot as the checkpoint.
+          'parameter_compaction.checkpoint_changes_invalid_before': 1
+        }
       }
     )) as SyncRuleDocumentV1;
     if (!doc?.snapshot_done || ![storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED].includes(doc.state)) {
@@ -114,7 +134,9 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     }
     return {
       checkpoint: doc.last_checkpoint ?? 0n,
-      lsn: doc.last_checkpoint_lsn ?? null
+      lsn: doc.last_checkpoint_lsn ?? null,
+      // Defaults to 0n for streams that have never been compacted.
+      parameterChangesInvalidBefore: doc.parameter_compaction?.checkpoint_changes_invalid_before ?? 0n
     };
   }
 
@@ -170,7 +192,8 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
           no_checkpoint_before: null
         },
         $unset: {
-          snapshot_lsn: 1
+          snapshot_lsn: 1,
+          parameter_compaction: 1
         }
       },
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
@@ -185,8 +208,29 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     });
   }
 
-  createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
+  createMongoCompactor(options: MongoCompactOptions): MongoCompactorV1 {
     return new MongoCompactorV1(this, this.db, options);
+  }
+
+  async compactInitialReplication(
+    options: CompactInitialReplicationOptions
+  ): Promise<CompactInitialReplicationResults> {
+    this.logger.info(`Compacting after initial replication...`);
+    const start = Date.now();
+    const maxOpId = options.maxOpId ?? (await this.fetchPersistedOpHead()) ?? undefined;
+    const compactor = this.createMongoCompactor({
+      ...options,
+      maxOpId,
+      memoryLimitMB: 0,
+      logger: this.logger
+    });
+
+    const result = await compactor.populateChecksums({
+      minBucketChanges: options.minBucketChanges ?? 10
+    });
+    const duration = Date.now() - start;
+    this.logger.info(`Compacted after initial replication in ${(duration / 1000).toFixed(1)}s`);
+    return result;
   }
 
   // For storage v1/v2, bucket state and bucket data are shared collections scoped by group (replication stream).
@@ -292,64 +336,59 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   }
 
   protected async clearBucketData(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
+    await clearCollectionInIdRanges(
+      this.logger,
       'bucket data',
-      () =>
-        this.db.bucket_data.deleteMany(
-          {
-            _id: idPrefixFilter<BucketDataKeyV1>({ g: this.replicationStreamId }, ['b', 'o'])
-          },
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        ),
-      signal
+      this.db.bucket_data,
+      {
+        _id: idPrefixFilter<BucketDataKeyV1>({ g: this.replicationStreamId }, ['b', 'o'])
+      },
+      signal,
+      this.clearBatchThrottleRate
     );
   }
 
   protected async clearParameterIndexes(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
+    await clearCollectionInIdBatches(
+      this.logger,
       'parameter index',
-      () =>
-        this.db.parameterIndexV1.deleteMany(
-          {
-            'key.g': this.replicationStreamId
-          },
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        ),
-      signal
+      this.db.parameterIndexV1,
+      {
+        'key.g': this.replicationStreamId
+      },
+      signal,
+      this.clearBatchThrottleRate
     );
   }
 
   protected async clearSourceRecords(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
+    await clearCollectionInIdRanges(
+      this.logger,
       'source records',
-      () =>
-        this.db.sourceRecordsV1.deleteMany(
-          {
-            _id: idPrefixFilter<SourceKey>({ g: this.replicationStreamId }, ['t', 'k'])
-          },
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        ),
-      signal
+      this.db.sourceRecordsV1,
+      {
+        _id: idPrefixFilter<SourceKey>({ g: this.replicationStreamId }, ['t', 'k'])
+      },
+      signal,
+      this.clearBatchThrottleRate
     );
   }
 
   protected async clearBucketState(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
+    await clearCollectionInIdRanges(
+      this.logger,
       'bucket state',
-      () =>
-        this.db.bucketStateV1.deleteMany(
-          {
-            _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.replicationStreamId }, ['b'])
-          },
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        ),
-      signal
+      this.db.bucketStateV1,
+      {
+        _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.replicationStreamId }, ['b'])
+      },
+      signal,
+      this.clearBatchThrottleRate
     );
   }
 
   protected async clearSourceTables(signal?: AbortSignal): Promise<void> {
-    await this.clearDeleteMany(
-      'source tables',
+    await retryOnMongoMaxTimeMSExpired(
       () =>
         this.db.sourceTablesV1(this.replicationStreamId).deleteMany(
           {
@@ -357,7 +396,17 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
           },
           { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
         ),
-      signal
+      {
+        signal,
+        abortMessage: 'Aborted clearing data',
+        // This is a fairly long delay - only expected to hit this when the storage database is under high load.
+        retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
+        onRetry: () => {
+          this.logger.info(
+            `Clearing batch of source tables timed out after ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, retrying...`
+          );
+        }
+      }
     );
   }
 
@@ -368,7 +417,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   }
 
   protected getParameterBucketChangesImpl(
-    options: GetCheckpointChangesOptions
+    options: MongoGetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
     return getParameterBucketChangesV1(this.versionContext, options);
   }
@@ -467,6 +516,7 @@ export async function* getBucketDataBatchV1(
 
   if (session != null) {
     session.advanceOperationTime(checkpoint.snapshotTime);
+    session.advanceClusterTime(checkpoint.clusterTime);
   }
 
   let filters: mongo.Filter<BucketDataDocumentV1>[] = [];
@@ -612,27 +662,48 @@ export async function getDataBucketChangesV1(
   };
 }
 
+/**
+ * Query the parameter entries changed between the two checkpoints, to determine which parameter
+ * lookups need to be re-evaluated.
+ *
+ * This runs at the next checkpoint's snapshot, so it still sees entries that parameter compaction
+ * deleted after that snapshot. Compaction that deleted entries before the snapshot is covered by
+ * the invalidation fence, checked before we get here.
+ */
 export async function getParameterBucketChangesV1(
   ctx: MongoSyncBucketStorageContextV1,
-  options: GetCheckpointChangesOptions
+  options: MongoGetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
   const limit = 1000;
-  const parameterUpdates = await ctx.db.parameterIndexV1
-    .find(
-      {
-        _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint },
-        'key.g': ctx.replicationStreamId
-      },
-      {
-        projection: {
-          lookup: 1
+  const parameterUpdates = await ctx.db.client.withSession({ snapshot: true }, async (session) => {
+    setSessionSnapshotTime(session, options.nextCheckpoint.snapshotTime);
+    return await ctx.db.parameterIndexV1
+      .find(
+        {
+          _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint },
+          'key.g': ctx.replicationStreamId
         },
-        limit: limit + 1,
-        batchSize: limit + 2,
-        singleBatch: true
-      }
-    )
-    .toArray();
+        {
+          session,
+          readConcern: 'snapshot',
+          projection: {
+            lookup: 1
+          },
+          limit: limit + 1,
+          batchSize: limit + 2,
+          singleBatch: true
+        }
+      )
+      .toArray()
+      .catch((e) => {
+        // Includes the case where the checkpoint snapshot has expired. Degrading to
+        // invalidateParameterBuckets would be safe in itself - it reads nothing - but it gains
+        // nothing: the caller responds to that by re-evaluating the parameter queries at this
+        // same snapshot, which fails too. The checkpoint has to be refetched instead, which is
+        // what the existing sync retry behavior does.
+        throw lib_mongo.mapQueryError(e, 'while querying parameter changes');
+      });
+  });
   const invalidateParameterUpdates = parameterUpdates.length > limit;
 
   return {

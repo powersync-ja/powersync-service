@@ -1,3 +1,4 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import * as bson from 'bson';
 import { PostImagesOption } from '../types/types.js';
@@ -7,16 +8,36 @@ export const CHECKPOINTS_COLLECTION = '_powersync_checkpoints';
 
 const REQUIRED_CHECKPOINT_PERMISSIONS = ['find', 'insert', 'update', 'remove', 'changeStream', 'createCollection'];
 
+/**
+ * Whether a `hello` response indicates Azure DocumentDB (formerly Azure Cosmos
+ * DB for MongoDB vCore), which reports `documentdb_versions` in the `internal`
+ * section.
+ */
+function isDocumentDbHello(hello: mongo.Document): boolean {
+  return hello.internal?.documentdb_versions != null;
+}
+
+/**
+ * Detect whether the connected server is DocumentDB. DocumentDB lacks usable
+ * clusterTime/operationTime and uses the sentinel checkpoint implementation.
+ */
+export async function detectDocumentDb(db: mongo.Db): Promise<boolean> {
+  const hello = await db.command({ hello: 1 });
+  return isDocumentDbHello(hello);
+}
+
 export async function checkSourceConfiguration(connectionManager: MongoManager): Promise<void> {
   const db = connectionManager.db;
 
   const hello = await db.command({ hello: 1 });
-  if (hello.msg == 'isdbgrid') {
+  const isDocumentDb = isDocumentDbHello(hello);
+
+  if (hello.msg == 'isdbgrid' && !isDocumentDb) {
     throw new ServiceError(
       ErrorCode.PSYNC_S1341,
       'Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).'
     );
-  } else if (hello.setName == null) {
+  } else if (hello.setName == null && !isDocumentDb) {
     throw new ServiceError(ErrorCode.PSYNC_S1342, 'Standalone MongoDB instances are not supported - use a replicaset.');
   }
 

@@ -21,13 +21,18 @@ const HEAP_LIMIT = v8.getHeapStatistics().heap_size_limit;
  * Limit to 1024MB overall.
  */
 const COMPACT_MEMORY_LIMIT_MB = Math.min(HEAP_LIMIT / 1024 / 1024 - 128, 1024);
+const MINUTE_MS = 60 * 1000;
 
 export function registerCompactAction(program: Command) {
   const compactCommand = program
     .command(COMMAND_NAME)
     .option(`-b, --buckets [buckets]`, 'Full bucket names, comma-separated (e.g., "global[],mybucket[\\"user1\\"]")')
     .option('-p, --parameter-indexes', 'Compacting parameter indexes. Defaults to set unless --buckets is provided.')
-    .option('--no-parameter-indexes', 'Disabling compacting parameter indexes.');
+    .option('--no-parameter-indexes', 'Disabling compacting parameter indexes.')
+    .option(
+      '--incremental-only',
+      '[EXPERIMENTAL] Perform incremental compacting only. Parameter compaction runs on supported storage versions.'
+    );
 
   wrapConfigCommand(compactCommand);
 
@@ -47,8 +52,9 @@ export function registerCompactAction(program: Command) {
       }
     }
 
-    let compactParameters: boolean | null = options.parameterIndexes;
+    const incremental: boolean = options.incrementalOnly ?? false;
 
+    let compactParameters: boolean | null = options.parameterIndexes;
     if (buckets == null) {
       logger.info('Compacting storage for all buckets...');
     } else if (buckets.length == 0) {
@@ -82,28 +88,36 @@ export function registerCompactAction(program: Command) {
       // Start the storage engine in order to create the appropriate BucketStorage
       await serviceContext.lifeCycleEngine.start();
       const bucketStorage = serviceContext.storageEngine.activeBucketStorage;
+      const deleteCheckpointRequestsBefore = new Date(
+        Date.now() - config.api_parameters.checkpoint_request_retention_minutes * MINUTE_MS
+      );
 
-      const active = (await bucketStorage.getActiveSyncConfig())?.storage;
-      if (active == null) {
-        logger.info('No active instance to compact');
-        return;
+      const streams = await bucketStorage.getReplicatingReplicationStreams();
+      for (let stream of streams) {
+        const storage = bucketStorage.getInstance(stream);
+        const compactParameterData =
+          (compactParameters ?? buckets == null) && (!incremental || storage.supportsIncrementalParameterCompaction());
+        logger.info(`[${stream.replicationStreamName}] Performing compaction...`);
+        if (buckets != null) {
+          await storage.compact({
+            memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
+            compactBuckets: buckets,
+            compactParameterData,
+            incrementalOnly: incremental,
+            deleteCheckpointRequestsBefore,
+            signal: abortController.signal
+          });
+        } else {
+          await storage.compact({
+            memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
+            compactParameterData,
+            incrementalOnly: incremental,
+            deleteCheckpointRequestsBefore,
+            signal: abortController.signal
+          });
+        }
+        logger.info(`[${stream.replicationStreamName}] Successfully compacted storage.`);
       }
-      if (buckets != null) {
-        logger.info('Performing compaction...');
-        await active.compact({
-          memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
-          compactBuckets: buckets,
-          compactParameterData: compactParameters ?? false,
-          signal: abortController.signal
-        });
-      } else {
-        await active.compact({
-          memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
-          compactParameterData: compactParameters ?? true,
-          signal: abortController.signal
-        });
-      }
-      logger.info('Successfully compacted storage.');
     } catch (e) {
       logger.error(`Failed to compact:`, e);
       // Indirectly triggers lifeCycleEngine.stop

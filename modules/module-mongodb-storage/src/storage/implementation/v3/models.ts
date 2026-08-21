@@ -1,5 +1,6 @@
 import {
   InternalOpId,
+  JsonValue,
   PersistedDefinitionMapping,
   SerializedSyncPlan,
   SyncRuleState,
@@ -15,7 +16,6 @@ import * as bson from 'bson';
 import {
   BucketDataKey,
   BucketParameterDocumentBase,
-  BucketStateDocumentBase,
   CurrentBucket,
   OpType,
   ReplicaId,
@@ -157,11 +157,62 @@ export interface SourceTableDocumentV3 {
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
   latest_pending_delete?: InternalOpId | undefined;
+  /**
+   * Source-specific metadata. Absent for legacy records.
+   */
+  source_metadata?: JsonValue;
 }
 
-export interface BucketStateDocumentV3 extends BucketStateDocumentBase {
-  _id: BucketStateDocumentBase['_id'] & {
+export interface BucketStateDocumentV3 {
+  _id: {
+    b: string;
     d: BucketDefinitionId;
+  };
+
+  /** Must always identify an actual operation in this logical stream. */
+  last_op: bigint;
+
+  /** The next time a compact worker should inspect this bucket. */
+  next_compact_check: Date | undefined;
+  /**
+   * Scheduling epoch for work not covered by a full compact. Writers set the
+   * first actual write time; a partial full compact advances it to completion.
+   */
+  first_uncompacted_write: Date | undefined;
+
+  /**
+   * A checksum cache and the statistics captured by the latest compact (full
+   * or chunk). Keeping these separate from bucket_stats lets writers only
+   * update one set of counters.
+   */
+  compacted_state?: {
+    op_id: InternalOpId;
+    checksum: bigint;
+    count: number;
+    bytes: bigint;
+    at: Date;
+    chunks: number;
+  };
+
+  /** Statistics for the prefix covered by the most recent full compact. */
+  last_full_compact?: {
+    op_id: InternalOpId;
+    count: number;
+    at: Date;
+    puts: number;
+  };
+
+  /** Current aggregate bucket statistics, maintained by writers and compactors. */
+  bucket_stats: {
+    count: number;
+    bytes: bigint;
+    chunks: number;
+  };
+
+  /** A short-lived ownership marker used to distribute bucket compaction. */
+  compact_lease?: {
+    expires_at: Date;
+    id: unknown;
   };
 }
 
@@ -170,20 +221,60 @@ export interface BucketOperation {
   op: OpType;
   source_table?: bson.ObjectId;
   source_key?: ReplicaId;
+  subkey?: string;
   table?: string;
   row_id?: string;
   checksum: bigint;
   data: string | null;
 }
 
+export interface StorageRef {
+  path: string;
+  file_size: number;
+}
+
+/** An S3 object that may be deleted once its grace period has elapsed. */
+export interface ObjectStorageDeletionMarker {
+  _id: bson.ObjectId;
+  path: string;
+  delete_after: Date;
+}
+
+/**
+ * A non-empty chunk of a bucket's ordered operation stream.
+ *
+ * All writers maintain these invariants:
+ *
+ * - `ops` is non-empty and strictly ordered by `o`.
+ * - `min_op` is `ops[0].o` and `_id.o` is `ops[ops.length - 1].o`.
+ * - Documents for the same bucket have ordered, disjoint operation ranges,
+ *   although gaps between ranges are allowed.
+ * - `checksum` is the sum of every operation checksum and `count` is
+ *   `ops.length`.
+ *
+ * Metadata-only checksum and data queries rely on these invariants to identify
+ * boundary-straddling documents without reading `ops`.
+ */
 export interface BucketDataDocumentV3 {
   _id: BucketDataKey;
   min_op: bigint;
   checksum: bigint;
   count: number;
   size: number;
+  /**
+   * The greatest operation boundary that influenced this document's contents.
+   * Bucket-data reads propagate it so serving an earlier checkpoint can be
+   * invalidated when compaction changed the operations being returned.
+   */
   target_op?: bigint | null;
-  ops: BucketOperation[];
+  ops?: BucketOperation[];
+  storage_ref?: StorageRef;
+  /**
+   * Present (and always true) when this document contains a CLEAR operation.
+   * In that case, this is the first document in the bucket: all preceding
+   * documents have been removed.
+   */
+  has_clear_op?: true;
 }
 
 export function serializeParameterLookup(lookup: ScopedParameterLookup): bson.Binary {

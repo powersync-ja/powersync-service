@@ -1,8 +1,8 @@
 import { BaseObserver, logger } from '@powersync/lib-services-framework';
 import {
   PrecompiledSyncConfig,
+  SerializedSyncPlan as RawSerializedSyncPlan,
   SerializedCompatibilityContext,
-  SerializedSyncPlanV1,
   serializeSyncPlan,
   SqlSyncRules,
   SyncConfigWithErrors
@@ -162,6 +162,12 @@ export interface UpdateSyncRulesOptions {
   storageVersion?: number;
 
   /**
+   * Start a replacement replication stream instead of incrementally reprocessing a
+   * compatible active stream. Used when the current stream needs a full reprocess.
+   */
+  forceNewReplicationStream?: boolean;
+
+  /**
    * Only relevant if the result is used. This does not affect the persisted config.
    */
   defaultSchema?: string;
@@ -171,7 +177,7 @@ export interface SerializedSyncPlan {
   /**
    * The serialized plan, from {@link serializeSyncPlan}.
    */
-  plan: SerializedSyncPlanV1;
+  plan: RawSerializedSyncPlan;
   compatibility: SerializedCompatibilityContext;
   /**
    * Event descriptors are not currently represented in the sync plan because they don't use the sync streams compiler

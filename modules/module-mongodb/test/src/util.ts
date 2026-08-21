@@ -71,8 +71,7 @@ export async function connectMongoData(options: mongo.MongoClientOptions = {}) {
     ...BSON_DESERIALIZE_DATA_OPTIONS,
     ...options
   });
-  const dbname = new URL(env.MONGO_TEST_DATA_URL).pathname.substring(1);
-  return { client, db: client.db(dbname) };
+  return { client, db: client.db(TEST_CONNECTION_OPTIONS.database) };
 }
 
 /**

@@ -1,5 +1,39 @@
 # @powersync/service-module-core
 
+## 0.2.33
+
+### Patch Changes
+
+- Updated dependencies [27b56cb]
+- Updated dependencies [798d739]
+  - @powersync/service-core@1.25.0
+
+## 0.2.32
+
+### Patch Changes
+
+- Updated dependencies [087b61e]
+- Updated dependencies [2189250]
+- Updated dependencies [922f974]
+- Updated dependencies [c4860c9]
+- Updated dependencies [483415d]
+- Updated dependencies [aab068b]
+- Updated dependencies [37591e9]
+- Updated dependencies [df5663b]
+  - @powersync/service-core@1.24.0
+  - @powersync/lib-services-framework@0.10.0
+  - @powersync/service-types@0.17.0
+  - @powersync/service-rsocket-router@0.2.25
+
+## 0.2.31
+
+### Patch Changes
+
+- Updated dependencies [ea31f64]
+  - @powersync/service-core@1.23.3
+  - @powersync/lib-services-framework@0.9.8
+  - @powersync/service-rsocket-router@0.2.24
+
 ## 0.2.30
 
 ### Patch Changes

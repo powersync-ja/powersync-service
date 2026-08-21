@@ -1,7 +1,7 @@
 import { CompatibilityContext } from '../compatibility.js';
 import { SqlRuleError } from '../errors.js';
+import { QueryParseResult } from '../legacy/SqlBucketDescriptor.js';
 import { SourceTableRef } from '../SourceTableRef.js';
-import { QueryParseResult } from '../SqlBucketDescriptor.js';
 import { SyncRulesOptions } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
 import { EvaluateRowOptions } from '../types.js';

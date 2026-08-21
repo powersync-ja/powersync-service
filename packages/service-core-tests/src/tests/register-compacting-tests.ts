@@ -2,7 +2,7 @@ import { addChecksums, storage, updateSyncRulesFromYaml } from '@powersync/servi
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest } from '../test-utils/test-utils-index.js';
-import { bucketRequestMap, bucketRequests } from './util.js';
+import { bucketRequestMap, bucketRequests, compactActive } from './util.js';
 
 export function registerCompactTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
@@ -56,7 +56,7 @@ bucket_definitions:
 
     const request = bucketRequest(syncRulesContent, 'global[]');
 
-    const batchBefore = await test_utils.oneFromAsync(
+    const batchBefore = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
     );
     const dataBefore = batchBefore.chunkData.data;
@@ -81,7 +81,7 @@ bucket_definitions:
     ]);
     expect(batchBefore.targetOp).toEqual(null);
 
-    await bucketStorage.compact({
+    await compactActive(factory, {
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
@@ -89,7 +89,7 @@ bucket_definitions:
       minChangeRatio: 0
     });
 
-    const batchAfter = await test_utils.oneFromAsync(
+    const batchAfter = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
     );
     const dataAfter = batchAfter.chunkData.data;
@@ -176,7 +176,7 @@ bucket_definitions:
     const checkpoint = writer.last_flushed_op!;
     const request = bucketRequest(syncRulesContent, 'global[]');
 
-    const batchBefore = await test_utils.oneFromAsync(
+    const batchBefore = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
     );
     const dataBefore = batchBefore.chunkData.data;
@@ -202,7 +202,7 @@ bucket_definitions:
       }
     ]);
 
-    await bucketStorage.compact({
+    await compactActive(factory, {
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
@@ -210,7 +210,7 @@ bucket_definitions:
       minChangeRatio: 0
     });
 
-    const batchAfter = await test_utils.oneFromAsync(
+    const batchAfter = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint), [request])
     );
     const dataAfter = batchAfter.chunkData.data;
@@ -301,7 +301,7 @@ bucket_definitions:
     await writer2.flush();
     const checkpoint2 = writer2.last_flushed_op!;
 
-    await bucketStorage.compact({
+    await compactActive(factory, {
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
@@ -309,7 +309,7 @@ bucket_definitions:
       minChangeRatio: 0
     });
 
-    const batchAfter = await test_utils.oneFromAsync(
+    const batchAfter = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(test_utils.testCheckpoint(checkpoint2), [request])
     );
     const dataAfter = batchAfter.chunkData.data;
@@ -416,7 +416,7 @@ bucket_definitions:
 
     const checkpoint = writer.last_flushed_op!;
 
-    await bucketStorage.compact({
+    await compactActive(factory, {
       clearBatchLimit: 100,
       moveBatchLimit: 100,
       moveBatchQueryLimit: 100, // Larger limit for a larger window of operations
@@ -424,7 +424,7 @@ bucket_definitions:
       minChangeRatio: 0
     });
 
-    const batchAfter = await test_utils.fromAsync(
+    const batchAfter = await test_utils.getBatchArray(
       bucketStorage.getBucketDataBatch(
         test_utils.testCheckpoint(checkpoint),
         bucketRequestMap(syncRulesContent, [
@@ -507,7 +507,7 @@ bucket_definitions:
     await writer.commit('1/1');
     await writer.flush();
 
-    await bucketStorage.compact({
+    await compactActive(factory, {
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
@@ -595,7 +595,7 @@ bucket_definitions:
     await writer2.commit('2/1');
     await writer2.flush();
 
-    await bucketStorage.compact({
+    await compactActive(factory, {
       clearBatchLimit: 20,
       moveBatchLimit: 10,
       moveBatchQueryLimit: 10,
@@ -658,14 +658,14 @@ bucket_definitions:
     expect(checkpointBeforeCompact.checkpoint).toEqual(checkpoint1);
 
     // With default options, Postgres compaction should use the active checkpoint.
-    await bucketStorage.compact({
+    await compactActive(factory, {
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
       minBucketChanges: 1,
       minChangeRatio: 0
     });
 
-    const batchAfterDefaultCompact = await test_utils.oneFromAsync(
+    const batchAfterDefaultCompact = await test_utils.getSingleBatchItem(
       bucketStorage.getBucketDataBatch(
         test_utils.testCheckpoint(checkpoint2),
         bucketRequestMap(syncRulesContent, [['global[]', 0n]])

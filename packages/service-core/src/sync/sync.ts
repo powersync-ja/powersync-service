@@ -1,19 +1,18 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { BucketPriority, HydratedSyncConfig, ResolvedBucket, SqliteJsonValue } from '@powersync/service-sync-rules';
 
-import { AbortError } from 'ix/aborterror.js';
-
 import * as auth from '../auth/auth-index.js';
 import * as storage from '../storage/storage-index.js';
 import * as util from '../util/util-index.js';
 
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { isBatchEnd } from '../storage/storage-index.js';
 import { mergeAsyncIterables } from '../streams/streams-index.js';
 import { PerformanceTracer, type Span } from '../tracing/PerformanceTracer.js';
 import { BucketChecksumState, CheckpointLine, type SyncCheckpointTraceCategory } from './BucketChecksumState.js';
 import { OperationsSentStats, RequestTracker, statsForBatch } from './RequestTracker.js';
 import { SyncContext } from './SyncContext.js';
-import { TokenStreamOptions, acquireSemaphoreAbortable, settledPromise, tokenStream } from './util.js';
+import { TokenStreamOptions, acquireSemaphoreAbortable, isAbortError, settledPromise, tokenStream } from './util.js';
 
 type CheckpointTiming = Record<string, number>;
 
@@ -87,7 +86,7 @@ export async function* streamResponse(
   try {
     yield* merged;
   } catch (e) {
-    if (e instanceof AbortError) {
+    if (isAbortError(e)) {
       return;
     } else {
       throw e;
@@ -149,6 +148,22 @@ async function* streamResponseInner(
       const line = await checksumState.buildNextCheckpointLine(next.value, trace.tracer);
       return { done: false, value: { checkpoint: cp, line, trace: line == null ? null : trace } };
     } catch (e) {
+      if (e instanceof storage.CheckpointChecksumInvalidatedError) {
+        // The checksum was not usable, so buildNextCheckpointLine has not advanced
+        // the connection state. Drop this candidate and wait for a checkpoint that
+        // is not split by a compaction-produced bucket-data document.
+        // This is different from other checkpoint_invalidated cases in that we hit
+        // this during checksum calculation, instead of on data read.
+        trace.span.end();
+        checksumState.invalidateChecksumBaseline();
+        logger.info(`checkpoint_invalidated: ${cp.checkpoint}`, {
+          reason: 'compacted_before_checkpoint_line',
+          bucket: e.bucket,
+          checkpoint: cp.checkpoint,
+          user_id: tokenPayload.userIdJson
+        });
+        return { done: false, value: { checkpoint: cp, line: null, trace: null } };
+      }
       // Only end the span if we error. If we return normally, we pass ownership on to the caller.
       trace.span.end();
       throw e;
@@ -220,7 +235,7 @@ async function* streamResponseInner(
             while (true) {
               const next = await settledPromise(waitForNewCheckpointLine());
               if (next.status == 'rejected') {
-                if (next.reason instanceof AbortError) {
+                if (isAbortError(next.reason)) {
                   checkpointResult = { result: 'invalidated', invalidationReason: 'checkpoint_cancelled' };
                 } else {
                   checkpointResult = { result: 'invalidated', invalidationReason: 'checkpoint_error' };
@@ -439,12 +454,23 @@ async function* bucketDataBatch(
     // Optimization: Only fetch buckets for which the checksums have changed since the last checkpoint
     // For the first batch, this will be all buckets.
     const filteredBuckets = checkpointLine.getFilteredBucketPositions(bucketsToFetch);
-    const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets, { requestHint });
-    for await (let { chunkData: r, targetOp } of dataBatches) {
+    const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets, {
+      requestHint,
+      // Checkpoint supersession is a cooperative batch handoff. Only abort
+      // in-flight storage work when the connection itself is closed.
+      signal: abort_connection
+    });
+    for await (let chunk of dataBatches) {
       // Abort in current batch if the connection is closed
       if (abort_connection.aborted) {
         return null;
       }
+      if (isBatchEnd(chunk)) {
+        // This replaces any other has_more value, since the batch end is the last chunk.
+        has_more = chunk.hasMore;
+        break;
+      }
+      const { chunkData: r, targetOp } = chunk;
       if (r.has_more) {
         has_more = true;
       }

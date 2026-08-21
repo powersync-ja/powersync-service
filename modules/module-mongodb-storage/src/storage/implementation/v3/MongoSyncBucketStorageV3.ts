@@ -3,6 +3,8 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   CheckpointChanges,
+  CompactInitialReplicationOptions,
+  CompactInitialReplicationResults,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
@@ -23,20 +25,24 @@ import * as bson from 'bson';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
-import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageCheckpoint.js';
+import {
+  MongoGetCheckpointChangesOptions,
+  MongoSyncBucketStorageCheckpoint
+} from '../common/MongoSyncBucketStorageCheckpoint.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
 import {
   BucketRowEstimate,
+  MongoCheckpointState,
   MongoSyncBucketStorage,
   MongoSyncBucketStorageOptions,
   TopBucketCandidate,
   TopBucketSelection,
   TopDefinitionCandidate
 } from '../MongoSyncBucketStorage.js';
-import { loadBucketDataDocument } from './bucket-format.js';
+import { loadBucketDataDocument, maxOpId } from './bucket-format.js';
 import {
   BucketDataDocumentV3,
   BucketParameterDocumentV3,
@@ -48,13 +54,18 @@ import {
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
+import { MongoParameterCompactorV3 } from './MongoParameterCompactorV3.js';
 import { MongoStoppedSyncConfigCleanup } from './MongoStoppedSyncConfigCleanup.js';
+import { hydrateBucketDataDocuments } from './object-storage/BucketDataObjectStorage.js';
+import { ObjectStorage } from './object-storage/ObjectStorage.js';
+import { ObjectStorageLifecycle } from './object-storage/ObjectStorageLifecycle.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export interface MongoSyncBucketStorageContextV3 {
   db: VersionedPowerSyncMongoV3;
   replicationStreamId: number;
   readPreference?: mongo.ReadPreference;
+  objectStorage: ObjectStorage | undefined;
   /**
    * Persisted mapping of the single sync config that read operations are served from.
    *
@@ -64,47 +75,53 @@ export interface MongoSyncBucketStorageContextV3 {
   readonly mapping: SingleSyncConfigBucketDefinitionMapping;
 }
 
-function* walkDocumentOps(
-  data: BucketDataDoc[],
-  documentOpCounts: number[],
-  documentSizes: number[]
-): Generator<{ row: BucketDataDoc; docIndex: number; isLastOpInDocument: boolean }> {
-  let opIndex = 0;
-  for (const [docIndex, opCount] of documentOpCounts.entries()) {
-    for (let i = 0; i < opCount; i++) {
-      yield { row: data[opIndex++], docIndex, isLastOpInDocument: i === opCount - 1 };
+const BUCKET_DATA_FETCH_BATCH_LIMIT_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Keep the documents hydrated for one sync response within a bounded payload or slightly higher.
+ *
+ * This deserializes on-demand, so no deserialization is performed for discarded data.
+ */
+function cutBucketDataBatch(rawDocuments: Buffer[]): {
+  documents: BucketDataDocumentV3[];
+  wasCut: boolean;
+} {
+  let cumulativeBytes = 0;
+  let documents: BucketDataDocumentV3[] = [];
+  for (const raw of rawDocuments) {
+    const doc = bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3;
+    documents.push(doc);
+    cumulativeBytes += doc.size;
+    if (cumulativeBytes > BUCKET_DATA_FETCH_BATCH_LIMIT_BYTES) {
+      return {
+        documents,
+        wasCut: documents.length < rawDocuments.length
+      };
     }
   }
+  return { documents, wasCut: false };
 }
 
 function extractRowsFromDocument(
   doc: BucketDataDocumentV3,
   context: { replicationStreamId: number; definitionId: string },
-  bucketMap: Map<string, InternalOpId>,
-  endOpId: InternalOpId,
-  remainingLimit: number
-): { rows: BucketDataDoc[]; remainingLimit: number; limitReached: boolean } {
+  bucketStart: InternalOpId,
+  endOpId: InternalOpId
+): BucketDataDoc[] {
   const rows: BucketDataDoc[] = [];
   for (const row of loadBucketDataDocument(context, doc)) {
-    const bucket = row.bucketKey.bucket;
-    const bucketStart = bucketMap.get(bucket);
-    if (bucketStart == null) {
-      throw new Error(`data for unexpected bucket: ${bucket}`);
-    }
+    // In theory a binary search could be faster than a linear scan to find the start.
+    // In practice, most cases should not filter out anything here.
     if (row.o <= bucketStart) {
       continue;
     }
     if (row.o > endOpId) {
-      continue;
+      break;
     }
 
     rows.push(row);
-    remainingLimit--;
-    if (remainingLimit <= 0) {
-      return { rows, remainingLimit, limitReached: true };
-    }
   }
-  return { rows, remainingLimit, limitReached: false };
+  return rows;
 }
 
 export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
@@ -194,6 +211,22 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return new MongoCompactorV3(this, this.db, options);
   }
 
+  override async compactInitialReplication(
+    options: CompactInitialReplicationOptions
+  ): Promise<CompactInitialReplicationResults> {
+    this.logger.info(`Compacting chunks after initial replication...`);
+    const start = Date.now();
+    const maxOpId = options.maxOpId ?? (await this.fetchPersistedOpHead()) ?? undefined;
+    const compactedBuckets = await this.createMongoCompactor({
+      ...options,
+      maxOpId,
+      compactChunksOnly: true,
+      logger: this.logger
+    }).compact();
+    this.logger.info(`Compacted chunks after initial replication in ${(Date.now() - start) / 1000}s`);
+    return { buckets: compactedBuckets };
+  }
+
   // For storage v3, bucket state is a per-stream collection and bucket data is split into per-definition collections.
   // A replication stream can host multiple sync configs (active + processing + stopped, until cleanup runs), all
   // sharing these collections. Scope to the active config's definition ids so the report excludes stale buckets
@@ -276,13 +309,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     checkpoint: InternalOpId,
     options: storage.CompactOptions
   ): MongoParameterCompactor {
-    return new MongoParameterCompactor(this.db, this.replicationStreamId, checkpoint, options, () =>
-      this.db
-        .listParameterIndexCollections(this.replicationStreamId)
-        .then((collections) =>
-          collections.map((c) => c.collection as unknown as lib_mongo.mongo.Collection<lib_mongo.mongo.Document>)
-        )
-    );
+    return new MongoParameterCompactorV3(this.db, this.replicationStreamId, checkpoint, options);
   }
 
   protected async fetchPersistedOpHead(): Promise<InternalOpId | null> {
@@ -308,16 +335,15 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     });
   }
 
-  protected async fetchCheckpointState(
-    session: mongo.ClientSession
-  ): Promise<{ checkpoint: bigint; lsn: string | null } | null> {
+  protected async fetchCheckpointState(session: mongo.ClientSession): Promise<MongoCheckpointState | null> {
     const doc = await this.syncRulesCollection.findOne(
       this.syncConfigMatch({
         state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
       }),
       {
         session,
-        projection: this.syncConfigProjection()
+        // The invalidation fence must be read in the same snapshot as the checkpoint.
+        projection: this.syncConfigProjection({ 'parameter_compaction.checkpoint_changes_invalid_before': 1 })
       }
     );
     // Checkpoints are served from the single active config. A PROCESSING config in the same
@@ -338,7 +364,10 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     }
     return {
       checkpoint: syncConfig.last_checkpoint ?? 0n,
-      lsn: syncConfig.last_checkpoint_lsn ?? null
+      lsn: syncConfig.last_checkpoint_lsn ?? null,
+      // Stream-level state: shared by all sync configs. Defaults to 0n for streams that have
+      // never been compacted.
+      parameterChangesInvalidBefore: doc?.parameter_compaction?.checkpoint_changes_invalid_before ?? 0n
     };
   }
 
@@ -391,7 +420,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         },
         $unset: {
           resume_lsn: 1,
-          last_persisted_op: 1
+          last_persisted_op: 1,
+          parameter_compaction: 1
         }
       },
       {
@@ -427,6 +457,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     const self = this;
     return {
       db: this.db,
+      objectStorage: this.objectStorage,
       replicationStreamId: this.replicationStreamId,
       readPreference: this.readPreference,
       get mapping() {
@@ -447,14 +478,27 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     checkpoint: MongoSyncBucketStorageCheckpoint,
     dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
-  ): AsyncIterable<storage.SyncBucketDataChunk> {
+  ): AsyncIterable<storage.SyncBucketDataChunk | storage.SyncBucketDataBatchEnd> {
     return getBucketDataBatchV3(this.versionContext, checkpoint, dataBuckets, options);
   }
 
-  protected async clearBucketData(_signal?: AbortSignal): Promise<void> {
+  protected async clearBucketData(signal?: AbortSignal): Promise<void> {
     for (const collection of await this.db.listBucketDataCollections(this.replicationStreamId)) {
       await collection.drop();
     }
+    if (this.objectStorage) {
+      const lifecycle = new ObjectStorageLifecycle(this.db, this.replicationStreamId, this.objectStorage);
+      await lifecycle.deletePrefix(lifecycle.streamPrefix(), { signal });
+    }
+    await this.db
+      .pendingObjectStorageDeletes(this.replicationStreamId)
+      .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
+      .catch((error) => {
+        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          return;
+        }
+        throw error;
+      });
   }
 
   protected async clearParameterIndexes(_signal?: AbortSignal): Promise<void> {
@@ -502,7 +546,9 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       signal: options.signal,
       logger: options.logger ?? this.logger,
       defaultSchema: options.defaultSchema,
-      sourceConnectionTag: options.sourceConnectionTag
+      sourceConnectionTag: options.sourceConnectionTag,
+      objectStorage: this.objectStorage,
+      clearBatchThrottleRate: this.clearBatchThrottleRate
     }).run();
   }
 
@@ -513,7 +559,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected getParameterBucketChangesImpl(
-    options: GetCheckpointChangesOptions
+    options: MongoGetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
     return getParameterBucketChangesV3(this.versionContext, options);
   }
@@ -624,7 +670,7 @@ export async function* getBucketDataBatchV3(
   checkpoint: MongoSyncBucketStorageCheckpoint,
   dataBuckets: storage.BucketDataRequest[],
   options?: storage.BucketDataBatchOptions
-): AsyncIterable<storage.SyncBucketDataChunk> {
+): AsyncIterable<storage.SyncBucketDataChunk | storage.SyncBucketDataBatchEnd> {
   if (dataBuckets.length == 0) {
     return;
   }
@@ -643,13 +689,15 @@ export async function* getBucketDataBatchV3(
 
   if (session != null) {
     session.advanceOperationTime(checkpoint.snapshotTime);
+    session.advanceClusterTime(checkpoint.clusterTime);
   }
 
   const batchLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
   const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
   const end = checkpoint.checkpoint;
-  let remainingLimit = batchLimit;
 
+  // Group requests by definition, so that we can query each definition's bucket data in a single query.
+  // We only return the results of a single query per batch.
   const requestsByDefinition = new Map<string, storage.BucketDataRequest[]>();
   for (const request of dataBuckets) {
     const definitionId = ctx.mapping.bucketSourceId(request.source);
@@ -660,9 +708,6 @@ export async function* getBucketDataBatchV3(
 
   const definitionGroups = Array.from(requestsByDefinition.entries());
   for (const [groupIndex, [definitionId, requests]] of definitionGroups.entries()) {
-    if (remainingLimit <= 0) {
-      break;
-    }
     const hasLaterDefinitionGroups = groupIndex < definitionGroups.length - 1;
     const bucketMap = new Map(requests.map((request) => [request.bucket, request.start]));
     const filters = Array.from(bucketMap.entries()).map(([bucket, start]) => ({
@@ -678,9 +723,8 @@ export async function* getBucketDataBatchV3(
     // MongoDB Filter<T> doesn't accept the $or operator in its type.
     const filter = { $or: filters } as unknown as mongo.Filter<BucketDataDocumentV3>;
     const context = { replicationStreamId: ctx.replicationStreamId, definitionId };
-    const limit = remainingLimit;
 
-    const cursorOptions = { limit: remainingLimit, batchSize: remainingLimit + 1 };
+    const cursorOptions = { limit: batchLimit, batchSize: batchLimit + 1 };
 
     // raw: true returns Buffers, but the driver typing doesn't reflect that
     // without an explicit cast to FindCursor<Buffer>.
@@ -698,88 +742,44 @@ export async function* getBucketDataBatchV3(
       throw lib_mongo.mapQueryError(e, 'while reading bucket data');
     });
 
-    if (cursorOptions.limit != null && rawData.length >= cursorOptions.limit) {
+    if (rawData.length >= cursorOptions.limit) {
       hasMore = true;
     }
 
-    const data: BucketDataDoc[] = [];
-    const documentOpCounts: number[] = [];
-    const documentSizes: number[] = [];
-    let sharedRemainingLimit = limit;
-    let limitReached = false;
-    // Buckets whose matched document contributed no rows after filtering.
-    const completeEmptyBuckets = new Set<string>();
-
-    for (const raw of rawData) {
-      const doc = bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3;
-      const {
-        rows,
-        remainingLimit,
-        limitReached: docLimitReached
-      } = extractRowsFromDocument(doc, context, bucketMap, end, sharedRemainingLimit);
-      if (rows.length == 0) {
-        // The document straddles the requested (start, end] window: it matched the
-        // query, but none of its ops are in range. Since its _id.o (max op) must be
-        // > end (any op <= end would have been > start, and thus in range), and
-        // document ranges per bucket are disjoint, no later document for this bucket
-        // can match either. The bucket is complete through the checkpoint.
-        completeEmptyBuckets.add(doc._id.b);
-      }
-      data.push(...rows);
-      documentOpCounts.push(rows.length);
-      documentSizes.push(raw.byteLength);
-      sharedRemainingLimit = remainingLimit;
-      if (docLimitReached) {
-        limitReached = true;
-        break;
-      }
+    // Deserialize the raw documents and cut the batch to a bounded size. Any data not
+    // making the cut will be read in the next round, using a fresh query.
+    const cutBatch = cutBucketDataBatch(rawData);
+    const docs = cutBatch.documents;
+    if (cutBatch.wasCut) {
+      hasMore = true;
     }
 
-    const batchHasMore = hasMore || limitReached;
-
-    // Empty chunks are not forwarded to clients, but report progress to the caller:
-    // the bucket's position advances to the checkpoint, so it is not re-requested.
-    // If the batch produced no data at all, the last empty chunk also carries the
-    // has_more signal, so the caller re-requests the remaining buckets instead of
-    // treating an all-filtered batch as the end of the stream.
-    const emptyBuckets = Array.from(completeEmptyBuckets);
-    for (const [index, bucket] of emptyBuckets.entries()) {
-      const startOpId = bucketMap.get(bucket);
-      if (startOpId == null) {
-        throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
-      }
-      const isLastChunkOfBatch = data.length == 0 && index == emptyBuckets.length - 1;
-      yield {
-        chunkData: {
-          bucket,
-          after: internalToExternalOpId(startOpId),
-          has_more: isLastChunkOfBatch && batchHasMore,
-          data: [],
-          next_after: internalToExternalOpId(end)
-        },
-        targetOp: null
-      };
-    }
-
-    if (data.length == 0) {
-      if (batchHasMore) {
-        // The remaining documents are read in the next round, after the caller has
-        // advanced the positions of the empty buckets above.
-        return;
-      }
-      continue;
-    }
-
-    remainingLimit -= data.length;
+    // Hydrate any operations from object storage.
+    // In the future we can do this in a more pipelined fashion, but for now we hydrate
+    // the entire batch at once.
+    await hydrateBucketDataDocuments(docs, ctx.objectStorage, { signal: options?.signal });
 
     let currentChunkSizeBytes = 0;
     let currentChunk: utils.SyncBucketData | null = null;
     let targetOp: InternalOpId | null = null;
+    let seenBuckets = new Set<string>();
+    const batchHasMore = hasMore;
 
-    for (const { row, docIndex, isLastOpInDocument } of walkDocumentOps(data, documentOpCounts, documentSizes)) {
-      const bucket = row.bucketKey.bucket;
+    for (const doc of docs) {
+      const bucket = doc._id.b;
+      seenBuckets.add(bucket);
+      const bucketStart = bucketMap.get(bucket);
+      if (bucketStart == null) {
+        throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
+      }
 
-      if (currentChunk == null || currentChunk.bucket != bucket || currentChunkSizeBytes >= chunkSizeLimitBytes) {
+      // Reached a new bucket or size limit: yield the current chunk and start a new one.
+      if (
+        currentChunk == null ||
+        currentChunk.bucket != bucket ||
+        currentChunkSizeBytes >= chunkSizeLimitBytes ||
+        currentChunk.data.length >= batchLimit
+      ) {
         let start: ProtocolOpId | undefined = undefined;
         if (currentChunk != null) {
           if (currentChunk.bucket == bucket) {
@@ -795,12 +795,9 @@ export async function* getBucketDataBatchV3(
         }
 
         if (start == null) {
-          const startOpId = bucketMap.get(bucket);
-          if (startOpId == null) {
-            throw new Error(`data for unexpected bucket: ${bucket}`);
-          }
-          start = internalToExternalOpId(startOpId);
+          start = internalToExternalOpId(bucketStart);
         }
+
         currentChunk = {
           bucket,
           after: start,
@@ -810,27 +807,47 @@ export async function* getBucketDataBatchV3(
         };
       }
 
-      const entry = mapOpEntry(row);
-      if (row.target_op != null && (targetOp == null || row.target_op > targetOp)) {
-        targetOp = row.target_op;
-      }
-
-      currentChunk.data.push(entry);
-      currentChunk.next_after = entry.op_id;
-
-      if (isLastOpInDocument) {
-        currentChunkSizeBytes += documentSizes[docIndex];
-      }
+      const rows = extractRowsFromDocument(doc, context, bucketStart, end);
+      currentChunk.data.push(...rows.map(mapOpEntry));
+      currentChunk.next_after = currentChunk.data.at(-1)?.op_id ?? internalToExternalOpId(end);
+      targetOp = maxOpId(targetOp, doc.target_op);
+      currentChunkSizeBytes += doc.size;
     }
 
     if (currentChunk != null) {
       const yieldChunk = currentChunk;
-      yieldChunk.has_more = batchHasMore || (remainingLimit <= 0 && hasLaterDefinitionGroups);
+      // The last chunk may contain more data that was cut in this batch.
+      yieldChunk.has_more = batchHasMore;
       yield { chunkData: yieldChunk, targetOp };
     }
 
-    if (batchHasMore || remainingLimit <= 0) {
-      return;
+    if (!batchHasMore) {
+      for (const bucket of bucketMap.keys()) {
+        if (!seenBuckets.has(bucket)) {
+          // We processed everything for this definition group, but this bucket had no data in the batch.
+          // Yield an empty chunk to indicate that it is complete.
+          // This prevents re-querying the same bucket in the next batch.
+          yield {
+            chunkData: {
+              bucket,
+              after: internalToExternalOpId(bucketMap.get(bucket)!),
+              has_more: false,
+              data: [],
+              next_after: internalToExternalOpId(end)
+            },
+            targetOp
+          };
+        }
+      }
+    }
+
+    if (currentChunk != null) {
+      // We yielded data in this group (aside from empty buckets).
+      // Return to the caller to allow them to process it before continuing to the next group.
+      yield { hasMore: batchHasMore || hasLaterDefinitionGroups };
+      break;
+    } else {
+      // No data in this definition group - continue in the next group.
     }
   }
 }
@@ -877,9 +894,17 @@ export async function getDataBucketChangesV3(
   };
 }
 
+/**
+ * Query the parameter entries changed between the two checkpoints, to determine which parameter
+ * lookups need to be re-evaluated.
+ *
+ * This runs at the next checkpoint's snapshot, so it still sees entries that parameter compaction
+ * deleted after that snapshot. Compaction that deleted entries before the snapshot is covered by
+ * the invalidation fence, checked before we get here.
+ */
 export async function getParameterBucketChangesV3(
   ctx: MongoSyncBucketStorageContextV3,
-  options: GetCheckpointChangesOptions
+  options: MongoGetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
   const limit = 1000;
   const indexIds = ctx.mapping.allParameterIndexIds();
@@ -909,28 +934,41 @@ export async function getParameterBucketChangesV3(
     }
   ];
   const [firstCollection, ...remainingCollections] = collections;
-  const parameterUpdates = await firstCollection.collection
-    .aggregate<{ lookup: bson.Binary; indexId: string }>(
-      [
-        ...pipelineForCollection(firstCollection.indexId),
-        ...remainingCollections.map((collection) => {
-          return {
-            $unionWith: {
-              coll: collection.collection.collectionName,
-              pipeline: pipelineForCollection(collection.indexId)
-            }
-          };
-        }),
+  const parameterUpdates = await ctx.db.client.withSession({ snapshot: true }, async (session) => {
+    setSessionSnapshotTime(session, options.nextCheckpoint.snapshotTime);
+    return await firstCollection.collection
+      .aggregate<{ lookup: bson.Binary; indexId: string }>(
+        [
+          ...pipelineForCollection(firstCollection.indexId),
+          ...remainingCollections.map((collection) => {
+            return {
+              $unionWith: {
+                coll: collection.collection.collectionName,
+                pipeline: pipelineForCollection(collection.indexId)
+              }
+            };
+          }),
+          {
+            $limit: limit + 1
+          }
+        ],
         {
-          $limit: limit + 1
+          session,
+          readConcern: 'snapshot',
+          batchSize: limit + 2,
+          maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
         }
-      ],
-      {
-        batchSize: limit + 2,
-        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-      }
-    )
-    .toArray();
+      )
+      .toArray()
+      .catch((e) => {
+        // Includes the case where the checkpoint snapshot has expired. Degrading to
+        // invalidateParameterBuckets would be safe in itself - it reads nothing - but it gains
+        // nothing: the caller responds to that by re-evaluating the parameter queries at this
+        // same snapshot, which fails too. The checkpoint has to be refetched instead, which is
+        // what the existing sync retry behavior does.
+        throw lib_mongo.mapQueryError(e, 'while querying parameter changes');
+      });
+  });
 
   const invalidateParameterUpdates = parameterUpdates.length > limit;
 

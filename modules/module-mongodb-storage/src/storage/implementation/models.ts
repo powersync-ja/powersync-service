@@ -74,10 +74,21 @@ export interface BucketDataProperties {
   op: OpType;
   source_table?: bson.ObjectId;
   source_key?: ReplicaId;
+  /**
+   * Stable identifier for the source record in the client protocol.
+   *
+   * This is derived from (source_table, source_key), so persistence is optional but preferred.
+   */
+  subkey?: string;
   table?: string;
   row_id?: string;
   checksum: bigint;
   data: string | null;
+  /**
+   * V1-only.
+   *
+   * V3 stores this on the BucketDataDocumentV3 instead of the individual ops.
+   */
   target_op?: bigint | null;
 }
 
@@ -105,6 +116,10 @@ export interface SourceTableDocument {
   replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
   snapshot_done: boolean | undefined;
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
+  /**
+   * Source-specific metadata. Absent for legacy records.
+   */
+  source_metadata?: storage.JsonValue;
 }
 
 export interface SourceTableDocumentSnapshotStatus {
@@ -206,6 +221,31 @@ export interface SyncRuleDocumentBase {
   } | null;
 
   storage_version?: number;
+
+  /**
+   * Incremental parameter compaction state for the replication stream.
+   *
+   * Operation ids are allocated across all parameter indexes of a stream, so this is
+   * stream-level state, shared by all sync configs of the stream.
+   */
+  parameter_compaction?: {
+    /**
+     * The exclusive operation-id boundary through which every parameter index in this stream has
+     * been compacted.
+     */
+    compacted_before: InternalOpId;
+
+    /**
+     * Parameter entries below this boundary may no longer be available for checkpoint change
+     * detection, since compaction may have deleted them.
+     *
+     * This is advanced before the first delete of a compaction pass, while
+     * {@link compacted_before} is only advanced after every delete of the pass completed.
+     * A checkpoint transition starting below this boundary must conservatively invalidate all
+     * parameter buckets, since the individual changes may no longer be available.
+     */
+    checkpoint_changes_invalid_before?: InternalOpId;
+  };
 }
 
 export interface SyncRuleCheckpointFields {
@@ -273,6 +313,11 @@ export interface CustomWriteCheckpointDocument {
    * This is not unique - multiple write checkpoints can have the same op_id.
    */
   op_id?: InternalOpId;
+  /**
+   * Set when this checkpoint was created from a client-supplied checkpoint
+   * request rather than a persistent custom write checkpoint.
+   */
+  checkpoint_requested_at?: Date | null;
 }
 
 export interface WriteCheckpointDocument {
@@ -286,6 +331,12 @@ export interface WriteCheckpointDocument {
    * between two checkpoints.
    */
   processed_at_lsn: string | null;
+  /**
+   * Set when this checkpoint was created from a client-supplied checkpoint request
+   * rather than a server-generated id. A missing/null value means this is not a
+   * checkpoint request.
+   */
+  checkpoint_requested_at?: Date | null;
 }
 
 export interface InstanceDocument {

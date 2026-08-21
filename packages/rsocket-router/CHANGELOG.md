@@ -1,5 +1,19 @@
 # @powersync/service-rsocket-router
 
+## 0.2.25
+
+### Patch Changes
+
+- df5663b: Fix uncaught error on invalid websocket frame
+- Updated dependencies [2189250]
+  - @powersync/lib-services-framework@0.10.0
+
+## 0.2.24
+
+### Patch Changes
+
+- @powersync/lib-services-framework@0.9.8
+
 ## 0.2.23
 
 ### Patch Changes

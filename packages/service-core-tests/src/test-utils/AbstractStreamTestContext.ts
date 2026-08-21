@@ -10,8 +10,7 @@ import {
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
 import { StorageDataHelpers } from './StorageDataHelpers.js';
-import { bucketRequest } from './general-utils.js';
-import { fromAsync } from './stream_utils.js';
+import { bucketRequest, getBatchArray } from './general-utils.js';
 
 export abstract class AbstractStreamTestContext implements AsyncDisposable {
   protected abortController = new AbortController();
@@ -178,7 +177,7 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
     const checkpoint = await this.storage!.getCheckpoint();
     const map = [bucketRequest(syncConfigContent, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
-    const batches = await fromAsync(batch);
+    const batches = await getBatchArray(batch);
     return batches[0]?.chunkData.data ?? [];
   }
 }

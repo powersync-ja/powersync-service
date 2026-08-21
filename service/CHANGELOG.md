@@ -1,5 +1,81 @@
 # @powersync/service-image
 
+## 1.25.0
+
+### Patch Changes
+
+- Updated dependencies [3ca835d]
+- Updated dependencies [798d739]
+- Updated dependencies [798d739]
+- Updated dependencies [41dcd7a]
+- Updated dependencies [9d0b129]
+- Updated dependencies [798d739]
+- Updated dependencies [27b56cb]
+- Updated dependencies [798d739]
+  - @powersync/service-module-mssql@0.10.0
+  - @powersync/service-module-mysql@0.16.0
+  - @powersync/service-module-postgres-storage@0.18.0
+  - @powersync/service-core@1.25.0
+  - @powersync/service-module-mongodb-storage@0.20.0
+  - @powersync/service-module-convex@0.3.1
+  - @powersync/service-module-mongodb@0.20.1
+  - @powersync/service-module-postgres@0.22.1
+  - @powersync/service-module-core@0.2.33
+
+## 1.24.0
+
+### Patch Changes
+
+- 123c801: Reconnect PostgreSQL notification connections and restore `LISTEN` subscriptions when the underlying connection is terminated. Harden connection-slot retries and lease handling, and publish checkpoint notifications atomically with checkpoint updates.
+- 6470100: Node v24.18.1. When using `unstable_sqlite_expression_engine`, this may change how floating-point values are converted to text, due to the bundled SQLite version being upgraded to 3.53.
+- Updated dependencies [087b61e]
+- Updated dependencies [294f334]
+- Updated dependencies [0a511c2]
+- Updated dependencies [2189250]
+- Updated dependencies [922f974]
+- Updated dependencies [c4860c9]
+- Updated dependencies [37591e9]
+- Updated dependencies [483415d]
+- Updated dependencies [63707af]
+- Updated dependencies [be14bfe]
+- Updated dependencies [aab068b]
+- Updated dependencies [123c801]
+- Updated dependencies [b3cbc25]
+- Updated dependencies [37591e9]
+- Updated dependencies [df5663b]
+- Updated dependencies [be42e25]
+- Updated dependencies [be42e25]
+  - @powersync/service-module-postgres@0.22.0
+  - @powersync/service-module-mongodb@0.20.0
+  - @powersync/service-core@1.24.0
+  - @powersync/service-module-mssql@0.9.0
+  - @powersync/service-module-postgres-storage@0.17.0
+  - @powersync/lib-services-framework@0.10.0
+  - @powersync/service-module-convex@0.3.0
+  - @powersync/service-module-mongodb-storage@0.19.0
+  - @powersync/service-module-mysql@0.15.0
+  - @powersync/service-rsocket-router@0.2.25
+  - @powersync/service-module-core@0.2.32
+
+## 1.23.3
+
+### Patch Changes
+
+- Updated dependencies [d99c31f]
+- Updated dependencies [ea31f64]
+- Updated dependencies [1f854d3]
+  - @powersync/service-module-mongodb@0.19.0
+  - @powersync/service-module-mongodb-storage@0.18.3
+  - @powersync/service-core@1.23.3
+  - @powersync/lib-services-framework@0.9.8
+  - @powersync/service-module-convex@0.2.3
+  - @powersync/service-module-mssql@0.8.3
+  - @powersync/service-module-mysql@0.14.3
+  - @powersync/service-module-postgres@0.21.3
+  - @powersync/service-module-postgres-storage@0.16.3
+  - @powersync/service-module-core@0.2.31
+  - @powersync/service-rsocket-router@0.2.24
+
 ## 1.23.2
 
 ### Patch Changes

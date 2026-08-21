@@ -1,14 +1,14 @@
 import { parse } from 'pgsql-ast-parser';
-import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from '../BaseSqlDataQuery.js';
 import { CompatibilityContext } from '../compatibility.js';
 import { SqlRuleError } from '../errors.js';
 import { ExpressionType } from '../ExpressionType.js';
+import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from '../legacy/BaseSqlDataQuery.js';
+import { AvailableTable, SqlTools } from '../legacy/sql_filters.js';
+import { checkUnsupportedFeatures, isClauseError } from '../legacy/sql_support.js';
+import { TableQuerySchema } from '../legacy/TableQuerySchema.js';
 import { SourceTableRef } from '../SourceTableRef.js';
-import { AvailableTable, SqlTools } from '../sql_filters.js';
-import { checkUnsupportedFeatures, isClauseError } from '../sql_support.js';
 import { SyncRulesOptions } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
-import { TableQuerySchema } from '../TableQuerySchema.js';
 import { EvaluationError, QuerySchema, SqliteJsonRow, SqliteRow } from '../types.js';
 import { isSelectStatement } from '../utils.js';
 
@@ -24,6 +24,7 @@ export type EvaluatedEventRowWithErrors = {
 /**
  * Defines how a Replicated Row is mapped to source parameters for events.
  */
+// TODO: Use Sync Streams compiler infrastruture instead of legacy data queries
 export class SqlEventSourceQuery extends BaseSqlDataQuery {
   static fromSql(sql: string, options: SyncRulesOptions, compatibility: CompatibilityContext) {
     const parsed = parse(sql, { locationTracking: true });

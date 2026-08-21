@@ -1,5 +1,28 @@
 # @powersync/service-sync-rules
 
+## 0.40.0
+
+### Minor Changes
+
+- be42e25: Support wildcard schemas in Sync Streams (e.g. `SELECT * FROM "%".assets`), with the matched schema available as `assets.schema()`, the table name as `assets.table_name()` and the matched wildcard table suffix as `assets.table_suffix()` for use in filters and bucket parameters.
+
+### Patch Changes
+
+- 8daa300: Provide a span for more types of yaml errors when reading Sync Streams.
+- cb4c627: Improve error message when trying to load Sync Streams deployed with a more recent service version on older services.
+
+## 0.39.0
+
+### Minor Changes
+
+- ea71bf3: Stop exporting legacy Sync Rules and alpha Sync Streams implementations
+
+### Patch Changes
+
+- edc6ed4: Emit a warning for Sync Streams with joins where the primary table has an alias. Adding an alias syncs the table under the changed name, which may be unintentional for joins if aliases are only added to simplify filters.
+
+  Closes #565.
+
 ## 0.38.1
 
 ### Patch Changes

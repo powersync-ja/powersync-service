@@ -4,11 +4,12 @@ import { api, ParseSyncConfigOptions, ReplicationHeadCallback } from '@powersync
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { MongoLSN } from '../common/MongoLSN.js';
+import { logger } from '@powersync/lib-services-framework';
+import { CheckpointImplementation } from '../replication/checkpoints/CheckpointImplementation.js';
+import { createCheckpointImplementation } from '../replication/checkpoints/create-checkpoint-implementation.js';
 import { MongoManager } from '../replication/MongoManager.js';
-import { constructAfterRecord, STANDALONE_CHECKPOINT_ID } from '../replication/MongoRelation.js';
-import { CHECKPOINTS_COLLECTION } from '../replication/replication-utils.js';
+import { constructAfterRecord } from '../replication/MongoRelation.js';
+import { CHECKPOINTS_COLLECTION, detectDocumentDb } from '../replication/replication-utils.js';
 import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 
@@ -18,6 +19,8 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
 
   connectionTag: string;
   defaultSchema: string;
+
+  private checkpointImplementation: CheckpointImplementation | null = null;
 
   constructor(protected config: types.ResolvedConnectionConfig) {
     const manager = new MongoManager(config);
@@ -199,41 +202,27 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   }
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
-    const session = this.client.startSession();
-    try {
-      await this.db.command({ hello: 1 }, { session });
-      const head = session.clusterTime?.clusterTime;
-      if (head == null) {
-        throw new ServiceAssertionError(`clusterTime not available for write checkpoint`);
-      }
+    const checkpointImplementation = await this.getCheckpointImplementation();
+    return checkpointImplementation.createReplicationHead(callback);
+  }
 
-      const r = await callback(new MongoLSN({ timestamp: head }).comparable);
-
-      // Trigger a change on the changestream.
-      await this.db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
-        {
-          _id: STANDALONE_CHECKPOINT_ID as any
-        },
-        {
-          $inc: { i: 1 }
-        },
-        {
-          upsert: true,
-          returnDocument: 'after',
-          session
-        }
-      );
-      const time = session.operationTime!;
-      if (time == null) {
-        throw new ServiceAssertionError(`operationTime not available for write checkpoint`);
-      } else if (time.lt(head)) {
-        throw new ServiceAssertionError(`operationTime must be > clusterTime`);
-      }
-
-      return r;
-    } finally {
-      await session.endSession();
+  private async getCheckpointImplementation(): Promise<CheckpointImplementation> {
+    if (this.checkpointImplementation == null) {
+      const isDocumentDb = await detectDocumentDb(this.db);
+      this.checkpointImplementation = createCheckpointImplementation(isDocumentDb, {
+        client: this.client,
+        db: this.db,
+        // The adapter never streams, so it has no real barrier document. This
+        // random id is only safe because the adapter only ever calls
+        // createReplicationHead, which produces a standalone (stream_id = null)
+        // head that every real ChangeStream observes. It must NOT be used for a
+        // batch barrier (createBatchCheckpoint stamps this id), or the head would
+        // become an own-barrier of a phantom stream that nothing resolves.
+        checkpointStreamId: new mongo.ObjectId(),
+        logger
+      });
     }
+    return this.checkpointImplementation;
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {

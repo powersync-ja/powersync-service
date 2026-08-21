@@ -257,6 +257,12 @@ export const BaseStorageConfig = t
       .meta({
         description: 'Maximum number of connections to the storage database, per process. Defaults to 8.'
       })
+      .optional(),
+    default_storage_version: t.number
+      .meta({
+        description:
+          'Storage version to use when deploying a sync config that does not specify storage_version. Defaults to 2.'
+      })
       .optional()
   })
   .meta({
@@ -405,6 +411,16 @@ export const powerSyncConfig = t
               Related to max_buckets_per_connection, but this limit applies directly on the parameter
               query results, _before_ we convert it into an unique set.
               Default of 1000.
+            `
+              })
+              .optional(),
+
+            checkpoint_request_retention_minutes: t.number
+              .meta({
+                description: dedent`
+              Number of minutes to keep client-requested write checkpoint records.
+              Expired records are removed by the compact job.
+              Must be a positive integer. Default of 60.
             `
               })
               .optional(),

@@ -15,6 +15,7 @@ import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { ParseSyncConfigOptions } from './PersistedSyncConfigContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
+import { SourceTableCandidateReconciler } from './SourceTableReconciler.js';
 import { StorageVersionConfig } from './StorageVersionConfig.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
@@ -97,12 +98,20 @@ export interface SyncRulesBucketStorage
    */
   reportError(e: any): Promise<void>;
 
+  /**
+   * Whether parameter compaction can run when {@link CompactOptions.incrementalOnly} is set.
+   *
+   * Storage implementations that do not support incremental parameter compaction must return
+   * false; the compact command will skip parameter compaction in that mode.
+   */
+  supportsIncrementalParameterCompaction(): boolean;
+
   compact(options?: CompactOptions): Promise<void>;
 
   /**
-   * Lightweight "compact" process to populate the checksum cache, if any.
+   * Compact storage after initial replication, before the first checkpoint exists.
    */
-  populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults>;
+  compactInitialReplication(options: CompactInitialReplicationOptions): Promise<CompactInitialReplicationResults>;
 
   // ## Read operations
 
@@ -134,6 +143,13 @@ export interface SyncRulesBucketStorage
    * 1. Separate buckets.
    * 2. Limit the size of each individual chunk according to options.batchSizeLimitBytes.
    *
+   * The batch may not contain all data for the checkpoint, if the checkpoint is large. The caller must
+   * continue querying if either:
+   * 1. The last chunk for any bucket has has_more = true.
+   * 2. A SyncBucketDataBatchEnd is returned with hasMore = true.
+   *
+   * The first check can be skipped if a SyncBucketDataBatchEnd is returned with hasMore = false.
+   *
    * @param checkpoint the checkpoint
    * @param dataBuckets current bucket states
    * @param options batch size options
@@ -142,7 +158,7 @@ export interface SyncRulesBucketStorage
     checkpoint: ReplicationCheckpoint,
     dataBuckets: BucketDataRequest[],
     options?: BucketDataBatchOptions
-  ): AsyncIterable<SyncBucketDataChunk>;
+  ): AsyncIterable<SyncBucketDataChunk | SyncBucketDataBatchEnd>;
 
   /**
    * Compute checksums for a given list of buckets.
@@ -217,6 +233,11 @@ export interface ResolveTablesOptions {
    * Source table or collection metadata discovered during snapshot or streaming.
    */
   source: SourceEntityDescriptor;
+  /**
+   * Classifies overlapping persisted tables. Defaults to identity-based reconciliation.
+   * This may run inside a storage transaction and must not mutate storage.
+   */
+  reconcileSourceTables?: SourceTableCandidateReconciler;
   /**
    * For tests only - custom id generator for stable ids.
    */
@@ -320,6 +341,22 @@ export interface CompactOptions {
 
   compactParameterData?: boolean;
 
+  /**
+   * Only perform compaction that can be done incrementally.
+   *
+   * This includes full bucket compaction on MongoDB V3 storage.
+   *
+   * On MongoDB v1 and Postgres storage, this makes compacting a no-op.
+   */
+  incrementalOnly?: boolean;
+
+  /**
+   * Delete client-requested write checkpoints created before this time.
+   *
+   * Generated write checkpoints are not affected.
+   */
+  deleteCheckpointRequestsBefore?: Date;
+
   /** Minimum of 2 */
   clearBatchLimit?: number;
 
@@ -346,6 +383,18 @@ export interface CompactOptions {
    */
   minChangeRatio?: number;
 
+  /** Minimum delay before a V3 bucket is checked for chunk compaction. Default: five minutes. */
+  minCompactChunkIntervalMs?: number;
+
+  /** Minimum elapsed write pressure before the v3 sliding-scale full compact. Default: two hours. */
+  minCompactFullIntervalMs?: number;
+
+  /** Maximum age of writes not covered by a v3 full compact. */
+  maxCompactFullIntervalMs?: number;
+
+  /** How long a v3 worker owns a claimed bucket before another worker may recover it. */
+  compactLeaseDurationMs?: number;
+
   /**
    * Internal/testing use: Cache size for compacting parameters.
    */
@@ -356,12 +405,12 @@ export interface CompactOptions {
   logger?: Logger;
 }
 
-export interface PopulateChecksumCacheOptions {
+export interface CompactInitialReplicationOptions {
   /**
-   * Compute checksums up to this op id.
+   * Compact data up to this op id.
    *
    * Defaults to the highest persisted op id for the replication stream, which covers
-   * the common case of populating the cache right after initial replication, before
+   * the common case of compacting right after initial replication, before
    * the first checkpoint exists.
    */
   maxOpId?: util.InternalOpId;
@@ -369,9 +418,9 @@ export interface PopulateChecksumCacheOptions {
   signal?: AbortSignal;
 }
 
-export interface PopulateChecksumCacheResults {
+export interface CompactInitialReplicationResults {
   /**
-   * Number of buckets we have calculated checksums for.
+   * Number of buckets processed.
    */
   buckets: number;
 }
@@ -408,6 +457,9 @@ export interface TerminateOptions extends ClearStorageOptions {
 export interface BucketDataBatchOptions {
   requestHint?: BucketRequestHint;
 
+  /** Abort any in-progress work for this batch, including object-storage downloads. */
+  signal?: AbortSignal;
+
   /** Limit number of documents returned. Defaults to 1000. */
   limit?: number;
 
@@ -426,6 +478,20 @@ export interface BucketDataBatchOptions {
 export interface SyncBucketDataChunk {
   chunkData: util.SyncBucketData;
   targetOp: util.InternalOpId | null;
+}
+
+export interface SyncBucketDataBatchEnd {
+  /**
+   * True if there may be more data for this checkpoint, and the caller should continue querying.
+   *
+   * This is different from `SyncBucketDataChunk.has_more`, which is per-bucket. This is a global signal for the
+   * entire request, and may be true even if there is no returned chunk with has_more: true.
+   */
+  hasMore: boolean;
+}
+
+export function isBatchEnd(chunk: SyncBucketDataChunk | SyncBucketDataBatchEnd): chunk is SyncBucketDataBatchEnd {
+  return (chunk as SyncBucketDataBatchEnd).hasMore !== undefined;
 }
 
 export interface ReplicationCheckpoint {

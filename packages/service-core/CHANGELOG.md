@@ -1,5 +1,61 @@
 # @powersync/service-core
 
+## 1.25.0
+
+### Minor Changes
+
+- 798d739: Add source-owned `SourceTable` reconciliation.
+
+  `resolveTables()` now queries all overlapping persisted candidates and passes them to a
+  source-provided reconciler that returns compatible and incompatible tables, can return
+  modified compatible copies, and supplies values used for potential new records. Storage persists allowlisted
+  source metadata differences but never interprets them. MongoDB v1/v3 and PostgreSQL storage were
+  refactored to this candidate-first model (PostgreSQL gains a nullable `source_metadata` JSONB column
+  via migration).
+
+### Patch Changes
+
+- 27b56cb: Optimization for generating subkey UUIDs.
+
+## 1.24.0
+
+### Minor Changes
+
+- 087b61e: Configurable heartbeat_interval_seconds for MongoDB, Postgres, SQL Server.
+- 2189250: Add `/sync/checkpoint-request` for client-supplied checkpoint request ids, previously called write checkpoint ids. The route returns the stored `checkpoint_request_id`, storage now treats managed request ids as monotonic per user/client, custom checkpoint request ids continue to use the existing `checkpoint` field for backwards compatibility, and `checkpoint_requested_at` metadata lets compact jobs remove expired request-derived checkpoint records.
+
+  This release includes storage migrations for the checkpoint request metadata. Self-hosters should run migrations as part of the upgrade.
+
+- 922f974: Add experimental support for storing bucket data chunks on S3.
+
+### Patch Changes
+
+- c4860c9: Improve Postgres sync throughput by reading bucket data with ordered, per-bucket index range scans that stop once the requested batch is full.
+- 483415d: Clarify whether too-many-buckets log breakdowns are grouped by sync stream or legacy bucket definition, and include up
+  to 100 entries.
+- aab068b: [MongoDB Storage V3] Add has_clear_op field and simplify checksum queries.
+- 37591e9: Lock replication slots before clearing data, preventing concurrent clearing.
+- Updated dependencies [2189250]
+- Updated dependencies [8daa300]
+- Updated dependencies [df5663b]
+- Updated dependencies [be42e25]
+- Updated dependencies [cb4c627]
+  - @powersync/lib-services-framework@0.10.0
+  - @powersync/service-types@0.17.0
+  - @powersync/service-sync-rules@0.40.0
+  - @powersync/service-rsocket-router@0.2.25
+
+## 1.23.3
+
+### Patch Changes
+
+- ea31f64: Potential fix and improved stack trace for 'evicted' errors.
+- Updated dependencies [ea71bf3]
+- Updated dependencies [edc6ed4]
+  - @powersync/service-sync-rules@0.39.0
+  - @powersync/lib-services-framework@0.9.8
+  - @powersync/service-rsocket-router@0.2.24
+
 ## 1.23.2
 
 ### Patch Changes

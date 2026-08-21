@@ -1,6 +1,7 @@
-import { BucketDataRequest, InternalOpId, JwtPayload, storage, utils } from '@powersync/service-core';
+import { BucketDataRequest, InternalOpId, isBatchEnd, JwtPayload, storage, utils } from '@powersync/service-core';
 import { GetQuerierOptions, RequestParameters } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
+import { fromAsync } from './stream_utils.js';
 
 export const ZERO_LSN = '0/0';
 
@@ -86,7 +87,10 @@ export async function resolveTestTable(
 }
 
 export function getBatchData(
-  batch: utils.SyncBucketData[] | storage.SyncBucketDataChunk[] | storage.SyncBucketDataChunk
+  batch:
+    | utils.SyncBucketData[]
+    | (storage.SyncBucketDataChunk | storage.SyncBucketDataBatchEnd)[]
+    | storage.SyncBucketDataChunk
 ) {
   const first = getFirst(batch);
   if (first == null) {
@@ -152,8 +156,28 @@ export function getBatchMeta(
   };
 }
 
+export async function getBatchArray(
+  data: AsyncIterable<storage.SyncBucketDataChunk | storage.SyncBucketDataBatchEnd>
+): Promise<storage.SyncBucketDataChunk[]> {
+  const array = await fromAsync(data);
+  return array.filter((c) => !isBatchEnd(c) && c.chunkData.data.length > 0) as storage.SyncBucketDataChunk[];
+}
+
+export async function getSingleBatchItem(
+  data: AsyncIterable<storage.SyncBucketDataChunk | storage.SyncBucketDataBatchEnd>
+): Promise<storage.SyncBucketDataChunk> {
+  const array = await getBatchArray(data);
+  if (array.length != 1) {
+    throw new Error(`Expected a single batch item, got ${array.length}`);
+  }
+  return array[0];
+}
+
 function getFirst(
-  batch: utils.SyncBucketData[] | storage.SyncBucketDataChunk[] | storage.SyncBucketDataChunk
+  batch:
+    | utils.SyncBucketData[]
+    | (storage.SyncBucketDataChunk | storage.SyncBucketDataBatchEnd)[]
+    | storage.SyncBucketDataChunk
 ): utils.SyncBucketData | null {
   if (!Array.isArray(batch)) {
     return batch.chunkData;

@@ -1,7 +1,7 @@
 {
   "name": "@powersync/service-module-mongodb-storage",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.18.2",
+  "version": "0.20.0",
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "publishConfig": {
@@ -18,12 +18,15 @@
     "./types": "./dist/types/types.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.637.0",
     "@powersync/lib-service-mongodb": "workspace:*",
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-core": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
+    "@smithy/core": "^3.24.6",
+    "async-mutex": "^0.5.0",
     "bson": "^6.10.4",
     "ix": "^5.0.0",
     "lru-cache": "^10.2.2",

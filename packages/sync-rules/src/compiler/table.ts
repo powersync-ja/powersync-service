@@ -4,7 +4,7 @@ import { SqlExpression } from '../sync_plan/expression.js';
 import { MapSourceVisitor, visitExpr } from '../sync_plan/expression_visitor.js';
 import { equalsIgnoringResultSetList } from './compatibility.js';
 import { StableHasher } from './equality.js';
-import { ColumnInRow, ExpressionInput, NodeLocations, SyncExpression } from './expression.js';
+import { ColumnInRow, ExpressionInput, NodeLocations, RowMetadata, SyncExpression } from './expression.js';
 import { SingleDependencyExpression } from './filter.js';
 import { PreparedSubquery } from './sqlite.js';
 
@@ -206,6 +206,9 @@ export class CloneTableReferences {
     this.cloneExpressions = new MapSourceVisitor<ExpressionInput, ExpressionInput>((data) => {
       if (data instanceof ColumnInRow) {
         return new ColumnInRow(data.syntacticOrigin, this.getClonedSource(data.resultSet), data.column);
+      }
+      if (data instanceof RowMetadata) {
+        return new RowMetadata(data.syntacticOrigin, this.getClonedSource(data.resultSet), data.kind);
       }
 
       return data;

@@ -1,4 +1,4 @@
-import { api, ParseSyncConfigOptions, ReplicationHeadCallback } from '@powersync/service-core';
+import { api, ParseSyncConfigOptions } from '@powersync/service-core';
 
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
@@ -260,12 +260,12 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     const { bucketStorage } = options;
     const lastCheckpoint = await bucketStorage.getCheckpoint();
 
-    const current = lastCheckpoint.lsn
-      ? common.ReplicatedGTID.fromSerialized(lastCheckpoint.lsn)
-      : common.ReplicatedGTID.ZERO;
-
     const connection = await this.pool.getConnection();
     const head = await common.readExecutedGtid(connection);
+
+    const current = lastCheckpoint.lsn
+      ? common.ReplicatedGTID.fromSerialized(lastCheckpoint.lsn)
+      : common.ReplicatedGTID.ZERO(await common.readServerUuid(connection));
     const lag = await current.distanceTo(connection, head);
     connection.release();
     if (lag == null) {
@@ -282,10 +282,11 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     return result.comparable;
   }
 
-  async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
+  async createReplicationHead<T>(callback: api.ReplicationHeadCallback<T>): Promise<T> {
     const head = await this.getReplicationHead();
-    // TODO: make sure another message is replicated
-    return await callback(head);
+    // TODO: make sure another message is replicated when shouldAdvance is true
+    const { response } = await callback(head);
+    return response;
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {

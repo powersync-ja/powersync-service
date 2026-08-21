@@ -1,10 +1,4 @@
-import {
-  api,
-  ParseSyncConfigOptions,
-  PatternResult,
-  ReplicationHeadCallback,
-  ReplicationLagOptions
-} from '@powersync/service-core';
+import { api, ParseSyncConfigOptions, PatternResult, ReplicationLagOptions } from '@powersync/service-core';
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import sql from 'mssql';
@@ -18,7 +12,7 @@ import {
   getLatestLSN,
   POWERSYNC_CHECKPOINTS_TABLE
 } from '../utils/mssql.js';
-import { getTablesFromPattern, ResolvedTable } from '../utils/schema.js';
+import { getTablesFromPattern, ResolvedTable, unsupportedTablePatternMessage } from '../utils/schema.js';
 
 export class MSSQLRouteAPIAdapter implements api.RouteAPI {
   protected connectionManager: MSSQLConnectionManager;
@@ -27,14 +21,16 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
     this.connectionManager = new MSSQLConnectionManager(config, {});
   }
 
-  async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
-    const currentLSN = await getLatestLSN(this.connectionManager);
-    const result = await callback(currentLSN.toString());
+  async createReplicationHead<T>(callback: api.ReplicationHeadCallback<T>): Promise<T> {
+    const currentLSN = (await getLatestLSN(this.connectionManager)).toString();
+    const { response, shouldAdvance } = await callback(currentLSN);
 
-    // Updates the powersync checkpoints table on the source database, ensuring that an update with a newer LSN will be captured by the CDC.
-    await createCheckpoint(this.connectionManager);
+    if (shouldAdvance) {
+      // Updates the powersync checkpoints table on the source database, ensuring that an update with a newer LSN will be captured by the CDC.
+      await createCheckpoint(this.connectionManager);
+    }
 
-    return result;
+    return response;
   }
 
   async executeQuery(query: string, params: any[]): Promise<service_types.internal_routes.ExecuteSqlResponse> {
@@ -186,41 +182,35 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
       };
       result.push(patternResult);
 
-      const tables = await getTablesFromPattern(this.connectionManager, tablePattern);
-      if (tablePattern.isWildcard) {
-        patternResult.tables = [];
-        for (const table of tables) {
-          const details = await getDebugTableInfo({
-            connectionManager: this.connectionManager,
-            tablePattern,
-            table,
-            syncRules: sqlSyncRules
-          });
-          patternResult.tables.push(details);
-        }
-      } else {
-        if (tables.length == 0) {
-          // This should technically never happen, but we'll handle it anyway.
-          const resolvedTable: ResolvedTable = {
-            objectId: 0,
-            schema: schema,
-            name: tablePattern.name
-          };
-          patternResult.table = await getDebugTableInfo({
-            connectionManager: this.connectionManager,
-            tablePattern,
-            table: resolvedTable,
-            syncRules: sqlSyncRules
-          });
+      // Unsupported patterns are reported per pattern here, rather than failing the whole request.
+      const unsupported = unsupportedTablePatternMessage(tablePattern);
+      if (unsupported != null) {
+        const unsupportedTable: service_types.TableInfo = {
+          schema,
+          name: tablePattern.tablePattern,
+          pattern: tablePattern.tablePattern,
+          replication_id: [],
+          data_queries: false,
+          parameter_queries: false,
+          errors: [{ level: 'fatal', message: unsupported }]
+        };
+        if (patternResult.wildcard) {
+          patternResult.tables = [unsupportedTable];
         } else {
-          patternResult.table = await getDebugTableInfo({
-            connectionManager: this.connectionManager,
-            tablePattern,
-            table: tables[0],
-            syncRules: sqlSyncRules
-          });
+          patternResult.table = unsupportedTable;
         }
+        continue;
       }
+
+      const tables = await getTablesFromPattern(this.connectionManager, tablePattern);
+      // A missing table is still reported, so that its errors are surfaced.
+      const resolvedTable: ResolvedTable = tables[0] ?? { objectId: 0, schema: schema, name: tablePattern.name };
+      patternResult.table = await getDebugTableInfo({
+        connectionManager: this.connectionManager,
+        tablePattern,
+        table: resolvedTable,
+        syncRules: sqlSyncRules
+      });
     }
 
     return result;
