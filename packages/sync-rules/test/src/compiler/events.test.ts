@@ -1,11 +1,12 @@
 import * as sqlite from 'node:sqlite';
 import { describe, expect, test } from 'vitest';
 import {
+  compiledEventDefinitionEquality,
+  compileEventDefinitionsToCompilerModel,
   DEFAULT_HYDRATION_STATE,
   deserializeSyncPlan,
   nodeSqlite,
   PrecompiledSyncConfig,
-  serializedEventDefinitionEquality,
   serializeSyncPlan,
   SqlSyncRules
 } from '../../../src/index.js';
@@ -65,37 +66,37 @@ describe('compiled replication events', () => {
     ).toEqual({ errors: [] });
   });
 
-  test('matches definitions independent of formatting, quoting and payload-query order', () => {
+  test('matches definitions independent of formatting, equivalent operand order and payload-query order', () => {
     const first = eventDefinitionFromQueries(
       'SELECT user_id, checkpoint FROM checkpoints WHERE active = true AND checkpoint > 0',
       'SELECT user_id, checkpoint FROM archived_checkpoints'
     );
     const equivalent = eventDefinitionFromQueries(
       ' select "user_id", "checkpoint" from "archived_checkpoints" ',
-      'select "user_id", "checkpoint" from "checkpoints" where "active" = true and "checkpoint" > 0'
+      'select "user_id", "checkpoint" from "checkpoints" where 0 < "checkpoint" and true = "active"'
     );
     const changed = eventDefinitionFromQueries(
       'SELECT user_id, checkpoint FROM checkpoints WHERE active = true AND checkpoint > 1',
       'SELECT user_id, checkpoint FROM archived_checkpoints'
     );
 
-    expect(serializedEventDefinitionEquality.equals(first, equivalent)).toBe(true);
-    expect(serializedEventDefinitionEquality.equals(first, changed)).toBe(false);
+    expect(compiledEventDefinitionEquality.equals(first, equivalent)).toBe(true);
+    expect(compiledEventDefinitionEquality.equals(first, changed)).toBe(false);
   });
 
-  test('excludes the raw SQL mirror from the identity', () => {
+  test('excludes the raw SQL compatibility mirror from equality', () => {
     const original = eventDefinitionFromQueries('SELECT user_id, checkpoint FROM checkpoints WHERE active = true');
-    const differentSql = structuredClone(original);
+    const differentSql = eventDefinitionFromQueries('SELECT user_id, checkpoint FROM checkpoints WHERE active = true');
     differentSql.sourceQueries[0].sql = 'raw sql is compatibility metadata only';
 
-    expect(serializedEventDefinitionEquality.equals(original, differentSql)).toBe(true);
+    expect(compiledEventDefinitionEquality.equals(original, differentSql)).toBe(true);
   });
 
   test('matches independent of the default schema used to compile', () => {
     const query = 'SELECT user_id, checkpoint FROM checkpoints WHERE active = true';
 
     expect(
-      serializedEventDefinitionEquality.equals(
+      compiledEventDefinitionEquality.equals(
         eventDefinitionForSchema('first_schema', query),
         eventDefinitionForSchema('second_schema', query)
       )
@@ -136,11 +137,10 @@ function eventDefinitionFromQueries(...queries: string[]) {
 }
 
 function eventDefinitionForSchema(defaultSchema: string, ...queries: string[]) {
-  const config = SqlSyncRules.fromYaml(yamlWithEventQueries(...queries), {
-    defaultSchema
-  }).config as PrecompiledSyncConfig;
+  const compiled = compileEventDefinitionsToCompilerModel({ write_checkpoints: queries }, { defaultSchema });
+  expect(compiled.errors.filter((error) => error.type == 'fatal')).toEqual([]);
 
-  return serializeSyncPlan(config.plan).events![0];
+  return compiled.events[0];
 }
 
 function yamlWithEventQueries(...queries: string[]): string {

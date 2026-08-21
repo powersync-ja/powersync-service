@@ -2,7 +2,6 @@ import { BucketDataSource, ParameterIndexLookupCreator } from './BucketSource.js
 
 export type BucketDefinitionId = string;
 export type ParameterIndexId = string;
-export type EventDefinitionId = string;
 
 export interface BucketDataScope {
   /**

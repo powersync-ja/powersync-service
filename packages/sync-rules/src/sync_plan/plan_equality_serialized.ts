@@ -2,42 +2,12 @@ import type { Equality } from '../compiler/equality.js';
 import type {
   SerializedBucketDataSource,
   SerializedDataSource,
-  SerializedEventDescriptor,
   SerializedParameterIndexLookupCreator
 } from './serialize.js';
 
 export interface SerializedBucketDataSourceWithDataSources {
   bucket: SerializedBucketDataSource;
   dataSources: readonly SerializedDataSource[];
-}
-
-/**
- * Structural equality for a compiled event definition.
- *
- * This decides whether an event in a new sync config matches one in an active config, so it can keep that config's
- * assigned storage id during incremental reprocessing instead of being treated as new.
- *
- * The raw `sql` mirror is excluded so that formatting, quoting and aliasing changes don't count as a change - the
- * compiled structure already normalizes those. Payload-query order is not significant, so those are sorted. Everything
- * else is compared verbatim, mirroring {@link serializedStreamBucketDataSourceEquality}. A behaviorally-neutral change
- * we don't normalize (e.g. reordering conjunction terms) simply reprocesses, which is the safe direction.
- */
-export const serializedEventDefinitionEquality: Equality<SerializedEventDescriptor> = {
-  hash(hasher, value) {
-    hasher.addString(eventDefinitionIdentity(value));
-  },
-  equals(a, b) {
-    return a === b || eventDefinitionIdentity(a) == eventDefinitionIdentity(b);
-  }
-};
-
-function eventDefinitionIdentity(event: SerializedEventDescriptor): string {
-  return JSON.stringify({
-    name: event.name,
-    sourceQueries: event.sourceQueries
-      .map((query) => JSON.stringify({ table: query.table, variants: query.variants }))
-      .sort()
-  });
 }
 
 /**
