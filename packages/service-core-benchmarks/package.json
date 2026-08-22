@@ -26,9 +26,11 @@
   "devDependencies": {
     "@powersync/lib-service-mongodb": "workspace:*",
     "@powersync/service-module-mongodb": "workspace:*",
+    "@powersync/service-module-core": "workspace:*",
     "@powersync/service-module-mongodb-storage": "workspace:*",
     "@powersync/service-module-postgres-storage": "workspace:*",
     "@powersync/service-core-tests": "workspace:*",
+    "jose": "^4.15.9",
     "ts-node": "^10.9.2",
     "typescript": "catalog:"
   }
