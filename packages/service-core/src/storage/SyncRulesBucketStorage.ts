@@ -97,12 +97,20 @@ export interface SyncRulesBucketStorage
    */
   reportError(e: any): Promise<void>;
 
+  /**
+   * Whether parameter compaction can run when {@link CompactOptions.incrementalOnly} is set.
+   *
+   * Storage implementations that do not support incremental parameter compaction must return
+   * false; the compact command will skip parameter compaction in that mode.
+   */
+  supportsIncrementalParameterCompaction(): boolean;
+
   compact(options?: CompactOptions): Promise<void>;
 
   /**
-   * Lightweight "compact" process to populate the checksum cache, if any.
+   * Compact storage after initial replication, before the first checkpoint exists.
    */
-  populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults>;
+  compactInitialReplication(options: CompactInitialReplicationOptions): Promise<CompactInitialReplicationResults>;
 
   // ## Read operations
 
@@ -322,6 +330,15 @@ export interface CompactOptions {
   compactParameterData?: boolean;
 
   /**
+   * Only perform compaction that can be done incrementally.
+   *
+   * This includes full bucket compaction on MongoDB V3 storage.
+   *
+   * On MongoDB v1 and Postgres storage, this makes compacting a no-op.
+   */
+  incrementalOnly?: boolean;
+
+  /**
    * Delete client-requested write checkpoints created before this time.
    *
    * Generated write checkpoints are not affected.
@@ -354,6 +371,18 @@ export interface CompactOptions {
    */
   minChangeRatio?: number;
 
+  /** Minimum delay before a V3 bucket is checked for chunk compaction. Default: five minutes. */
+  minCompactChunkIntervalMs?: number;
+
+  /** Minimum elapsed write pressure before the v3 sliding-scale full compact. Default: two hours. */
+  minCompactFullIntervalMs?: number;
+
+  /** Maximum age of writes not covered by a v3 full compact. */
+  maxCompactFullIntervalMs?: number;
+
+  /** How long a v3 worker owns a claimed bucket before another worker may recover it. */
+  compactLeaseDurationMs?: number;
+
   /**
    * Internal/testing use: Cache size for compacting parameters.
    */
@@ -364,12 +393,12 @@ export interface CompactOptions {
   logger?: Logger;
 }
 
-export interface PopulateChecksumCacheOptions {
+export interface CompactInitialReplicationOptions {
   /**
-   * Compute checksums up to this op id.
+   * Compact data up to this op id.
    *
    * Defaults to the highest persisted op id for the replication stream, which covers
-   * the common case of populating the cache right after initial replication, before
+   * the common case of compacting right after initial replication, before
    * the first checkpoint exists.
    */
   maxOpId?: util.InternalOpId;
@@ -377,9 +406,9 @@ export interface PopulateChecksumCacheOptions {
   signal?: AbortSignal;
 }
 
-export interface PopulateChecksumCacheResults {
+export interface CompactInitialReplicationResults {
   /**
-   * Number of buckets we have calculated checksums for.
+   * Number of buckets processed.
    */
   buckets: number;
 }

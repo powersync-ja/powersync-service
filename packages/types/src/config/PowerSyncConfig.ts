@@ -257,6 +257,12 @@ export const BaseStorageConfig = t
       .meta({
         description: 'Maximum number of connections to the storage database, per process. Defaults to 8.'
       })
+      .optional(),
+    default_storage_version: t.number
+      .meta({
+        description:
+          'Storage version to use when deploying a sync config that does not specify storage_version. Defaults to 2.'
+      })
       .optional()
   })
   .meta({

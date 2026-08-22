@@ -121,7 +121,9 @@ export function mapOpEntry(row: BucketDataDoc): utils.OplogEntry {
       object_type: row.table,
       object_id: row.row_id,
       checksum: Number(row.checksum),
-      subkey: replicaIdToSubkey(row.source_table!, row.source_key!),
+      // Storage V3 always persists this during replication. The fallback serves V1 data
+      // written before subkey persistence was introduced.
+      subkey: row.subkey ?? replicaIdToSubkey(row.source_table!, row.source_key!),
       data: row.data
     };
   } else {

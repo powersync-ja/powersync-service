@@ -5,6 +5,8 @@ import { ErrorCode, Logger, ServiceError } from '@powersync/lib-services-framewo
 import { storage } from '@powersync/service-core';
 import { VersionedPowerSyncMongo } from './db.js';
 
+const LOCK_DURATION_MS = 60 * 1000;
+
 /**
  * Manages a lock on a replication stream document, so that only one process
  * processes that replication stream at a time.
@@ -22,15 +24,20 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
   ): Promise<MongoSyncRulesLock> {
     const lockId = crypto.randomBytes(8).toString('hex');
     const doc = await db.sync_rules.findOneAndUpdate(
-      { _id: sync_rules.replicationStreamId, $or: [{ lock: null }, { 'lock.expires_at': { $lt: new Date() } }] },
       {
-        $set: {
-          lock: {
-            id: lockId,
-            expires_at: new Date(Date.now() + 60 * 1000)
+        _id: sync_rules.replicationStreamId,
+        $or: [{ lock: null }, { $expr: { $lt: ['$lock.expires_at', '$$NOW'] } }]
+      },
+      [
+        {
+          $set: {
+            lock: {
+              id: lockId,
+              expires_at: { $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: LOCK_DURATION_MS } }
+            }
           }
         }
-      },
+      ],
       {
         projection: { lock: 1 },
         returnDocument: 'before',
@@ -96,9 +103,15 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
         _id: this.sync_rules_id,
         'lock.id': this.lock_id
       },
-      {
-        $set: { 'lock.expires_at': new Date(Date.now() + 60 * 1000) }
-      },
+      [
+        {
+          $set: {
+            'lock.expires_at': {
+              $dateAdd: { startDate: '$$NOW', unit: 'millisecond', amount: LOCK_DURATION_MS }
+            }
+          }
+        }
+      ],
       { returnDocument: 'after' }
     );
     if (result == null) {

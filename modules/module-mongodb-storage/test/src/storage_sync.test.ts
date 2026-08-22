@@ -16,6 +16,7 @@ import { MongoPersistedSyncConfigContentV3 } from '../../src/storage/implementat
 import { BucketDataDoc, BucketKey } from '../../src/storage/implementation/common/BucketDataDoc.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { getMongoStorageConfig } from '../../src/storage/implementation/models.js';
+import { loadBucketDataDocumentV1, serializeBucketDataV1 } from '../../src/storage/implementation/v1/models.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { serializeBucketData } from '../../src/storage/implementation/v3/bucket-format.js';
@@ -113,6 +114,31 @@ function bucketDefinitionId(bucket: string) {
   }
   return parseInt(match[1], 16);
 }
+
+test('V1 bucket data retains an optional persisted subkey', () => {
+  const sourceTable = new bson.ObjectId();
+  const document = serializeBucketDataV1({
+    bucketKey: {
+      replicationStreamId: 1,
+      definitionId: '0',
+      bucket: 'global[]'
+    },
+    o: 1n,
+    op: 'PUT',
+    source_table: sourceTable,
+    source_key: 'source-key',
+    subkey: 'persisted-subkey',
+    table: 'items',
+    row_id: 'item-1',
+    checksum: 1n,
+    data: '{"id":"item-1"}'
+  });
+
+  expect(loadBucketDataDocumentV1(document).subkey).toBe('persisted-subkey');
+
+  const { subkey: _subkey, ...legacyDocument } = document;
+  expect(loadBucketDataDocumentV1(legacyDocument).subkey).toBeUndefined();
+});
 
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
   register.registerSyncTests(storageConfig.factory, {
@@ -1158,6 +1184,100 @@ streams:
       );
     }
   );
+
+  test.runIf(storageVersion >= 3)(
+    'restart creates a replacement stream instead of appending to the active stream',
+    async () => {
+      await using factory = await storageConfig.factory();
+
+      const active = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+          { storageVersion }
+        )
+      );
+      const activeStorage = factory.getInstance(active) as MongoSyncBucketStorage;
+      await using activeWriter = await activeStorage.createWriter(test_utils.BATCH_OPTIONS);
+      await activeWriter.markAllSnapshotDone('1/1');
+      await activeWriter.commit('1/1');
+
+      await factory.restartReplication(active.replicationStreamId);
+
+      const replicatingStreams = await factory.getReplicatingReplicationStreams();
+      expect(replicatingStreams).toHaveLength(1);
+      expect(replicatingStreams[0].replicationStreamId).not.toEqual(active.replicationStreamId);
+      expect(replicatingStreams[0].state).toBe(storage.SyncRuleState.PROCESSING);
+
+      const oldStream = (await (factory as MongoBucketStorage).db.sync_rules.findOne({
+        _id: active.replicationStreamId
+      })) as ReplicationStreamDocumentV3;
+      expect(oldStream.state).toBe(storage.SyncRuleState.ERRORED);
+      expect(oldStream.sync_configs.map((config) => config.state)).toEqual([storage.SyncRuleState.ERRORED]);
+    }
+  );
+
+  test.runIf(storageVersion >= 3)('restart errors an active stream with an embedded deploying config', async () => {
+    await using factory = await storageConfig.factory();
+
+    const active = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+        { storageVersion }
+      )
+    );
+    const activeStorage = factory.getInstance(active) as MongoSyncBucketStorage;
+    await using activeWriter = await activeStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await activeWriter.markAllSnapshotDone('1/1');
+    await activeWriter.commit('1/1');
+
+    const deploying = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  by_project:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+`,
+        { storageVersion }
+      )
+    );
+    expect(deploying.replicationStreamId).toEqual(active.replicationStreamId);
+
+    await factory.restartReplication(active.replicationStreamId);
+
+    const replicatingStreams = await factory.getReplicatingReplicationStreams();
+    expect(replicatingStreams).toHaveLength(1);
+    expect(replicatingStreams[0].replicationStreamId).not.toEqual(active.replicationStreamId);
+
+    const oldStream = (await (factory as MongoBucketStorage).db.sync_rules.findOne({
+      _id: active.replicationStreamId
+    })) as ReplicationStreamDocumentV3;
+    expect(oldStream.state).toBe(storage.SyncRuleState.ERRORED);
+    expect(oldStream.sync_configs.map((config) => config.state)).toEqual([
+      storage.SyncRuleState.ERRORED,
+      storage.SyncRuleState.STOP
+    ]);
+    const oldActive = await factory.getActiveSyncConfig();
+    expect(oldActive).not.toBeNull();
+    expect(oldActive!.replicationStream.syncConfigContent).toHaveLength(1);
+    await expect(oldActive!.storage.getCheckpoint()).resolves.toBeDefined();
+  });
 
   test.runIf(storageVersion >= 3)(
     'appended compatible config adopts the stream checkpoint instead of regressing to 0',

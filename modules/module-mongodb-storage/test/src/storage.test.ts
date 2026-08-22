@@ -1,7 +1,7 @@
 import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { register, test_utils } from '@powersync/service-core-tests';
+import { compactActive, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
@@ -115,7 +115,7 @@ bucket_definitions:
       await managedWriter.markAllSnapshotDone('1/1');
       await managedWriter.keepalive('8/0');
 
-      await bucketStorage.compact({
+      await compactActive(factory, {
         compactBuckets: [],
         deleteCheckpointRequestsBefore: new Date('2024-02-01T00:00:00.000Z')
       });

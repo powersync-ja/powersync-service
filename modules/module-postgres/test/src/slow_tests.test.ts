@@ -183,10 +183,15 @@ bucket_definitions:
             break;
           }
 
-          const checkpoint = await storage.getCheckpoint();
-          const opsBefore = await helpers.getBucketData('global[]', checkpoint);
-          await storage.compact({ maxOpId: checkpoint.checkpoint });
-          const opsAfter = await helpers.getBucketData('global[]', checkpoint);
+          const active = await f.getActiveSyncConfig();
+          if (active == null) {
+            continue;
+          }
+          const activeHelpers = new StorageDataHelpers(active.storage, syncRulesContent);
+          const checkpoint = await active.storage.getCheckpoint();
+          const opsBefore = await activeHelpers.getBucketData('global[]', checkpoint);
+          await active.storage.compact({ maxOpId: checkpoint.checkpoint });
+          const opsAfter = await activeHelpers.getBucketData('global[]', checkpoint);
 
           test_utils.validateCompactedBucket(opsBefore, opsAfter);
         }

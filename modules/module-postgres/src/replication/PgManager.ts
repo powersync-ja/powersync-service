@@ -11,6 +11,8 @@ export interface PgManagerOptions extends pgwire.PgPoolOptions {}
 
 /**
  * Shorter timeout for snapshot connections than for replication connections.
+ *
+ * Default, can be overridden with the `snapshot_socket_timeout` connection option.
  */
 const SNAPSHOT_SOCKET_TIMEOUT = 30_000;
 
@@ -74,7 +76,7 @@ export class PgManager extends BaseObserver<PgManagerListener> {
     // Since we are constantly using the connection, we don't need any
     // custom keepalives.
 
-    (connection as any)._socket.setTimeout(SNAPSHOT_SOCKET_TIMEOUT);
+    (connection as any)._socket.setTimeout(this.options.snapshot_socket_timeout_ms ?? SNAPSHOT_SOCKET_TIMEOUT);
 
     // Disable statement timeout for snapshot queries.
     // On Supabase, the default is 2 minutes.

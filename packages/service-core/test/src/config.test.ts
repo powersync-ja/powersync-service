@@ -70,6 +70,44 @@ describe('Config', () => {
     expect(config.api_parameters.max_buckets_per_connection).toBe(1);
   });
 
+  it('should resolve the storage default version', {}, async () => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: mongodb
+        default_storage_version: 3
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    const config = await collector.collectConfig({
+      config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
+    });
+
+    expect(config.storage.default_storage_version).toBe(3);
+  });
+
+  it.each([1, 1.5, 4])('should reject unsupported storage default version %s', async (defaultStorageVersion) => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: mongodb
+        default_storage_version: ${defaultStorageVersion}
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    await expect(
+      collector.collectConfig({
+        config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
+      })
+    ).rejects.toThrow(`Storage version ${defaultStorageVersion} is not supported`);
+  });
+
   it('should resolve checkpoint request retention config', {}, async () => {
     const yamlConfig = /* yaml */ `
       # PowerSync config

@@ -2,8 +2,13 @@ import { BucketDataDoc } from '@module/storage/implementation/common/BucketDataD
 import { MongoSyncBucketStorage } from '@module/storage/implementation/createMongoSyncBucketStorage.js';
 import { loadBucketDataDocument, serializeBucketData } from '@module/storage/implementation/v3/bucket-format.js';
 import { chunkBucketData, DEFAULT_MAX_DOC_SIZE_BYTES } from '@module/storage/implementation/v3/chunking.js';
+import { DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS } from '@module/storage/implementation/v3/compaction-constants.js';
+import { CompactionLease } from '@module/storage/implementation/v3/CompactionLease.js';
 import { BucketDataDocumentV3 } from '@module/storage/implementation/v3/models.js';
+import { ObjectStorageError } from '@module/storage/implementation/v3/object-storage/ObjectStorage.js';
 import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
+import { replicaIdToSubkey } from '@module/utils/util.js';
+import { logger as defaultLogger } from '@powersync/lib-services-framework';
 import {
   addChecksums,
   CheckpointChecksumInvalidatedError,
@@ -11,10 +16,37 @@ import {
   SyncRulesBucketStorage,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, compactActive, register, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
-import { describe, expect, test } from 'vitest';
-import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
+import { describe, expect, test, vi } from 'vitest';
+import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
+
+function makeOp(
+  opId: number,
+  rowId: string,
+  data: string,
+  ctx: { replicationStreamId: number; definitionId: string; bucket: string },
+  sourceTableId: bson.ObjectId,
+  overrides?: { op?: 'PUT' | 'REMOVE' }
+): BucketDataDoc {
+  const sourceKey = test_utils.rid(rowId);
+  return {
+    bucketKey: {
+      replicationStreamId: ctx.replicationStreamId,
+      definitionId: ctx.definitionId,
+      bucket: ctx.bucket
+    },
+    o: BigInt(opId),
+    op: overrides?.op ?? 'PUT',
+    source_table: sourceTableId,
+    source_key: sourceKey,
+    subkey: replicaIdToSubkey(sourceTableId, sourceKey),
+    table: 'items',
+    row_id: rowId,
+    checksum: BigInt(opId * 7),
+    data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data })
+  };
+}
 
 describe('Mongo Sync Bucket Storage Compact', () => {
   register.registerCompactTests(INITIALIZED_MONGO_STORAGE_FACTORY);
@@ -58,15 +90,18 @@ describe('Mongo Sync Bucket Storage Compact', () => {
       return bucketStorage.getCheckpoint();
     };
 
-    const setup = async () => {
+    const setup = async (storageVersion?: number) => {
       await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
       const syncRules = await factory.updateSyncRules(
-        updateSyncRulesFromYaml(`
+        updateSyncRulesFromYaml(
+          `
 bucket_definitions:
   by_user:
     parameters: select request.user_id() as user_id
     data: [select * from test where owner_id = bucket.user_id]
-    `)
+    `,
+          { storageVersion }
+        )
       );
       const bucketStorage = factory.getInstance(syncRules);
       const syncRulesContent = syncRules.syncConfigContent[0];
@@ -75,20 +110,17 @@ bucket_definitions:
       return { bucketStorage, checkpoint, factory, syncRules: syncRulesContent };
     };
 
-    test('full compact', async () => {
+    test('V1 full compact with blank bucket_state', async () => {
       const { bucketStorage, checkpoint, factory, syncRules } = await setup();
       const storageDb = bucketStorage.db;
 
-      // Simulate bucket_state from old version not being available
       if (storageDb.storageConfig.incrementalReprocessing) {
-        // This should actually never happen on V3, but we test this anyway.
-        // Can remove this if it causes issues in the future.
-        await (storageDb as VersionedPowerSyncMongoV3).bucketState(bucketStorage.replicationStreamId).deleteMany({});
-      } else {
-        await factory.db.bucket_state.deleteMany({});
+        return;
       }
+      // Simulate a V1 deployment which pre-dates bucket-state population.
+      await factory.db.bucket_state.deleteMany({});
 
-      await bucketStorage.compact({
+      await compactActive(factory, {
         clearBatchLimit: 200,
         moveBatchLimit: 10,
         moveBatchQueryLimit: 10,
@@ -113,18 +145,21 @@ bucket_definitions:
       });
     });
 
-    test('populatePersistentChecksumCache', async () => {
+    test.each(TEST_STORAGE_VERSIONS)('compactInitialReplication (storage v%s)', async (storageVersion) => {
       // Populate old replication stream
-      const { factory } = await setup();
+      const { factory } = await setup(storageVersion);
 
       // Now populate another replication stream (bucket definition name changed)
       const syncRules = await factory.updateSyncRules(
-        updateSyncRulesFromYaml(`
+        updateSyncRulesFromYaml(
+          `
 bucket_definitions:
   by_user2:
     parameters: select request.user_id() as user_id
     data: [select * from test where owner_id = bucket.user_id]
-    `)
+    `,
+          { storageVersion }
+        )
       );
       const bucketStorage = factory.getInstance(syncRules);
       const syncRulesContent = syncRules.syncConfigContent[0];
@@ -132,21 +167,23 @@ bucket_definitions:
       await populate(bucketStorage, 2);
       const { checkpoint } = await bucketStorage.getCheckpoint();
 
-      // Default is to small small numbers - should be a no-op
-      const result0 = await bucketStorage.populatePersistentChecksumCache({
+      // V3's initial lite pass processes every bucket with no prior compact state.
+      // Earlier storage versions use the default minimum-change threshold.
+      const result0 = await bucketStorage.compactInitialReplication({
         maxOpId: checkpoint
       });
-      expect(result0.buckets).toEqual(0);
+      expect(result0.buckets).toEqual(storageVersion >= storage.STORAGE_VERSION_3 ? 2 : 0);
 
-      // This should cache the checksums for the two buckets
-      const result1 = await bucketStorage.populatePersistentChecksumCache({
+      // For V1/V2, lower the threshold to populate the checksum cache. V3 has
+      // already updated its compacted state, so another initial pass is a no-op.
+      const result1 = await bucketStorage.compactInitialReplication({
         maxOpId: checkpoint,
         minBucketChanges: 1
       });
-      expect(result1.buckets).toEqual(2);
+      expect(result1.buckets).toEqual(storageVersion >= storage.STORAGE_VERSION_3 ? 0 : 2);
 
-      // This should be a no-op, as the checksums are already cached
-      const result2 = await bucketStorage.populatePersistentChecksumCache({
+      // Repeating it stays a no-op.
+      const result2 = await bucketStorage.compactInitialReplication({
         maxOpId: checkpoint,
         minBucketChanges: 1
       });
@@ -168,88 +205,82 @@ bucket_definitions:
       });
     });
 
-    test('dirty bucket discovery handles bigint bucket_state bytes', async () => {
-      await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
-      const syncRules = await factory.updateSyncRules(
-        updateSyncRulesFromYaml(`
-bucket_definitions:
-  global:
-    data: [select * from test]
-    `)
+    test('v3 initial chunk compaction includes writer-scheduled work with a custom chunk interval', async () => {
+      const { bucketStorage, checkpoint } = await setup(storage.STORAGE_VERSION_3);
+      const result = await (bucketStorage as MongoSyncBucketStorage)
+        .createMongoCompactor({
+          maxOpId: checkpoint,
+          compactChunksOnly: true,
+          minCompactChunkIntervalMs: 1
+        })
+        .compact();
+
+      expect(result).toBe(2);
+    });
+
+    test('v3 repeated initial chunk compaction reschedules overdue full work beyond the current run', async () => {
+      const { bucketStorage, checkpoint } = await setup(storage.STORAGE_VERSION_3);
+      const firstResult = await bucketStorage.compactInitialReplication({ maxOpId: checkpoint });
+      expect(firstResult.buckets).toBe(2);
+
+      const bucketStateCollection = (bucketStorage.db as VersionedPowerSyncMongoV3).bucketState(
+        bucketStorage.replicationStreamId
       );
-      const bucketStorage = factory.getInstance(syncRules);
+      await bucketStateCollection.updateMany(
+        {},
+        {
+          $set: {
+            first_uncompacted_write: new Date(0),
+            next_compact_check: new Date(0)
+          }
+        }
+      );
+
+      const [{ now }] = await (bucketStorage.db as VersionedPowerSyncMongoV3).db
+        .aggregate<{ now: Date }>([{ $documents: [{}] }, { $project: { _id: 0, now: '$$NOW' } }])
+        .toArray();
+      const result = await bucketStorage.compactInitialReplication({
+        maxOpId: checkpoint,
+        signal: AbortSignal.timeout(2_000)
+      });
+
+      expect(result.buckets).toBe(0);
+      const states = await bucketStateCollection.find({}).toArray();
+      expect(states).toHaveLength(2);
+      for (const state of states) {
+        expect(state.next_compact_check!.getTime()).toBeGreaterThan(
+          now.getTime() + DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS
+        );
+      }
+    });
+
+    test('v3 replication writes initialize scheduled compaction state', async () => {
+      const { bucketStorage } = await setup();
       const storageDb = bucketStorage.db;
 
-      // This simulates bucket_state created using bigint bytes.
-      // This typically happens when buckets get very large (> 2GiB). We don't want to create that much
-      // data in the tests, so we directly insert the bucket_state here.
-      if (storageDb.storageConfig.incrementalReprocessing) {
-        const bucketStateCollection = (storageDb as VersionedPowerSyncMongoV3).bucketState(
-          bucketStorage.replicationStreamId
-        );
-        await bucketStateCollection.insertOne({
-          _id: {
-            d: '1',
-            b: 'global[]'
-          },
-          last_op: 5n,
-          compacted_state: {
-            op_id: 3n,
-            count: 3,
-            checksum: 0n,
-            bytes: 7n
-          },
-          estimate_since_compact: {
-            count: 2,
-            bytes: 5n
-          }
-        });
-      } else {
-        await factory.db.bucket_state.insertOne({
-          _id: {
-            g: bucketStorage.replicationStreamId,
-            b: 'global[]'
-          },
-          last_op: 5n,
-          compacted_state: {
-            op_id: 3n,
-            count: 3,
-            checksum: 0n,
-            bytes: 7n
-          },
-          estimate_since_compact: {
-            count: 2,
-            bytes: 5n
-          }
-        });
+      if (!storageDb.storageConfig.incrementalReprocessing) {
+        return;
       }
+      const bucketStateCollection = (storageDb as VersionedPowerSyncMongoV3).bucketState(
+        bucketStorage.replicationStreamId
+      );
+      const states = await bucketStateCollection.find({}).toArray();
+      expect(states).toHaveLength(2);
+      for (const state of states) {
+        expect(state.last_op).toBeGreaterThan(0n);
+        expect(state.bucket_stats.count).toBe(1);
+        expect(state.bucket_stats.chunks).toBe(1);
+        expect(state.first_uncompacted_write).toBeInstanceOf(Date);
+        expect(state.next_compact_check).toBeInstanceOf(Date);
+        expect(state.compacted_state).toBeUndefined();
+        expect(state).not.toHaveProperty('estimate_since_compact');
 
-      // This test uses a couple of "internal" APIs of the compactor.
-      const compactor = bucketStorage.createMongoCompactor({ maxOpId: 5n });
-
-      const dirtyBuckets = compactor.dirtyBucketBatches({
-        minBucketChanges: 1,
-        minChangeRatio: 0.39
-      });
-      const firstBatch = await dirtyBuckets.next();
-
-      expect(firstBatch.done).toBe(false);
-      expect(firstBatch.value).toHaveLength(1);
-      expect(firstBatch.value[0].bucket).toBe('global[]');
-      expect(firstBatch.value[0].estimatedCount).toBe(5);
-      expect(typeof firstBatch.value[0].estimatedCount).toBe('number');
-      expect(firstBatch.value[0].dirtyRatio).toBeCloseTo(5 / 12);
-
-      const checksumBuckets = await compactor.dirtyBucketBatchForChecksums({
-        minBucketChanges: 1
-      });
-      expect(checksumBuckets).toEqual([
-        {
-          bucket: 'global[]',
-          definitionId: storageDb.storageConfig.incrementalReprocessing ? '1' : null,
-          estimatedCount: 5
-        }
-      ]);
+        const docs = await (storageDb as VersionedPowerSyncMongoV3)
+          .bucketData(bucketStorage.replicationStreamId, state._id.d)
+          .find({ '_id.b': state._id.b })
+          .toArray();
+        expect(state.bucket_stats.bytes).toBe(BigInt(docs.reduce((total, document) => total + document.size, 0)));
+      }
     });
   });
 });
@@ -284,14 +315,16 @@ describe('Mongo Sync Parameter Storage Compact', () => {
  */
 describe('V3 invariant verification', () => {
   const BUCKET = 'global[]';
-  const TABLE = 'items';
 
   function makeBucketDataDoc(overrides: Partial<BucketDataDoc> & { o: bigint }): BucketDataDoc {
+    const sourceTable = new bson.ObjectId();
+    const sourceKey = 'key';
     return {
       bucketKey: { replicationStreamId: 1, definitionId: '1', bucket: 'test[]' },
       op: 'PUT',
-      source_table: new bson.ObjectId(),
-      source_key: 'key',
+      source_table: sourceTable,
+      source_key: sourceKey,
+      subkey: replicaIdToSubkey(sourceTable, sourceKey),
       table: 'test',
       row_id: 'row1',
       checksum: 1n,
@@ -329,31 +362,6 @@ bucket_definitions:
     return { bucketStorage, syncRules, db, collection, bucketStateCollection, sourceTableId, ctx, definitionId };
   }
 
-  function makeOp(
-    opId: number,
-    rowId: string,
-    data: string,
-    ctx: { replicationStreamId: number; definitionId: string; bucket: string },
-    sourceTableId: bson.ObjectId,
-    overrides?: { op?: 'PUT' | 'REMOVE' }
-  ): BucketDataDoc {
-    return {
-      bucketKey: {
-        replicationStreamId: ctx.replicationStreamId,
-        definitionId: ctx.definitionId,
-        bucket: ctx.bucket
-      },
-      o: BigInt(opId),
-      op: overrides?.op ?? 'PUT',
-      source_table: sourceTableId,
-      source_key: test_utils.rid(rowId),
-      table: TABLE,
-      row_id: rowId,
-      checksum: BigInt(opId * 7),
-      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data })
-    };
-  }
-
   async function insertDocs(collection: any, docs: BucketDataDocumentV3[]) {
     await collection.insertMany(docs);
   }
@@ -362,7 +370,9 @@ bucket_definitions:
     await bucketStateCollection.insertOne({
       _id: { d: definitionId, b: BUCKET },
       last_op: lastOp,
-      estimate_since_compact: { count: 10, bytes: 100 }
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(0),
+      bucket_stats: { count: 10, bytes: 100n, chunks: 1 }
     });
   }
 
@@ -371,11 +381,132 @@ bucket_definitions:
       clearBatchLimit: 200,
       moveBatchLimit: 10,
       moveBatchQueryLimit: 10,
-      minBucketChanges: 1,
-      minChangeRatio: 0,
       maxOpId
     });
   }
+
+  test('a successful lease renewal clears a transient renewal error', async () => {
+    const { bucketStateCollection, ctx } = await setupV3Storage();
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 1n);
+    const lease = await CompactionLease.claim(
+      bucketStateCollection,
+      { _id: { d: ctx.definitionId, b: BUCKET } },
+      undefined,
+      10 * 60 * 1000
+    );
+    expect(lease).not.toBeNull();
+
+    try {
+      const transientError = new Error('temporary MongoDB error');
+      const renew = (lease as any).renew.bind(lease);
+      const updateOne = vi.spyOn(bucketStateCollection, 'updateOne').mockRejectedValueOnce(transientError);
+      await renew().catch((error: unknown) => {
+        (lease as any).renewalError = error;
+      });
+      await expect(lease!.throwIfLost()).rejects.toBe(transientError);
+
+      updateOne.mockRestore();
+      await renew();
+      await expect(lease!.throwIfLost()).resolves.toBeUndefined();
+    } finally {
+      await lease?.[Symbol.asyncDispose]();
+    }
+  });
+
+  test('a failed scheduled bucket does not block other scheduled buckets', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
+    const badBucket = 'bad[]';
+    const goodBucket = 'good[]';
+    const goodDocument = serializeBucketData(goodBucket, [
+      makeOp(2, 'good', 'good', { ...ctx, bucket: goodBucket }, sourceTableId)
+    ]);
+    await insertDocs(collection, [goodDocument]);
+    await bucketStateCollection.insertMany([
+      {
+        _id: { d: ctx.definitionId, b: badBucket },
+        last_op: 2n,
+        next_compact_check: new Date(0),
+        // A malformed scheduled bucket with an expired lease must be
+        // rescheduled without preventing valid buckets from compacting.
+        first_uncompacted_write: new Date(0),
+        bucket_stats: { count: 1, bytes: 1n, chunks: 1 },
+        compact_lease: { id: new bson.ObjectId(), expires_at: new Date(0) }
+      },
+      {
+        _id: { d: ctx.definitionId, b: goodBucket },
+        last_op: 2n,
+        next_compact_check: new Date(0),
+        first_uncompacted_write: new Date(0),
+        bucket_stats: { count: 1, bytes: BigInt(goodDocument.size), chunks: 1 }
+      }
+    ]);
+    await bucketStateCollection.updateOne(
+      { _id: { d: ctx.definitionId, b: badBucket } },
+      { $unset: { first_uncompacted_write: '' } }
+    );
+
+    await (bucketStorage as MongoSyncBucketStorage)
+      .createMongoCompactor({ maxOpId: 2n, compactChunksOnly: true })
+      .compact();
+
+    const [badState, goodState] = await Promise.all([
+      bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: badBucket } }),
+      bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: goodBucket } })
+    ]);
+    expect(badState?.next_compact_check).toBeInstanceOf(Date);
+    expect(badState!.next_compact_check!.getTime()).toBeGreaterThan(0);
+    expect(goodState?.compacted_state?.op_id).toBe(2n);
+  });
+
+  test('aborting scheduled compaction does not reschedule the remaining batch', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
+    const buckets = ['first[]', 'second[]', 'third[]'];
+    const documents = buckets.map((bucket) =>
+      serializeBucketData(bucket, [makeOp(2, bucket, bucket, { ...ctx, bucket }, sourceTableId)])
+    );
+    await insertDocs(collection, documents);
+    await bucketStateCollection.insertMany(
+      documents.map((document, index) => ({
+        _id: { d: ctx.definitionId, b: buckets[index] },
+        last_op: 2n,
+        next_compact_check: new Date(0),
+        first_uncompacted_write: new Date(0),
+        bucket_stats: { count: document.count, bytes: BigInt(document.size), chunks: 1 }
+      }))
+    );
+
+    const abortController = new AbortController();
+    const testLogger = defaultLogger.child({});
+    vi.spyOn(testLogger, 'info').mockImplementation((message: unknown) => {
+      if (typeof message == 'string' && message.startsWith('Compacted bucket chunks ')) {
+        abortController.abort();
+      }
+      return testLogger;
+    });
+    const errorLog = vi.spyOn(testLogger, 'error');
+
+    await expect(
+      bucketStorage
+        .createMongoCompactor({
+          maxOpId: 2n,
+          compactChunksOnly: true,
+          signal: abortController.signal,
+          logger: testLogger
+        })
+        .compact()
+    ).rejects.toThrow();
+
+    const states = await bucketStateCollection.find({ '_id.b': { $in: buckets } }).toArray();
+    const completed = states.filter((state) => state.compacted_state != null);
+    const remaining = states.filter((state) => state.compacted_state == null);
+    expect(completed).toHaveLength(1);
+    expect(remaining).toHaveLength(2);
+    for (const state of remaining) {
+      expect(state.next_compact_check).toEqual(new Date(0));
+      expect(state.compact_lease).toBeUndefined();
+    }
+    expect(errorLog).not.toHaveBeenCalled();
+  });
 
   test('1. ops[] ordering - preserves caller ordering (no implicit sort)', () => {
     const ops = [
@@ -746,7 +877,6 @@ bucket_definitions:
 
 describe('V3 checksum pipeline straddling', () => {
   const BUCKET = 'global[]';
-  const TABLE = 'items';
 
   async function setup() {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
@@ -774,30 +904,6 @@ bucket_definitions:
     };
 
     return { bucketStorage, syncRules, db, collection, bucketStateCollection, definitionId, sourceTableId, ctx };
-  }
-
-  function makeOp(
-    opId: number,
-    rowId: string,
-    data: string,
-    ctx: { replicationStreamId: number; definitionId: string; bucket: string },
-    sourceTableId: bson.ObjectId
-  ): BucketDataDoc {
-    return {
-      bucketKey: {
-        replicationStreamId: ctx.replicationStreamId,
-        definitionId: ctx.definitionId,
-        bucket: ctx.bucket
-      },
-      o: BigInt(opId),
-      op: 'PUT',
-      source_table: sourceTableId,
-      source_key: test_utils.rid(rowId),
-      table: TABLE,
-      row_id: rowId,
-      checksum: BigInt(opId * 7),
-      data: JSON.stringify({ id: rowId, description: data })
-    };
   }
 
   function checksumRequest(): storage.BucketChecksumRequest {
@@ -835,7 +941,9 @@ bucket_definitions:
     await bucketStateCollection.insertOne({
       _id: { d: definitionId, b: BUCKET },
       last_op: 30n,
-      estimate_since_compact: { count: 3, bytes: 100 }
+      next_compact_check: undefined,
+      first_uncompacted_write: undefined,
+      bucket_stats: { count: 3, bytes: 100n, chunks: 1 }
     });
 
     const request = checksumRequest();
@@ -874,7 +982,9 @@ bucket_definitions:
     await bucketStateCollection.insertOne({
       _id: { d: definitionId, b: BUCKET },
       last_op: 0n,
-      estimate_since_compact: { count: 0, bytes: 0 }
+      next_compact_check: undefined,
+      first_uncompacted_write: undefined,
+      bucket_stats: { count: 0, bytes: 0n, chunks: 0 }
     });
 
     const request = checksumRequest();
@@ -894,7 +1004,9 @@ bucket_definitions:
     await bucketStateCollection.insertOne({
       _id: { d: definitionId, b: BUCKET },
       last_op: 0n,
-      estimate_since_compact: { count: 0, bytes: 0 }
+      next_compact_check: undefined,
+      first_uncompacted_write: undefined,
+      bucket_stats: { count: 0, bytes: 0n, chunks: 0 }
     });
 
     const request = checksumRequest();
@@ -913,7 +1025,9 @@ bucket_definitions:
     await bucketStateCollection.insertOne({
       _id: { d: definitionId, b: BUCKET },
       last_op: 10n,
-      estimate_since_compact: { count: 1, bytes: 100 }
+      next_compact_check: undefined,
+      first_uncompacted_write: undefined,
+      bucket_stats: { count: 1, bytes: 100n, chunks: 1 }
     });
 
     const request = checksumRequest();
@@ -926,7 +1040,7 @@ bucket_definitions:
     await collection.insertOne(serializeBucketData(BUCKET, [clear, afterClear]));
     await bucketStateCollection.updateOne(
       { _id: { d: definitionId, b: BUCKET } },
-      { $set: { last_op: 30n, 'estimate_since_compact.count': 2 } }
+      { $set: { last_op: 30n, 'bucket_stats.count': 2 } }
     );
 
     const after = await bucketStorage.getChecksums(test_utils.testCheckpoint(30n), [request]);
@@ -940,7 +1054,6 @@ bucket_definitions:
 
 describe('V3 compaction boundaries', () => {
   const BUCKET = 'global[]';
-  const TABLE = 'items';
 
   async function setupV3() {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
@@ -971,31 +1084,6 @@ bucket_definitions:
     return { bucketStorage, syncRules, db, collection, bucketStateCollection, sourceTableId, ctx };
   }
 
-  function makeOp(
-    opId: number,
-    rowId: string,
-    data: string,
-    ctx: { replicationStreamId: number; definitionId: string; bucket: string },
-    sourceTableId: bson.ObjectId,
-    overrides?: { op?: 'PUT' | 'REMOVE' }
-  ): BucketDataDoc {
-    return {
-      bucketKey: {
-        replicationStreamId: ctx.replicationStreamId,
-        definitionId: ctx.definitionId,
-        bucket: ctx.bucket
-      },
-      o: BigInt(opId),
-      op: overrides?.op ?? 'PUT',
-      source_table: sourceTableId,
-      source_key: test_utils.rid(rowId),
-      table: TABLE,
-      row_id: rowId,
-      checksum: BigInt(opId * 7),
-      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data })
-    };
-  }
-
   async function insertDocs(collection: any, docs: BucketDataDocumentV3[]) {
     await collection.insertMany(docs);
   }
@@ -1004,7 +1092,9 @@ bucket_definitions:
     await bucketStateCollection.insertOne({
       _id: { d: definitionId, b: BUCKET },
       last_op: lastOp,
-      estimate_since_compact: { count: 10, bytes: 100 }
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(0),
+      bucket_stats: { count: 10, bytes: 100n, chunks: 1 }
     });
   }
 
@@ -1029,6 +1119,156 @@ bucket_definitions:
   async function readAllDocs(collection: any): Promise<BucketDataDocumentV3[]> {
     return collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
   }
+
+  test('scheduled compaction claims only due buckets and clears completed full work', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const docs = [
+      serializeBucketData(BUCKET, [makeOp(1, 'A', 'old', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(2, 'A', 'new', ctx, sourceTableId)])
+    ];
+    await insertDocs(collection, docs);
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 2n,
+      next_compact_check: new Date(Date.now() + 60_000),
+      first_uncompacted_write: new Date(Date.now() - 60_000),
+      bucket_stats: {
+        count: 2,
+        bytes: BigInt(docs[0].size + docs[1].size),
+        chunks: 2
+      }
+    });
+
+    await bucketStorage.compact({ maxOpId: 2n, maxCompactFullIntervalMs: 0 });
+    expect(
+      (await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } }))?.compacted_state
+    ).toBeUndefined();
+
+    await bucketStateCollection.updateOne(
+      { _id: { d: ctx.definitionId, b: BUCKET } },
+      { $set: { next_compact_check: new Date(Date.now() - 1) } }
+    );
+    await bucketStorage.compact({ maxOpId: 2n, maxCompactFullIntervalMs: 0 });
+
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.last_full_compact?.op_id).toBe(2n);
+    expect(state?.first_uncompacted_write).toBeUndefined();
+    expect(state?.next_compact_check).toBeUndefined();
+    expect(state?.compact_lease).toBeUndefined();
+  });
+
+  test('capped full compaction records its prefix and starts a fresh scheduling window', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const prefix = serializeBucketData(BUCKET, [makeOp(1, 'A', 'a', ctx, sourceTableId)]);
+    const untouchedTail = serializeBucketData(BUCKET, [makeOp(2, 'B', 'b', ctx, sourceTableId)]);
+    await insertDocs(collection, [prefix, untouchedTail]);
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 2n,
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(0),
+      bucket_stats: {
+        count: prefix.count + untouchedTail.count,
+        bytes: BigInt(prefix.size + untouchedTail.size),
+        chunks: 2
+      }
+    });
+
+    await bucketStorage.compact({ maxOpId: 1n });
+
+    const partialState = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(partialState?.last_full_compact).toMatchObject({
+      op_id: 1n,
+      count: prefix.count,
+      puts: 1
+    });
+    expect(partialState?.first_uncompacted_write).toBeInstanceOf(Date);
+    expect(partialState!.first_uncompacted_write!.getTime()).toBeGreaterThan(0);
+    expect(partialState!.next_compact_check!.getTime()).toBeGreaterThanOrEqual(
+      partialState!.first_uncompacted_write!.getTime() + DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS
+    );
+
+    const lastFullCompactAt = partialState!.last_full_compact!.at;
+    const freshFirstUncompactedWrite = partialState!.first_uncompacted_write!;
+    await bucketStateCollection.updateOne(
+      { _id: { d: ctx.definitionId, b: BUCKET } },
+      { $set: { next_compact_check: new Date(0) } }
+    );
+
+    await bucketStorage.compact({ maxOpId: 2n });
+
+    const deferredState = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(deferredState?.last_full_compact?.at).toEqual(lastFullCompactAt);
+    expect(deferredState?.first_uncompacted_write).toEqual(freshFirstUncompactedWrite);
+    expect(deferredState!.next_compact_check!.getTime()).toBeGreaterThan(Date.now());
+
+    // Even after the scheduling window has elapsed, a run with the old cap
+    // must not scan and record the same full-compaction prefix again.
+    await bucketStateCollection.updateOne(
+      { _id: { d: ctx.definitionId, b: BUCKET } },
+      { $set: { first_uncompacted_write: new Date(0), next_compact_check: new Date(0) } }
+    );
+
+    await bucketStorage.compact({ maxOpId: 1n });
+
+    const rescheduledState = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(rescheduledState?.last_full_compact?.at).toEqual(lastFullCompactAt);
+    expect(rescheduledState?.first_uncompacted_write).toEqual(new Date(0));
+    expect(rescheduledState!.next_compact_check!.getTime()).toBeGreaterThan(0);
+  });
+
+  test('explicit compaction skips a bucket with no outstanding full-compaction work', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const document = serializeBucketData(BUCKET, [makeOp(1, 'A', 'value', ctx, sourceTableId)]);
+    await insertDocs(collection, [document]);
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 1n,
+      next_compact_check: undefined,
+      first_uncompacted_write: undefined,
+      compacted_state: {
+        op_id: 1n,
+        checksum: document.checksum,
+        count: document.count,
+        bytes: BigInt(document.size),
+        chunks: 1,
+        at: new Date()
+      },
+      last_full_compact: {
+        op_id: 1n,
+        count: document.count,
+        puts: 1,
+        at: new Date()
+      },
+      bucket_stats: { count: document.count, bytes: BigInt(document.size), chunks: 1 }
+    });
+
+    await expect(bucketStorage.compact({ compactBuckets: [BUCKET], maxOpId: 1n })).resolves.toBeUndefined();
+
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.compact_lease).toBeUndefined();
+    expect(state?.next_compact_check).toBeNull();
+    expect(state?.last_full_compact?.op_id).toBe(1n);
+  });
+
+  test('concurrent scheduled compactors lease a bucket to one worker', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const document = serializeBucketData(BUCKET, [makeOp(1, 'A', 'value', ctx, sourceTableId)]);
+    await insertDocs(collection, [document]);
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 1n,
+      next_compact_check: new Date(Date.now() - 1),
+      first_uncompacted_write: new Date(0),
+      bucket_stats: { count: 1, bytes: BigInt(document.size), chunks: 1 }
+    });
+
+    await Promise.all([bucketStorage.compact({ maxOpId: 1n }), bucketStorage.compact({ maxOpId: 1n })]);
+
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.last_full_compact?.op_id).toBe(1n);
+    expect(state?.compact_lease).toBeUndefined();
+  });
 
   test('1. superseded ops become MOVE tombstones', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
@@ -1207,7 +1447,6 @@ bucket_definitions:
 
 describe('V3 MOVE tombstone properties', () => {
   const BUCKET = 'global[]';
-  const TABLE = 'items';
 
   async function setupV3() {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
@@ -1238,31 +1477,6 @@ bucket_definitions:
     return { bucketStorage, syncRules, db, collection, bucketStateCollection, sourceTableId, ctx };
   }
 
-  function makeOp(
-    opId: number,
-    rowId: string,
-    data: string,
-    ctx: { replicationStreamId: number; definitionId: string; bucket: string },
-    sourceTableId: bson.ObjectId,
-    overrides?: { op?: 'PUT' | 'REMOVE' }
-  ): BucketDataDoc {
-    return {
-      bucketKey: {
-        replicationStreamId: ctx.replicationStreamId,
-        definitionId: ctx.definitionId,
-        bucket: ctx.bucket
-      },
-      o: BigInt(opId),
-      op: overrides?.op ?? 'PUT',
-      source_table: sourceTableId,
-      source_key: test_utils.rid(rowId),
-      table: TABLE,
-      row_id: rowId,
-      checksum: BigInt(opId * 7),
-      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data })
-    };
-  }
-
   async function insertDocs(collection: any, docs: BucketDataDocumentV3[]) {
     await collection.insertMany(docs);
   }
@@ -1271,7 +1485,9 @@ bucket_definitions:
     await bucketStateCollection.insertOne({
       _id: { d: definitionId, b: BUCKET },
       last_op: lastOp,
-      estimate_since_compact: { count: 10, bytes: 100 }
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(0),
+      bucket_stats: { count: 10, bytes: 100n, chunks: 1 }
     });
   }
 
@@ -1420,7 +1636,6 @@ bucket_definitions:
  */
 describe('Streaming compactor', () => {
   const BUCKET = 'global[]';
-  const TABLE = 'items';
 
   async function setupV3() {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
@@ -1450,31 +1665,6 @@ bucket_definitions:
     return { bucketStorage, syncRules, db, collection, bucketStateCollection, sourceTableId, ctx };
   }
 
-  function makeOp(
-    opId: number,
-    rowId: string,
-    data: string,
-    ctx: { replicationStreamId: number; definitionId: string; bucket: string },
-    sourceTableId: bson.ObjectId,
-    overrides?: { op?: 'PUT' | 'REMOVE' }
-  ): BucketDataDoc {
-    return {
-      bucketKey: {
-        replicationStreamId: ctx.replicationStreamId,
-        definitionId: ctx.definitionId,
-        bucket: ctx.bucket
-      },
-      o: BigInt(opId),
-      op: overrides?.op ?? 'PUT',
-      source_table: sourceTableId,
-      source_key: test_utils.rid(rowId),
-      table: TABLE,
-      row_id: rowId,
-      checksum: BigInt(opId * 7),
-      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data })
-    };
-  }
-
   async function insertDocs(collection: any, docs: BucketDataDocumentV3[]) {
     await collection.insertMany(docs);
   }
@@ -1483,7 +1673,9 @@ bucket_definitions:
     await bucketStateCollection.insertOne({
       _id: { d: definitionId, b: BUCKET },
       last_op: lastOp,
-      estimate_since_compact: { count: 10, bytes: 100 }
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(0),
+      bucket_stats: { count: 10, bytes: 100n, chunks: 1 }
     });
   }
 
@@ -1500,6 +1692,277 @@ bucket_definitions:
       }))
     );
   }
+
+  async function setupCompactedTail() {
+    const setup = await setupV3();
+    const { collection, bucketStateCollection, ctx, sourceTableId } = setup;
+    const documents = [
+      serializeBucketData(BUCKET, [makeOp(1, 'A', 'a', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(2, 'B', 'b', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(3, 'C', 'c', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(4, 'D', 'd', ctx, sourceTableId)])
+    ];
+    await insertDocs(collection, documents);
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 4n,
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(0),
+      compacted_state: {
+        op_id: 2n,
+        checksum: documents[0].checksum + documents[1].checksum,
+        count: documents[0].count + documents[1].count,
+        bytes: BigInt(documents[0].size + documents[1].size),
+        chunks: 2,
+        at: new Date(0)
+      },
+      bucket_stats: {
+        count: documents.reduce((total, document) => total + document.count, 0),
+        bytes: BigInt(documents.reduce((total, document) => total + document.size, 0)),
+        chunks: documents.length
+      }
+    });
+    return setup;
+  }
+
+  async function expectRecoveredCompactedTail(collection: any, bucketStateCollection: any, definitionId: string) {
+    const documents = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    expect(documents.flatMap((document: BucketDataDocumentV3) => document.ops!.map((op) => op.o))).toEqual([
+      1n,
+      2n,
+      3n,
+      4n
+    ]);
+
+    const bytes = BigInt(documents.reduce((total: number, document: BucketDataDocumentV3) => total + document.size, 0));
+    const state = await bucketStateCollection.findOne({ _id: { d: definitionId, b: BUCKET } });
+    expect(state?.compacted_state).toMatchObject({
+      op_id: 4n,
+      checksum: 70n,
+      count: 4,
+      bytes,
+      chunks: documents.length
+    });
+    expect(state?.bucket_stats).toEqual({ count: 4, bytes, chunks: documents.length });
+  }
+
+  test('initial compaction merges small chunks and refreshes bucket metadata', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    await insertDocs(collection, [
+      serializeBucketData(BUCKET, [makeOp(1, 'A', 'a', ctx, sourceTableId), makeOp(2, 'B', 'b', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(3, 'C', 'c', ctx, sourceTableId), makeOp(4, 'D', 'd', ctx, sourceTableId)])
+    ]);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 4n);
+
+    const result = await bucketStorage.compactInitialReplication({ maxOpId: 4n });
+
+    expect(result).toEqual({ buckets: 1 });
+    const documents = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    expect(documents).toHaveLength(1);
+    expect(documents[0].ops!.map((op) => op.o)).toEqual([1n, 2n, 3n, 4n]);
+
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.compacted_state).toMatchObject({
+      op_id: 4n,
+      count: 4,
+      checksum: 70n
+    });
+  });
+
+  test('capped chunk compaction repairs stale bucket stats after a committed first merge', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const operations = [
+      makeOp(1, 'A', 'a', ctx, sourceTableId),
+      makeOp(2, 'B', 'b', ctx, sourceTableId),
+      makeOp(3, 'C', 'c', ctx, sourceTableId),
+      makeOp(4, 'D', 'd', ctx, sourceTableId)
+    ];
+    const originalDocuments = [
+      serializeBucketData(BUCKET, operations.slice(0, 2)),
+      serializeBucketData(BUCKET, operations.slice(2))
+    ];
+    const committedMerge = serializeBucketData(BUCKET, operations);
+    const untouchedTail = serializeBucketData(BUCKET, [makeOp(5, 'E', 'e', ctx, sourceTableId)]);
+    await insertDocs(collection, [committedMerge, untouchedTail]);
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 5n,
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(0),
+      bucket_stats: {
+        count: originalDocuments.reduce((total, document) => total + document.count, untouchedTail.count),
+        bytes: BigInt(originalDocuments.reduce((total, document) => total + document.size, untouchedTail.size)),
+        chunks: originalDocuments.length + 1
+      }
+    });
+
+    const result = await bucketStorage.compactInitialReplication({ maxOpId: 4n });
+
+    expect(result).toEqual({ buckets: 1 });
+    const expectedStats = {
+      count: committedMerge.count + untouchedTail.count,
+      bytes: BigInt(committedMerge.size + untouchedTail.size),
+      chunks: 2
+    };
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.bucket_stats).toEqual(expectedStats);
+    expect(state?.compacted_state).toMatchObject({
+      op_id: 4n,
+      checksum: committedMerge.checksum,
+      count: committedMerge.count,
+      bytes: BigInt(committedMerge.size),
+      chunks: 1
+    });
+  });
+
+  test('later full compaction claims fresh state after a committed replacement', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const documents = [
+      serializeBucketData(BUCKET, [makeOp(1, 'A', 'a', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(2, 'B', 'b', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(3, 'C', 'c', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(4, 'D', 'd', ctx, sourceTableId)])
+    ];
+    await insertDocs(collection, documents);
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 4n,
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(0),
+      bucket_stats: {
+        count: documents.reduce((total, document) => total + document.count, 0),
+        bytes: BigInt(documents.reduce((total, document) => total + document.size, 0)),
+        chunks: documents.length
+      }
+    });
+
+    const concurrentDocument = serializeBucketData(BUCKET, [makeOp(5, 'E', 'e', ctx, sourceTableId)]);
+    const compactor = bucketStorage.createMongoCompactor({ maxOpId: 5n, compactBuckets: [BUCKET] });
+    const originalFlush = (compactor as any).flushCompactionGroup.bind(compactor);
+    let injectedFailure = false;
+    vi.spyOn(compactor as any, 'flushCompactionGroup').mockImplementation(async (...args: any[]) => {
+      const result = await originalFlush(...args);
+      if (!injectedFailure) {
+        injectedFailure = true;
+        await insertDocs(collection, [concurrentDocument]);
+        await bucketStateCollection.updateOne(
+          { _id: { d: ctx.definitionId, b: BUCKET } },
+          {
+            $set: { last_op: 5n },
+            $inc: {
+              'bucket_stats.count': concurrentDocument.count,
+              'bucket_stats.bytes': BigInt(concurrentDocument.size),
+              'bucket_stats.chunks': 1
+            }
+          }
+        );
+        throw new ObjectStorageError('failure after committed full-compaction replacement', {
+          cause: new Error('socket reset'),
+          retryable: true
+        });
+      }
+      return result;
+    });
+
+    await expect(compactor.compact()).rejects.toThrow('failure after committed full-compaction replacement');
+
+    expect(injectedFailure).toBe(true);
+    const interruptedState = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(interruptedState?.last_op).toBe(5n);
+    expect(interruptedState?.compacted_state).toBeUndefined();
+    expect(interruptedState?.compact_lease).toBeUndefined();
+
+    await expect(bucketStorage.createMongoCompactor({ maxOpId: 5n, compactBuckets: [BUCKET] }).compact()).resolves.toBe(
+      1
+    );
+
+    const currentDocuments = await collection.find({ '_id.b': BUCKET }).toArray();
+    expect(currentDocuments).toHaveLength(1);
+    const expectedStats = {
+      count: currentDocuments.reduce((total, document) => total + document.count, 0),
+      bytes: BigInt(currentDocuments.reduce((total, document) => total + document.size, 0)),
+      chunks: currentDocuments.length
+    };
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.bucket_stats).toEqual(expectedStats);
+    expect(state?.compacted_state).toMatchObject({ op_id: 5n, ...expectedStats });
+    expect(state?.last_full_compact?.op_id).toBe(5n);
+    expect(state?.first_uncompacted_write).toBeUndefined();
+    expect(state?.next_compact_check).toBeUndefined();
+  });
+
+  test('chunk compaction treats a missing cached op as a resume hint', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const documents = [
+      serializeBucketData(BUCKET, [makeOp(1, 'A', 'a', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(3, 'C', 'c', ctx, sourceTableId)]),
+      serializeBucketData(BUCKET, [makeOp(4, 'D', 'd', ctx, sourceTableId)])
+    ];
+    await insertDocs(collection, documents);
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 4n,
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(0),
+      compacted_state: {
+        op_id: 2n,
+        checksum: 21n,
+        count: 2,
+        bytes: 100n,
+        chunks: 2,
+        at: new Date(0)
+      },
+      bucket_stats: { count: 4, bytes: 200n, chunks: 4 }
+    });
+
+    await expect(bucketStorage.createMongoCompactor({ maxOpId: 4n, compactChunksOnly: true }).compact()).resolves.toBe(
+      1
+    );
+
+    const currentDocuments = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    expect(currentDocuments.flatMap((document) => document.ops!.map((op) => op.o))).toEqual([1n, 3n, 4n]);
+    const bytes = BigInt(currentDocuments.reduce((total, document) => total + document.size, 0));
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.compacted_state).toMatchObject({
+      op_id: 4n,
+      checksum: 56n,
+      count: 3,
+      bytes,
+      chunks: currentDocuments.length
+    });
+    expect(state?.bucket_stats).toEqual({ count: 3, bytes, chunks: currentDocuments.length });
+  });
+
+  test('later chunk compaction rebuilds state after a committed partial merge', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx } = await setupCompactedTail();
+    const failedCompactor = bucketStorage.createMongoCompactor({
+      maxOpId: 4n,
+      compactChunksOnly: true
+    });
+    const originalFlush = (failedCompactor as any).flushCompactionGroup.bind(failedCompactor);
+    const flushSpy = vi
+      .spyOn(failedCompactor as any, 'flushCompactionGroup')
+      .mockImplementation(async (...args: any[]) => {
+        const result = await originalFlush(...args);
+        throw new Error('failure after committed chunk merge');
+      });
+
+    await expect(failedCompactor.compact()).resolves.toBe(0);
+    flushSpy.mockRestore();
+
+    const interruptedState = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(interruptedState?.compacted_state?.op_id).toBe(2n);
+    expect(await collection.findOne({ _id: { b: BUCKET, o: 2n } })).toBeNull();
+    await bucketStateCollection.updateOne(
+      { _id: { d: ctx.definitionId, b: BUCKET } },
+      { $set: { next_compact_check: new Date(0) } }
+    );
+
+    const result = await bucketStorage.createMongoCompactor({ maxOpId: 4n, compactChunksOnly: true }).compact();
+
+    expect(result).toBe(1);
+    await expectRecoveredCompactedTail(collection, bucketStateCollection, ctx.definitionId);
+  });
 
   test('1. multi-batch compaction preserves checksum and creates MOVE tombstones', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
@@ -1616,6 +2079,13 @@ bucket_definitions:
     expect(op600).toBeDefined();
     expect(op600!.op).toBe('PUT');
     expect(op600!.row_id).toBe('F');
+
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.bucket_stats).toEqual({
+      count: docsAfter.reduce((total, document) => total + document.count, 0),
+      bytes: BigInt(docsAfter.reduce((total, document) => total + document.size, 0)),
+      chunks: docsAfter.length
+    });
   });
 
   test('3. seen map overflow - some old ops pass through without tombstoning', async () => {

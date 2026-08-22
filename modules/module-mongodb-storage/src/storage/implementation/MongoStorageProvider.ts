@@ -69,6 +69,7 @@ export class MongoStorageProvider implements storage.StorageProvider {
       readPreference,
       clearBatchThrottleRate: normalizeClearBatchThrottleRate(decodedConfig.clear_batch_throttle_rate),
       checksumCacheTtlMs: resolvedConfig.api_parameters.bucket_count_cache_ttl_minutes * 60_000,
+      defaultStorageVersion: decodedConfig.default_storage_version,
       // Right now, only MongoDB source databases supports incremental reprocessing.
       // Remove this filter when we support it for other source databases.
       // This assumes a single source connection - revisit if we ever support multiple connections.

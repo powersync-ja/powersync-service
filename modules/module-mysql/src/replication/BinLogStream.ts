@@ -305,8 +305,8 @@ export class BinLogStream {
     }
 
     if (lastOp != null) {
-      // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
-      await this.storage.populatePersistentChecksumCache({
+      // Compact storage _after_ initial replication, but _before_ we switch to this replication stream.
+      await this.storage.compactInitialReplication({
         // No checkpoint yet, but we do have the opId.
         maxOpId: lastOp,
         signal: this.abortSignal

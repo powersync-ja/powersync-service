@@ -48,6 +48,7 @@ export function serializeBucketDataV1(document: BucketDataDoc): BucketDataDocume
     op: document.op,
     source_table: document.source_table,
     source_key: document.source_key,
+    subkey: document.subkey,
     table: document.table,
     row_id: document.row_id,
     checksum: document.checksum,

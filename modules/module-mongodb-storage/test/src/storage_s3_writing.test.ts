@@ -65,6 +65,7 @@ describe('S3 object storage writes', () => {
       { op: 'PUT', row_id: 'item2' }
     ]);
     expect(ops.every((op) => op.data != null)).toBe(true);
+    expect(ops.every((op) => typeof op.subkey == 'string')).toBe(true);
 
     // Verify the corresponding MongoDB metadata shell.
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;

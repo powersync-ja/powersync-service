@@ -15,6 +15,7 @@ export type PostgresBucketStorageOptions = {
   config: NormalizedPostgresStorageConfig;
   replicationStreamNamePrefix: string;
   checksumCacheTtlMs?: number;
+  defaultStorageVersion?: number;
 };
 
 export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
@@ -156,7 +157,10 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
 
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<PostgresPersistedReplicationStream> {
     const storageVersion =
-      options.storageVersion ?? options.config.parsed.config.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
+      options.storageVersion ??
+      options.config.parsed.config.storageVersion ??
+      this.options.defaultStorageVersion ??
+      storage.CURRENT_STORAGE_VERSION;
     const storageConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
     if (storageConfig == null) {
       throw new framework.ServiceError(
