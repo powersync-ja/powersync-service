@@ -3,13 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { assertDistinctMongoSourceAndStorage } from '../implementations/replication/mongodb/MongoSourceBenchmarkConfiguration.js';
+import { assertDistinctPostgresSourceAndStorage } from '../implementations/replication/postgres/PostgresSourceBenchmarkConfiguration.js';
 import { NodeProcessResourceMonitor } from '../monitors/NodeProcessResourceMonitor.js';
 import { UnavailableResourceMonitor } from '../monitors/UnavailableResourceMonitor.js';
 import { ReplicationBenchmark } from '../runner/ReplicationBenchmark.js';
 import {
   mongoReplicationStorage,
   mongoSourceCase,
-  postgresReplicationStorage
+  postgresReplicationStorage,
+  postgresSourceCase
 } from '../scenarios/replication-scenarios.js';
 import { createArtifactsFolder, getArtifactFilename } from '../utils/output.js';
 
@@ -23,7 +25,9 @@ const cases = [
   mongoSourceCase('snapshot', postgresStorage),
   mongoSourceCase('streaming', postgresStorage),
   mongoSourceCase('snapshot', mongoStorage, assertDistinctMongoSourceAndStorage),
-  mongoSourceCase('streaming', mongoStorage, assertDistinctMongoSourceAndStorage)
+  mongoSourceCase('streaming', mongoStorage, assertDistinctMongoSourceAndStorage),
+  postgresSourceCase(postgresStorage, assertDistinctPostgresSourceAndStorage),
+  postgresSourceCase(mongoStorage)
 ];
 
 describe.each(cases)('$scenario.id', ({ scenario, implementation }) => {

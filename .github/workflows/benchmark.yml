@@ -16,6 +16,7 @@ jobs:
 
     env:
       PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
+      BENCHMARK_POSTGRES_SOURCE_URL: postgres://postgres:postgres@localhost:5432/powersync_source_test
       BENCHMARK_POSTGRES_STORAGE_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
       BENCHMARK_MONGODB_SOURCE_URL: mongodb://localhost:27017/powersync_test_data
       BENCHMARK_MONGODB_STORAGE_URL: mongodb://localhost:27018/powersync_test
@@ -36,6 +37,9 @@ jobs:
 
       - name: Start PostgreSQL (Storage)
         uses: ./.github/actions/start-postgres-storage
+
+      - name: Start PostgreSQL (Source)
+        uses: ./.github/actions/start-postgres-source
 
       - name: Start MongoDB (Storage)
         uses: ./.github/actions/start-mongodb

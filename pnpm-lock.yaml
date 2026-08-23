@@ -770,9 +770,15 @@ importers:
       '@powersync/lib-service-mongodb':
         specifier: workspace:*
         version: link:../../libs/lib-mongodb
+      '@powersync/lib-service-postgres':
+        specifier: workspace:*
+        version: link:../../libs/lib-postgres
       '@powersync/service-core-tests':
         specifier: workspace:*
         version: link:../service-core-tests
+      '@powersync/service-jpgwire':
+        specifier: workspace:*
+        version: link:../jpgwire
       '@powersync/service-module-core':
         specifier: workspace:*
         version: link:../../modules/module-core
@@ -782,6 +788,9 @@ importers:
       '@powersync/service-module-mongodb-storage':
         specifier: workspace:*
         version: link:../../modules/module-mongodb-storage
+      '@powersync/service-module-postgres':
+        specifier: workspace:*
+        version: link:../../modules/module-postgres
       '@powersync/service-module-postgres-storage':
         specifier: workspace:*
         version: link:../../modules/module-postgres-storage

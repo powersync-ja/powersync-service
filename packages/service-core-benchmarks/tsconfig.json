@@ -22,7 +22,16 @@
       "path": "../../libs/lib-mongodb"
     },
     {
+      "path": "../../libs/lib-postgres"
+    },
+    {
+      "path": "../jpgwire"
+    },
+    {
       "path": "../../modules/module-mongodb"
+    },
+    {
+      "path": "../../modules/module-postgres"
     },
     {
       "path": "../../modules/module-mongodb-storage"

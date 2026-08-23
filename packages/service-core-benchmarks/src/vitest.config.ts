@@ -10,6 +10,7 @@ export default defineConfig({
       { name: 'storage' },
       { name: 'replication' },
       { name: 'api' },
+      { name: 'combined' },
       { name: 'quick' },
       { name: 'baseline' },
       { name: 'snapshot' },
@@ -18,6 +19,7 @@ export default defineConfig({
       { name: 'http' },
       { name: 'ndjson' },
       { name: 'mongodb-source' },
+      { name: 'postgres-source' },
       { name: 'postgres-storage' },
       { name: 'mongodb-storage' },
       { name: 'storage-v2' }

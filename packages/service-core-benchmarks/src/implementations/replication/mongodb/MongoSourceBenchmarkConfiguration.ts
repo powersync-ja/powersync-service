@@ -29,11 +29,21 @@ export function canonicalMongoAuthority(url: string): string {
     credentialSeparator === -1 ? authorityWithCredentials : authorityWithCredentials.slice(credentialSeparator + 1);
   const hosts = authority
     .split(',')
-    .map((host) => host.trim().toLowerCase())
+    .map((host) => canonicalMongoHost(host.trim().toLowerCase(), scheme))
     .filter((host) => host.length > 0)
     .sort();
   if (hosts.length === 0) throw new Error('MongoDB benchmark URL must contain at least one host');
   return `${scheme}://${hosts.join(',')}`;
+}
+
+function canonicalMongoHost(host: string, scheme: string): string {
+  if (host.length === 0 || scheme === 'mongodb+srv') return host;
+  if (host.startsWith('[')) {
+    const closingBracket = host.indexOf(']');
+    if (closingBracket === -1) throw new Error('MongoDB benchmark URL contains an invalid IPv6 host');
+    return closingBracket === host.length - 1 ? `${host}:27017` : host;
+  }
+  return /:\d+$/.test(host) ? host : `${host}:27017`;
 }
 
 function requiredEnvironmentUrl(environment: Readonly<Record<string, string | undefined>>, variable: string): string {

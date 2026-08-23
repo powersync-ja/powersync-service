@@ -40,7 +40,7 @@ export const createBenchmarkKey = async () => {
   const secret = Buffer.from(randomUUID());
   const jwk: jose.JWK = { kid: 'benchmark', alg: 'HS256', kty: 'oct', k: secret.toString('base64url') };
   const collector = await auth.StaticKeyCollector.importKeys([jwk]);
-  return { store: new auth.KeyStore(collector), signingKey: await jose.importJWK(jwk, 'HS256') };
+  return { jwk, store: new auth.KeyStore(collector), signingKey: await jose.importJWK(jwk, 'HS256') };
 };
 
 export const createToken = async (signingKey: jose.KeyLike | Uint8Array): Promise<string> => {

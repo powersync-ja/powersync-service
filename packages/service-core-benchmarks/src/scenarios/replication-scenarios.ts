@@ -1,5 +1,6 @@
 import {
   ControlledReplicationBenchmarkImplementation,
+  ReplicationBenchmarkSourceSelection,
   ReplicationBenchmarkStorageSelection
 } from '../implementations/replication/ControlledReplicationBenchmarkImplementation.js';
 import { MongoReplicationSourceAdapter } from '../implementations/replication/mongodb/MongoReplicationSourceAdapter.js';
@@ -7,6 +8,8 @@ import {
   canonicalMongoAuthority,
   resolveMongoSourceBenchmarkConfiguration
 } from '../implementations/replication/mongodb/MongoSourceBenchmarkConfiguration.js';
+import { PostgresReplicationSourceAdapter } from '../implementations/replication/postgres/PostgresReplicationSourceAdapter.js';
+import { resolvePostgresSourceBenchmarkConfiguration } from '../implementations/replication/postgres/PostgresSourceBenchmarkConfiguration.js';
 import { ReplicationBenchmarkPhase, ReplicationBenchmarkScenario } from '../types/ReplicationBenchmark.js';
 import { StorageBenchmarkImplementationId } from '../types/StorageBenchmark.js';
 
@@ -26,6 +29,35 @@ export function createMongoSourceQuickReplicationScenario(
     warmup_iterations: 1,
     measured_iterations: 3,
     producer: 'mongodb-source',
+    phase,
+    storage: { implementation: storage, version: storageVersion },
+    checkpoint_policy: 'target-visible',
+    core_verification: false,
+    workload: {
+      snapshot_row_count: 1_000,
+      streaming_mutation_count: 1_000,
+      transaction_count: 10,
+      payload_bytes: 256
+    }
+  };
+}
+
+export function createPostgresSourceQuickReplicationScenario(
+  phase: ReplicationBenchmarkPhase,
+  storage: StorageBenchmarkImplementationId,
+  storageVersion: number
+): ReplicationBenchmarkScenario {
+  return {
+    id: `replication.${phase}.baseline.postgres-source.${storage}.v${storageVersion}.quick`,
+    description: `PostgreSQL ${phase} replication into ${storage} storage version ${storageVersion}`,
+    layer: 'replication',
+    profile: 'quick',
+    tags: ['replication', phase, 'baseline', 'postgres-source', storage, `storage-v${storageVersion}`, 'quick'],
+    prerequisites: ['postgres-source', storage],
+    timeout_ms: 120_000,
+    warmup_iterations: 1,
+    measured_iterations: 3,
+    producer: 'postgres-source',
     phase,
     storage: { implementation: storage, version: storageVersion },
     checkpoint_policy: 'target-visible',
@@ -71,6 +103,54 @@ export function mongoReplicationStorage(version: number): ReplicationBenchmarkSt
   };
 }
 
+export function mongoReplicationSource(): ReplicationBenchmarkSourceSelection {
+  return {
+    id: 'mongodb-source',
+    resolveIterationFactory(environment) {
+      const { sourceUrl } = resolveMongoSourceBenchmarkConfiguration(environment);
+      return () => {
+        const adapter = new MongoReplicationSourceAdapter(sourceUrl);
+        return {
+          adapter,
+          createChildDescriptor() {
+            return {
+              moduleUrl: import.meta.resolve(
+                '../implementations/replication/mongodb/MongoReplicationChildImplementation.js'
+              ),
+              exportName: 'MongoReplicationChildImplementation',
+              constructorArgs: [adapter.sourceConfig]
+            };
+          }
+        };
+      };
+    }
+  };
+}
+
+export function postgresReplicationSource(): ReplicationBenchmarkSourceSelection {
+  return {
+    id: 'postgres-source',
+    resolveIterationFactory(environment) {
+      const { sourceUrl } = resolvePostgresSourceBenchmarkConfiguration(environment);
+      return () => {
+        const adapter = new PostgresReplicationSourceAdapter(sourceUrl);
+        return {
+          adapter,
+          createChildDescriptor() {
+            return {
+              moduleUrl: import.meta.resolve(
+                '../implementations/replication/postgres/PostgresReplicationChildImplementation.js'
+              ),
+              exportName: 'PostgresReplicationChildImplementation',
+              constructorArgs: [adapter.sourceConfig]
+            };
+          }
+        };
+      };
+    }
+  };
+}
+
 export function mongoSourceCase(
   phase: ReplicationBenchmarkPhase,
   storage: ReplicationBenchmarkStorageSelection,
@@ -82,27 +162,24 @@ export function mongoSourceCase(
   return {
     scenario: createMongoSourceQuickReplicationScenario(phase, storage.id, storage.version),
     implementation: new ControlledReplicationBenchmarkImplementation({
-      source: {
-        id: 'mongodb-source',
-        resolveIterationFactory(environment) {
-          const { sourceUrl } = resolveMongoSourceBenchmarkConfiguration(environment);
-          return () => {
-            const adapter = new MongoReplicationSourceAdapter(sourceUrl);
-            return {
-              adapter,
-              createChildDescriptor() {
-                return {
-                  moduleUrl: import.meta.resolve(
-                    '../implementations/replication/mongodb/MongoReplicationChildImplementation.js'
-                  ),
-                  exportName: 'MongoReplicationChildImplementation',
-                  constructorArgs: [adapter.sourceConfig]
-                };
-              }
-            };
-          };
-        }
-      },
+      source: mongoReplicationSource(),
+      storage,
+      validateEnvironment
+    })
+  };
+}
+
+export function postgresSourceCase(
+  storage: ReplicationBenchmarkStorageSelection,
+  validateEnvironment?: (environment: Readonly<Record<string, string | undefined>>) => void
+): {
+  scenario: ReplicationBenchmarkScenario;
+  implementation: ControlledReplicationBenchmarkImplementation;
+} {
+  return {
+    scenario: createPostgresSourceQuickReplicationScenario('snapshot', storage.id, storage.version),
+    implementation: new ControlledReplicationBenchmarkImplementation({
+      source: postgresReplicationSource(),
       storage,
       validateEnvironment
     })

@@ -1,5 +1,6 @@
 import { BenchmarkIterationRuntime } from './BenchmarkRunOptions.js';
 import { BenchmarkScenario } from './BenchmarkScenario.js';
+import { SnapshotBenchmarkItem, SnapshotBenchmarkManifest, SnapshotBenchmarkTarget } from './SnapshotBenchmark.js';
 import { StorageBenchmarkImplementationId } from './StorageBenchmark.js';
 
 export type ReplicationBenchmarkProducerId = 'postgres-source' | 'mongodb-source';
@@ -25,16 +26,7 @@ export interface ReplicationBenchmarkScenario extends BenchmarkScenario<Replicat
   readonly core_verification: false;
 }
 
-export interface ReplicationBenchmarkItem {
-  readonly [column: string]: string | number;
-  readonly id: string;
-  readonly owner_id: string;
-  readonly category: string;
-  readonly version: number;
-  readonly updated_at: string;
-  readonly payload: string;
-  readonly is_target: number;
-}
+export interface ReplicationBenchmarkItem extends SnapshotBenchmarkItem {}
 
 export interface ReplicationBenchmarkMutation {
   readonly tag: 'insert';
@@ -47,19 +39,14 @@ export interface ReplicationBenchmarkTransaction {
   readonly mutations: readonly ReplicationBenchmarkMutation[];
 }
 
-export interface ReplicationBenchmarkTarget {
-  readonly markerId: string;
-  readonly nativePosition: string | null;
+export interface ReplicationBenchmarkTarget extends SnapshotBenchmarkTarget {
   readonly committedAtNs?: string;
 }
 
-export interface ReplicationBenchmarkManifest {
+export interface ReplicationBenchmarkManifest extends SnapshotBenchmarkManifest {
   readonly snapshotRows: readonly ReplicationBenchmarkItem[];
   readonly transactions: readonly ReplicationBenchmarkTransaction[];
   readonly target: ReplicationBenchmarkTarget;
-  readonly sourceLogicalBytes: number;
-  readonly payloadBytes: number;
-  readonly expectedPutCount: number;
 }
 
 export interface ReplicationSourceCapabilities {
@@ -75,11 +62,18 @@ export interface ReplicationPositionComparison {
   readonly details?: object;
 }
 
+export interface ReplicationBenchmarkSourceTable {
+  readonly schema: string;
+  readonly table: string;
+}
+
 export interface ReplicationBenchmarkSourceAdapter {
   readonly id: ReplicationBenchmarkProducerId;
   readonly capabilities: ReplicationSourceCapabilities;
+  readonly sourceTable: ReplicationBenchmarkSourceTable;
+  setReplicationStreamName(name: string): void;
   createSchema(iterationId: string): Promise<void>;
-  populateSnapshot(manifest: ReplicationBenchmarkManifest): Promise<ReplicationBenchmarkTarget>;
+  populateSnapshot(manifest: SnapshotBenchmarkManifest): Promise<ReplicationBenchmarkTarget>;
   prepareTransactions(manifest: ReplicationBenchmarkManifest): Promise<void>;
   commitTransaction(transaction: ReplicationBenchmarkTransaction): Promise<ReplicationBenchmarkTarget>;
   keepalive(): Promise<ReplicationBenchmarkTarget>;

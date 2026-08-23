@@ -25,9 +25,12 @@
   },
   "devDependencies": {
     "@powersync/lib-service-mongodb": "workspace:*",
+    "@powersync/lib-service-postgres": "workspace:*",
+    "@powersync/service-jpgwire": "workspace:*",
     "@powersync/service-module-mongodb": "workspace:*",
     "@powersync/service-module-core": "workspace:*",
     "@powersync/service-module-mongodb-storage": "workspace:*",
+    "@powersync/service-module-postgres": "workspace:*",
     "@powersync/service-module-postgres-storage": "workspace:*",
     "@powersync/service-core-tests": "workspace:*",
     "jose": "^4.15.9",

@@ -10,6 +10,7 @@ import {
   ReplicationPositionComparison,
   ReplicationSourceCapabilities
 } from '../../../types/ReplicationBenchmark.js';
+import { SnapshotBenchmarkManifest } from '../../../types/SnapshotBenchmark.js';
 
 export type MongoBenchmarkAtomicity = Extract<
   ReplicationSourceCapabilities['atomicity'],
@@ -44,6 +45,8 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
   private topology?: string;
   private atomicity?: MongoBenchmarkAtomicity;
   private schemaCreated = false;
+  private databaseCleanupComplete = false;
+  private clientCleanupComplete = false;
   private disposed = false;
 
   constructor(readonly sourceUrl: string) {
@@ -57,6 +60,13 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
     if (this.databaseName == null) throw new Error('MongoDB benchmark source schema is not initialized');
     return { uri: this.sourceUrl, database: this.databaseName };
   }
+
+  get sourceTable(): { readonly schema: string; readonly table: string } {
+    if (this.databaseName == null) throw new Error('MongoDB benchmark source schema is not initialized');
+    return { schema: this.databaseName, table: COLLECTION_NAME };
+  }
+
+  setReplicationStreamName(_name: string): void {}
 
   async createSchema(iterationId: string): Promise<void> {
     this.assertActive();
@@ -74,7 +84,7 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
     this.schemaCreated = true;
   }
 
-  async populateSnapshot(manifest: ReplicationBenchmarkManifest): Promise<ReplicationBenchmarkTarget> {
+  async populateSnapshot(manifest: SnapshotBenchmarkManifest): Promise<ReplicationBenchmarkTarget> {
     const database = this.requiredDatabase();
     if (manifest.snapshotRows.length > 0) {
       await database.collection(COLLECTION_NAME).insertMany([...manifest.snapshotRows], {
@@ -153,22 +163,25 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
 
   async cleanup(): Promise<void> {
     if (this.disposed) return;
-    this.disposed = true;
-    const errors: unknown[] = [];
-    if (this.schemaCreated && this.database != null) {
+    if (!this.databaseCleanupComplete) {
       try {
-        await this.database.dropDatabase();
+        if (this.schemaCreated && this.database != null) await this.database.dropDatabase();
+        this.databaseCleanupComplete = true;
+        this.schemaCreated = false;
       } catch (error) {
-        errors.push(error);
+        throw new AggregateError([error], 'MongoDB benchmark source cleanup failed');
       }
     }
-    try {
-      await this.client.close();
-    } catch (error) {
-      errors.push(error);
+    if (!this.clientCleanupComplete) {
+      try {
+        await this.client.close();
+        this.clientCleanupComplete = true;
+      } catch (error) {
+        throw new AggregateError([error], 'MongoDB benchmark source cleanup failed');
+      }
     }
     this.transactions.clear();
-    if (errors.length > 0) throw new AggregateError(errors, 'MongoDB benchmark source cleanup failed');
+    this.disposed = true;
   }
 
   private requiredDatabase(): mongo.Db {

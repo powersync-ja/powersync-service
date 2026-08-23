@@ -4,6 +4,7 @@ import {
   ReplicationBenchmarkScenario,
   ReplicationBenchmarkTransaction
 } from '../types/ReplicationBenchmark.js';
+import { generateBaselineSnapshotManifest } from './generate-baseline-snapshot-manifest.js';
 
 const START_TIME = Date.parse('2020-01-01T00:00:00.000Z');
 
@@ -11,14 +12,8 @@ export function generateBaselineReplicationManifest(
   scenario: ReplicationBenchmarkScenario
 ): ReplicationBenchmarkManifest {
   validateWorkload(scenario);
-  const snapshotRows = Array.from({ length: scenario.workload.snapshot_row_count }, (_, index) =>
-    createRow(
-      'snapshot',
-      index,
-      scenario.workload.payload_bytes,
-      scenario.phase === 'snapshot' && index === scenario.workload.snapshot_row_count - 1
-    )
-  );
+  const snapshotManifest = generateBaselineSnapshotManifest(scenario.workload, scenario.phase === 'snapshot');
+  const snapshotRows = snapshotManifest.snapshotRows;
   const mutationsPerTransaction = scenario.workload.streaming_mutation_count / scenario.workload.transaction_count;
   const transactions: ReplicationBenchmarkTransaction[] = [];
   for (let transactionIndex = 0; transactionIndex < scenario.workload.transaction_count; transactionIndex++) {
@@ -26,8 +21,7 @@ export function generateBaselineReplicationManifest(
       const rowIndex = transactionIndex * mutationsPerTransaction + mutationIndex;
       return {
         tag: 'insert' as const,
-        row: createRow(
-          'stream',
+        row: createStreamingRow(
           rowIndex,
           scenario.workload.payload_bytes,
           mutationIndex === mutationsPerTransaction - 1
@@ -41,19 +35,30 @@ export function generateBaselineReplicationManifest(
     });
   }
 
-  const targetRow = scenario.phase === 'snapshot' ? snapshotRows.at(-1)! : transactions.at(-1)!.mutations.at(-1)!.row;
+  const targetRow =
+    scenario.phase === 'snapshot' ? snapshotManifest.snapshotRows.at(-1)! : transactions.at(-1)!.mutations.at(-1)!.row;
   const streamingRows = transactions.flatMap((transaction) => transaction.mutations.map((item) => item.row));
-  const measuredRows = scenario.phase === 'snapshot' ? snapshotRows : streamingRows;
+  const measuredRows = scenario.phase === 'snapshot' ? snapshotManifest.snapshotRows : streamingRows;
   return {
     snapshotRows,
     transactions,
     target: {
       markerId: targetRow.id,
-      nativePosition: scenario.phase === 'snapshot' ? positionFor(1) : transactions.at(-1)!.position
+      nativePosition:
+        scenario.phase === 'snapshot' ? snapshotManifest.target.nativePosition : transactions.at(-1)!.position
     },
-    sourceLogicalBytes: measuredRows.reduce((total, row) => total + Buffer.byteLength(JSON.stringify(row), 'utf8'), 0),
-    payloadBytes: measuredRows.length * scenario.workload.payload_bytes,
-    expectedPutCount: scenario.phase === 'snapshot' ? snapshotRows.length : snapshotRows.length + streamingRows.length
+    sourceLogicalBytes:
+      scenario.phase === 'snapshot'
+        ? snapshotManifest.sourceLogicalBytes
+        : measuredRows.reduce((total, row) => total + Buffer.byteLength(JSON.stringify(row), 'utf8'), 0),
+    payloadBytes:
+      scenario.phase === 'snapshot'
+        ? snapshotManifest.payloadBytes
+        : measuredRows.length * scenario.workload.payload_bytes,
+    expectedPutCount:
+      scenario.phase === 'snapshot'
+        ? snapshotManifest.expectedPutCount
+        : snapshotManifest.expectedPutCount + streamingRows.length
   };
 }
 
@@ -70,9 +75,9 @@ function validateWorkload(scenario: ReplicationBenchmarkScenario): void {
   }
 }
 
-function createRow(prefix: string, index: number, payloadBytes: number, target: boolean): ReplicationBenchmarkItem {
+function createStreamingRow(index: number, payloadBytes: number, target: boolean): ReplicationBenchmarkItem {
   return {
-    id: `${prefix}-${index.toString().padStart(8, '0')}`,
+    id: `stream-${index.toString().padStart(8, '0')}`,
     owner_id: `owner-${(index % 100).toString().padStart(3, '0')}`,
     category: `category-${index % 10}`,
     version: 1,

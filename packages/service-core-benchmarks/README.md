@@ -8,13 +8,14 @@ This is generally used to test changes to different areas of the service, allowi
 
 The benchmarks use environment variables to set the location of running instances of databases, which are used within the benchmarks:
 
-| Environment Variable           | Usage                                                        | Default Value                                                      |
-| ------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------------ |
-| PG_STORAGE_TEST_URL            | A Postgres URL for storage benchmarks                        | postgres://postgres:postgres@localhost:5432/powersync_storage_test |
-| MONGO_TEST_URL                 | A MongoDB URL for storage benchmarks                         | mongodb://localhost:27017/powersync_test                           |
-| BENCHMARK_POSTGRES_STORAGE_URL | A Postgres URL for **bucket storage** in replication tests   | NONE                                                               |
-| BENCHMARK_MONGODB_SOURCE_URL   | A MongoDB URL for a **source** database in replication tests | NONE                                                               |
-| BENCHMARK_MONGODB_STORAGE_URL  | A MongoDB URL for **bucket storage** in replication tests    | NONE                                                               |
+| Environment Variable           | Usage                                                         | Default Value                                                      |
+| ------------------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| PG_STORAGE_TEST_URL            | A Postgres URL for storage benchmarks                         | postgres://postgres:postgres@localhost:5432/powersync_storage_test |
+| MONGO_TEST_URL                 | A MongoDB URL for storage benchmarks                          | mongodb://localhost:27017/powersync_test                           |
+| BENCHMARK_POSTGRES_STORAGE_URL | A Postgres URL for **bucket storage** in replication tests    | NONE                                                               |
+| BENCHMARK_POSTGRES_SOURCE_URL  | A Postgres URL for a **source** database in replication tests | NONE                                                               |
+| BENCHMARK_MONGODB_SOURCE_URL   | A MongoDB URL for a **source** database in replication tests  | NONE                                                               |
+| BENCHMARK_MONGODB_STORAGE_URL  | A MongoDB URL for **bucket storage** in replication tests     | NONE                                                               |
 
 To run the tests call the following commands in the root of this repo:
 

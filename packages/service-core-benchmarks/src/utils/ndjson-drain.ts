@@ -1,3 +1,11 @@
+export interface NdjsonDataOperation {
+  readonly [field: string]: unknown;
+  readonly op_id: string;
+  readonly op: string;
+  readonly object_id?: string;
+  readonly data?: unknown;
+}
+
 export interface NdjsonDrainObservation {
   readonly status: number;
   readonly headers: Record<string, string>;
@@ -5,6 +13,22 @@ export interface NdjsonDrainObservation {
   readonly wireBytes: number;
   readonly firstByteAtNs: string | null;
   readonly completedCheckpoint: string | null;
+  readonly checkpointLastOpId: string | null;
+  readonly operations: readonly NdjsonDataOperation[];
+  readonly checkpointLineIndex: number | null;
+  readonly firstDataLineIndex: number | null;
+  readonly completionLineIndex: number | null;
+  readonly completedAtNs: string | null;
+}
+
+interface NdjsonDrainState {
+  readonly lines: unknown[];
+  readonly operations: NdjsonDataOperation[];
+  completedCheckpoint: string | null;
+  checkpointLastOpId: string | null;
+  checkpointLineIndex: number | null;
+  firstDataLineIndex: number | null;
+  completionLineIndex: number | null;
 }
 
 export async function drainNdjsonResponse(response: Response): Promise<NdjsonDrainObservation> {
@@ -14,80 +38,156 @@ export async function drainNdjsonResponse(response: Response): Promise<NdjsonDra
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  const lines: unknown[] = [];
+  const state: NdjsonDrainState = {
+    lines: [],
+    operations: [],
+    completedCheckpoint: null,
+    checkpointLastOpId: null,
+    checkpointLineIndex: null,
+    firstDataLineIndex: null,
+    completionLineIndex: null
+  };
   let pending = '';
   let wireBytes = 0;
   let firstByteAtNs: string | null = null;
-  let completedCheckpoint: string | null = null;
+  let completedAtNs: string | null = null;
+  let cancellationAttempted = false;
+  let primaryError: unknown;
 
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
 
-    if (firstByteAtNs == null) {
-      firstByteAtNs = process.hrtime.bigint().toString();
+      if (firstByteAtNs == null) {
+        firstByteAtNs = process.hrtime.bigint().toString();
+      }
+
+      wireBytes += chunk.value.byteLength;
+      pending += decoder.decode(chunk.value, { stream: true });
+      pending = consumeLines(pending, state);
+      if (state.completedCheckpoint != null) {
+        completedAtNs = process.hrtime.bigint().toString();
+        cancellationAttempted = true;
+        await reader.cancel();
+        pending = '';
+        break;
+      }
     }
 
-    wireBytes += chunk.value.byteLength;
-    pending += decoder.decode(chunk.value, { stream: true });
-    const result = consumeLines(pending, lines);
-    pending = result.pending;
-    completedCheckpoint ??= result.completedCheckpoint;
-    if (completedCheckpoint != null) {
-      await reader.cancel();
-      pending = '';
-      break;
+    if (state.completedCheckpoint == null) {
+      pending += decoder.decode();
+      pending = consumeLines(pending, state);
+
+      if (pending.length > 0) {
+        throw new Error('API response ended with an incomplete NDJSON line');
+      }
+      if (state.completedCheckpoint == null) {
+        throw new Error('API response ended before checkpoint_complete');
+      }
+      completedAtNs = process.hrtime.bigint().toString();
+    }
+
+    return {
+      status: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      lines: state.lines,
+      wireBytes,
+      firstByteAtNs,
+      completedCheckpoint: state.completedCheckpoint,
+      checkpointLastOpId: state.checkpointLastOpId,
+      operations: state.operations,
+      checkpointLineIndex: state.checkpointLineIndex,
+      firstDataLineIndex: state.firstDataLineIndex,
+      completionLineIndex: state.completionLineIndex,
+      completedAtNs
+    };
+  } catch (error) {
+    primaryError = error;
+    if (!cancellationAttempted) {
+      cancellationAttempted = true;
+      try {
+        await reader.cancel();
+      } catch {}
+    }
+    throw error;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch (error) {
+      if (primaryError == null) {
+        throw error;
+      }
     }
   }
-
-  if (completedCheckpoint == null) {
-    pending += decoder.decode();
-    const result = consumeLines(pending, lines);
-    completedCheckpoint ??= result.completedCheckpoint;
-
-    if (result.pending.length > 0) {
-      throw new Error('API response ended with an incomplete NDJSON line');
-    }
-  }
-
-  return {
-    status: response.status,
-    headers: Object.fromEntries(response.headers.entries()),
-    lines,
-    wireBytes,
-    firstByteAtNs,
-    completedCheckpoint
-  };
 }
 
-function consumeLines(
-  input: string,
-  target: unknown[]
-): { readonly pending: string; readonly completedCheckpoint: string | null } {
+function consumeLines(input: string, state: NdjsonDrainState): string {
   const lines = input.split('\n');
   const pending = lines.pop() ?? '';
-  let completedCheckpoint: string | null = null;
   for (const line of lines) {
     if (line.length === 0) continue;
 
     const value: unknown = JSON.parse(line);
-    target.push(value);
-    if (isCheckpointComplete(value)) {
-      completedCheckpoint = value.checkpoint_complete.last_op_id;
+    const lineIndex = state.lines.length;
+    state.lines.push(value);
+
+    const checkpointLastOpId = readCheckpointLastOpId(value);
+    if (checkpointLastOpId != null) {
+      state.checkpointLastOpId = checkpointLastOpId;
+      state.checkpointLineIndex ??= lineIndex;
+    }
+
+    const operations = readDataOperations(value);
+    if (operations != null) {
+      state.firstDataLineIndex ??= lineIndex;
+      state.operations.push(...operations);
+    }
+
+    const completedCheckpoint = readCompletedCheckpoint(value);
+    if (completedCheckpoint != null) {
+      state.completedCheckpoint = completedCheckpoint;
+      state.completionLineIndex = lineIndex;
+      break;
     }
   }
 
-  return { pending, completedCheckpoint };
+  return pending;
 }
 
-function isCheckpointComplete(value: unknown): value is { checkpoint_complete: { last_op_id: string } } {
-  if (value == null || typeof value !== 'object' || !('checkpoint_complete' in value)) return false;
+function readCheckpointLastOpId(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  if ('checkpoint' in value) return readLastOpId(value.checkpoint, 'checkpoint');
+  if ('checkpoint_diff' in value) return readLastOpId(value.checkpoint_diff, 'checkpoint_diff');
+  return null;
+}
 
-  const completion = value.checkpoint_complete;
-  return (
-    completion != null &&
-    typeof completion === 'object' &&
-    'last_op_id' in completion &&
-    typeof completion.last_op_id === 'string'
-  );
+function readDataOperations(value: unknown): readonly NdjsonDataOperation[] | null {
+  if (!isRecord(value) || !('data' in value)) return null;
+  if (!isRecord(value.data) || !Array.isArray(value.data.data) || !value.data.data.every(isDataOperation)) {
+    throw new Error('API response included a malformed NDJSON data line');
+  }
+  return value.data.data;
+}
+
+function readCompletedCheckpoint(value: unknown): string | null {
+  if (!isRecord(value) || !('checkpoint_complete' in value)) return null;
+  return readLastOpId(value.checkpoint_complete, 'checkpoint_complete');
+}
+
+function readLastOpId(value: unknown, lineKind: string): string {
+  if (!isRecord(value) || typeof value.last_op_id !== 'string') {
+    throw new Error(`API response included a malformed NDJSON ${lineKind} line`);
+  }
+  return value.last_op_id;
+}
+
+function isDataOperation(value: unknown): value is NdjsonDataOperation {
+  if (!isRecord(value) || typeof value.op_id !== 'string' || typeof value.op !== 'string') return false;
+  if ('object_id' in value && typeof value.object_id !== 'string') return false;
+  return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
 }

@@ -1,4 +1,4 @@
-export type BenchmarkLayer = 'storage' | 'replication' | 'api' | 'joined';
+export type BenchmarkLayer = 'storage' | 'replication' | 'api' | 'combined';
 export type BenchmarkProfile = 'quick' | 'standard' | 'manual';
 
 export interface BenchmarkScenario<Workload extends object = {}> {

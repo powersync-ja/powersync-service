@@ -9,6 +9,7 @@ import {
   ReplicationBenchmarkSourceAdapter
 } from '../../types/ReplicationBenchmark.js';
 import { StorageBenchmarkImplementationId } from '../../types/StorageBenchmark.js';
+import { createReplicationSyncRules } from '../../utils/replication-sync-rules.js';
 import { ControlledReplicationIterationResource } from './ControlledReplicationIterationResource.js';
 
 export interface ReplicationBenchmarkSourceSelection {
@@ -104,15 +105,16 @@ export class ControlledReplicationBenchmarkImplementation implements Replication
           Object.assign(environment, await source.collectMetadata());
           const sourceDescriptor = iterationSource.createChildDescriptor();
           setupSent = true;
-          await controller.request(
+          const { replicationStreamName } = await controller.request(
             'setup_iteration',
             {
-              syncRules: createSyncRules(setup.iterationId),
+              syncRules: createReplicationSyncRules(setup.iterationId, source.sourceTable),
               storageVersion: setup.scenario.storage.version,
               source: sourceDescriptor
             },
             setup.iterationId
           );
+          source.setReplicationStreamName(replicationStreamName);
           activeIteration = new ControlledReplicationIterationResource(
             controller,
             setup,
@@ -159,14 +161,4 @@ export class ControlledReplicationBenchmarkImplementation implements Replication
       }
     };
   }
-}
-
-function createSyncRules(iterationId: string): string {
-  return `
-# ${iterationId}
-bucket_definitions:
-  global:
-    data:
-      - SELECT id, owner_id, category, version, updated_at, payload, is_target FROM benchmark_items
-`;
 }
