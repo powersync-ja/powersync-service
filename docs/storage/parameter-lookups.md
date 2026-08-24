@@ -42,11 +42,23 @@ To handle this, we compact older data. For each (key.g, key, lookup) combination
 
 One big consideration is sync clients may still need some of that data. To cover for this, parameter lookup queries should specifically use a _snapshot_ query mode, querying at the same snapshot that was used for the checkpoint lookup. This is different from the "Future Options: Snapshot queries" point above: We're not using a snapshot at the time the checkpoint was created, but rather a snapshot at the time the checkpoint was read. This means we always use a fresh snapshot.
 
+### Incremental compaction
+
+Compaction does not scan the entire collection. Since parameter entries use the replication stream's monotonic operation id as `_id`, those operation ids double as a work log. Each stream persists `parameter_compaction.compacted_before` on its `sync_rules` document: an exclusive operation-id boundary through which every parameter collection of the stream has been processed. A pass scans only `[compacted_before, checkpoint)`, and advances the cursor only after every collection has completed that range. All deletes are idempotent, so an interrupted pass is safely repeated.
+
+V1 scans that range on the shared `bucket_parameters` collection using its `_id` index, and filters entries belonging to other streams in code. Since all V1 streams share the `main` op id sequence, a new stream's cursor is seeded with the sequence head when the stream is created - every entry it writes gets a higher op id, so its first compaction does not scan the history of previous deployments. V3 has one `parameter_index_${stream_id}_${index_id}` collection per index, all sharing the single stream-level cursor. Since that cursor may only be advanced to a boundary every collection has passed, the collections are processed in lock-step: each turn takes one batch from the collection that has processed the least so far, and the cursor tracks the minimum position over all of them. That lets progress be persisted periodically during a long pass, and keeps every collection within one batch of the cursor, so an interrupted pass repeats at most one batch per collection.
+
+### Checkpoint change detection
+
+Snapshot queries cover clients still reading parameter data at an older checkpoint, but not checkpoint _change detection_: on each new checkpoint, the API finds which parameter lookups changed by querying entries in `(lastCheckpoint, nextCheckpoint]`, and compaction may delete those entries before that query runs. Removing the tombstone of a deleted lookup is the worst case, since that is the only record that a client should stop using the associated buckets.
+
+To cover this, a compaction pass persists `parameter_compaction.checkpoint_changes_invalid_before` before issuing its first delete. Every checkpoint read captures that boundary in the same snapshot as the checkpoint id, and a transition starting below it invalidates all parameter buckets rather than listing individual lookups. The change query itself also runs at the checkpoint's snapshot, so a checkpoint read before the boundary moved still sees the entries the pass deletes afterwards.
+
+This is a narrower version of the "Globally invalidate checkpoints" alternative below: it invalidates parameter query results instead of the checkpoint, and needs no extra query, since the boundary is read together with the checkpoint state.
+
+See [incremental-parameter-compaction.md](./incremental-parameter-compaction.md) for the full design, including the ordering requirements and failure handling.
+
 # Alternatives
-
-## Future option: Incremental compacting
-
-Right now, compacting scans through the entire collection to compact data. It should be possible to make this more incremental, only scanning through documents added since the last compact.
 
 ## Future Option: Snapshot queries
 
