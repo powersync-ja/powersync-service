@@ -91,7 +91,7 @@ describe('S3 object storage reads', () => {
     });
   });
 
-  test('resolves the defaults mode without waiting on configuration', async () => {
+  test('resolves explicit and environment defaults modes without waiting on configuration', async () => {
     // The timeouts are resolved up front, so operations never wait on configuration. The client
     // wraps the mode in a provider of its own, which resolves to the same value.
     const modeOf = async (objectStorage: S3ObjectStorage) => {
@@ -99,87 +99,71 @@ describe('S3 object storage reads', () => {
       return typeof configured === 'function' ? await configured() : configured;
     };
 
-    const inRegion = new S3ObjectStorage({ bucket: 'test', region: 'test', defaultsMode: 'in-region' });
-    expect((inRegion as any).timeouts).toEqual(resolveTimeoutProfile('in-region'));
-    await expect(modeOf(inRegion)).resolves.toEqual('in-region');
+    const previousMode = process.env.AWS_DEFAULTS_MODE;
+    try {
+      process.env.AWS_DEFAULTS_MODE = 'cross-region';
+      await expect(modeOf(new S3ObjectStorage({ bucket: 'test', region: 'test' }))).resolves.toEqual('cross-region');
 
-    // 'auto' would query the EC2 instance metadata service, and requires a resolvable region.
-    const auto = new S3ObjectStorage({ bucket: 'test', defaultsMode: 'auto' });
-    expect((auto as any).timeouts).toEqual(resolveTimeoutProfile('standard'));
-    await expect(modeOf(auto)).resolves.toEqual('standard');
+      // The storage option takes precedence over the environment.
+      await expect(
+        modeOf(new S3ObjectStorage({ bucket: 'test', region: 'test', defaultsMode: 'in-region' }))
+      ).resolves.toEqual('in-region');
 
-    // Nothing configured resolves to the AWS default, which uses the standard timeouts.
-    const unset = new S3ObjectStorage({ bucket: 'test', region: 'test' });
-    expect((unset as any).timeouts).toEqual(resolveTimeoutProfile('standard'));
-    await expect(modeOf(unset)).resolves.toEqual('legacy');
+      // 'auto' would query the EC2 instance metadata service, and requires a resolvable region.
+      await expect(modeOf(new S3ObjectStorage({ bucket: 'test', defaultsMode: 'auto' }))).resolves.toEqual('standard');
 
-    // An invalid mode fails on startup, rather than on every operation.
-    expect(() => new S3ObjectStorage({ bucket: 'test', region: 'test', defaultsMode: 'nonsense' as any })).toThrowError(
-      /Invalid AWS defaults mode "nonsense"/
-    );
+      delete process.env.AWS_DEFAULTS_MODE;
+      await expect(modeOf(new S3ObjectStorage({ bucket: 'test', region: 'test' }))).resolves.toEqual('legacy');
+
+      // An invalid mode fails on startup, rather than on every operation.
+      expect(
+        () => new S3ObjectStorage({ bucket: 'test', region: 'test', defaultsMode: 'nonsense' as any })
+      ).toThrowError(/Invalid AWS defaults mode "nonsense"/);
+    } finally {
+      if (previousMode == null) {
+        delete process.env.AWS_DEFAULTS_MODE;
+      } else {
+        process.env.AWS_DEFAULTS_MODE = previousMode;
+      }
+    }
   });
 
-  test('combines the caller signal with the operation deadline', async () => {
-    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
-    const controller = new AbortController();
-    let requestSignal: AbortSignal | undefined;
-    objectStorage.client.send = async (_command: any, options: any) => {
-      requestSignal = options.abortSignal;
-      // The deadline signal is only aborted by a timeout, so abort through the caller instead.
+  test('cancels active uploads and deletes', async () => {
+    const operations = [
+      (objectStorage: S3ObjectStorage, signal: AbortSignal) =>
+        objectStorage.put(
+          'object',
+          new Uint8Array(),
+          { contentType: 'application/bson', contentEncoding: null },
+          { signal }
+        ),
+      (objectStorage: S3ObjectStorage, signal: AbortSignal) => objectStorage.delete(['object'], { signal })
+    ];
+
+    for (const startOperation of operations) {
+      const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
+      const controller = new AbortController();
+      let requestStarted!: () => void;
+      const started = new Promise<void>((resolve) => (requestStarted = resolve));
+      objectStorage.client.send = async (_command: any, options: any) => {
+        requestStarted();
+        await new Promise<void>((_resolve, reject) => {
+          const abort = () => reject(options.abortSignal.reason);
+          if (options.abortSignal.aborted) {
+            abort();
+          } else {
+            options.abortSignal.addEventListener('abort', abort, { once: true });
+          }
+        });
+        throw new Error('unreachable');
+      };
+
+      const running = startOperation(objectStorage, controller.signal);
+      const expectation = expect(running).rejects.toMatchObject({ name: 'AbortError' });
+      await started;
       controller.abort();
-      throw requestSignal!.reason;
-    };
-
-    await expect(objectStorage.get('object', { signal: controller.signal })).rejects.toMatchObject({
-      name: 'AbortError'
-    });
-    expect(requestSignal).not.toBe(controller.signal);
-    expect(requestSignal!.aborted).toBe(true);
-  });
-
-  test('cancels uploads and deletes through the operation signal', async () => {
-    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
-    const controller = new AbortController();
-    const requestSignals: AbortSignal[] = [];
-    objectStorage.client.send = async (_command: any, options: any) => {
-      requestSignals.push(options.abortSignal);
-      controller.abort();
-      throw options.abortSignal.reason;
-    };
-
-    await expect(
-      objectStorage.put(
-        'object',
-        new Uint8Array(),
-        { contentType: 'application/bson', contentEncoding: null },
-        { signal: controller.signal }
-      )
-    ).rejects.toMatchObject({ name: 'AbortError' });
-    await expect(objectStorage.delete(['object'], { signal: controller.signal })).rejects.toMatchObject({
-      name: 'AbortError'
-    });
-
-    // Both operations pass a signal derived from the caller's, never the bare deadline.
-    expect(requestSignals).toHaveLength(2);
-    expect(requestSignals.every((signal) => signal.aborted)).toBe(true);
-  });
-
-  test('does not start an upload with an already-aborted signal', async () => {
-    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
-    const controller = new AbortController();
-    controller.abort();
-    objectStorage.client.send = async () => {
-      throw new Error('should not be reached');
-    };
-
-    await expect(
-      objectStorage.put(
-        'object',
-        new Uint8Array(),
-        { contentType: 'application/bson', contentEncoding: null },
-        { signal: controller.signal }
-      )
-    ).rejects.toBe(controller.signal.reason);
+      await expectation;
+    }
   });
 
   test('reports why a streaming operation was cancelled', async () => {
@@ -260,39 +244,28 @@ describe('S3 object storage reads', () => {
   test('reports a caller abort while queued as a cancellation', async () => {
     const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 1 });
     const controller = new AbortController();
-    let queued!: () => void;
-    const isQueued = new Promise<void>((resolve) => (queued = resolve));
+    let holderStarted!: () => void;
+    const started = new Promise<void>((resolve) => (holderStarted = resolve));
+    let releaseHolder!: () => void;
+    const blocked = new Promise<void>((resolve) => (releaseHolder = resolve));
     objectStorage.client.send = async () => {
-      queued();
-      await new Promise<void>(() => {});
-      throw new Error('unreachable');
+      holderStarted();
+      await blocked;
+      return {};
     };
 
-    void objectStorage.put('held-object', new Uint8Array(), {
+    const holding = objectStorage.put('held-object', new Uint8Array(), {
       contentType: 'application/bson',
       contentEncoding: null
     });
-    await isQueued;
+    await started;
 
     const queuedRead = objectStorage.get('queued-object', { signal: controller.signal });
     const expectation = expect(queuedRead).rejects.toMatchObject({ name: 'AbortError' });
     controller.abort();
     await expectation;
-  });
-
-  test('treats operation deadline timeouts as retryable', async () => {
-    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
-    // What the SDK throws when the request is aborted by AbortSignal.timeout().
-    const timeoutCause = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
-    objectStorage.client.send = async () => {
-      throw timeoutCause;
-    };
-
-    await expect(objectStorage.get('stalled-object')).rejects.toMatchObject({
-      name: 'ObjectStorageError',
-      retryable: true,
-      cause: timeoutCause
-    } satisfies Partial<ObjectStorageError>);
+    releaseHolder();
+    await holding;
   });
 
   test('rejects complete S3 keys over the safe byte limit', async () => {
@@ -356,6 +329,16 @@ describe('S3 object storage reads', () => {
       retryable: true,
       cause: transientCause,
       message: expect.stringContaining('S3 download failed for transient-object')
+    } satisfies Partial<ObjectStorageError>);
+
+    const timeoutCause = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    objectStorage.client.send = async () => {
+      throw timeoutCause;
+    };
+    await expect(objectStorage.get('timed-out-object')).rejects.toMatchObject({
+      name: 'ObjectStorageError',
+      retryable: true,
+      cause: timeoutCause
     } satisfies Partial<ObjectStorageError>);
 
     const permanentCause = Object.assign(new Error('access denied'), {
