@@ -270,6 +270,9 @@ export class BinLogListener {
       await Promise.race([stopPromise, timeout]);
       // Zongji does not destroy connections it did not create.
       this.controlConnection.destroy();
+      // destroy() drops pending query callbacks, so a probe waiting on this connection would
+      // otherwise stay pending forever and disable probing after a restart.
+      this.probePending = false;
       this.logger.info('BinLog Listener stopped.');
     }
   }
