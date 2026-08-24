@@ -3,6 +3,24 @@ import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
 
+/**
+ * AWS defaults mode, as used by the AWS SDK.
+ *
+ * This is the baseline for the object storage request timeouts, so that they do not each need to be
+ * configured individually.
+ *
+ * The SDK's `legacy` and `auto` modes are not selectable here: `legacy` defines no timeouts at all,
+ * and `auto` makes the timeouts depend on where the process happens to be running. Both are still
+ * handled when they come from the AWS environment, and are then treated as `standard`.
+ */
+export const S3DefaultsMode = t
+  .literal('standard')
+  .or(t.literal('in-region'))
+  .or(t.literal('cross-region'))
+  .or(t.literal('mobile'));
+
+export type S3DefaultsMode = t.Encoded<typeof S3DefaultsMode>;
+
 const S3ObjectStorageConfig = t.object({
   type: t.literal('s3'),
   bucket: t.string,
@@ -13,6 +31,8 @@ const S3ObjectStorageConfig = t.object({
   access_key_id: t.string.optional(),
   secret_access_key: t.string.optional(),
   concurrency_limit: t.number.optional(),
+  // Defaults to the AWS_DEFAULTS_MODE environment variable.
+  defaults_mode: S3DefaultsMode.optional(),
   // Chunks whose BSON-serialized size falls below this byte threshold
   // stay inline in MongoDB instead of being offloaded to S3. Default 1024.
   inline_threshold_bytes: t.number.optional()

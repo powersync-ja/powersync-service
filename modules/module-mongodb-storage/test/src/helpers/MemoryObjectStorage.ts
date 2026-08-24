@@ -1,5 +1,6 @@
 import {
   ObjectStorage,
+  ObjectStorageOperationOptions,
   ObjectStoragePutMetadata
 } from '@module/storage/implementation/v3/object-storage/ObjectStorage.js';
 
@@ -9,13 +10,19 @@ export class MemoryObjectStorage implements ObjectStorage {
    */
   public readonly store = new Map<string, { data: Uint8Array; metadata: ObjectStoragePutMetadata }>();
 
-  async put(path: string, data: Uint8Array, metadata: ObjectStoragePutMetadata): Promise<void> {
+  async put(
+    path: string,
+    data: Uint8Array,
+    metadata: ObjectStoragePutMetadata,
+    options?: ObjectStorageOperationOptions
+  ): Promise<void> {
+    options?.signal?.throwIfAborted();
     this.store.set(path, { data, metadata: metadata });
   }
 
   async get(
     path: string,
-    options?: { signal?: AbortSignal }
+    options?: ObjectStorageOperationOptions
   ): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
     const signal = options?.signal;
     signal?.throwIfAborted();
@@ -26,7 +33,7 @@ export class MemoryObjectStorage implements ObjectStorage {
     return data;
   }
 
-  async *list(prefix: string, options?: { signal?: AbortSignal }): AsyncIterable<string> {
+  async *list(prefix: string, options?: ObjectStorageOperationOptions): AsyncIterable<string> {
     const signal = options?.signal;
     for (const path of this.store.keys()) {
       signal?.throwIfAborted();
@@ -36,18 +43,19 @@ export class MemoryObjectStorage implements ObjectStorage {
     }
   }
 
-  async delete(paths: string[]): Promise<void> {
+  async delete(paths: string[], options?: ObjectStorageOperationOptions): Promise<void> {
+    options?.signal?.throwIfAborted();
     for (const p of paths) {
       this.store.delete(p);
     }
   }
 
-  async deletePrefix(prefix: string, options?: { signal?: AbortSignal }): Promise<{ objectCount: number }> {
+  async deletePrefix(prefix: string, options?: ObjectStorageOperationOptions): Promise<{ objectCount: number }> {
     const paths: string[] = [];
     for await (const path of this.list(prefix, options)) {
       paths.push(path);
     }
-    await this.delete(paths);
+    await this.delete(paths, options);
     return { objectCount: paths.length };
   }
 }

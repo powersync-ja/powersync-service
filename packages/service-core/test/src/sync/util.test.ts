@@ -43,4 +43,19 @@ describe('acquireSemaphoreAbortable', () => {
     // Releasing the semaphore should not invoke resolve again
     release();
   });
+
+  test('does not wait when the signal is already aborted', async () => {
+    const semaphore = new Semaphore(1);
+    const controller = new AbortController();
+
+    // Hold the only slot, so acquiring would block indefinitely.
+    const result = await acquireSemaphoreAbortable(semaphore, controller.signal);
+    expect(result).not.toBe('aborted');
+    const [, release] = result as [number, SemaphoreInterface.Releaser];
+
+    controller.abort();
+    expect(await acquireSemaphoreAbortable(semaphore, controller.signal)).toBe('aborted');
+
+    release();
+  });
 });
