@@ -209,6 +209,32 @@ describe('S3 object storage reads', () => {
     await expectation;
   });
 
+  test('reports the caller abort reason unchanged', async () => {
+    // Callers abort with the error that stopped them, and upstream error handling matches on that
+    // type. Replacing it with an ObjectStorageError would hide it - for MongoDB replication, that
+    // loses the invalidation error that triggers a replication restart.
+    class StreamInvalidatedError extends Error {}
+
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
+    const reason = new StreamInvalidatedError('stream invalidated');
+    const controller = new AbortController();
+    objectStorage.client.send = async (_command: any, options: any) => {
+      controller.abort(reason);
+      throw options.abortSignal.reason;
+    };
+
+    await expect(objectStorage.get('object', { signal: controller.signal })).rejects.toBe(reason);
+    await expect(
+      objectStorage.put(
+        'object',
+        new Uint8Array(),
+        { contentType: 'application/bson', contentEncoding: null },
+        { signal: controller.signal }
+      )
+    ).rejects.toBe(reason);
+    await expect(objectStorage.delete(['object'], { signal: controller.signal })).rejects.toBe(reason);
+  });
+
   test('times out waiting for an operation slot', async () => {
     const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 1 });
     (objectStorage as any).timeouts = {
@@ -232,7 +258,7 @@ describe('S3 object storage reads', () => {
     await expect(objectStorage.get('queued-object')).rejects.toMatchObject({
       name: 'ObjectStorageError',
       retryable: true,
-      message: expect.stringContaining('Timed out waiting for an S3 operation slot')
+      message: expect.stringContaining('waiting for a concurrency slot')
     } satisfies Partial<ObjectStorageError>);
 
     releaseBlocker();

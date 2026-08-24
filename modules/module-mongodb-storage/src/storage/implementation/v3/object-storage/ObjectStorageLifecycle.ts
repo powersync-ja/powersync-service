@@ -1,6 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger } from '@powersync/lib-services-framework';
-import { isAbortError } from '@powersync/service-core';
 import * as bson from 'bson';
 import { createHash, randomUUID } from 'node:crypto';
 import { ObjectStorageDeletionMarker } from '../models.js';
@@ -161,9 +160,10 @@ export class ObjectStorageLifecycle {
         );
         await markers.deleteMany({ _id: { $in: deleting.map((marker) => marker._id) } });
       } catch (error) {
-        if (isAbortError(error)) {
+        if (signal?.aborted) {
           // Shutting down: stop instead of working through the remaining markers. They stay
-          // pending, and are cleaned up during the next compaction.
+          // pending, and are cleaned up during the next compaction. Checked on the signal rather
+          // than the error, since a caller may abort with any reason.
           throw error;
         }
         logger.warn('Failed to clean up object storage deletion markers; will retry during the next compaction', error);
