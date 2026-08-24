@@ -41,14 +41,11 @@ export const KEEPALIVE_INACTIVITY_THRESHOLD = 30;
 export const ZONGJI_STOP_TIMEOUT = 5_000;
 
 /**
- *  Interval in milliseconds between liveness probes on the Zongji control connection.
+ *  Maximum time in milliseconds a control connection liveness probe may execute before the
+ *  connection is considered dead. Time the probe spends queued behind other control queries
+ *  does not count towards this.
  */
-export const CTRL_CONNECTION_KEEPALIVE_INTERVAL = 60_000;
-
-/**
- *  Maximum time in milliseconds to wait for a control connection liveness probe to respond.
- */
-export const CTRL_CONNECTION_KEEPALIVE_TIMEOUT = 5_000;
+export const CTRL_CONNECTION_PROBE_TIMEOUT = 5_000;
 
 export type Row = Record<string, any>;
 
@@ -104,8 +101,7 @@ export interface BinLogListenerOptions {
   startGTID: common.ReplicatedGTID;
   logger?: Logger;
   keepAliveInactivitySeconds?: number;
-  ctrlConnectionKeepAliveIntervalMs?: number;
-  ctrlConnectionKeepAliveTimeoutMs?: number;
+  ctrlConnectionProbeTimeoutMs?: number;
 }
 
 /**
@@ -122,6 +118,9 @@ export class BinLogListener {
 
   private isStopped: boolean = false;
   private isStopping: boolean = false;
+
+  // Set while a control connection probe is awaiting a response, so repeated probes do not pile up behind it.
+  private probePending: boolean = false;
 
   // Flag to indicate if are currently in a transaction that involves multiple row mutation events.
   private isTransactionOpen = false;
@@ -286,11 +285,9 @@ export class BinLogListener {
   }
 
   public async replicateUntilStopped(): Promise<void> {
-    const keepAlive = this.keepAliveControlConnectionUntilStopped();
     while (!this.isStopped) {
       await timers.setTimeout(1_000);
     }
-    await keepAlive;
 
     if (this.listenerError) {
       this.logger.error('BinLog Listener stopped due to an error:', this.listenerError);
@@ -301,44 +298,36 @@ export class BinLogListener {
   /**
    *  The binlog connection is kept alive by the MySQL server heartbeat, but the control connection
    *  carries no traffic between metadata queries. TCP keepalive stops it from being dropped when idle,
-   *  but detects an already dead connection slowly, so we additionally probe it with a lightweight
-   *  query and restart replication if it does not respond in time.
+   *  but detects an already dead connection slowly, so the replication job's keepAlive additionally
+   *  probes it with a lightweight query and stops the listener (restarting replication) if the probe
+   *  does not respond in time.
+   *
+   *  The driver starts the query timeout when the query begins executing, not when it is queued, so a
+   *  probe waiting behind a legitimately slow metadata query does not produce a false failure. A probe
+   *  queued on a dead socket is failed together with the queued query by TCP keepalive on the socket.
    */
-  private async keepAliveControlConnectionUntilStopped(): Promise<void> {
-    const interval = this.options.ctrlConnectionKeepAliveIntervalMs ?? CTRL_CONNECTION_KEEPALIVE_INTERVAL;
-    let idleTime = 0;
-    while (!this.isStopped) {
-      await timers.setTimeout(1_000);
-      idleTime += 1_000;
-      if (idleTime >= interval && !(this.isStopped || this.isStopping)) {
-        idleTime = 0;
-        await this.probeControlConnection();
-      }
-    }
-  }
-
-  private async probeControlConnection(): Promise<void> {
-    const controlConnection = this.controlConnection;
-    if (this.zongji.stopped) {
+  public probeControlConnection(): void {
+    if (this.probePending || this.zongji.stopped || this.isStopped || this.isStopping) {
       return;
     }
-    const timeout = this.options.ctrlConnectionKeepAliveTimeoutMs ?? CTRL_CONNECTION_KEEPALIVE_TIMEOUT;
-    const responded = await new Promise<boolean>((resolve) => {
-      controlConnection.query('SELECT 1', (error) => resolve(!error));
-      timers.setTimeout(timeout, undefined, { ref: false }).then(() => resolve(false));
+    this.probePending = true;
+    const controlConnection = this.controlConnection;
+    const timeout = this.options.ctrlConnectionProbeTimeoutMs ?? CTRL_CONNECTION_PROBE_TIMEOUT;
+    controlConnection.query({ sql: 'SELECT 1', timeout }, (error) => {
+      this.probePending = false;
+      // Only act if the probe failed on a connection that is still supposed to be alive.
+      if (
+        error != null &&
+        this.controlConnection === controlConnection &&
+        !this.zongji.stopped &&
+        !(this.isStopped || this.isStopping)
+      ) {
+        this.logger.warn('MySQL control connection is unresponsive. Stopping the BinLog Listener...');
+        this.listenerError = new Error('MySQL control connection is unresponsive.');
+        controlConnection._socket?.destroy();
+        this.stop();
+      }
     });
-    // Only act if the probe failed on a connection that is still supposed to be alive.
-    if (
-      !responded &&
-      this.controlConnection === controlConnection &&
-      !this.zongji.stopped &&
-      !(this.isStopped || this.isStopping)
-    ) {
-      this.logger.warn('MySQL control connection is unresponsive. Stopping the BinLog Listener...');
-      this.listenerError = new Error('MySQL control connection is unresponsive.');
-      controlConnection._socket?.destroy();
-      await this.stop();
-    }
   }
 
   private createProcessingQueue(): async.QueueObject<BinLogEvent> {

@@ -6,6 +6,11 @@ declare module '@vlasky/mysql' {
   export interface VlaskyConnection extends MySQLConnection {
     destroy(): void;
     state: string;
+    /**
+     * Options form of query. The driver starts `timeout` when the query begins executing, not when
+     * it is queued behind other queries on the connection.
+     */
+    query(options: { sql: string; timeout?: number }, callback: (error: any, results: any, fields: any) => void): void;
   }
 
   export function createConnection(options: Record<string, unknown>): VlaskyConnection;
