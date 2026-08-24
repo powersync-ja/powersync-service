@@ -82,8 +82,11 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     if (this.storage.objectStorage) {
       // Clean these before compacting - should be quick in most cases.
       try {
-        await this.objectStorageLifecycle.cleanup(this.logger);
+        await this.objectStorageLifecycle.cleanup(this.logger, { signal: this.signal });
       } catch (e) {
+        if (this.signal?.aborted) {
+          throw e;
+        }
         // In this case, still continue normal compact process
         this.logger.error(`Failed to clean up object storage deletion markers before compaction`, e);
       }
@@ -107,7 +110,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       // Cleanup for any produced during compacting.
       // Note that markers only expire after a delay, so this may skip many produced during this compact
       // run. However, during long compact runs, this may also have many ones it can clean up.
-      await this.objectStorageLifecycle.cleanup(this.logger);
+      await this.objectStorageLifecycle.cleanup(this.logger, { signal: this.signal });
     }
     return this.compactedBucketCount;
   }

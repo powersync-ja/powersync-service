@@ -277,6 +277,14 @@ export interface CreateWriterOptions extends ParseSyncConfigOptions {
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
 
   logger?: Logger;
+
+  /**
+   * Aborts long-running storage work started by this writer, such as uploads to object storage.
+   *
+   * This does not replace flushing or committing at the appropriate source boundary: it only
+   * cancels work that is still in flight when replication stops.
+   */
+  signal?: AbortSignal;
 }
 
 export interface StorageHooks {

@@ -236,6 +236,7 @@ export abstract class MongoSyncBucketStorage
       markRecordUnavailable: options.markRecordUnavailable,
       hooks: options.hooks,
       tracer: options.tracer,
+      signal: options.signal,
       objectStorage: this.objectStorage,
       inlineThresholdBytes: this.inlineThresholdBytes
     };

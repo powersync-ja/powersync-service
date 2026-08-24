@@ -137,6 +137,51 @@ describe('S3 object storage reads', () => {
     expect(requestSignal!.aborted).toBe(true);
   });
 
+  test('cancels uploads and deletes through the operation signal', async () => {
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
+    const controller = new AbortController();
+    const requestSignals: AbortSignal[] = [];
+    objectStorage.client.send = async (_command: any, options: any) => {
+      requestSignals.push(options.abortSignal);
+      controller.abort();
+      throw options.abortSignal.reason;
+    };
+
+    await expect(
+      objectStorage.put(
+        'object',
+        new Uint8Array(),
+        { contentType: 'application/bson', contentEncoding: null },
+        { signal: controller.signal }
+      )
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(objectStorage.delete(['object'], { signal: controller.signal })).rejects.toMatchObject({
+      name: 'AbortError'
+    });
+
+    // Both operations pass a signal derived from the caller's, never the bare deadline.
+    expect(requestSignals).toHaveLength(2);
+    expect(requestSignals.every((signal) => signal.aborted)).toBe(true);
+  });
+
+  test('does not start an upload with an already-aborted signal', async () => {
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test' });
+    const controller = new AbortController();
+    controller.abort();
+    objectStorage.client.send = async () => {
+      throw new Error('should not be reached');
+    };
+
+    await expect(
+      objectStorage.put(
+        'object',
+        new Uint8Array(),
+        { contentType: 'application/bson', contentEncoding: null },
+        { signal: controller.signal }
+      )
+    ).rejects.toBe(controller.signal.reason);
+  });
+
   test('times out waiting for an operation slot', async () => {
     const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 1 });
     (objectStorage as any).timeouts = {

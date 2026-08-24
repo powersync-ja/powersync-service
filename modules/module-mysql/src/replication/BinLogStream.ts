@@ -278,7 +278,8 @@ export class BinLogStream {
           logger: this.logger,
           zeroLSN: common.ReplicatedGTID.ZERO(this.activeServerUuid!).comparable,
           defaultSchema: this.defaultSchema,
-          storeCurrentData: false
+          storeCurrentData: false,
+          signal: this.abortSignal
         },
         async (batch) => {
           for (let tablePattern of sourceTables) {
@@ -405,7 +406,8 @@ export class BinLogStream {
           logger: this.logger,
           zeroLSN: common.ReplicatedGTID.ZERO(this.activeServerUuid!).comparable,
           defaultSchema: this.defaultSchema,
-          storeCurrentData: false
+          storeCurrentData: false,
+          signal: this.abortSignal
         },
         async (batch) => {
           for (let tablePattern of sourceTables) {
@@ -449,7 +451,8 @@ export class BinLogStream {
         {
           zeroLSN: common.ReplicatedGTID.ZERO(this.activeServerUuid!).comparable,
           defaultSchema: this.defaultSchema,
-          storeCurrentData: false
+          storeCurrentData: false,
+          signal: this.abortSignal
         },
         async (batch) => {
           const binlogEventHandler = this.createBinlogEventHandler(batch);

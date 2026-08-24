@@ -12,7 +12,12 @@ import { loadConfigsForDefaultMode, type DefaultsMode, type ResolvedDefaultsMode
 import { isThrottlingError, isTransientError } from '@smithy/core/retry';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
 import { Semaphore, SemaphoreInterface } from 'async-mutex';
-import { ObjectStorageError, type ObjectStorage, type ObjectStoragePutMetadata } from './ObjectStorage.js';
+import {
+  ObjectStorageError,
+  type ObjectStorage,
+  type ObjectStorageOperationOptions,
+  type ObjectStoragePutMetadata
+} from './ObjectStorage.js';
 
 const DEFAULT_S3_OPERATION_CONCURRENCY = 16;
 const S3_DELETE_PREFIX_BATCH_SIZE = 1000;
@@ -224,9 +229,14 @@ export class S3ObjectStorage implements ObjectStorage {
     });
   }
 
-  async put(path: string, data: Uint8Array, metadata: ObjectStoragePutMetadata): Promise<void> {
+  async put(
+    path: string,
+    data: Uint8Array,
+    metadata: ObjectStoragePutMetadata,
+    options?: ObjectStorageOperationOptions
+  ): Promise<void> {
     const fullPath = this.fullPath(path);
-    await using operation = await this.withOperation();
+    await using operation = await this.withOperation(options?.signal);
     try {
       await this.client.send(
         new PutObjectCommand({
@@ -245,7 +255,7 @@ export class S3ObjectStorage implements ObjectStorage {
 
   async get(
     path: string,
-    options?: { signal?: AbortSignal }
+    options?: ObjectStorageOperationOptions
   ): Promise<{ data: Uint8Array; metadata: ObjectStoragePutMetadata }> {
     const fullPath = this.fullPath(path);
     await using operation = await this.withOperation(options?.signal);
@@ -302,7 +312,7 @@ export class S3ObjectStorage implements ObjectStorage {
     }
   }
 
-  async *list(prefix: string, options?: { signal?: AbortSignal }): AsyncIterable<string> {
+  async *list(prefix: string, options?: ObjectStorageOperationOptions): AsyncIterable<string> {
     const fullPrefix = this.fullPath(prefix);
     let continuationToken: string | undefined;
     const signal = options?.signal;
@@ -323,12 +333,12 @@ export class S3ObjectStorage implements ObjectStorage {
     } while (continuationToken != null);
   }
 
-  async delete(paths: string[]): Promise<void> {
+  async delete(paths: string[], options?: ObjectStorageOperationOptions): Promise<void> {
     const fullPaths = paths.map((path) => ({ Key: this.fullPath(path) }));
-    await this.deleteFullPaths(fullPaths);
+    await this.deleteFullPaths(fullPaths, options?.signal);
   }
 
-  async deletePrefix(prefix: string, options?: { signal?: AbortSignal }): Promise<{ objectCount: number }> {
+  async deletePrefix(prefix: string, options?: ObjectStorageOperationOptions): Promise<{ objectCount: number }> {
     const fullPrefix = this.fullPath(prefix);
     const signal = options?.signal;
     let continuationToken: string | undefined;

@@ -24,6 +24,30 @@ function memoryS3Factory(options: { inlineThresholdBytes?: number } = {}) {
 }
 
 describe('S3 object storage writes', () => {
+  test('aborts uploads when the writer signal is aborted', async () => {
+    const { memoryStorage, factory: factoryGen } = memoryS3Factory();
+    await using factory = await factoryGen.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+
+    const controller = new AbortController();
+    await using writer = await bucketStorage.createWriter({ ...test_utils.BATCH_OPTIONS, signal: controller.signal });
+    const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
+    await writer.markAllSnapshotDone('1/1');
+
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'item1', description: 'hello' },
+      afterReplicaId: test_utils.rid('item1')
+    });
+
+    // Replication is stopping: the flush must not upload anything after this point.
+    controller.abort();
+    await expect(writer.flush()).rejects.toMatchObject({ name: 'AbortError' });
+    expect(memoryStorage.store.size).toBe(0);
+  });
+
   test('writes operation payload and MongoDB metadata shell', async () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
