@@ -79,6 +79,8 @@ export class BinLogStream {
 
   private replicationLag = new ReplicationLagTracker();
 
+  private binLogListener: BinLogListener | null = null;
+
   constructor(private options: BinLogStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
@@ -462,6 +464,7 @@ export class BinLogStream {
             activeServerUuid: this.activeServerUuid!,
             eventHandler: binlogEventHandler
           });
+          this.binLogListener = binlogListener;
 
           this.abortSignal.addEventListener(
             'abort',
@@ -695,6 +698,14 @@ export class BinLogStream {
 
   getReplicationLagMillis(): number | undefined {
     return this.replicationLag.getLagMillis();
+  }
+
+  /**
+   * Probe the liveness of the BinLog Listener's control connection. Called from the replication
+   * job's keepAlive. Does nothing before streaming starts (during the initial snapshot).
+   */
+  probeControlConnection(): void {
+    this.binLogListener?.probeControlConnection();
   }
 
   async tryRollback(promiseConnection: mysqlPromise.Connection) {
