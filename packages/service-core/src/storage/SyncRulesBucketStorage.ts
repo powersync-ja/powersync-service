@@ -456,6 +456,9 @@ export interface BucketDataBatchOptions {
   /** Abort any in-progress work for this batch, including object-storage downloads. */
   signal?: AbortSignal;
 
+  /** Traces data reads performed by the storage implementation. */
+  tracer?: PerformanceTracer<string>;
+
   /** Limit number of documents returned. Defaults to 1000. */
   limit?: number;
 
