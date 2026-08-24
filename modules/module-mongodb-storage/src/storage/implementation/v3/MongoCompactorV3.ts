@@ -1421,7 +1421,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         }
 
         const { ops, ...metadata } = serialized;
-        const { fileSize } = await store.store(upload.path, ops!);
+        const { fileSize } = await store.store(upload.path, ops!, { signal: this.signal });
         storagePaths.add(upload.path);
         return {
           ...metadata,
