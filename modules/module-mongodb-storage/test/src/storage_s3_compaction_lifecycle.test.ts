@@ -78,6 +78,52 @@ describe('S3 compaction storage lifecycle', () => {
     expect(data).toHaveLength(2);
   });
 
+  test('compaction uploads observe the compaction abort signal', async () => {
+    const { memoryStorage, factory: factoryGen } = memoryS3Factory();
+    await using factory = await factoryGen.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
+    await writer.markAllSnapshotDone('1/1');
+    for (const [index, description] of ['old', 'new'].entries()) {
+      await writer.save({
+        sourceTable,
+        tag: index === 0 ? storage.SaveOperationTag.INSERT : storage.SaveOperationTag.UPDATE,
+        after: { id: 'A', description },
+        afterReplicaId: test_utils.rid('A')
+      });
+      await writer.commit(`${index + 1}/1`);
+    }
+
+    // Compaction rewrites the merged chunk: abort while that upload is in flight.
+    const controller = new AbortController();
+    const uploadSignals: (AbortSignal | undefined)[] = [];
+    const originalPut = memoryStorage.put.bind(memoryStorage);
+    memoryStorage.put = async (path, data, metadata, options) => {
+      uploadSignals.push(options?.signal);
+      controller.abort();
+      return originalPut(path, data, metadata, options);
+    };
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
+    await expect(
+      bucketStorage.compact({
+        maxOpId: checkpoint.checkpoint,
+        compactBuckets: [request.bucket],
+        minBucketChanges: 1,
+        minChangeRatio: 0,
+        signal: controller.signal
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+
+    // The upload received a signal, rather than running unbounded.
+    expect(uploadSignals.length).toBeGreaterThan(0);
+    expect(uploadSignals.every((signal) => signal != null)).toBe(true);
+  });
+
   test('small inline updates merge into an inline replacement', async () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory({ inlineThresholdBytes: 10_000 });
     await using factory = await factoryGen.factory();

@@ -186,13 +186,19 @@ describe('S3 object storage reads', () => {
     // Aborting mid-stream destroys the socket, and the stream fails with a generic 'aborted'
     // error. The operation reports the actual cause instead.
     const stalledDownload = (objectStorage: S3ObjectStorage) => {
-      objectStorage.client.send = async () => ({
+      objectStorage.client.send = async (_command: any, options: any) => ({
         ContentLength: 10,
         ContentType: 'application/bson',
         Body: (async function* () {
           yield new Uint8Array([1, 2, 3]);
-          await new Promise<void>(() => {});
-          throw new Error('unreachable');
+          await new Promise<void>((_resolve, reject) => {
+            const abort = () => reject(new Error('stream aborted'));
+            if (options.abortSignal.aborted) {
+              abort();
+            } else {
+              options.abortSignal.addEventListener('abort', abort, { once: true });
+            }
+          });
         })()
       });
     };
