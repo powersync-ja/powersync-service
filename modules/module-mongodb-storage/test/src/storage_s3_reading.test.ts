@@ -9,7 +9,8 @@ import { hydrateBucketDataDocuments } from '../../src/storage/implementation/v3/
 import { ObjectStorageError } from '../../src/storage/implementation/v3/object-storage/ObjectStorage.js';
 import {
   resolveTimeoutProfile,
-  S3ObjectStorage
+  S3ObjectStorage,
+  type S3TimeoutProfile
 } from '../../src/storage/implementation/v3/object-storage/S3ObjectStorage.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
@@ -90,10 +91,32 @@ describe('S3 object storage reads', () => {
     });
   });
 
-  test('uses the configured defaults mode for the client', async () => {
-    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', defaultsMode: 'in-region' });
-    const defaultsMode = objectStorage.client.config.defaultsMode as () => Promise<string>;
-    await expect(defaultsMode()).resolves.toEqual('in-region');
+  test('resolves the defaults mode without waiting on configuration', async () => {
+    // The timeouts are resolved up front, so operations never wait on configuration. The client
+    // wraps the mode in a provider of its own, which resolves to the same value.
+    const modeOf = async (objectStorage: S3ObjectStorage) => {
+      const configured = objectStorage.client.config.defaultsMode;
+      return typeof configured === 'function' ? await configured() : configured;
+    };
+
+    const inRegion = new S3ObjectStorage({ bucket: 'test', region: 'test', defaultsMode: 'in-region' });
+    expect((inRegion as any).timeouts).toEqual(resolveTimeoutProfile('in-region'));
+    await expect(modeOf(inRegion)).resolves.toEqual('in-region');
+
+    // 'auto' would query the EC2 instance metadata service, and requires a resolvable region.
+    const auto = new S3ObjectStorage({ bucket: 'test', defaultsMode: 'auto' });
+    expect((auto as any).timeouts).toEqual(resolveTimeoutProfile('standard'));
+    await expect(modeOf(auto)).resolves.toEqual('standard');
+
+    // Nothing configured resolves to the AWS default, which uses the standard timeouts.
+    const unset = new S3ObjectStorage({ bucket: 'test', region: 'test' });
+    expect((unset as any).timeouts).toEqual(resolveTimeoutProfile('standard'));
+    await expect(modeOf(unset)).resolves.toEqual('legacy');
+
+    // An invalid mode fails on startup, rather than on every operation.
+    expect(() => new S3ObjectStorage({ bucket: 'test', region: 'test', defaultsMode: 'nonsense' as any })).toThrowError(
+      /Invalid AWS defaults mode "nonsense"/
+    );
   });
 
   test('combines the caller signal with the operation deadline', async () => {
@@ -116,12 +139,12 @@ describe('S3 object storage reads', () => {
 
   test('times out waiting for an operation slot', async () => {
     const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 1 });
-    (objectStorage as any).timeouts = Promise.resolve({
+    (objectStorage as any).timeouts = {
       connectionTimeoutMs: 10,
       requestTimeoutMs: 20,
       operationTimeoutMs: 10_000,
       queueTimeoutMs: 50
-    });
+    } satisfies S3TimeoutProfile;
     let releaseBlocker!: () => void;
     const blocked = new Promise<void>((resolve) => (releaseBlocker = resolve));
     objectStorage.client.send = async () => {

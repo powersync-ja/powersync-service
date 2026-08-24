@@ -6,9 +6,9 @@ import {
   PutObjectCommand,
   S3Client
 } from '@aws-sdk/client-s3';
+import { logger } from '@powersync/lib-services-framework';
 import { acquireSemaphoreAbortable, isAbortError } from '@powersync/service-core';
 import { loadConfigsForDefaultMode, type DefaultsMode, type ResolvedDefaultsMode } from '@smithy/core/client';
-import { resolveDefaultsModeConfig } from '@smithy/core/config';
 import { isThrottlingError, isTransientError } from '@smithy/core/retry';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
 import { Semaphore, SemaphoreInterface } from 'async-mutex';
@@ -43,6 +43,8 @@ const SAFE_S3_KEY_BYTES = 896;
  * `legacy`, the mode used when nothing is configured, does not define any timeouts, and is treated
  * as `standard` here. Running without timeouts is not an option: a stalled request holds one of the
  * limited operation slots until the process restarts, and enough of those block all reads.
+ *
+ * `auto` is also treated as `standard` - see resolveConfiguredDefaultsMode() below.
  */
 const BASELINE_CONNECTION_TIMEOUT_MS = 3_100;
 const REQUEST_TIMEOUT_FACTOR = 5;
@@ -97,6 +99,48 @@ export function resolveTimeoutProfile(mode: ResolvedDefaultsMode): S3TimeoutProf
   };
 }
 
+const AWS_DEFAULTS_MODE_ENV = 'AWS_DEFAULTS_MODE';
+const RESOLVED_DEFAULTS_MODES: ResolvedDefaultsMode[] = ['standard', 'in-region', 'cross-region', 'mobile', 'legacy'];
+
+/**
+ * Resolve the configured AWS defaults mode: the explicit option, then the AWS_DEFAULTS_MODE
+ * environment variable, then `legacy`, which is also the AWS default.
+ *
+ * Unlike the SDK's own lookup, this does not read defaults_mode from the AWS shared config file.
+ * That lookup is asynchronous, and the mode is only used to pick timeouts, which we want available
+ * synchronously so that operations never have to wait on configuration.
+ *
+ * `auto` is substituted with `standard`. It asks the SDK to detect whether it is running in the
+ * same region as the endpoint, which means querying the EC2 instance metadata service on startup:
+ *
+ * - The detection only succeeds on EC2-family compute with instance metadata reachable. Anywhere
+ *   else - including EC2 with IMDS disabled or behind a low hop limit - it silently falls back to
+ *   `standard`, so the timeouts differ by deployment with no indication of why.
+ * - It requires a resolvable region, and fails the client outright when there is none.
+ * - Timeouts that depend on where the process happens to run are hard to reason about when
+ *   diagnosing a stall.
+ *
+ * Deployments that want the tighter in-region timeouts should ask for them explicitly.
+ */
+function resolveConfiguredDefaultsMode(configured?: DefaultsMode): ResolvedDefaultsMode {
+  // An empty environment variable is treated as unset, matching the SDK.
+  const mode = (configured || process.env[AWS_DEFAULTS_MODE_ENV] || 'legacy').toLowerCase();
+  if (mode === 'auto') {
+    logger.warn(
+      `Ignoring AWS defaults mode "auto" for object storage, using "standard" instead. ` +
+        `Configure storage.object_storage.defaults_mode to select a mode explicitly.`
+    );
+    return 'standard';
+  }
+  const resolved = RESOLVED_DEFAULTS_MODES.find((candidate) => candidate === mode);
+  if (resolved == null) {
+    throw new Error(
+      `Invalid AWS defaults mode ${JSON.stringify(mode)}, expected one of ${RESOLVED_DEFAULTS_MODES.join(', ')}, auto`
+    );
+  }
+  return resolved;
+}
+
 /**
  * An S3 operation holding a concurrency slot, released when the operation is disposed.
  */
@@ -122,10 +166,9 @@ export interface S3ObjectStorageOptions {
   /**
    * AWS defaults mode, used as the baseline for the request timeouts.
    *
-   * Defaults to the AWS_DEFAULTS_MODE environment variable, or defaults_mode in the AWS shared
-   * config file.
+   * Defaults to the AWS_DEFAULTS_MODE environment variable. `auto` is treated as `standard`.
    */
-  defaultsMode?: DefaultsMode | (() => Promise<DefaultsMode>);
+  defaultsMode?: DefaultsMode;
 }
 
 export class S3ObjectStorage implements ObjectStorage {
@@ -136,7 +179,7 @@ export class S3ObjectStorage implements ObjectStorage {
   private bucket: string;
   private prefix: string;
   private readonly operationSemaphore: SemaphoreInterface;
-  private readonly timeouts: Promise<S3TimeoutProfile>;
+  private readonly timeouts: S3TimeoutProfile;
 
   constructor(options: S3ObjectStorageOptions) {
     const concurrencyLimit = options.concurrencyLimit ?? DEFAULT_S3_OPERATION_CONCURRENCY;
@@ -159,31 +202,20 @@ export class S3ObjectStorage implements ObjectStorage {
     this.prefix = prefix;
     this.operationSemaphore = new Semaphore(concurrencyLimit);
 
-    // Resolve the mode once and share it with the client, so that "auto" does not repeat the
-    // region lookup for the client's own defaults.
-    const defaultsMode = resolveDefaultsModeConfig({ region: options.region, defaultsMode: options.defaultsMode });
-    const timeouts = defaultsMode().then(resolveTimeoutProfile);
-    // Every operation awaits this, and reports the error there. This only keeps an invalid
-    // defaults mode from also surfacing as an unhandled rejection during startup.
-    timeouts.catch(() => {});
-    this.timeouts = timeouts;
+    // Resolve the mode once, and share it with the client so that its own defaults agree with ours.
+    const defaultsMode = resolveConfiguredDefaultsMode(options.defaultsMode);
+    this.timeouts = resolveTimeoutProfile(defaultsMode);
 
     this.client = new S3Client({
       region: options.region,
       endpoint: options.endpoint,
       forcePathStyle: options.forcePathStyle,
       defaultsMode,
-      requestHandler: new NodeHttpHandler(async () => {
-        // Fall back to the baseline if the mode could not be resolved - "auto" without a region
-        // is one way that happens. withOperation() reports the error for every operation, while
-        // rejecting here would surface as an unhandled rejection instead.
-        const { connectionTimeoutMs, requestTimeoutMs } = await timeouts.catch(() => resolveTimeoutProfile('standard'));
-        return {
-          connectionTimeout: connectionTimeoutMs,
-          requestTimeout: requestTimeoutMs,
-          // Without this, exceeding requestTimeout only logs a warning.
-          throwOnRequestTimeout: true
-        };
+      requestHandler: new NodeHttpHandler({
+        connectionTimeout: this.timeouts.connectionTimeoutMs,
+        requestTimeout: this.timeouts.requestTimeoutMs,
+        // Without this, exceeding requestTimeout only logs a warning.
+        throwOnRequestTimeout: true
       }),
       credentials:
         options.accessKeyId && options.secretAccessKey
@@ -412,7 +444,7 @@ export class S3ObjectStorage implements ObjectStorage {
 
   private async withOperation(signal?: AbortSignal): Promise<S3Operation> {
     signal?.throwIfAborted();
-    const { operationTimeoutMs, queueTimeoutMs } = await this.timeouts;
+    const { operationTimeoutMs, queueTimeoutMs } = this.timeouts;
 
     // Waiting for a slot is bounded even when the caller has no signal of its own, which is the
     // case for uploads and deletes.

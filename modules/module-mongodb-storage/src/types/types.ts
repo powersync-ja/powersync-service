@@ -9,16 +9,15 @@ import * as t from 'ts-codec';
  * This is the baseline for the object storage request timeouts, so that they do not each need to be
  * configured individually.
  *
- * The SDK's `legacy` mode is not selectable here: it defines no timeouts at all. It is still
- * handled when it comes from the AWS environment, where it is the default, and is then treated as
- * `standard`.
+ * The SDK's `legacy` and `auto` modes are not selectable here: `legacy` defines no timeouts at all,
+ * and `auto` makes the timeouts depend on where the process happens to be running. Both are still
+ * handled when they come from the AWS environment, and are then treated as `standard`.
  */
 export const S3DefaultsMode = t
   .literal('standard')
   .or(t.literal('in-region'))
   .or(t.literal('cross-region'))
-  .or(t.literal('mobile'))
-  .or(t.literal('auto'));
+  .or(t.literal('mobile'));
 
 export type S3DefaultsMode = t.Encoded<typeof S3DefaultsMode>;
 
