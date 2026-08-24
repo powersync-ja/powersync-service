@@ -99,22 +99,75 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
     expect(binLogListener.zongji.stopped).toBeTruthy();
   });
 
-  test('Keepalive probe detects an unresponsive control connection', { timeout: 20_000 }, async () => {
+  test('Probe on a healthy control connection passes', { timeout: 20_000 }, async () => {
+    await binLogListener.start();
+
+    // No mocking: the real driver must accept the options form of query and answer the probe.
+    const controlConnection = binLogListener.controlConnection;
+    const realQuery = controlConnection.query.bind(controlConnection);
+    const probeError = new Promise((resolve) => {
+      vi.spyOn(controlConnection, 'query').mockImplementation(((options: any, callback: any) => {
+        realQuery(options, (error: any, results: any, fields: any) => {
+          callback(error, results, fields);
+          resolve(error);
+        });
+      }) as any);
+    });
+
+    binLogListener.probeControlConnection();
+
+    expect(await probeError).toBeNull();
+    expect(binLogListener.zongji.stopped).toBeFalsy();
+
+    await binLogListener.stop();
+  });
+
+  test('Probe detects an unresponsive control connection', { timeout: 20_000 }, async () => {
     binLogListener = await createBinlogListener({
       connectionManager,
       sourceTables: [new TablePattern(connectionManager.databaseName, 'test_DATA')],
       eventHandler,
-      ctrlConnectionKeepAliveIntervalMs: 1_000,
-      ctrlConnectionKeepAliveTimeoutMs: 500
+      ctrlConnectionProbeTimeoutMs: 500
     });
     await binLogListener.start();
 
-    // Queries to the control connection never get a response, like a connection that died
-    // without either side being notified.
-    vi.spyOn(binLogListener.controlConnection, 'query').mockImplementation(() => {});
+    // The probe query starts executing but never gets a response, like a connection that died
+    // without either side being notified: the driver's query timeout fires.
+    vi.spyOn(binLogListener.controlConnection, 'query').mockImplementation(((_options: any, callback: any) => {
+      const error: any = new Error('Query inactivity timeout');
+      error.code = 'PROTOCOL_SEQUENCE_TIMEOUT';
+      setTimeout(() => callback(error), 10);
+    }) as any);
 
-    await expect(binLogListener.replicateUntilStopped()).rejects.toThrow('control connection is unresponsive');
+    const replication = binLogListener.replicateUntilStopped();
+    binLogListener.probeControlConnection();
+
+    await expect(replication).rejects.toThrow('control connection is unresponsive');
     expect(binLogListener.zongji.stopped).toBeTruthy();
+  });
+
+  test('Probe queued behind a busy control connection does not report it dead', { timeout: 20_000 }, async () => {
+    binLogListener = await createBinlogListener({
+      connectionManager,
+      sourceTables: [new TablePattern(connectionManager.databaseName, 'test_DATA')],
+      eventHandler,
+      ctrlConnectionProbeTimeoutMs: 500
+    });
+    await binLogListener.start();
+
+    // The probe never even starts executing, as if queued behind a long-running metadata query on
+    // a healthy connection. The probe must not report the connection dead, and further probes must
+    // not pile up behind the pending one.
+    const querySpy = vi.spyOn(binLogListener.controlConnection, 'query').mockImplementation((() => {}) as any);
+
+    binLogListener.probeControlConnection();
+    binLogListener.probeControlConnection();
+
+    expect(querySpy).toHaveBeenCalledTimes(1);
+    expect(binLogListener.zongji.stopped).toBeFalsy();
+
+    querySpy.mockRestore();
+    await binLogListener.stop();
   });
 
   test('Zongji listener is stopped when processing queue reaches maximum memory size', async () => {
