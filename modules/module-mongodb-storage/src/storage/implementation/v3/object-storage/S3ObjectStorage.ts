@@ -30,11 +30,11 @@ const SAFE_S3_KEY_BYTES = 896;
  * storage option - describes the expected latency between this service and the object storage
  * endpoint. We use the connection timeout it defines as the baseline for the other timeouts:
  *
- * | mode                   | connection | request | operation |
- * | ---------------------- | ---------- | ------- | --------- |
- * | in-region              |       1.1s |    5.5s |       11s |
- * | standard, cross-region |       3.1s |   15.5s |       31s |
- * | mobile                 |        30s |    150s |      300s |
+ * | mode                   | connection | request | operation | queue |
+ * | ---------------------- | ---------- | ------- | --------- | ----- |
+ * | in-region              |       1.1s |    5.5s |       11s |   44s |
+ * | standard, cross-region |       3.1s |   15.5s |       31s |  124s |
+ * | mobile                 |        30s |    150s |      300s | 1200s |
  *
  * The multipliers are sized for the objects we store: bucket data chunks target 1MB, and are
  * bounded by the 16MB BSON document limit. Even at the upper bound, the request timeout only has to
@@ -47,6 +47,17 @@ const SAFE_S3_KEY_BYTES = 896;
 const BASELINE_CONNECTION_TIMEOUT_MS = 3_100;
 const REQUEST_TIMEOUT_FACTOR = 5;
 const OPERATION_TIMEOUT_FACTOR = 2;
+/**
+ * How long an operation may wait for a concurrency slot, as a multiple of the operation timeout.
+ *
+ * Every slot holder now releases within the operation timeout, so the queue always drains: this is
+ * a backpressure limit rather than a deadlock guard. Waiting this long means at least
+ * `factor * concurrencyLimit` operations ahead of us each took their full deadline - 64 at the
+ * default concurrency. Real operations complete in a fraction of the deadline, so the number of
+ * queued operations this actually tolerates is far higher, well above the ~2000 uploads that the
+ * largest possible replication flush (MAX_TRANSACTION_DOC_COUNT) can enqueue at once.
+ */
+const QUEUE_TIMEOUT_FACTOR = 4;
 
 export interface S3TimeoutProfile {
   /**
@@ -65,6 +76,10 @@ export interface S3TimeoutProfile {
    * bounds how long a single operation can occupy a concurrency slot.
    */
   operationTimeoutMs: number;
+  /**
+   * Waiting for a concurrency slot, before the operation itself starts.
+   */
+  queueTimeoutMs: number;
 }
 
 export function resolveTimeoutProfile(mode: ResolvedDefaultsMode): S3TimeoutProfile {
@@ -73,10 +88,12 @@ export function resolveTimeoutProfile(mode: ResolvedDefaultsMode): S3TimeoutProf
   const { connectionTimeout, requestTimeout } = loadConfigsForDefaultMode(mode);
   const connectionTimeoutMs = connectionTimeout ?? BASELINE_CONNECTION_TIMEOUT_MS;
   const requestTimeoutMs = requestTimeout ?? connectionTimeoutMs * REQUEST_TIMEOUT_FACTOR;
+  const operationTimeoutMs = requestTimeoutMs * OPERATION_TIMEOUT_FACTOR;
   return {
     connectionTimeoutMs,
     requestTimeoutMs,
-    operationTimeoutMs: requestTimeoutMs * OPERATION_TIMEOUT_FACTOR
+    operationTimeoutMs,
+    queueTimeoutMs: operationTimeoutMs * QUEUE_TIMEOUT_FACTOR
   };
 }
 
@@ -395,13 +412,27 @@ export class S3ObjectStorage implements ObjectStorage {
 
   private async withOperation(signal?: AbortSignal): Promise<S3Operation> {
     signal?.throwIfAborted();
-    const { operationTimeoutMs } = await this.timeouts;
-    const acquired = signal
-      ? await acquireSemaphoreAbortable(this.operationSemaphore, signal)
-      : await this.operationSemaphore.acquire();
+    const { operationTimeoutMs, queueTimeoutMs } = await this.timeouts;
+
+    // Waiting for a slot is bounded even when the caller has no signal of its own, which is the
+    // case for uploads and deletes.
+    const queueDeadline = timeoutSignal(queueTimeoutMs, `S3 operation waited ${queueTimeoutMs} ms for a slot`);
+    let acquired;
+    try {
+      acquired = await acquireSemaphoreAbortable(
+        this.operationSemaphore,
+        signal ? AbortSignal.any([signal, queueDeadline.signal]) : queueDeadline.signal
+      );
+    } finally {
+      queueDeadline.cancel();
+    }
     if (acquired === 'aborted') {
-      signal!.throwIfAborted();
-      throw new Error('S3 operation aborted while waiting for a concurrency slot');
+      // A caller abort takes precedence: it is a cancellation, not an S3 failure.
+      signal?.throwIfAborted();
+      throw new ObjectStorageError(`Timed out waiting for an S3 operation slot`, {
+        cause: queueDeadline.signal.reason,
+        retryable: true
+      });
     }
 
     const [, release] = acquired;
@@ -409,22 +440,28 @@ export class S3ObjectStorage implements ObjectStorage {
       release();
       signal.throwIfAborted();
     }
-    // The deadline only starts once the operation holds a slot - time spent queueing is bounded by
-    // the caller's signal instead. TimeoutError is what isTransientS3Error() below classifies as a
-    // retryable error, matching the SDK's own request timeouts.
-    const deadline = new AbortController();
-    const timer = setTimeout(() => {
-      deadline.abort(new DOMException(`S3 operation did not complete within ${operationTimeoutMs} ms`, 'TimeoutError'));
-    }, operationTimeoutMs);
-    timer.unref();
+    // This deadline only starts once the operation holds a slot - queueing is covered above.
+    const deadline = timeoutSignal(operationTimeoutMs, `S3 operation did not complete within ${operationTimeoutMs} ms`);
     return {
       signal: signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal,
       [Symbol.asyncDispose]: async () => {
-        clearTimeout(timer);
+        deadline.cancel();
         release();
       }
     };
   }
+}
+
+/**
+ * An abort signal that fires after the given timeout, using a timer that does not hold the process
+ * open. TimeoutError is what isTransientS3Error() classifies as retryable, matching the SDK's own
+ * request timeouts.
+ */
+function timeoutSignal(timeoutMs: number, message: string): { signal: AbortSignal; cancel: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException(message, 'TimeoutError')), timeoutMs);
+  timer.unref();
+  return { signal: controller.signal, cancel: () => clearTimeout(timer) };
 }
 
 function s3OperationError(operation: string, target: string, error: unknown): Error {

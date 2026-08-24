@@ -71,19 +71,22 @@ describe('S3 object storage reads', () => {
     expect(resolveTimeoutProfile('legacy')).toEqual({
       connectionTimeoutMs: 3_100,
       requestTimeoutMs: 15_500,
-      operationTimeoutMs: 31_000
+      operationTimeoutMs: 31_000,
+      queueTimeoutMs: 124_000
     });
     expect(resolveTimeoutProfile('standard')).toEqual(resolveTimeoutProfile('legacy'));
     expect(resolveTimeoutProfile('cross-region')).toEqual(resolveTimeoutProfile('legacy'));
     expect(resolveTimeoutProfile('in-region')).toEqual({
       connectionTimeoutMs: 1_100,
       requestTimeoutMs: 5_500,
-      operationTimeoutMs: 11_000
+      operationTimeoutMs: 11_000,
+      queueTimeoutMs: 44_000
     });
     expect(resolveTimeoutProfile('mobile')).toEqual({
       connectionTimeoutMs: 30_000,
       requestTimeoutMs: 150_000,
-      operationTimeoutMs: 300_000
+      operationTimeoutMs: 300_000,
+      queueTimeoutMs: 1_200_000
     });
   });
 
@@ -109,6 +112,61 @@ describe('S3 object storage reads', () => {
     });
     expect(requestSignal).not.toBe(controller.signal);
     expect(requestSignal!.aborted).toBe(true);
+  });
+
+  test('times out waiting for an operation slot', async () => {
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 1 });
+    (objectStorage as any).timeouts = Promise.resolve({
+      connectionTimeoutMs: 10,
+      requestTimeoutMs: 20,
+      operationTimeoutMs: 10_000,
+      queueTimeoutMs: 50
+    });
+    let releaseBlocker!: () => void;
+    const blocked = new Promise<void>((resolve) => (releaseBlocker = resolve));
+    objectStorage.client.send = async () => {
+      await blocked;
+      return { ContentLength: 0, Body: (async function* () {})(), ContentType: 'application/bson' };
+    };
+
+    // The single slot is held by the first upload, which has no signal of its own.
+    const holding = objectStorage.put('held-object', new Uint8Array(), {
+      contentType: 'application/bson',
+      contentEncoding: null
+    });
+    await expect(objectStorage.get('queued-object')).rejects.toMatchObject({
+      name: 'ObjectStorageError',
+      retryable: true,
+      message: expect.stringContaining('Timed out waiting for an S3 operation slot')
+    } satisfies Partial<ObjectStorageError>);
+
+    releaseBlocker();
+    await holding;
+    // The slot is usable again once the blocking operation completes.
+    await expect(objectStorage.get('later-object')).resolves.toMatchObject({ data: new Uint8Array(0) });
+  });
+
+  test('reports a caller abort while queued as a cancellation', async () => {
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 1 });
+    const controller = new AbortController();
+    let queued!: () => void;
+    const isQueued = new Promise<void>((resolve) => (queued = resolve));
+    objectStorage.client.send = async () => {
+      queued();
+      await new Promise<void>(() => {});
+      throw new Error('unreachable');
+    };
+
+    void objectStorage.put('held-object', new Uint8Array(), {
+      contentType: 'application/bson',
+      contentEncoding: null
+    });
+    await isQueued;
+
+    const queuedRead = objectStorage.get('queued-object', { signal: controller.signal });
+    const expectation = expect(queuedRead).rejects.toMatchObject({ name: 'AbortError' });
+    controller.abort();
+    await expectation;
   });
 
   test('treats operation deadline timeouts as retryable', async () => {
