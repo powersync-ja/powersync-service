@@ -157,6 +157,14 @@ interface S3Operation extends AsyncDisposable {
    * can hold on to the slot indefinitely.
    */
   signal: AbortSignal;
+  /**
+   * Why the operation was cancelled, or undefined if it was not.
+   *
+   * Aborting a request that is already streaming its response destroys the socket, and the failure
+   * surfaces as a generic "aborted" error that says nothing about the cause. Reporting this instead
+   * keeps a caller's cancellation distinguishable from the operation timing out.
+   */
+  cancellationReason(): unknown;
 }
 
 export interface S3ObjectStorageOptions {
@@ -249,7 +257,7 @@ export class S3ObjectStorage implements ObjectStorage {
         { abortSignal: operation.signal }
       );
     } catch (error) {
-      throw s3OperationError('upload', fullPath, error);
+      throw s3OperationError('upload', fullPath, error, operation);
     }
   }
 
@@ -308,7 +316,7 @@ export class S3ObjectStorage implements ObjectStorage {
       if (err.name === 'NoSuchKey' || err.Code === 'NoSuchKey') {
         throw new ObjectStorageError(`S3 object not found: ${fullPath}`, { cause: err, retryable: false });
       }
-      throw s3OperationError('download', fullPath, err);
+      throw s3OperationError('download', fullPath, err, operation);
     }
   }
 
@@ -403,8 +411,10 @@ export class S3ObjectStorage implements ObjectStorage {
     continuationToken: string | undefined,
     signal?: AbortSignal
   ): Promise<ListObjectsV2CommandOutput> {
+    // Acquired outside the try, matching the other operations: withOperation() already reports its
+    // own failures as ObjectStorageError.
+    await using operation = await this.withOperation(signal);
     try {
-      await using operation = await this.withOperation(signal);
       return await this.client.send(
         new ListObjectsV2Command({
           Bucket: this.bucket,
@@ -415,7 +425,7 @@ export class S3ObjectStorage implements ObjectStorage {
         { abortSignal: operation.signal }
       );
     } catch (error) {
-      throw s3OperationError('list', fullPrefix, error);
+      throw s3OperationError('list', fullPrefix, error, operation);
     }
   }
 
@@ -432,7 +442,7 @@ export class S3ObjectStorage implements ObjectStorage {
         { abortSignal: operation.signal }
       );
     } catch (error) {
-      throw s3OperationError('delete', `${fullPaths.length} objects`, error);
+      throw s3OperationError('delete', `${fullPaths.length} objects`, error, operation);
     }
     if (response.Errors?.length) {
       const errors = response.Errors.map((error) => `${error.Key}: ${error.Code}`).join(', ');
@@ -486,6 +496,9 @@ export class S3ObjectStorage implements ObjectStorage {
     const deadline = timeoutSignal(operationTimeoutMs, `S3 operation did not complete within ${operationTimeoutMs} ms`);
     return {
       signal: signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal,
+      // A caller abort takes precedence: it is a cancellation, not a failure to retry.
+      cancellationReason: () =>
+        signal?.aborted ? signal.reason : deadline.signal.aborted ? deadline.signal.reason : undefined,
       [Symbol.asyncDispose]: async () => {
         deadline.cancel();
         release();
@@ -506,7 +519,13 @@ function timeoutSignal(timeoutMs: number, message: string): { signal: AbortSigna
   return { signal: controller.signal, cancel: () => clearTimeout(timer) };
 }
 
-function s3OperationError(operation: string, target: string, error: unknown): Error {
+function s3OperationError(operation: string, target: string, error: unknown, context?: S3Operation): Error {
+  // Prefer the cancellation reason over whatever the aborted request failed with, so that a
+  // caller abort stays an abort and the operation deadline reports as a timeout.
+  const cancellation = context?.cancellationReason();
+  if (cancellation !== undefined) {
+    error = cancellation;
+  }
   if (error instanceof ObjectStorageError) {
     return error;
   }

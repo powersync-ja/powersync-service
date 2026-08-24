@@ -182,6 +182,43 @@ describe('S3 object storage reads', () => {
     ).rejects.toBe(controller.signal.reason);
   });
 
+  test('reports why a streaming operation was cancelled', async () => {
+    // Aborting mid-stream destroys the socket, and the stream fails with a generic 'aborted'
+    // error. The operation reports the actual cause instead.
+    const stalledDownload = (objectStorage: S3ObjectStorage) => {
+      objectStorage.client.send = async () => ({
+        ContentLength: 10,
+        ContentType: 'application/bson',
+        Body: (async function* () {
+          yield new Uint8Array([1, 2, 3]);
+          await new Promise<void>(() => {});
+          throw new Error('unreachable');
+        })()
+      });
+    };
+
+    const timingOut = new S3ObjectStorage({ bucket: 'test', region: 'test' });
+    (timingOut as any).timeouts = {
+      ...resolveTimeoutProfile('standard'),
+      operationTimeoutMs: 50
+    } satisfies S3TimeoutProfile;
+    stalledDownload(timingOut);
+    await expect(timingOut.get('stalled-object')).rejects.toMatchObject({
+      name: 'ObjectStorageError',
+      retryable: true,
+      message: expect.stringContaining('did not complete within 50 ms')
+    } satisfies Partial<ObjectStorageError>);
+
+    // A caller abort is a cancellation, not a retryable failure.
+    const cancelled = new S3ObjectStorage({ bucket: 'test', region: 'test' });
+    stalledDownload(cancelled);
+    const controller = new AbortController();
+    const reading = cancelled.get('stalled-object', { signal: controller.signal });
+    const expectation = expect(reading).rejects.toMatchObject({ name: 'AbortError' });
+    controller.abort();
+    await expectation;
+  });
+
   test('times out waiting for an operation slot', async () => {
     const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 1 });
     (objectStorage as any).timeouts = {
