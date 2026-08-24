@@ -31,8 +31,7 @@ const S3ObjectStorageConfig = t.object({
   access_key_id: t.string.optional(),
   secret_access_key: t.string.optional(),
   concurrency_limit: t.number.optional(),
-  // Defaults to the AWS_DEFAULTS_MODE environment variable, or defaults_mode in the AWS shared
-  // config file.
+  // Defaults to the AWS_DEFAULTS_MODE environment variable.
   defaults_mode: S3DefaultsMode.optional(),
   // Chunks whose BSON-serialized size falls below this byte threshold
   // stay inline in MongoDB instead of being offloaded to S3. Default 1024.

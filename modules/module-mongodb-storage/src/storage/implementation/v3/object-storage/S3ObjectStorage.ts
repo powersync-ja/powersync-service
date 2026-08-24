@@ -31,9 +31,9 @@ const SAFE_S3_KEY_BYTES = 896;
 /**
  * Timeouts are derived from the AWS defaults mode, rather than being individually configurable.
  *
- * The mode - AWS_DEFAULTS_MODE, defaults_mode in the AWS shared config file, or the defaults_mode
- * storage option - describes the expected latency between this service and the object storage
- * endpoint. We use the connection timeout it defines as the baseline for the other timeouts:
+ * The mode - AWS_DEFAULTS_MODE or the defaults_mode storage option - describes the expected latency
+ * between this service and the object storage endpoint. We use the connection timeout it defines
+ * as the baseline for the other timeouts:
  *
  * | mode                   | connection | request | operation | queue |
  * | ---------------------- | ---------- | ------- | --------- | ----- |
