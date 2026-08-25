@@ -900,9 +900,13 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       addCollectionSize(collection, source_record_aggregates[index], 'source_records_', collectionSizes)
     );
 
-    const syncConfigIds = v3StreamDocs.flatMap((stream) => stream.sync_configs.map((config) => config._id));
+    const syncConfigIds = v3StreamDocs.flatMap((stream) => (stream.sync_configs ?? []).map((config) => config._id));
     const syncConfigDefinitions =
-      syncConfigIds.length == 0 ? [] : await v3Db.syncConfigDefinitions.find({ _id: { $in: syncConfigIds } }).toArray();
+      syncConfigIds.length == 0
+        ? []
+        : await v3Db.syncConfigDefinitions
+            .find({ _id: { $in: syncConfigIds } }, { projection: { _id: 1, rule_mapping: 1 } })
+            .toArray();
     const syncConfigDefinitionsById = new Map(
       syncConfigDefinitions.map((definition) => [definition._id.toHexString(), definition])
     );
@@ -929,13 +933,13 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       );
     }
 
-    const sumCollectionSizes = (prefix: string, streamId: number, ids: string[]) =>
-      ids.reduce((total, id) => total + (collectionSizes.get(`${prefix}${streamId}:${id}`) ?? 0), 0);
+    const sumCollectionSizes = (prefix: string, streamId: number, ids: ReadonlySet<string>) =>
+      [...ids].reduce((total, id) => total + (collectionSizes.get(`${prefix}${streamId}:${id}`) ?? 0), 0);
 
     const syncConfigMetrics: storage.StorageSyncConfigMetrics[] = [];
     for (const stream of v3StreamDocs) {
       const sourceTables = sourceTablesByStream.get(stream._id) ?? [];
-      for (const syncConfig of stream.sync_configs) {
+      for (const syncConfig of stream.sync_configs ?? []) {
         const definition = syncConfigDefinitionsById.get(syncConfig._id.toHexString());
         if (definition == null) {
           continue;
@@ -959,10 +963,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         syncConfigMetrics.push({
           sync_config_id: syncConfig._id.toHexString(),
           sync_config_state: String(syncConfig.state),
-          operations_size_bytes: sumCollectionSizes('bucket_data_', stream._id, bucketDefinitionIds),
-          parameters_size_bytes: sumCollectionSizes('parameter_index_', stream._id, parameterIndexIds),
+          operations_size_bytes: sumCollectionSizes('bucket_data_', stream._id, bucketDefinitionIdSet),
+          parameters_size_bytes: sumCollectionSizes('parameter_index_', stream._id, parameterIndexIdSet),
           replication_size_bytes: replicationSize,
-          object_storage_size_bytes: bucketDefinitionIds.reduce(
+          object_storage_size_bytes: [...bucketDefinitionIdSet].reduce(
             (total, definitionId) => total + (objectStorageSizeByDefinition.get(`${stream._id}:${definitionId}`) ?? 0),
             0
           )

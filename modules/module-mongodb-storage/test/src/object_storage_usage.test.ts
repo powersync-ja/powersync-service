@@ -205,8 +205,8 @@ describe('ObjectStorageUsage', () => {
         await usage.removeStream(session);
       });
 
-      await expect(ObjectStorageUsage.readAllStreamUsage(db)).resolves.toEqual([
-        { replication_stream_id: otherStreamId, active_bytes: 50n }
+      await expect(ObjectStorageUsage.readAllDefinitionUsage(db)).resolves.toEqual([
+        { replication_stream_id: otherStreamId, definition_id: definitionId, active_bytes: 50n }
       ]);
     });
   });

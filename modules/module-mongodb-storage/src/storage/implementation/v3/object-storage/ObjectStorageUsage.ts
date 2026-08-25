@@ -103,19 +103,6 @@ export class ObjectStorageUsage {
     });
   }
 
-  static async readAllStreamUsage(db: VersionedPowerSyncMongoV3): Promise<ReplicationStreamObjectStorageUsageResult[]> {
-    const definitionUsage = await this.readAllDefinitionUsage(db);
-    const totals = new Map<number, bigint>();
-    for (const entry of definitionUsage) {
-      totals.set(entry.replication_stream_id, (totals.get(entry.replication_stream_id) ?? 0n) + entry.active_bytes);
-    }
-
-    return [...totals].map(([replicationStreamId, activeBytes]) => ({
-      replication_stream_id: replicationStreamId,
-      active_bytes: activeBytes
-    }));
-  }
-
   async applyDelta(definitionId: BucketDefinitionId, delta: bigint, session: mongo.ClientSession): Promise<void> {
     await this.applyDeltas(new Map([[definitionId, delta]]), session);
   }

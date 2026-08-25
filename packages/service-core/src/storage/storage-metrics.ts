@@ -89,13 +89,17 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
     | 'replication_size_bytes'
     | 'object_storage_size_bytes';
 
-  const nonNegative = (value: number | undefined) => (value == null ? value : Math.max(0, value));
+  function nonNegative(value: number): number;
+  function nonNegative(value: number | undefined): number | undefined;
+  function nonNegative(value: number | undefined) {
+    return value == null ? value : Math.max(0, value);
+  }
 
   const observationsForSyncConfigs = (metrics: StorageMetrics, key: StorageSizeMetricKey) => {
     const observations: { value: number; attributes?: Record<string, string> }[] = [];
     for (const syncConfig of metrics.sync_config_metrics ?? []) {
       observations.push({
-        value: nonNegative(syncConfig[key])!,
+        value: nonNegative(syncConfig[key]),
         attributes: {
           sync_config_id: syncConfig.sync_config_id,
           sync_config_state: syncConfig.sync_config_state
