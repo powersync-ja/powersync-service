@@ -2,6 +2,7 @@ import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, compactActive, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
+import { MongoSyncBucketStorageV3 } from '../../src/storage/implementation/v3/MongoSyncBucketStorageV3.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { ObjectStorageError } from '../../src/storage/implementation/v3/object-storage/ObjectStorage.js';
 import { env } from './env.js';
@@ -26,6 +27,17 @@ function memoryS3Factory(options: { inlineThresholdBytes?: number } = {}) {
     inlineThresholdBytes: options.inlineThresholdBytes ?? 0
   });
   return { memoryStorage: objectStorage, factory: factoryGen };
+}
+
+async function expectUsageMatchesBucketData(bucketStorage: MongoSyncBucketStorage, definitionId: string) {
+  const v3BucketStorage = bucketStorage as MongoSyncBucketStorageV3;
+  const db = v3BucketStorage.db as VersionedPowerSyncMongoV3;
+  const documents = await db.bucketData(v3BucketStorage.replicationStreamId, definitionId).find({}).toArray();
+  const expectedBytes = documents.reduce((sum, document) => sum + BigInt(document.storage_ref?.file_size ?? 0), 0n);
+  await expect(v3BucketStorage.getObjectStorageUsage()).resolves.toEqual({
+    replication_stream_id: v3BucketStorage.replicationStreamId,
+    active_bytes: expectedBytes
+  });
 }
 
 describe('S3 compaction storage lifecycle', () => {
@@ -121,6 +133,103 @@ describe('S3 compaction storage lifecycle', () => {
     expect(docs[0].storage_ref).toBeUndefined();
     expect(docs[0].ops).toBeDefined();
     expect(memoryStorage.store.size).toBe(0);
+    await expectUsageMatchesBucketData(bucketStorage, definitionId);
+  });
+
+  test('boundary CLEAR replacement updates active object-storage usage', async () => {
+    const { factory: factoryGen } = memoryS3Factory();
+    await using factory = await factoryGen.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 11);
+    await writer.markAllSnapshotDone('1/1');
+    for (const [index, description] of ['first', 'second', 'latest'].entries()) {
+      await writer.save({
+        sourceTable,
+        tag: index === 0 ? storage.SaveOperationTag.INSERT : storage.SaveOperationTag.UPDATE,
+        after: { id: 'A', description: description.repeat(100) },
+        afterReplicaId: test_utils.rid('A')
+      });
+    }
+    await writer.commit('1/1');
+
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
+    const checkpoint = await bucketStorage.getCheckpoint();
+    await compactActive(factory, {
+      maxOpId: checkpoint.checkpoint,
+      compactBuckets: [request.bucket],
+      minBucketChanges: 1,
+      minChangeRatio: 0
+    });
+
+    const batch = await test_utils.getBatchArray(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const data = batch.flatMap((chunk) => chunk.chunkData.data);
+    expect(data.some((op: any) => op.op === 'CLEAR')).toBe(true);
+    await expectUsageMatchesBucketData(bucketStorage, definitionId);
+  });
+
+  test('leading and boundary CLEAR replacements update active object-storage usage', async () => {
+    const { factory: factoryGen } = memoryS3Factory();
+    await using factory = await factoryGen.factory();
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 12);
+    await writer.markAllSnapshotDone('1/1');
+
+    // The first and last A versions force a leading MOVE document. The
+    // middle document also contains a large surviving PUT, keeping it as the
+    // CLEAR boundary document rather than merging it with the leading group.
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'A', description: 'old' },
+      afterReplicaId: test_utils.rid('A')
+    });
+    await writer.commit('1/1');
+
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.UPDATE,
+      after: { id: 'A', description: 'middle' },
+      afterReplicaId: test_utils.rid('A')
+    });
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'B', description: 'b'.repeat(990_000) },
+      afterReplicaId: test_utils.rid('B')
+    });
+    await writer.commit('2/1');
+
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.UPDATE,
+      after: { id: 'A', description: 'latest'.repeat(10_000) },
+      afterReplicaId: test_utils.rid('A')
+    });
+    await writer.commit('3/1');
+
+    const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
+    const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
+    const checkpoint = await bucketStorage.getCheckpoint();
+    await compactActive(factory, {
+      maxOpId: checkpoint.checkpoint,
+      compactBuckets: [request.bucket],
+      clearBatchLimit: 2,
+      moveBatchQueryLimit: 1,
+      minBucketChanges: 1,
+      minChangeRatio: 0
+    });
+
+    const batch = await test_utils.getBatchArray(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const data = batch.flatMap((chunk) => chunk.chunkData.data);
+    expect(data.some((op: any) => op.op === 'CLEAR')).toBe(true);
+    await expectUsageMatchesBucketData(bucketStorage, definitionId);
   });
 
   test('MOVE compaction merges adjacent objects using their compacted size in one write', async () => {
@@ -195,6 +304,7 @@ describe('S3 compaction storage lifecycle', () => {
     // final replacement was uploaded. There was no intermediate MOVE-only
     // object before the merge.
     expect(objectStore.size).toBe(4);
+    await expectUsageMatchesBucketData(bucketStorage, definitionId);
   });
 
   test('compaction only retires S3 objects at or below the maxOpId horizon', async () => {
@@ -259,6 +369,7 @@ describe('S3 compaction storage lifecycle', () => {
 
     // Retired objects remain readable during the reference grace period.
     expect([...lowerPaths].every((path) => memoryStorage.store.has(path))).toBe(true);
+    await expectUsageMatchesBucketData(bucketStorage, definitionId);
 
     const batch = await test_utils.getBatchArray(bucketStorage.getBucketDataBatch(readCheckpoint, [request]));
     const data = batch.flatMap((chunk) => chunk.chunkData.data);
@@ -404,6 +515,7 @@ describe('S3 compaction storage lifecycle', () => {
     for (const path of afterS3Paths) {
       expect(storedPaths.has(path)).toBe(true);
     }
+    await expectUsageMatchesBucketData(bucketStorage, definitionId);
 
     // The replacement object is readable and contains the expected compacted
     // operation sequence.
