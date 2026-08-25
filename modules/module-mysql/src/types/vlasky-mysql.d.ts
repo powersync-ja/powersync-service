@@ -11,6 +11,11 @@ declare module '@vlasky/mysql' {
      * it is queued behind other queries on the connection.
      */
     query(options: { sql: string; timeout?: number }, callback: (error: any, results: any, fields: any) => void): void;
+    /**
+     * The connection is an EventEmitter. 'error' is emitted for fatal connection errors that have
+     * no pending query callback to receive them; an unhandled 'error' event crashes the process.
+     */
+    on(event: 'error' | 'unhandledError', listener: (error: any) => void): this;
   }
 
   export function createConnection(options: Record<string, unknown>): VlaskyConnection;

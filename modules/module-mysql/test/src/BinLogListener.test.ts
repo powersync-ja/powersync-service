@@ -170,6 +170,18 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
     await binLogListener.stop();
   });
 
+  test('Control connection errors stop the listener', { timeout: 20_000 }, async () => {
+    await binLogListener.start();
+
+    const replication = binLogListener.replicateUntilStopped();
+    // The driver emits 'error' when the socket fails while no query is pending. Without the
+    // forwarding set up in createBinlogListener, this event has no listener and crashes the process.
+    (binLogListener.controlConnection as any).emit('error', new Error('Control connection failure'));
+
+    await expect(replication).rejects.toThrow('Control connection failure');
+    expect(binLogListener.zongji.stopped).toBeTruthy();
+  });
+
   test('Zongji listener is stopped when processing queue reaches maximum memory size', async () => {
     const stopSpy = vi.spyOn(binLogListener.zongji, 'stop');
 

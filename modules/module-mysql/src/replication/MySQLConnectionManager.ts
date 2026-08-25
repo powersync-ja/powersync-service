@@ -80,6 +80,11 @@ export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerL
     });
     // The published ZongjiOptions type does not cover passing in an existing connection yet.
     const listener = new ZongJi(controlConnection as unknown as ZongjiOptions);
+    // Zongji only attaches these forwarding listeners to connections it creates itself. Without
+    // them, an error emitted by the idle control connection has no listener, which crashes the
+    // process.
+    controlConnection.on('error', (error) => listener.emit('error', error));
+    controlConnection.on('unhandledError', (error) => listener.emit('error', error));
 
     this.binlogListeners.push(listener);
     this.controlConnections.push(controlConnection);
