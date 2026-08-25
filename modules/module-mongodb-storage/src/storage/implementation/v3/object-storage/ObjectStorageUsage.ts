@@ -79,7 +79,7 @@ export class ObjectStorageUsage {
         )
         .toArray()
         .catch((error) => {
-          if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
             return [];
           }
           throw error;
@@ -178,7 +178,7 @@ export class ObjectStorageUsage {
       )
       .toArray()
       .catch((error) => {
-        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+        if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
           return [];
         }
         throw error;

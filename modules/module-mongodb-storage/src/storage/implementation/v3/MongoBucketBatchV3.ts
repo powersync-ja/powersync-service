@@ -134,7 +134,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         .sourceRecords(this.replicationStreamId, mongoTableId(table.id))
         .drop()
         .catch((error) => {
-          if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
             return;
           }
           throw error;

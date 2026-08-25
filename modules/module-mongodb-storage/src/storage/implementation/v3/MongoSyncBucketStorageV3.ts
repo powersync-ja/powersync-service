@@ -410,7 +410,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       .pendingObjectStorageDeletes(this.replicationStreamId)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
       .catch((error) => {
-        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+        if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
           return;
         }
         throw error;
@@ -438,7 +438,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       .bucketState(this.replicationStreamId)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
       .catch((error) => {
-        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+        if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
           return;
         }
         throw error;
@@ -450,7 +450,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       .sourceTables(this.replicationStreamId)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
       .catch((error) => {
-        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+        if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
           return;
         }
         throw error;

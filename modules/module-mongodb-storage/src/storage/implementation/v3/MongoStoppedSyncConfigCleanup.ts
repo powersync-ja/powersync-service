@@ -445,7 +445,7 @@ export class MongoStoppedSyncConfigCleanup {
     collection: lib_mongo.mongo.Collection<T>
   ): Promise<void> {
     await collection.drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }).catch((error) => {
-      if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+      if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
         return;
       }
       throw error;

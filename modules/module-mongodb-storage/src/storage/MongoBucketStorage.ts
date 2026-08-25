@@ -783,7 +783,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
   async getStorageMetrics(): Promise<storage.StorageMetrics> {
     const ignoreNotExisting = (e: unknown) => {
-      if (lib_mongo.isMongoServerError(e) && e.codeName == 'NamespaceNotFound') {
+      if (lib_mongo.isMongoNamespaceNotFoundError(e)) {
         // Collection doesn't exist - return 0
         return [{ storageStats: { size: 0 } }];
       } else {
