@@ -1,7 +1,13 @@
 import { Logger, ReplicationAssertionError, logger as defaultLogger } from '@powersync/lib-services-framework';
-import { BinLogEvent, BinLogQueryEvent, StartOptions, TableMapEntry, ZongJi } from '@powersync/mysql-zongji';
+import {
+  BinLogEvent,
+  BinLogQueryEvent,
+  MySQLConnection,
+  StartOptions,
+  TableMapEntry,
+  ZongJi
+} from '@powersync/mysql-zongji';
 import { TablePattern } from '@powersync/service-sync-rules';
-import { VlaskyConnection } from '@vlasky/mysql';
 import async from 'async';
 import pkg, {
   AST,
@@ -131,7 +137,7 @@ export class BinLogListener {
    *  it ourselves so that we keep a handle on it for liveness probes and cleanup: Zongji does not
    *  destroy connections it did not create.
    */
-  controlConnection: VlaskyConnection;
+  controlConnection: MySQLConnection;
   processingQueue: async.QueueObject<BinLogEvent>;
 
   /**

@@ -416,8 +416,8 @@ importers:
         specifier: workspace:*
         version: link:../../libs/lib-services
       '@powersync/mysql-zongji':
-        specifier: ^0.6.0
-        version: 0.6.0
+        specifier: ^0.6.2
+        version: 0.6.2
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../../packages/service-core
@@ -1926,9 +1926,9 @@ packages:
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
 
-  '@powersync/mysql-zongji@0.6.0':
-    resolution: {integrity: sha512-iLWHTqDtoSmZye3Zh4TpKohFL+teqzoi+MGeFlmE6AAN50LeGm3XhJ+aWTGbheOjv7ZLildt+7SXlH4o4idZaw==}
-    engines: {node: '>=22.0.0'}
+  '@powersync/mysql-zongji@0.6.2':
+    resolution: {integrity: sha512-sQEovzrzP84H6Oy76kS1Gqk5qwR5+9l0wEJ5qNhqxK31oGJ96TTE95ALievVDNrUUygQ5HyOHQ8/X2tvepfefA==}
+    engines: {node: '>=24.0.0'}
 
   '@prisma/instrumentation@6.13.0':
     resolution: {integrity: sha512-b97b0sBycGh89RQcqobSgjGl3jwPaC5cQIOFod6EX1v0zIxlXPmL3ckSXxoHpy+Js0QV/tgCzFvqicMJCtezBA==}
@@ -5687,7 +5687,7 @@ snapshots:
 
   '@polka/url@1.0.0-next.29': {}
 
-  '@powersync/mysql-zongji@0.6.0':
+  '@powersync/mysql-zongji@0.6.2':
     dependencies:
       '@vlasky/mysql': 2.18.6
       big-integer: 1.6.52

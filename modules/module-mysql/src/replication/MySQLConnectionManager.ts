@@ -1,6 +1,6 @@
 import { BaseObserver, logger } from '@powersync/lib-services-framework';
-import { ZongJi, ZongjiOptions } from '@powersync/mysql-zongji';
-import { createConnection, VlaskyConnection } from '@vlasky/mysql';
+import { MySQLConnection, ZongJi } from '@powersync/mysql-zongji';
+import { createConnection } from '@vlasky/mysql';
 import mysql, { FieldPacket, RowDataPacket } from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import { NormalizedMySQLConnectionConfig } from '../types/types.js';
@@ -17,7 +17,7 @@ export interface BinlogListenerConnections {
    *  Created by us so that we keep a handle on it: Zongji does not destroy connections it did not
    *  create, so the owner of the BinLogListener is responsible for destroying it.
    */
-  controlConnection: VlaskyConnection;
+  controlConnection: MySQLConnection;
 }
 
 export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerListener> {
@@ -31,7 +31,7 @@ export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerL
   private readonly promisePool: mysqlPromise.Pool;
 
   private binlogListeners: ZongJi[] = [];
-  private controlConnections: VlaskyConnection[] = [];
+  private controlConnections: MySQLConnection[] = [];
 
   private isClosed = false;
 
@@ -78,8 +78,7 @@ export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerL
       dateStrings: true,
       timeZone: 'Z'
     });
-    // The published ZongjiOptions type does not cover passing in an existing connection yet.
-    const listener = new ZongJi(controlConnection as unknown as ZongjiOptions);
+    const listener = new ZongJi(controlConnection);
     // Zongji only attaches these forwarding listeners to connections it creates itself. Without
     // them, an error emitted by the idle control connection has no listener, which crashes the
     // process.

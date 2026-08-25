@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@powersync/lib-services-framework": "workspace:*",
-    "@powersync/mysql-zongji": "^0.6.0",
+    "@powersync/mysql-zongji": "^0.6.2",
     "@powersync/service-core": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
