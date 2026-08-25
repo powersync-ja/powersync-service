@@ -234,9 +234,10 @@ export interface StorageRef {
 }
 
 export interface ObjectStorageUsageDocument {
-  _id: bson.ObjectId;
-  replication_stream_id: number;
-  writer_id: string;
+  _id: {
+    g: number;
+    w: string;
+  };
   updated_at: Date;
   definitions: Record<BucketDefinitionId, bigint>;
 }

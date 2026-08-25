@@ -131,15 +131,5 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
         partialFilterExpression: { next_compact_check: { $exists: true } }
       }
     );
-    await this.objectStorageUsage.createIndex(
-      {
-        replication_stream_id: 1,
-        writer_id: 1
-      },
-      {
-        name: 'replication_stream_writer',
-        unique: true
-      }
-    );
   }
 }

@@ -1,9 +1,8 @@
-import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { randomUUID } from 'node:crypto';
-import { BucketDataDocumentV3 } from '../models.js';
+import { BucketDataDocumentV3, ObjectStorageUsageDocument } from '../models.js';
 import { VersionedPowerSyncMongoV3 } from '../VersionedPowerSyncMongoV3.js';
 
 export const OBJECT_STORAGE_USAGE_BASE_WRITER_ID = '__base__';
@@ -79,17 +78,10 @@ export class ObjectStorageUsage {
     }
 
     await this.db.objectStorageUsage.updateOne(
-      {
-        replication_stream_id: this.replicationStreamId,
-        writer_id: this.writerId
-      },
+      { _id: this.documentId() },
       {
         $inc: increments,
-        $currentDate: { updated_at: true },
-        $setOnInsert: {
-          replication_stream_id: this.replicationStreamId,
-          writer_id: this.writerId
-        }
+        $currentDate: { updated_at: true }
       },
       { upsert: true, session }
     );
@@ -113,7 +105,7 @@ export class ObjectStorageUsage {
     const entries = await this.db.objectStorageUsage
       .aggregate<{ _id: BucketDefinitionId; active_bytes: bigint }>(
         [
-          { $match: { replication_stream_id: this.replicationStreamId } },
+          { $match: { '_id.g': this.replicationStreamId } },
           { $project: { definitions: { $objectToArray: '$definitions' } } },
           { $unwind: '$definitions' },
           {
@@ -136,14 +128,14 @@ export class ObjectStorageUsage {
 
   async removeDefinition(definitionId: BucketDefinitionId, session: mongo.ClientSession): Promise<void> {
     await this.db.objectStorageUsage.updateMany(
-      { replication_stream_id: this.replicationStreamId },
+      { '_id.g': this.replicationStreamId },
       { $unset: { [this.definitionPath(definitionId)]: 1 } },
       { session }
     );
   }
 
   async removeStream(session: mongo.ClientSession): Promise<void> {
-    await this.db.objectStorageUsage.deleteMany({ replication_stream_id: this.replicationStreamId }, { session });
+    await this.db.objectStorageUsage.deleteMany({ '_id.g': this.replicationStreamId }, { session });
   }
 
   async foldStaleWriterDeltas(
@@ -158,75 +150,62 @@ export class ObjectStorageUsage {
       return;
     }
 
-    const folderLock = new lib_mongo.locks.MongoLockManager({
-      collection: this.db.locks,
-      name: `object-storage-usage-fold-${this.replicationStreamId}`
-    });
-    await folderLock.lock(() =>
-      this.db.client.withSession((session) =>
-        session.withTransaction(
-          async () => {
-            const staleDocuments = await this.db.objectStorageUsage
-              .find(
-                {
-                  replication_stream_id: this.replicationStreamId,
-                  writer_id: { $ne: OBJECT_STORAGE_USAGE_BASE_WRITER_ID },
-                  $expr: {
-                    $lt: [
-                      '$updated_at',
-                      { $dateSubtract: { startDate: '$$NOW', unit: 'millisecond', amount: staleWriterMs } }
-                    ]
-                  }
-                },
-                { session, sort: { updated_at: 1 }, limit }
-              )
-              .toArray();
-            if (staleDocuments.length === 0) {
-              return;
-            }
-
-            const deltas = new Map<BucketDefinitionId, bigint>();
-            for (const document of staleDocuments) {
-              for (const [definitionId, delta] of Object.entries(document.definitions ?? {})) {
-                this.validateDefinitionId(definitionId);
-                deltas.set(definitionId, (deltas.get(definitionId) ?? 0n) + BigInt(delta));
-              }
-            }
-
-            const increments: Record<string, bigint> = {};
-            for (const [definitionId, delta] of deltas) {
-              if (delta !== 0n) {
-                increments[this.definitionPath(definitionId)] = delta;
-              }
-            }
-            if (Object.keys(increments).length > 0) {
-              await this.db.objectStorageUsage.updateOne(
-                {
-                  replication_stream_id: this.replicationStreamId,
-                  writer_id: OBJECT_STORAGE_USAGE_BASE_WRITER_ID
-                },
-                {
-                  $inc: increments,
-                  $currentDate: { updated_at: true },
-                  $setOnInsert: {
-                    replication_stream_id: this.replicationStreamId,
-                    writer_id: OBJECT_STORAGE_USAGE_BASE_WRITER_ID
-                  }
-                },
-                { upsert: true, session }
-              );
-            }
-
-            await this.db.objectStorageUsage.deleteMany(
+    await this.db.client.withSession((session) =>
+      session.withTransaction(
+        async () => {
+          const staleDocuments = await this.db.objectStorageUsage
+            .find(
               {
-                replication_stream_id: this.replicationStreamId,
-                _id: { $in: staleDocuments.map((document) => document._id) }
+                '_id.g': this.replicationStreamId,
+                '_id.w': { $ne: OBJECT_STORAGE_USAGE_BASE_WRITER_ID },
+                $expr: {
+                  $lt: [
+                    '$updated_at',
+                    { $dateSubtract: { startDate: '$$NOW', unit: 'millisecond', amount: staleWriterMs } }
+                  ]
+                }
               },
-              { session }
+              { session, sort: { updated_at: 1 }, limit }
+            )
+            .toArray();
+          if (staleDocuments.length === 0) {
+            return;
+          }
+
+          const deltas = new Map<BucketDefinitionId, bigint>();
+          for (const document of staleDocuments) {
+            for (const [definitionId, delta] of Object.entries(document.definitions ?? {})) {
+              this.validateDefinitionId(definitionId);
+              deltas.set(definitionId, (deltas.get(definitionId) ?? 0n) + BigInt(delta));
+            }
+          }
+
+          const increments: Record<string, bigint> = {};
+          for (const [definitionId, delta] of deltas) {
+            if (delta !== 0n) {
+              increments[this.definitionPath(definitionId)] = delta;
+            }
+          }
+          if (Object.keys(increments).length > 0) {
+            await this.db.objectStorageUsage.updateOne(
+              { _id: this.documentId(OBJECT_STORAGE_USAGE_BASE_WRITER_ID) },
+              {
+                $inc: increments,
+                $currentDate: { updated_at: true }
+              },
+              { upsert: true, session }
             );
-          },
-          { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' } }
-        )
+          }
+
+          await this.db.objectStorageUsage.deleteMany(
+            {
+              '_id.g': this.replicationStreamId,
+              _id: { $in: staleDocuments.map((document) => document._id) }
+            },
+            { session }
+          );
+        },
+        { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' } }
       )
     );
   }
@@ -234,6 +213,16 @@ export class ObjectStorageUsage {
   private definitionPath(definitionId: BucketDefinitionId): string {
     this.validateDefinitionId(definitionId);
     return `definitions.${definitionId}`;
+  }
+
+  private documentId(writerId = this.writerId): ObjectStorageUsageDocument['_id'] {
+    if (writerId == null) {
+      throw new ReplicationAssertionError('A writer id is required to identify object-storage usage');
+    }
+    return {
+      g: this.replicationStreamId,
+      w: writerId
+    };
   }
 
   private validateDefinitionId(definitionId: BucketDefinitionId): void {
