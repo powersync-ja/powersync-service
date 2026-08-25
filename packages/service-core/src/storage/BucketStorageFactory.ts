@@ -141,6 +141,25 @@ export interface StorageMetrics {
    * Size of current_data.
    */
   replication_size_bytes: number;
+
+  /**
+   * Size of active object-storage references, such as S3 bucket-data objects.
+   */
+  object_storage_size_bytes?: number;
+
+  /**
+   * Per-replication-stream storage sizes, when the storage backend can provide them.
+   */
+  stream_metrics?: StorageStreamMetrics[];
+}
+
+export interface StorageStreamMetrics {
+  replication_stream_id: number;
+  stream_state: string;
+  operations_size_bytes: number;
+  parameters_size_bytes: number;
+  replication_size_bytes: number;
+  object_storage_size_bytes: number;
 }
 
 export interface UpdateSyncRulesOptions {

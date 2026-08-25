@@ -26,8 +26,14 @@ export enum ReplicationMetric {
 export enum StorageMetric {
   // Size of current replication data stored in PowerSync
   REPLICATION_SIZE_BYTES = 'powersync_replication_storage_size_bytes',
+  REPLICATION_SIZE_BYTES_BY_STREAM = 'powersync_replication_storage_size_bytes_by_stream',
   // Size of operations data stored in PowerSync
   OPERATION_SIZE_BYTES = 'powersync_operation_storage_size_bytes',
+  OPERATION_SIZE_BYTES_BY_STREAM = 'powersync_operation_storage_size_bytes_by_stream',
   // Size of parameter data stored in PowerSync
-  PARAMETER_SIZE_BYTES = 'powersync_parameter_storage_size_bytes'
+  PARAMETER_SIZE_BYTES = 'powersync_parameter_storage_size_bytes',
+  PARAMETER_SIZE_BYTES_BY_STREAM = 'powersync_parameter_storage_size_bytes_by_stream',
+  // Size of active S3 object-storage references stored in PowerSync
+  OBJECT_STORAGE_SIZE_BYTES = 'powersync_object_storage_size_bytes',
+  OBJECT_STORAGE_SIZE_BYTES_BY_STREAM = 'powersync_object_storage_size_bytes_by_stream'
 }

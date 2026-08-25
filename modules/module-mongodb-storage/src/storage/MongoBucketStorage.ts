@@ -794,9 +794,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       }
     };
 
-    // For now, we get storage metrics over all v1 and v3 collections.
-    // In the future, we may split these metrics to report separately for active replication streams versus processing streams.
-
     const aggregateStaticCollection = async <T extends mongo.Document>(collection: mongo.Collection<T>) => {
       // We check whether the collection exists before getting the statistics. This avoids repeated
       // errors in the MongoDB logs if the collection hasn't been created yet.
@@ -820,8 +817,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     };
 
     const operations_aggregate = await aggregateStaticCollection(this.db.bucket_data);
+    const v3OperationCollections = await this.db.listBucketDataCollectionsV3();
     const v3_operation_aggregates = await Promise.all(
-      (await this.db.listBucketDataCollectionsV3()).map((collection) =>
+      v3OperationCollections.map((collection) =>
         collection
           .aggregate([
             {
@@ -837,8 +835,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     const parameters_aggregate = await aggregateStaticCollection(this.db.bucket_parameters);
 
+    const v3ParameterCollections = await this.db.listAllParameterIndexCollectionsV3();
     const v3_parameter_aggregates = await Promise.all(
-      (await this.db.listAllParameterIndexCollectionsV3()).map((collection) =>
+      v3ParameterCollections.map((collection) =>
         collection
           .aggregate([
             {
@@ -854,8 +853,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     const v1_source_record_aggregate = await aggregateStaticCollection(this.db.current_data);
 
+    const v3SourceRecordCollections = await this.db.listAllSourceRecordCollectionsV3();
     const source_record_aggregates = await Promise.all(
-      (await this.db.listAllSourceRecordCollectionsV3()).map((collection) =>
+      v3SourceRecordCollections.map((collection) =>
         collection
           .aggregate([
             {
@@ -868,6 +868,62 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           .catch(ignoreNotExisting)
       )
     );
+
+    const v3StorageConfig = getMongoStorageConfig(storage.STORAGE_VERSION_3) as StorageConfig & {
+      incrementalReprocessing: true;
+    };
+    const v3Db = this.db.versioned(v3StorageConfig) as VersionedPowerSyncMongoV3;
+    const objectStorageUsage = await ObjectStorageUsage.readAllStreamUsage(v3Db);
+    const objectStorageUsageByStream = new Map(
+      objectStorageUsage.map((usage) => [usage.replication_stream_id, usage.active_bytes])
+    );
+
+    const v3StreamDocs = await this.db.sync_rules
+      .find(
+        { storage_version: { $gte: storage.STORAGE_VERSION_3 } },
+        { projection: { _id: 1, state: 1, storage_version: 1 } }
+      )
+      .toArray();
+    const streamMetrics = new Map<number, storage.StorageStreamMetrics>();
+    for (const stream of v3StreamDocs) {
+      streamMetrics.set(stream._id, {
+        replication_stream_id: stream._id,
+        stream_state: String(stream.state),
+        operations_size_bytes: 0,
+        parameters_size_bytes: 0,
+        replication_size_bytes: 0,
+        object_storage_size_bytes: Number(objectStorageUsageByStream.get(stream._id) ?? 0n)
+      });
+    }
+
+    const addStreamCollectionSize = (
+      collection: { collectionName: string },
+      aggregate: { storageStats?: { size?: number | bigint } }[],
+      prefix: string,
+      key: 'operations_size_bytes' | 'parameters_size_bytes' | 'replication_size_bytes'
+    ) => {
+      const match = collection.collectionName.match(new RegExp(`^${prefix}(\\d+)_`));
+      if (match == null) {
+        return;
+      }
+      const stream = streamMetrics.get(Number(match[1]));
+      if (stream == null) {
+        return;
+      }
+      stream[key] += Number(aggregate[0]?.storageStats?.size ?? 0);
+    };
+
+    v3OperationCollections.forEach((collection, index) =>
+      addStreamCollectionSize(collection, v3_operation_aggregates[index], 'bucket_data_', 'operations_size_bytes')
+    );
+    v3ParameterCollections.forEach((collection, index) =>
+      addStreamCollectionSize(collection, v3_parameter_aggregates[index], 'parameter_index_', 'parameters_size_bytes')
+    );
+    v3SourceRecordCollections.forEach((collection, index) =>
+      addStreamCollectionSize(collection, source_record_aggregates[index], 'source_records_', 'replication_size_bytes')
+    );
+
+    const totalObjectStorageSize = objectStorageUsage.reduce((total, usage) => total + usage.active_bytes, 0n);
     return {
       operations_size_bytes:
         Number(operations_aggregate[0].storageStats.size) +
@@ -877,7 +933,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         v3_parameter_aggregates.reduce((total, aggregate) => total + Number(aggregate[0].storageStats.size), 0),
       replication_size_bytes:
         Number(v1_source_record_aggregate[0]?.storageStats?.size ?? 0) +
-        source_record_aggregates.reduce((total, aggregate) => total + Number(aggregate[0]?.storageStats?.size ?? 0), 0)
+        source_record_aggregates.reduce((total, aggregate) => total + Number(aggregate[0]?.storageStats?.size ?? 0), 0),
+      object_storage_size_bytes: Number(totalObjectStorageSize),
+      stream_metrics: [...streamMetrics.values()]
     };
   }
 

@@ -1,3 +1,4 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
@@ -55,6 +56,69 @@ export class ObjectStorageUsage {
       delta += ObjectStorageUsage.bytes(document);
     }
     return delta;
+  }
+
+  static async readAllStreamUsage(db: VersionedPowerSyncMongoV3): Promise<ReplicationStreamObjectStorageUsageResult[]> {
+    return db.client.withSession({ snapshot: true }, async (session) => {
+      const exists =
+        (await db.db.listCollections({ name: db.objectStorageUsage.collectionName }, { nameOnly: true }).toArray())
+          .length > 0;
+      if (!exists) {
+        return [];
+      }
+
+      const entries = await db.objectStorageUsage
+        .aggregate<{
+          _id: { replication_stream_id: number; definition_id: BucketDefinitionId };
+          active_bytes: bigint;
+        }>(
+          [
+            { $project: { replication_stream_id: '$_id.g', definitions: { $objectToArray: '$definitions' } } },
+            { $unwind: '$definitions' },
+            {
+              $group: {
+                _id: {
+                  replication_stream_id: '$replication_stream_id',
+                  definition_id: '$definitions.k'
+                },
+                active_bytes: { $sum: '$definitions.v' }
+              }
+            }
+          ],
+          { session, readConcern: 'snapshot' }
+        )
+        .toArray()
+        .catch((error) => {
+          if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+            return [];
+          }
+          throw error;
+        });
+
+      const totals = new Map<number, bigint>();
+      for (const entry of entries) {
+        const activeBytes = BigInt(entry.active_bytes ?? 0);
+        if (activeBytes < 0n) {
+          throw new ReplicationAssertionError(
+            `Negative active object-storage usage for definition ${entry._id.definition_id} ` +
+              `in stream ${entry._id.replication_stream_id}: ${activeBytes}`
+          );
+        }
+        totals.set(entry._id.replication_stream_id, (totals.get(entry._id.replication_stream_id) ?? 0n) + activeBytes);
+      }
+
+      return [...totals].map(([replicationStreamId, activeBytes]) => {
+        if (activeBytes < 0n) {
+          throw new ReplicationAssertionError(
+            `Negative active object-storage usage for stream ${replicationStreamId}: ${activeBytes}`
+          );
+        }
+        return {
+          replication_stream_id: replicationStreamId,
+          active_bytes: activeBytes
+        };
+      });
+    });
   }
 
   async applyDelta(definitionId: BucketDefinitionId, delta: bigint, session: mongo.ClientSession): Promise<void> {
@@ -117,7 +181,13 @@ export class ObjectStorageUsage {
         ],
         { session, readConcern: 'snapshot' }
       )
-      .toArray();
+      .toArray()
+      .catch((error) => {
+        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          return [];
+        }
+        throw error;
+      });
 
     return entries.map((entry) => {
       const activeBytes = BigInt(entry.active_bytes ?? 0);
