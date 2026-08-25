@@ -728,7 +728,6 @@ export class PostgresSyncRulesStorage
 
       const currentWriteCheckpoint = await this.lastWriteCheckpoint({
         user_id,
-        syncConfig: options.syncConfig,
         heads: {
           ...lsnFilters
         }

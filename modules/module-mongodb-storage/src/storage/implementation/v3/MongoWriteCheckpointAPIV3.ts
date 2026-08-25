@@ -5,7 +5,7 @@ import {
   SingleSyncConfigBucketDefinitionMapping,
   storage
 } from '@powersync/service-core';
-import { EventDefinitionId, HydratedSyncConfig } from '@powersync/service-sync-rules';
+import { EventDefinitionId } from '@powersync/service-sync-rules';
 import { MongoCheckpointAPIOptions, MongoWriteCheckpointAPI } from '../MongoWriteCheckpointAPI.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
@@ -28,20 +28,17 @@ export class MongoWriteCheckpointAPIV3 extends MongoWriteCheckpointAPI {
     this._customWriteCheckpointEventName = this.requireCustomEventName(options.writeCheckpointMode);
   }
 
-  protected resolveEventId(syncConfig: HydratedSyncConfig): EventDefinitionId {
+  protected resolveEventId(): EventDefinitionId {
     const eventName = this._customWriteCheckpointEventName;
     if (!eventName) {
       throw new ServiceAssertionError(`No eventName has been supplied via setWriteCheckpointMode.`);
-    }
-    if (!syncConfig.eventDescriptors.some((event) => event.name == eventName)) {
-      throw new ServiceAssertionError(`Unknown custom checkpoint event definition ${eventName}`);
     }
     return this.syncConfigMapping().eventDefinitionIdByName(eventName);
   }
 
   protected override async lastCustomWriteCheckpoint(filters: CustomWriteCheckpointFilters): Promise<bigint | null> {
-    const { user_id, syncConfig } = filters;
-    const eventId = this.resolveEventId(syncConfig);
+    const { user_id } = filters;
+    const eventId = this.resolveEventId();
 
     const lastWriteCheckpoint = await this.db
       .customCheckpointRequests({
@@ -76,7 +73,7 @@ export class MongoWriteCheckpointAPIV3 extends MongoWriteCheckpointAPI {
   protected override async getCustomWriteCheckpointChanges(
     options: GetCheckpointChangesOptions
   ): Promise<{ invalidateWriteCheckpoints: boolean; updatedWriteCheckpoints: Map<string, bigint> }> {
-    const eventId = this.resolveEventId(options.syncConfig);
+    const eventId = this.resolveEventId();
 
     const limit = 1000;
     const changes = await this.db

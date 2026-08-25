@@ -1,4 +1,4 @@
-import { EventDefinitionId, HydratedSyncConfig } from '@powersync/service-sync-rules';
+import { EventDefinitionId } from '@powersync/service-sync-rules';
 
 export enum WriteCheckpointMode {
   /**
@@ -33,12 +33,7 @@ export interface ClientRequestedCheckpointOptions {
   checkpoint_request_id?: bigint;
 }
 
-export interface SyncStorageCustomWriteCheckpointFilters extends BaseWriteCheckpointIdentifier {
-  /**
-   * Active sync config served by this read operation.
-   */
-  syncConfig: HydratedSyncConfig;
-}
+export type SyncStorageCustomWriteCheckpointFilters = BaseWriteCheckpointIdentifier;
 
 export interface CustomWriteCheckpointFilters extends SyncStorageCustomWriteCheckpointFilters {
   /**

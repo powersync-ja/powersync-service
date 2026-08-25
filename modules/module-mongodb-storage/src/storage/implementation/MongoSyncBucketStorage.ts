@@ -480,7 +480,6 @@ export abstract class MongoSyncBucketStorage
         writeCheckpoint = await this.writeCheckpointAPI.lastWriteCheckpoint({
           sync_rules_id: this.replicationStreamId,
           user_id: options.user_id,
-          syncConfig: options.syncConfig,
           heads: {
             '1': nextCheckpoint.lsn
           }
@@ -506,8 +505,7 @@ export abstract class MongoSyncBucketStorage
       } else {
         const updates = await this.getCheckpointChanges({
           lastCheckpoint,
-          nextCheckpoint,
-          syncConfig: options.syncConfig
+          nextCheckpoint
         });
 
         let updatedWriteCheckpoint = updates.updatedWriteCheckpoints.get(options.user_id) ?? null;
@@ -515,7 +513,6 @@ export abstract class MongoSyncBucketStorage
           updatedWriteCheckpoint = await this.writeCheckpointAPI.lastWriteCheckpoint({
             sync_rules_id: this.replicationStreamId,
             user_id: options.user_id,
-            syncConfig: options.syncConfig,
             heads: {
               '1': nextCheckpoint.lsn!
             }

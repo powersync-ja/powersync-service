@@ -39,7 +39,6 @@ bucket_definitions:
     const iter = bucketStorage
       .watchCheckpointChanges({
         user_id: 'user1',
-        syncConfig: bucketStorage.getParsedSyncRules({ defaultSchema: 'public' }),
         signal: abortController.signal
       })
       [Symbol.asyncIterator]();
@@ -92,7 +91,6 @@ bucket_definitions:
     const iter = bucketStorage
       .watchCheckpointChanges({
         user_id: 'user1',
-        syncConfig: bucketStorage.getParsedSyncRules({ defaultSchema: 'public' }),
         signal: abortController.signal
       })
       [Symbol.asyncIterator]();
@@ -231,7 +229,6 @@ bucket_definitions:
     const iter = bucketStorage
       .watchCheckpointChanges({
         user_id: 'user1',
-        syncConfig: bucketStorage.getParsedSyncRules({ defaultSchema: 'public' }),
         signal: abortController.signal
       })
       [Symbol.asyncIterator]();
@@ -283,7 +280,6 @@ bucket_definitions:
     const iter = bucketStorage
       .watchCheckpointChanges({
         user_id: 'user1',
-        syncConfig: bucketStorage.getParsedSyncRules({ defaultSchema: 'public' }),
         signal: abortController.signal
       })
       [Symbol.asyncIterator]();
@@ -338,7 +334,6 @@ bucket_definitions:
     const iter = bucketStorage
       .watchCheckpointChanges({
         user_id: 'user1',
-        syncConfig: bucketStorage.getParsedSyncRules({ defaultSchema: 'public' }),
         signal: abortController.signal
       })
       [Symbol.asyncIterator]();
@@ -413,7 +408,6 @@ bucket_definitions:
         )
       );
       const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
-      const syncConfig = bucketStorage.getParsedSyncRules({ defaultSchema: 'public' });
       bucketStorage.setWriteCheckpointMode({
         mode: storage.WriteCheckpointMode.CUSTOM
       });
@@ -433,16 +427,16 @@ bucket_definitions:
       await writer.flush();
       await writer.keepalive('1/1');
 
-      await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'persistent', syncConfig })).resolves.toEqual(5n);
-      await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'temporary', syncConfig })).resolves.toEqual(6n);
+      await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'persistent' })).resolves.toEqual(5n);
+      await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'temporary' })).resolves.toEqual(6n);
 
       await compactActive(factory, {
         compactBuckets: [],
         deleteCheckpointRequestsBefore: new Date(Date.now() + 1_000)
       });
 
-      await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'persistent', syncConfig })).resolves.toEqual(5n);
-      await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'temporary', syncConfig })).resolves.toBeNull();
+      await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'persistent' })).resolves.toEqual(5n);
+      await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'temporary' })).resolves.toBeNull();
     }
   );
 }

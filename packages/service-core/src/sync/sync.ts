@@ -126,8 +126,7 @@ async function* streamResponseInner(
   const checkpointWatchController = new AbortController();
   const stream = bucketStorage.watchCheckpointChanges({
     user_id: checkpointUserId,
-    signal: AbortSignal.any([signal, checkpointWatchController.signal]),
-    syncConfig: syncRules
+    signal: AbortSignal.any([signal, checkpointWatchController.signal])
   });
   const newCheckpoints = stream[Symbol.asyncIterator]();
 

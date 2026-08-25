@@ -198,9 +198,9 @@ event_definitions:
           mode: storage.WriteCheckpointMode.CUSTOM,
           eventName: 'unknown-event'
         });
-        await expect(
-          bucketStorage.lastWriteCheckpoint({ user_id: 'user1', syncConfig: activeSyncConfig })
-        ).rejects.toThrow('Unknown custom checkpoint event definition unknown-event');
+        await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1' })).rejects.toThrow(
+          'No mapping found for event definition unknown-event'
+        );
 
         bucketStorage.setWriteCheckpointMode({
           mode: storage.WriteCheckpointMode.CUSTOM,
@@ -208,9 +208,7 @@ event_definitions:
         });
         // Reads before the first checkpoint must behave like an empty result;
         // they must not require the lazily-created collection to exist.
-        await expect(
-          bucketStorage.lastWriteCheckpoint({ user_id: 'user1', syncConfig: activeSyncConfig })
-        ).resolves.toBeNull();
+        await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1' })).resolves.toBeNull();
 
         await using invalidWriter = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
         invalidWriter.addCustomWriteCheckpoint({ user_id: 'invalid', checkpoint: 1n });
@@ -224,7 +222,6 @@ event_definitions:
         const iter = bucketStorage
           .watchCheckpointChanges({
             user_id: 'user1',
-            syncConfig: activeSyncConfig,
             signal: abortController.signal
           })
           [Symbol.asyncIterator]();
@@ -261,9 +258,7 @@ event_definitions:
         await expect(eventACollection.indexExists(['user_unique', 'op_id', 'checkpoint_requested_at'])).resolves.toBe(
           true
         );
-        await expect(
-          bucketStorage.lastWriteCheckpoint({ user_id: 'user1', syncConfig: activeSyncConfig })
-        ).resolves.toEqual(5n);
+        await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1' })).resolves.toEqual(5n);
         await expect(iter.next()).resolves.toMatchObject({
           done: false,
           value: { writeCheckpoint: 5n }
@@ -283,9 +278,7 @@ event_definitions:
           mode: storage.WriteCheckpointMode.CUSTOM,
           eventName: eventB.name
         });
-        await expect(
-          bucketStorage.lastWriteCheckpoint({ user_id: 'user1', syncConfig: activeSyncConfig })
-        ).resolves.toEqual(9n);
+        await expect(bucketStorage.lastWriteCheckpoint({ user_id: 'user1' })).resolves.toEqual(9n);
 
         writer.addCustomWriteCheckpoint({
           user_id: 'temporary',
@@ -366,8 +359,7 @@ event_definitions:
         });
         await expect(
           unchangedActiveStorage.lastWriteCheckpoint({
-            user_id: 'user1',
-            syncConfig: unchangedActiveStorage.getParsedSyncRules({ defaultSchema: 'public' })
+            user_id: 'user1'
           })
         ).resolves.toBe(5n);
 
@@ -384,8 +376,7 @@ event_definitions:
         // Until activation, reads still use the previous config's assigned id and collection.
         await expect(
           unchangedActiveStorage.lastWriteCheckpoint({
-            user_id: 'user1',
-            syncConfig: unchangedActiveStorage.getParsedSyncRules({ defaultSchema: 'public' })
+            user_id: 'user1'
           })
         ).resolves.toBe(5n);
 
@@ -399,8 +390,7 @@ event_definitions:
         });
         await expect(
           changedActiveStorage.lastWriteCheckpoint({
-            user_id: 'user1',
-            syncConfig: changedActiveStorage.getParsedSyncRules({ defaultSchema: 'public' })
+            user_id: 'user1'
           })
         ).resolves.toBe(9n);
       }

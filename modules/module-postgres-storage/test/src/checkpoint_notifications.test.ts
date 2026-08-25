@@ -46,7 +46,6 @@ bucket_definitions:
   const iterator = bucketStorage
     .watchCheckpointChanges({
       user_id: 'user',
-      syncConfig: bucketStorage.getParsedSyncRules({ defaultSchema: 'public' }),
       signal: abortController.signal
     })
     [Symbol.asyncIterator]();
@@ -155,7 +154,6 @@ bucket_definitions:
   const iterator = bucketStorage
     .watchCheckpointChanges({
       user_id: 'user',
-      syncConfig: bucketStorage.getParsedSyncRules({ defaultSchema: 'public' }),
       signal: abortController.signal
     })
     [Symbol.asyncIterator]();
