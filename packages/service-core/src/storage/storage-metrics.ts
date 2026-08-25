@@ -89,11 +89,13 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
     | 'replication_size_bytes'
     | 'object_storage_size_bytes';
 
+  const nonNegative = (value: number | undefined) => (value == null ? value : Math.max(0, value));
+
   const observationsForSyncConfigs = (metrics: StorageMetrics, key: StorageSizeMetricKey) => {
     const observations: { value: number; attributes?: Record<string, string> }[] = [];
     for (const syncConfig of metrics.sync_config_metrics ?? []) {
       observations.push({
-        value: syncConfig[key],
+        value: nonNegative(syncConfig[key])!,
         attributes: {
           sync_config_id: syncConfig.sync_config_id,
           sync_config_state: syncConfig.sync_config_state
@@ -105,7 +107,7 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
 
   replication_storage_size_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
-    return metrics?.replication_size_bytes;
+    return nonNegative(metrics?.replication_size_bytes);
   });
 
   replication_storage_size_bytes_by_sync_config.setValueProvider(async () => {
@@ -117,7 +119,7 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
 
   operation_storage_size_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
-    return metrics?.operations_size_bytes;
+    return nonNegative(metrics?.operations_size_bytes);
   });
 
   operation_storage_size_bytes_by_sync_config.setValueProvider(async () => {
@@ -129,7 +131,7 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
 
   parameter_storage_size_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
-    return metrics?.parameters_size_bytes;
+    return nonNegative(metrics?.parameters_size_bytes);
   });
 
   parameter_storage_size_bytes_by_sync_config.setValueProvider(async () => {
@@ -141,7 +143,7 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
 
   object_storage_size_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
-    return metrics?.object_storage_size_bytes;
+    return nonNegative(metrics?.object_storage_size_bytes);
   });
 
   object_storage_size_bytes_by_sync_config.setValueProvider(async () => {

@@ -85,10 +85,11 @@ export class ObjectStorageUsage {
       return entries.map((entry) => {
         const activeBytes = BigInt(entry.active_bytes ?? 0);
         if (activeBytes < 0n) {
-          throw new ReplicationAssertionError(
-            `Negative active object-storage usage for definition ${entry._id.definition_id} ` +
-              `in stream ${entry._id.replication_stream_id}: ${activeBytes}`
-          );
+          return {
+            replication_stream_id: entry._id.replication_stream_id,
+            definition_id: entry._id.definition_id,
+            active_bytes: 0n
+          };
         }
         return {
           replication_stream_id: entry._id.replication_stream_id,
