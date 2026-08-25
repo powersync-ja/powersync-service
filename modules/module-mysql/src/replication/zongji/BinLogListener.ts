@@ -1,12 +1,5 @@
 import { Logger, ReplicationAssertionError, logger as defaultLogger } from '@powersync/lib-services-framework';
-import {
-  BinLogEvent,
-  BinLogQueryEvent,
-  MySQLConnection,
-  StartOptions,
-  TableMapEntry,
-  ZongJi
-} from '@powersync/mysql-zongji';
+import { BinLogEvent, BinLogQueryEvent, StartOptions, TableMapEntry, ZongJi } from '@powersync/mysql-zongji';
 import { TablePattern } from '@powersync/service-sync-rules';
 import async from 'async';
 import pkg, {
@@ -31,7 +24,7 @@ import {
   isTruncate,
   matchedSchemaChangeQuery
 } from '../../utils/parser-utils.js';
-import { BinlogListenerConnections, MySQLConnectionManager } from '../MySQLConnectionManager.js';
+import { MySQLConnectionManager } from '../MySQLConnectionManager.js';
 import * as zongji_utils from './zongji-utils.js';
 
 const { Parser } = pkg;
@@ -132,12 +125,6 @@ export class BinLogListener {
   private isTransactionOpen = false;
 
   zongji: ZongJi;
-  /**
-   *  The connection Zongji uses for table metadata queries and its shutdown KILL query. We create
-   *  it ourselves so that we keep a handle on it for liveness probes and cleanup: Zongji does not
-   *  destroy connections it did not create.
-   */
-  controlConnection: MySQLConnection;
   processingQueue: async.QueueObject<BinLogEvent>;
 
   /**
@@ -152,9 +139,7 @@ export class BinLogListener {
     this.currentGTID = options.startGTID;
     this.sqlParser = new Parser();
     this.processingQueue = this.createProcessingQueue();
-    const { zongji, controlConnection } = this.createZongjiListener();
-    this.zongji = zongji;
-    this.controlConnection = controlConnection;
+    this.zongji = this.createZongjiListener();
     this.listenerError = null;
     this.databaseFilter = this.createDatabaseFilter(options.sourceTables);
   }
@@ -246,9 +231,7 @@ export class BinLogListener {
 
   private async restartZongji(): Promise<void> {
     if (this.zongji.stopped) {
-      const { zongji, controlConnection } = this.createZongjiListener();
-      this.zongji = zongji;
-      this.controlConnection = controlConnection;
+      this.zongji = this.createZongjiListener();
       await this.start(true);
     }
   }
@@ -256,6 +239,7 @@ export class BinLogListener {
   private async stopZongji(): Promise<void> {
     if (!this.zongji.stopped) {
       this.logger.info('Stopping BinLog Listener...');
+      const controlConnection = this.zongji.ctrlConnection;
       let stopped = false;
       const stopPromise = new Promise<void>((resolve) => {
         this.zongji.once('stopped', () => {
@@ -270,14 +254,13 @@ export class BinLogListener {
       const timeout = timers.setTimeout(ZONGJI_STOP_TIMEOUT, undefined, { ref: false }).then(() => {
         if (!stopped) {
           this.logger.warn('Timed out waiting for the BinLog Listener to stop. Closing the control connection.');
-          this.controlConnection._socket?.destroy();
+          controlConnection._socket?.destroy();
         }
       });
       await Promise.race([stopPromise, timeout]);
-      // Zongji does not destroy connections it did not create.
-      this.controlConnection.destroy();
-      // destroy() drops pending query callbacks, so a probe waiting on this connection would
-      // otherwise stay pending forever and disable probing after a restart.
+      // Zongji destroys the control connection when it stops, which drops pending query callbacks:
+      // a probe waiting on this connection would otherwise stay pending forever and disable
+      // probing after a restart.
       this.probePending = false;
       this.logger.info('BinLog Listener stopped.');
     }
@@ -320,14 +303,14 @@ export class BinLogListener {
       return;
     }
     this.probePending = true;
-    const controlConnection = this.controlConnection;
+    const controlConnection = this.zongji.ctrlConnection;
     const timeout = this.options.ctrlConnectionProbeTimeoutMs ?? CTRL_CONNECTION_PROBE_TIMEOUT;
     controlConnection.query({ sql: 'SELECT 1', timeout }, (error) => {
       this.probePending = false;
       // Only act if the probe failed on a connection that is still supposed to be alive.
       if (
         error != null &&
-        this.controlConnection === controlConnection &&
+        this.zongji.ctrlConnection === controlConnection &&
         !this.zongji.stopped &&
         !(this.isStopped || this.isStopping)
       ) {
@@ -354,9 +337,8 @@ export class BinLogListener {
     return queue;
   }
 
-  private createZongjiListener(): BinlogListenerConnections {
-    const connections = this.connectionManager.createBinlogListener();
-    const { zongji } = connections;
+  private createZongjiListener(): ZongJi {
+    const zongji = this.connectionManager.createBinlogListener();
 
     zongji.on('binlog', async (evt) => {
       this.logger.debug(`Received BinLog event:${evt.getEventName()}`);
@@ -385,7 +367,7 @@ export class BinLogListener {
       }
     });
 
-    return connections;
+    return zongji;
   }
 
   isQueueOverCapacity(): boolean {

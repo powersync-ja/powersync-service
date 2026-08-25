@@ -19,7 +19,7 @@ import {
   TestBinLogEventHandler
 } from './util.js';
 
-// The zongji type definitions do not expose the connection config or the control connection.
+// The zongji type definitions do not expose the connection config.
 type ConnectionWithConfig = MySQLConnection & {
   config: { enableKeepAlive?: boolean; keepAliveInitialDelay?: number };
 };
@@ -70,8 +70,8 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
 
     expect(stopSpy).toHaveBeenCalled();
     expect(queueStopSpy).toHaveBeenCalled();
-    // Zongji does not destroy connections it did not create, so the listener has to.
-    expect(binLogListener.controlConnection.state).toBe('disconnected');
+    // Zongji destroys its control connection when stopping.
+    expect(binLogListener.zongji.ctrlConnection.state).toBe('disconnected');
   });
 
   test('TCP keepalive is enabled on the binlog and control connections', async () => {
@@ -79,7 +79,7 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
     // stateful firewalls. The next metadata query then blocks until the kernel gives up on TCP
     // retransmissions, freezing the whole binlog pipeline for ~15 minutes.
     const { connection } = binLogListener.zongji as unknown as { connection: ConnectionWithConfig };
-    const controlConnection = binLogListener.controlConnection as ConnectionWithConfig;
+    const controlConnection = binLogListener.zongji.ctrlConnection as ConnectionWithConfig;
 
     for (const conn of [connection, controlConnection]) {
       expect(conn.config.enableKeepAlive).toBe(true);
@@ -92,7 +92,7 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
 
     // Simulate a control connection that was silently dropped by the network: the KILL query
     // issued by zongji.stop() never gets a response.
-    vi.spyOn(binLogListener.controlConnection, 'query').mockImplementation(() => {});
+    vi.spyOn(binLogListener.zongji.ctrlConnection, 'query').mockImplementation(() => {});
 
     await binLogListener.stop();
 
@@ -103,7 +103,7 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
     await binLogListener.start();
 
     // No mocking: the real driver must accept the options form of query and answer the probe.
-    const controlConnection = binLogListener.controlConnection;
+    const controlConnection = binLogListener.zongji.ctrlConnection;
     const realQuery = controlConnection.query.bind(controlConnection);
     const probeError = new Promise((resolve) => {
       vi.spyOn(controlConnection, 'query').mockImplementation(((options: any, callback: any) => {
@@ -133,7 +133,7 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
 
     // The probe query starts executing but never gets a response, like a connection that died
     // without either side being notified: the driver's query timeout fires.
-    vi.spyOn(binLogListener.controlConnection, 'query').mockImplementation(((_options: any, callback: any) => {
+    vi.spyOn(binLogListener.zongji.ctrlConnection, 'query').mockImplementation(((_options: any, callback: any) => {
       const error: any = new Error('Query inactivity timeout');
       error.code = 'PROTOCOL_SEQUENCE_TIMEOUT';
       setTimeout(() => callback(error), 10);
@@ -158,7 +158,7 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
     // The probe never even starts executing, as if queued behind a long-running metadata query on
     // a healthy connection. The probe must not report the connection dead, and further probes must
     // not pile up behind the pending one.
-    const querySpy = vi.spyOn(binLogListener.controlConnection, 'query').mockImplementation((() => {}) as any);
+    const querySpy = vi.spyOn(binLogListener.zongji.ctrlConnection, 'query').mockImplementation((() => {}) as any);
 
     binLogListener.probeControlConnection();
     binLogListener.probeControlConnection();
@@ -176,7 +176,7 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
     const replication = binLogListener.replicateUntilStopped();
     // The driver emits 'error' when the socket fails while no query is pending. Without the
     // forwarding set up in createBinlogListener, this event has no listener and crashes the process.
-    (binLogListener.controlConnection as any).emit('error', new Error('Control connection failure'));
+    (binLogListener.zongji.ctrlConnection as any).emit('error', new Error('Control connection failure'));
 
     await expect(replication).rejects.toThrow('Control connection failure');
     expect(binLogListener.zongji.stopped).toBeTruthy();

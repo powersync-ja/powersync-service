@@ -1,6 +1,5 @@
 import { BaseObserver, logger } from '@powersync/lib-services-framework';
-import { MySQLConnection, ZongJi } from '@powersync/mysql-zongji';
-import { createConnection } from '@vlasky/mysql';
+import { ZongJi } from '@powersync/mysql-zongji';
 import mysql, { FieldPacket, RowDataPacket } from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import { NormalizedMySQLConnectionConfig } from '../types/types.js';
@@ -8,16 +7,6 @@ import * as mysql_utils from '../utils/mysql-utils.js';
 
 export interface MySQLConnectionManagerListener {
   onEnded(): void;
-}
-
-export interface BinlogListenerConnections {
-  zongji: ZongJi;
-  /**
-   *  The connection Zongji uses for table metadata queries and the KILL query issued during stop.
-   *  Created by us so that we keep a handle on it: Zongji does not destroy connections it did not
-   *  create, so the owner of the BinLogListener is responsible for destroying it.
-   */
-  controlConnection: MySQLConnection;
 }
 
 export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerListener> {
@@ -31,7 +20,6 @@ export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerL
   private readonly promisePool: mysqlPromise.Pool;
 
   private binlogListeners: ZongJi[] = [];
-  private controlConnections: MySQLConnection[] = [];
 
   private isClosed = false;
 
@@ -58,13 +46,11 @@ export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerL
   }
 
   /**
-   * Create a new replication listener, along with the control connection it uses.
+   * Create a new replication listener
    */
-  createBinlogListener(): BinlogListenerConnections {
-    // We create the control connection ourselves and pass it to Zongji, so that we keep a handle
-    // on it for liveness probes and cleanup. Zongji creates its binlog connection from a copy of
-    // this connection's config, so the options here apply to both connections.
-    const controlConnection = createConnection({
+  createBinlogListener(): ZongJi {
+    // These options apply to both the binlog connection and the control connection Zongji creates.
+    const listener = new ZongJi({
       host: this.options.hostname,
       port: this.options.port,
       user: this.options.username,
@@ -78,17 +64,10 @@ export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerL
       dateStrings: true,
       timeZone: 'Z'
     });
-    const listener = new ZongJi(controlConnection);
-    // Zongji only attaches these forwarding listeners to connections it creates itself. Without
-    // them, an error emitted by the idle control connection has no listener, which crashes the
-    // process.
-    controlConnection.on('error', (error) => listener.emit('error', error));
-    controlConnection.on('unhandledError', (error) => listener.emit('error', error));
 
     this.binlogListeners.push(listener);
-    this.controlConnections.push(controlConnection);
 
-    return { zongji: listener, controlConnection };
+    return listener;
   }
 
   /**
@@ -139,11 +118,6 @@ export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerL
 
     for (const listener of this.binlogListeners) {
       listener.stop();
-    }
-
-    // Zongji does not destroy connections it did not create.
-    for (const connection of this.controlConnections) {
-      connection.destroy();
     }
 
     try {
