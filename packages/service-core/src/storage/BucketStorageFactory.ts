@@ -148,14 +148,14 @@ export interface StorageMetrics {
   object_storage_size_bytes?: number;
 
   /**
-   * Per-replication-stream storage sizes, when the storage backend can provide them.
+   * Per-sync-config storage sizes, when the storage backend can provide them.
    */
-  stream_metrics?: StorageStreamMetrics[];
+  sync_config_metrics?: StorageSyncConfigMetrics[];
 }
 
-export interface StorageStreamMetrics {
-  replication_stream_id: number;
-  stream_state: string;
+export interface StorageSyncConfigMetrics {
+  sync_config_id: string;
+  sync_config_state: string;
   operations_size_bytes: number;
   parameters_size_bytes: number;
   replication_size_bytes: number;

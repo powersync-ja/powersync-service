@@ -15,6 +15,12 @@ export interface ReplicationStreamObjectStorageUsageResult {
   active_bytes: bigint;
 }
 
+export interface ReplicationStreamObjectStorageDefinitionUsageResult {
+  replication_stream_id: number;
+  definition_id: BucketDefinitionId;
+  active_bytes: bigint;
+}
+
 export interface ObjectStorageUsageEntry {
   definition_id: BucketDefinitionId;
   active_bytes: bigint;
@@ -44,7 +50,9 @@ export class ObjectStorageUsage {
     return BigInt(document.storage_ref?.file_size ?? 0);
   }
 
-  static async readAllStreamUsage(db: VersionedPowerSyncMongoV3): Promise<ReplicationStreamObjectStorageUsageResult[]> {
+  static async readAllDefinitionUsage(
+    db: VersionedPowerSyncMongoV3
+  ): Promise<ReplicationStreamObjectStorageDefinitionUsageResult[]> {
     return db.client.withSession({ snapshot: true }, async (session) => {
       const entries = await db.objectStorageUsage
         .aggregate<{
@@ -74,8 +82,7 @@ export class ObjectStorageUsage {
           throw error;
         });
 
-      const totals = new Map<number, bigint>();
-      for (const entry of entries) {
+      return entries.map((entry) => {
         const activeBytes = BigInt(entry.active_bytes ?? 0);
         if (activeBytes < 0n) {
           throw new ReplicationAssertionError(
@@ -83,21 +90,26 @@ export class ObjectStorageUsage {
               `in stream ${entry._id.replication_stream_id}: ${activeBytes}`
           );
         }
-        totals.set(entry._id.replication_stream_id, (totals.get(entry._id.replication_stream_id) ?? 0n) + activeBytes);
-      }
-
-      return [...totals].map(([replicationStreamId, activeBytes]) => {
-        if (activeBytes < 0n) {
-          throw new ReplicationAssertionError(
-            `Negative active object-storage usage for stream ${replicationStreamId}: ${activeBytes}`
-          );
-        }
         return {
-          replication_stream_id: replicationStreamId,
+          replication_stream_id: entry._id.replication_stream_id,
+          definition_id: entry._id.definition_id,
           active_bytes: activeBytes
         };
       });
     });
+  }
+
+  static async readAllStreamUsage(db: VersionedPowerSyncMongoV3): Promise<ReplicationStreamObjectStorageUsageResult[]> {
+    const definitionUsage = await this.readAllDefinitionUsage(db);
+    const totals = new Map<number, bigint>();
+    for (const entry of definitionUsage) {
+      totals.set(entry.replication_stream_id, (totals.get(entry.replication_stream_id) ?? 0n) + entry.active_bytes);
+    }
+
+    return [...totals].map(([replicationStreamId, activeBytes]) => ({
+      replication_stream_id: replicationStreamId,
+      active_bytes: activeBytes
+    }));
   }
 
   async applyDelta(definitionId: BucketDefinitionId, delta: bigint, session: mongo.ClientSession): Promise<void> {

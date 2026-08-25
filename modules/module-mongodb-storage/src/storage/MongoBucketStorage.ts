@@ -870,57 +870,110 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       incrementalReprocessing: true;
     };
     const v3Db = this.db.versioned(v3StorageConfig) as VersionedPowerSyncMongoV3;
-    const objectStorageUsage = await ObjectStorageUsage.readAllStreamUsage(v3Db);
-    const objectStorageUsageByStream = new Map(
-      objectStorageUsage.map((usage) => [usage.replication_stream_id, usage.active_bytes])
-    );
+    const objectStorageDefinitionUsage = await ObjectStorageUsage.readAllDefinitionUsage(v3Db);
 
-    const v3StreamDocs = await this.db.sync_rules
-      .find(
-        { storage_version: { $gte: storage.STORAGE_VERSION_3 } },
-        { projection: { _id: 1, state: 1, storage_version: 1 } }
-      )
-      .toArray();
-    const streamMetrics = new Map<number, storage.StorageStreamMetrics>();
-    for (const stream of v3StreamDocs) {
-      streamMetrics.set(stream._id, {
-        replication_stream_id: stream._id,
-        stream_state: String(stream.state),
-        operations_size_bytes: 0,
-        parameters_size_bytes: 0,
-        replication_size_bytes: 0,
-        object_storage_size_bytes: Number(objectStorageUsageByStream.get(stream._id) ?? 0n)
-      });
-    }
+    const v3StreamDocs = (await this.db.sync_rules
+      .find({ storage_version: { $gte: storage.STORAGE_VERSION_3 } }, { projection: { _id: 1, sync_configs: 1 } })
+      .toArray()) as unknown as Pick<ReplicationStreamDocumentV3, '_id' | 'sync_configs'>[];
 
-    const addStreamCollectionSize = (
+    const collectionSizes = new Map<string, number>();
+    const addCollectionSize = (
       collection: { collectionName: string },
       aggregate: { storageStats?: { size?: number | bigint } }[],
       prefix: string,
-      key: 'operations_size_bytes' | 'parameters_size_bytes' | 'replication_size_bytes'
+      sizes: Map<string, number>
     ) => {
-      const match = collection.collectionName.match(new RegExp(`^${prefix}(\\d+)_`));
+      const match = collection.collectionName.match(new RegExp(`^${prefix}(\\d+)_(.+)$`));
       if (match == null) {
         return;
       }
-      const stream = streamMetrics.get(Number(match[1]));
-      if (stream == null) {
-        return;
-      }
-      stream[key] += Number(aggregate[0]?.storageStats?.size ?? 0);
+      sizes.set(`${prefix}${match[1]}:${match[2]}`, Number(aggregate[0]?.storageStats?.size ?? 0));
     };
 
     v3OperationCollections.forEach((collection, index) =>
-      addStreamCollectionSize(collection, v3_operation_aggregates[index], 'bucket_data_', 'operations_size_bytes')
+      addCollectionSize(collection, v3_operation_aggregates[index], 'bucket_data_', collectionSizes)
     );
     v3ParameterCollections.forEach((collection, index) =>
-      addStreamCollectionSize(collection, v3_parameter_aggregates[index], 'parameter_index_', 'parameters_size_bytes')
+      addCollectionSize(collection, v3_parameter_aggregates[index], 'parameter_index_', collectionSizes)
     );
     v3SourceRecordCollections.forEach((collection, index) =>
-      addStreamCollectionSize(collection, source_record_aggregates[index], 'source_records_', 'replication_size_bytes')
+      addCollectionSize(collection, source_record_aggregates[index], 'source_records_', collectionSizes)
     );
 
-    const totalObjectStorageSize = objectStorageUsage.reduce((total, usage) => total + usage.active_bytes, 0n);
+    const syncConfigIds = v3StreamDocs.flatMap((stream) => stream.sync_configs.map((config) => config._id));
+    const syncConfigDefinitions =
+      syncConfigIds.length == 0 ? [] : await v3Db.syncConfigDefinitions.find({ _id: { $in: syncConfigIds } }).toArray();
+    const syncConfigDefinitionsById = new Map(
+      syncConfigDefinitions.map((definition) => [definition._id.toHexString(), definition])
+    );
+
+    const sourceTablesByStream = new Map<
+      number,
+      { _id: ObjectId; bucket_data_source_ids: string[]; parameter_lookup_source_ids: string[] }[]
+    >();
+    await Promise.all(
+      v3StreamDocs.map(async (stream) => {
+        const sourceTables = await v3Db
+          .sourceTables(stream._id)
+          .find({}, { projection: { _id: 1, bucket_data_source_ids: 1, parameter_lookup_source_ids: 1 } })
+          .toArray();
+        sourceTablesByStream.set(stream._id, sourceTables);
+      })
+    );
+
+    const objectStorageSizeByDefinition = new Map<string, number>();
+    for (const usage of objectStorageDefinitionUsage) {
+      objectStorageSizeByDefinition.set(
+        `${usage.replication_stream_id}:${usage.definition_id}`,
+        Number(usage.active_bytes)
+      );
+    }
+
+    const sumCollectionSizes = (prefix: string, streamId: number, ids: string[]) =>
+      ids.reduce((total, id) => total + (collectionSizes.get(`${prefix}${streamId}:${id}`) ?? 0), 0);
+
+    const syncConfigMetrics: storage.StorageSyncConfigMetrics[] = [];
+    for (const stream of v3StreamDocs) {
+      const sourceTables = sourceTablesByStream.get(stream._id) ?? [];
+      for (const syncConfig of stream.sync_configs) {
+        const definition = syncConfigDefinitionsById.get(syncConfig._id.toHexString());
+        if (definition == null) {
+          continue;
+        }
+
+        const mapping = SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(definition.rule_mapping);
+        const bucketDefinitionIds = mapping.allBucketDefinitionIds();
+        const parameterIndexIds = mapping.allParameterIndexIds();
+        const bucketDefinitionIdSet = new Set(bucketDefinitionIds);
+        const parameterIndexIdSet = new Set(parameterIndexIds);
+        const replicationSize = sourceTables.reduce((total, sourceTable) => {
+          if (
+            !(sourceTable.bucket_data_source_ids ?? []).some((id) => bucketDefinitionIdSet.has(id)) &&
+            !(sourceTable.parameter_lookup_source_ids ?? []).some((id) => parameterIndexIdSet.has(id))
+          ) {
+            return total;
+          }
+          return total + (collectionSizes.get(`source_records_${stream._id}:${sourceTable._id.toHexString()}`) ?? 0);
+        }, 0);
+
+        syncConfigMetrics.push({
+          sync_config_id: syncConfig._id.toHexString(),
+          sync_config_state: String(syncConfig.state),
+          operations_size_bytes: sumCollectionSizes('bucket_data_', stream._id, bucketDefinitionIds),
+          parameters_size_bytes: sumCollectionSizes('parameter_index_', stream._id, parameterIndexIds),
+          replication_size_bytes: replicationSize,
+          object_storage_size_bytes: bucketDefinitionIds.reduce(
+            (total, definitionId) => total + (objectStorageSizeByDefinition.get(`${stream._id}:${definitionId}`) ?? 0),
+            0
+          )
+        });
+      }
+    }
+
+    const totalObjectStorageSize = objectStorageDefinitionUsage.reduce(
+      (total, usage) => total + usage.active_bytes,
+      0n
+    );
     return {
       operations_size_bytes:
         Number(operations_aggregate[0].storageStats.size) +
@@ -932,7 +985,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         Number(v1_source_record_aggregate[0]?.storageStats?.size ?? 0) +
         source_record_aggregates.reduce((total, aggregate) => total + Number(aggregate[0]?.storageStats?.size ?? 0), 0),
       object_storage_size_bytes: Number(totalObjectStorageSize),
-      stream_metrics: [...streamMetrics.values()]
+      sync_config_metrics: syncConfigMetrics
     };
   }
 
