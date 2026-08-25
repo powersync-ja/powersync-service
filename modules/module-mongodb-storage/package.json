@@ -26,6 +26,7 @@
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
     "@smithy/core": "^3.24.6",
+    "@smithy/node-http-handler": "^4.7.7",
     "async-mutex": "^0.5.0",
     "bson": "^6.10.4",
     "ix": "^5.0.0",

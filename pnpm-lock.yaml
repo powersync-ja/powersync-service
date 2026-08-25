@@ -329,6 +329,9 @@ importers:
       '@smithy/core':
         specifier: ^3.24.6
         version: 3.24.6
+      '@smithy/node-http-handler':
+        specifier: ^4.7.7
+        version: 4.7.7
       async-mutex:
         specifier: ^0.5.0
         version: 0.5.0
