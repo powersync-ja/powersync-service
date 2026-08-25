@@ -72,6 +72,10 @@ export interface MongoBucketBatchOptions {
 
   logger: Logger;
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
+  /**
+   * Aborts in-flight object storage uploads when replication stops.
+   */
+  signal?: AbortSignal;
 
   objectStorage?: ObjectStorage;
   inlineThresholdBytes?: number;

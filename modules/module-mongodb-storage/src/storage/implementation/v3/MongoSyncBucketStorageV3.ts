@@ -757,7 +757,7 @@ export async function* getBucketDataBatchV3(
     // Hydrate any operations from object storage.
     // In the future we can do this in a more pipelined fashion, but for now we hydrate
     // the entire batch at once.
-    await hydrateBucketDataDocuments(docs, ctx.objectStorage, { signal: options?.signal });
+    await hydrateBucketDataDocuments(docs, ctx.objectStorage, { signal: options?.signal, tracer: options?.tracer });
 
     let currentChunkSizeBytes = 0;
     let currentChunk: utils.SyncBucketData | null = null;

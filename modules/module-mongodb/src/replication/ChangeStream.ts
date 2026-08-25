@@ -633,6 +633,7 @@ export class ChangeStream {
         // We get a complete postimage for every change, so we don't need to store the current data.
         storeCurrentData: false,
         hooks: this.storageHooks,
+        signal: this.abortSignal,
         tracer
       },
       async (batch) => {

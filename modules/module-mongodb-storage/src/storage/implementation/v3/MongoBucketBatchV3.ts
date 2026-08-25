@@ -45,7 +45,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     return new PersistedBatchV3(this.db, this.replicationStreamId, this.mapping, writtenSize, {
       logger: this.logger,
       objectStorage: this.options.objectStorage,
-      inlineThresholdBytes: this.options.inlineThresholdBytes
+      inlineThresholdBytes: this.options.inlineThresholdBytes,
+      signal: this.options.signal
     });
   }
 

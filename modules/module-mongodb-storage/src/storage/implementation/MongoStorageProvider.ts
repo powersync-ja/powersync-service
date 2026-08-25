@@ -37,7 +37,8 @@ export class MongoStorageProvider implements storage.StorageProvider {
         forcePathStyle: decodedConfig.object_storage.force_path_style,
         accessKeyId: decodedConfig.object_storage.access_key_id,
         secretAccessKey: decodedConfig.object_storage.secret_access_key,
-        concurrencyLimit: decodedConfig.object_storage.concurrency_limit
+        concurrencyLimit: decodedConfig.object_storage.concurrency_limit,
+        defaultsMode: decodedConfig.object_storage.defaults_mode
       });
     }
 

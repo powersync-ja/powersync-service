@@ -22,7 +22,9 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
   }
 
   async keepAlive() {
-    // Keepalives are handled by the binlog heartbeat mechanism
+    // The binlog connection is kept alive by the MySQL server heartbeat mechanism. The control
+    // connection carries no traffic between metadata queries, so probe its liveness here.
+    this.lastStream?.probeControlConnection();
   }
 
   async replicate() {
