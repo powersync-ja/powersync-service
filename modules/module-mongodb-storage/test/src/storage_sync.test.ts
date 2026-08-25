@@ -728,7 +728,7 @@ streams:
 event_definitions:
   write_checkpoints:
     payloads:
-      - SELECT user_id, checkpoint FROM checkpoints WHERE checkpoint > 0 AND true = active
+      - select "user_id", "checkpoint" from "checkpoints" where "active" = true and "checkpoint" > 0
 `;
 
       await using factory = await storageConfig.factory();

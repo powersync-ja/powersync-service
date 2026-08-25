@@ -160,7 +160,7 @@ export interface SourceTableDocumentV3 {
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
   /**
-   * Content-addressed compiled event definitions evaluated by this source table.
+   * Stream-local ids of the compiled event definitions evaluated by this source table.
    */
   event_definition_ids: EventDefinitionId[];
   latest_pending_delete?: InternalOpId | undefined;

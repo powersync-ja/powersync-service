@@ -2,15 +2,13 @@ import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   BucketDataSource,
   BucketDefinitionId,
-  CompiledEvent,
-  compiledEventDefinitionEquality,
-  compileEventDefinitionsToCompilerModel,
   EventDefinitionId,
   HashMap,
   ParameterIndexId,
   ParameterIndexLookupCreator,
   ParameterLookupDefinitionId,
   SerializedBucketDataSourceWithDataSources,
+  serializedEventDefinitionEquality,
   SerializedEventDescriptor,
   SerializedParameterIndexLookupCreator,
   serializedStreamBucketDataSourceEquality,
@@ -189,10 +187,10 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
       return id;
     }
     // Event ids are deliberately allocated per replication stream instead of being hashes or UUIDs derived from a
-    // compiled plan. Compatibility decides whether to reuse an existing id, which keeps persisted storage identity
-    // independent of compiler serialization and lets safe behavioral equivalences be added later. That comparison
-    // must remain conservative: a false negative only causes a new id and resnapshot, while a false positive could
-    // incorrectly reuse existing event state.
+    // compiled plan. Compatibility decides whether to reuse an existing id, keeping the storage identifier separate
+    // from event content and allowing the comparison to evolve independently. That comparison must remain
+    // conservative: a false negative only causes a new id and resnapshot, while a false positive could incorrectly
+    // reuse existing event state.
     let nextEventDefinitionId =
       reservedMappings
         .map((mapping) => mapping.allEventDefinitionIds())
@@ -217,7 +215,9 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
     const compatibleParameterLookups = new HashMap<SerializedParameterIndexLookupCreator, ParameterIndexId>(
       serializedStreamParameterIndexLookupCreatorEquality
     );
-    const compatibleEvents = new HashMap<CompiledEvent, EventDefinitionId>(compiledEventDefinitionEquality);
+    const compatibleEvents = new HashMap<SerializedEventDescriptor, EventDefinitionId>(
+      serializedEventDefinitionEquality
+    );
 
     for (const config of compatibleConfigs) {
       for (const bucket of config.plan.buckets) {
@@ -232,7 +232,7 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
         );
       }
 
-      for (const event of compileSerializedEventsForCompatibility(config.plan.events ?? [])) {
+      for (const event of config.plan.events ?? []) {
         compatibleEvents.putIfAbsent(event, () => config.mapping.eventDefinitionIdByName(event.name));
       }
     }
@@ -270,7 +270,7 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
       }
     }
 
-    for (const event of compileSerializedEventsForCompatibility(newPlan.events ?? [])) {
+    for (const event of newPlan.events ?? []) {
       const compatibleId = compatibleEvents.get(event);
       const id = compatibleId ?? generateNewEventDefinitionId();
       events[event.name] = id;
@@ -419,25 +419,6 @@ export class SingleSyncConfigBucketDefinitionMapping implements BucketDefinition
       $or: clauses
     };
   }
-}
-
-function compileSerializedEventsForCompatibility(events: readonly SerializedEventDescriptor[]): CompiledEvent[] {
-  const definitions: Record<string, readonly string[]> = Object.create(null);
-  for (const event of events) {
-    if (definitions[event.name] != null) {
-      throw new ServiceAssertionError(`Duplicate compiled replication event ${event.name}`);
-    }
-    definitions[event.name] = event.sourceQueries.map((query) => query.sql);
-  }
-
-  const compiled = compileEventDefinitionsToCompilerModel(definitions, {});
-  const fatalErrors = compiled.errors.filter((error) => error.type == 'fatal');
-  if (fatalErrors.length != 0) {
-    throw new ServiceAssertionError(
-      `Failed to compile replication events for compatibility: ${fatalErrors.map((error) => error.message).join(', ')}`
-    );
-  }
-  return compiled.events;
 }
 
 /**
