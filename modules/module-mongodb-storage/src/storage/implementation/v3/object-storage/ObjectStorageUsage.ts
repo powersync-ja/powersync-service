@@ -54,6 +54,9 @@ export class ObjectStorageUsage {
     db: VersionedPowerSyncMongoV3
   ): Promise<ReplicationStreamObjectStorageDefinitionUsageResult[]> {
     return db.client.withSession({ snapshot: true }, async (session) => {
+      // Deliberately read the whole usage collection. The number of replication streams is
+      // expected to stay low, so a collection scan is cheaper than issuing one _id range query
+      // per stream (and the usage collection is bounded by streams and writers, not buckets).
       const entries = await db.objectStorageUsage
         .aggregate<{
           _id: { replication_stream_id: number; definition_id: BucketDefinitionId };
