@@ -156,10 +156,10 @@ export interface StorageMetrics {
 export interface StorageSyncConfigMetrics {
   sync_config_id: string;
   sync_config_state: string;
-  operations_size_bytes: number;
-  parameters_size_bytes: number;
-  replication_size_bytes: number;
-  object_storage_size_bytes: number;
+  attributed_bucket_data_bytes: number;
+  attributed_parameter_indexes_bytes: number;
+  attributed_source_records_bytes: number;
+  attributed_object_storage_bytes: number;
 }
 
 export interface UpdateSyncRulesOptions {

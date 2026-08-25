@@ -10,7 +10,7 @@ export function createCoreStorageMetrics(engine: MetricsEngine): void {
     unit: 'bytes'
   });
   engine.createObservableGauge({
-    name: StorageMetric.REPLICATION_SIZE_BYTES_BY_SYNC_CONFIG,
+    name: StorageMetric.ATTRIBUTED_SOURCE_RECORDS_BYTES,
     description: 'Size of current data stored in PowerSync by sync config',
     unit: 'bytes'
   });
@@ -21,7 +21,7 @@ export function createCoreStorageMetrics(engine: MetricsEngine): void {
     unit: 'bytes'
   });
   engine.createObservableGauge({
-    name: StorageMetric.OPERATION_SIZE_BYTES_BY_SYNC_CONFIG,
+    name: StorageMetric.ATTRIBUTED_BUCKET_DATA_BYTES,
     description: 'Size of operations stored in PowerSync by sync config',
     unit: 'bytes'
   });
@@ -32,7 +32,7 @@ export function createCoreStorageMetrics(engine: MetricsEngine): void {
     unit: 'bytes'
   });
   engine.createObservableGauge({
-    name: StorageMetric.PARAMETER_SIZE_BYTES_BY_SYNC_CONFIG,
+    name: StorageMetric.ATTRIBUTED_PARAMETER_INDEXES_BYTES,
     description: 'Size of parameter data stored in PowerSync by sync config',
     unit: 'bytes'
   });
@@ -43,7 +43,7 @@ export function createCoreStorageMetrics(engine: MetricsEngine): void {
     unit: 'bytes'
   });
   engine.createObservableGauge({
-    name: StorageMetric.OBJECT_STORAGE_SIZE_BYTES_BY_SYNC_CONFIG,
+    name: StorageMetric.ATTRIBUTED_OBJECT_STORAGE_BYTES,
     description: 'Size of active object-storage references by sync config',
     unit: 'bytes'
   });
@@ -51,21 +51,15 @@ export function createCoreStorageMetrics(engine: MetricsEngine): void {
 
 export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: BucketStorageFactory): void {
   const replication_storage_size_bytes = engine.getObservableGauge(StorageMetric.REPLICATION_SIZE_BYTES);
-  const replication_storage_size_bytes_by_sync_config = engine.getObservableGauge(
-    StorageMetric.REPLICATION_SIZE_BYTES_BY_SYNC_CONFIG
-  );
+  const attributed_source_records_bytes = engine.getObservableGauge(StorageMetric.ATTRIBUTED_SOURCE_RECORDS_BYTES);
   const operation_storage_size_bytes = engine.getObservableGauge(StorageMetric.OPERATION_SIZE_BYTES);
-  const operation_storage_size_bytes_by_sync_config = engine.getObservableGauge(
-    StorageMetric.OPERATION_SIZE_BYTES_BY_SYNC_CONFIG
-  );
+  const attributed_bucket_data_bytes = engine.getObservableGauge(StorageMetric.ATTRIBUTED_BUCKET_DATA_BYTES);
   const parameter_storage_size_bytes = engine.getObservableGauge(StorageMetric.PARAMETER_SIZE_BYTES);
-  const parameter_storage_size_bytes_by_sync_config = engine.getObservableGauge(
-    StorageMetric.PARAMETER_SIZE_BYTES_BY_SYNC_CONFIG
+  const attributed_parameter_indexes_bytes = engine.getObservableGauge(
+    StorageMetric.ATTRIBUTED_PARAMETER_INDEXES_BYTES
   );
   const object_storage_size_bytes = engine.getObservableGauge(StorageMetric.OBJECT_STORAGE_SIZE_BYTES);
-  const object_storage_size_bytes_by_sync_config = engine.getObservableGauge(
-    StorageMetric.OBJECT_STORAGE_SIZE_BYTES_BY_SYNC_CONFIG
-  );
+  const attributed_object_storage_bytes = engine.getObservableGauge(StorageMetric.ATTRIBUTED_OBJECT_STORAGE_BYTES);
 
   const MINIMUM_INTERVAL = 60_000;
 
@@ -84,10 +78,10 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
   };
 
   type StorageSizeMetricKey =
-    | 'operations_size_bytes'
-    | 'parameters_size_bytes'
-    | 'replication_size_bytes'
-    | 'object_storage_size_bytes';
+    | 'attributed_bucket_data_bytes'
+    | 'attributed_parameter_indexes_bytes'
+    | 'attributed_source_records_bytes'
+    | 'attributed_object_storage_bytes';
 
   function nonNegative(value: number): number;
   function nonNegative(value: number | undefined): number | undefined;
@@ -114,10 +108,10 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
     return nonNegative(metrics?.replication_size_bytes);
   });
 
-  replication_storage_size_bytes_by_sync_config.setValueProvider(async () => {
+  attributed_source_records_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
     if (metrics) {
-      return observationsForSyncConfigs(metrics, 'replication_size_bytes');
+      return observationsForSyncConfigs(metrics, 'attributed_source_records_bytes');
     }
   });
 
@@ -126,10 +120,10 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
     return nonNegative(metrics?.operations_size_bytes);
   });
 
-  operation_storage_size_bytes_by_sync_config.setValueProvider(async () => {
+  attributed_bucket_data_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
     if (metrics) {
-      return observationsForSyncConfigs(metrics, 'operations_size_bytes');
+      return observationsForSyncConfigs(metrics, 'attributed_bucket_data_bytes');
     }
   });
 
@@ -138,10 +132,10 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
     return nonNegative(metrics?.parameters_size_bytes);
   });
 
-  parameter_storage_size_bytes_by_sync_config.setValueProvider(async () => {
+  attributed_parameter_indexes_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
     if (metrics) {
-      return observationsForSyncConfigs(metrics, 'parameters_size_bytes');
+      return observationsForSyncConfigs(metrics, 'attributed_parameter_indexes_bytes');
     }
   });
 
@@ -150,10 +144,10 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
     return nonNegative(metrics?.object_storage_size_bytes);
   });
 
-  object_storage_size_bytes_by_sync_config.setValueProvider(async () => {
+  attributed_object_storage_bytes.setValueProvider(async () => {
     const metrics = await getMetrics();
     if (metrics) {
-      return observationsForSyncConfigs(metrics, 'object_storage_size_bytes');
+      return observationsForSyncConfigs(metrics, 'attributed_object_storage_bytes');
     }
   });
 }

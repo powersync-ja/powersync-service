@@ -963,10 +963,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         syncConfigMetrics.push({
           sync_config_id: syncConfig._id.toHexString(),
           sync_config_state: String(syncConfig.state),
-          operations_size_bytes: sumCollectionSizes('bucket_data_', stream._id, bucketDefinitionIdSet),
-          parameters_size_bytes: sumCollectionSizes('parameter_index_', stream._id, parameterIndexIdSet),
-          replication_size_bytes: replicationSize,
-          object_storage_size_bytes: [...bucketDefinitionIdSet].reduce(
+          attributed_bucket_data_bytes: sumCollectionSizes('bucket_data_', stream._id, bucketDefinitionIdSet),
+          attributed_parameter_indexes_bytes: sumCollectionSizes('parameter_index_', stream._id, parameterIndexIdSet),
+          attributed_source_records_bytes: replicationSize,
+          attributed_object_storage_bytes: [...bucketDefinitionIdSet].reduce(
             (total, definitionId) => total + (objectStorageSizeByDefinition.get(`${stream._id}:${definitionId}`) ?? 0),
             0
           )
