@@ -437,7 +437,6 @@ async function* bucketDataBatch(
   } = request;
 
   const tracer = request.tracer;
-
   let checkpointInvalidated = false;
 
   const acquired = await tracer.span('acquiring_lock').with(async () => {
@@ -456,6 +455,7 @@ async function* bucketDataBatch(
     const filteredBuckets = checkpointLine.getFilteredBucketPositions(bucketsToFetch);
     const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets, {
       requestHint,
+      tracer,
       // Checkpoint supersession is a cooperative batch handoff. Only abort
       // in-flight storage work when the connection itself is closed.
       signal: abort_connection
