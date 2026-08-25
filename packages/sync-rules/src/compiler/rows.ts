@@ -220,28 +220,12 @@ export class RowEvaluator extends BaseSourceRowProcessor {
 
 /**
  * A row evaluator producing an event payload.
- *
- * Unlike {@link RowEvaluator}, the alias of the source table does not affect behavior because event payloads don't
- * have a logical output table name.
  */
-export class EventRowEvaluator extends BaseSourceRowProcessor {
-  readonly columns: ColumnSource[];
-
-  constructor(options: SourceProcessorOptions & { columns: ColumnSource[] }) {
-    super(options);
-    this.columns = options.columns;
-  }
-
-  buildBehaviorHashCode(hasher: StableHasher): void {
-    this.addBaseHashCode(hasher);
-    // An event's projected columns, expressions and aliases define the payload delivered to its handler. Changing
-    // them therefore changes event behavior, so include them here to keep this hash consistent with
-    // behavesIdenticalTo() and with the compiled definition that will be reprocessed.
-    equalsIgnoringResultSetList.hash(hasher, this.columns);
-  }
-
-  behavesIdenticalTo(other: EventRowEvaluator): boolean {
-    return this.baseMatchesOther(other) && equalsIgnoringResultSetList.equals(other.columns, this.columns);
+export class EventRowEvaluator extends RowEvaluator {
+  override get outputName(): undefined {
+    // Stream output names determine the logical destination table. Event handlers instead receive the named event and
+    // physical source table, so changing a payload query's source alias does not change event behavior.
+    return undefined;
   }
 }
 

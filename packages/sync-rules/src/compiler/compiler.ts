@@ -4,16 +4,16 @@ import { CompiledEventDescriptor, StreamOptions, SyncPlan } from '../sync_plan/p
 import { SourceSchema } from '../types.js';
 import { StreamResolver } from './bucket_resolver.js';
 import { DangerousParameterDetector } from './detect_dangerous_parameters.js';
-import { Equality, HashSet } from './equality.js';
-import { expressionBehaviorIdentity, NodeLocations } from './expression.js';
+import { HashSet } from './equality.js';
+import { NodeLocations } from './expression.js';
 import { RowExpression, SingleDependencyExpression } from './filter.js';
 import { CompilerModelToSyncPlan } from './ir_to_sync_plan.js';
 import { StreamQueryParser } from './parser.js';
 import { QuerierGraphBuilder } from './querier_graph.js';
-import { EventRowEvaluator, ExpressionColumnSource, PointLookup, RowEvaluator, StarColumnSource } from './rows.js';
+import { EventRowEvaluator, PointLookup, RowEvaluator } from './rows.js';
 import { SqlScope } from './scope.js';
 import { CommonTableExpression, PreparedSubquery } from './sqlite.js';
-import { PhysicalSourceResultSet } from './table.js';
+import type { PhysicalSourceResultSet } from './table.js';
 
 export interface SyncStreamsCompilerOptions {
   /**
@@ -37,73 +37,12 @@ export interface ParseStreamOptions extends StreamOptions {
   warnOnDangerousParameter: boolean;
 }
 
-export interface CompiledEvent {
-  name: string;
-  sourceQueries: CompiledEventSourceQueryModel[];
-}
-
-export interface CompiledEventSourceQueryModel {
-  sql: string;
-  sourceTable: PhysicalSourceResultSet;
-  variants: EventRowEvaluator[];
-}
-
-/**
- * Behavioral equality for replication events in the compiler's JavaScript plan model.
- *
- * Raw SQL and payload-query order are deliberately ignored. The row evaluators compare the tables, filters and
- * projected payload through the same compatibility model used while compiling stream plans.
- */
-export const compiledEventDefinitionEquality: Equality<CompiledEvent> = {
-  hash(hasher, value) {
-    hasher.addString(compiledEventDefinitionIdentity(value));
-  },
-  equals(a, b) {
-    return a === b || compiledEventDefinitionIdentity(a) == compiledEventDefinitionIdentity(b);
-  }
-};
-
-function compiledEventDefinitionIdentity(event: CompiledEvent): string {
-  return JSON.stringify([
-    event.name,
-    event.sourceQueries
-      .map((query) =>
-        JSON.stringify([
-          tablePatternIdentity(query.sourceTable),
-          query.variants.map(compiledEventVariantIdentity).sort()
-        ])
-      )
-      .sort()
-  ]);
-}
-
-function compiledEventVariantIdentity(variant: EventRowEvaluator): string {
-  return JSON.stringify([
-    tablePatternIdentity(variant.syntacticSource),
-    variant.filters.map((filter) => expressionBehaviorIdentity(filter.expression.node)).sort(),
-    variant.columns.map((column) => {
-      if (column instanceof StarColumnSource) {
-        return 'star';
-      }
-      const expressionColumn = column as ExpressionColumnSource;
-      return [expressionColumn.alias, expressionBehaviorIdentity(expressionColumn.expression.expression.node)];
-    }),
-    variant.partitionBy.length,
-    variant.addedFunctions.length
-  ]);
-}
-
-function tablePatternIdentity(source: PhysicalSourceResultSet): readonly (string | null)[] {
-  const pattern = source.tablePattern;
-  return [pattern.connectionTag, pattern.schema, pattern.tablePattern];
-}
-
 /**
  * State for compiling sync streams and replication events into a sync plan.
  *
  * The compiler stores a mutable intermediate representation that is essentially a copy of the resulting
- * {@link SyncPlan}, except that we're using JavaScript classes with methods to compute hash codes and equality
- * relations. Stream queries and event definitions remain separate within that model.
+ * {@link SyncPlan}. Stream compilation uses JavaScript classes with behavioral equality, while events use plain
+ * compiler records. Stream queries and event definitions remain separate within that model.
  *
  * The stream compilation process is as follows: Each data query for a stream is first parsed by
  * {@link StreamQueryParser} into a canonicalized intermediate representation (see that class for details).
@@ -225,12 +164,19 @@ export class SyncStreamsCompiler {
           return;
         }
 
-        const defaultSchema = this.options.defaultSchema ?? '';
-        const sourceTable = query.sourceTable.tablePattern.toTablePattern(defaultSchema);
+        const defaultSchema = this.options.defaultSchema;
+        const sourceTable = query.sourceTable.tablePattern;
+        // Runtime event evaluation selects one payload query for each source table, so accepting duplicate sources
+        // would make later queries unreachable. Resolve implicit schemas when a real default is available to detect
+        // `table` and `default_schema.table` as the same source without inventing an empty schema otherwise.
+        const normalizedSourceTable = defaultSchema == null ? sourceTable : sourceTable.toTablePattern(defaultSchema);
         if (
-          event.sourceQueries.some((source) =>
-            source.sourceTable.tablePattern.toTablePattern(defaultSchema).equals(sourceTable)
-          )
+          event.sourceQueries.some((source) => {
+            const existingSourceTable = source.sourceTable.tablePattern;
+            const normalizedExistingSourceTable =
+              defaultSchema == null ? existingSourceTable : existingSourceTable.toTablePattern(defaultSchema);
+            return normalizedExistingSourceTable.equals(normalizedSourceTable);
+          })
         ) {
           errors.report('Each payload query should query a unique table', query.span.location);
           return;
@@ -285,55 +231,23 @@ export class SyncStreamsCompiler {
 }
 
 /**
- * Compiles raw event SQL stored alongside older sync plans into the current plan representation.
+ * Compiles raw event definitions from legacy sync plans into the current plan representation.
  *
- * This is the compatibility boundary for plans written before compiled events were added. Callers should reject fatal
- * errors rather than carrying legacy event evaluators into a {@link SyncPlan}.
+ * All definitions share one compiler to match normal sync-config compilation. Callers should reject fatal errors
+ * rather than carrying invalid legacy event evaluators into a {@link SyncPlan}.
  */
 export function compileEventDefinitions(
   definitions: Readonly<Record<string, readonly string[]>>,
   options: SyncStreamsCompilerOptions
 ): { events: CompiledEventDescriptor[]; errors: SqlRuleError[] } {
-  const { compiler, errors } = compileEventDefinitionsIntoCompiler(definitions, options);
-  return { events: compiler.toSyncPlan().events, errors };
-}
-
-/**
- * Compiles raw event SQL and retains the compiler's JavaScript model for behavioral compatibility checks.
- */
-export function compileEventDefinitionsToCompilerModel(
-  definitions: Readonly<Record<string, readonly string[]>>,
-  options: SyncStreamsCompilerOptions
-): { events: CompiledEvent[]; errors: SqlRuleError[] } {
-  const { compiler, errors } = compileEventDefinitionsIntoCompiler(definitions, options);
-  return { events: compiler.output.events, errors };
-}
-
-/**
- * Shared compilation step for the two event representations above.
- *
- * Returning the compiler, rather than one of its outputs, is intentional: persisted-plan normalization translates the
- * result into serializable sync-plan data, while compatibility matching needs the JavaScript compiler model and its
- * behavioral structure. Keeping both paths on this helper ensures they compile the same SQL with the same options.
- */
-function compileEventDefinitionsIntoCompiler(
-  definitions: Readonly<Record<string, readonly string[]>>,
-  options: SyncStreamsCompilerOptions
-): { compiler: SyncStreamsCompiler; errors: SqlRuleError[] } {
-  // Use one compiler for the complete event collection, matching normal sync-config compilation. In particular, this
-  // keeps all compiler-owned expression locations and intermediate event models in one coherent output snapshot.
   const compiler = new SyncStreamsCompiler(options);
   const errors: SqlRuleError[] = [];
 
   for (const [name, queries] of Object.entries(definitions)) {
-    // event() registers the named model immediately; each payload query then contributes one validated physical-table
-    // source to that model. Invalid queries report errors and are not added to the compiled event.
     const event = compiler.event(name);
     for (const sql of queries) {
       event.addSourceQuery(sql, {
         report(message, location, reportOptions) {
-          // Locations are offsets into this specific payload SQL string, so bind every reported compiler diagnostic to
-          // that source before accumulating it with diagnostics from the other event queries.
           const error = new SqlRuleError(message, sql, location);
           error.type = reportOptions?.isWarning ? 'warning' : 'fatal';
           errors.push(error);
@@ -342,7 +256,7 @@ function compileEventDefinitionsIntoCompiler(
     }
   }
 
-  return { compiler, errors };
+  return { events: compiler.toSyncPlan().events, errors };
 }
 
 function tryParse(sql: string, errors: ParsingErrorListener): Statement | null {
@@ -440,6 +354,33 @@ export class CompiledStreamQueries {
   canonicalizePointLookup(lookup: PointLookup): PointLookup {
     return this._pointLookups.getOrInsert(lookup)[0];
   }
+}
+
+/**
+ * Compiler model for one SQL query in a named event's `payloads` list.
+ *
+ * It binds that query to its single physical source table and contains one row evaluator for each normalized `OR`
+ * branch. Within each evaluator, filters determine whether a source row triggers the event, while projected columns
+ * determine the payload produced for a matching row.
+ *
+ * {@link sql} is retained so service-core can dual-write the legacy `eventDescriptors` field for older services during
+ * rolling upgrades. The executable plan uses the parsed source table and row evaluators instead.
+ */
+export interface CompiledEventSourceQueryModel {
+  sql: string;
+  sourceTable: PhysicalSourceResultSet;
+  variants: EventRowEvaluator[];
+}
+
+/**
+ * Compiler model for one named entry under `event_definitions`.
+ *
+ * {@link name} identifies the event exposed to handlers. {@link sourceQueries} represents its complete `payloads`
+ * list, which may define how rows from different source tables trigger that event and produce its payload.
+ */
+export interface CompiledEvent {
+  name: string;
+  sourceQueries: CompiledEventSourceQueryModel[];
 }
 
 /**
