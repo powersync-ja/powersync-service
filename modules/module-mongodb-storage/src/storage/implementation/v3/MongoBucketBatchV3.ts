@@ -46,7 +46,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       logger: this.logger,
       objectStorage: this.options.objectStorage,
       inlineThresholdBytes: this.options.inlineThresholdBytes,
-      signal: this.options.signal
+      signal: this.options.signal,
+      objectStorageUsageWriterId: this.objectStorageUsageWriterId
     });
   }
 

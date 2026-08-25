@@ -22,6 +22,7 @@ import {
   storage,
   utils
 } from '@powersync/service-core';
+import { randomUUID } from 'node:crypto';
 import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../utils/util.js';
 import { PersistedBatch } from './common/PersistedBatch.js';
@@ -108,6 +109,7 @@ export abstract class MongoBucketBatch
   private readonly storeCurrentData: boolean;
   public readonly skipExistingRows: boolean;
   protected readonly mapping: BucketDefinitionMapping;
+  protected readonly objectStorageUsageWriterId = randomUUID();
 
   private batch: OperationBatch | null = null;
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];

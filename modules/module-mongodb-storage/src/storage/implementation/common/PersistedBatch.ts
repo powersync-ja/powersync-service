@@ -69,6 +69,7 @@ export interface PersistedBatchOptions {
    * Aborts in-flight object storage uploads when replication stops.
    */
   signal?: AbortSignal;
+  objectStorageUsageWriterId?: string;
 }
 
 /**
@@ -86,6 +87,7 @@ export abstract class PersistedBatch {
   protected readonly objectStorage?: ObjectStorage;
   protected readonly inlineThresholdBytes: number = DEFAULT_INLINE_THRESHOLD_BYTES;
   protected readonly signal?: AbortSignal;
+  protected readonly objectStorageUsageWriterId?: string;
 
   /**
    * For debug logging only.
@@ -108,6 +110,7 @@ export abstract class PersistedBatch {
     this.logger = options?.logger ?? defaultLogger;
     this.objectStorage = options?.objectStorage;
     this.signal = options?.signal;
+    this.objectStorageUsageWriterId = options?.objectStorageUsageWriterId;
     if (options?.inlineThresholdBytes != null) {
       this.inlineThresholdBytes = options.inlineThresholdBytes;
     }

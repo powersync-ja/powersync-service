@@ -13,6 +13,7 @@ import {
 } from './models.js';
 import { ObjectStorage } from './object-storage/ObjectStorage.js';
 import { ObjectStorageLifecycle } from './object-storage/ObjectStorageLifecycle.js';
+import { ObjectStorageUsage } from './object-storage/ObjectStorageUsage.js';
 
 type SyncConfigState = ReplicationStreamDocumentV3['sync_configs'][number];
 
@@ -385,6 +386,19 @@ export class MongoStoppedSyncConfigCleanup {
     for (const definitionId of definitionIds) {
       this.throwIfAborted();
       await this.dropCollection(this.db.bucketData(this.replicationStreamId, definitionId));
+    }
+    if (definitionIds.length > 0) {
+      const usage = new ObjectStorageUsage(this.db, this.replicationStreamId);
+      await this.db.client.withSession((session) =>
+        session.withTransaction(async () => {
+          for (const definitionId of definitionIds) {
+            await usage.removeDefinition(definitionId, session);
+          }
+        })
+      );
+    }
+    for (const definitionId of definitionIds) {
+      this.throwIfAborted();
       await lifecycle?.deletePrefix(lifecycle.definitionPrefix(definitionId), { signal: this.signal });
     }
     return definitionIds.length;

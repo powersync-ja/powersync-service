@@ -8,6 +8,7 @@ import {
   BucketStateDocumentV3,
   CurrentDataDocumentV3,
   ObjectStorageDeletionMarker,
+  ObjectStorageUsageDocument,
   SourceTableDocumentV3,
   SyncConfigDefinition
 } from './models.js';
@@ -74,6 +75,10 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
     return this.db.collection<ObjectStorageDeletionMarker>(`pending_object_storage_deletes_${replicationStreamId}`);
   }
 
+  get objectStorageUsage(): mongo.Collection<ObjectStorageUsageDocument> {
+    return this.db.collection<ObjectStorageUsageDocument>('object_storage_usage');
+  }
+
   listBucketDataCollections(replicationStreamId: number) {
     return this.listCollectionsByPrefix(`bucket_data_${replicationStreamId}_`);
   }
@@ -124,6 +129,16 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
       {
         name: 'next_compact_check',
         partialFilterExpression: { next_compact_check: { $exists: true } }
+      }
+    );
+    await this.objectStorageUsage.createIndex(
+      {
+        replication_stream_id: 1,
+        writer_id: 1
+      },
+      {
+        name: 'replication_stream_writer',
+        unique: true
       }
     );
   }

@@ -178,6 +178,7 @@ export class PowerSyncMongo {
     await this.locks.deleteMany({});
     await this.bucket_state.deleteMany({});
     await this.custom_write_checkpoints.deleteMany({});
+    await this.db.collection('object_storage_usage').deleteMany({});
   }
 
   /**
