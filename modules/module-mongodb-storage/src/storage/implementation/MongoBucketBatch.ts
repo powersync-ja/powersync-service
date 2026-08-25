@@ -22,7 +22,6 @@ import {
   storage,
   utils
 } from '@powersync/service-core';
-import { randomUUID } from 'node:crypto';
 import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../utils/util.js';
 import { PersistedBatch } from './common/PersistedBatch.js';
@@ -34,6 +33,7 @@ import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
+import { createObjectStorageUsageWriterId } from './v3/object-storage/ObjectStorageUsage.js';
 
 // Currently, we can only have a single flush() at a time, since it locks the op_id sequence.
 // While the MongoDB transaction retry mechanism handles this okay, using an in-process Mutex
@@ -109,7 +109,7 @@ export abstract class MongoBucketBatch
   private readonly storeCurrentData: boolean;
   public readonly skipExistingRows: boolean;
   protected readonly mapping: BucketDefinitionMapping;
-  protected readonly objectStorageUsageWriterId = randomUUID();
+  protected readonly objectStorageUsageWriterId = createObjectStorageUsageWriterId();
 
   private batch: OperationBatch | null = null;
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];

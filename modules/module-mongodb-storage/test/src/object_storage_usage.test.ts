@@ -106,38 +106,6 @@ describe('ObjectStorageUsage', () => {
     });
   });
 
-  test.each([
-    {
-      name: 'S3-to-S3',
-      oldDocuments: [{ storage_ref: { path: 'old', file_size: 10 } }],
-      newDocuments: [{ storage_ref: { path: 'new', file_size: 25 } }],
-      expected: 15n
-    },
-    {
-      name: 'S3-to-inline',
-      oldDocuments: [{ storage_ref: { path: 'old', file_size: 10 } }],
-      newDocuments: [{}],
-      expected: -10n
-    },
-    {
-      name: 'inline-to-S3',
-      oldDocuments: [{}],
-      newDocuments: [{ storage_ref: { path: 'new', file_size: 25 } }],
-      expected: 25n
-    },
-    {
-      name: 'multiple-input-to-one-output',
-      oldDocuments: [
-        { storage_ref: { path: 'old-1', file_size: 10 } },
-        { storage_ref: { path: 'old-2', file_size: 20 } }
-      ],
-      newDocuments: [{ storage_ref: { path: 'new', file_size: 25 } }],
-      expected: -5n
-    }
-  ])('$name replacement records the signed byte delta', ({ oldDocuments, newDocuments, expected }) => {
-    expect(ObjectStorageUsage.replacementDelta(oldDocuments, newDocuments)).toBe(expected);
-  });
-
   test('snapshot usage reads observe a complete pre-fold view', async () => {
     await withUsageContext(async ({ db, bucketStorage, definitionId }) => {
       const replicationStreamId = bucketStorage.replicationStreamId;

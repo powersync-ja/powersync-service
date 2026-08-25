@@ -13,6 +13,8 @@ import {
   SyncConfigDefinition
 } from './models.js';
 
+export const OBJECT_STORAGE_USAGE_COLLECTION = 'object_storage_usage';
+
 export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
   constructor(
     upstream: ConstructorParameters<typeof BaseVersionedPowerSyncMongo>[0],
@@ -76,7 +78,7 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
   }
 
   get objectStorageUsage(): mongo.Collection<ObjectStorageUsageDocument> {
-    return this.db.collection<ObjectStorageUsageDocument>('object_storage_usage');
+    return this.db.collection<ObjectStorageUsageDocument>(OBJECT_STORAGE_USAGE_COLLECTION);
   }
 
   listBucketDataCollections(replicationStreamId: number) {

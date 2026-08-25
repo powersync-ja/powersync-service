@@ -44,29 +44,8 @@ export class ObjectStorageUsage {
     return BigInt(document.storage_ref?.file_size ?? 0);
   }
 
-  static replacementDelta(
-    oldDocuments: Iterable<Pick<BucketDataDocumentV3, 'storage_ref'>>,
-    newDocuments: Iterable<Pick<BucketDataDocumentV3, 'storage_ref'>>
-  ): bigint {
-    let delta = 0n;
-    for (const document of oldDocuments) {
-      delta -= ObjectStorageUsage.bytes(document);
-    }
-    for (const document of newDocuments) {
-      delta += ObjectStorageUsage.bytes(document);
-    }
-    return delta;
-  }
-
   static async readAllStreamUsage(db: VersionedPowerSyncMongoV3): Promise<ReplicationStreamObjectStorageUsageResult[]> {
     return db.client.withSession({ snapshot: true }, async (session) => {
-      const exists =
-        (await db.db.listCollections({ name: db.objectStorageUsage.collectionName }, { nameOnly: true }).toArray())
-          .length > 0;
-      if (!exists) {
-        return [];
-      }
-
       const entries = await db.objectStorageUsage
         .aggregate<{
           _id: { replication_stream_id: number; definition_id: BucketDefinitionId };

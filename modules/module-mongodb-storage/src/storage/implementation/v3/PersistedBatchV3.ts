@@ -232,7 +232,8 @@ export class PersistedBatchV3 extends PersistedBatch {
     const plans = Array.from(operationsByDefinition, ([definitionId, documents]) => {
       const operationsByBucket = Map.groupBy(documents, (document) => document.bucketKey.bucket);
       const lifecycle = this.objectStorageLifecycle;
-      const createInserts: (() => Promise<mongo.AnyBulkWriteOperation<BucketDataDocumentV3>>)[] = [];
+      type BucketDataInsert = { insertOne: { document: BucketDataDocumentV3 } };
+      const createInserts: (() => Promise<BucketDataInsert>)[] = [];
 
       for (const [bucket, ops] of operationsByBucket) {
         this.resetBucketPersistedBytes(definitionId, bucket);
@@ -285,16 +286,16 @@ export class PersistedBatchV3 extends PersistedBatch {
     // separate limiter here.
     const writes = await createAllInserts();
 
-    const usageDeltas = new Map<BucketDefinitionId, bigint>();
+    const usageDeltas = this.objectStorageUsage == null ? undefined : new Map<BucketDefinitionId, bigint>();
     for (const { definitionId, inserts } of writes) {
-      const delta = inserts.reduce((sum, operation) => {
-        if (!('insertOne' in operation)) {
-          throw new ReplicationAssertionError('Expected only bucket-data inserts when accounting object storage usage');
+      if (usageDeltas != null) {
+        const delta = inserts.reduce(
+          (sum, operation) => sum + ObjectStorageUsage.bytes(operation.insertOne.document),
+          0n
+        );
+        if (delta !== 0n) {
+          usageDeltas.set(definitionId, delta);
         }
-        return sum + ObjectStorageUsage.bytes(operation.insertOne.document);
-      }, 0n);
-      if (delta !== 0n) {
-        usageDeltas.set(definitionId, delta);
       }
       if (inserts.length > 0) {
         await this.db.bucketData(this.group_id, definitionId).bulkWrite(inserts, {
@@ -303,7 +304,9 @@ export class PersistedBatchV3 extends PersistedBatch {
         });
       }
     }
-    await this.objectStorageUsage?.applyDeltas(usageDeltas, session);
+    if (usageDeltas != null) {
+      await this.objectStorageUsage!.applyDeltas(usageDeltas, session);
+    }
   }
 
   protected async flushBucketParameters(session: mongo.ClientSession) {

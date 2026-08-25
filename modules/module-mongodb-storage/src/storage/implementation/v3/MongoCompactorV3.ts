@@ -936,6 +936,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     const expectedChecksum = inputs.reduce((sum, doc) => sum + doc.checksum, 0n);
     const expectedOpCount = inputs.reduce((sum, doc) => sum + doc.count, 0);
     const oldStoragePaths = inputs.flatMap((doc) => (doc.storage_ref ? [doc.storage_ref.path] : []));
+    const oldStorageBytes = inputs.reduce((sum, document) => sum + ObjectStorageUsage.bytes(document), 0n);
     const {
       documents,
       storagePaths: newStoragePaths,
@@ -976,7 +977,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           await bucketContext.collection.deleteMany({ _id: { $in: idsToDelete } }, { session });
           await bucketContext.collection.insertMany(documents, { session });
           await this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, uploads, session);
-          await this.recordObjectStorageReplacement(inputs, documents, context.definitionId, session);
+          await this.recordObjectStorageReplacement(oldStorageBytes, documents, context.definitionId, session);
         },
         {
           writeConcern: { w: 'majority' },
@@ -1377,7 +1378,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
   }
 
   private async recordObjectStorageReplacement(
-    oldDocumentsOrBytes: Iterable<Pick<BucketDataDocumentV3, 'storage_ref'>> | bigint,
+    oldBytes: bigint,
     newDocuments: Iterable<Pick<BucketDataDocumentV3, 'storage_ref'>>,
     definitionId: BucketDefinitionId,
     session: mongo.ClientSession
@@ -1385,11 +1386,10 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     if (!this.storage.objectStorage) {
       return;
     }
-    const oldBytes =
-      typeof oldDocumentsOrBytes === 'bigint'
-        ? oldDocumentsOrBytes
-        : Array.from(oldDocumentsOrBytes).reduce((sum, document) => sum + ObjectStorageUsage.bytes(document), 0n);
-    const newBytes = Array.from(newDocuments).reduce((sum, document) => sum + ObjectStorageUsage.bytes(document), 0n);
+    let newBytes = 0n;
+    for (const document of newDocuments) {
+      newBytes += ObjectStorageUsage.bytes(document);
+    }
     await this.objectStorageUsage.applyDelta(definitionId, newBytes - oldBytes, session);
   }
 

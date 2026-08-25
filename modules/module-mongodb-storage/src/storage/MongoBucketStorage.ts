@@ -34,10 +34,7 @@ import { MongoPersistedReplicationStream } from './implementation/MongoPersisted
 import { stopReplicationStreamPipeline } from './implementation/SyncRuleStateUpdate.js';
 import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
 import { ObjectStorage } from './implementation/v3/object-storage/ObjectStorage.js';
-import {
-  ObjectStorageUsage,
-  ReplicationStreamObjectStorageUsageResult
-} from './implementation/v3/object-storage/ObjectStorageUsage.js';
+import { ObjectStorageUsage } from './implementation/v3/object-storage/ObjectStorageUsage.js';
 import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyncMongoV3.js';
 import { ReplicationStreamDocumentV3, SyncConfigDefinition, SyncRuleConfigStateV3 } from './storage-index.js';
 
@@ -937,17 +934,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       object_storage_size_bytes: Number(totalObjectStorageSize),
       stream_metrics: [...streamMetrics.values()]
     };
-  }
-
-  /**
-   * Read active object-storage usage for a v3 replication stream without scanning bucket data
-   * or the object store. Streams without usage documents are reported as zero.
-   */
-  async getObjectStorageUsage(replicationStreamId: number): Promise<ReplicationStreamObjectStorageUsageResult> {
-    const db = this.db.versioned(
-      getMongoStorageConfig(storage.STORAGE_VERSION_3) as StorageConfig & { incrementalReprocessing: true }
-    );
-    return new ObjectStorageUsage(db, replicationStreamId).readStreamUsage();
   }
 
   async getPowerSyncInstanceId(): Promise<string> {
