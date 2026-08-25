@@ -1461,7 +1461,8 @@ bucket_definitions:
     expect(metrics).toEqual({
       operations_size_bytes: 0,
       parameters_size_bytes: 0,
-      replication_size_bytes: 0
+      replication_size_bytes: 0,
+      object_storage_size_bytes: 0
     });
 
     const r = await f.configureSyncRules(updateSyncRulesFromYaml('bucket_definitions: {}'));
