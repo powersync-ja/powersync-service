@@ -1,5 +1,6 @@
 import dedent from 'dedent';
 import * as t from 'ts-codec';
+import { anyPrimitive, enumLiteral } from '../codecs.js';
 
 /**
  * The meta tags here are used in the generated JSON schema.
@@ -96,10 +97,7 @@ export const jwkRSA = t
     e: t.string.meta({
       description: 'RSA exponent, Base64 URL encoded.'
     }),
-    alg: t
-      .literal('RS256')
-      .or(t.literal('RS384'))
-      .or(t.literal('RS512'))
+    alg: enumLiteral('RS256', 'RS384', 'RS512')
       .meta({
         description: 'The algorithm intended for use with this key (RS256, RS384, or RS512).'
       })
@@ -128,7 +126,7 @@ export const jwkHmac = t
     k: t.string.meta({
       description: 'The HMAC key value, Base64 URL encoded.'
     }),
-    alg: t.literal('HS256').or(t.literal('HS384')).or(t.literal('HS512')).meta({
+    alg: enumLiteral('HS256', 'HS384', 'HS512').meta({
       description: 'The algorithm intended for use with this key (HS256, HS384, or HS512).'
     }),
     use: t.string
@@ -152,7 +150,7 @@ export const jwkOKP = t
       })
       .optional(),
     /** Other curves have security issues so only these two are supported. */
-    crv: t.literal('Ed25519').or(t.literal('Ed448')).meta({
+    crv: enumLiteral('Ed25519', 'Ed448').meta({
       description: 'The cryptographic curve used with this key. Only Ed25519 and Ed448 are supported.'
     }),
     x: t.string.meta({
@@ -182,7 +180,7 @@ export const jwkEC = t
         description: 'Key ID, a unique identifier for the key.'
       })
       .optional(),
-    crv: t.literal('P-256').or(t.literal('P-384')).or(t.literal('P-521')).meta({
+    crv: enumLiteral('P-256', 'P-384', 'P-521').meta({
       description: 'The cryptographic curve used with this key (P-256, P-384, or P-521).'
     }),
     x: t.string.meta({
@@ -191,7 +189,7 @@ export const jwkEC = t
     y: t.string.meta({
       description: 'The y coordinate for the Elliptic Curve point, Base64 URL encoded.'
     }),
-    alg: t.literal('ES256').or(t.literal('ES384')).or(t.literal('ES512')).meta({
+    alg: enumLiteral('ES256', 'ES384', 'ES512').meta({
       description: 'The algorithm intended for use with this key (ES256, ES384, or ES512).'
     }),
     use: t.string
@@ -204,7 +202,7 @@ export const jwkEC = t
     description: 'JSON Web Key (JWK) representation of an Elliptic Curve key.'
   });
 
-const jwk = t.union(t.union(t.union(jwkRSA, jwkHmac), jwkOKP), jwkEC).meta({
+const jwk = jwkRSA.or(jwkHmac).or(jwkOKP).or(jwkEC).meta({
   description: 'A JSON Web Key (JWK) representing a cryptographic key. Can be RSA, HMAC, OKP, or EC key types.'
 });
 
@@ -222,21 +220,12 @@ export type StrictJwk = t.Decoded<typeof jwk>;
 
 export const LoggingConfig = t
   .object({
-    level: t
-      .literal('silly')
-      .or(t.literal('debug'))
-      .or(t.literal('verbose'))
-      .or(t.literal('http'))
-      .or(t.literal('info'))
-      .or(t.literal('warn'))
-      .or(t.literal('error'))
+    level: enumLiteral('silly', 'debug', 'verbose', 'http', 'info', 'warn', 'error')
       .meta({
         description: 'Log level for the service logs.'
       })
       .optional(),
-    format: t
-      .literal('json')
-      .or(t.literal('text'))
+    format: enumLiteral('json', 'text')
       .meta({
         description: 'Log output format.'
       })
@@ -544,7 +533,7 @@ export const powerSyncConfig = t
       .optional(),
 
     parameters: t
-      .record(t.number.or(t.string).or(t.boolean).or(t.Null))
+      .record(anyPrimitive({ null: true, number: true, string: true, boolean: true }))
       .meta({
         description: 'Global parameters that can be referenced in sync config and other configurations.'
       })
