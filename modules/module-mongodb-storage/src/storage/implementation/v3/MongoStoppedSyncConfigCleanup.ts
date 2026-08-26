@@ -387,7 +387,7 @@ export class MongoStoppedSyncConfigCleanup {
       this.throwIfAborted();
       await this.dropCollection(this.db.bucketData(this.replicationStreamId, definitionId));
     }
-    if (definitionIds.length > 0) {
+    if (definitionIds.length > 0 && this.objectStorage != null) {
       const usage = new ObjectStorageUsage(this.db, this.replicationStreamId);
       await this.db.client.withSession((session) =>
         session.withTransaction(async () => {
