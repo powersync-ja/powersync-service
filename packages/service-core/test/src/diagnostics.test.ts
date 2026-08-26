@@ -15,6 +15,7 @@ bucket_definitions:
 
 function makeSyncRulesContent(overrides?: {
   slot_name?: string;
+  version_label?: string;
   status?: storage.PersistedSyncConfigStatus;
 }): storage.PersistedSyncConfigContent {
   // We don't implement the entire interface correctly here - just enough to test the diagnostics logic.
@@ -37,6 +38,7 @@ function makeSyncRulesContent(overrides?: {
     compiled_plan: null,
     storageVersion: 1,
     syncConfigState: status.state,
+    version_label: overrides?.version_label,
     parsed(options?: any) {
       const syncRules = SqlSyncRules.fromYaml(MINIMAL_SYNC_RULES, {
         ...options,
@@ -179,5 +181,28 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
     expect(result!.connections[0].last_checkpoint_ts).toBe('2026-01-01T00:02:00.000Z');
     expect(result!.connections[0].last_keepalive_ts).toBe('2026-01-01T00:01:00.000Z');
     expect(result!.errors.some((error) => error.message == 'config failed')).toBe(true);
+  });
+
+  test('includes the sync config version label', async () => {
+    const result = await getSyncRulesStatus(
+      makeRouteAPI(),
+      makeSyncRulesContent({ version_label: 'v6' }),
+      OPTIONS,
+      makeSystemStorage()
+    );
+
+    expect(result!.version_label).toBe('v6');
+  });
+
+  test('includes the sync config version label when parsing fails', async () => {
+    const content = makeSyncRulesContent({ version_label: 'v6' });
+    content.parsed = () => {
+      throw new Error('Invalid sync config');
+    };
+
+    const result = await getSyncRulesStatus(makeRouteAPI(), content, OPTIONS, makeSystemStorage());
+
+    expect(result!.version_label).toBe('v6');
+    expect(result!.errors).toEqual([expect.objectContaining({ level: 'fatal', message: 'Invalid sync config' })]);
   });
 });

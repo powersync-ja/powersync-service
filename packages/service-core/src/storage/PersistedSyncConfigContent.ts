@@ -93,6 +93,7 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
   readonly logger: Logger;
   readonly syncConfigId: PersistedSyncConfigId | null;
   readonly syncConfigState: SyncRuleState;
+  readonly version_label: string | undefined;
 
   constructor(data: PersistedSyncConfigContentData) {
     this.replicationStreamId = data.replicationStreamId;
@@ -102,7 +103,9 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
     this.storageVersion = data.storageVersion;
     this.syncConfigId = data.syncConfigId ?? null;
     this.syncConfigState = data.syncConfigState;
-    this.logger = defaultLogger.child({ prefix: `[${this.replicationStreamName}] ` });
+    this.version_label = data.version_label;
+    const versionPrefix = this.version_label == null ? '' : `[${this.version_label}]`;
+    this.logger = defaultLogger.child({ prefix: `[${this.replicationStreamName}]${versionPrefix} ` });
   }
 
   /**
@@ -167,6 +170,7 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
     const parsed = this.parseSingleConfig({ defaultSchema: 'not_applicable' });
     return {
       config: { yaml: this.sync_rules_content, plan: this.compiled_plan, parsed },
+      version_label: this.version_label,
       ...options
     };
   }
@@ -185,6 +189,7 @@ export interface PersistedSyncConfigContentData {
 
   readonly syncConfigId?: PersistedSyncConfigId | null;
   readonly syncConfigState: SyncRuleState;
+  readonly version_label?: string;
 }
 export type PersistedSyncConfigId = string;
 export interface ParseSyncConfigOptions {
