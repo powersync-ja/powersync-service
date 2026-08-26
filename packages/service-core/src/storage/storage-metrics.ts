@@ -63,15 +63,69 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
 
   const MINIMUM_INTERVAL = 60_000;
 
+  /**
+   * How long a sync config that is no longer present keeps being reported as zero.
+   *
+   * This must comfortably exceed the longest metric export interval, so that every configured
+   * reader observes the zero at least once. The OTLP reader exports every 5 minutes.
+   */
+  const RETIRED_SYNC_CONFIG_INTERVAL = 15 * 60_000;
+
+  type SyncConfigAttributes = {
+    sync_config_id: string;
+    sync_config_state: string;
+  };
+
+  /**
+   * Attribute sets reported at least once, along with the last time each was present in the
+   * storage metrics.
+   *
+   * These gauges are exported with cumulative temporality, which means the metrics SDK keeps
+   * re-exporting the last reported value for every attribute set it has seen, also after we stop
+   * reporting that set. Without this, a sync config that has since been pruned would keep
+   * reporting its last non-zero size indefinitely, so sums over these gauges would drift upwards
+   * permanently. Reporting zero for a while instead leaves the SDK carrying a zero forward.
+   */
+  const reportedSyncConfigs = new Map<string, { attributes: SyncConfigAttributes; lastSeen: number }>();
+
+  const syncConfigKey = (attributes: SyncConfigAttributes) =>
+    `${attributes.sync_config_id}|${attributes.sync_config_state}`;
+
+  const trackSyncConfigs = (metrics: StorageMetrics | null) => {
+    if (metrics == null) {
+      // Failed to read the metrics - this says nothing about which sync configs still exist.
+      return;
+    }
+    const now = Date.now();
+    for (const syncConfig of metrics.sync_config_metrics ?? []) {
+      const attributes = {
+        sync_config_id: syncConfig.sync_config_id,
+        sync_config_state: syncConfig.sync_config_state
+      };
+      reportedSyncConfigs.set(syncConfigKey(attributes), { attributes, lastSeen: now });
+    }
+    for (const [key, entry] of reportedSyncConfigs) {
+      if (now - entry.lastSeen > RETIRED_SYNC_CONFIG_INTERVAL) {
+        reportedSyncConfigs.delete(key);
+      }
+    }
+  };
+
   let cachedRequest: Promise<StorageMetrics | null> | undefined = undefined;
   let cacheTimestamp = 0;
 
   const getMetrics = () => {
     if (!cachedRequest || Date.now() - cacheTimestamp > MINIMUM_INTERVAL) {
-      cachedRequest = storage.getStorageMetrics().catch((e) => {
-        logger.error(`Failed to get storage metrics`, e);
-        return null;
-      });
+      cachedRequest = storage
+        .getStorageMetrics()
+        .catch((e) => {
+          logger.error(`Failed to get storage metrics`, e);
+          return null;
+        })
+        .then((metrics) => {
+          trackSyncConfigs(metrics);
+          return metrics;
+        });
       cacheTimestamp = Date.now();
     }
     return cachedRequest;
@@ -91,14 +145,19 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
 
   const observationsForSyncConfigs = (metrics: StorageMetrics, key: StorageSizeMetricKey) => {
     const observations: { value: number; attributes?: Record<string, string> }[] = [];
+    const present = new Set<string>();
     for (const syncConfig of metrics.sync_config_metrics ?? []) {
-      observations.push({
-        value: nonNegative(syncConfig[key]),
-        attributes: {
-          sync_config_id: syncConfig.sync_config_id,
-          sync_config_state: syncConfig.sync_config_state
-        }
-      });
+      const attributes = {
+        sync_config_id: syncConfig.sync_config_id,
+        sync_config_state: syncConfig.sync_config_state
+      };
+      present.add(syncConfigKey(attributes));
+      observations.push({ value: nonNegative(syncConfig[key]), attributes });
+    }
+    for (const entry of reportedSyncConfigs.values()) {
+      if (!present.has(syncConfigKey(entry.attributes))) {
+        observations.push({ value: 0, attributes: entry.attributes });
+      }
     }
     return observations;
   };
