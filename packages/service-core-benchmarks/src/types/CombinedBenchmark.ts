@@ -49,6 +49,7 @@ export interface CombinedBenchmarkObservation {
   readonly childCheckpointVisibleAtNs: string;
   readonly operations: readonly { readonly op: string; readonly object_id?: string; readonly data?: string | null }[];
   readonly snapshotDone: boolean;
+  readonly bucketCount: number;
 }
 
 export interface CombinedReleaseObservation {

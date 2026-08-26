@@ -1,7 +1,7 @@
 import type { ReplicationBenchmarkObservation, ReplicationReleaseObservation } from '../types/ReplicationBenchmark.js';
 import type { ReplicationChildClassDescriptor } from './ReplicationChildClassLoader.js';
 
-export const REPLICATION_CHILD_PROTOCOL_VERSION = 2 as const;
+export const REPLICATION_CHILD_PROTOCOL_VERSION = 3 as const;
 
 export interface ReplicationChildInitializePayload {
   readonly storage: ReplicationChildClassDescriptor;
@@ -11,6 +11,7 @@ export interface ReplicationChildSetupIterationPayload {
   readonly syncRules: string;
   readonly storageVersion: number;
   readonly source: ReplicationChildClassDescriptor;
+  readonly syncParameters: Record<string, unknown>;
 }
 
 export interface ReplicationChildCommandPayloads {
@@ -29,6 +30,7 @@ export interface ReplicationChildEvidencePayload {
   readonly checkpoint: string | null;
   readonly operations: ReplicationBenchmarkObservation['operations'];
   readonly snapshotDone: boolean;
+  readonly bucketCount: number;
 }
 
 export interface ReplicationChildResourceSamplePayload {

@@ -120,7 +120,7 @@ export class ReplicationBenchmark extends Benchmark<
     runtime.metrics.setCounter('writer_save_calls', manifest.expectedPutCount);
     runtime.metrics.setCounter('bucket_operations', observation.operations.length);
     runtime.metrics.setCounter('parameter_operations', 0);
-    runtime.metrics.setCounter('distinct_buckets', 1);
+    runtime.metrics.setCounter('distinct_buckets', observation.bucketCount);
     runtime.metrics.setCounter(
       'visible_checkpoints',
       this.scenario.phase === 'snapshot' ? 1 : manifest.transactions.length + 1
@@ -142,12 +142,16 @@ export class ReplicationBenchmark extends Benchmark<
     const checks: BenchmarkCorrectnessCheck[] = [
       check('snapshot_complete', observation.snapshotDone, { actual: observation.snapshotDone }),
       check('checkpoint_position', comparison.reached, comparison),
-      check('operation_count', observation.operations.length === context.manifest.expectedPutCount, {
-        expected: context.manifest.expectedPutCount,
+      check('bucket_count', observation.bucketCount === this.scenario.expected_bucket_count, {
+        expected: this.scenario.expected_bucket_count,
+        actual: observation.bucketCount
+      }),
+      check('operation_count', observation.operations.length === this.scenario.expected_bucket_operation_count, {
+        expected: this.scenario.expected_bucket_operation_count,
         actual: observation.operations.length
       }),
-      check('put_operation_count', puts.length === context.manifest.expectedPutCount, {
-        expected: context.manifest.expectedPutCount,
+      check('put_operation_count', puts.length === this.scenario.expected_bucket_operation_count, {
+        expected: this.scenario.expected_bucket_operation_count,
         actual: puts.length
       }),
       check('target_marker_visible', markerContainsTarget(marker), {

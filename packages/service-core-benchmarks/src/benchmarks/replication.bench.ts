@@ -10,6 +10,7 @@ import { ReplicationBenchmark } from '../runner/ReplicationBenchmark.js';
 import {
   mongoReplicationStorage,
   mongoSourceCase,
+  mongoSourceCategoryCase,
   postgresReplicationStorage,
   postgresSourceCase
 } from '../scenarios/replication-scenarios.js';
@@ -22,6 +23,7 @@ beforeAll(async () => {
 const postgresStorage = postgresReplicationStorage(CURRENT_STORAGE_VERSION);
 const mongoStorage = mongoReplicationStorage(CURRENT_STORAGE_VERSION);
 const cases = [
+  mongoSourceCategoryCase(postgresStorage),
   mongoSourceCase('snapshot', postgresStorage),
   mongoSourceCase('streaming', postgresStorage),
   mongoSourceCase('snapshot', mongoStorage, assertDistinctMongoSourceAndStorage),

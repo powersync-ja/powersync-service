@@ -1,4 +1,9 @@
 import { StorageBenchmarkImplementationId, StorageBenchmarkScenario } from '../types/StorageBenchmark.js';
+import {
+  createCategoryStorageSyncRules,
+  createCategorySyncParameters,
+  createStorageSyncRules
+} from '../utils/replication-sync-rules.js';
 
 export function createPostgresQuickStorageScenario(version: number): StorageBenchmarkScenario {
   return createQuickStorageScenario(
@@ -14,6 +19,19 @@ export function createMongoQuickStorageScenario(version: number): StorageBenchma
     'Write 1000 rows to global bucket directly to MongoDB bucket storage',
     version
   );
+}
+
+export function createPostgresCategoryStorageScenario(version: number): StorageBenchmarkScenario {
+  const scenario = createPostgresQuickStorageScenario(version);
+  return {
+    ...scenario,
+    id: `storage.write.buckets-10.postgres-storage.v${version}.quick`,
+    description: 'Write 10000 rows across 10 category buckets directly to PostgreSQL bucket storage',
+    tags: [...scenario.tags, 'multi-buckets', 'buckets-10'],
+    syncRule: createCategoryStorageSyncRules,
+    sync_parameters: createCategorySyncParameters(),
+    expected_bucket_count: 10
+  };
 }
 
 function createQuickStorageScenario(
@@ -40,6 +58,10 @@ function createQuickStorageScenario(
     workload: {
       row_count: 10_000,
       payload_bytes: 256
-    }
+    },
+    syncRule: createStorageSyncRules,
+    sync_parameters: {},
+    expected_bucket_count: 1,
+    expected_bucket_operation_count: 10_000
   };
 }

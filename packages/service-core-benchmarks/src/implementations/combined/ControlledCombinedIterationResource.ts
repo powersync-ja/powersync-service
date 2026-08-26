@@ -60,7 +60,8 @@ export async function waitForCombinedTargetEvidence(
         checkpointVisibleAtNs: now().toString(),
         childCheckpointVisibleAtNs: evidence.checkpointVisibleAtNs,
         operations: evidence.operations,
-        snapshotDone: evidence.snapshotDone
+        snapshotDone: evidence.snapshotDone,
+        bucketCount: evidence.bucketCount
       };
     }
     await delay();

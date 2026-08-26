@@ -81,7 +81,12 @@ export class CombinedBenchmark extends Benchmark<
             'accept-encoding': 'identity',
             'content-type': 'application/json'
           },
-          body: JSON.stringify({ raw_data: true, client_id: randomUUID(), buckets: [] }),
+          body: JSON.stringify({
+            raw_data: true,
+            client_id: randomUUID(),
+            buckets: [],
+            parameters: this.scenario.sync_parameters
+          }),
           signal: runtime.signal
         });
         clientObservation = await drainNdjsonResponse(response);
@@ -106,10 +111,14 @@ export class CombinedBenchmark extends Benchmark<
     const clientPuts = client.operations.filter((operation) => operation.op === 'PUT');
     const storageMarker = storage.operations.find((operation) => operation.object_id === storage.target.markerId);
     const clientMarker = client.operations.find((operation) => operation.object_id === storage.target.markerId);
-    const expectedOperations = context.manifest.expectedPutCount;
+    const expectedOperations = this.scenario.expected_bucket_operation_count;
     const checks: BenchmarkCorrectnessCheck[] = [
       check('snapshot_complete', storage.snapshotDone, { actual: storage.snapshotDone }),
       check('checkpoint_position', comparison.comparable && comparison.reached, comparison),
+      check('storage_bucket_count', storage.bucketCount === this.scenario.expected_bucket_count, {
+        expected: this.scenario.expected_bucket_count,
+        actual: storage.bucketCount
+      }),
       check('storage_operation_count', storage.operations.length === expectedOperations, {
         expected: expectedOperations,
         actual: storage.operations.length
@@ -128,6 +137,10 @@ export class CombinedBenchmark extends Benchmark<
       }),
       check('response_uncompressed', client.headers['content-encoding'] == null, {
         actual: client.headers['content-encoding'] ?? null
+      }),
+      check('client_bucket_count', client.bucketNames.length === this.scenario.expected_bucket_count, {
+        expected: this.scenario.expected_bucket_count,
+        actual: client.bucketNames.length
       }),
       check(
         'checkpoint_before_data',
@@ -243,7 +256,7 @@ export class CombinedBenchmark extends Benchmark<
     metrics.setCounter('bucket_operations', storage.operations.length);
     metrics.setCounter('storage_put_operations', storagePutCount);
     metrics.setCounter('parameter_operations', 0);
-    metrics.setCounter('distinct_buckets', 1);
+    metrics.setCounter('distinct_buckets', storage.bucketCount);
     metrics.setCounter('visible_checkpoints', 1);
     metrics.setCounter('target_markers', 1);
     metrics.setCounter('client_operations', client.operations.length);

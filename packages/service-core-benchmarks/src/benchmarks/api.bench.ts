@@ -8,7 +8,11 @@ import { PostgresStorageBenchmarkImplementation } from '../implementations/stora
 import { NodeProcessResourceMonitor } from '../monitors/NodeProcessResourceMonitor.js';
 import { UnavailableResourceMonitor } from '../monitors/UnavailableResourceMonitor.js';
 import { ApiBenchmark } from '../runner/ApiBenchmark.js';
-import { createMongoQuickApiScenario, createPostgresQuickApiScenario } from '../scenarios/api-scenarios.js';
+import {
+  createMongoQuickApiScenario,
+  createPostgresCategoryApiScenario,
+  createPostgresQuickApiScenario
+} from '../scenarios/api-scenarios.js';
 import { ApiBenchmarkScenario } from '../types/ApiBenchmark.js';
 import { StorageBenchmarkImplementation } from '../types/StorageBenchmark.js';
 import { createArtifactsFolder, getArtifactFilename } from '../utils/output.js';
@@ -24,6 +28,12 @@ interface ApiBenchmarkCase {
 }
 
 const cases: readonly ApiBenchmarkCase[] = [
+  {
+    scenario: createPostgresCategoryApiScenario(CURRENT_STORAGE_VERSION),
+    implementation: new PostgresStorageBenchmarkImplementation({
+      url: process.env.PG_STORAGE_TEST_URL ?? 'postgres://postgres:postgres@localhost:5432/powersync_storage_test'
+    })
+  },
   {
     scenario: createPostgresQuickApiScenario(CURRENT_STORAGE_VERSION),
     implementation: new PostgresStorageBenchmarkImplementation({

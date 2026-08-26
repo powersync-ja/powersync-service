@@ -15,6 +15,8 @@ export interface NdjsonDrainObservation {
   readonly completedCheckpoint: string | null;
   readonly checkpointLastOpId: string | null;
   readonly operations: readonly NdjsonDataOperation[];
+  readonly bucketNames: readonly string[];
+  readonly dataBucketNames: readonly string[];
   readonly checkpointLineIndex: number | null;
   readonly firstDataLineIndex: number | null;
   readonly completionLineIndex: number | null;
@@ -24,6 +26,8 @@ export interface NdjsonDrainObservation {
 interface NdjsonDrainState {
   readonly lines: unknown[];
   readonly operations: NdjsonDataOperation[];
+  readonly bucketNames: Set<string>;
+  readonly dataBucketNames: Set<string>;
   completedCheckpoint: string | null;
   checkpointLastOpId: string | null;
   checkpointLineIndex: number | null;
@@ -41,6 +45,8 @@ export async function drainNdjsonResponse(response: Response): Promise<NdjsonDra
   const state: NdjsonDrainState = {
     lines: [],
     operations: [],
+    bucketNames: new Set(),
+    dataBucketNames: new Set(),
     completedCheckpoint: null,
     checkpointLastOpId: null,
     checkpointLineIndex: null,
@@ -97,6 +103,8 @@ export async function drainNdjsonResponse(response: Response): Promise<NdjsonDra
       completedCheckpoint: state.completedCheckpoint,
       checkpointLastOpId: state.checkpointLastOpId,
       operations: state.operations,
+      bucketNames: [...state.bucketNames].sort(),
+      dataBucketNames: [...state.dataBucketNames].sort(),
       checkpointLineIndex: state.checkpointLineIndex,
       firstDataLineIndex: state.firstDataLineIndex,
       completionLineIndex: state.completionLineIndex,
@@ -138,6 +146,8 @@ function consumeLines(input: string, state: NdjsonDrainState): string {
       state.checkpointLineIndex ??= lineIndex;
     }
 
+    updateBucketNames(value, state);
+
     const operations = readDataOperations(value);
     if (operations != null) {
       state.firstDataLineIndex ??= lineIndex;
@@ -153,6 +163,56 @@ function consumeLines(input: string, state: NdjsonDrainState): string {
   }
 
   return pending;
+}
+
+function updateBucketNames(value: unknown, state: NdjsonDrainState): void {
+  if (!isRecord(value)) return;
+
+  if ('checkpoint' in value) {
+    if (!isRecord(value.checkpoint) || !Array.isArray(value.checkpoint.buckets)) {
+      throw new Error('API response included a malformed NDJSON checkpoint bucket list');
+    }
+
+    state.bucketNames.clear();
+
+    for (const bucket of value.checkpoint.buckets) {
+      state.bucketNames.add(readBucketName(bucket));
+    }
+  }
+
+  if ('checkpoint_diff' in value) {
+    if (
+      !isRecord(value.checkpoint_diff) ||
+      !Array.isArray(value.checkpoint_diff.updated_buckets) ||
+      !Array.isArray(value.checkpoint_diff.removed_buckets) ||
+      !value.checkpoint_diff.removed_buckets.every((bucket) => typeof bucket === 'string')
+    ) {
+      throw new Error('API response included a malformed NDJSON checkpoint diff bucket list');
+    }
+
+    for (const bucket of value.checkpoint_diff.updated_buckets) {
+      state.bucketNames.add(readBucketName(bucket));
+    }
+
+    for (const bucket of value.checkpoint_diff.removed_buckets) {
+      state.bucketNames.delete(bucket);
+    }
+  }
+
+  if ('data' in value) {
+    if (!isRecord(value.data) || typeof value.data.bucket !== 'string') {
+      throw new Error('API response included a malformed NDJSON data bucket');
+    }
+
+    state.dataBucketNames.add(value.data.bucket);
+  }
+}
+
+function readBucketName(value: unknown): string {
+  if (!isRecord(value) || typeof value.bucket !== 'string') {
+    throw new Error('API response included a malformed NDJSON bucket');
+  }
+  return value.bucket;
 }
 
 function readCheckpointLastOpId(value: unknown): string | null {

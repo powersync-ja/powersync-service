@@ -36,6 +36,7 @@ export async function waitForTargetEvidence(options: TargetEvidenceOptions): Pro
         replicationReleasedAtNs: options.releasedAtNs,
         operations: evidence.operations,
         snapshotDone: evidence.snapshotDone,
+        bucketCount: evidence.bucketCount,
         keepalives: 0,
         retries: 0,
         restarts: 0

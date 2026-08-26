@@ -14,7 +14,6 @@ import {
   createBenchmarkKey,
   createBenchmarkRouteApi,
   createConfiguration,
-  createSyncRules,
   createToken,
   reservePort
 } from '../utils/api-utils.js';
@@ -22,6 +21,7 @@ import { drainNdjsonResponse, NdjsonDrainObservation } from '../utils/ndjson-dra
 import { Benchmark } from './Benchmark.js';
 
 const TARGET_POSITION = '1/1';
+const SOURCE_TABLE = { schema: 'public', table: 'benchmark_items' } as const;
 
 interface ApiBenchmarkRunContext {
   readonly resource: StorageBenchmarkRunResource;
@@ -34,7 +34,6 @@ interface ApiBenchmarkIterationContext {
   readonly serviceContext: system.ServiceContextContainer;
   readonly endpoint: string;
   readonly token: string;
-  readonly expectedRows: number;
 }
 
 export class ApiBenchmark extends Benchmark<
@@ -71,7 +70,7 @@ export class ApiBenchmark extends Benchmark<
     const manifest = generateBaselineStorageRows(this.scenario.workload);
 
     try {
-      const syncRules = createSyncRules(runtime.kind, runtime.iteration);
+      const syncRules = this.scenario.syncRule(SOURCE_TABLE);
       replicationStream = await run.resource.factory.updateSyncRules(
         updateSyncRulesFromYaml(syncRules, {
           validate: true,
@@ -115,8 +114,7 @@ export class ApiBenchmark extends Benchmark<
         writer,
         serviceContext,
         endpoint: `http://127.0.0.1:${port}`,
-        token: await createToken(key.signingKey),
-        expectedRows: manifest.rows.length
+        token: await createToken(key.signingKey)
       };
     } catch (error) {
       await cleanup(serviceContext, writer, replicationStream, bucketStorage, error);
@@ -134,7 +132,12 @@ export class ApiBenchmark extends Benchmark<
       const response = await fetch(`${context.endpoint}/sync/stream`, {
         method: 'POST',
         headers: { authorization: `Bearer ${context.token}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ raw_data: true, client_id: randomUUID(), buckets: [] }),
+        body: JSON.stringify({
+          raw_data: true,
+          client_id: randomUUID(),
+          buckets: [],
+          parameters: this.scenario.sync_parameters
+        }),
         signal: runtime.signal
       });
       observation = await drainNdjsonResponse(response);
@@ -144,6 +147,8 @@ export class ApiBenchmark extends Benchmark<
 
     runtime.metrics.setCounter('response_wire_bytes', observation.wireBytes);
     runtime.metrics.setCounter('response_lines', observation.lines.length);
+    runtime.metrics.setCounter('bucket_operations', observation.operations.length);
+    runtime.metrics.setCounter('distinct_buckets', observation.bucketNames.length);
     return observation;
   }
 
@@ -163,7 +168,18 @@ export class ApiBenchmark extends Benchmark<
       check('checkpoint_complete', observation.completedCheckpoint != null, {
         actual: observation.completedCheckpoint
       }),
-      check('response_contains_data', dataLines > 0, { data_lines: dataLines, expected_rows: context.expectedRows }),
+      check('bucket_count', observation.bucketNames.length === this.scenario.expected_bucket_count, {
+        expected: this.scenario.expected_bucket_count,
+        actual: observation.bucketNames.length
+      }),
+      check('operation_count', observation.operations.length === this.scenario.expected_bucket_operation_count, {
+        expected: this.scenario.expected_bucket_operation_count,
+        actual: observation.operations.length
+      }),
+      check('response_contains_data', dataLines > 0, {
+        data_lines: dataLines,
+        expected_operations: this.scenario.expected_bucket_operation_count
+      }),
       check('response_has_bytes', observation.wireBytes > 0, { actual: observation.wireBytes })
     ];
 

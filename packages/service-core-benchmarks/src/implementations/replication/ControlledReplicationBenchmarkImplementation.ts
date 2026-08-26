@@ -9,7 +9,6 @@ import {
   ReplicationBenchmarkSourceAdapter
 } from '../../types/ReplicationBenchmark.js';
 import { StorageBenchmarkImplementationId } from '../../types/StorageBenchmark.js';
-import { createReplicationSyncRules } from '../../utils/replication-sync-rules.js';
 import { ControlledReplicationIterationResource } from './ControlledReplicationIterationResource.js';
 
 export interface ReplicationBenchmarkSourceSelection {
@@ -108,7 +107,8 @@ export class ControlledReplicationBenchmarkImplementation implements Replication
           const { replicationStreamName } = await controller.request(
             'setup_iteration',
             {
-              syncRules: createReplicationSyncRules(setup.iterationId, source.sourceTable),
+              syncRules: setup.scenario.syncRule(source.sourceTable),
+              syncParameters: setup.scenario.sync_parameters,
               storageVersion: setup.scenario.storage.version,
               source: sourceDescriptor
             },

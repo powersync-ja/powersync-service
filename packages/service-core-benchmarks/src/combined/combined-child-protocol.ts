@@ -2,7 +2,7 @@ import type * as jose from 'jose';
 import type { ReplicationChildClassDescriptor } from '../replication/ReplicationChildClassLoader.js';
 import type { ReplicationReleaseObservation } from '../types/ReplicationBenchmark.js';
 
-export const COMBINED_CHILD_PROTOCOL_VERSION = 1 as const;
+export const COMBINED_CHILD_PROTOCOL_VERSION = 2 as const;
 
 export interface CombinedChildInitializePayload {
   readonly storage: ReplicationChildClassDescriptor;
@@ -14,6 +14,7 @@ export interface CombinedChildSetupIterationPayload {
   readonly source: ReplicationChildClassDescriptor;
   readonly port: number;
   readonly jwk: jose.JWK;
+  readonly syncParameters: Record<string, unknown>;
 }
 
 export interface CombinedChildCommandPayloads {
@@ -33,6 +34,7 @@ interface CombinedChildEvidenceBase {
   readonly storageCheckpoint: string;
   readonly operations: readonly { readonly op: string; readonly object_id?: string; readonly data?: string | null }[];
   readonly snapshotDone: boolean;
+  readonly bucketCount: number;
 }
 
 export type CombinedChildEvidencePayload =

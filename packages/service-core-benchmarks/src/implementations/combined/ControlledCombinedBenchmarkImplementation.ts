@@ -4,7 +4,6 @@ import { CombinedChildResourceMonitor } from '../../monitors/CombinedChildResour
 import { CombinedBenchmarkImplementation, CombinedBenchmarkRunResource } from '../../types/CombinedBenchmark.js';
 import { ReplicationBenchmarkSourceAdapter } from '../../types/ReplicationBenchmark.js';
 import { createBenchmarkKey, createToken, reservePort } from '../../utils/api-utils.js';
-import { createReplicationSyncRules } from '../../utils/replication-sync-rules.js';
 import type {
   ReplicationBenchmarkSourceSelection,
   ReplicationBenchmarkStorageSelection
@@ -117,7 +116,8 @@ export class ControlledCombinedBenchmarkImplementation implements CombinedBenchm
           const childSetup = await controller.request(
             'setup_iteration',
             {
-              syncRules: createReplicationSyncRules(setup.iterationId, source.sourceTable),
+              syncRules: setup.scenario.syncRule(source.sourceTable),
+              syncParameters: setup.scenario.sync_parameters,
               storageVersion: setup.scenario.storage.version,
               source: sourceDescriptor,
               port,

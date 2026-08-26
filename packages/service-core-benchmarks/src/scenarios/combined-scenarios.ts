@@ -9,6 +9,11 @@ import { CombinedBenchmarkScenario } from '../types/CombinedBenchmark.js';
 import { ReplicationBenchmarkProducerId } from '../types/ReplicationBenchmark.js';
 import { StorageBenchmarkImplementationId } from '../types/StorageBenchmark.js';
 import {
+  createCategoryReplicationSyncRules,
+  createCategorySyncParameters,
+  createReplicationSyncRules
+} from '../utils/replication-sync-rules.js';
+import {
   mongoReplicationSource,
   mongoReplicationStorage,
   postgresReplicationSource,
@@ -40,7 +45,28 @@ export function createQuickCombinedScenario(
     mode: 'initial',
     transport: { encoding: 'ndjson', compression: 'none' },
     clients: { count: 1 },
-    workload: { snapshot_row_count: 1_000, payload_bytes: 256 }
+    workload: { snapshot_row_count: 1_000, payload_bytes: 256 },
+    syncRule: createReplicationSyncRules,
+    sync_parameters: {},
+    expected_bucket_count: 1,
+    expected_bucket_operation_count: 1_000
+  };
+}
+
+export function createCategoryCombinedScenario(
+  source: ReplicationBenchmarkProducerId,
+  storage: StorageBenchmarkImplementationId,
+  storageVersion: number
+): CombinedBenchmarkScenario {
+  const scenario = createQuickCombinedScenario(source, storage, storageVersion);
+  return {
+    ...scenario,
+    id: `combined.initial.buckets-10.${source}.${storage}.v${storageVersion}.quick.ndjson`,
+    description: `Initial snapshot from ${source} across 10 category buckets through ${storage} storage version ${storageVersion} to one NDJSON client`,
+    tags: [...scenario.tags.filter((tag) => tag !== 'baseline'), 'multi-buckets', 'buckets-10'],
+    syncRule: createCategoryReplicationSyncRules,
+    sync_parameters: createCategorySyncParameters(),
+    expected_bucket_count: 10
   };
 }
 
@@ -55,6 +81,30 @@ export function createQuickCombinedCases(storageVersion: number): readonly Combi
     createCombinedCase(mongoSource, postgresStorage),
     createCombinedCase(mongoSource, mongoStorage, assertDistinctMongoSourceAndStorage)
   ];
+}
+
+export function createCategoryCombinedCases(storageVersion: number): CombinedBenchmarkCase[] {
+  const postgresSource = postgresReplicationSource();
+  const mongoSource = mongoReplicationSource();
+  const postgresStorage = postgresReplicationStorage(storageVersion);
+  const mongoStorage = mongoReplicationStorage(storageVersion);
+  return [
+    createCategoryCombinedCase(postgresSource, postgresStorage, assertDistinctPostgresSourceAndStorage),
+    createCategoryCombinedCase(postgresSource, mongoStorage),
+    createCategoryCombinedCase(mongoSource, postgresStorage),
+    createCategoryCombinedCase(mongoSource, mongoStorage, assertDistinctMongoSourceAndStorage)
+  ]
+}
+
+function createCategoryCombinedCase(
+  source: ReplicationBenchmarkSourceSelection,
+  storage: ReplicationBenchmarkStorageSelection,
+  validateEnvironment?: (environment: Readonly<Record<string, string | undefined>>) => void
+): CombinedBenchmarkCase {
+  return {
+    scenario: createCategoryCombinedScenario(source.id, storage.id, storage.version),
+    implementation: new ControlledCombinedBenchmarkImplementation({ source, storage, validateEnvironment })
+  };
 }
 
 function createCombinedCase(

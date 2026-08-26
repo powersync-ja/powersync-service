@@ -13,6 +13,7 @@ import { createBenchmarkServiceContext } from '../replication/BenchmarkServiceCo
 import { constructReplicationChildImplementation } from '../replication/ReplicationChildClassLoader.js';
 import { ReplicationChildSourceImplementation } from '../replication/ReplicationChildSourceImplementation.js';
 import { StorageBenchmarkImplementation, StorageBenchmarkRunResource } from '../types/StorageBenchmark.js';
+import { bucketRequests, resolveBenchmarkBuckets } from '../utils/benchmark-buckets.js';
 import {
   CombinedChildCommand,
   CombinedChildCommandKind,
@@ -35,6 +36,8 @@ interface CombinedChildRuntimeState {
   lifecycleStarted: boolean;
   storageTerminated: boolean;
   environment?: object;
+  syncParameters?: Record<string, unknown>;
+  defaultSchema?: string;
 }
 
 const ALLOWED_COMMANDS: Record<CombinedChildRuntimePhase, readonly CombinedChildCommandKind[]> = {
@@ -165,6 +168,8 @@ export class CombinedChildRuntime {
       this.state.replicationStream = replicationStream;
       this.state.syncRulesContent = syncRulesContent;
       this.state.bucketStorage = bucketStorage;
+      this.state.syncParameters = payload.syncParameters;
+      this.state.defaultSchema = sourceSetup.defaultSchema;
 
       const replicationEngine = new replication.ReplicationEngine();
       context.register(replication.ReplicationEngine, replicationEngine);
@@ -209,11 +214,22 @@ export class CombinedChildRuntime {
     const lsn = checkpoint.lsn;
     const storageCheckpoint = checkpoint.checkpoint.toString(10);
     if (lsn == null) {
-      return { storageCheckpoint, checkpoint: null, operations: [], snapshotDone: status.snapshotDone };
+      return { storageCheckpoint, checkpoint: null, operations: [], snapshotDone: status.snapshotDone, bucketCount: 0 };
     }
 
     const checkpointVisibleAtNs = process.hrtime.bigint().toString();
-    const operations = await new StorageDataHelpers(bucketStorage, content).getBucketData('global[]', checkpoint);
+    const buckets = await resolveBenchmarkBuckets({
+      syncRules: bucketStorage.getParsedSyncRules({
+        defaultSchema: required(this.state.defaultSchema, 'default schema')
+      }),
+      checkpoint,
+      syncParameters: required(this.state.syncParameters, 'sync parameters')
+    });
+    const chunks = await new StorageDataHelpers(bucketStorage, content).getAllBucketData(
+      bucketRequests(buckets),
+      checkpoint
+    );
+    const operations = chunks.flatMap((chunk) => chunk.chunkData.data);
     return {
       storageCheckpoint,
       checkpoint: lsn,
@@ -223,6 +239,7 @@ export class CombinedChildRuntime {
         data: operation.data
       })),
       snapshotDone: status.snapshotDone,
+      bucketCount: buckets.length,
       checkpointVisibleAtNs
     };
   }
@@ -282,6 +299,8 @@ export class CombinedChildRuntime {
       this.state.replicationStream = undefined;
       this.state.bucketStorage = undefined;
       this.state.syncRulesContent = undefined;
+      this.state.syncParameters = undefined;
+      this.state.defaultSchema = undefined;
       this.state.storageTerminated = false;
       this.monitorRunning = false;
     }

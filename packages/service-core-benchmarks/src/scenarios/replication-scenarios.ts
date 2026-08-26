@@ -12,6 +12,11 @@ import { PostgresReplicationSourceAdapter } from '../implementations/replication
 import { resolvePostgresSourceBenchmarkConfiguration } from '../implementations/replication/postgres/PostgresSourceBenchmarkConfiguration.js';
 import { ReplicationBenchmarkPhase, ReplicationBenchmarkScenario } from '../types/ReplicationBenchmark.js';
 import { StorageBenchmarkImplementationId } from '../types/StorageBenchmark.js';
+import {
+  createCategoryReplicationSyncRules,
+  createCategorySyncParameters,
+  createReplicationSyncRules
+} from '../utils/replication-sync-rules.js';
 
 export function createMongoSourceQuickReplicationScenario(
   phase: ReplicationBenchmarkPhase,
@@ -38,7 +43,11 @@ export function createMongoSourceQuickReplicationScenario(
       streaming_mutation_count: 1_000,
       transaction_count: 10,
       payload_bytes: 256
-    }
+    },
+    syncRule: createReplicationSyncRules,
+    sync_parameters: {},
+    expected_bucket_count: 1,
+    expected_bucket_operation_count: phase === 'snapshot' ? 1_000 : 2_000
   };
 }
 
@@ -67,7 +76,27 @@ export function createPostgresSourceQuickReplicationScenario(
       streaming_mutation_count: 1_000,
       transaction_count: 10,
       payload_bytes: 256
-    }
+    },
+    syncRule: createReplicationSyncRules,
+    sync_parameters: {},
+    expected_bucket_count: 1,
+    expected_bucket_operation_count: phase === 'snapshot' ? 1_000 : 2_000
+  };
+}
+
+export function createMongoSourceCategoryReplicationScenario(
+  storage: StorageBenchmarkImplementationId,
+  storageVersion: number
+): ReplicationBenchmarkScenario {
+  const scenario = createMongoSourceQuickReplicationScenario('snapshot', storage, storageVersion);
+  return {
+    ...scenario,
+    id: `replication.snapshot.buckets-10.mongodb-source.${storage}.v${storageVersion}.quick`,
+    description: `MongoDB snapshot replication across 10 category buckets into ${storage} storage version ${storageVersion}`,
+    tags: [...scenario.tags.filter((tag) => tag !== 'baseline'), 'multi-buckets', 'buckets-10'],
+    syncRule: createCategoryReplicationSyncRules,
+    sync_parameters: createCategorySyncParameters(),
+    expected_bucket_count: 10
   };
 }
 
@@ -161,6 +190,23 @@ export function mongoSourceCase(
 } {
   return {
     scenario: createMongoSourceQuickReplicationScenario(phase, storage.id, storage.version),
+    implementation: new ControlledReplicationBenchmarkImplementation({
+      source: mongoReplicationSource(),
+      storage,
+      validateEnvironment
+    })
+  };
+}
+
+export function mongoSourceCategoryCase(
+  storage: ReplicationBenchmarkStorageSelection,
+  validateEnvironment?: (environment: Readonly<Record<string, string | undefined>>) => void
+): {
+  scenario: ReplicationBenchmarkScenario;
+  implementation: ControlledReplicationBenchmarkImplementation;
+} {
+  return {
+    scenario: createMongoSourceCategoryReplicationScenario(storage.id, storage.version),
     implementation: new ControlledReplicationBenchmarkImplementation({
       source: mongoReplicationSource(),
       storage,

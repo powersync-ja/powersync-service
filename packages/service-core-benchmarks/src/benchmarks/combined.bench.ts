@@ -5,14 +5,17 @@ import { beforeAll, describe, expect, test } from 'vitest';
 import { NodeProcessResourceMonitor } from '../monitors/NodeProcessResourceMonitor.js';
 import { UnavailableResourceMonitor } from '../monitors/UnavailableResourceMonitor.js';
 import { CombinedBenchmark } from '../runner/CombinedBenchmark.js';
-import { createQuickCombinedCases } from '../scenarios/combined-scenarios.js';
+import { createCategoryCombinedCases, createQuickCombinedCases } from '../scenarios/combined-scenarios.js';
 import { createArtifactsFolder, getArtifactFilename } from '../utils/output.js';
 
 beforeAll(async () => {
   await createArtifactsFolder();
 });
 
-const cases = createQuickCombinedCases(CURRENT_STORAGE_VERSION);
+const cases = [
+  ...createCategoryCombinedCases(CURRENT_STORAGE_VERSION),
+  ...createQuickCombinedCases(CURRENT_STORAGE_VERSION)
+];
 
 describe.each(cases)('$scenario.id', ({ scenario, implementation }) => {
   test('runs', { timeout: scenario.timeout_ms, sequential: true, tags: scenario.tags }, async () => {

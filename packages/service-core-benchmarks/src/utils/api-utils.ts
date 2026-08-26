@@ -150,10 +150,6 @@ export const cleanup = async (
   }
 };
 
-export const createSyncRules = (kind: string, iteration: number): string => {
-  return `# ${kind}-${iteration}\nbucket_definitions:\n  global:\n    data:\n      - SELECT id, owner_id, category, version, updated_at, payload FROM benchmark_items\n`;
-};
-
 export const check = (name: string, passed: boolean, details: object): BenchmarkCorrectnessCheck => {
   return { name, passed, details };
 };

@@ -1,5 +1,5 @@
 import { BenchmarkIterationRuntime } from './BenchmarkRunOptions.js';
-import { BenchmarkScenario } from './BenchmarkScenario.js';
+import { BenchmarkScenario, BenchmarkSourceTable } from './BenchmarkScenario.js';
 import { SnapshotBenchmarkItem, SnapshotBenchmarkManifest, SnapshotBenchmarkTarget } from './SnapshotBenchmark.js';
 import { StorageBenchmarkImplementationId } from './StorageBenchmark.js';
 
@@ -62,10 +62,7 @@ export interface ReplicationPositionComparison {
   readonly details?: object;
 }
 
-export interface ReplicationBenchmarkSourceTable {
-  readonly schema: string;
-  readonly table: string;
-}
+export interface ReplicationBenchmarkSourceTable extends BenchmarkSourceTable {}
 
 export interface ReplicationBenchmarkSourceAdapter {
   readonly id: ReplicationBenchmarkProducerId;
@@ -99,6 +96,7 @@ export interface ReplicationBenchmarkObservation {
   readonly replicationReleasedAtNs?: string;
   readonly operations: readonly { op: string; object_id?: string; data?: string | null }[];
   readonly snapshotDone: boolean;
+  readonly bucketCount: number;
   readonly keepalives: number;
   readonly retries: number;
   readonly restarts: number;

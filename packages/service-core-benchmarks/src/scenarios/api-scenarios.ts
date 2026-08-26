@@ -1,5 +1,10 @@
 import { ApiBenchmarkScenario } from '../types/ApiBenchmark.js';
 import { StorageBenchmarkImplementationId } from '../types/StorageBenchmark.js';
+import {
+  createCategoryStorageSyncRules,
+  createCategorySyncParameters,
+  createStorageSyncRules
+} from '../utils/replication-sync-rules.js';
 
 export function createPostgresQuickApiScenario(version: number): ApiBenchmarkScenario {
   return createQuickApiScenario('postgres-storage', version);
@@ -7,6 +12,19 @@ export function createPostgresQuickApiScenario(version: number): ApiBenchmarkSce
 
 export function createMongoQuickApiScenario(version: number): ApiBenchmarkScenario {
   return createQuickApiScenario('mongodb-storage', version);
+}
+
+export function createPostgresCategoryApiScenario(version: number): ApiBenchmarkScenario {
+  const scenario = createPostgresQuickApiScenario(version);
+  return {
+    ...scenario,
+    id: `api.initial.buckets-10.direct.postgres-storage.v${version}.quick.ndjson`,
+    description: 'Drain an initial single-client NDJSON sync across 10 category buckets from postgres-storage',
+    tags: [...scenario.tags, 'multi-buckets', 'buckets-10'],
+    syncRule: createCategoryStorageSyncRules,
+    sync_parameters: createCategorySyncParameters(),
+    expected_bucket_count: 10
+  };
 }
 
 function createQuickApiScenario(
@@ -27,6 +45,10 @@ function createQuickApiScenario(
     mode: 'initial',
     transport: { encoding: 'ndjson', compression: 'none' },
     clients: { count: 1 },
-    workload: { row_count: 1_000, payload_bytes: 256 }
+    workload: { row_count: 1_000, payload_bytes: 256 },
+    syncRule: createStorageSyncRules,
+    sync_parameters: {},
+    expected_bucket_count: 1,
+    expected_bucket_operation_count: 1_000
   };
 }

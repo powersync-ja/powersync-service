@@ -11,10 +11,11 @@ import {
   StorageBenchmarkRunContext,
   StorageBenchmarkScenario
 } from '../types/StorageBenchmark.js';
+import { bucketRequests, resolveBenchmarkBuckets } from '../utils/benchmark-buckets.js';
 import { Benchmark } from './Benchmark.js';
 
 const TARGET_POSITION = '1/1';
-const BUCKET_NAME = 'global[]';
+const SOURCE_TABLE = { schema: 'public', table: 'benchmark_items' } as const;
 
 export class StorageBenchmark extends Benchmark<
   StorageBenchmarkScenario,
@@ -52,7 +53,7 @@ export class StorageBenchmark extends Benchmark<
 
     try {
       replicationStream = await run.resource.factory.updateSyncRules(
-        updateSyncRulesFromYaml(createSyncRules(runtime.kind, runtime.iteration), {
+        updateSyncRulesFromYaml(this.scenario.syncRule(SOURCE_TABLE), {
           validate: true,
           defaultSchema: 'public',
           storageVersion: this.scenario.storage.version
@@ -125,10 +126,16 @@ export class StorageBenchmark extends Benchmark<
     runtime: StorageBenchmarkIterationContext['runtime']
   ): Promise<BenchmarkCorrectnessResult> {
     const checkpoint = await context.storage.getCheckpoint();
-    const operations = await new StorageDataHelpers(context.storage, context.syncRulesContent).getBucketData(
-      BUCKET_NAME,
+    const buckets = await resolveBenchmarkBuckets({
+      syncRules: context.storage.getParsedSyncRules({ defaultSchema: SOURCE_TABLE.schema }),
+      checkpoint,
+      syncParameters: this.scenario.sync_parameters
+    });
+    const chunks = await new StorageDataHelpers(context.storage, context.syncRulesContent).getAllBucketData(
+      bucketRequests(buckets),
       checkpoint
     );
+    const operations = chunks.flatMap((chunk) => chunk.chunkData.data);
     const firstExpected = context.manifest.rows[0];
     const lastExpected = context.manifest.rows.at(-1)!;
     const firstActual = operations.find((operation) => operation.object_id === firstExpected.id);
@@ -143,12 +150,16 @@ export class StorageBenchmark extends Benchmark<
         expected: context.targetPosition,
         actual: checkpoint.lsn
       }),
-      check('operation_count', operations.length === context.manifest.rows.length, {
-        expected: context.manifest.rows.length,
+      check('bucket_count', buckets.length === this.scenario.expected_bucket_count, {
+        expected: this.scenario.expected_bucket_count,
+        actual: buckets.length
+      }),
+      check('operation_count', operations.length === this.scenario.expected_bucket_operation_count, {
+        expected: this.scenario.expected_bucket_operation_count,
         actual: operations.length
       }),
-      check('put_operation_count', putCount === context.manifest.rows.length, {
-        expected: context.manifest.rows.length,
+      check('put_operation_count', putCount === this.scenario.expected_bucket_operation_count, {
+        expected: this.scenario.expected_bucket_operation_count,
         actual: putCount
       }),
       check(
@@ -173,7 +184,7 @@ export class StorageBenchmark extends Benchmark<
 
     runtime.metrics.setCounter('bucket_operations', operations.length);
     runtime.metrics.setCounter('parameter_operations', 0);
-    runtime.metrics.setCounter('distinct_buckets', 1);
+    runtime.metrics.setCounter('distinct_buckets', buckets.length);
 
     return {
       passed: checks.every((item) => item.passed),
@@ -244,16 +255,6 @@ export class StorageBenchmark extends Benchmark<
       throw new AggregateError(errors, 'Storage iteration cleanup failed');
     }
   }
-}
-
-function createSyncRules(kind: string, iteration: number): string {
-  return `
-# ${kind}-${iteration}
-bucket_definitions:
-  global:
-    data:
-      - SELECT id, owner_id, category, version, updated_at, payload FROM benchmark_items
-`;
 }
 
 function check(name: string, passed: boolean, details: object): BenchmarkCorrectnessCheck {

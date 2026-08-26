@@ -33,7 +33,7 @@ export abstract class Benchmark<Scenario extends BenchmarkScenario, RunContext, 
       errors: []
     };
 
-    const validationError = this.validateIterationCounts();
+    const validationError = this.validateScenario();
     if (validationError != null) {
       result.status = 'failed';
       result.errors.push(toBenchmarkError('validate_scenario', validationError));
@@ -217,12 +217,21 @@ export abstract class Benchmark<Scenario extends BenchmarkScenario, RunContext, 
     }
   }
 
-  private validateIterationCounts(): Error | null {
+  private validateScenario(): Error | null {
     if (!Number.isInteger(this.scenario.warmup_iterations) || this.scenario.warmup_iterations < 0) {
       return new RangeError('warmup_iterations must be non-negative');
     }
     if (!Number.isInteger(this.scenario.measured_iterations) || this.scenario.measured_iterations <= 0) {
       return new RangeError('measured_iterations must be positive');
+    }
+    if (!Number.isInteger(this.scenario.expected_bucket_count) || this.scenario.expected_bucket_count <= 0) {
+      return new RangeError('expected_bucket_count must be a positive integer');
+    }
+    if (
+      !Number.isInteger(this.scenario.expected_bucket_operation_count) ||
+      this.scenario.expected_bucket_operation_count < 0
+    ) {
+      return new RangeError('expected_bucket_operation_count must be a non-negative integer');
     }
     return null;
   }

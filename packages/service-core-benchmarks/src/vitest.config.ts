@@ -13,6 +13,8 @@ export default defineConfig({
       { name: 'combined' },
       { name: 'quick' },
       { name: 'baseline' },
+      { name: 'multi-buckets' },
+      { name: 'buckets-10' },
       { name: 'snapshot' },
       { name: 'streaming' },
       { name: 'initial' },

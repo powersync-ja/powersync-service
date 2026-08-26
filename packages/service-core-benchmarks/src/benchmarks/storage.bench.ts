@@ -7,7 +7,11 @@ import { PostgresStorageBenchmarkImplementation } from '../implementations/stora
 import { NodeProcessResourceMonitor } from '../monitors/NodeProcessResourceMonitor.js';
 import { UnavailableResourceMonitor } from '../monitors/UnavailableResourceMonitor.js';
 import { StorageBenchmark } from '../runner/StorageBenchmark.js';
-import { createMongoQuickStorageScenario, createPostgresQuickStorageScenario } from '../scenarios/storage-scenarios.js';
+import {
+  createMongoQuickStorageScenario,
+  createPostgresCategoryStorageScenario,
+  createPostgresQuickStorageScenario
+} from '../scenarios/storage-scenarios.js';
 import { StorageBenchmarkImplementation, StorageBenchmarkScenario } from '../types/StorageBenchmark.js';
 import { createArtifactsFolder, getArtifactFilename } from '../utils/output.js';
 
@@ -24,6 +28,14 @@ interface StorageBenchmarkCase {
 }
 
 const benchmarkCases: readonly StorageBenchmarkCase[] = [
+  {
+    scenario: createPostgresCategoryStorageScenario(STORAGE_VERSION_2),
+    implementation: new PostgresStorageBenchmarkImplementation({
+      url: process.env.PG_STORAGE_TEST_URL ?? 'postgres://postgres:postgres@localhost:5432/powersync_storage_test'
+    }),
+    expectedStorage: { implementation: 'postgres-storage', version: 2 },
+    unavailableMonitorReason: 'PostgreSQL database resource monitoring is not implemented'
+  },
   {
     scenario: createPostgresQuickStorageScenario(STORAGE_VERSION_2),
     implementation: new PostgresStorageBenchmarkImplementation({
@@ -148,7 +160,11 @@ describe.each(benchmarkCases)('$scenario.id', (benchmarkCase) => {
         writer_save_calls: { sample_count: 3, min: 10_000, max: 10_000 },
         bucket_operations: { sample_count: 3, min: 10_000, max: 10_000 },
         parameter_operations: { sample_count: 3, min: 0, max: 0 },
-        distinct_buckets: { sample_count: 3, min: 1, max: 1 }
+        distinct_buckets: {
+          sample_count: 3,
+          min: scenario.expected_bucket_count,
+          max: scenario.expected_bucket_count
+        }
       }
     });
   });
