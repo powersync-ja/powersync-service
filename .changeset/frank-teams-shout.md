@@ -5,4 +5,4 @@
 '@powersync/service-types': patch
 ---
 
-Add object storage metrics, split by replication stream.
+Add object storage metrics, and storage metrics split by sync config.
