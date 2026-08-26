@@ -81,8 +81,8 @@ export type ValidateResponse = t.Encoded<typeof ValidateResponse>;
 export const BucketReportRequest = t.object({
   /**
    * Maximum number of buckets to return, ranked by operation count descending (worst offenders first).
-   * Row counts are sampled per returned bucket, so this also bounds the report's cost. Defaults to 50 when
-   * omitted. Must be an integer between 1 and 1000; anything else is rejected with a validation error.
+   * Defaults to 50 when omitted. Must be an integer between 1 and 1000; anything else is rejected with a
+   * validation error.
    */
   limit: t.number.optional()
 });
@@ -92,36 +92,46 @@ export const SuggestedBucketAction = t
   .literal('none')
   .or(t.literal('compact'))
   .or(t.literal('defragment'))
-  .or(t.literal('both'));
+  .or(t.literal('both'))
+  .or(t.literal('unknown'));
 export type SuggestedBucketAction = t.Encoded<typeof SuggestedBucketAction>;
 
 export const BucketStorageStats = t.object({
   /** Full bucket name, e.g. `by_user["u1"]`. */
   bucket: t.string,
-  /** Total operations in the bucket's history (PUT/REMOVE/MOVE/CLEAR). */
+  /** Total operations in the bucket's history (PUT/REMOVE/MOVE/CLEAR). Exact and current. */
   operations: t.number,
-  /** Live rows in the bucket. Exact for small buckets, otherwise a sampled estimate (see `rows_estimated`). */
-  rows: t.number,
   /** Approximate size of the operation history in bytes. */
   operation_bytes: t.number,
   /**
+   * Operations written after the last full compact — the staleness indicator for `rows` and
+   * `fragmentation`, which are snapshots from that compact. Equals `operations` when the bucket has never
+   * been fully compacted.
+   */
+  uncompacted_operations: t.number,
+  /**
+   * Live rows in the bucket as of its last full compact, or null if the bucket has never been fully
+   * compacted (or the storage version does not capture compact statistics).
+   */
+  rows: t.number.or(t.Null),
+  /**
    * `operations / max(rows, 1)`. ~1 is healthy (fully compacted); higher means more operation-history
-   * overhead that a compact/defragment can reclaim.
+   * overhead that a compact/defragment can reclaim. Null whenever `rows` is null.
    */
-  fragmentation: t.number,
-  /** True if `rows` (and therefore `fragmentation`) is a sampled estimate rather than an exact count. */
-  rows_estimated: t.boolean,
+  fragmentation: t.number.or(t.Null),
+  /** ISO timestamp of the bucket's last full compact, which is when `rows` was captured. */
+  last_full_compact_at: t.string.or(t.Null),
   /**
-   * Suggested maintenance action, derived from the bucket's operation mix: `none` (healthy), `compact`
+   * ISO timestamp of when the scheduled compactor will next consider this bucket. A suggested compact with
+   * a future `next_compact_at` means the compact is already planned but throttled until then.
+   */
+  next_compact_at: t.string.or(t.Null),
+  /**
+   * Suggested maintenance action, derived from the bucket's compact statistics: `none` (healthy), `compact`
    * (un-compacted superseded history to reclaim), `defragment` (mostly compaction residue that only a
-   * defragment collapses), or `both`.
+   * defragment collapses), `both`, or `unknown` (no compact statistics to derive one from).
    */
-  suggested_action: SuggestedBucketAction,
-  /**
-   * Tables making up the (sampled) operation history, ordered by their share of it, largest first. These
-   * are the tables whose rows a defragment should touch.
-   */
-  tables: t.array(t.string)
+  suggested_action: SuggestedBucketAction
 });
 export type BucketStorageStats = t.Encoded<typeof BucketStorageStats>;
 
@@ -130,23 +140,25 @@ export const BucketDefinitionStats = t.object({
   definition: t.string,
   /** Number of buckets in this definition with stored operations. */
   bucket_count: t.number,
-  /** Total operations across the definition's buckets. */
+  /** Total operations across the definition's buckets. Exact and current. */
   operations: t.number,
   /** Approximate size of the definition's operation history in bytes. */
   operation_bytes: t.number,
   /**
-   * Live rows across the definition's buckets, counting a row once per bucket that contains it. A sampled
-   * estimate for all but tiny definitions (see `rows_estimated`).
+   * Operations not covered by any bucket's last full compact — the staleness indicator for `rows` and
+   * `fragmentation`.
    */
-  rows: t.number,
-  /** `operations / max(rows, 1)` across the whole definition. */
-  fragmentation: t.number,
-  /** True if `rows` (and therefore `fragmentation`) is a sampled estimate rather than an exact count. */
-  rows_estimated: t.boolean,
+  uncompacted_operations: t.number,
+  /**
+   * Live rows across the definition's buckets, counting a row once per bucket that contains it. Derived
+   * from each bucket's last full compact (extrapolated when only some buckets have been compacted); null
+   * when none have.
+   */
+  rows: t.number.or(t.Null),
+  /** `operations / max(rows, 1)` across the whole definition. Null whenever `rows` is null. */
+  fragmentation: t.number.or(t.Null),
   /** Suggested maintenance action for the definition; same values as `buckets[].suggested_action`. */
-  suggested_action: SuggestedBucketAction,
-  /** Tables in the definition's (sampled) operation history, ordered by their share of it, largest first. */
-  tables: t.array(t.string)
+  suggested_action: SuggestedBucketAction
 });
 export type BucketDefinitionStats = t.Encoded<typeof BucketDefinitionStats>;
 

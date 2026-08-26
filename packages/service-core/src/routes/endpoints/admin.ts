@@ -270,10 +270,12 @@ export const validate = routeDefinition({
 });
 
 /**
- * Per-bucket report of total operations vs total live rows in storage, for the active sync config.
+ * Per-bucket report of total operations vs live rows in storage, for the active sync config.
  *
  * Answers the recurring "why is my Data Synced so high" question. A high `operations / rows` ratio
- * indicates fragmented buckets that a compact or defragment can reclaim.
+ * indicates fragmented buckets that a compact or defragment can reclaim. Row counts derive from each
+ * bucket's last full compact (bucket_state only, no operation-history scan), so they are null for buckets
+ * that have never been fully compacted and on storage versions without compact statistics (v1/v2).
  */
 export const bucketReport = routeDefinition({
   path: '/api/admin/v1/bucket-report',
@@ -311,23 +313,23 @@ export const bucketReport = routeDefinition({
       buckets: report.buckets.map((bucket) => ({
         bucket: bucket.bucket,
         operations: bucket.operations,
-        rows: bucket.rows,
         operation_bytes: bucket.operationBytes,
+        uncompacted_operations: bucket.uncompactedOperations,
+        rows: bucket.rows,
         fragmentation: bucket.fragmentation,
-        rows_estimated: bucket.rowsEstimated,
-        suggested_action: bucket.suggestedAction,
-        tables: bucket.tables
+        last_full_compact_at: bucket.lastFullCompactAt?.toISOString() ?? null,
+        next_compact_at: bucket.nextCompactAt?.toISOString() ?? null,
+        suggested_action: bucket.suggestedAction
       })),
       definitions: report.definitions.map((definition) => ({
         definition: definition.definition,
         bucket_count: definition.bucketCount,
         operations: definition.operations,
         operation_bytes: definition.operationBytes,
+        uncompacted_operations: definition.uncompactedOperations,
         rows: definition.rows,
         fragmentation: definition.fragmentation,
-        rows_estimated: definition.rowsEstimated,
-        suggested_action: definition.suggestedAction,
-        tables: definition.tables
+        suggested_action: definition.suggestedAction
       })),
       totals: {
         bucket_count: report.totals.bucketCount,
