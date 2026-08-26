@@ -162,21 +162,24 @@ export const BucketDefinitionStats = t.object({
 });
 export type BucketDefinitionStats = t.Encoded<typeof BucketDefinitionStats>;
 
+export const BucketReportTotals = t.object({
+  /** Number of buckets with stored operations. Exact, even when the other totals are estimates. */
+  bucket_count: t.number,
+  /** Sum of operations across all buckets. Estimated when the bucket set was sampled. */
+  operations: t.number,
+  /** Sum of operation-history bytes across all buckets. Estimated when the bucket set was sampled. */
+  operation_bytes: t.number,
+  /** True if the totals are estimated because the bucket set was sampled rather than fully scanned. */
+  estimated: t.boolean
+});
+export type BucketReportTotals = t.Encoded<typeof BucketReportTotals>;
+
 export const BucketReportResponse = t.object({
   /** Worst-offender buckets, ranked by operation count then fragmentation. */
   buckets: t.array(BucketStorageStats),
   /** Per-definition rollup, ranked by operation count then fragmentation. */
   definitions: t.array(BucketDefinitionStats),
-  totals: t.object({
-    /** Number of buckets with stored operations. Exact, even when the other totals are estimates. */
-    bucket_count: t.number,
-    /** Sum of operations across all buckets. Estimated when the bucket set was sampled. */
-    operations: t.number,
-    /** Sum of operation-history bytes across all buckets. Estimated when the bucket set was sampled. */
-    operation_bytes: t.number,
-    /** True if the totals are estimated because the bucket set was sampled rather than fully scanned. */
-    estimated: t.boolean
-  }),
+  totals: BucketReportTotals,
   /** True if there are more buckets than returned (more than `limit`). */
   buckets_truncated: t.boolean,
   /** True if the definition rollup is incomplete: more definitions exist than the report caps at. */
