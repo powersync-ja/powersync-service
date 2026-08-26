@@ -129,7 +129,13 @@ export class SyncConfigFromYaml {
       // We don't support CTEs at all in this compiler implementation.
       globalCtes?.reportError('Common table expressions require edition 3.');
 
-      const eventCompiler = new SyncStreamsCompiler(this.options);
+      const eventCompiler = new SyncStreamsCompiler({
+        defaultSchema: this.options.defaultSchema,
+        schema: this.options.schema,
+        // Editions 1 and 2 don't persist compiled plans. Keep their event behavior stable across deploys and restarts;
+        // moving to edition 3 validates and enables event payload filters.
+        compileEventPayloadFilters: false
+      });
       this.#compileEventDefinitions(eventMap, eventCompiler);
       const eventPlan = eventCompiler.toSyncPlan();
       result = this.#legacyParseBucketDefinitionsAndStreams(bucketMap, streamMap, compatibility, eventPlan.events);

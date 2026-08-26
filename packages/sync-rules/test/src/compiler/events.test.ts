@@ -66,6 +66,40 @@ describe('compiled replication events', () => {
     ).toEqual({ errors: [] });
   });
 
+  /**
+   * Editions without persisted compiled plans must retain the legacy behavior across deploys and restarts. Their event
+   * payload filters are ignored with a warning instead of being newly validated or applied during a service upgrade.
+   */
+  test('preserves legacy event payload filter behavior before edition 3', () => {
+    const { config, errors } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  checkpoints:
+    data:
+      - SELECT * FROM checkpoints
+
+event_definitions:
+  write_checkpoints:
+    payloads:
+      - SELECT user_id FROM checkpoints WHERE user_id = request.user_id()
+`,
+      { defaultSchema: 'test_schema', throwOnError: true }
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ type: 'warning' });
+    expect(errors[0].message).toContain('legacy event payload queries are ignored');
+
+    const event = config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) })
+      .eventDescriptors[0];
+    expect(
+      event.evaluateRowWithErrors({
+        sourceTable: new TestSourceTable('checkpoints'),
+        record: { user_id: 'user-1' }
+      })
+    ).toEqual({ result: { data: { user_id: 'user-1' } }, errors: [] });
+  });
+
   // Persisted equality ignores representation-only differences while retaining every field that affects event
   // evaluation and payloads.
   test.each([

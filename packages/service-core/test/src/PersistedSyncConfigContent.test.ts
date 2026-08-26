@@ -60,15 +60,30 @@ describe('persisted compiled replication events', () => {
     ).toEqual({ result: { data: { user_id: 'user-1', checkpoint: 4n } }, errors: [] });
 
     // This represents what an older compiler sees after ignoring the additive plan.events field. The raw descriptor
-    // mirror is normalized into the compiled representation by the new loading boundary.
+    // mirror is normalized into the compiled representation by the new loading boundary, retaining the legacy behavior
+    // of ignoring payload filters until the sync config is redeployed.
     const { events: _ignored, ...planWithoutCompiledEvents } = compiled.plan;
     const legacyView = restore({ ...compiled, plan: planWithoutCompiledEvents });
     expect(legacyView.config).not.toHaveProperty('eventDescriptors');
     expect(legacyView.config.eventDefinitions).toHaveLength(1);
     expect(legacyView.config.eventDefinitions[0].name).toBe('write_checkpoints');
-    // Recompiling the raw SQL mirror produces the same serialized event plan.
+    expect(legacyView.errors).toHaveLength(1);
+    expect(legacyView.errors[0]).toMatchObject({ type: 'warning' });
+
     const legacyEvent = serializeSyncPlan((legacyView.config as PrecompiledSyncConfig).plan).events![0];
-    expect(legacyEvent).toEqual(originalEvent);
+    expect(legacyEvent.sourceQueries[0].variants[0].filters).toEqual([]);
+    expect(originalEvent.sourceQueries[0].variants[0].filters).not.toEqual([]);
+
+    const legacyHydrated = legacyView.config.hydrate({
+      hydrationState: DEFAULT_HYDRATION_STATE,
+      sqlite: nodeSqlite(sqlite)
+    });
+    expect(
+      legacyHydrated.eventDescriptors[0].evaluateRowWithErrors({
+        sourceTable: { connectionTag: DEFAULT_TAG, schema: 'test_schema', name: 'checkpoints' },
+        record: { user_id: 'user-1', checkpoint: 4n, active: 0 }
+      })
+    ).toEqual({ result: { data: { user_id: 'user-1', checkpoint: 4n } }, errors: [] });
   });
 
   test('restores raw event descriptors attached to version 1 and 2 plans', () => {
@@ -86,6 +101,44 @@ describe('persisted compiled replication events', () => {
     expect((restored.config as PrecompiledSyncConfig).plan.events).toMatchObject([
       { name: 'write_checkpoints', sourceQueries: [{ sql: EVENT_QUERY }] }
     ]);
+    expect(restored.errors).toHaveLength(1);
+    expect(restored.errors[0]).toMatchObject({ type: 'warning' });
+    expect(
+      serializeSyncPlan((restored.config as PrecompiledSyncConfig).plan).events![0].sourceQueries[0].variants[0].filters
+    ).toEqual([]);
+  });
+
+  /**
+   * Event SQL accepted by the legacy evaluator must remain loadable after an upgrade, even when its ignored filter uses
+   * expressions that the compiled event evaluator intentionally rejects for new deployments.
+   */
+  test.each([
+    ['request parameters', 'SELECT user_id FROM checkpoints WHERE user_id = request.user_id()'],
+    ['unsupported expressions', 'SELECT user_id FROM checkpoints WHERE active IN (1, 2)']
+  ])('loads legacy event descriptors without validating ignored %s', (_description, eventQuery) => {
+    const parsed = SqlSyncRules.fromYaml(yamlWithoutEvents, { defaultSchema: 'test_schema' });
+    const update = updateSyncRulesFromConfig(parsed);
+    const legacy: SerializedSyncPlan = {
+      ...update.config.plan!,
+      eventDescriptors: {
+        write_checkpoints: [eventQuery]
+      }
+    };
+
+    const restored = restore(legacy);
+    expect(restored.errors).toHaveLength(1);
+    expect(restored.errors[0]).toMatchObject({ type: 'warning' });
+
+    const event = restored.config.hydrate({
+      hydrationState: DEFAULT_HYDRATION_STATE,
+      sqlite: nodeSqlite(sqlite)
+    }).eventDescriptors[0];
+    expect(
+      event.evaluateRowWithErrors({
+        sourceTable: { connectionTag: DEFAULT_TAG, schema: 'test_schema', name: 'checkpoints' },
+        record: { user_id: 'user-1' }
+      })
+    ).toEqual({ result: { data: { user_id: 'user-1' } }, errors: [] });
   });
 });
 

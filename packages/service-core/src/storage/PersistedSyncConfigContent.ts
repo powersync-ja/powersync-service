@@ -45,7 +45,12 @@ export function parsePersistedSyncConfigContent(options: ParsePersistedSyncConfi
   // does not contain them, normalize the dual-written raw SQL at this loading boundary. This keeps legacy event
   // evaluators out of PrecompiledSyncConfig while older binaries can continue reading the same persisted config.
   if (compiledPlan.plan.events == null) {
-    const normalized = compileEventDefinitions(compiledPlan.eventDescriptors, parseOptions);
+    const normalized = compileEventDefinitions(compiledPlan.eventDescriptors, {
+      ...parseOptions,
+      // The legacy evaluator ignored event payload filters. Preserve that behavior for plans deployed before compiled
+      // events existed; a redeploy compiles and validates those filters before the replacement config is activated.
+      compileEventPayloadFilters: false
+    });
     const fatalErrors = normalized.errors.filter((error) => error.type == 'fatal');
     if (fatalErrors.length != 0) {
       throw new Error(

@@ -31,6 +31,15 @@ export interface SyncStreamsCompilerOptions {
    * streams across schema changes.
    */
   schema?: SourceSchema;
+
+  /**
+   * Whether event payload `WHERE` clauses are compiled and applied.
+   *
+   * This defaults to true. It is disabled for editions that cannot persist compiled event plans and when restoring
+   * event SQL that predates those plans, because the legacy evaluator parsed `WHERE` clauses but did not validate or
+   * evaluate them.
+   */
+  compileEventPayloadFilters?: boolean;
 }
 
 export interface ParseStreamOptions extends StreamOptions {
@@ -147,6 +156,16 @@ export class SyncStreamsCompiler {
           return;
         }
 
+        let statementToCompile = stmt;
+        if (this.options.compileEventPayloadFilters === false && stmt.type == 'select' && stmt.where != null) {
+          errors.report(
+            '`WHERE` clauses in legacy event payload queries are ignored. Redeploy this sync config with edition 3 to validate and enable them.',
+            stmt.where,
+            { isWarning: true }
+          );
+          statementToCompile = { ...stmt, where: undefined };
+        }
+
         const parser = new StreamQueryParser({
           compiler: this,
           originalText: sql,
@@ -154,7 +173,7 @@ export class SyncStreamsCompiler {
           parentScope: new SqlScope({}),
           errors
         });
-        const query = parser.parse(stmt);
+        const query = parser.parse(statementToCompile);
         if (query == null) {
           return;
         }
