@@ -191,7 +191,8 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
             sync_plan,
             state,
             slot_name,
-            storage_version
+            storage_version,
+            version_label
           )
         VALUES
           (
@@ -215,7 +216,8 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
               '_',
               ${{ type: 'varchar', value: crypto.randomBytes(2).toString('hex') }}
             ),
-            ${{ type: 'int4', value: storageVersion }}
+            ${{ type: 'int4', value: storageVersion }},
+            ${{ type: 'varchar', value: options.version_label ?? null }}
           )
         RETURNING
           *

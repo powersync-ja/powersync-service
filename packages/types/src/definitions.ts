@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import { enumLiteral } from './codecs.js';
+import { enumLiteral, orNull } from './codecs.js';
 
 export const SourceSpan = t.object({
   start_offset: t.number,
@@ -36,6 +36,10 @@ export const TableInfo = t.object({
 export type TableInfo = t.Encoded<typeof TableInfo>;
 
 export const SyncRulesStatus = t.object({
+  /**
+   * Optional label identifying this deployed sync config version.
+   */
+  version_label: orNull(t.string).optional(),
   content: t.string.optional(),
   connections: t.array(
     t.object({
