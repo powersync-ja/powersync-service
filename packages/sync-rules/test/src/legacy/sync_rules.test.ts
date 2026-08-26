@@ -1118,7 +1118,7 @@ event_definitions:
         record: { user_id: 'user-1', checkpoint: 2n, client_id: 'client-1' }
       })
     ).toEqual({
-      result: { data: { user_id: 'user-1', checkpoint: 2n, client_id: 'client-1' } },
+      results: [{ data: { user_id: 'user-1', checkpoint: 2n, client_id: 'client-1' } }],
       errors: []
     });
   });

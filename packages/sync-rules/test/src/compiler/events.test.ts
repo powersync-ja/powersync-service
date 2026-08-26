@@ -55,7 +55,7 @@ describe('compiled replication events', () => {
         record: { user_id: 'user-1', checkpoint: 42n, client_id: 'client-1', active: 1, ignored: 'value' }
       })
     ).toEqual({
-      result: { data: { user_id: 'user-1', checkpoint: 42n, client_id: 'client-1' } },
+      results: [{ data: { user_id: 'user-1', checkpoint: 42n, client_id: 'client-1' } }],
       errors: []
     });
     expect(
@@ -63,7 +63,7 @@ describe('compiled replication events', () => {
         sourceTable: checkpoints,
         record: { user_id: 'user-1', checkpoint: 42n, client_id: 'client-1', active: 0 }
       })
-    ).toEqual({ errors: [] });
+    ).toEqual({ results: [], errors: [] });
   });
 
   /**
@@ -97,7 +97,33 @@ event_definitions:
         sourceTable: new TestSourceTable('checkpoints'),
         record: { user_id: 'user-1' }
       })
-    ).toEqual({ result: { data: { user_id: 'user-1' } }, errors: [] });
+    ).toEqual({ results: [{ data: { user_id: 'user-1' } }], errors: [] });
+  });
+
+  test('returns payloads from every matching source query', () => {
+    const { config, errors } = SqlSyncRules.fromYaml(
+      yamlWithEventQueries(
+        `SELECT 'wildcard' AS kind, checkpoint FROM "checkpoints_%"`,
+        `SELECT 'exact' AS kind, checkpoint FROM checkpoints_2026`
+      ),
+      { defaultSchema: 'test_schema', throwOnError: false }
+    );
+    expect(errors).toEqual([]);
+
+    const event = config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) })
+      .eventDescriptors[0];
+    const evaluated = event.evaluateRowWithErrors({
+      sourceTable: new TestSourceTable('checkpoints_2026'),
+      record: { checkpoint: 42n }
+    });
+    expect(evaluated.errors).toEqual([]);
+    expect(evaluated.results).toHaveLength(2);
+    expect(evaluated.results).toEqual(
+      expect.arrayContaining([
+        { data: { kind: 'wildcard', checkpoint: 42n } },
+        { data: { kind: 'exact', checkpoint: 42n } }
+      ])
+    );
   });
 
   // Persisted equality ignores representation-only differences while retaining every field that affects event

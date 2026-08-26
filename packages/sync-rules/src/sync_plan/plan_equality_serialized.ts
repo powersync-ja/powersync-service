@@ -27,10 +27,10 @@ export const serializedStreamParameterIndexLookupCreatorEquality =
  * Equality for persisted replication events.
  *
  * Raw SQL is a rolling-upgrade compatibility mirror and cached evaluator hashes are not equality checks, so neither is
- * part of event behavior. Payload queries are unordered because runtime selects them by source table, and normalized
- * variants are unordered because they share a projection and only determine whether a row matches. The remaining
- * serialized plan is a stable, self-contained behavior representation: Expression ASTs include both their shape and
- * external-data bindings.
+ * part of event behavior. Payload queries are unordered because runtime evaluates every query matching the source
+ * table and treats the resulting payloads as an unordered collection. Normalized variants are unordered because they
+ * share a projection and only determine whether a row matches. The remaining serialized plan is a stable,
+ * self-contained behavior representation: Expression ASTs include both their shape and external-data bindings.
  */
 export const serializedEventDefinitionEquality: Equality<SerializedEventDescriptor> = {
   hash(hasher, value) {

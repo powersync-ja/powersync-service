@@ -6,8 +6,13 @@ import {
   CompiledEventSourceQuery as CompiledEventSourceQueryPlan
 } from '../sync_plan/plan.js';
 import { TablePattern } from '../TablePattern.js';
-import { EvaluateRowOptions, SqliteRow } from '../types.js';
-import { EvaluatedEventRowWithErrors, EventDefinition, HydratedEventDescriptor } from './EventDescriptor.js';
+import { EvaluateRowOptions, EvaluationError, SqliteRow } from '../types.js';
+import {
+  EvaluatedEventRowWithErrors,
+  EvaluatedEventSourceRow,
+  EventDefinition,
+  HydratedEventDescriptor
+} from './EventDescriptor.js';
 
 /** A named event prepared from a compiled sync plan, before scalar expressions are prepared for evaluation. */
 export class PreparedEventDefinition implements EventDefinition {
@@ -76,12 +81,23 @@ class HydratedCompiledEventDescriptor implements HydratedEventDescriptor {
   ) {}
 
   evaluateRowWithErrors(options: EvaluateRowOptions): EvaluatedEventRowWithErrors {
-    const matchingQuery = this.sourceQueries.find((query) => query.applies(options.sourceTable));
-    if (matchingQuery == null) {
-      return { errors: [{ error: `No matching source query found for table ${options.sourceTable.name}` }] };
+    const matchingQueries = this.sourceQueries.filter((query) => query.applies(options.sourceTable));
+    if (matchingQueries.length == 0) {
+      return {
+        results: [],
+        errors: [{ error: `No matching source query found for table ${options.sourceTable.name}` }]
+      };
     }
 
-    return matchingQuery.evaluateRowWithErrors(options.sourceTable, options.record);
+    const results: EvaluatedEventSourceRow[] = [];
+    const errors: EvaluationError[] = [];
+    for (const query of matchingQueries) {
+      const evaluated = query.evaluateRowWithErrors(options.sourceTable, options.record);
+      results.push(...evaluated.results);
+      errors.push(...evaluated.errors);
+    }
+
+    return { results, errors };
   }
 
   getSourceTables(): Set<TablePattern> {
@@ -107,21 +123,24 @@ class HydratedCompiledEventSourceQuery {
   }
 
   /**
-   * Evaluates the normalized query variants as alternative matching branches, returning the payload from the first
-   * match and converting evaluation failures into event errors.
+   * Evaluates the normalized query variants as alternative matching branches, returning every payload produced by the
+   * first matching branch and converting evaluation failures into event errors.
    */
   evaluateRowWithErrors(table: SourceTableRef, row: SqliteRow): EvaluatedEventRowWithErrors {
     try {
       for (const evaluate of this.variants) {
-        const [result] = evaluate({ sourceTable: table, record: row });
-        if (result != null) {
-          return { result: { data: result.data }, errors: [] };
+        const projected = evaluate({ sourceTable: table, record: row });
+        if (projected.length > 0) {
+          return { results: projected.map((result) => ({ data: result.data })), errors: [] };
         }
       }
 
-      return { errors: [] };
+      return { results: [], errors: [] };
     } catch (error) {
-      return { errors: [{ error: error instanceof Error ? error.message : 'Evaluating event query failed' }] };
+      return {
+        results: [],
+        errors: [{ error: error instanceof Error ? error.message : 'Evaluating event query failed' }]
+      };
     }
   }
 }

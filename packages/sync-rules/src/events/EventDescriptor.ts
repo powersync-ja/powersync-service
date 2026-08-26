@@ -8,7 +8,8 @@ export type EvaluatedEventSourceRow = {
 };
 
 export type EvaluatedEventRowWithErrors = {
-  result?: EvaluatedEventSourceRow;
+  /** All payloads produced by matching source queries. Their order is not significant. */
+  results: EvaluatedEventSourceRow[];
   errors: EvaluationError[];
 };
 

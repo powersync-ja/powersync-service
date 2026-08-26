@@ -57,7 +57,7 @@ describe('persisted compiled replication events', () => {
         sourceTable: { connectionTag: DEFAULT_TAG, schema: 'test_schema', name: 'checkpoints' },
         record: { user_id: 'user-1', checkpoint: 4n, active: 1 }
       })
-    ).toEqual({ result: { data: { user_id: 'user-1', checkpoint: 4n } }, errors: [] });
+    ).toEqual({ results: [{ data: { user_id: 'user-1', checkpoint: 4n } }], errors: [] });
 
     // This represents what an older compiler sees after ignoring the additive plan.events field. The raw descriptor
     // mirror is normalized into the compiled representation by the new loading boundary, retaining the legacy behavior
@@ -83,7 +83,7 @@ describe('persisted compiled replication events', () => {
         sourceTable: { connectionTag: DEFAULT_TAG, schema: 'test_schema', name: 'checkpoints' },
         record: { user_id: 'user-1', checkpoint: 4n, active: 0 }
       })
-    ).toEqual({ result: { data: { user_id: 'user-1', checkpoint: 4n } }, errors: [] });
+    ).toEqual({ results: [{ data: { user_id: 'user-1', checkpoint: 4n } }], errors: [] });
   });
 
   test('restores raw event descriptors attached to version 1 and 2 plans', () => {
@@ -138,7 +138,7 @@ describe('persisted compiled replication events', () => {
         sourceTable: { connectionTag: DEFAULT_TAG, schema: 'test_schema', name: 'checkpoints' },
         record: { user_id: 'user-1' }
       })
-    ).toEqual({ result: { data: { user_id: 'user-1' } }, errors: [] });
+    ).toEqual({ results: [{ data: { user_id: 'user-1' } }], errors: [] });
   });
 });
 
