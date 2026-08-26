@@ -166,7 +166,8 @@ export const reprocess = routeDefinition({
         // This sync config already passed validation. But if the config is not valid anymore due
         // to a service change, we do want to report the error here.
         validate: true,
-        version_label: active.content.version_label
+        version_label: active.content.version_label,
+        forceNewReplicationStream: true
       })
     );
 

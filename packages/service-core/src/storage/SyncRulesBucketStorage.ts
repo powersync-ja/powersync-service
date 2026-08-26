@@ -97,6 +97,14 @@ export interface SyncRulesBucketStorage
    */
   reportError(e: any): Promise<void>;
 
+  /**
+   * Whether parameter compaction can run when {@link CompactOptions.incrementalOnly} is set.
+   *
+   * Storage implementations that do not support incremental parameter compaction must return
+   * false; the compact command will skip parameter compaction in that mode.
+   */
+  supportsIncrementalParameterCompaction(): boolean;
+
   compact(options?: CompactOptions): Promise<void>;
 
   /**
@@ -277,6 +285,14 @@ export interface CreateWriterOptions extends ParseSyncConfigOptions {
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
 
   logger?: Logger;
+
+  /**
+   * Aborts long-running storage work started by this writer, such as uploads to object storage.
+   *
+   * This does not replace flushing or committing at the appropriate source boundary: it only
+   * cancels work that is still in flight when replication stops.
+   */
+  signal?: AbortSignal;
 }
 
 export interface StorageHooks {
@@ -439,6 +455,9 @@ export interface BucketDataBatchOptions {
 
   /** Abort any in-progress work for this batch, including object-storage downloads. */
   signal?: AbortSignal;
+
+  /** Traces data reads performed by the storage implementation. */
+  tracer?: PerformanceTracer<string>;
 
   /** Limit number of documents returned. Defaults to 1000. */
   limit?: number;

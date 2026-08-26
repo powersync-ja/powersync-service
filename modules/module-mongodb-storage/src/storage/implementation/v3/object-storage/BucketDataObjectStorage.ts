@@ -1,18 +1,22 @@
-import { storage } from '@powersync/service-core';
+import { PerformanceTracer, storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { BucketDataDocumentV3, BucketOperation } from '../models.js';
-import { ObjectStorage } from './ObjectStorage.js';
+import { ObjectStorage, ObjectStorageOperationOptions } from './ObjectStorage.js';
 
 export class BucketDataObjectStorage {
   constructor(private readonly storage: ObjectStorage) {}
 
-  async store(path: string, ops: BucketOperation[]): Promise<{ fileSize: number }> {
+  async store(
+    path: string,
+    ops: BucketOperation[],
+    options?: ObjectStorageOperationOptions
+  ): Promise<{ fileSize: number }> {
     const bsonBuffer = bson.serialize({ ops });
-    await this.storage.put(path, bsonBuffer, { contentType: 'application/bson', contentEncoding: null });
+    await this.storage.put(path, bsonBuffer, { contentType: 'application/bson', contentEncoding: null }, options);
     return { fileSize: bsonBuffer.byteLength };
   }
 
-  async retrieve(path: string, options: { signal?: AbortSignal }): Promise<BucketOperation[]> {
+  async retrieve(path: string, options: ObjectStorageOperationOptions): Promise<BucketOperation[]> {
     const { data, metadata } = await this.storage.get(path, { signal: options.signal });
     if (metadata.contentEncoding != null) {
       throw new Error(`Unexpected content encoding: ${metadata.contentEncoding}`);
@@ -24,8 +28,8 @@ export class BucketDataObjectStorage {
     return wrapper.ops;
   }
 
-  async delete(paths: string[]): Promise<void> {
-    return this.storage.delete(paths);
+  async delete(paths: string[], options?: ObjectStorageOperationOptions): Promise<void> {
+    return this.storage.delete(paths, options);
   }
 }
 
@@ -37,7 +41,7 @@ export class BucketDataObjectStorage {
 export async function hydrateBucketDataDocuments(
   documents: BucketDataDocumentV3[],
   objectStorage: ObjectStorage | undefined,
-  options: { signal?: AbortSignal }
+  options: ObjectStorageOperationOptions & { tracer?: PerformanceTracer<string> }
 ): Promise<void> {
   if (!objectStorage) {
     return;
@@ -46,6 +50,10 @@ export async function hydrateBucketDataDocuments(
   options.signal?.throwIfAborted();
   const store = new BucketDataObjectStorage(objectStorage);
   const storedDocuments = documents.filter((document) => document.storage_ref);
+  if (storedDocuments.length == 0) {
+    return;
+  }
+  using _ = options?.tracer?.span('s3', 'read');
   await Promise.all(
     storedDocuments.map(async (document) => {
       document.ops = await store.retrieve(document.storage_ref!.path, { signal: options.signal });

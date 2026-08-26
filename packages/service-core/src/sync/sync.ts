@@ -119,9 +119,14 @@ async function* streamResponseInner(
     syncRequest: params,
     logger: logger
   });
+  // The checkpoint iterator can have a pending next() while a data batch fails.
+  // Aborting this on cleanup makes that pending next() settle, so the watcher subscription
+  // is released instead of staying open until another checkpoint arrives. See the cleanup
+  // in the finally block below.
+  const checkpointWatchController = new AbortController();
   const stream = bucketStorage.watchCheckpointChanges({
     user_id: checkpointUserId,
-    signal
+    signal: AbortSignal.any([signal, checkpointWatchController.signal])
   });
   const newCheckpoints = stream[Symbol.asyncIterator]();
 
@@ -170,6 +175,16 @@ async function* streamResponseInner(
     }
   }
 
+  function checkpointLogDetails(cp: storage.ReplicationCheckpoint) {
+    return {
+      checkpoint: cp.checkpoint,
+      user_id: tokenPayload.userIdJson,
+      ...tracker.getIncrementalCheckpointStats()
+    };
+  }
+
+  let activeCheckpoint: { checkpoint: storage.ReplicationCheckpoint; trace: ActiveCheckpointTrace } | null = null;
+
   try {
     let nextCheckpointPromise: Promise<PromiseSettledResult<IteratorResult<CheckpointAndLine>>> | undefined;
 
@@ -195,6 +210,7 @@ async function* streamResponseInner(
       const trace = next.value.value.trace!;
       const checkpoint = next.value.value.checkpoint;
       const tracer = trace.tracer;
+      activeCheckpoint = { checkpoint, trace };
 
       const { checkpointLine, bucketsToFetch, bucketDataRequestHint } = line;
 
@@ -266,14 +282,6 @@ async function* streamResponseInner(
         maybeRaceForNewCheckpoint();
       }
 
-      function checkpointLogDetails(cp: storage.ReplicationCheckpoint) {
-        return {
-          checkpoint: cp.checkpoint,
-          user_id: tokenPayload.userIdJson,
-          ...tracker.getIncrementalCheckpointStats()
-        };
-      }
-
       // This incrementally updates dataBuckets with each individual bucket position.
       // At the end of this, we can be sure that all buckets have data up to the checkpoint.
       for (const [priority, buckets] of priorityBatches) {
@@ -328,13 +336,34 @@ async function* streamResponseInner(
           ms: getCheckpointTraceTimings(trace.span)
         });
       }
+      if (checkpointResult != null) {
+        activeCheckpoint = null;
+      }
 
       if (!abortCheckpointSignal.aborted) {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
     } while (!signal.aborted);
   } finally {
-    await newCheckpoints.return?.();
+    if (activeCheckpoint != null) {
+      const { checkpoint, trace } = activeCheckpoint;
+      logger.info(`checkpoint_interrupted: ${checkpoint.checkpoint}`, {
+        ...checkpointLogDetails(checkpoint),
+        ms: getCheckpointTraceTimings(trace.span)
+      });
+    }
+
+    // The abort makes a pending next() settle as soon as the storage watcher observes it,
+    // releasing the subscription. return() is still needed for the case where there is no
+    // pending next(): the watcher is then suspended at a yield and never observes the abort.
+    // Neither is awaited: async generators queue return() behind a pending next(), so
+    // awaiting it here would keep the connection open until the next checkpoint arrives.
+    checkpointWatchController.abort();
+    newCheckpoints.return?.().catch((e) => {
+      if (!isAbortError(e)) {
+        logger.warn('Error while closing the checkpoint watcher', e);
+      }
+    });
   }
 }
 
@@ -437,7 +466,6 @@ async function* bucketDataBatch(
   } = request;
 
   const tracer = request.tracer;
-
   let checkpointInvalidated = false;
 
   const acquired = await tracer.span('acquiring_lock').with(async () => {
@@ -456,6 +484,7 @@ async function* bucketDataBatch(
     const filteredBuckets = checkpointLine.getFilteredBucketPositions(bucketsToFetch);
     const dataBatches = storage.getBucketDataBatch(checkpoint, filteredBuckets, {
       requestHint,
+      tracer,
       // Checkpoint supersession is a cooperative batch handoff. Only abort
       // in-flight storage work when the connection itself is closed.
       signal: abort_connection

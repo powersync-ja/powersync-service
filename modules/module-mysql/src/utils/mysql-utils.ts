@@ -13,6 +13,13 @@ export type RetriedQueryOptions = {
 };
 
 /**
+ *  TCP keepalive initial delay in milliseconds for connections to the MySQL server.
+ *  Keepalive prevents long-lived idle connections from being silently dropped by stateful
+ *  firewalls, which commonly time out idle flows after an hour.
+ */
+export const TCP_KEEPALIVE_INITIAL_DELAY = 40_000;
+
+/**
  * Retry a simple query - up to 2 attempts total.
  */
 export async function retriedQuery(options: RetriedQueryOptions) {
@@ -54,6 +61,10 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
     timezone: 'Z', // Ensure no auto timezone manipulation of the dates occur
     jsonStrings: true, // Return JSON columns as strings
     dateStrings: true, // We parse and format them ourselves
+    // mysql2 enables TCP keepalive by default, but without an initial delay the OS default of
+    // 7200 seconds applies, which is too late for common 3600 second firewall idle timeouts.
+    enableKeepAlive: true,
+    keepAliveInitialDelay: TCP_KEEPALIVE_INITIAL_DELAY,
     // Apply URL connection parameters (explicit options override these via spread below)
     ...(params.connectTimeout != null ? { connectTimeout: params.connectTimeout } : {}),
     ...(params.connectionLimit != null ? { connectionLimit: params.connectionLimit } : {}),

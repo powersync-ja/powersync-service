@@ -181,7 +181,9 @@ bucket_definitions:
       expect(activeBucketStorage.getActiveSyncConfig).toHaveBeenCalledTimes(1);
       expect(activeBucketStorage.getSyncConfigContent).not.toHaveBeenCalled();
       expect(updateSyncRules).toHaveBeenCalledTimes(1);
-      expect(updateSyncRules).toHaveBeenCalledWith(expect.objectContaining({ version_label: 'v6' }));
+      expect(updateSyncRules).toHaveBeenCalledWith(
+        expect.objectContaining({ version_label: 'v6', forceNewReplicationStream: true })
+      );
       expect(response.connections[0].slot_name).toBe('new_slot');
     });
 

@@ -67,11 +67,11 @@ export interface NormalizedMongoConnectionConfig {
 export const MongoConnectionConfig = service_types.configFile.DataSourceConfig.and(lib_mongo.BaseMongoConfig).and(
   t.object({
     // Replication specific settings
-    post_images: t.literal('off').or(t.literal('auto_configure')).or(t.literal('read_only')).optional(),
+    post_images: service_types.enumLiteral('off', 'auto_configure', 'read_only').optional(),
     /**
      * Interval in seconds between source connection heartbeats. Null or omitted defaults to 60 seconds.
      */
-    heartbeat_interval_seconds: t.number.or(t.Null).optional()
+    heartbeat_interval_seconds: service_types.orNull(t.number).optional()
   })
 );
 

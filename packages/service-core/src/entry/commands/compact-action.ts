@@ -31,7 +31,7 @@ export function registerCompactAction(program: Command) {
     .option('--no-parameter-indexes', 'Disabling compacting parameter indexes.')
     .option(
       '--incremental-only',
-      '[EXPERIMENTAL] Perform incremental compacting only. Implies --no-parameter-indexes.'
+      '[EXPERIMENTAL] Perform incremental compacting only. Parameter compaction runs on supported storage versions.'
     );
 
   wrapConfigCommand(compactCommand);
@@ -55,10 +55,6 @@ export function registerCompactAction(program: Command) {
     const incremental: boolean = options.incrementalOnly ?? false;
 
     let compactParameters: boolean | null = options.parameterIndexes;
-    if (incremental) {
-      compactParameters = false;
-    }
-
     if (buckets == null) {
       logger.info('Compacting storage for all buckets...');
     } else if (buckets.length == 0) {
@@ -99,12 +95,14 @@ export function registerCompactAction(program: Command) {
       const streams = await bucketStorage.getReplicatingReplicationStreams();
       for (let stream of streams) {
         const storage = bucketStorage.getInstance(stream);
+        const compactParameterData =
+          (compactParameters ?? buckets == null) && (!incremental || storage.supportsIncrementalParameterCompaction());
         logger.info(`[${stream.replicationStreamName}] Performing compaction...`);
         if (buckets != null) {
           await storage.compact({
             memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
             compactBuckets: buckets,
-            compactParameterData: compactParameters ?? false,
+            compactParameterData,
             incrementalOnly: incremental,
             deleteCheckpointRequestsBefore,
             signal: abortController.signal
@@ -112,7 +110,7 @@ export function registerCompactAction(program: Command) {
         } else {
           await storage.compact({
             memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
-            compactParameterData: compactParameters ?? true,
+            compactParameterData,
             incrementalOnly: incremental,
             deleteCheckpointRequestsBefore,
             signal: abortController.signal

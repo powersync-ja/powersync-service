@@ -1,5 +1,5 @@
 import { framework, storage } from '@powersync/service-core';
-import { ReplicationError } from '@powersync/service-types';
+import { orNull, ReplicationError } from '@powersync/service-types';
 import * as t from 'ts-codec';
 import { bigint, pgwire_number } from '../codecs.js';
 import { jsonContainerObject } from './json.js';
@@ -16,43 +16,43 @@ export const SyncRules = t.object({
   /**
    * May be set if snapshot_done = false, if the replication stream requires it.
    */
-  snapshot_lsn: t.Null.or(t.string),
+  snapshot_lsn: orNull(t.string),
   /**
    * The last consistent checkpoint.
    *
    * There may be higher OpIds used in the database if we're in the middle of replicating a large transaction.
    */
-  last_checkpoint: t.Null.or(bigint),
+  last_checkpoint: orNull(bigint),
   /**
    * The LSN associated with the last consistent checkpoint.
    */
-  last_checkpoint_lsn: t.Null.or(t.string),
+  last_checkpoint_lsn: orNull(t.string),
   /**
    * If set, no new checkpoints may be created < this value.
    */
-  no_checkpoint_before: t.Null.or(t.string),
+  no_checkpoint_before: orNull(t.string),
   slot_name: t.string,
   /**
    * Last time we persisted a checkpoint.
    *
    * This may be old if no data is incoming.
    */
-  last_checkpoint_ts: t.Null.or(framework.codecs.date),
+  last_checkpoint_ts: orNull(framework.codecs.date),
   /**
    * Last time we persisted a checkpoint or keepalive.
    *
    * This should stay fairly current while replicating.
    */
-  last_keepalive_ts: t.Null.or(framework.codecs.date),
+  last_keepalive_ts: orNull(framework.codecs.date),
   /**
    * If an error is stopping replication, it will be stored here.
    */
-  last_fatal_error: t.Null.or(t.string),
-  keepalive_op: t.Null.or(bigint),
-  storage_version: t.Null.or(pgwire_number).optional(),
-  version_label: t.Null.or(t.string).optional(),
+  last_fatal_error: orNull(t.string),
+  keepalive_op: orNull(bigint),
+  storage_version: orNull(pgwire_number).optional(),
+  version_label: orNull(t.string).optional(),
   content: t.string,
-  sync_plan: t.Null.or(
+  sync_plan: orNull(
     jsonContainerObject(
       t.object({
         plan: t.any,

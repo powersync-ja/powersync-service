@@ -6,7 +6,7 @@ import { mongoTableId } from '../../../utils/util.js';
 import { canCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoParsedSyncConfigSet } from '../MongoParsedSyncConfigSet.js';
-import { syncRuleStateUpdatePipeline } from '../SyncRuleStateUpdate.js';
+import { stopReplicationStreamPipeline } from '../SyncRuleStateUpdate.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { PersistedBatchV3 } from './PersistedBatchV3.js';
@@ -45,7 +45,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     return new PersistedBatchV3(this.db, this.replicationStreamId, this.mapping, writtenSize, {
       logger: this.logger,
       objectStorage: this.options.objectStorage,
-      inlineThresholdBytes: this.options.inlineThresholdBytes
+      inlineThresholdBytes: this.options.inlineThresholdBytes,
+      signal: this.options.signal
     });
   }
 
@@ -519,7 +520,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
             _id: { $ne: this.replicationStreamId },
             state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
           },
-          syncRuleStateUpdatePipeline(storage.SyncRuleState.STOP),
+          stopReplicationStreamPipeline(),
           { session }
         );
         activated = true;

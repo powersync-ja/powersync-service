@@ -1,4 +1,5 @@
 import { logger, LookupOptions } from '@powersync/lib-services-framework';
+import { validateStorageVersion } from '@powersync/service-sync-rules';
 import { configFile } from '@powersync/service-types';
 import * as auth from '../../auth/auth-index.js';
 import { ConfigCollector } from './collectors/config-collector.js';
@@ -61,6 +62,11 @@ export class CompoundConfigCollector {
    */
   async collectConfig(runnerConfig: RunnerConfig = {}): Promise<ResolvedPowerSyncConfig> {
     const baseConfig = await this.collectBaseConfig(runnerConfig);
+
+    const defaultStorageVersion = baseConfig.storage?.default_storage_version;
+    if (defaultStorageVersion != null && validateStorageVersion(defaultStorageVersion) == null) {
+      throw new Error(`Storage version ${defaultStorageVersion} is not supported`);
+    }
 
     const dataSources = baseConfig.replication?.connections ?? [];
     if (dataSources.length > 1) {

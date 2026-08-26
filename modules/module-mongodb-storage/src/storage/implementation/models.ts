@@ -224,6 +224,31 @@ export interface SyncRuleDocumentBase {
 
   /** Optional operator-supplied label identifying the sync config version. */
   version_label?: string;
+
+  /**
+   * Incremental parameter compaction state for the replication stream.
+   *
+   * Operation ids are allocated across all parameter indexes of a stream, so this is
+   * stream-level state, shared by all sync configs of the stream.
+   */
+  parameter_compaction?: {
+    /**
+     * The exclusive operation-id boundary through which every parameter index in this stream has
+     * been compacted.
+     */
+    compacted_before: InternalOpId;
+
+    /**
+     * Parameter entries below this boundary may no longer be available for checkpoint change
+     * detection, since compaction may have deleted them.
+     *
+     * This is advanced before the first delete of a compaction pass, while
+     * {@link compacted_before} is only advanced after every delete of the pass completed.
+     * A checkpoint transition starting below this boundary must conservatively invalidate all
+     * parameter buckets, since the individual changes may no longer be available.
+     */
+    checkpoint_changes_invalid_before?: InternalOpId;
+  };
 }
 
 export interface SyncRuleCheckpointFields {
