@@ -65,6 +65,7 @@ export async function getSyncRulesStatus(
     parsed = singleConfig;
   } catch (e) {
     return {
+      version_label: syncConfig.version_label,
       content: include_content ? syncConfig.sync_rules_content : undefined,
       connections: [],
       errors: [{ level: 'fatal', message: e.message, ts: now }]

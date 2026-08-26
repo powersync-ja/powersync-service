@@ -193,4 +193,16 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
 
     expect(result!.version_label).toBe('v6');
   });
+
+  test('includes the sync config version label when parsing fails', async () => {
+    const content = makeSyncRulesContent({ version_label: 'v6' });
+    content.parsed = () => {
+      throw new Error('Invalid sync config');
+    };
+
+    const result = await getSyncRulesStatus(makeRouteAPI(), content, OPTIONS, makeSystemStorage());
+
+    expect(result!.version_label).toBe('v6');
+    expect(result!.errors).toEqual([expect.objectContaining({ level: 'fatal', message: 'Invalid sync config' })]);
+  });
 });
