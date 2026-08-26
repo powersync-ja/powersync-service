@@ -1,5 +1,5 @@
 import * as t from 'ts-codec';
-import { anyPrimitive } from './codecs.js';
+import { anyPrimitive, enumLiteral, orNull } from './codecs.js';
 import { ConnectionStatus, InstanceSchema, SyncRulesStatus } from './definitions.js';
 
 export const GetSchemaRequest = t.object({});
@@ -89,12 +89,7 @@ export const BucketReportRequest = t.object({
 });
 export type BucketReportRequest = t.Encoded<typeof BucketReportRequest>;
 
-export const SuggestedBucketAction = t
-  .literal('none')
-  .or(t.literal('compact'))
-  .or(t.literal('defragment'))
-  .or(t.literal('both'))
-  .or(t.literal('unknown'));
+export const SuggestedBucketAction = enumLiteral('none', 'compact', 'defragment', 'both', 'unknown');
 export type SuggestedBucketAction = t.Encoded<typeof SuggestedBucketAction>;
 
 export const BucketStorageStats = t.object({
@@ -114,19 +109,19 @@ export const BucketStorageStats = t.object({
    * Live rows in the bucket as of its last full compact, or null if the bucket has never been fully
    * compacted (or the storage version does not capture compact statistics).
    */
-  rows: t.number.or(t.Null),
+  rows: orNull(t.number),
   /**
    * `operations / max(rows, 1)`. ~1 is healthy (fully compacted); higher means more operation-history
    * overhead that a compact/defragment can reclaim. Null whenever `rows` is null.
    */
-  fragmentation: t.number.or(t.Null),
+  fragmentation: orNull(t.number),
   /** ISO timestamp of the bucket's last full compact, which is when `rows` was captured. */
-  last_full_compact_at: t.string.or(t.Null),
+  last_full_compact_at: orNull(t.string),
   /**
    * ISO timestamp of when the scheduled compactor will next consider this bucket. A suggested compact with
    * a future `next_compact_at` means the compact is already planned but throttled until then.
    */
-  next_compact_at: t.string.or(t.Null),
+  next_compact_at: orNull(t.string),
   /**
    * Suggested maintenance action, derived from the bucket's compact statistics: `none` (healthy), `compact`
    * (un-compacted superseded history to reclaim), `defragment` (mostly compaction residue that only a
@@ -155,9 +150,9 @@ export const BucketDefinitionStats = t.object({
    * from each bucket's last full compact (extrapolated when only some buckets have been compacted); null
    * when none have.
    */
-  rows: t.number.or(t.Null),
+  rows: orNull(t.number),
   /** `operations / max(rows, 1)` across the whole definition. Null whenever `rows` is null. */
-  fragmentation: t.number.or(t.Null),
+  fragmentation: orNull(t.number),
   /** Suggested maintenance action for the definition; same values as `buckets[].suggested_action`. */
   suggested_action: SuggestedBucketAction
 });
