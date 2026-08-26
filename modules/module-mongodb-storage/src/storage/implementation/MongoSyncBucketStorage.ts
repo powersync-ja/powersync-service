@@ -25,12 +25,7 @@ import {
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
-import {
-  BucketDefinitionId,
-  HydratedSyncConfig,
-  ParameterLookupRows,
-  ScopedParameterLookup
-} from '@powersync/service-sync-rules';
+import { HydratedSyncConfig, ParameterLookupRows, ScopedParameterLookup } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
@@ -42,7 +37,7 @@ import {
 } from './common/MongoSyncBucketStorageCheckpoint.js';
 import { DEFAULT_INLINE_THRESHOLD_BYTES } from './common/PersistedBatch.js';
 import type { VersionedPowerSyncMongo } from './db.js';
-import { BucketStateDocumentBase, StorageConfig } from './models.js';
+import { StorageConfig } from './models.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
@@ -108,60 +103,37 @@ const BUCKET_SELECTION_SAMPLE_SIZE = 10_000;
  */
 const BUCKET_SELECTION_SCAN_MAX = 1_000_000;
 
-/**
- * Fewest operations sampled per bucket when estimating its row count. Buckets with fewer operations than
- * this are read in full (exact).
- */
-const BUCKET_ROW_SAMPLE_MIN = 1_000;
-
-/**
- * Most operations sampled per bucket, capping the per-bucket cost on very large buckets at the price of a
- * weaker estimate for buckets that are both extremely wide and barely fragmented (see {@link bucketRowSampleTarget}).
- */
-const BUCKET_ROW_SAMPLE_MAX = 25_000;
-
-/** Maximum number of per-bucket row-estimate queries to run concurrently while building a report. */
-const BUCKET_ROW_SAMPLE_CONCURRENCY = 10;
-
-/** Maximum number of tables listed per bucket or definition in the report. */
-const BUCKET_REPORT_TABLE_LIMIT = 10;
-
-/** A worst-offender bucket selected from bucket_state, with the version-specific context needed to sample it. */
-export interface TopBucketCandidate {
-  bucket: string;
-  operations: number;
-  operationBytes: number;
-  /** v3 only: the bucket definition id, used to locate its per-definition bucket_data collection. */
-  defId?: BucketDefinitionId;
-}
-
-/** A bucket definition aggregated from bucket_state, with the context needed to sample its rows. */
-export interface TopDefinitionCandidate {
-  /** Definition name as it prefixes bucket names, e.g. `1#by_user`. */
-  definition: string;
-  bucketCount: number;
-  operations: number;
-  operationBytes: number;
-  /** v3 only: the bucket definition id, used to locate its per-definition bucket_data collection. */
-  defId?: BucketDefinitionId;
-}
-
 export interface TopBucketSelection {
-  buckets: TopBucketCandidate[];
-  definitions: TopDefinitionCandidate[];
+  buckets: storage.RankedBucketInput[];
+  definitions: storage.RankedDefinitionInput[];
   /** True if more definitions exist than `definitions` holds ({@link storage.BUCKET_REPORT_DEFINITION_LIMIT}). */
   definitionsTruncated: boolean;
   totals: storage.BucketReportTotals;
 }
 
-export interface BucketRowEstimate {
-  rows: number;
-  /** Operations carrying a row identity (PUT/REMOVE), i.e. excluding MOVE/CLEAR compaction residue. */
-  rowOperations: number;
-  /** True if `rows` and `rowOperations` are sampled estimates rather than exact counts. */
-  estimated: boolean;
-  /** Tables in the (sampled) row-bearing history, ordered by their share of it, largest first. */
-  tables: string[];
+/**
+ * Version-specific aggregation expressions over a bucket_state document, feeding
+ * {@link MongoSyncBucketStorage.aggregateTopBuckets}.
+ */
+export interface BucketStateReportExpressions {
+  /** The bucket's current total operation count. */
+  operations: mongo.Document;
+  /** The bucket's current operation-history bytes, as a numeric expression. */
+  operationBytes: mongo.Document;
+  /**
+   * Statistics captured by the bucket's last full compact. Omitted for storage versions that do not record
+   * them (v1/v2), which limits the report to operation counts.
+   */
+  fullCompact?: {
+    /** Operation count of the compacted prefix, e.g. `'$last_full_compact.count'`. */
+    operations: unknown;
+    /** PUT count of the compacted prefix (the row count as of the compact). */
+    puts: unknown;
+    /** When the full compact ran. */
+    at: unknown;
+    /** When the scheduled compactor next considers the bucket. */
+    nextCompactAt: unknown;
+  };
 }
 
 export abstract class MongoSyncBucketStorage
@@ -495,71 +467,11 @@ export abstract class MongoSyncBucketStorage
   async getBucketReport(options?: storage.GetBucketReportOptions): Promise<storage.BucketReport> {
     const limit = storage.resolveBucketReportLimit(options?.limit);
     try {
-      // Rank the worst-offender buckets, the per-definition rollup, and total operations from the
-      // pre-aggregated bucket state (bounded, in the database), then estimate each returned bucket's and
-      // definition's row count by sampling its operation history.
+      // Everything comes from the pre-aggregated bucket state (one document per bucket, ranked and limited
+      // in the database): exact operation counts plus the last full compact's statistics, from which the
+      // row-level fields are derived. The operation history itself is never read.
       const { buckets, definitions, definitionsTruncated, totals } = await this.collectTopBuckets(limit);
-      // Each row estimate is an independent query; run a bounded number concurrently so the report cost
-      // scales with the limit without firing one query per bucket serially. Definitions sample their whole
-      // history and are the slowest jobs, so dispatch them first to overlap with the per-bucket estimates.
-      const rankedBuckets: storage.RankedBucketInput[] = new Array(buckets.length);
-      const rankedDefinitions: storage.RankedDefinitionInput[] = new Array(definitions.length);
-      const jobs = buckets.length + definitions.length;
-      let cursor = 0;
-      const runWorker = async () => {
-        while (true) {
-          const index = cursor++;
-          if (index >= jobs) {
-            return;
-          }
-          if (index < definitions.length) {
-            const candidate = definitions[index];
-            // A definition's row sample reads its whole (sampled) history, which on a very large instance
-            // can exceed the time budget even when the per-bucket estimates are fine. The rollup is
-            // supplementary: omit the definition rather than failing the whole report.
-            try {
-              const estimate = await this.estimateDefinitionRows(candidate);
-              rankedDefinitions[index] = {
-                definition: candidate.definition,
-                bucketCount: candidate.bucketCount,
-                operations: candidate.operations,
-                operationBytes: candidate.operationBytes,
-                rows: estimate.rows,
-                rowOperations: estimate.rowOperations,
-                rowsEstimated: estimate.estimated,
-                tables: estimate.tables
-              };
-            } catch (e) {
-              this.logger.warn(
-                `Skipping bucket report rollup for definition ${candidate.definition}: row sampling failed`,
-                e
-              );
-            }
-          } else {
-            const candidate = buckets[index - definitions.length];
-            const estimate = await this.estimateBucketRows(candidate);
-            rankedBuckets[index - definitions.length] = {
-              bucket: candidate.bucket,
-              operations: candidate.operations,
-              operationBytes: candidate.operationBytes,
-              rows: estimate.rows,
-              rowOperations: estimate.rowOperations,
-              rowsEstimated: estimate.estimated,
-              tables: estimate.tables
-            };
-          }
-        }
-      };
-      const workers = Math.min(BUCKET_ROW_SAMPLE_CONCURRENCY, jobs);
-      await Promise.all(Array.from({ length: workers }, () => runWorker()));
-      const sampledDefinitions = rankedDefinitions.filter((d) => d != null);
-      return storage.assembleBucketReport(
-        rankedBuckets,
-        sampledDefinitions,
-        totals,
-        // The rollup is also incomplete if a definition was dropped because sampling it failed.
-        definitionsTruncated || sampledDefinitions.length < definitions.length
-      );
+      return storage.assembleBucketReport(buckets, definitions, totals, definitionsTruncated);
     } catch (e) {
       // Translate a storage query timeout (maxTimeMS) into a specific, retryable error code rather than a
       // generic internal error.
@@ -570,27 +482,14 @@ export abstract class MongoSyncBucketStorage
   /**
    * Select the worst-offender buckets (by operation count), the per-definition rollup, and instance-wide
    * operation totals from the pre-aggregated bucket state. Ranking and limiting happen in the database, so
-   * memory stays bounded. Implementations supply their version-specific bucket state collection and
-   * active-config filter.
+   * memory stays bounded. Implementations supply their version-specific bucket state collection,
+   * active-config filter, and stat expressions.
    */
   protected abstract collectTopBuckets(limit: number): Promise<TopBucketSelection>;
 
   /**
-   * Estimate a single bucket's live row count by sampling its operation history. Implementations differ
-   * because v1/v2 store one document per operation while v3 batches operations per document.
-   */
-  protected abstract estimateBucketRows(candidate: TopBucketCandidate): Promise<BucketRowEstimate>;
-
-  /**
-   * Estimate a whole definition's row count (a row counted once per bucket containing it) by sampling the
-   * definition's operation history, exactly like {@link estimateBucketRows} but at definition grain.
-   */
-  protected abstract estimateDefinitionRows(candidate: TopDefinitionCandidate): Promise<BucketRowEstimate>;
-
-  /**
    * Rank buckets by operation count in the database and compute instance-wide operation totals, reading the
-   * pre-aggregated bucket state (compacted_state + estimate_since_compact). One document per bucket, no scan
-   * of bucket data.
+   * pre-aggregated bucket state. One document per bucket, no scan of bucket data.
    *
    * For very large bucket sets the candidates are drawn from a bounded sample of the matched `_id` index
    * range rather than the whole collection (so the request cannot run unbounded or exhaust memory), and the
@@ -601,28 +500,15 @@ export abstract class MongoSyncBucketStorage
    * so buckets that predate bucket_state tracking and have not been updated or compacted since are missing
    * here and under-counted. v3 always has bucket_state.
    */
-  protected async aggregateTopBuckets<T extends BucketStateDocumentBase>(
+  protected async aggregateTopBuckets<T extends { _id: { b: string } }>(
     collection: mongo.Collection<T>,
     match: mongo.Filter<T>,
-    limit: number
-  ): Promise<{
-    buckets: { id: T['_id']; operations: number; operationBytes: number }[];
-    definitions: TopDefinitionCandidate[];
-    definitionsTruncated: boolean;
-    totals: storage.BucketReportTotals;
-  }> {
-    const operations = {
-      $add: [{ $ifNull: ['$compacted_state.count', 0] }, { $ifNull: ['$estimate_since_compact.count', 0] }]
-    };
-    const operationBytes = {
-      $add: [
-        { $toDouble: { $ifNull: ['$compacted_state.bytes', 0] } },
-        { $toDouble: { $ifNull: ['$estimate_since_compact.bytes', 0] } }
-      ]
-    };
+    limit: number,
+    exprs: BucketStateReportExpressions
+  ): Promise<TopBucketSelection> {
+    const { operations, operationBytes, fullCompact } = exprs;
     // Bucket names are `<definition>[<serialized parameters>]`, so everything before the first `[` groups a
-    // bucket into its definition. v3 additionally carries the definition id in `_id.d`; `$first` is exact
-    // because all buckets sharing a name prefix share the definition (undefined for v1/v2).
+    // bucket into its definition.
     const definitionKey = { $arrayElemAt: [{ $split: ['$_id.b', '['] }, 0] };
 
     // Reports are bulk reads: run them with the configured bulk read preference (secondaries where
@@ -669,6 +555,9 @@ export abstract class MongoSyncBucketStorage
         { $replaceRoot: { newRoot: '$doc' } }
       );
     }
+    // BSON comparison order places every concrete value above null/missing, so this is true exactly when
+    // the bucket has full-compact statistics.
+    const hasFullCompact = fullCompact == null ? false : { $gt: [fullCompact.operations, null] };
     pipeline.push({
       $facet: {
         totals: [
@@ -681,7 +570,24 @@ export abstract class MongoSyncBucketStorage
             }
           }
         ],
-        top: [{ $project: { _id: 1, operations, operationBytes } }, { $sort: { operations: -1 } }, { $limit: limit }],
+        top: [
+          {
+            $project: {
+              _id: 0,
+              bucket: '$_id.b',
+              operations,
+              operationBytes,
+              ...(fullCompact && {
+                compactedOperations: { $ifNull: [fullCompact.operations, null] },
+                compactedPuts: { $ifNull: [fullCompact.puts, null] },
+                lastFullCompactAt: { $ifNull: [fullCompact.at, null] },
+                nextCompactAt: { $ifNull: [fullCompact.nextCompactAt, null] }
+              })
+            }
+          },
+          { $sort: { operations: -1 } },
+          { $limit: limit }
+        ],
         definitions: [
           {
             $group: {
@@ -689,7 +595,11 @@ export abstract class MongoSyncBucketStorage
               operations: { $sum: operations },
               operationBytes: { $sum: operationBytes },
               bucketCount: { $sum: 1 },
-              defId: { $first: '$_id.d' }
+              ...(fullCompact && {
+                compactedBucketCount: { $sum: { $cond: [hasFullCompact, 1, 0] } },
+                compactedOperations: { $sum: { $ifNull: [fullCompact.operations, 0] } },
+                compactedPuts: { $sum: { $ifNull: [fullCompact.puts, 0] } }
+              })
             }
           },
           { $sort: { operations: -1 } },
@@ -701,13 +611,15 @@ export abstract class MongoSyncBucketStorage
 
     type FacetResult = {
       totals: { operations: number; operationBytes: number; bucketCount: number }[];
-      top: { _id: T['_id']; operations: number; operationBytes: number }[];
+      top: storage.RankedBucketInput[];
       definitions: {
         _id: string;
         operations: number;
         operationBytes: number;
         bucketCount: number;
-        defId?: BucketDefinitionId;
+        compactedBucketCount?: number;
+        compactedOperations?: number;
+        compactedPuts?: number;
       }[];
     };
     const [result] = await collection
@@ -719,20 +631,20 @@ export abstract class MongoSyncBucketStorage
       .toArray();
 
     const rawTotals = result?.totals[0] ?? { operations: 0, operationBytes: 0, bucketCount: 0 };
-    const buckets = (result?.top ?? []).map((doc) => ({
-      id: doc._id,
-      operations: doc.operations,
-      operationBytes: doc.operationBytes
-    }));
+    const buckets = result?.top ?? [];
     const rawDefinitions = result?.definitions ?? [];
     const definitionsTruncated = rawDefinitions.length > storage.BUCKET_REPORT_DEFINITION_LIMIT;
-    const mapDefinitions = (scale: number): TopDefinitionCandidate[] =>
+    const mapDefinitions = (scale: number): storage.RankedDefinitionInput[] =>
       rawDefinitions.slice(0, storage.BUCKET_REPORT_DEFINITION_LIMIT).map((d) => ({
         definition: d._id,
         bucketCount: Math.round(d.bucketCount * scale),
         operations: Math.round(d.operations * scale),
         operationBytes: Math.round(d.operationBytes * scale),
-        defId: d.defId
+        ...(fullCompact && {
+          compactedBucketCount: Math.round((d.compactedBucketCount ?? 0) * scale),
+          compactedOperations: Math.round((d.compactedOperations ?? 0) * scale),
+          compactedPuts: Math.round((d.compactedPuts ?? 0) * scale)
+        })
       }));
 
     if (!sampled) {
@@ -764,122 +676,6 @@ export abstract class MongoSyncBucketStorage
         estimated: true
       }
     };
-  }
-
-  /**
-   * Estimate a bucket's (or definition's) live rows from a sample of its operations.
-   *
-   * `buildPrefix(applySample)` returns a pipeline prefix that selects the operations (down-sampled when
-   * `applySample` is true) and yields documents with top-level `op`, `table` and `row_id` fields. Returns
-   * the distinct row count (exact when the whole history was read, otherwise estimated via
-   * {@link storage.estimateDistinctRows}); fragmentation is then `operations / rows`.
-   *
-   * `rowKey` is the `$group` key that identifies a row. Per-bucket estimates use the default (the bucket is
-   * fixed by the prefix); definition-level estimates must include the bucket name so a row is counted once
-   * per bucket containing it.
-   */
-  protected async estimateRowsFromOperationSample<T extends mongo.Document>(
-    collection: mongo.Collection<T>,
-    buildPrefix: (applySample: boolean) => mongo.Document[],
-    operations: number,
-    sampled: boolean,
-    rowKey: mongo.Document = { table: '$table', row_id: '$row_id' }
-  ): Promise<BucketRowEstimate> {
-    const runCounts = async (applySample: boolean) => {
-      const pipeline: mongo.Document[] = [
-        ...buildPrefix(applySample),
-        {
-          $facet: {
-            sampledOps: [{ $count: 'count' }],
-            rowOps: [{ $match: { op: { $in: ['PUT', 'REMOVE'] } } }, { $count: 'count' }],
-            distinctRows: [
-              { $match: { op: { $in: ['PUT', 'REMOVE'] } } },
-              { $group: { _id: rowKey } },
-              { $count: 'count' }
-            ],
-            tables: [
-              { $match: { op: { $in: ['PUT', 'REMOVE'] } } },
-              { $group: { _id: '$table', operations: { $sum: 1 } } },
-              { $sort: { operations: -1 } },
-              { $limit: BUCKET_REPORT_TABLE_LIMIT }
-            ]
-          }
-        }
-      ];
-      type FacetResult = {
-        sampledOps: { count: number }[];
-        rowOps: { count: number }[];
-        distinctRows: { count: number }[];
-        tables: { _id: string }[];
-      };
-      const [result] = await collection
-        .aggregate<FacetResult>(pipeline, {
-          allowDiskUse: false,
-          maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS,
-          readPreference: this.readPreference
-        })
-        .toArray();
-      return {
-        sampledOps: result?.sampledOps[0]?.count ?? 0,
-        rowOps: result?.rowOps[0]?.count ?? 0,
-        distinctRows: result?.distinctRows[0]?.count ?? 0,
-        tables: (result?.tables ?? []).map((t) => t._id)
-      };
-    };
-
-    let counts = await runCounts(sampled);
-    if (sampled && counts.sampledOps == 0) {
-      // A document-level `$sampleRate` can select nothing when a bucket spans very few storage documents
-      // (v3 batches operations into a document). Fall back to an exact read so the bucket is not reported as
-      // zero rows. This reads the whole bucket only in the rare empty-sample case, which cannot happen for a
-      // bucket large enough to span many documents.
-      const exact = await runCounts(false);
-      return { rows: exact.distinctRows, rowOperations: exact.rowOps, estimated: false, tables: exact.tables };
-    }
-    if (counts.distinctRows == 0) {
-      // Nothing row-bearing was found (e.g. a bucket of only MOVE/CLEAR ops): treat as fully fragmented.
-      return { rows: 0, rowOperations: 0, estimated: sampled, tables: [] };
-    }
-    if (!sampled) {
-      // Read in full: the distinct row count is exact.
-      return { rows: counts.distinctRows, rowOperations: counts.rowOps, estimated: false, tables: counts.tables };
-    }
-    // Only PUT/REMOVE operations carry a row identity; MOVE/CLEAR (produced by compaction) do not. Run the
-    // estimator over the row-bearing operations only, scaling the bucket's operation count by the row-bearing
-    // share observed in the sample. Including identity-less operations in the model under-counts rows on
-    // compacted buckets. For uncompacted buckets rowOps equals sampledOps and this changes nothing.
-    const rowBearingOperations = Math.round(operations * (counts.rowOps / counts.sampledOps));
-    return {
-      rows: storage.estimateDistinctRows(rowBearingOperations, counts.rowOps, counts.distinctRows),
-      rowOperations: rowBearingOperations,
-      estimated: true,
-      tables: counts.tables
-    };
-  }
-
-  /**
-   * How many operations to sample when estimating a bucket's row count.
-   *
-   * {@link storage.estimateDistinctRows} infers the row count from how often the sample lands on the same
-   * row twice, so the sample must be large enough to contain such repeats. Sampling `sqrt(200 * operations)`
-   * operations yields on the order of 100 expected repeats even in the worst case of one row per operation,
-   * which keeps the estimate stable instead of swinging with sampling noise. The clamp bounds per-bucket
-   * cost; past the cap only very wide, barely fragmented buckets lose accuracy, and those are not the
-   * offenders the report exists to surface.
-   */
-  protected bucketRowSampleTarget(operations: number): number {
-    const target = Math.ceil(Math.sqrt(200 * operations));
-    return Math.min(BUCKET_ROW_SAMPLE_MAX, Math.max(BUCKET_ROW_SAMPLE_MIN, target));
-  }
-
-  /** Whether a bucket with this many operations should be sampled rather than read in full. */
-  protected shouldSampleBucketRows(operations: number): boolean {
-    return operations > this.bucketRowSampleTarget(operations);
-  }
-
-  /** `$sampleRate` for sampling roughly {@link bucketRowSampleTarget} operations from a bucket. */
-  protected bucketRowSampleRate(operations: number): number {
-    return this.bucketRowSampleTarget(operations) / operations;
   }
 
   /**

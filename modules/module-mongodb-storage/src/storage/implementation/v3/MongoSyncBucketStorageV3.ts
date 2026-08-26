@@ -34,13 +34,10 @@ import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
 import {
-  BucketRowEstimate,
   MongoCheckpointState,
   MongoSyncBucketStorage,
   MongoSyncBucketStorageOptions,
-  TopBucketCandidate,
-  TopBucketSelection,
-  TopDefinitionCandidate
+  TopBucketSelection
 } from '../MongoSyncBucketStorage.js';
 import { loadBucketDataDocument, maxOpId } from './bucket-format.js';
 import {
@@ -227,10 +224,10 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return { buckets: compactedBuckets };
   }
 
-  // For storage v3, bucket state is a per-stream collection and bucket data is split into per-definition collections.
-  // A replication stream can host multiple sync configs (active + processing + stopped, until cleanup runs), all
-  // sharing these collections. Scope to the active config's definition ids so the report excludes stale buckets
-  // from old/stopped definitions. `this.storageIds` is derived from the active config only (see getActiveSyncConfig).
+  // For storage v3, bucket state is a per-stream collection shared by every sync config the replication
+  // stream hosts (active + processing + stopped, until cleanup runs). Scope to the active config's definition
+  // ids so the report excludes stale buckets from old/stopped definitions. `this.storageIds` is derived from
+  // the active config only (see getActiveSyncConfig).
   protected async collectTopBuckets(limit: number): Promise<TopBucketSelection> {
     const definitionIds = this.storageIds.bucketDefinitionIds;
     if (definitionIds.length == 0) {
@@ -243,66 +240,24 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     }
     // One `_id` range per active definition, so the {_id} index bounds the scan per definition; a dotted
     // `{'_id.d': ...}` match cannot use the compound-object index and would scan the whole collection.
-    const { buckets, definitions, definitionsTruncated, totals } = await this.aggregateTopBuckets(
+    return await this.aggregateTopBuckets(
       this.db.bucketState(this.replicationStreamId),
       { $or: definitionIds.map((d) => ({ _id: idPrefixFilter<{ d: BucketDefinitionId; b: string }>({ d }, ['b']) })) },
-      limit
+      limit,
+      {
+        // bucket_stats is maintained by writers and compactors, so these are current, exact counts.
+        operations: { $ifNull: ['$bucket_stats.count', 0] },
+        operationBytes: { $toDouble: { $ifNull: ['$bucket_stats.bytes', 0] } },
+        // The last full compact's statistics: its `puts` count doubles as the bucket's live row count as of
+        // that compact, from which the report derives rows, fragmentation and the suggested action.
+        fullCompact: {
+          operations: '$last_full_compact.count',
+          puts: '$last_full_compact.puts',
+          at: '$last_full_compact.at',
+          nextCompactAt: '$next_compact_check'
+        }
+      }
     );
-    return {
-      buckets: buckets.map((b) => ({
-        bucket: b.id.b,
-        operations: b.operations,
-        operationBytes: b.operationBytes,
-        defId: b.id.d
-      })),
-      definitions,
-      definitionsTruncated,
-      totals
-    };
-  }
-
-  protected estimateBucketRows(candidate: TopBucketCandidate): Promise<BucketRowEstimate> {
-    // v3 batches operations into documents (one doc holds an `ops` array), in a per-definition collection.
-    // Sample whole batch documents, then unwind to operation level so the shared estimator sees one doc per op.
-    const sampled = this.shouldSampleBucketRows(candidate.operations);
-    const collection = this.db.bucketData(this.replicationStreamId, candidate.defId!);
-    const buildPrefix = (applySample: boolean): mongo.Document[] => {
-      // Range-match on the whole `_id` (b, o) so the {_id} index is used; a dotted `{'_id.b': ...}` match
-      // cannot use the compound-object index and would scan the whole collection per bucket.
-      const prefix: mongo.Document[] = [
-        { $match: { _id: idPrefixFilter<{ b: string; o: unknown }>({ b: candidate.bucket }, ['o']) } }
-      ];
-      if (applySample) {
-        prefix.push({ $match: { $sampleRate: this.bucketRowSampleRate(candidate.operations) } });
-      }
-      prefix.push({ $unwind: '$ops' }, { $replaceRoot: { newRoot: '$ops' } });
-      return prefix;
-    };
-    return this.estimateRowsFromOperationSample(collection, buildPrefix, candidate.operations, sampled);
-  }
-
-  protected estimateDefinitionRows(candidate: TopDefinitionCandidate): Promise<BucketRowEstimate> {
-    // A definition's operations are exactly its per-definition bucket_data collection, so no match stage is
-    // needed. Keep the bucket name alongside each unwound operation: at definition grain a row counts once
-    // per bucket holding it.
-    const sampled = this.shouldSampleBucketRows(candidate.operations);
-    const collection = this.db.bucketData(this.replicationStreamId, candidate.defId!);
-    const buildPrefix = (applySample: boolean): mongo.Document[] => {
-      const prefix: mongo.Document[] = [];
-      if (applySample) {
-        prefix.push({ $match: { $sampleRate: this.bucketRowSampleRate(candidate.operations) } });
-      }
-      prefix.push(
-        { $unwind: '$ops' },
-        { $project: { b: '$_id.b', op: '$ops.op', table: '$ops.table', row_id: '$ops.row_id' } }
-      );
-      return prefix;
-    };
-    return this.estimateRowsFromOperationSample(collection, buildPrefix, candidate.operations, sampled, {
-      b: '$b',
-      table: '$table',
-      row_id: '$row_id'
-    });
   }
 
   protected createMongoParameterCompactor(
