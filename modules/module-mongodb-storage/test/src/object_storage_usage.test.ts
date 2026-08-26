@@ -99,10 +99,7 @@ describe('ObjectStorageUsage', () => {
       });
 
       expect(await bucketData.countDocuments({ storage_ref: { $exists: true } })).toBe(1);
-      await expect(usage.readStreamUsage()).resolves.toEqual({
-        replication_stream_id: replicationStreamId,
-        active_bytes: 123n
-      });
+      await expect(usage.readEntries()).resolves.toEqual([{ definition_id: definitionId, active_bytes: 123n }]);
     });
   });
 
@@ -136,10 +133,7 @@ describe('ObjectStorageUsage', () => {
         await readSession.endSession();
       }
 
-      await expect(usage.readStreamUsage()).resolves.toEqual({
-        replication_stream_id: replicationStreamId,
-        active_bytes: 115n
-      });
+      await expect(usage.readEntries()).resolves.toEqual([{ definition_id: definitionId, active_bytes: 115n }]);
     });
   });
 
@@ -159,7 +153,7 @@ describe('ObjectStorageUsage', () => {
       // The folder committed first and deleted the writer shard. The writer's
       // next transaction must recreate it through the upsert.
       await withTransaction(db, (session) => usage.applyDelta(definitionId, 4n, session));
-      expect((await usage.readStreamUsage()).active_bytes).toBe(14n);
+      expect((await usage.readEntries())[0].active_bytes).toBe(14n);
 
       await db.objectStorageUsage.updateOne(
         { _id: { g: replicationStreamId, w: writerId } },
@@ -169,7 +163,7 @@ describe('ObjectStorageUsage', () => {
 
       // The writer committed before the folder. Folding the recreated shard
       // must preserve the same visible total.
-      expect((await usage.readStreamUsage()).active_bytes).toBe(14n);
+      expect((await usage.readEntries())[0].active_bytes).toBe(14n);
     });
   });
 
@@ -211,13 +205,10 @@ describe('ObjectStorageUsage', () => {
     });
   });
 
-  test('returns zero for an absent usage collection', async () => {
+  test('returns no entries for an absent usage collection', async () => {
     await withUsageContext(async ({ db, bucketStorage }) => {
       await db.objectStorageUsage.drop().catch(() => undefined);
-      await expect(new ObjectStorageUsage(db, bucketStorage.replicationStreamId).readStreamUsage()).resolves.toEqual({
-        replication_stream_id: bucketStorage.replicationStreamId,
-        active_bytes: 0n
-      });
+      await expect(new ObjectStorageUsage(db, bucketStorage.replicationStreamId).readEntries()).resolves.toEqual([]);
     });
   });
 });

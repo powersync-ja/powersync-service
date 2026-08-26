@@ -50,7 +50,7 @@ import { MongoStoppedSyncConfigCleanup } from './MongoStoppedSyncConfigCleanup.j
 import { hydrateBucketDataDocuments } from './object-storage/BucketDataObjectStorage.js';
 import { ObjectStorage } from './object-storage/ObjectStorage.js';
 import { ObjectStorageLifecycle } from './object-storage/ObjectStorageLifecycle.js';
-import { ObjectStorageUsage, ReplicationStreamObjectStorageUsageResult } from './object-storage/ObjectStorageUsage.js';
+import { ObjectStorageUsage } from './object-storage/ObjectStorageUsage.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export interface MongoSyncBucketStorageContextV3 {
@@ -415,10 +415,6 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         }
         throw error;
       });
-  }
-
-  async getObjectStorageUsage(): Promise<ReplicationStreamObjectStorageUsageResult> {
-    return new ObjectStorageUsage(this.db, this.replicationStreamId).readStreamUsage();
   }
 
   protected async clearParameterIndexes(_signal?: AbortSignal): Promise<void> {

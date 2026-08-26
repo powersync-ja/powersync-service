@@ -10,11 +10,6 @@ export const OBJECT_STORAGE_USAGE_BASE_WRITER_ID = '__base__';
 export const DEFAULT_OBJECT_STORAGE_USAGE_STALE_WRITER_MS = 30 * 60 * 1000;
 export const DEFAULT_OBJECT_STORAGE_USAGE_FOLD_LIMIT = 100;
 
-export interface ReplicationStreamObjectStorageUsageResult {
-  replication_stream_id: number;
-  active_bytes: bigint;
-}
-
 export interface ReplicationStreamObjectStorageDefinitionUsageResult {
   replication_stream_id: number;
   definition_id: BucketDefinitionId;
@@ -135,16 +130,6 @@ export class ObjectStorageUsage {
 
   async readEntries(): Promise<ObjectStorageUsageEntry[]> {
     return this.db.client.withSession({ snapshot: true }, (session) => this.readEntriesInSession(session));
-  }
-
-  async readStreamUsage(): Promise<ReplicationStreamObjectStorageUsageResult> {
-    const entries = await this.readEntries();
-    const activeBytes = entries.reduce((sum, entry) => sum + entry.active_bytes, 0n);
-    this.assertNonNegative(activeBytes, 'stream');
-    return {
-      replication_stream_id: this.replicationStreamId,
-      active_bytes: activeBytes
-    };
   }
 
   async readEntriesInSession(session: mongo.ClientSession): Promise<ObjectStorageUsageEntry[]> {

@@ -5,6 +5,7 @@ import { MongoSyncBucketStorage } from '../../src/storage/implementation/createM
 import { MongoSyncBucketStorageV3 } from '../../src/storage/implementation/v3/MongoSyncBucketStorageV3.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { ObjectStorageError } from '../../src/storage/implementation/v3/object-storage/ObjectStorage.js';
+import { ObjectStorageUsage } from '../../src/storage/implementation/v3/object-storage/ObjectStorageUsage.js';
 import { env } from './env.js';
 import { createMemoryS3TestStorageSuite, createS3TestStorageSuite } from './helpers/s3TestFactory.js';
 
@@ -34,10 +35,8 @@ async function expectUsageMatchesBucketData(bucketStorage: MongoSyncBucketStorag
   const db = v3BucketStorage.db as VersionedPowerSyncMongoV3;
   const documents = await db.bucketData(v3BucketStorage.replicationStreamId, definitionId).find({}).toArray();
   const expectedBytes = documents.reduce((sum, document) => sum + BigInt(document.storage_ref?.file_size ?? 0), 0n);
-  await expect(v3BucketStorage.getObjectStorageUsage()).resolves.toEqual({
-    replication_stream_id: v3BucketStorage.replicationStreamId,
-    active_bytes: expectedBytes
-  });
+  const entries = await new ObjectStorageUsage(db, v3BucketStorage.replicationStreamId).readEntries();
+  expect(entries.reduce((sum, entry) => sum + entry.active_bytes, 0n)).toBe(expectedBytes);
 }
 
 describe('S3 compaction storage lifecycle', () => {
