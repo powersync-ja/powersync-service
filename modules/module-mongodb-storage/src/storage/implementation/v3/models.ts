@@ -103,6 +103,8 @@ export interface SyncConfigDefinition {
   replication_stream_id: number;
 
   content: string;
+  /** Optional operator-supplied label identifying this sync config version. */
+  version_label?: string;
   serialized_plan?: SerializedSyncPlan | null;
 
   rule_mapping: PersistedDefinitionMapping;

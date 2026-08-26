@@ -37,10 +37,17 @@ export abstract class BucketStorageFactory
     const deploying = await this.getDeployingSyncConfig();
     const active = await this.getActiveSyncConfig();
 
-    if (deploying?.content.sync_rules_content == options.config.yaml) {
+    if (
+      deploying?.content.sync_rules_content == options.config.yaml &&
+      deploying.content.version_label == options.version_label
+    ) {
       logger.info('Sync config unchanged');
       return { updated: false };
-    } else if (deploying == null && active?.content.sync_rules_content == options.config.yaml) {
+    } else if (
+      deploying == null &&
+      active?.content.sync_rules_content == options.config.yaml &&
+      active.content.version_label == options.version_label
+    ) {
       logger.info('Sync config unchanged');
       return { updated: false };
     } else {
@@ -163,6 +170,8 @@ export interface StorageSyncConfigMetrics {
 }
 
 export interface UpdateSyncRulesOptions {
+  /** Optional operator-supplied label identifying this deployed sync config version. */
+  version_label?: string;
   config: {
     yaml: string;
     /**

@@ -222,6 +222,9 @@ export interface SyncRuleDocumentBase {
 
   storage_version?: number;
 
+  /** Optional operator-supplied label identifying the sync config version. */
+  version_label?: string | null;
+
   /**
    * Incremental parameter compaction state for the replication stream.
    *

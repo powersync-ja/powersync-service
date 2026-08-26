@@ -34,6 +34,7 @@ describe('admin routes', () => {
     syncConfigId?: string;
     active?: boolean;
     content?: string;
+    version_label?: string;
   }): storage.PersistedSyncConfigContent {
     const id = options.id ?? 1;
     const syncConfigId = options.syncConfigId ?? String(id);
@@ -66,6 +67,7 @@ bucket_definitions:
       compiled_plan: null,
       storageVersion: storage.LEGACY_STORAGE_VERSION,
       syncConfigState: syncConfigStatus.state,
+      version_label: options.version_label,
       parsed(options?: any) {
         const syncRules = SqlSyncRules.fromYaml(content.sync_rules_content, {
           ...options,
@@ -113,7 +115,7 @@ bucket_definitions:
 
   describe('diagnostics', () => {
     it('returns deploying config status', async () => {
-      const active = makeSyncConfigContent({ id: 1, syncConfigId: 'active-config' });
+      const active = makeSyncConfigContent({ id: 1, syncConfigId: 'active-config', version_label: 'v5' });
       const deploying = makeSyncConfigContent({ id: 2, syncConfigId: 'deploying-config', active: false });
       const getInstance = vi.fn(() => ({
         async getStatus() {
@@ -144,12 +146,13 @@ bucket_definitions:
 
       expect(response.deploying_sync_rules?.connections[0].slot_name).toBe('slot_2');
       expect(response.active_sync_rules?.connections[0].slot_name).toBe('slot_1');
+      expect(response.active_sync_rules?.version_label).toBe('v5');
     });
   });
 
   describe('reprocess', () => {
     it('reprocesses the active sync config', async () => {
-      const active = makeSyncConfigContent({ id: 7, syncConfigId: 'active-config' });
+      const active = makeSyncConfigContent({ id: 7, syncConfigId: 'active-config', version_label: 'v6' });
       const updateSyncRules = vi.fn(async () => ({
         replicationStreamId: 8,
         replicationStreamName: 'new_slot',
@@ -178,7 +181,9 @@ bucket_definitions:
       expect(activeBucketStorage.getActiveSyncConfig).toHaveBeenCalledTimes(1);
       expect(activeBucketStorage.getSyncConfigContent).not.toHaveBeenCalled();
       expect(updateSyncRules).toHaveBeenCalledTimes(1);
-      expect(updateSyncRules).toHaveBeenCalledWith(expect.objectContaining({ forceNewReplicationStream: true }));
+      expect(updateSyncRules).toHaveBeenCalledWith(
+        expect.objectContaining({ version_label: 'v6', forceNewReplicationStream: true })
+      );
       expect(response.connections[0].slot_name).toBe('new_slot');
     });
 
