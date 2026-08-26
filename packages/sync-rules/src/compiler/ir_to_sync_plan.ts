@@ -2,7 +2,7 @@ import { SqlExpression } from '../sync_plan/expression.js';
 import { MapSourceVisitor, visitExpr } from '../sync_plan/expression_visitor.js';
 import * as plan from '../sync_plan/plan.js';
 import * as resolver from './bucket_resolver.js';
-import type { SyncPlanCompilerModel } from './compiler.js';
+import type { CompiledEvent, SyncPlanCompilerModel } from './compiler.js';
 import { Equality, HashMap, StableHasher, unorderedEquality } from './equality.js';
 import { ColumnInRow, ExpressionInput, RowMetadata, SyncExpression } from './expression.js';
 import * as rows from './rows.js';
@@ -61,16 +61,7 @@ export class CompilerModelToSyncPlan {
         };
       }),
       buckets: this.buckets,
-      events: source.events.map((event): plan.CompiledEventDescriptor => {
-        return {
-          name: event.name,
-          sourceQueries: event.sourceQueries.map((query) => ({
-            sql: query.sql,
-            sourceTable: query.sourceTable.tablePattern,
-            variants: query.variants.map((variant) => this.translateRowProjection(variant))
-          }))
-        };
-      })
+      events: source.events.map((e) => this.translateCompiledEvent(e))
     };
   }
 
@@ -255,5 +246,16 @@ export class CompilerModelToSyncPlan {
     } else {
       return { type: 'intersection', values: value.inner.map((e) => this.translateParameterValue(e)) };
     }
+  }
+
+  private translateCompiledEvent(event: CompiledEvent): plan.CompiledEventDescriptor {
+    return {
+      name: event.name,
+      sourceQueries: event.sourceQueries.map((query) => ({
+        sql: query.sql,
+        sourceTable: query.sourceTable.tablePattern,
+        variants: query.variants.map((variant) => this.translateRowProjection(variant))
+      }))
+    };
   }
 }
