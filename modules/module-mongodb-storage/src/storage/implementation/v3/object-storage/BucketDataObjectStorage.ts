@@ -1,4 +1,4 @@
-import { storage } from '@powersync/service-core';
+import { PerformanceTracer, storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { BucketDataDocumentV3, BucketOperation } from '../models.js';
 import { ObjectStorage, ObjectStorageOperationOptions } from './ObjectStorage.js';
@@ -41,7 +41,7 @@ export class BucketDataObjectStorage {
 export async function hydrateBucketDataDocuments(
   documents: BucketDataDocumentV3[],
   objectStorage: ObjectStorage | undefined,
-  options: ObjectStorageOperationOptions
+  options: ObjectStorageOperationOptions & { tracer?: PerformanceTracer<string> }
 ): Promise<void> {
   if (!objectStorage) {
     return;
@@ -50,6 +50,10 @@ export async function hydrateBucketDataDocuments(
   options.signal?.throwIfAborted();
   const store = new BucketDataObjectStorage(objectStorage);
   const storedDocuments = documents.filter((document) => document.storage_ref);
+  if (storedDocuments.length == 0) {
+    return;
+  }
+  using _ = options?.tracer?.span('s3', 'read');
   await Promise.all(
     storedDocuments.map(async (document) => {
       document.ops = await store.retrieve(document.storage_ref!.path, { signal: options.signal });

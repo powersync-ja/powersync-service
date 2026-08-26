@@ -1,3 +1,4 @@
+import { orNull } from '@powersync/service-types';
 import * as t from 'ts-codec';
 import { bigint, jsonb } from '../codecs.js';
 
@@ -11,12 +12,11 @@ export type Sdks = t.Encoded<typeof Sdks>;
 
 export const SdkReporting = t.object({
   users: bigint,
-  sdks: t
-    .object({
+  sdks: orNull(
+    t.object({
       data: jsonb<Sdks[]>(t.array(Sdks))
     })
-    .optional()
-    .or(t.Null)
+  ).optional()
 });
 
 export type SdkReporting = t.Encoded<typeof SdkReporting>;
