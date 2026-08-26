@@ -1,11 +1,12 @@
-import { AnyCodec, Codec, codec, CodecType, Ix, Ox, TransformError } from 'ts-codec';
+import type { AnyCodec, Codec, Ix, Ox, Union } from 'ts-codec';
+import * as t from 'ts-codec';
 
 /**
  * An optimized codec equivalent to `type.or(Null)`.
  */
 export function orNull<T extends AnyCodec>(type: T): Codec<Ix<T> | null, Ox<T> | null> {
-  return codec(
-    CodecType.Union,
+  return t.codec(
+    t.CodecType.Union,
     (data) => {
       if (data === null) {
         return null;
@@ -18,7 +19,9 @@ export function orNull<T extends AnyCodec>(type: T): Codec<Ix<T> | null, Ox<T> |
       }
       return type.decode(data);
     },
-    type.props
+    {
+      codecs: [type, t.Null]
+    } satisfies Union<T, typeof t.Null>['props']
   );
 }
 
@@ -32,7 +35,7 @@ export function enumLiteral<T extends string>(...values: T[]): Codec<T, T> {
   function validate(source: unknown): T {
     function invalid(): never {
       const allowed = values.join(', ');
-      throw new TransformError(`Expected one of ${allowed}, but got ${source}`);
+      throw new t.TransformError(`Expected one of ${allowed}, but got ${source}`);
     }
 
     if (typeof source !== 'string') invalid();
@@ -41,7 +44,9 @@ export function enumLiteral<T extends string>(...values: T[]): Codec<T, T> {
     return source as T;
   }
 
-  return codec(CodecType.Enum, validate, validate);
+  return t.codec(t.CodecType.Enum, validate, validate, {
+    enum: values
+  });
 }
 
 type NamedPrimitiveTypes = {
@@ -49,7 +54,13 @@ type NamedPrimitiveTypes = {
   number: number;
   boolean: boolean;
   null: null;
-  undefined: undefined;
+};
+
+const primitiveCodecs: Record<keyof NamedPrimitiveTypes, AnyCodec> = {
+  string: t.string,
+  number: t.number,
+  boolean: t.boolean,
+  null: t.Null
 };
 
 type EnabledKeys<T> = {
@@ -80,16 +91,22 @@ export function anyPrimitive<const T extends Partial<Record<keyof NamedPrimitive
       case 'boolean':
         if (allowedPrimitives.boolean) return source as PrimitiveUnion<T>;
         break;
-      case 'undefined':
-        if (allowedPrimitives.undefined) return source as PrimitiveUnion<T>;
-        break;
       case 'object':
         if (allowedPrimitives.null && source === null) return source as PrimitiveUnion<T>;
         break;
     }
 
-    throw new TransformError(`Primitive value ${source} is not allowed.`);
+    throw new t.TransformError(`Primitive value ${source} is not allowed.`);
   }
 
-  return codec(CodecType.Literal, validate, validate);
+  const codecsForSchema: AnyCodec[] = [];
+  for (const [key, value] of Object.entries(allowedPrimitives)) {
+    if (value) {
+      codecsForSchema.push(primitiveCodecs[key as keyof NamedPrimitiveTypes]);
+    }
+  }
+
+  return t.codec(t.CodecType.Union, validate, validate, {
+    codecs: codecsForSchema
+  } satisfies Union<AnyCodec, AnyCodec>['props']);
 }

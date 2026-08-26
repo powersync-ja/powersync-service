@@ -53,16 +53,6 @@ describe('anyPrimitive', () => {
     expect(() => codec.decode({})).throws();
   });
 
-  test('allows undefined', () => {
-    const codec = anyPrimitive({ undefined: true }) as t.AnyCodec;
-
-    expect(codec.decode(undefined)).toStrictEqual(undefined);
-    expect(codec.encode(undefined)).toStrictEqual(undefined);
-
-    expect(() => codec.decode(null)).throws();
-    expect(() => codec.decode('foo')).throws();
-  });
-
   test('rejects types not in the configuration, even when other types are allowed', () => {
     const codec = anyPrimitive({ boolean: true }) as t.AnyCodec;
 
