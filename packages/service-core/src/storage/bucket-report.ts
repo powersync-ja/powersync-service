@@ -8,9 +8,11 @@
  * fragmentation / compaction-efficiency score: a fully compacted bucket trends towards ~1, while a high
  * ratio is the usual cause of an unexpectedly high "Data Synced" metric and is reclaimable via compact/defragment.
  *
- * Scaling note: the report does NOT scan all storage. It ranks buckets by their pre-aggregated operation
- * count and returns the worst offenders (top-N). Row counts (and therefore fragmentation) for those buckets
- * are derived by sampling the operation history, so on large buckets they are estimates, flagged per bucket.
+ * Scaling note: the report reads only the pre-aggregated per-bucket state (`bucket_state`), never the
+ * operation history itself. Operation counts are exact; row counts come from the statistics captured by the
+ * last full compact of each bucket, so they are a snapshot as of that compact rather than a live counter.
+ * Storage versions that do not capture compact statistics (v1/v2) report operations only, with row-derived
+ * fields null and the suggested action `unknown`.
  */
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
@@ -20,21 +22,14 @@ import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
  */
 export const BUCKET_REPORT_TIMEOUT_MS: number = 60_000;
 
-/**
- * Number of worst-offender buckets returned when the request omits a `limit`. Row counts are sampled per
- * returned bucket, so this also bounds how much sampling work the report does.
- */
+/** Number of worst-offender buckets returned when the request omits a `limit`. */
 export const DEFAULT_BUCKET_REPORT_LIMIT: number = 50;
 
-/**
- * Highest `limit` a request may ask for. Every returned bucket costs a row-sampling query, so an unbounded
- * limit would let a single request overload the storage database.
- */
+/** Highest `limit` a request may ask for, bounding the response size. */
 export const MAX_BUCKET_REPORT_LIMIT: number = 1_000;
 
 /**
- * Maximum number of bucket definitions in the report's definition rollup. Rows are sampled per returned
- * definition (like per-bucket rows), so this bounds that sampling work. Configs rarely approach this many
+ * Maximum number of bucket definitions in the report's definition rollup. Configs rarely approach this many
  * definitions.
  */
 export const BUCKET_REPORT_DEFINITION_LIMIT: number = 20;
@@ -54,32 +49,45 @@ export const BUCKET_ACTION_RESIDUE_SHARE: number = 0.5;
  */
 export const BUCKET_ACTION_SUPERSEDED_SHARE: number = 0.5;
 
-/** Suggested maintenance action for a bucket or definition. See {@link suggestBucketAction}. */
-export type BucketAction = 'none' | 'compact' | 'defragment' | 'both';
+/**
+ * Suggested maintenance action for a bucket or definition. `unknown` means the storage has no compact
+ * statistics to derive one from (v1/v2 storage, or a bucket that has never been fully compacted).
+ * See {@link suggestBucketAction}.
+ */
+export type BucketAction = 'none' | 'compact' | 'defragment' | 'both' | 'unknown';
 
 export interface BucketStorageStats {
   /** Full bucket name, e.g. `by_user["u1"]`. */
   bucket: string;
-  /** Total operations in the bucket's history. */
+  /** Total operations in the bucket's history. Exact and current. */
   operations: number;
-  /** Live rows in the bucket. Exact for small buckets, otherwise a sampled estimate (see `rowsEstimated`). */
-  rows: number;
   /** Approximate size of the operation history in bytes. */
   operationBytes: number;
   /**
-   * `operations / max(rows, 1)`. ~1 is healthy (fully compacted); higher means more operation-history
-   * overhead that a compact/defragment can reclaim.
+   * Operations written after the last full compact — the staleness indicator for `rows` and
+   * `fragmentation`, which are snapshots from that compact. Equals `operations` when the bucket has
+   * never been fully compacted (the whole history is uncompacted).
    */
-  fragmentation: number;
-  /** True if `rows` (and therefore `fragmentation`) is a sampled estimate rather than an exact count. */
-  rowsEstimated: boolean;
-  /** Suggested maintenance action derived from the operation mix. See {@link suggestBucketAction}. */
-  suggestedAction: BucketAction;
+  uncompactedOperations: number;
   /**
-   * Tables making up the (sampled) operation history, ordered by their share of it, largest first. These
-   * are the tables whose rows a defragment should touch.
+   * Live rows in the bucket as of the last full compact, or null if the bucket has never been fully
+   * compacted (or the storage version does not capture compact statistics).
    */
-  tables: string[];
+  rows: number | null;
+  /**
+   * `operations / max(rows, 1)`. ~1 is healthy (fully compacted); higher means more operation-history
+   * overhead that a compact/defragment can reclaim. Null whenever `rows` is null.
+   */
+  fragmentation: number | null;
+  /** When the bucket was last fully compacted, which is when `rows` was captured. */
+  lastFullCompactAt: Date | null;
+  /**
+   * When the scheduled compactor will next consider this bucket, if scheduling data exists. A suggested
+   * compact with a future `nextCompactAt` means the compact is already planned but throttled until then.
+   */
+  nextCompactAt: Date | null;
+  /** Suggested maintenance action derived from the compact statistics. See {@link suggestBucketAction}. */
+  suggestedAction: BucketAction;
 }
 
 /** Aggregated stats for one bucket definition (one `bucket_definitions` entry in the sync config). */
@@ -88,26 +96,25 @@ export interface BucketDefinitionStats {
   definition: string;
   /** Number of buckets in this definition with stored operations. */
   bucketCount: number;
-  /** Total operations across the definition's buckets. */
+  /** Total operations across the definition's buckets. Exact and current. */
   operations: number;
   /** Approximate size of the definition's operation history in bytes. */
   operationBytes: number;
   /**
-   * Live rows across the definition's buckets, counting a row once per bucket that contains it (the
-   * download-relevant meaning). Sampled estimate for all but tiny definitions (see `rowsEstimated`).
+   * Operations not covered by any bucket's last full compact, i.e. written since (or in buckets never
+   * fully compacted). The staleness indicator for `rows` and `fragmentation`.
    */
-  rows: number;
-  /** `operations / max(rows, 1)` across the whole definition. */
-  fragmentation: number;
-  /** True if `rows` (and therefore `fragmentation`) is a sampled estimate rather than an exact count. */
-  rowsEstimated: boolean;
-  /** Suggested maintenance action derived from the operation mix. See {@link suggestBucketAction}. */
-  suggestedAction: BucketAction;
+  uncompactedOperations: number;
   /**
-   * Tables making up the (sampled) operation history, ordered by their share of it, largest first. These
-   * are the tables whose rows a defragment should touch.
+   * Live rows across the definition's buckets, counting a row once per bucket that contains it (the
+   * download-relevant meaning). Derived from each bucket's last full compact; when only some buckets have
+   * been fully compacted the count is extrapolated from those, and it is null when none have.
    */
-  tables: string[];
+  rows: number | null;
+  /** `operations / max(rows, 1)` across the whole definition. Null whenever `rows` is null. */
+  fragmentation: number | null;
+  /** Suggested maintenance action derived from the compact statistics. See {@link suggestBucketAction}. */
+  suggestedAction: BucketAction;
 }
 
 export interface BucketReportTotals {
@@ -119,7 +126,7 @@ export interface BucketReportTotals {
   operationBytes: number;
   /**
    * True if the totals are estimated because the bucket set was too large to scan in full and was sampled.
-   * Row counts are never totalled here (they are sampled per returned bucket, not across the whole instance).
+   * Row counts are never totalled here.
    */
   estimated: boolean;
 }
@@ -132,55 +139,57 @@ export interface BucketReport {
    * at" where `buckets` answers "which exact buckets". Capped at {@link BUCKET_REPORT_DEFINITION_LIMIT}.
    */
   definitions: BucketDefinitionStats[];
-  /** Instance-wide operation totals. Does not include row counts (those are per-bucket estimates only). */
+  /** Instance-wide operation totals. Does not include row counts. */
   totals: BucketReportTotals;
   /** True if there are more buckets than returned (more than `limit`). */
   bucketsTruncated: boolean;
-  /**
-   * True if the definition rollup is incomplete: more definitions exist than
-   * {@link BUCKET_REPORT_DEFINITION_LIMIT}, or a definition was dropped because sampling it failed.
-   */
+  /** True if the definition rollup is incomplete (more definitions exist than the rollup cap). */
   definitionsTruncated: boolean;
 }
 
 export interface GetBucketReportOptions {
   /**
    * Maximum number of buckets to return, ranked by operation count descending (worst offenders first).
-   * Row counts are sampled per returned bucket, so this also bounds the report's cost. Must be an integer
-   * between 1 and {@link MAX_BUCKET_REPORT_LIMIT}; anything else is rejected with a validation error.
-   * Defaults to {@link DEFAULT_BUCKET_REPORT_LIMIT}.
+   * Must be an integer between 1 and {@link MAX_BUCKET_REPORT_LIMIT}; anything else is rejected with a
+   * validation error. Defaults to {@link DEFAULT_BUCKET_REPORT_LIMIT}.
    */
   limit?: number;
 }
 
-/** A bucket's exact operation stats plus its (possibly sampled) row count, before ranking. */
+/**
+ * A bucket's exact operation stats plus the statistics captured by its last full compact, before ranking.
+ * The compact fields are null/absent when the bucket has never been fully compacted or the storage version
+ * does not capture them (v1/v2).
+ */
 export interface RankedBucketInput {
   bucket: string;
   operations: number;
   operationBytes: number;
-  rows: number;
+  /** Operations in the prefix covered by the last full compact. */
+  compactedOperations?: number | null;
   /**
-   * Operations that carry a row identity (PUT/REMOVE), i.e. everything except compaction residue
-   * (MOVE/CLEAR). Estimated alongside `rows` for sampled buckets.
+   * PUT operations in that compacted prefix. After a full compact each PUT is generally a unique row, so
+   * this doubles as the bucket's live row count as of the compact.
    */
-  rowOperations: number;
-  rowsEstimated: boolean;
-  /** Tables in the (sampled) operation history, ordered by their share of it, largest first. */
-  tables: string[];
+  compactedPuts?: number | null;
+  /** When the last full compact ran. */
+  lastFullCompactAt?: Date | null;
+  /** When the scheduled compactor will next consider this bucket. */
+  nextCompactAt?: Date | null;
 }
 
-/** A definition's aggregated operation stats plus its (possibly sampled) row count, before ranking. */
+/** A definition's aggregated operation stats plus its buckets' summed compact statistics, before ranking. */
 export interface RankedDefinitionInput {
   definition: string;
   bucketCount: number;
   operations: number;
   operationBytes: number;
-  rows: number;
-  /** As in {@link RankedBucketInput.rowOperations}, across the whole definition. */
-  rowOperations: number;
-  rowsEstimated: boolean;
-  /** As in {@link RankedBucketInput.tables}, across the whole definition. */
-  tables: string[];
+  /** Number of the definition's buckets that have full-compact statistics. */
+  compactedBucketCount?: number;
+  /** Sum of {@link RankedBucketInput.compactedOperations} across those buckets. */
+  compactedOperations?: number;
+  /** Sum of {@link RankedBucketInput.compactedPuts} across those buckets. */
+  compactedPuts?: number;
 }
 
 /**
@@ -203,42 +212,6 @@ export function resolveBucketReportLimit(limit?: number): number {
 }
 
 /**
- * Estimate the true distinct row count of a bucket from a random sample of its operations.
- *
- * The signal is repetition: a sample that keeps landing on the same rows means few rows, while a sample
- * where every operation lands on a new row means many. Formally, each operation is included in the sample
- * with probability `r = sampledOps / operations`, so a row with `k` operations appears with probability
- * `1 - (1 - r)^k`. Assuming operations are spread roughly evenly across `R` rows (`k = operations / R`),
- * the expected number of distinct rows in the sample is `R * (1 - (1 - r)^(operations / R))`. That grows
- * with `R`, so a binary search finds the `R` matching the observed distinct count.
- *
- * The naive `distinctRows / r` ignores repetition and over-counts rows (under-stating fragmentation) on
- * exactly the highly fragmented buckets the report exists to surface.
- *
- * Pure (no I/O) so it is unit-testable; storage adapters supply the sampled counts.
- */
-export function estimateDistinctRows(operations: number, sampledOps: number, distinctRows: number): number {
-  const r = Math.min(1, sampledOps / operations);
-  if (r >= 1) {
-    return distinctRows;
-  }
-  const expectedDistinct = (rows: number) => rows * (1 - Math.pow(1 - r, operations / rows));
-  // The true row count is between the observed distinct count (a lower bound) and one row per operation.
-  // Binary-search that range until it is narrower than a single row, at which point rounding is exact.
-  let lo = distinctRows;
-  let hi = operations;
-  while (hi - lo > 0.5) {
-    const mid = (lo + hi) / 2;
-    if (expectedDistinct(mid) < distinctRows) {
-      lo = mid;
-    } else {
-      hi = mid;
-    }
-  }
-  return Math.round((lo + hi) / 2);
-}
-
-/**
  * Suggest the maintenance action that reduces what new clients download from a bucket, based on its
  * operation mix. Grounded in the compaction semantics (see `docs/storage/compacting-operations.md`):
  *
@@ -249,8 +222,8 @@ export function estimateDistinctRows(operations: number, sampledOps: number, dis
  *   is mostly MOVE/CLEAR residue that a compact alone preserves: `operations` well above `rowOperations`.
  * - When both kinds of overhead are present, or the mix is inconclusive, suggest both.
  *
- * The thresholds are heuristics; the report is intended to be re-run after acting on it. Inputs may be
- * sampled estimates, which is fine at these margins.
+ * The thresholds are heuristics; the report is intended to be re-run after acting on it. Inputs derive from
+ * the last full compact's statistics, which is fine at these margins.
  */
 export function suggestBucketAction(operations: number, rowOperations: number, rows: number): BucketAction {
   const fragmentation = operations / Math.max(rows, 1);
@@ -276,8 +249,34 @@ export function suggestBucketAction(operations: number, rowOperations: number, r
 }
 
 /**
+ * Derive rows / fragmentation / suggested action from full-compact statistics.
+ *
+ * The compacted prefix holds `compactedPuts` row-bearing operations (one per live row) and
+ * `compactedOperations - compactedPuts` residue operations (MOVE/CLEAR) that only a defragment reclaims.
+ * Operations written after the compact are raw PUT/REMOVE history, so the total row-bearing count is
+ * `operations - residue`. Without compact statistics nothing row-related can be derived.
+ */
+function deriveRowStats(
+  operations: number,
+  compactedOperations: number | null | undefined,
+  compactedPuts: number | null | undefined
+): Pick<BucketStorageStats, 'rows' | 'fragmentation' | 'suggestedAction'> {
+  if (compactedOperations == null || compactedPuts == null) {
+    return { rows: null, fragmentation: null, suggestedAction: 'unknown' };
+  }
+  const rows = compactedPuts;
+  const residue = Math.max(0, compactedOperations - compactedPuts);
+  const rowOperations = Math.max(0, operations - residue);
+  return {
+    rows,
+    fragmentation: operations / Math.max(rows, 1),
+    suggestedAction: suggestBucketAction(operations, rowOperations, rows)
+  };
+}
+
+/**
  * Assemble the final {@link BucketReport} from per-bucket stats, per-definition stats, and instance-wide
- * totals. Storage adapters select and sample the buckets however is cheapest for them; this owns the shared
+ * totals. Storage adapters select the buckets however is cheapest for them; this owns the shared
  * fragmentation / ranking / truncation / action logic so it cannot drift. Pure (no I/O) so it is
  * unit-testable.
  *
@@ -293,29 +292,37 @@ export function assembleBucketReport(
   const stats: BucketStorageStats[] = buckets.map((b) => ({
     bucket: b.bucket,
     operations: b.operations,
-    rows: b.rows,
     operationBytes: b.operationBytes,
-    fragmentation: b.operations / Math.max(b.rows, 1),
-    rowsEstimated: b.rowsEstimated,
-    suggestedAction: suggestBucketAction(b.operations, b.rowOperations, b.rows),
-    tables: b.tables
+    uncompactedOperations: Math.max(0, b.operations - (b.compactedOperations ?? 0)),
+    lastFullCompactAt: b.lastFullCompactAt ?? null,
+    nextCompactAt: b.nextCompactAt ?? null,
+    ...deriveRowStats(b.operations, b.compactedOperations, b.compactedPuts)
   }));
 
-  const definitionStats: BucketDefinitionStats[] = definitions.map((d) => ({
-    definition: d.definition,
-    bucketCount: d.bucketCount,
-    operations: d.operations,
-    operationBytes: d.operationBytes,
-    rows: d.rows,
-    fragmentation: d.operations / Math.max(d.rows, 1),
-    rowsEstimated: d.rowsEstimated,
-    suggestedAction: suggestBucketAction(d.operations, d.rowOperations, d.rows),
-    tables: d.tables
-  }));
+  const definitionStats: BucketDefinitionStats[] = definitions.map((d) => {
+    // When only some of the definition's buckets have full-compact statistics, extrapolate from those
+    // buckets to the whole definition, assuming the compacted subset is representative.
+    const compactedBucketCount = d.compactedBucketCount ?? 0;
+    const scale = compactedBucketCount > 0 ? d.bucketCount / compactedBucketCount : 0;
+    const derived =
+      compactedBucketCount > 0 && d.compactedOperations != null && d.compactedPuts != null
+        ? deriveRowStats(d.operations, Math.round(d.compactedOperations * scale), Math.round(d.compactedPuts * scale))
+        : deriveRowStats(d.operations, null, null);
+    return {
+      definition: d.definition,
+      bucketCount: d.bucketCount,
+      operations: d.operations,
+      operationBytes: d.operationBytes,
+      // Unlike the row derivation above, this uses the plain (non-extrapolated) compacted sum: it counts
+      // the operations no full compact has covered, which is exact rather than an estimate.
+      uncompactedOperations: Math.max(0, d.operations - (d.compactedOperations ?? 0)),
+      ...derived
+    };
+  });
 
   // Worst-first: most operations, then most fragmented.
-  const worstFirst = (a: { operations: number; fragmentation: number }, b: typeof a) =>
-    b.operations - a.operations || b.fragmentation - a.fragmentation;
+  const worstFirst = (a: { operations: number; fragmentation: number | null }, b: typeof a) =>
+    b.operations - a.operations || (b.fragmentation ?? 0) - (a.fragmentation ?? 0);
   stats.sort(worstFirst);
   definitionStats.sort(worstFirst);
 
