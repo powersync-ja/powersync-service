@@ -5,6 +5,7 @@ import {
   ObjectStorageUsage
 } from '@module/storage/implementation/v3/object-storage/ObjectStorageUsage.js';
 import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { updateSyncRulesFromYaml } from '@powersync/service-core';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
@@ -22,6 +23,11 @@ type UsageContext = {
   db: VersionedPowerSyncMongoV3;
   bucketStorage: MongoSyncBucketStorage;
   definitionId: BucketDefinitionId;
+};
+
+type UsageEntry = {
+  definition_id: BucketDefinitionId;
+  active_bytes: bigint;
 };
 
 async function withUsageContext<T>(callback: (context: UsageContext) => Promise<T>): Promise<T> {
@@ -43,6 +49,35 @@ async function withTransaction<T>(
   } finally {
     await session.endSession();
   }
+}
+
+async function readUsageEntries(
+  db: VersionedPowerSyncMongoV3,
+  replicationStreamId: number,
+  session?: mongo.ClientSession
+): Promise<UsageEntry[]> {
+  const entries = await db.objectStorageUsage
+    .aggregate<{ _id: BucketDefinitionId; active_bytes: bigint }>(
+      [
+        { $match: { '_id.g': replicationStreamId } },
+        { $project: { definitions: { $objectToArray: '$definitions' } } },
+        { $unwind: '$definitions' },
+        { $group: { _id: '$definitions.k', active_bytes: { $sum: '$definitions.v' } } }
+      ],
+      { session, readConcern: 'snapshot' }
+    )
+    .toArray()
+    .catch((error) => {
+      if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
+        return [];
+      }
+      throw error;
+    });
+
+  return entries.map((entry) => ({
+    definition_id: entry._id,
+    active_bytes: BigInt(entry.active_bytes ?? 0)
+  }));
 }
 
 function usageDocument(
@@ -99,7 +134,9 @@ describe('ObjectStorageUsage', () => {
       });
 
       expect(await bucketData.countDocuments({ storage_ref: { $exists: true } })).toBe(1);
-      await expect(usage.readEntries()).resolves.toEqual([{ definition_id: definitionId, active_bytes: 123n }]);
+      await expect(readUsageEntries(db, replicationStreamId)).resolves.toEqual([
+        { definition_id: definitionId, active_bytes: 123n }
+      ]);
     });
   });
 
@@ -122,7 +159,7 @@ describe('ObjectStorageUsage', () => {
         );
 
         await usage.foldStaleWriterDeltas({ staleWriterMs: 0 });
-        const entries = await usage.readEntriesInSession(readSession);
+        const entries = await readUsageEntries(db, replicationStreamId, readSession);
 
         await readSession.commitTransaction();
         expect(entries).toEqual([{ definition_id: definitionId, active_bytes: 115n }]);
@@ -133,7 +170,9 @@ describe('ObjectStorageUsage', () => {
         await readSession.endSession();
       }
 
-      await expect(usage.readEntries()).resolves.toEqual([{ definition_id: definitionId, active_bytes: 115n }]);
+      await expect(readUsageEntries(db, replicationStreamId)).resolves.toEqual([
+        { definition_id: definitionId, active_bytes: 115n }
+      ]);
     });
   });
 
@@ -153,7 +192,7 @@ describe('ObjectStorageUsage', () => {
       // The folder committed first and deleted the writer shard. The writer's
       // next transaction must recreate it through the upsert.
       await withTransaction(db, (session) => usage.applyDelta(definitionId, 4n, session));
-      expect((await usage.readEntries())[0].active_bytes).toBe(14n);
+      expect((await readUsageEntries(db, replicationStreamId))[0].active_bytes).toBe(14n);
 
       await db.objectStorageUsage.updateOne(
         { _id: { g: replicationStreamId, w: writerId } },
@@ -163,7 +202,7 @@ describe('ObjectStorageUsage', () => {
 
       // The writer committed before the folder. Folding the recreated shard
       // must preserve the same visible total.
-      expect((await usage.readEntries())[0].active_bytes).toBe(14n);
+      expect((await readUsageEntries(db, replicationStreamId))[0].active_bytes).toBe(14n);
     });
   });
 
@@ -188,7 +227,9 @@ describe('ObjectStorageUsage', () => {
         withTransaction(db, (session) => usage.removeDefinition(definitionId, session))
       ]);
 
-      await expect(usage.readEntries()).resolves.toEqual([{ definition_id: otherDefinitionId, active_bytes: 18n }]);
+      await expect(readUsageEntries(db, replicationStreamId)).resolves.toEqual([
+        { definition_id: otherDefinitionId, active_bytes: 18n }
+      ]);
 
       await withTransaction(db, async (session) => {
         await new ObjectStorageUsage(db, otherStreamId).removeStream(session);
@@ -208,7 +249,7 @@ describe('ObjectStorageUsage', () => {
   test('returns no entries for an absent usage collection', async () => {
     await withUsageContext(async ({ db, bucketStorage }) => {
       await db.objectStorageUsage.drop().catch(() => undefined);
-      await expect(new ObjectStorageUsage(db, bucketStorage.replicationStreamId).readEntries()).resolves.toEqual([]);
+      await expect(readUsageEntries(db, bucketStorage.replicationStreamId)).resolves.toEqual([]);
     });
   });
 });

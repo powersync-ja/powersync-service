@@ -1,3 +1,4 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, compactActive, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
@@ -5,7 +6,6 @@ import { MongoSyncBucketStorage } from '../../src/storage/implementation/createM
 import { MongoSyncBucketStorageV3 } from '../../src/storage/implementation/v3/MongoSyncBucketStorageV3.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { ObjectStorageError } from '../../src/storage/implementation/v3/object-storage/ObjectStorage.js';
-import { ObjectStorageUsage } from '../../src/storage/implementation/v3/object-storage/ObjectStorageUsage.js';
 import { env } from './env.js';
 import { createMemoryS3TestStorageSuite, createS3TestStorageSuite } from './helpers/s3TestFactory.js';
 
@@ -35,8 +35,21 @@ async function expectUsageMatchesBucketData(bucketStorage: MongoSyncBucketStorag
   const db = v3BucketStorage.db as VersionedPowerSyncMongoV3;
   const documents = await db.bucketData(v3BucketStorage.replicationStreamId, definitionId).find({}).toArray();
   const expectedBytes = documents.reduce((sum, document) => sum + BigInt(document.storage_ref?.file_size ?? 0), 0n);
-  const entries = await new ObjectStorageUsage(db, v3BucketStorage.replicationStreamId).readEntries();
-  expect(entries.reduce((sum, entry) => sum + entry.active_bytes, 0n)).toBe(expectedBytes);
+  const entries = await db.objectStorageUsage
+    .aggregate<{ active_bytes: bigint }>([
+      { $match: { '_id.g': v3BucketStorage.replicationStreamId } },
+      { $project: { definitions: { $objectToArray: '$definitions' } } },
+      { $unwind: '$definitions' },
+      { $group: { _id: null, active_bytes: { $sum: '$definitions.v' } } }
+    ])
+    .toArray()
+    .catch((error) => {
+      if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
+        return [];
+      }
+      throw error;
+    });
+  expect(BigInt(entries[0]?.active_bytes ?? 0)).toBe(expectedBytes);
 }
 
 describe('S3 compaction storage lifecycle', () => {

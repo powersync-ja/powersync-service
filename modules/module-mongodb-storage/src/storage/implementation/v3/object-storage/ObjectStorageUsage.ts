@@ -16,11 +16,6 @@ export interface ReplicationStreamObjectStorageDefinitionUsageResult {
   active_bytes: bigint;
 }
 
-export interface ObjectStorageUsageEntry {
-  definition_id: BucketDefinitionId;
-  active_bytes: bigint;
-}
-
 export function createObjectStorageUsageWriterId(): string {
   return randomUUID();
 }
@@ -128,41 +123,6 @@ export class ObjectStorageUsage {
     );
   }
 
-  async readEntries(): Promise<ObjectStorageUsageEntry[]> {
-    return this.db.client.withSession({ snapshot: true }, (session) => this.readEntriesInSession(session));
-  }
-
-  async readEntriesInSession(session: mongo.ClientSession): Promise<ObjectStorageUsageEntry[]> {
-    const entries = await this.db.objectStorageUsage
-      .aggregate<{ _id: BucketDefinitionId; active_bytes: bigint }>(
-        [
-          { $match: { '_id.g': this.replicationStreamId } },
-          { $project: { definitions: { $objectToArray: '$definitions' } } },
-          { $unwind: '$definitions' },
-          {
-            $group: {
-              _id: '$definitions.k',
-              active_bytes: { $sum: '$definitions.v' }
-            }
-          }
-        ],
-        { session, readConcern: 'snapshot' }
-      )
-      .toArray()
-      .catch((error) => {
-        if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
-          return [];
-        }
-        throw error;
-      });
-
-    return entries.map((entry) => {
-      const activeBytes = BigInt(entry.active_bytes ?? 0);
-      this.assertNonNegative(activeBytes, `definition ${entry._id}`);
-      return { definition_id: entry._id, active_bytes: activeBytes };
-    });
-  }
-
   async removeDefinition(definitionId: BucketDefinitionId, session: mongo.ClientSession): Promise<void> {
     await this.db.objectStorageUsage.updateMany(
       { '_id.g': this.replicationStreamId },
@@ -265,12 +225,6 @@ export class ObjectStorageUsage {
   private validateDefinitionId(definitionId: BucketDefinitionId): void {
     if (definitionId.length === 0 || definitionId.includes('.') || definitionId.includes('$')) {
       throw new ReplicationAssertionError(`Invalid bucket definition id for object-storage usage: ${definitionId}`);
-    }
-  }
-
-  private assertNonNegative(value: bigint, target: string): void {
-    if (value < 0n) {
-      throw new ReplicationAssertionError(`Negative active object-storage usage for ${target}: ${value}`);
     }
   }
 }
