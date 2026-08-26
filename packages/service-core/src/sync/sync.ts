@@ -175,6 +175,16 @@ async function* streamResponseInner(
     }
   }
 
+  function checkpointLogDetails(cp: storage.ReplicationCheckpoint) {
+    return {
+      checkpoint: cp.checkpoint,
+      user_id: tokenPayload.userIdJson,
+      ...tracker.getIncrementalCheckpointStats()
+    };
+  }
+
+  let activeCheckpoint: { checkpoint: storage.ReplicationCheckpoint; trace: ActiveCheckpointTrace } | null = null;
+
   try {
     let nextCheckpointPromise: Promise<PromiseSettledResult<IteratorResult<CheckpointAndLine>>> | undefined;
 
@@ -200,6 +210,7 @@ async function* streamResponseInner(
       const trace = next.value.value.trace!;
       const checkpoint = next.value.value.checkpoint;
       const tracer = trace.tracer;
+      activeCheckpoint = { checkpoint, trace };
 
       const { checkpointLine, bucketsToFetch, bucketDataRequestHint } = line;
 
@@ -271,14 +282,6 @@ async function* streamResponseInner(
         maybeRaceForNewCheckpoint();
       }
 
-      function checkpointLogDetails(cp: storage.ReplicationCheckpoint) {
-        return {
-          checkpoint: cp.checkpoint,
-          user_id: tokenPayload.userIdJson,
-          ...tracker.getIncrementalCheckpointStats()
-        };
-      }
-
       // This incrementally updates dataBuckets with each individual bucket position.
       // At the end of this, we can be sure that all buckets have data up to the checkpoint.
       for (const [priority, buckets] of priorityBatches) {
@@ -333,12 +336,23 @@ async function* streamResponseInner(
           ms: getCheckpointTraceTimings(trace.span)
         });
       }
+      if (checkpointResult != null) {
+        activeCheckpoint = null;
+      }
 
       if (!abortCheckpointSignal.aborted) {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
     } while (!signal.aborted);
   } finally {
+    if (activeCheckpoint != null) {
+      const { checkpoint, trace } = activeCheckpoint;
+      logger.info(`checkpoint_interrupted: ${checkpoint.checkpoint}`, {
+        ...checkpointLogDetails(checkpoint),
+        ms: getCheckpointTraceTimings(trace.span)
+      });
+    }
+
     // The abort makes a pending next() settle as soon as the storage watcher observes it,
     // releasing the subscription. return() is still needed for the case where there is no
     // pending next(): the watcher is then suspended at a yield and never observes the abort.

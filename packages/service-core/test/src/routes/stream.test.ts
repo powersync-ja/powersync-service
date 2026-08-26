@@ -17,7 +17,7 @@ import {
 import * as sqlite from 'node:sqlite';
 import { Readable, Writable } from 'stream';
 import { pipeline } from 'stream/promises';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import winston from 'winston';
 import { syncStreamed } from '../../../src/routes/endpoints/sync-stream.js';
 import { DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS, limitParamsForLogging } from '../../../src/util/param-logging.js';
@@ -255,6 +255,8 @@ bucket_definitions:
     } as Partial<SyncRulesBucketStorage>;
     const serviceContext = mockServiceContext(storage);
     const controller = new AbortController();
+    const checkpointLogger = logger.child({});
+    const checkpointLogSpy = vi.spyOn(checkpointLogger, 'info');
 
     const response = (async () => {
       for await (const _line of streamResponse({
@@ -265,7 +267,8 @@ bucket_definitions:
         token: new JwtPayload({ sub: 'test-user', exp: Date.now() / 1000 + 10_000 }),
         tracker: new RequestTracker(serviceContext.metricsEngine),
         isEncodingAsBson: false,
-        signal: controller.signal
+        signal: controller.signal,
+        logger: checkpointLogger
       })) {
         // Consume the response until the simulated data fetch error is propagated.
       }
@@ -292,6 +295,13 @@ bucket_definitions:
     expect(outcome).toBeInstanceOf(Error);
     expect((outcome as Error).message).toContain('Simulated data fetch failure');
     expect(abortedByCleanup).toBe(true);
+    expect(checkpointLogSpy).toHaveBeenCalledWith('checkpoint_interrupted: 1', {
+      checkpoint: 1n,
+      user_id: 'test-user',
+      operations_synced: 1000,
+      data_synced_bytes: 0,
+      ms: expect.any(Object)
+    });
   });
 });
 
