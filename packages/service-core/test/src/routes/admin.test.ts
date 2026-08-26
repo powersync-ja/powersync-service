@@ -217,22 +217,24 @@ bucket_definitions:
         {
           bucket: '1#by_user["u1"]',
           operations: 4750,
-          rows: 95,
           operationBytes: 1216000,
+          uncompactedOperations: 250,
+          rows: 95,
           fragmentation: 50,
-          rowsEstimated: true,
-          suggestedAction: 'compact',
-          tables: ['todos']
+          lastFullCompactAt: new Date('2026-08-01T00:00:00.000Z'),
+          nextCompactAt: new Date('2026-08-21T12:00:00.000Z'),
+          suggestedAction: 'compact'
         },
         {
           bucket: '1#global[]',
           operations: 1000,
-          rows: 1000,
           operationBytes: 3145728,
-          fragmentation: 1,
-          rowsEstimated: false,
-          suggestedAction: 'none',
-          tables: ['lists']
+          uncompactedOperations: 1000,
+          rows: null,
+          fragmentation: null,
+          lastFullCompactAt: null,
+          nextCompactAt: null,
+          suggestedAction: 'unknown'
         }
       ],
       definitions: [
@@ -241,11 +243,10 @@ bucket_definitions:
           bucketCount: 1,
           operations: 4750,
           operationBytes: 1216000,
+          uncompactedOperations: 250,
           rows: 95,
           fragmentation: 50,
-          rowsEstimated: true,
-          suggestedAction: 'compact',
-          tables: ['todos']
+          suggestedAction: 'compact'
         }
       ],
       totals: { bucketCount: 2, operations: 5750, operationBytes: 4361728, estimated: false },
@@ -273,12 +274,21 @@ bucket_definitions:
       expect(response.buckets[0]).toEqual({
         bucket: '1#by_user["u1"]',
         operations: 4750,
-        rows: 95,
         operation_bytes: 1216000,
+        uncompacted_operations: 250,
+        rows: 95,
         fragmentation: 50,
-        rows_estimated: true,
-        suggested_action: 'compact',
-        tables: ['todos']
+        last_full_compact_at: '2026-08-01T00:00:00.000Z',
+        next_compact_at: '2026-08-21T12:00:00.000Z',
+        suggested_action: 'compact'
+      });
+      // Dates and row stats are null for buckets without full-compact statistics.
+      expect(response.buckets[1]).toMatchObject({
+        rows: null,
+        fragmentation: null,
+        last_full_compact_at: null,
+        next_compact_at: null,
+        suggested_action: 'unknown'
       });
       expect(response.definitions).toEqual([
         {
@@ -286,11 +296,10 @@ bucket_definitions:
           bucket_count: 1,
           operations: 4750,
           operation_bytes: 1216000,
+          uncompacted_operations: 250,
           rows: 95,
           fragmentation: 50,
-          rows_estimated: true,
-          suggested_action: 'compact',
-          tables: ['todos']
+          suggested_action: 'compact'
         }
       ]);
       expect(response.totals).toEqual({

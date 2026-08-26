@@ -1,18 +1,22 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
+import { compactActive } from './util.js';
 
 /**
- * Tests for {@link storage.SyncRulesBucketStorage.getBucketReport}: per-bucket operations vs live rows.
+ * Tests for {@link storage.SyncRulesBucketStorage.getBucketReport}: per-bucket operations, with row counts
+ * and fragmentation derived from each bucket's last full compact.
  *
- * Asserts on stable counts (operations, rows, fragmentation, operation totals) rather than op_ids or
- * checksums, which differ between storage backends and versions. The buckets here are tiny (well under the
- * row-sample target), so row counts are exact (`rowsEstimated: false`); the sampling path is exercised in
- * the higher-volume manual tests.
+ * The report reads only bucket_state, never the operation history. Operation counts are exact for every
+ * storage version; row-derived fields exist only on storage versions that capture full-compact statistics
+ * (v3), and only after a bucket's first full compact. On v1/v2 they are always null with a suggested action
+ * of `unknown`.
  */
 export function registerBucketReportTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
   const storageVersion = config.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
+  // v3 bucket_state captures full-compact statistics (rows, fragmentation, compact scheduling).
+  const capturesCompactStats = storageVersion >= 3;
 
   const GLOBAL_SYNC_RULES = `
 bucket_definitions:
@@ -35,7 +39,20 @@ bucket_definitions:
     return bucketStorage.getBucketReport(options);
   };
 
-  test('reports operations and live rows for a single bucket', async () => {
+  // An explicit per-bucket compact always runs a full compact of that bucket, regardless of scheduling.
+  // Compact through the active sync config: the instance used by the writer retains its original
+  // PROCESSING stream snapshot, which some storage versions refuse to compact.
+  const compactBucket = (factory: storage.BucketStorageFactory, bucket: string) =>
+    compactActive(factory, {
+      compactBuckets: [bucket],
+      clearBatchLimit: 10,
+      moveBatchLimit: 10,
+      moveBatchQueryLimit: 10,
+      minBucketChanges: 1,
+      minChangeRatio: 0
+    });
+
+  test('reports operation counts for a single bucket', async () => {
     await using factory = await generateStorageFactory();
     const { stream, content } = await test_utils.deploySyncRules(
       factory,
@@ -65,14 +82,16 @@ bucket_definitions:
     expect(report.definitionsTruncated).toEqual(false);
 
     const stats = report.buckets.find((b) => b.bucket === bucket)!;
-    // Three inserts of distinct ids: three operations, three live rows, fully compacted (ratio 1).
+    // Three inserts of distinct ids: three operations. The bucket has never been fully compacted, so no
+    // row-derived fields exist yet.
     expect(stats).toMatchObject({
       operations: 3,
-      rows: 3,
-      fragmentation: 1,
-      rowsEstimated: false,
-      suggestedAction: 'none',
-      tables: ['test']
+      // Never compacted: the whole history counts as uncompacted.
+      uncompactedOperations: 3,
+      rows: null,
+      fragmentation: null,
+      lastFullCompactAt: null,
+      suggestedAction: 'unknown'
     });
     expect(stats.operationBytes).toBeGreaterThan(0);
     expect(report.totals).toMatchObject({ operations: 3, estimated: false });
@@ -83,14 +102,12 @@ bucket_definitions:
       definition: bucket.split('[')[0],
       bucketCount: 1,
       operations: 3,
-      rows: 3,
-      fragmentation: 1,
-      suggestedAction: 'none',
-      tables: ['test']
+      rows: null,
+      suggestedAction: 'unknown'
     });
   });
 
-  test('operations exceed live rows after updates, and compaction reduces fragmentation', async () => {
+  test('derives rows and fragmentation from the last full compact', async () => {
     await using factory = await generateStorageFactory();
     const { stream, content } = await test_utils.deploySyncRules(
       factory,
@@ -119,23 +136,44 @@ bucket_definitions:
 
     const before = await getReport(bucketStorage);
     const beforeStats = before.buckets.find((b) => b.bucket === bucket)!;
-    expect(beforeStats).toMatchObject({ operations: 6, rows: 2, fragmentation: 3 });
-
-    await bucketStorage.compact({
-      clearBatchLimit: 10,
-      moveBatchLimit: 10,
-      moveBatchQueryLimit: 10,
-      minBucketChanges: 1,
-      minChangeRatio: 0
+    // Operation counts are exact even before any compact; rows are unknown until one runs.
+    expect(beforeStats).toMatchObject({
+      operations: 6,
+      uncompactedOperations: 6,
+      rows: null,
+      fragmentation: null,
+      suggestedAction: 'unknown'
     });
+    if (capturesCompactStats) {
+      // Writers schedule the bucket for compaction, which the report surfaces.
+      expect(beforeStats.nextCompactAt).toBeInstanceOf(Date);
+    }
+
+    await compactBucket(factory, bucket);
 
     const after = await getReport(bucketStorage);
     const afterStats = after.buckets.find((b) => b.bucket === bucket)!;
-    // Live rows are unchanged; the operation history shrinks toward the live row count.
-    expect(afterStats.rows).toEqual(2);
-    expect(afterStats.operations).toBeLessThan(beforeStats.operations);
-    expect(afterStats.operations).toBeGreaterThanOrEqual(afterStats.rows);
-    expect(afterStats.fragmentation).toBeLessThan(beforeStats.fragmentation);
+    if (capturesCompactStats) {
+      // The full compact counted two live rows and shrank the history toward them.
+      expect(afterStats.rows).toEqual(2);
+      expect(afterStats.operations).toBeLessThan(beforeStats.operations);
+      expect(afterStats.operations).toBeGreaterThanOrEqual(2);
+      expect(afterStats.fragmentation).toEqual(afterStats.operations / 2);
+      expect(afterStats.lastFullCompactAt).toBeInstanceOf(Date);
+      // The compact covered the whole history, so the row stats are fully fresh.
+      expect(afterStats.uncompactedOperations).toEqual(0);
+
+      // The definition rollup derives its rows from the same compact statistics.
+      expect(after.definitions).toHaveLength(1);
+      expect(after.definitions[0]).toMatchObject({ bucketCount: 1, rows: 2 });
+    } else {
+      // v1/v2 storage does not capture compact statistics: the report stays limited to operation counts.
+      expect(afterStats.rows).toBeNull();
+      expect(afterStats.fragmentation).toBeNull();
+      expect(afterStats.suggestedAction).toEqual('unknown');
+      // The compact itself still shrinks the operation history.
+      expect(afterStats.operations).toBeLessThan(beforeStats.operations);
+    }
   });
 
   test('reports every bucket, ranks worst-first, and totals across all buckets', async () => {
@@ -179,16 +217,15 @@ bucket_definitions:
 
     // Ranked worst-first by operation count: b1 (3) before b2 (2).
     expect(report.buckets.map((b) => b.bucket)).toEqual([b1, b2]);
-    expect(report.buckets.find((b) => b.bucket === b1)).toMatchObject({ operations: 3, rows: 1 });
-    expect(report.buckets.find((b) => b.bucket === b2)).toMatchObject({ operations: 2, rows: 2 });
+    expect(report.buckets.find((b) => b.bucket === b1)).toMatchObject({ operations: 3 });
+    expect(report.buckets.find((b) => b.bucket === b2)).toMatchObject({ operations: 2 });
 
-    // Both buckets belong to one definition; the rollup sums them, counting each bucket's rows separately.
+    // Both buckets belong to one definition; the rollup sums them.
     expect(report.definitions).toHaveLength(1);
     expect(report.definitions[0]).toMatchObject({
       definition: b1.split('[')[0],
       bucketCount: 2,
-      operations: 5,
-      rows: 3
+      operations: 5
     });
 
     // operationBytes is an aggregated ($toDouble) sum; assert every bucket is non-zero and that the
@@ -271,77 +308,5 @@ bucket_definitions:
     expect(report.bucketsTruncated).toEqual(false);
     expect(report.definitions).toHaveLength(storage.BUCKET_REPORT_DEFINITION_LIMIT);
     expect(report.definitionsTruncated).toEqual(true);
-  });
-
-  test('samples the row count for a bucket above the sampling threshold', async () => {
-    await using factory = await generateStorageFactory();
-    const { stream, content } = await test_utils.deploySyncRules(
-      factory,
-      updateSyncRulesFromYaml(GLOBAL_SYNC_RULES, { storageVersion })
-    );
-    const bucketStorage = factory.getInstance(stream);
-
-    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
-    await writer.markAllSnapshotDone('1/1');
-
-    // 50 rows, each updated 25 times, is 1,300 operations against 50 live rows. That is past the 1,000
-    // operation threshold, so the report samples the operation history rather than reading it in full and
-    // the row count comes back as an estimate. The value per update varies so no two writes are identical.
-    // Each round is flushed separately so the operations span many storage documents, as they would in real
-    // replication (some backends batch operations per document, and a sample must see more than one).
-    const rowCount = 50;
-    const updatesPerRow = 25;
-    for (let row = 0; row < rowCount; row++) {
-      await writer.save({
-        sourceTable: testTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: { id: `r${row}` },
-        afterReplicaId: test_utils.rid(`r${row}`)
-      });
-    }
-    await writer.commit('1/1');
-    await writer.flush();
-    for (let update = 0; update < updatesPerRow; update++) {
-      for (let row = 0; row < rowCount; row++) {
-        await writer.save({
-          sourceTable: testTable,
-          tag: storage.SaveOperationTag.UPDATE,
-          after: { id: `r${row}`, value: `v${update}` },
-          afterReplicaId: test_utils.rid(`r${row}`)
-        });
-      }
-      await writer.commit('1/1');
-      await writer.flush();
-    }
-
-    const bucket = test_utils.bucketRequest(content, 'global[]').bucket;
-    const report = await getReport(bucketStorage);
-    const stats = report.buckets.find((b) => b.bucket === bucket)!;
-
-    // The operation count is exact (read from bucket_state); the row count is a sampled estimate.
-    expect(stats.operations).toEqual(rowCount + rowCount * updatesPerRow);
-    expect(stats.rowsEstimated).toEqual(true);
-    // The sample covers enough of a bucket this fragmented to recover the 50 live rows within a small margin.
-    expect(stats.rows).toBeGreaterThanOrEqual(45);
-    expect(stats.rows).toBeLessThanOrEqual(55);
-    // Fragmentation is operations / rows, so a heavily updated bucket reads well above 1.
-    expect(stats.fragmentation).toBeGreaterThan(10);
-    // The history is un-compacted superseded churn, which a compact reclaims.
-    expect(stats.suggestedAction).toEqual('compact');
-    // The sampled history names the tables a defragment would touch.
-    expect(stats.tables).toEqual(['test']);
-
-    // The definition rollup samples the same history at definition grain.
-    expect(report.definitions).toHaveLength(1);
-    const defStats = report.definitions[0];
-    expect(defStats).toMatchObject({
-      bucketCount: 1,
-      operations: stats.operations,
-      suggestedAction: 'compact',
-      tables: ['test']
-    });
-    expect(defStats.rows).toBeGreaterThanOrEqual(45);
-    expect(defStats.rows).toBeLessThanOrEqual(55);
   });
 }

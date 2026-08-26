@@ -2,7 +2,6 @@ import {
   assembleBucketReport,
   BucketReportTotals,
   DEFAULT_BUCKET_REPORT_LIMIT,
-  estimateDistinctRows,
   MAX_BUCKET_REPORT_LIMIT,
   RankedBucketInput,
   RankedDefinitionInput,
@@ -11,36 +10,29 @@ import {
 } from '@/storage/bucket-report.js';
 import { describe, expect, it } from 'vitest';
 
-// Row-bearing operations default to all operations (no compaction residue) unless overridden.
-const bucket = (
-  name: string,
-  operations: number,
-  rows: number,
-  extra?: Partial<RankedBucketInput>
-): RankedBucketInput => ({
+const bucket = (name: string, operations: number, extra?: Partial<RankedBucketInput>): RankedBucketInput => ({
   bucket: name,
   operations,
-  rows,
-  operationBytes: extra?.operationBytes ?? 0,
-  rowOperations: extra?.rowOperations ?? operations,
-  rowsEstimated: extra?.rowsEstimated ?? false,
-  tables: extra?.tables ?? []
+  operationBytes: 0,
+  ...extra
+});
+
+/** Full-compact statistics where the compacted prefix is the whole history (no writes since). */
+const compacted = (operations: number, puts: number): Partial<RankedBucketInput> => ({
+  compactedOperations: operations,
+  compactedPuts: puts
 });
 
 const definition = (
   name: string,
   operations: number,
-  rows: number,
   extra?: Partial<RankedDefinitionInput>
 ): RankedDefinitionInput => ({
   definition: name,
-  bucketCount: extra?.bucketCount ?? 1,
+  bucketCount: 1,
   operations,
-  rows,
-  operationBytes: extra?.operationBytes ?? 0,
-  rowOperations: extra?.rowOperations ?? operations,
-  rowsEstimated: extra?.rowsEstimated ?? false,
-  tables: extra?.tables ?? []
+  operationBytes: 0,
+  ...extra
 });
 
 const totals = (bucketCount: number, extra?: Partial<BucketReportTotals>): BucketReportTotals => ({
@@ -51,11 +43,18 @@ const totals = (bucketCount: number, extra?: Partial<BucketReportTotals>): Bucke
 });
 
 describe('assembleBucketReport', () => {
-  it('derives fragmentation and passes through rowsEstimated and tables', () => {
+  it('derives rows and fragmentation from the full-compact statistics', () => {
+    const compactedAt = new Date('2026-01-01T00:00:00Z');
+    const nextCompact = new Date('2026-01-02T00:00:00Z');
     const report = assembleBucketReport(
       [
-        bucket('global[]', 100, 10, { operationBytes: 1024, tables: ['todos', 'lists'] }),
-        bucket('by_user["u1"]', 30, 30, { rowsEstimated: true })
+        bucket('global[]', 100, {
+          operationBytes: 1024,
+          ...compacted(100, 10),
+          lastFullCompactAt: compactedAt,
+          nextCompactAt: nextCompact
+        }),
+        bucket('by_user["u1"]', 30, compacted(30, 30))
       ],
       [],
       totals(2)
@@ -63,21 +62,63 @@ describe('assembleBucketReport', () => {
 
     expect(report.buckets.find((b) => b.bucket === 'global[]')).toMatchObject({
       operations: 100,
-      rows: 10,
       operationBytes: 1024,
+      rows: 10,
       fragmentation: 10,
-      rowsEstimated: false,
-      tables: ['todos', 'lists']
+      lastFullCompactAt: compactedAt,
+      nextCompactAt: nextCompact
     });
     expect(report.buckets.find((b) => b.bucket === 'by_user["u1"]')).toMatchObject({
+      rows: 30,
       fragmentation: 1,
-      rowsEstimated: true
+      lastFullCompactAt: null,
+      nextCompactAt: null
     });
+  });
+
+  it('reports null rows and an unknown action without full-compact statistics', () => {
+    const report = assembleBucketReport([bucket('global[]', 100)], [], totals(1));
+
+    expect(report.buckets[0]).toMatchObject({
+      operations: 100,
+      rows: null,
+      fragmentation: null,
+      suggestedAction: 'unknown',
+      // Never compacted: the whole history is uncompacted.
+      uncompactedOperations: 100
+    });
+  });
+
+  it('reports the operations written since the last full compact', () => {
+    const report = assembleBucketReport(
+      [
+        // Fully covered by the compact: nothing uncompacted.
+        bucket('fresh[]', 100, compacted(100, 100)),
+        // 900 operations landed after the compact: rows/fragmentation are that much out of date.
+        bucket('stale[]', 1000, compacted(100, 100))
+      ],
+      [
+        // Definition grain uses the plain compacted sum (not the extrapolated one used for rows):
+        // 1000 total ops, 50 covered by compacts of half the buckets, so 950 are uncompacted.
+        definition('1#partial', 1000, {
+          bucketCount: 10,
+          compactedBucketCount: 5,
+          compactedOperations: 50,
+          compactedPuts: 50
+        })
+      ],
+      totals(12)
+    );
+
+    const by = (name: string) => report.buckets.find((b) => b.bucket === name)!;
+    expect(by('fresh[]').uncompactedOperations).toEqual(0);
+    expect(by('stale[]').uncompactedOperations).toEqual(900);
+    expect(report.definitions[0].uncompactedOperations).toEqual(950);
   });
 
   it('ranks buckets worst-first by operations then fragmentation', () => {
     const report = assembleBucketReport(
-      [bucket('a[]', 5, 5), bucket('b[]', 50, 5), bucket('c[]', 50, 50)],
+      [bucket('a[]', 5, compacted(5, 5)), bucket('b[]', 50, compacted(50, 5)), bucket('c[]', 50, compacted(50, 50))],
       [],
       totals(3)
     );
@@ -87,27 +128,27 @@ describe('assembleBucketReport', () => {
   });
 
   it('floors rows at 1 so a bucket with operations but no rows is fully fragmented', () => {
-    const report = assembleBucketReport([bucket('gone[]', 42, 0)], [], totals(1));
+    const report = assembleBucketReport([bucket('gone[]', 42, compacted(42, 0))], [], totals(1));
 
     expect(report.buckets[0]).toMatchObject({ operations: 42, rows: 0, fragmentation: 42 });
   });
 
   it('marks the bucket list truncated when there are more buckets than returned', () => {
-    const truncated = assembleBucketReport([bucket('a[]', 10, 1), bucket('b[]', 5, 1)], [], totals(5));
+    const truncated = assembleBucketReport([bucket('a[]', 10), bucket('b[]', 5)], [], totals(5));
     expect(truncated.bucketsTruncated).toBe(true);
 
-    const complete = assembleBucketReport([bucket('a[]', 10, 1), bucket('b[]', 5, 1)], [], totals(2));
+    const complete = assembleBucketReport([bucket('a[]', 10), bucket('b[]', 5)], [], totals(2));
     expect(complete.bucketsTruncated).toBe(false);
   });
 
   it('passes the definition truncation flag through, defaulting to complete', () => {
-    expect(assembleBucketReport([], [definition('a', 1, 1)], totals(1)).definitionsTruncated).toBe(false);
-    expect(assembleBucketReport([], [definition('a', 1, 1)], totals(1), true).definitionsTruncated).toBe(true);
+    expect(assembleBucketReport([], [definition('a', 1)], totals(1)).definitionsTruncated).toBe(false);
+    expect(assembleBucketReport([], [definition('a', 1)], totals(1), true).definitionsTruncated).toBe(true);
   });
 
   it('carries the totals through unchanged', () => {
     const t = totals(2, { operations: 120, operationBytes: 15, estimated: true });
-    const report = assembleBucketReport([bucket('a[]', 100, 4), bucket('b[]', 20, 2)], [], t);
+    const report = assembleBucketReport([bucket('a[]', 100), bucket('b[]', 20)], [], t);
 
     expect(report.totals).toEqual({ bucketCount: 2, operations: 120, operationBytes: 15, estimated: true });
   });
@@ -116,8 +157,19 @@ describe('assembleBucketReport', () => {
     const report = assembleBucketReport(
       [],
       [
-        definition('1#by_user', 100, 100, { bucketCount: 10 }),
-        definition('1#by_org', 500, 100, { bucketCount: 5, operationBytes: 2048 })
+        definition('1#by_user', 100, {
+          bucketCount: 10,
+          compactedBucketCount: 10,
+          compactedOperations: 100,
+          compactedPuts: 100
+        }),
+        definition('1#by_org', 500, {
+          bucketCount: 5,
+          operationBytes: 2048,
+          compactedBucketCount: 5,
+          compactedOperations: 500,
+          compactedPuts: 100
+        })
       ],
       totals(15)
     );
@@ -131,20 +183,48 @@ describe('assembleBucketReport', () => {
       operationBytes: 2048,
       rows: 100,
       fragmentation: 5,
-      suggestedAction: 'compact'
+      suggestedAction: 'defragment'
     });
     expect(report.definitions[1]).toMatchObject({ fragmentation: 1, suggestedAction: 'none' });
   });
 
-  it('derives per-bucket suggested actions from the operation mix', () => {
+  it('extrapolates definition rows when only some buckets have been fully compacted', () => {
+    const report = assembleBucketReport(
+      [],
+      [
+        // 5 of 10 buckets compacted, holding 50 rows between them: assume the other half looks the same.
+        definition('1#partial', 1000, {
+          bucketCount: 10,
+          compactedBucketCount: 5,
+          compactedOperations: 50,
+          compactedPuts: 50
+        }),
+        // No compacted buckets: nothing row-related can be derived.
+        definition('1#uncompacted', 1000, { bucketCount: 10, compactedBucketCount: 0 })
+      ],
+      totals(20)
+    );
+
+    expect(report.definitions.find((d) => d.definition === '1#partial')).toMatchObject({
+      rows: 100,
+      fragmentation: 10
+    });
+    expect(report.definitions.find((d) => d.definition === '1#uncompacted')).toMatchObject({
+      rows: null,
+      fragmentation: null,
+      suggestedAction: 'unknown'
+    });
+  });
+
+  it('derives per-bucket suggested actions from the compact statistics', () => {
     const report = assembleBucketReport(
       [
         // Healthy: one op per row.
-        bucket('healthy[]', 100, 100),
-        // Un-compacted churn: every op carries a row identity, far more ops than rows.
-        bucket('churned[]', 1000, 100),
-        // Compacted residue: mostly MOVE/CLEAR ops left behind by a compact.
-        bucket('compacted[]', 1000, 100, { rowOperations: 150 })
+        bucket('healthy[]', 100, compacted(100, 100)),
+        // Un-compacted churn since the last full compact: 900 raw ops on top of a clean 100-row prefix.
+        bucket('churned[]', 1000, compacted(100, 100)),
+        // Compacted residue: the compact kept 150 rows but left 850 MOVE/CLEAR ops behind.
+        bucket('residue[]', 1000, compacted(1000, 150))
       ],
       [],
       totals(3)
@@ -153,7 +233,7 @@ describe('assembleBucketReport', () => {
     const action = (name: string) => report.buckets.find((b) => b.bucket === name)?.suggestedAction;
     expect(action('healthy[]')).toEqual('none');
     expect(action('churned[]')).toEqual('compact');
-    expect(action('compacted[]')).toEqual('defragment');
+    expect(action('residue[]')).toEqual('defragment');
   });
 });
 
@@ -186,37 +266,6 @@ describe('suggestBucketAction', () => {
   it('suggests both for a fragmented but inconclusive mix', () => {
     // Fragmented (frag 3), yet neither residue (40%) nor superseded share (44%) dominates.
     expect(suggestBucketAction(1200, 720, 400)).toEqual('both');
-  });
-});
-
-describe('estimateDistinctRows', () => {
-  it('returns the observed distinct count when the whole bucket was sampled', () => {
-    // r >= 1: nothing was left out, so the observed distinct count is already exact.
-    expect(estimateDistinctRows(100, 100, 40)).toBe(40);
-    expect(estimateDistinctRows(100, 150, 40)).toBe(40);
-  });
-
-  it('recovers a heavily fragmented bucket the naive estimate would inflate', () => {
-    // 10 rows x 1000 ops each; a 10% sample sees ~1000 ops but still only the same 10 distinct rows.
-    // Naive distinct/rate would report 10 / 0.1 = 100 rows (10x too many, so 10x too little fragmentation).
-    const rows = estimateDistinctRows(10_000, 1_000, 10);
-    expect(rows).toBeGreaterThanOrEqual(9);
-    expect(rows).toBeLessThanOrEqual(12);
-  });
-
-  it('recovers a moderately fragmented bucket', () => {
-    // 500 rows x 2 ops each, 50% sample. Ground truth: 500*(1-0.5^2) = 375 distinct sampled rows.
-    // Naive distinct/rate would report 375 / 0.5 = 750 rows; the estimator should recover ~500.
-    const rows = estimateDistinctRows(1_000, 500, 375);
-    expect(rows).toBeGreaterThan(480);
-    expect(rows).toBeLessThan(520);
-  });
-
-  it('matches the naive estimate when there are no sampling collisions', () => {
-    // 2000 rows, 1 op each, 50% sample: no row is seen twice, so distinct/rate is already correct (~2000).
-    const rows = estimateDistinctRows(2_000, 1_000, 1_000);
-    expect(rows).toBeGreaterThan(1_900);
-    expect(rows).toBeLessThan(2_100);
   });
 });
 
