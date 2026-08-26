@@ -1,30 +1,8 @@
 import { MongoSyncBucketStorageV3 } from '@module/storage/implementation/v3/MongoSyncBucketStorageV3.js';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
-import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
-
-function sourceDescriptor(name: string, objectId: string): storage.SourceEntityDescriptor {
-  return {
-    connectionTag: storage.SourceTable.DEFAULT_TAG,
-    objectId,
-    schema: 'public',
-    name,
-    replicaIdColumns: [{ name: 'id', type: 'VARCHAR', typeId: 25 }]
-  };
-}
-
-function objectIdGenerator(id: string) {
-  let used = false;
-  return () => {
-    if (used) {
-      throw new Error(`Can only generate a single id using ${id}`);
-    }
-    used = true;
-    return new bson.ObjectId(id);
-  };
-}
 
 /**
  * In V3 a replication stream can host multiple sync configs (active + stopped, until cleanup runs), all sharing
@@ -51,13 +29,9 @@ streams:
     );
     const firstStorage = factory.getInstance(first) as MongoSyncBucketStorageV3;
     await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const todosTable = (
-      await firstWriter.resolveTables({
-        connection_id: 1,
-        source: sourceDescriptor('todos', 'todos-relation'),
-        idGenerator: objectIdGenerator('6544e3899293153fa7b38360')
-      })
-    ).tables[0];
+    // Distinct idIndex per table: source records are shared per replication stream, so the two configs'
+    // tables must not collide on the semi-hardcoded test id.
+    const todosTable = await test_utils.resolveTestTable(firstWriter, 'todos', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY, 1);
     await firstWriter.save({
       sourceTable: todosTable,
       tag: storage.SaveOperationTag.INSERT,
@@ -96,13 +70,7 @@ streams:
     const secondStorage = factory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorageV3;
     await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
     // Give config 2 its own replicated row, so the report has an active-config bucket to include.
-    const scenesTable = (
-      await secondWriter.resolveTables({
-        connection_id: 1,
-        source: sourceDescriptor('scenes', 'scenes-relation'),
-        idGenerator: objectIdGenerator('6544e3899293153fa7b38361')
-      })
-    ).tables[0];
+    const scenesTable = await test_utils.resolveTestTable(secondWriter, 'scenes', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY, 2);
     await secondWriter.save({
       sourceTable: scenesTable,
       tag: storage.SaveOperationTag.INSERT,

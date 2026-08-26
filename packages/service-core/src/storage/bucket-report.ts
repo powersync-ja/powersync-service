@@ -16,12 +16,6 @@
  */
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
-/**
- * Time budget for the per-bucket report's bucket-selection aggregation (`maxTimeMS`). Bounded so an admin
- * request on a large instance fails fast instead of running unbounded.
- */
-export const BUCKET_REPORT_TIMEOUT_MS: number = 60_000;
-
 /** Number of worst-offender buckets returned when the request omits a `limit`. */
 export const DEFAULT_BUCKET_REPORT_LIMIT: number = 50;
 

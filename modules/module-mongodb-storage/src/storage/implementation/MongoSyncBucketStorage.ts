@@ -531,7 +531,7 @@ export abstract class MongoSyncBucketStorage
       // `limit` caps how many index entries the count may touch: hitting the cap means the instance is past
       // what this report is designed to scan, so fail fast rather than read the index without bound.
       matchedBuckets = await collection.countDocuments(match, {
-        maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS,
+        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS,
         readPreference,
         limit: BUCKET_SELECTION_SCAN_MAX + 1
       });
@@ -630,7 +630,7 @@ export abstract class MongoSyncBucketStorage
     const [result] = await collection
       .aggregate<FacetResult>(pipeline, {
         allowDiskUse: false,
-        maxTimeMS: storage.BUCKET_REPORT_TIMEOUT_MS,
+        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS,
         readPreference
       })
       .toArray();
