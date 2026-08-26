@@ -1,3 +1,4 @@
+import { orNull } from '@powersync/service-types';
 import * as t from 'ts-codec';
 import { bigint, hexBuffer, jsonb, pgwire_number } from '../codecs.js';
 
@@ -26,7 +27,7 @@ export const V3CurrentData = t.object({
   lookups: t.array(hexBuffer),
   source_key: hexBuffer,
   source_table: t.string,
-  pending_delete: t.Null.or(bigint)
+  pending_delete: orNull(bigint)
 });
 
 export type V1CurrentData = t.Encoded<typeof V1CurrentData>;

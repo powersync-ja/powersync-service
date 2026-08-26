@@ -13,11 +13,7 @@ import * as t from 'ts-codec';
  * and `auto` makes the timeouts depend on where the process happens to be running. Both are still
  * handled when they come from the AWS environment, and are then treated as `standard`.
  */
-export const S3DefaultsMode = t
-  .literal('standard')
-  .or(t.literal('in-region'))
-  .or(t.literal('cross-region'))
-  .or(t.literal('mobile'));
+export const S3DefaultsMode = service_types.enumLiteral('standard', 'in-region', 'cross-region', 'mobile');
 
 export type S3DefaultsMode = t.Encoded<typeof S3DefaultsMode>;
 
@@ -38,12 +34,13 @@ const S3ObjectStorageConfig = t.object({
   inline_threshold_bytes: t.number.optional()
 });
 
-export const MongoStorageReadPreference = t
-  .literal('primary')
-  .or(t.literal('primaryPreferred'))
-  .or(t.literal('secondary'))
-  .or(t.literal('secondaryPreferred'))
-  .or(t.literal('nearest'));
+export const MongoStorageReadPreference = service_types.enumLiteral(
+  'primary',
+  'primaryPreferred',
+  'secondary',
+  'secondaryPreferred',
+  'nearest'
+);
 
 export type MongoStorageReadPreference = t.Encoded<typeof MongoStorageReadPreference>;
 

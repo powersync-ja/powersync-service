@@ -1,4 +1,5 @@
 import { schema } from '@powersync/lib-services-framework';
+import { orNull } from '@powersync/service-types';
 import * as t from 'ts-codec';
 
 export const ConvexRawDocument = t
@@ -47,7 +48,7 @@ export type ConvexJsonSchemasResult = t.Encoded<typeof ConvexJsonSchemasResult>;
 
 export const ConvexListSnapshotResult = t.object({
   snapshot: bigint,
-  cursor: t.string.or(t.Null),
+  cursor: orNull(t.string),
   hasMore: t.boolean,
   values: t.array(ConvexRawDocument)
 });

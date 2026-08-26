@@ -1,9 +1,10 @@
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
+import { orNull } from '@powersync/service-types';
 import * as bson from 'bson';
 import * as t from 'ts-codec';
 
 export const ConvexSnapshotProgressCursor = t.object({
-  cursor: t.string.or(t.Null),
+  cursor: orNull(t.string),
   finished: t.boolean
 });
 
