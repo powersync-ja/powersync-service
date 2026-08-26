@@ -242,7 +242,7 @@ bucket_definitions:
 
         yield {
           chunkData: {
-            bucket: '1#global[]',
+            bucket: 'global[]',
             data: Array.from({ length: 1000 }, () => ({ op: 'PUT' })),
             has_more: true,
             after: '0',
@@ -271,20 +271,27 @@ bucket_definitions:
       }
     })();
 
+    let timeout: NodeJS.Timeout | undefined;
     const outcome = await Promise.race([
       response.then(
         () => new Error('Sync stream unexpectedly completed'),
         (error) => error
       ),
-      new Promise((resolve) => setTimeout(() => resolve(new Error('Sync stream did not close')), 500))
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve(new Error('Sync stream did not close')), 500);
+      })
     ]);
+    clearTimeout(timeout);
+
+    // Capture this before aborting below, which would set it regardless of the stream cleanup.
+    const abortedByCleanup = checkpointWatcherAborted;
 
     controller.abort();
     await response.catch(() => {});
 
     expect(outcome).toBeInstanceOf(Error);
     expect((outcome as Error).message).toContain('Simulated data fetch failure');
-    expect(checkpointWatcherAborted).toBe(true);
+    expect(abortedByCleanup).toBe(true);
   });
 });
 
