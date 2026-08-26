@@ -71,7 +71,7 @@ export class MongoPersistedSyncConfigContentV1 extends MongoPersistedSyncConfigC
       mapping: new SingleSyncConfigBucketDefinitionMapping(),
       syncConfigId: null,
       syncConfigState: doc.state,
-      version_label: doc.version_label
+      version_label: doc.version_label ?? undefined
     });
   }
 
