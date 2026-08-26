@@ -119,9 +119,13 @@ async function* streamResponseInner(
     syncRequest: params,
     logger: logger
   });
+  // The checkpoint iterator can have a pending next() while a data batch fails.
+  // Abort it before returning so that async-generator return() is not queued behind
+  // that pending next() until another checkpoint arrives.
+  const checkpointWatchController = new AbortController();
   const stream = bucketStorage.watchCheckpointChanges({
     user_id: checkpointUserId,
-    signal
+    signal: AbortSignal.any([signal, checkpointWatchController.signal])
   });
   const newCheckpoints = stream[Symbol.asyncIterator]();
 
@@ -334,7 +338,10 @@ async function* streamResponseInner(
       }
     } while (!signal.aborted);
   } finally {
-    await newCheckpoints.return?.();
+    checkpointWatchController.abort();
+    // Do not await return(): async generators queue it behind a pending next().
+    // The abort above makes that next() settle as soon as the storage watcher observes it.
+    newCheckpoints.return?.().catch(() => {});
   }
 }
 
