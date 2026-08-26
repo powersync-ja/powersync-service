@@ -511,9 +511,14 @@ export abstract class MongoSyncBucketStorage
     // bucket into its definition.
     const definitionKey = { $arrayElemAt: [{ $split: ['$_id.b', '['] }, 0] };
 
-    // Reports are bulk reads: run them with the configured bulk read preference (secondaries where
-    // configured) so they do not load the primary.
-    const readPreference = this.readPreference;
+    // Reports are bulk reads: keep them off the primary by using the configured bulk read preference,
+    // falling back to secondaryPreferred. Staleness does not matter for a report.
+    const readPreference =
+      this.readPreference ??
+      new mongo.ReadPreference('secondaryPreferred', undefined, {
+        // 90 is the minimum value.
+        maxStalenessSeconds: 90
+      });
 
     // estimatedDocumentCount is O(1) but ignores the match filter, so this is an upper bound on the active
     // bucket count. That is fine for the sampling decision: over-estimating only switches to sampling sooner.
