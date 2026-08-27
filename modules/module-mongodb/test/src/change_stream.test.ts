@@ -622,6 +622,79 @@ bucket_definitions:
     expect(data).toMatchObject([test_utils.putOp('test_data', { id: test_id, description: 'test1' })]);
   });
 
+  test.runIf(storageVersion >= 3)(
+    'does not resnapshot an unchanged event definition during incremental reprocessing',
+    async (testContext) => {
+      const eventDefinition = `
+event_definitions:
+  checkpoint_requests:
+    payloads:
+      - SELECT user_id, checkpoint, client_id, CASE WHEN checkpoint_requested_at IS NULL THEN true ELSE false END AS is_legacy FROM checkpoints
+`;
+      const syncConfig = (deploymentComment: string) => `
+config:
+  edition: 3
+  storage_version: 3
+  # ${deploymentComment}
+
+${eventDefinition}
+streams:
+  global:
+    auto_subscribe: true
+    queries:
+      - SELECT *, _id AS id FROM lists
+      - SELECT *, _id AS id FROM todos
+`;
+
+      let replicationStreamId: number;
+      {
+        await using context = await openContext();
+        const firstStorage = await context.updateSyncRules(syncConfig('initial deployment'));
+        if (
+          !('incrementalReprocessing' in firstStorage.storageConfig) ||
+          firstStorage.storageConfig.incrementalReprocessing !== true
+        ) {
+          testContext.skip('storage does not support incremental reprocessing');
+        }
+
+        const { db } = context;
+        await db.collection('lists').insertOne({ name: 'list' });
+        await db.collection('todos').insertOne({ description: 'todo' });
+        await db.collection('checkpoints').insertOne({
+          user_id: 'user-1',
+          checkpoint: 1n,
+          client_id: 'client-1',
+          checkpoint_requested_at: null
+        });
+
+        replicationStreamId = firstStorage.replicationStreamId;
+        await context.replicateSnapshot();
+        context.startStreaming();
+        await context.getCheckpoint();
+      }
+
+      const resnapshottedCollections: string[] = [];
+      await using context = await openContext({
+        doNotClear: true,
+        streamOptions: {
+          snapshotHooks: {
+            beforeSnapshotStarted: async (table) => {
+              resnapshottedCollections.push(table.name);
+            }
+          }
+        }
+      });
+
+      const processingStorage = await context.updateSyncRules(syncConfig('redeployed without behavioral changes'));
+      expect(processingStorage.replicationStreamId).toBe(replicationStreamId);
+      expect(await context.factory.getDeployingSyncConfig()).not.toBeNull();
+
+      await context.replicateSnapshot();
+
+      expect(resnapshottedCollections).toEqual([]);
+    }
+  );
+
   test('coalesces standalone checkpoints when backlog is buffered', async () => {
     await using context = await openContext();
     await context.updateSyncRules(BASIC_SYNC_RULES);
