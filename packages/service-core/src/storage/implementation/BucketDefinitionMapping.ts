@@ -518,21 +518,7 @@ export class MultiSyncConfigBucketDefinitionMapping implements BucketDefinitionM
       throw new ServiceAssertionError(`No mapping found for sync config ${syncConfigId}`);
     }
 
-    const mappingFilter = config.mapping.snapshotBlockingSourceTablesFilter(syncConfigId) as {
-      $or?: Record<string, unknown>[];
-    };
-    // The single-config filter already includes this config's event ids; just reuse it directly.
-    const clauses = [...(mappingFilter.$or ?? [])];
-    if (clauses.length == 0) {
-      return {
-        snapshot_done: false,
-        _id: { $exists: false }
-      };
-    }
-    return {
-      snapshot_done: false,
-      $or: clauses
-    };
+    return config.mapping.snapshotBlockingSourceTablesFilter(syncConfigId);
   }
 }
 
