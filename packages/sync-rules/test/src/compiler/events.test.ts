@@ -212,6 +212,24 @@ event_definitions:
     );
   });
 
+  test('treats MongoDB-normalized optional expression fields as equal', () => {
+    const original = serializedEventDefinitionFromQueries(
+      'SELECT CASE WHEN checkpoint_requested_at IS NULL THEN true ELSE false END AS is_legacy FROM checkpoints'
+    );
+    const persisted = structuredClone(original);
+    const expression = persisted.sourceQueries[0].variants[0].columns[0];
+    expect(expression).not.toBe('star');
+    if (expression == 'star' || expression.expr.type != 'case_when') {
+      throw new Error('Expected the event payload to compile to a CASE expression');
+    }
+    (expression.expr as { operand?: unknown }).operand = null;
+
+    expect(serializedEventDefinitionEquality.equals(original, persisted)).toBe(true);
+    expect(StableHasher.hashWith(serializedEventDefinitionEquality, original)).toEqual(
+      StableHasher.hashWith(serializedEventDefinitionEquality, persisted)
+    );
+  });
+
   // Persisted equality must compare the evaluator that produced existing data rather than recompiling its retained SQL.
   test('detects changed serialized evaluator behavior when raw SQL is unchanged', () => {
     const original = serializedEventDefinitionFromQueries(

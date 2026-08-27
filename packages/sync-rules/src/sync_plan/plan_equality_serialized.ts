@@ -34,10 +34,10 @@ export const serializedStreamParameterIndexLookupCreatorEquality =
  */
 export const serializedEventDefinitionEquality: Equality<SerializedEventDescriptor> = {
   hash(hasher, value) {
-    hasher.addString(JSON.stringify(eventIdentity(value)));
+    hasher.addString(persistedJson(eventIdentity(value)));
   },
   equals(a, b) {
-    return a === b || JSON.stringify(eventIdentity(a)) == JSON.stringify(eventIdentity(b));
+    return a === b || persistedJson(eventIdentity(a)) == persistedJson(eventIdentity(b));
   }
 };
 
@@ -81,9 +81,9 @@ function eventIdentity(event: SerializedEventDescriptor) {
     name: event.name,
     sourceQueries: event.sourceQueries
       .map((query) =>
-        JSON.stringify({
+        persistedJson({
           table: query.table,
-          variants: query.variants.map((variant) => JSON.stringify(eventRowEvaluatorIdentity(variant))).sort()
+          variants: query.variants.map((variant) => persistedJson(eventRowEvaluatorIdentity(variant))).sort()
         })
       )
       .sort()
@@ -104,6 +104,14 @@ function eventRowEvaluatorIdentity(evaluator: SerializedEventRowEvaluator) {
     partitionBy: evaluator.partitionBy,
     columns: evaluator.columns
   };
+}
+
+/**
+ * MongoDB persists undefined object properties as null. Treat the two forms as the same so a plan compares equal
+ * before and after it has been stored and loaded again.
+ */
+function persistedJson(value: unknown) {
+  return JSON.stringify(value, (_key, item) => (item === undefined ? null : item));
 }
 
 function jsonEquality<T>(): Equality<T> {
