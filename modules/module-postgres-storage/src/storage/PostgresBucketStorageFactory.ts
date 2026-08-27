@@ -162,10 +162,10 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       this.options.defaultStorageVersion ??
       storage.CURRENT_STORAGE_VERSION;
     const storageConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
-    if (storageConfig == null) {
+    if (storageConfig == null || storageVersion >= storage.STORAGE_VERSION_4) {
       throw new framework.ServiceError(
         framework.ErrorCode.PSYNC_S1005,
-        `Unsupported storage version ${storageVersion}`
+        `Unsupported storage version ${storageVersion} for PostgreSQL storage`
       );
     }
     await this.initializeStorageVersion(storageConfig);
