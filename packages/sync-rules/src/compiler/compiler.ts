@@ -183,24 +183,6 @@ export class SyncStreamsCompiler {
           return;
         }
 
-        const defaultSchema = this.options.defaultSchema;
-        const sourceTable = query.sourceTable.tablePattern;
-        // Runtime event evaluation selects one payload query for each source table, so accepting duplicate sources
-        // would make later queries unreachable. Resolve implicit schemas when a real default is available to detect
-        // `table` and `default_schema.table` as the same source without inventing an empty schema otherwise.
-        const normalizedSourceTable = defaultSchema == null ? sourceTable : sourceTable.toTablePattern(defaultSchema);
-        if (
-          event.sourceQueries.some((source) => {
-            const existingSourceTable = source.sourceTable.tablePattern;
-            const normalizedExistingSourceTable =
-              defaultSchema == null ? existingSourceTable : existingSourceTable.toTablePattern(defaultSchema);
-            return normalizedExistingSourceTable.equals(normalizedSourceTable);
-          })
-        ) {
-          errors.report('Each payload query should query a unique table', query.span.location);
-          return;
-        }
-
         const variants: EventRowEvaluator[] = [];
         let valid = true;
         for (const variant of query.where.terms) {

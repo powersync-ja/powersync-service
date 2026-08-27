@@ -104,7 +104,8 @@ event_definitions:
     const { config, errors } = SqlSyncRules.fromYaml(
       yamlWithEventQueries(
         `SELECT 'wildcard' AS kind, checkpoint FROM "checkpoints_%"`,
-        `SELECT 'exact' AS kind, checkpoint FROM checkpoints_2026`
+        `SELECT 'exact' AS kind, checkpoint FROM checkpoints_2026`,
+        `SELECT 'second-exact' AS kind, checkpoint FROM test_schema.checkpoints_2026 WHERE checkpoint > 0`
       ),
       { defaultSchema: 'test_schema', throwOnError: false }
     );
@@ -117,11 +118,12 @@ event_definitions:
       record: { checkpoint: 42n }
     });
     expect(evaluated.errors).toEqual([]);
-    expect(evaluated.results).toHaveLength(2);
+    expect(evaluated.results).toHaveLength(3);
     expect(evaluated.results).toEqual(
       expect.arrayContaining([
         { data: { kind: 'wildcard', checkpoint: 42n } },
-        { data: { kind: 'exact', checkpoint: 42n } }
+        { data: { kind: 'exact', checkpoint: 42n } },
+        { data: { kind: 'second-exact', checkpoint: 42n } }
       ])
     );
   });
@@ -245,18 +247,6 @@ event_definitions:
     });
 
     expect(errors.map((error) => error.message)).toContainEqual(expect.stringContaining(message));
-  });
-
-  test('requires payload queries within an event to use unique source tables', () => {
-    const [errors] = yamlToSyncPlan(
-      yamlWithEventQueries(
-        'SELECT user_id FROM checkpoints',
-        'SELECT checkpoint FROM test_schema.checkpoints WHERE checkpoint > 0'
-      ),
-      { defaultSchema: 'test_schema', throwOnError: false }
-    );
-
-    expect(errors.map((error) => error.message)).toContain('Each payload query should query a unique table');
   });
 });
 
