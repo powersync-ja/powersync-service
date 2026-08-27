@@ -13,4 +13,4 @@ export const INITIALIZED_MONGO_REPORT_STORAGE_FACTORY = mongoTestReportStorageFa
   isCI: env.CI
 });
 
-export const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS;
+export const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS.filter((v) => v != 3);

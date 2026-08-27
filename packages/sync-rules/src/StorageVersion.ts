@@ -20,7 +20,8 @@ export interface ValidatedStorageVersion {
 export const STORAGE_VERSIONS = new Map<number, ValidatedStorageVersion>([
   // version 1 is supported by the storage modules, but cannot be used in sync config
   [2, { version: 2, stable: true }],
-  [3, { version: 3, stable: false }]
+  [3, { version: 3, stable: false }],
+  [4, { version: 4, stable: true }]
 ]);
 
 export const DEFAULT_STORAGE_VERSION = STORAGE_VERSIONS.get(2)!;

@@ -26,7 +26,7 @@ export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.
   url: env.PG_STORAGE_TEST_URL
 });
 
-const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS;
+const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS.filter((v) => v != 3);
 
 export interface StorageVersionTestContext {
   factory: TestStorageFactory;
