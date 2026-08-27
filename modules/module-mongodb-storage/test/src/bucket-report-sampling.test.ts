@@ -47,7 +47,12 @@ streams:
 
     // Below the threshold the report is an exact scan.
     const exactReport = await bucketStorage.getBucketReport();
-    expect(exactReport.totals).toEqual({ bucketCount: 1, operations: 1, operationBytes: expect.any(Number), estimated: false });
+    expect(exactReport.totals).toEqual({
+      bucketCount: 1,
+      operations: 1,
+      operationBytes: expect.any(Number),
+      estimated: false
+    });
 
     const bucketStateCollection = (bucketStorage.db as VersionedPowerSyncMongoV3).bucketState(
       bucketStorage.replicationStreamId

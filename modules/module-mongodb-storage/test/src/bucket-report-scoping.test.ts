@@ -31,7 +31,13 @@ streams:
     await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
     // Distinct idIndex per table: source records are shared per replication stream, so the two configs'
     // tables must not collide on the semi-hardcoded test id.
-    const todosTable = await test_utils.resolveTestTable(firstWriter, 'todos', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY, 1);
+    const todosTable = await test_utils.resolveTestTable(
+      firstWriter,
+      'todos',
+      ['id'],
+      INITIALIZED_MONGO_STORAGE_FACTORY,
+      1
+    );
     await firstWriter.save({
       sourceTable: todosTable,
       tag: storage.SaveOperationTag.INSERT,
@@ -70,7 +76,13 @@ streams:
     const secondStorage = factory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorageV3;
     await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
     // Give config 2 its own replicated row, so the report has an active-config bucket to include.
-    const scenesTable = await test_utils.resolveTestTable(secondWriter, 'scenes', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY, 2);
+    const scenesTable = await test_utils.resolveTestTable(
+      secondWriter,
+      'scenes',
+      ['id'],
+      INITIALIZED_MONGO_STORAGE_FACTORY,
+      2
+    );
     await secondWriter.save({
       sourceTable: scenesTable,
       tag: storage.SaveOperationTag.INSERT,
