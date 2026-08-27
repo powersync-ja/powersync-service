@@ -4,7 +4,7 @@ exports[`old streams test > OR in subquery 1`] = `
 {
   "buckets": [
     {
-      "hash": 194406858,
+      "hash": 148156631,
       "sources": [
         0,
       ],
@@ -17,7 +17,7 @@ exports[`old streams test > OR in subquery 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 4919221,
+      "hash": 506580987,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -40,7 +40,7 @@ exports[`old streams test > OR in subquery 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 291210660,
+      "hash": 266567027,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -87,7 +87,7 @@ exports[`old streams test > OR in subquery 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 225195556,
+      "hash": 535568965,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -194,7 +194,7 @@ exports[`old streams test > in > on parameter data 1`] = `
 {
   "buckets": [
     {
-      "hash": 194406858,
+      "hash": 148156631,
       "sources": [
         0,
       ],
@@ -207,7 +207,7 @@ exports[`old streams test > in > on parameter data 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 4919221,
+      "hash": 506580987,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -296,7 +296,7 @@ exports[`old streams test > in > on parameter data and table 1`] = `
 {
   "buckets": [
     {
-      "hash": 317489756,
+      "hash": 329503465,
       "sources": [
         0,
       ],
@@ -309,7 +309,7 @@ exports[`old streams test > in > on parameter data and table 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 19117565,
+      "hash": 24455521,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -340,7 +340,7 @@ exports[`old streams test > in > on parameter data and table 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 291210660,
+      "hash": 266567027,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -472,7 +472,7 @@ exports[`old streams test > in > parameter and auth match on same column 1`] = `
 {
   "buckets": [
     {
-      "hash": 194406858,
+      "hash": 148156631,
       "sources": [
         0,
       ],
@@ -485,7 +485,7 @@ exports[`old streams test > in > parameter and auth match on same column 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 4919221,
+      "hash": 506580987,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -598,7 +598,7 @@ exports[`old streams test > in > parameter value in subquery 1`] = `
 {
   "buckets": [
     {
-      "hash": 274764250,
+      "hash": 504882872,
       "sources": [
         0,
       ],
@@ -611,7 +611,7 @@ exports[`old streams test > in > parameter value in subquery 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 466638588,
+      "hash": 252303259,
       "outputTableName": "issues",
       "partitionBy": [],
       "table": {
@@ -632,7 +632,7 @@ exports[`old streams test > in > parameter value in subquery 1`] = `
           "type": "data",
         },
       ],
-      "hash": 195983547,
+      "hash": 417725376,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -709,7 +709,7 @@ exports[`old streams test > in > row value in subquery 1`] = `
 {
   "buckets": [
     {
-      "hash": 194406858,
+      "hash": 148156631,
       "sources": [
         0,
       ],
@@ -722,7 +722,7 @@ exports[`old streams test > in > row value in subquery 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 4919221,
+      "hash": 506580987,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -745,7 +745,7 @@ exports[`old streams test > in > row value in subquery 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 291210660,
+      "hash": 266567027,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -838,7 +838,7 @@ exports[`old streams test > in > two subqueries 1`] = `
 {
   "buckets": [
     {
-      "hash": 445777469,
+      "hash": 457862451,
       "sources": [
         0,
       ],
@@ -851,7 +851,7 @@ exports[`old streams test > in > two subqueries 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 75754117,
+      "hash": 102194264,
       "outputTableName": "users",
       "partitionBy": [
         {
@@ -874,7 +874,7 @@ exports[`old streams test > in > two subqueries 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 199313316,
+      "hash": 504745499,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -906,7 +906,7 @@ exports[`old streams test > in > two subqueries 1`] = `
     },
     {
       "filters": [],
-      "hash": 73863455,
+      "hash": 231959447,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -1042,7 +1042,7 @@ exports[`old streams test > nested subqueries 1`] = `
 {
   "buckets": [
     {
-      "hash": 194406858,
+      "hash": 148156631,
       "sources": [
         0,
       ],
@@ -1055,7 +1055,7 @@ exports[`old streams test > nested subqueries 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 4919221,
+      "hash": 506580987,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -1085,7 +1085,7 @@ exports[`old streams test > nested subqueries 1`] = `
           "type": "data",
         },
       ],
-      "hash": 195983547,
+      "hash": 498096823,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1108,7 +1108,7 @@ exports[`old streams test > nested subqueries 1`] = `
     },
     {
       "filters": [],
-      "hash": 291210660,
+      "hash": 266567027,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -1197,14 +1197,14 @@ exports[`old streams test > normalization > distribute and 1`] = `
 {
   "buckets": [
     {
-      "hash": 493187891,
+      "hash": 61595621,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
     {
-      "hash": 323255266,
+      "hash": 207485264,
       "sources": [
         1,
       ],
@@ -1238,7 +1238,7 @@ exports[`old streams test > normalization > distribute and 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 238671398,
+      "hash": 166247159,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -1283,7 +1283,7 @@ exports[`old streams test > normalization > distribute and 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 101128796,
+      "hash": 24294581,
       "outputTableName": "comments",
       "partitionBy": [],
       "table": {
@@ -1297,7 +1297,7 @@ exports[`old streams test > normalization > distribute and 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 291210660,
+      "hash": 266567027,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1413,7 +1413,7 @@ exports[`old streams test > normalization > double negation 1`] = `
 {
   "buckets": [
     {
-      "hash": 194406858,
+      "hash": 148156631,
       "sources": [
         0,
       ],
@@ -1426,7 +1426,7 @@ exports[`old streams test > normalization > double negation 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 4919221,
+      "hash": 506580987,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -1449,7 +1449,7 @@ exports[`old streams test > normalization > double negation 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 291210660,
+      "hash": 266567027,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1542,14 +1542,14 @@ exports[`old streams test > normalization > negated and 1`] = `
 {
   "buckets": [
     {
-      "hash": 194406858,
+      "hash": 148156631,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
     {
-      "hash": 33619584,
+      "hash": 26583447,
       "sources": [
         1,
       ],
@@ -1562,7 +1562,7 @@ exports[`old streams test > normalization > negated and 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 4919221,
+      "hash": 506580987,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -1611,7 +1611,7 @@ exports[`old streams test > normalization > negated and 1`] = `
           "type": "unary",
         },
       ],
-      "hash": 198981493,
+      "hash": 348342576,
       "outputTableName": "comments",
       "partitionBy": [],
       "table": {
@@ -1625,7 +1625,7 @@ exports[`old streams test > normalization > negated and 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 291210660,
+      "hash": 266567027,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1724,7 +1724,7 @@ exports[`old streams test > normalization > negated or 1`] = `
 {
   "buckets": [
     {
-      "hash": 184056576,
+      "hash": 479468891,
       "sources": [
         0,
       ],
@@ -1762,7 +1762,7 @@ exports[`old streams test > normalization > negated or 1`] = `
           "type": "unary",
         },
       ],
-      "hash": 86439904,
+      "hash": 272618088,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -1785,7 +1785,7 @@ exports[`old streams test > normalization > negated or 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 291210660,
+      "hash": 266567027,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1878,14 +1878,14 @@ exports[`old streams test > or > parameter match or request condition 1`] = `
 {
   "buckets": [
     {
-      "hash": 160843911,
+      "hash": 101052997,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
     {
-      "hash": 274764250,
+      "hash": 504882872,
       "sources": [
         1,
       ],
@@ -1898,7 +1898,7 @@ exports[`old streams test > or > parameter match or request condition 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 177858022,
+      "hash": 404544856,
       "outputTableName": "issues",
       "partitionBy": [
         {
@@ -1922,7 +1922,7 @@ exports[`old streams test > or > parameter match or request condition 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 466638588,
+      "hash": 252303259,
       "outputTableName": "issues",
       "partitionBy": [],
       "table": {
@@ -2002,14 +2002,14 @@ exports[`old streams test > or > parameter match or row condition 1`] = `
 {
   "buckets": [
     {
-      "hash": 160843911,
+      "hash": 101052997,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
     {
-      "hash": 302690008,
+      "hash": 50401802,
       "sources": [
         1,
       ],
@@ -2022,7 +2022,7 @@ exports[`old streams test > or > parameter match or row condition 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 177858022,
+      "hash": 404544856,
       "outputTableName": "issues",
       "partitionBy": [
         {
@@ -2067,7 +2067,7 @@ exports[`old streams test > or > parameter match or row condition 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 81581617,
+      "hash": 384031872,
       "outputTableName": "issues",
       "partitionBy": [],
       "table": {
@@ -2130,7 +2130,7 @@ exports[`old streams test > or > request condition or request condition 1`] = `
 {
   "buckets": [
     {
-      "hash": 177103915,
+      "hash": 221375721,
       "sources": [
         0,
       ],
@@ -2143,7 +2143,7 @@ exports[`old streams test > or > request condition or request condition 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 38682893,
+      "hash": 276881970,
       "outputTableName": "comments",
       "partitionBy": [],
       "table": {
@@ -2217,14 +2217,14 @@ exports[`old streams test > or > row condition or parameter condition 1`] = `
 {
   "buckets": [
     {
-      "hash": 177103915,
+      "hash": 221375721,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
     {
-      "hash": 232094228,
+      "hash": 329713050,
       "sources": [
         1,
       ],
@@ -2237,7 +2237,7 @@ exports[`old streams test > or > row condition or parameter condition 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 38682893,
+      "hash": 276881970,
       "outputTableName": "comments",
       "partitionBy": [],
       "table": {
@@ -2273,7 +2273,7 @@ exports[`old streams test > or > row condition or parameter condition 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 25054764,
+      "hash": 409210892,
       "outputTableName": "comments",
       "partitionBy": [],
       "table": {
@@ -2333,7 +2333,7 @@ exports[`old streams test > or > row condition or row condition 1`] = `
 {
   "buckets": [
     {
-      "hash": 70511047,
+      "hash": 337635011,
       "sources": [
         0,
       ],
@@ -2391,7 +2391,7 @@ exports[`old streams test > or > row condition or row condition 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 288509552,
+      "hash": 329744546,
       "outputTableName": "comments",
       "partitionBy": [],
       "table": {
@@ -2428,14 +2428,14 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
 {
   "buckets": [
     {
-      "hash": 194406858,
+      "hash": 148156631,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
     {
-      "hash": 177103915,
+      "hash": 221375721,
       "sources": [
         1,
       ],
@@ -2448,7 +2448,7 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 4919221,
+      "hash": 506580987,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -2472,7 +2472,7 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 38682893,
+      "hash": 276881970,
       "outputTableName": "comments",
       "partitionBy": [],
       "table": {
@@ -2486,7 +2486,7 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 291210660,
+      "hash": 266567027,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -2602,7 +2602,7 @@ exports[`old streams test > overlap 1`] = `
 {
   "buckets": [
     {
-      "hash": 443096475,
+      "hash": 148726195,
       "sources": [
         0,
       ],
@@ -2615,7 +2615,7 @@ exports[`old streams test > overlap 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 499645457,
+      "hash": 448514192,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -2651,7 +2651,7 @@ exports[`old streams test > overlap 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 199313316,
+      "hash": 504745499,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -2744,7 +2744,7 @@ exports[`old streams test > row condition 1`] = `
 {
   "buckets": [
     {
-      "hash": 232094228,
+      "hash": 329713050,
       "sources": [
         0,
       ],
@@ -2778,7 +2778,7 @@ exports[`old streams test > row condition 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 25054764,
+      "hash": 409210892,
       "outputTableName": "comments",
       "partitionBy": [],
       "table": {
@@ -2815,7 +2815,7 @@ exports[`old streams test > row filter and stream parameter 1`] = `
 {
   "buckets": [
     {
-      "hash": 512760912,
+      "hash": 344674728,
       "sources": [
         0,
       ],
@@ -2849,7 +2849,7 @@ exports[`old streams test > row filter and stream parameter 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 145057899,
+      "hash": 291356175,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -2915,7 +2915,7 @@ exports[`old streams test > stream parameter 1`] = `
 {
   "buckets": [
     {
-      "hash": 194406858,
+      "hash": 148156631,
       "sources": [
         0,
       ],
@@ -2928,7 +2928,7 @@ exports[`old streams test > stream parameter 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 4919221,
+      "hash": 506580987,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -2994,7 +2994,7 @@ exports[`old streams test > table alias 1`] = `
 {
   "buckets": [
     {
-      "hash": 466037865,
+      "hash": 40253737,
       "sources": [
         0,
       ],
@@ -3007,7 +3007,7 @@ exports[`old streams test > table alias 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 265683697,
+      "hash": 215568770,
       "outputTableName": "outer",
       "partitionBy": [
         {
@@ -3030,7 +3030,7 @@ exports[`old streams test > table alias 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 84822844,
+      "hash": 105082585,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -3123,7 +3123,7 @@ exports[`old streams test > without filter 1`] = `
 {
   "buckets": [
     {
-      "hash": 177103915,
+      "hash": 221375721,
       "sources": [
         0,
       ],
@@ -3136,7 +3136,7 @@ exports[`old streams test > without filter 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 38682893,
+      "hash": 276881970,
       "outputTableName": "comments",
       "partitionBy": [],
       "table": {

@@ -1,4 +1,4 @@
-import { Equality, listEquality, StableHasher } from './equality.js';
+import { Equality, listEquality, StableHasher, unorderedEquality } from './equality.js';
 
 /**
  * Interface for structures that can be compared for equality in a way that ignores referenced result set.
@@ -23,4 +23,4 @@ export const equalsIgnoringResultSet: Equality<EqualsIgnoringResultSet> = {
 };
 
 export const equalsIgnoringResultSetList = listEquality(equalsIgnoringResultSet);
-export const equalsIgnoringResultSetUnordered = listEquality(equalsIgnoringResultSet);
+export const equalsIgnoringResultSetUnordered = unorderedEquality(equalsIgnoringResultSet);

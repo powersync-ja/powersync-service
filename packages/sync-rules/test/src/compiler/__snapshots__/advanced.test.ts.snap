@@ -4,7 +4,7 @@ exports[`new sync stream features > IN operator with static left clause 1`] = `
 {
   "buckets": [
     {
-      "hash": 274764250,
+      "hash": 504882872,
       "sources": [
         0,
       ],
@@ -17,7 +17,7 @@ exports[`new sync stream features > IN operator with static left clause 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 466638588,
+      "hash": 252303259,
       "outputTableName": "issues",
       "partitionBy": [],
       "table": {
@@ -56,7 +56,7 @@ exports[`new sync stream features > IN operator with static left clause 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 467461012,
+      "hash": 61622074,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -104,7 +104,7 @@ exports[`new sync stream features > IN operator with two static clauses 1`] = `
 {
   "buckets": [
     {
-      "hash": 274764250,
+      "hash": 504882872,
       "sources": [
         0,
       ],
@@ -117,7 +117,7 @@ exports[`new sync stream features > IN operator with two static clauses 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 466638588,
+      "hash": 252303259,
       "outputTableName": "issues",
       "partitionBy": [],
       "table": {
@@ -196,7 +196,7 @@ exports[`new sync stream features > checking for existence in two CTEs 1`] = `
 {
   "buckets": [
     {
-      "hash": 2313189,
+      "hash": 215122439,
       "sources": [
         0,
       ],
@@ -209,7 +209,7 @@ exports[`new sync stream features > checking for existence in two CTEs 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 470455392,
+      "hash": 80560391,
       "outputTableName": "Scene",
       "partitionBy": [
         {
@@ -247,7 +247,7 @@ exports[`new sync stream features > checking for existence in two CTEs 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 469881182,
+      "hash": 331282873,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -287,7 +287,7 @@ exports[`new sync stream features > checking for existence in two CTEs 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 391349695,
+      "hash": 14791390,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -438,7 +438,7 @@ exports[`new sync stream features > circular references > at first level 1`] = `
 {
   "buckets": [
     {
-      "hash": 391555584,
+      "hash": 369605791,
       "sources": [
         0,
       ],
@@ -451,7 +451,7 @@ exports[`new sync stream features > circular references > at first level 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 322241169,
+      "hash": 258551590,
       "outputTableName": "a",
       "partitionBy": [
         {
@@ -482,7 +482,7 @@ exports[`new sync stream features > circular references > at first level 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 20765332,
+      "hash": 508315757,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -589,7 +589,7 @@ exports[`new sync stream features > circular references > nested 1`] = `
 {
   "buckets": [
     {
-      "hash": 329617792,
+      "hash": 533534265,
       "sources": [
         0,
       ],
@@ -602,7 +602,7 @@ exports[`new sync stream features > circular references > nested 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 215694379,
+      "hash": 501930921,
       "outputTableName": "a",
       "partitionBy": [
         {
@@ -633,7 +633,7 @@ exports[`new sync stream features > circular references > nested 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 527378076,
+      "hash": 105317550,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -662,7 +662,7 @@ exports[`new sync stream features > circular references > nested 1`] = `
     },
     {
       "filters": [],
-      "hash": 462853403,
+      "hash": 251179367,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -694,7 +694,7 @@ exports[`new sync stream features > circular references > nested 1`] = `
     },
     {
       "filters": [],
-      "hash": 307161944,
+      "hash": 350988327,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "2",
@@ -807,7 +807,7 @@ exports[`new sync stream features > circular references > table-valued 1`] = `
 {
   "buckets": [
     {
-      "hash": 250014934,
+      "hash": 108933878,
       "sources": [
         0,
       ],
@@ -820,7 +820,7 @@ exports[`new sync stream features > circular references > table-valued 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 50729839,
+      "hash": 309686539,
       "outputTableName": "a",
       "partitionBy": [
         {
@@ -864,7 +864,7 @@ exports[`new sync stream features > circular references > table-valued 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 321622908,
+      "hash": 311271245,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -942,7 +942,7 @@ exports[`new sync stream features > in array 1`] = `
 {
   "buckets": [
     {
-      "hash": 64262756,
+      "hash": 307632867,
       "sources": [
         0,
       ],
@@ -975,7 +975,7 @@ exports[`new sync stream features > in array 1`] = `
           "type": "scalar_in",
         },
       ],
-      "hash": 209438134,
+      "hash": 366938535,
       "outputTableName": "notes",
       "partitionBy": [],
       "table": {
@@ -1012,7 +1012,7 @@ exports[`new sync stream features > in array and additional filter in subquery 1
 {
   "buckets": [
     {
-      "hash": 322018032,
+      "hash": 371862092,
       "sources": [
         0,
       ],
@@ -1025,7 +1025,7 @@ exports[`new sync stream features > in array and additional filter in subquery 1
         "star",
       ],
       "filters": [],
-      "hash": 526524156,
+      "hash": 25953646,
       "outputTableName": "notes",
       "partitionBy": [
         {
@@ -1066,7 +1066,7 @@ exports[`new sync stream features > in array and additional filter in subquery 1
           "type": "binary",
         },
       ],
-      "hash": 372404644,
+      "hash": 450331817,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1169,7 +1169,7 @@ exports[`new sync stream features > in json array 1`] = `
 {
   "buckets": [
     {
-      "hash": 28125559,
+      "hash": 267897099,
       "sources": [
         0,
       ],
@@ -1200,7 +1200,7 @@ exports[`new sync stream features > in json array 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 475318095,
+      "hash": 484392710,
       "outputTableName": "notes",
       "partitionBy": [],
       "table": {
@@ -1247,7 +1247,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
 {
   "buckets": [
     {
-      "hash": 87224296,
+      "hash": 221193482,
       "sources": [
         0,
       ],
@@ -1260,7 +1260,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 5951378,
+      "hash": 97057433,
       "outputTableName": "u",
       "partitionBy": [
         {
@@ -1283,7 +1283,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 323715566,
+      "hash": 7102946,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1315,7 +1315,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
     },
     {
       "filters": [],
-      "hash": 302276225,
+      "hash": 96230619,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -1424,7 +1424,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
 {
   "buckets": [
     {
-      "hash": 514655288,
+      "hash": 499713123,
       "sources": [
         0,
       ],
@@ -1437,7 +1437,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 445379715,
+      "hash": 313970881,
       "outputTableName": "m",
       "partitionBy": [
         {
@@ -1475,7 +1475,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 64213188,
+      "hash": 478900091,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1568,7 +1568,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
 {
   "buckets": [
     {
-      "hash": 260926888,
+      "hash": 372337345,
       "sources": [
         0,
         1,
@@ -1582,7 +1582,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 353156391,
+      "hash": 62299225,
       "outputTableName": "users",
       "partitionBy": [
         {
@@ -1606,7 +1606,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 41817212,
+      "hash": 521704692,
       "outputTableName": "families",
       "partitionBy": [
         {
@@ -1629,7 +1629,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 143919389,
+      "hash": 381188991,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1661,7 +1661,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
     },
     {
       "filters": [],
-      "hash": 32571796,
+      "hash": 440281250,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -1770,7 +1770,7 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
 {
   "buckets": [
     {
-      "hash": 415757919,
+      "hash": 184379202,
       "sources": [
         0,
       ],
@@ -1783,7 +1783,7 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 166151257,
+      "hash": 29364994,
       "outputTableName": "events",
       "partitionBy": [
         {
@@ -1806,7 +1806,7 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 29987209,
+      "hash": 418216473,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1899,7 +1899,7 @@ exports[`new sync stream features > joins feedback > response 9 1`] = `
 {
   "buckets": [
     {
-      "hash": 243129021,
+      "hash": 206255983,
       "sources": [
         0,
       ],
@@ -1912,7 +1912,7 @@ exports[`new sync stream features > joins feedback > response 9 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 105399988,
+      "hash": 333904209,
       "outputTableName": "u",
       "partitionBy": [
         {
@@ -1935,7 +1935,7 @@ exports[`new sync stream features > joins feedback > response 9 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 88350941,
+      "hash": 1436015,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1967,7 +1967,7 @@ exports[`new sync stream features > joins feedback > response 9 1`] = `
     },
     {
       "filters": [],
-      "hash": 343817501,
+      "hash": 469586132,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -2076,7 +2076,7 @@ exports[`new sync stream features > joins feedback > response 10 1`] = `
 {
   "buckets": [
     {
-      "hash": 437667704,
+      "hash": 417667471,
       "sources": [
         0,
       ],
@@ -2089,7 +2089,7 @@ exports[`new sync stream features > joins feedback > response 10 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 268156404,
+      "hash": 329182865,
       "outputTableName": "a",
       "partitionBy": [
         {
@@ -2112,7 +2112,7 @@ exports[`new sync stream features > joins feedback > response 10 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 88350941,
+      "hash": 1436015,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -2144,7 +2144,7 @@ exports[`new sync stream features > joins feedback > response 10 1`] = `
     },
     {
       "filters": [],
-      "hash": 343817501,
+      "hash": 469586132,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -2176,7 +2176,7 @@ exports[`new sync stream features > joins feedback > response 10 1`] = `
     },
     {
       "filters": [],
-      "hash": 392582824,
+      "hash": 434154687,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "2",
@@ -2301,7 +2301,7 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
 {
   "buckets": [
     {
-      "hash": 327475413,
+      "hash": 15255881,
       "sources": [
         0,
       ],
@@ -2314,7 +2314,7 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 259562331,
+      "hash": 334678181,
       "outputTableName": "t",
       "partitionBy": [
         {
@@ -2337,7 +2337,7 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 97816743,
+      "hash": 277446621,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -2430,7 +2430,7 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
 {
   "buckets": [
     {
-      "hash": 160259622,
+      "hash": 242995705,
       "sources": [
         0,
       ],
@@ -2443,7 +2443,7 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 394681392,
+      "hash": 350236831,
       "outputTableName": "p",
       "partitionBy": [
         {
@@ -2466,7 +2466,7 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 531268250,
+      "hash": 225571037,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -2547,7 +2547,7 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 296491538,
+      "hash": 395043210,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -2656,7 +2656,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
 {
   "buckets": [
     {
-      "hash": 27478573,
+      "hash": 188573007,
       "sources": [
         0,
       ],
@@ -2669,7 +2669,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 97931753,
+      "hash": 252506179,
       "outputTableName": "c",
       "partitionBy": [
         {
@@ -2692,7 +2692,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 153371152,
+      "hash": 438214067,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -2739,7 +2739,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 382068356,
+      "hash": 5166607,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -2771,7 +2771,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
     },
     {
       "filters": [],
-      "hash": 503875718,
+      "hash": 305606865,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "2",
@@ -2896,7 +2896,7 @@ exports[`new sync stream features > json-each of cte 1`] = `
 {
   "buckets": [
     {
-      "hash": 385826507,
+      "hash": 156964455,
       "sources": [
         0,
       ],
@@ -2952,7 +2952,7 @@ exports[`new sync stream features > json-each of cte 1`] = `
         },
       ],
       "filters": [],
-      "hash": 288003166,
+      "hash": 452187534,
       "outputTableName": "Scene",
       "partitionBy": [
         {
@@ -3012,7 +3012,7 @@ exports[`new sync stream features > json-each of cte 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 133462033,
+      "hash": 98845667,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -3230,7 +3230,7 @@ exports[`new sync stream features > not in array 1`] = `
 {
   "buckets": [
     {
-      "hash": 185054388,
+      "hash": 207301670,
       "sources": [
         0,
       ],
@@ -3267,7 +3267,7 @@ exports[`new sync stream features > not in array 1`] = `
           "type": "unary",
         },
       ],
-      "hash": 2294649,
+      "hash": 159147029,
       "outputTableName": "notes",
       "partitionBy": [],
       "table": {
@@ -3304,7 +3304,7 @@ exports[`new sync stream features > not in json array 1`] = `
 {
   "buckets": [
     {
-      "hash": 464039641,
+      "hash": 52312721,
       "sources": [
         0,
       ],
@@ -3338,7 +3338,7 @@ exports[`new sync stream features > not in json array 1`] = `
           "type": "unary",
         },
       ],
-      "hash": 354655507,
+      "hash": 133622965,
       "outputTableName": "notes",
       "partitionBy": [],
       "table": {
@@ -3375,7 +3375,7 @@ exports[`new sync stream features > order-independent parameters 1`] = `
 {
   "buckets": [
     {
-      "hash": 67514874,
+      "hash": 13101728,
       "sources": [
         0,
         1,
@@ -3389,7 +3389,7 @@ exports[`new sync stream features > order-independent parameters 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 440482107,
+      "hash": 486948174,
       "outputTableName": "stores",
       "partitionBy": [
         {
@@ -3421,7 +3421,7 @@ exports[`new sync stream features > order-independent parameters 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 272980298,
+      "hash": 516218655,
       "outputTableName": "products",
       "partitionBy": [
         {
@@ -3514,7 +3514,7 @@ exports[`new sync stream features > row metadata 1`] = `
 {
   "buckets": [
     {
-      "hash": 524705252,
+      "hash": 13444962,
       "sources": [
         0,
       ],
@@ -3536,7 +3536,7 @@ exports[`new sync stream features > row metadata 1`] = `
         },
       ],
       "filters": [],
-      "hash": 352817177,
+      "hash": 418226136,
       "outputTableName": "source",
       "partitionBy": [
         {
@@ -3602,7 +3602,7 @@ exports[`new sync stream features > table-valued functions > partition on data 1
 {
   "buckets": [
     {
-      "hash": 71456886,
+      "hash": 28022504,
       "sources": [
         0,
       ],
@@ -3615,7 +3615,7 @@ exports[`new sync stream features > table-valued functions > partition on data 1
         "star",
       ],
       "filters": [],
-      "hash": 81981113,
+      "hash": 332279886,
       "outputTableName": "posts",
       "partitionBy": [
         {
@@ -3694,7 +3694,7 @@ exports[`new sync stream features > table-valued functions > partition on parame
 {
   "buckets": [
     {
-      "hash": 445777469,
+      "hash": 457862451,
       "sources": [
         0,
       ],
@@ -3707,7 +3707,7 @@ exports[`new sync stream features > table-valued functions > partition on parame
         "star",
       ],
       "filters": [],
-      "hash": 75754117,
+      "hash": 102194264,
       "outputTableName": "users",
       "partitionBy": [
         {
@@ -3730,7 +3730,7 @@ exports[`new sync stream features > table-valued functions > partition on parame
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 310310455,
+      "hash": 368987341,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -3836,7 +3836,7 @@ exports[`new sync stream features > table-valued functions > static filter 1`] =
 {
   "buckets": [
     {
-      "hash": 144538386,
+      "hash": 378144963,
       "sources": [
         0,
       ],
@@ -3865,7 +3865,7 @@ exports[`new sync stream features > table-valued functions > static filter 1`] =
           "type": "binary",
         },
       ],
-      "hash": 297403199,
+      "hash": 219838904,
       "outputTableName": "posts",
       "partitionBy": [],
       "table": {
