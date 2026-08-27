@@ -83,10 +83,11 @@ export class SourceTable {
   public syncParameters = true;
 
   /**
-   * True if this table should fire events for row changes.
+   * True if this table should evaluate event definitions for row changes.
    *
    * This value is resolved externally, and cached here. V3 storage assigns disjoint
-   * event-definition ids to SourceTables for the same ref, so each event is fired once.
+   * event-definition ids to SourceTables for the same physical table. Multiple records
+   * may evaluate different events, but each event id is evaluated through at most one record.
    *
    * Defaults to true for tests.
    */

@@ -53,7 +53,7 @@ A `SourceTable` is a replicated table with state:
 
 There may be multiple `SourceTable`s per `SourceTableRef`. Historically it was generally 1:1, but incremental reprocessing now uses multiple records when a new bucket data source or parameter index is added. Instead of re-snapshotting an existing `SourceTable`, storage creates a new `SourceTable` with the same `SourceTableRef`. The new snapshot then only affects the new definitions, not existing compatible ones.
 
-When multiple records exist for one physical table, their bucket, parameter, and event memberships must be disjoint so each definition receives each source row once. An unchanged event id can reuse a snapshotted record, while a new or changed event id creates new snapshot work.
+When multiple records exist for one physical table, their bucket, parameter, and event memberships must be disjoint. Multiple records may evaluate different events, but each event id is evaluated through at most one record for a physical row change. That evaluation may produce multiple payloads when several payload queries match. An unchanged event id can reuse a snapshotted record, while a new or changed event id creates new snapshot work.
 
 `SourceTable` is also used to track changes that may require a re-snapshot:
 

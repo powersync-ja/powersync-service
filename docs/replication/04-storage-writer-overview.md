@@ -22,7 +22,7 @@ The source connector is responsible for closing each writer cleanly so pending w
 
 Before source rows can be evaluated, discovered table or collection metadata has to be matched to the stream's parsed sync config set and the persisted source table state. That resolution decides which `SourceTable` records should receive data, which persisted bucket or parameter definition ids they cover, and which outdated mappings should be removed.
 
-In incremental storage, one physical source entity can map to multiple `SourceTable` records. Each record owns a disjoint set of bucket data definition ids, parameter index ids, and compiled event definition ids. New definitions can therefore snapshot without forcing already-compatible definitions to be reprocessed. An event-only record owns event ids but no bucket or parameter memberships.
+In incremental storage, one physical source entity can map to multiple `SourceTable` records. Each record owns a disjoint set of bucket data definition ids, parameter index ids, and compiled event definition ids. Multiple records may evaluate different events, but each event id belongs to at most one record per physical source entity. Evaluating one event may produce multiple payloads when several payload queries match the row. New definitions can therefore snapshot without forcing already-compatible definitions to be reprocessed. An event-only record owns event ids but no bucket or parameter memberships.
 
 See [09-resolve-tables-flow.md](./09-resolve-tables-flow.md) for the detailed source table lifecycle.
 

@@ -198,9 +198,10 @@ class SourceTableReconciliationPlanner {
   }
 
   // Membership sets must be pairwise disjoint across the docs of one physical table:
-  // each desired id is covered by exactly one doc, so each definition receives each
-  // row exactly once. The algorithm maintains this (new docs only get uncovered ids,
-  // narrowing only removes ids) - overlap means the persisted state is corrupt.
+  // each desired id is covered by exactly one doc, so each definition is evaluated through
+  // only one SourceTable for a physical row. Different docs may own different event ids.
+  // The algorithm maintains this (new docs only get uncovered ids, narrowing only removes ids) -
+  // overlap means the persisted state is corrupt.
   private addCoverage(doc: SourceTableDocumentV3, kind: string, covered: Set<string>, ids: string[]) {
     const { schema, name } = this.context.identity;
     for (const id of ids) {

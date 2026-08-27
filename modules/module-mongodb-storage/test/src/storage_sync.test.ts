@@ -634,8 +634,9 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
   test.runIf(storageVersion >= 3)('resolveTables assigns an event definition to one split source table', async () => {
     // When memberships are split over multiple SourceTables for the same ref, a row change
-    // is saved once per table. Only one table may fire events, otherwise the same event
-    // would fire once per table for every row change.
+    // is saved once per table. Each event-definition id must belong to only one of those tables,
+    // otherwise that definition would be evaluated more than once for the same row change.
+    // Other tables may independently own and evaluate different event definitions.
     const dataOnlyEventYaml = `
     bucket_definitions:
       by_owner:
@@ -688,19 +689,19 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       parsedSyncConfig: fullRules
     });
     expect(split.tables).toHaveLength(2);
-    // Both tables match the event by ref, but the event id belongs to only one of them.
-    const carriers = split.tables.filter((table) => table.syncEvent);
-    expect(carriers).toHaveLength(1);
+    // Both tables match the event by ref, but this event id belongs to only one of them.
+    const eventOwners = split.tables.filter((table) => table.syncEvent);
+    expect(eventOwners).toHaveLength(1);
 
     // getSourceTableStatus rehydrates the persisted event memberships rather than recomputing
-    // them from the ref, so refreshing the other table does not make it fire the event.
-    const nonCarrier = split.tables.find((table) => !table.syncEvent)!;
-    const refreshed = await writer.getSourceTableStatus(nonCarrier);
+    // them from the ref, so refreshing the other table does not assign this event to it.
+    const nonOwner = split.tables.find((table) => !table.syncEvent)!;
+    const refreshed = await writer.getSourceTableStatus(nonOwner);
     expect(refreshed!.syncEvent).toBe(false);
   });
 
   test.runIf(storageVersion >= 3)(
-    'reuses an unchanged event definition without resnapshotting or firing it twice',
+    'reuses an unchanged event definition without resnapshotting or duplicate evaluation',
     async () => {
       const firstYaml = `
 config:

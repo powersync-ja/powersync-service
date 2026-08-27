@@ -324,7 +324,7 @@ streams:
   test('drops current_data when a table becomes event-only but is kept by a live event', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
 
-    // The first config syncs `todos` data and also fires events for it.
+    // The first config syncs `todos` data and also evaluates the audit event for its rows.
     const first = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
         `
@@ -431,7 +431,7 @@ event_definitions:
   test('cleans up event-only source tables no longer triggered by a live sync config', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
 
-    // The first config syncs `todos` and additionally fires events for `audit_log`. The
+    // The first config syncs `todos` and additionally evaluates the audit event for `audit_log`. The
     // `audit_log` table is referenced only by the event trigger, so its source table has only an
     // event membership (an event-only table).
     const first = await factory.updateSyncRules(

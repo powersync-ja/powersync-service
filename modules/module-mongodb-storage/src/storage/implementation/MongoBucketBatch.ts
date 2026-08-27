@@ -768,8 +768,9 @@ export abstract class MongoBucketBatch
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
-    // V3 source tables own disjoint event-definition ids, so a definition is fired by
-    // exactly one SourceTable even when bucket and parameter memberships are split.
+    // V3 source tables own disjoint event-definition ids for each physical table. Multiple
+    // SourceTables may evaluate different events, but each definition is evaluated through
+    // at most one record for this row change.
     // Legacy storage leaves eventDefinitionIds undefined and selects by table ref.
     if (sourceTable.syncEvent) {
       for (const event of this.getTableEvents(sourceTable)) {
@@ -945,8 +946,8 @@ export abstract class MongoBucketBatch
   protected getTableEvents(table: storage.SourceTable): HydratedEventDescriptor[] {
     // V3 storage assigns event-definition ids to each source table, so membership is authoritative.
     // Iterate the table's distinct ids and resolve each through the stream's deduped event map, so a
-    // definition reused across configs fires exactly once. Legacy storage leaves this undefined and
-    // selects by table ref.
+    // definition reused across configs has one evaluator for that id. The evaluator may still return
+    // multiple payloads from matching queries. Legacy storage leaves this undefined and selects by table ref.
     if (table.eventDefinitionIds != null) {
       const eventById = this.options.parsedSyncConfig.eventById;
       const events: HydratedEventDescriptor[] = [];

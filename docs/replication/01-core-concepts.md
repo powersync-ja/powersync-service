@@ -98,7 +98,7 @@ A `SourceTable` tracks:
 - Per-table snapshot completion and progress.
 - The bucket data sources, parameter lookup sources, and events that use it, plus their persisted definition ids where storage tracks them.
 
-With v3 incremental storage, each event definition's assigned storage id belongs to exactly one `SourceTable` record for a physical table. This lets the source connector save a row change to each relevant table record without firing the same event twice, while a changed event definition can receive its own snapshot work.
+With v3 incremental storage, each event definition's assigned storage id belongs to at most one `SourceTable` record per matching physical table. The same id may therefore appear on records for multiple physical tables. Multiple payload queries matching the same physical table share that single membership and may produce multiple payloads when the source connector evaluates a row change. This avoids evaluating the same event twice for one physical-table change while allowing a changed event definition to receive its own snapshot work.
 
 For a fuller walkthrough, see [09-resolve-tables-flow.md](./09-resolve-tables-flow.md).
 
