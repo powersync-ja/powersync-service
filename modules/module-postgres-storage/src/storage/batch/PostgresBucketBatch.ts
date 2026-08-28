@@ -19,6 +19,7 @@ import {
   utils
 } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
+import { orNull } from '@powersync/service-types';
 import * as timers from 'timers/promises';
 import * as t from 'ts-codec';
 import * as uuid from 'uuid';
@@ -64,10 +65,10 @@ const StatefulCheckpoint = models.ActiveCheckpoint.and(t.object({ state: t.Enum(
 const CheckpointWithStatus = StatefulCheckpoint.and(
   t.object({
     snapshot_done: t.boolean,
-    no_checkpoint_before: t.string.or(t.Null),
+    no_checkpoint_before: orNull(t.string),
     can_checkpoint: t.boolean,
-    keepalive_op: bigint.or(t.Null),
-    new_last_checkpoint: bigint.or(t.Null),
+    keepalive_op: orNull(bigint),
+    new_last_checkpoint: orNull(bigint),
     created_checkpoint: t.boolean
   })
 );

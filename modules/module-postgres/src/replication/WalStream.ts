@@ -582,7 +582,8 @@ WHERE  oid = $1::regclass`,
         zeroLSN: ZERO_LSN,
         defaultSchema: POSTGRES_DEFAULT_SCHEMA,
         storeCurrentData: true,
-        skipExistingRows: true
+        skipExistingRows: true,
+        signal: this.abort_signal
       },
       async (batch) => {
         let tablesWithStatus: SourceTable[] = [];
@@ -1135,7 +1136,8 @@ WHERE  oid = $1::regclass`,
         defaultSchema: POSTGRES_DEFAULT_SCHEMA,
         storeCurrentData: true,
         skipExistingRows: false,
-        markRecordUnavailable
+        markRecordUnavailable,
+        signal: this.abort_signal
       },
       async (batch) => {
         // We don't handle any plain keepalive messages while we have transactions.

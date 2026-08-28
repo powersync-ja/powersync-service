@@ -1,6 +1,12 @@
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
 import { BinLogListener, SchemaChange, SchemaChangeType } from '@module/replication/zongji/BinLogListener.js';
-import { getMySQLVersion, qualifiedMySQLTable, satisfiesVersion } from '@module/utils/mysql-utils.js';
+import {
+  getMySQLVersion,
+  qualifiedMySQLTable,
+  satisfiesVersion,
+  TCP_KEEPALIVE_INITIAL_DELAY
+} from '@module/utils/mysql-utils.js';
+import { MySQLConnection } from '@powersync/mysql-zongji';
 import { TablePattern } from '@powersync/service-sync-rules';
 import crypto from 'crypto';
 import { v4 as uuid } from 'uuid';
@@ -12,6 +18,11 @@ import {
   TEST_CONNECTION_OPTIONS,
   TestBinLogEventHandler
 } from './util.js';
+
+// The zongji type definitions do not expose the connection config.
+type ConnectionWithConfig = MySQLConnection & {
+  config: { enableKeepAlive?: boolean; keepAliveInitialDelay?: number };
+};
 
 describe('BinlogListener tests', { timeout: 60_000 }, () => {
   const MAX_QUEUE_CAPACITY_MB = 1;
@@ -59,6 +70,116 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
 
     expect(stopSpy).toHaveBeenCalled();
     expect(queueStopSpy).toHaveBeenCalled();
+    // Zongji destroys its control connection when stopping.
+    expect(binLogListener.zongji.ctrlConnection.state).toBe('disconnected');
+  });
+
+  test('TCP keepalive is enabled on the binlog and control connections', async () => {
+    // Without keepalive, the control connection can idle for hours and be silently dropped by
+    // stateful firewalls. The next metadata query then blocks until the kernel gives up on TCP
+    // retransmissions, freezing the whole binlog pipeline for ~15 minutes.
+    const { connection } = binLogListener.zongji as unknown as { connection: ConnectionWithConfig };
+    const controlConnection = binLogListener.zongji.ctrlConnection as ConnectionWithConfig;
+
+    for (const conn of [connection, controlConnection]) {
+      expect(conn.config.enableKeepAlive).toBe(true);
+      expect(conn.config.keepAliveInitialDelay).toBe(TCP_KEEPALIVE_INITIAL_DELAY);
+    }
+  });
+
+  test('Stop completes when the control connection is unresponsive', { timeout: 20_000 }, async () => {
+    await binLogListener.start();
+
+    // Simulate a control connection that was silently dropped by the network: the KILL query
+    // issued by zongji.stop() never gets a response.
+    vi.spyOn(binLogListener.zongji.ctrlConnection, 'query').mockImplementation(() => {});
+
+    await binLogListener.stop();
+
+    expect(binLogListener.zongji.stopped).toBeTruthy();
+  });
+
+  test('Probe on a healthy control connection passes', { timeout: 20_000 }, async () => {
+    await binLogListener.start();
+
+    // No mocking: the real driver must accept the options form of query and answer the probe.
+    const controlConnection = binLogListener.zongji.ctrlConnection;
+    const realQuery = controlConnection.query.bind(controlConnection);
+    const probeError = new Promise((resolve) => {
+      vi.spyOn(controlConnection, 'query').mockImplementation(((options: any, callback: any) => {
+        realQuery(options, (error: any, results: any, fields: any) => {
+          callback(error, results, fields);
+          resolve(error);
+        });
+      }) as any);
+    });
+
+    binLogListener.probeControlConnection();
+
+    expect(await probeError).toBeNull();
+    expect(binLogListener.zongji.stopped).toBeFalsy();
+
+    await binLogListener.stop();
+  });
+
+  test('Probe detects an unresponsive control connection', { timeout: 20_000 }, async () => {
+    binLogListener = await createBinlogListener({
+      connectionManager,
+      sourceTables: [new TablePattern(connectionManager.databaseName, 'test_DATA')],
+      eventHandler,
+      ctrlConnectionProbeTimeoutMs: 500
+    });
+    await binLogListener.start();
+
+    // The probe query starts executing but never gets a response, like a connection that died
+    // without either side being notified: the driver's query timeout fires.
+    vi.spyOn(binLogListener.zongji.ctrlConnection, 'query').mockImplementation(((_options: any, callback: any) => {
+      const error: any = new Error('Query inactivity timeout');
+      error.code = 'PROTOCOL_SEQUENCE_TIMEOUT';
+      setTimeout(() => callback(error), 10);
+    }) as any);
+
+    const replication = binLogListener.replicateUntilStopped();
+    binLogListener.probeControlConnection();
+
+    await expect(replication).rejects.toThrow('control connection is unresponsive');
+    expect(binLogListener.zongji.stopped).toBeTruthy();
+  });
+
+  test('Probe queued behind a busy control connection does not report it dead', { timeout: 20_000 }, async () => {
+    binLogListener = await createBinlogListener({
+      connectionManager,
+      sourceTables: [new TablePattern(connectionManager.databaseName, 'test_DATA')],
+      eventHandler,
+      ctrlConnectionProbeTimeoutMs: 500
+    });
+    await binLogListener.start();
+
+    // The probe never even starts executing, as if queued behind a long-running metadata query on
+    // a healthy connection. The probe must not report the connection dead, and further probes must
+    // not pile up behind the pending one.
+    const querySpy = vi.spyOn(binLogListener.zongji.ctrlConnection, 'query').mockImplementation((() => {}) as any);
+
+    binLogListener.probeControlConnection();
+    binLogListener.probeControlConnection();
+
+    expect(querySpy).toHaveBeenCalledTimes(1);
+    expect(binLogListener.zongji.stopped).toBeFalsy();
+
+    querySpy.mockRestore();
+    await binLogListener.stop();
+  });
+
+  test('Control connection errors stop the listener', { timeout: 20_000 }, async () => {
+    await binLogListener.start();
+
+    const replication = binLogListener.replicateUntilStopped();
+    // The driver emits 'error' when the socket fails while no query is pending. Without the
+    // forwarding set up in createBinlogListener, this event has no listener and crashes the process.
+    (binLogListener.zongji.ctrlConnection as any).emit('error', new Error('Control connection failure'));
+
+    await expect(replication).rejects.toThrow('Control connection failure');
+    expect(binLogListener.zongji.stopped).toBeTruthy();
   });
 
   test('Zongji listener is stopped when processing queue reaches maximum memory size', async () => {

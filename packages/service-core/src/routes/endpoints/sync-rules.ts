@@ -181,6 +181,7 @@ export const reprocessSyncRules = routeDefinition({
         // This sync config already passed validation. But if the rules are not valid anymore due
         // to a service change, we do want to report the error here.
         validate: true,
+        version_label: sync_rules.version_label,
         forceNewReplicationStream: true
       })
     );

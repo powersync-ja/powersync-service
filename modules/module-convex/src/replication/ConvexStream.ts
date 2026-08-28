@@ -155,7 +155,8 @@ export class ConvexStream {
       // Convex document_deltas include the full document state after each mutation,
       // so storage does not need to keep current row data to apply partial updates.
       storeCurrentData: false,
-      skipExistingRows: false
+      skipExistingRows: false,
+      signal: this.abortSignal
     });
 
     let resumeFromLsn = batch.resumeFromLsn;
@@ -331,7 +332,8 @@ export class ConvexStream {
       defaultSchema: this.defaultSchema,
       // Convex snapshots emit complete documents, so no current row state is needed.
       storeCurrentData: false,
-      skipExistingRows: true
+      skipExistingRows: true,
+      signal: this.abortSignal
     });
 
     const snapshotCursor = await this.resolveSnapshotBoundary(snapshotLsn);

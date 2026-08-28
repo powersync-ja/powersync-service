@@ -1,3 +1,4 @@
+import { orNull } from '@powersync/service-types';
 import * as t from 'ts-codec';
 import { bigint, hexBuffer, pgwire_number } from '../codecs.js';
 
@@ -13,13 +14,13 @@ export const BucketData = t.object({
   bucket_name: t.string,
   op_id: bigint,
   op: t.Enum(OpType),
-  source_table: t.Null.or(t.string),
-  source_key: t.Null.or(hexBuffer),
-  table_name: t.string.or(t.Null),
-  row_id: t.string.or(t.Null),
+  source_table: orNull(t.string),
+  source_key: orNull(hexBuffer),
+  table_name: orNull(t.string),
+  row_id: orNull(t.string),
   checksum: bigint,
-  data: t.Null.or(t.string),
-  target_op: t.Null.or(bigint)
+  data: orNull(t.string),
+  target_op: orNull(bigint)
 });
 
 export type BucketData = t.Encoded<typeof BucketData>;

@@ -1,3 +1,4 @@
+import { orNull } from '@powersync/service-types';
 import * as t from 'ts-codec';
 import { bigint, pgwire_number } from '../codecs.js';
 
@@ -7,8 +8,8 @@ import { bigint, pgwire_number } from '../codecs.js';
  */
 export const ActiveCheckpoint = t.object({
   id: pgwire_number,
-  last_checkpoint: t.Null.or(bigint),
-  last_checkpoint_lsn: t.Null.or(t.string)
+  last_checkpoint: orNull(bigint),
+  last_checkpoint_lsn: orNull(t.string)
 });
 
 export type ActiveCheckpoint = t.Encoded<typeof ActiveCheckpoint>;

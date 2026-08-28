@@ -1,5 +1,6 @@
 export * as configFile from './config/PowerSyncConfig.js';
 
+export * from './codecs.js';
 export * from './definitions.js';
 export * from './metrics.js';
 export * as metric_types from './metrics.js';

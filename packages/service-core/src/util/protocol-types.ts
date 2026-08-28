@@ -1,5 +1,6 @@
 import { JsonContainer } from '@powersync/service-jsonbig';
 import { BucketPriority, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { orNull } from '@powersync/service-types';
 import * as t from 'ts-codec';
 
 export const BucketRequest = t.object({
@@ -24,14 +25,14 @@ export const RequestedStreamSubscription = t.object({
   /**
    * An optional dictionary of parameters to pass to this specific stream.
    */
-  parameters: t.union(t.record(t.any), t.Null),
+  parameters: orNull(t.record(t.any)),
   /**
    * Set when the client wishes to re-assign a different priority to this stream.
    *
    * Streams and sync rules can also assign a default priority, but clients are allowed to override those. This can be
    * useful when the priority for partial syncs depends on e.g. the current page opened in a client.
    */
-  override_priority: t.union(t.number, t.Null)
+  override_priority: orNull(t.number)
 });
 
 export type RequestedStreamSubscription = t.Decoded<typeof RequestedStreamSubscription>;

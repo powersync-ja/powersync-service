@@ -22,6 +22,7 @@ export type Runner = (config: RunnerConfig) => Promise<void>;
 
 export type SyncRulesConfig = {
   present: boolean;
+  version_label?: string;
   content?: string;
   path?: string;
   exit_on_error: boolean;

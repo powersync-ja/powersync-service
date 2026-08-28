@@ -1,4 +1,5 @@
 import { framework } from '@powersync/service-core';
+import { orNull } from '@powersync/service-types';
 import * as t from 'ts-codec';
 import { bigint, jsonb } from '../codecs.js';
 
@@ -6,7 +7,7 @@ export const WriteCheckpoint = t.object({
   user_id: t.string,
   lsns: jsonb(t.record(t.string)),
   write_checkpoint: bigint,
-  checkpoint_requested_at: t.Null.or(framework.codecs.date)
+  checkpoint_requested_at: orNull(framework.codecs.date)
 });
 
 export type WriteCheckpoint = t.Encoded<typeof WriteCheckpoint>;
@@ -16,7 +17,7 @@ export const CustomWriteCheckpoint = t.object({
   user_id: t.string,
   write_checkpoint: bigint,
   sync_rules_id: bigint,
-  checkpoint_requested_at: t.Null.or(framework.codecs.date)
+  checkpoint_requested_at: orNull(framework.codecs.date)
 });
 
 export type CustomWriteCheckpoint = t.Encoded<typeof CustomWriteCheckpoint>;

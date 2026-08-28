@@ -196,7 +196,8 @@ export class CDCStream {
         logger: this.logger,
         zeroLSN: LSN.ZERO,
         defaultSchema: this.defaultSchema,
-        storeCurrentData: false
+        storeCurrentData: false,
+        signal: this.abortSignal
       },
       async (batch) => {
         for (let tablePattern of sourceTables) {
@@ -503,7 +504,8 @@ export class CDCStream {
         zeroLSN: LSN.ZERO,
         defaultSchema: this.defaultSchema,
         storeCurrentData: false,
-        skipExistingRows: true
+        skipExistingRows: true,
+        signal: this.abortSignal
       },
       async (batch) => {
         switch (status) {
@@ -659,7 +661,8 @@ export class CDCStream {
         zeroLSN: LSN.ZERO,
         defaultSchema: this.defaultSchema,
         storeCurrentData: false,
-        skipExistingRows: false
+        skipExistingRows: false,
+        signal: this.abortSignal
       },
       async (batch) => {
         if (batch.resumeFromLsn == null) {

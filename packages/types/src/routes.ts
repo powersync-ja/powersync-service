@@ -1,4 +1,5 @@
 import * as t from 'ts-codec';
+import { anyPrimitive } from './codecs.js';
 import { ConnectionStatus, InstanceSchema, SyncRulesStatus } from './definitions.js';
 
 export const GetSchemaRequest = t.object({});
@@ -11,7 +12,7 @@ export const ExecuteSqlRequest = t.object({
   connection_id: t.string.optional(),
   sql: t.object({
     query: t.string,
-    args: t.array(t.string.or(t.number).or(t.boolean))
+    args: t.array(anyPrimitive({ string: true, number: true, boolean: true }))
   })
 });
 export type ExecuteSqlRequest = t.Encoded<typeof ExecuteSqlRequest>;
@@ -20,7 +21,7 @@ export const ExecuteSqlResponse = t.object({
   success: t.boolean,
   results: t.object({
     columns: t.array(t.string),
-    rows: t.array(t.array(t.string.or(t.number).or(t.boolean).or(t.Null)))
+    rows: t.array(t.array(anyPrimitive({ string: true, number: true, boolean: true, null: true })))
   }),
   /** Set if success = false */
   error: t.string.optional()

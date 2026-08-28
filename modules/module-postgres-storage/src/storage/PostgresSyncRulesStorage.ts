@@ -95,7 +95,7 @@ export class PostgresSyncRulesStorage
     this.factory = options.factory;
     this.storageConfig = options.replicationStream.getStorageConfig();
     this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
-    this.logger = options.replicationStream.logger;
+    this.logger = this.sync_rules.logger;
 
     this.writeCheckpointAPI = new PostgresWriteCheckpointAPI({
       db: this.db,

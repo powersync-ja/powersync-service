@@ -212,6 +212,7 @@ export class MongoSnapshotter {
       defaultSchema: this.defaultDb.databaseName,
       storeCurrentData: false,
       skipExistingRows: true,
+      signal: this.abortSignal,
       tracer: new PerformanceTracer('MongoDB initial snapshot setup')
     });
     if (snapshotLsn == null) {
@@ -361,7 +362,8 @@ export class MongoSnapshotter {
       zeroLSN: MongoLSN.ZERO.comparable,
       defaultSchema: this.defaultDb.databaseName,
       storeCurrentData: false,
-      skipExistingRows: true
+      skipExistingRows: true,
+      signal: this.abortSignal
     });
 
     // The checkpoint here is a marker - we need to replicate up to at least this
@@ -391,6 +393,7 @@ export class MongoSnapshotter {
       storeCurrentData: false,
       skipExistingRows: true,
       hooks: this.storageHooks,
+      signal: this.abortSignal,
       tracer: new PerformanceTracer('MongoDB snapshot table')
     });
     // Get fresh table info, in case it was updated while queuing.

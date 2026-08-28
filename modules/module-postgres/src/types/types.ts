@@ -27,7 +27,7 @@ export const PostgresConnectionConfig = service_types.configFile.DataSourceConfi
     /**
      * Interval in seconds between source connection heartbeats. Null or omitted uses the default.
      */
-    heartbeat_interval_seconds: t.number.or(t.Null).optional()
+    heartbeat_interval_seconds: service_types.orNull(t.number).optional()
   })
 );
 

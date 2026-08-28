@@ -236,6 +236,7 @@ describe('Config', () => {
       storage:
         type: mongodb
       sync_config:
+        version_label: v6
         content: |
           config:
             edition: 2
@@ -252,6 +253,7 @@ describe('Config', () => {
 
     expect(result.sync_rules).toEqual({
       present: true,
+      version_label: 'v6',
       exit_on_error: true,
       content: expect.stringContaining('edition: 2')
     });

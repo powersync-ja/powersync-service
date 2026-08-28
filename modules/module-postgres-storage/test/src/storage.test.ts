@@ -1,12 +1,13 @@
 import { framework, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, compactActive, register, test_utils } from '@powersync/service-core-tests';
+import { orNull } from '@powersync/service-types';
 import * as t from 'ts-codec';
 import { describe, expect, test } from 'vitest';
 import { CLEAR_BATCH_LIMIT } from '../../src/storage/PostgresSyncRulesStorage.js';
 import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
 const CheckpointRequestedAtRow = t.object({
-  checkpoint_requested_at: t.Null.or(framework.codecs.date)
+  checkpoint_requested_at: orNull(framework.codecs.date)
 });
 
 describe('Sync Bucket Validation', register.registerBucketValidationTests);

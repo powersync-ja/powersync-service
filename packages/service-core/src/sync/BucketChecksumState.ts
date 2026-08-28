@@ -39,7 +39,9 @@ export type SyncCheckpointTraceCategory =
   // Data fetches. Holds one data lock for this period.
   | 'bucket_data'
   // Sending data to client, may include serialization overhead. Holds one data lock for this period in most cases.
-  | 'sending';
+  | 'sending'
+  // Time spent reading concurrent S3 requests, counted once per batch.
+  | 's3';
 
 export interface BucketChecksumStateOptions {
   syncContext: SyncContext;

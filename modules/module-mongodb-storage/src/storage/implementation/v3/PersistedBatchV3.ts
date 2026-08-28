@@ -252,7 +252,7 @@ export class PersistedBatchV3 extends PersistedBatch {
             const maxOp = chunk[chunk.length - 1].o;
             const { ops: bucketOps, ...metadata } = serialized;
             const path = lifecycle.allocatePath(definitionId, bucket, minOp, maxOp);
-            const { fileSize } = await lifecycle.bucketData.store(path, bucketOps!);
+            const { fileSize } = await lifecycle.bucketData.store(path, bucketOps!, { signal: this.signal });
             return {
               insertOne: {
                 document: {

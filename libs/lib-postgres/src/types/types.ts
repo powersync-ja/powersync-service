@@ -24,7 +24,7 @@ export const BasePostgresConnectionConfig = t.object({
   database: t.string.optional(),
 
   /** Defaults to verify-full */
-  sslmode: t.literal('verify-full').or(t.literal('verify-ca')).or(t.literal('disable')).optional(),
+  sslmode: service_types.enumLiteral('verify-full', 'verify-ca', 'disable').optional(),
   /** Required for verify-ca, optional for verify-full */
   cacert: t.string.optional(),
 

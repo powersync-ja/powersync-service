@@ -147,6 +147,13 @@ export function acquireSemaphoreAbortable(
   abort: AbortSignal
 ): Promise<[number, SemaphoreInterface.Releaser] | 'aborted'> {
   return new Promise((resolve, reject) => {
+    // An already-aborted signal never fires its listener, and we would wait for the semaphore
+    // indefinitely.
+    if (abort.aborted) {
+      resolve('aborted');
+      return;
+    }
+
     let aborted = false;
     let hasSemaphore = false;
 
@@ -159,16 +166,22 @@ export function acquireSemaphoreAbortable(
     };
     abort.addEventListener('abort', listener);
 
-    semaphone.acquire().then((acquired) => {
-      hasSemaphore = true;
-      if (aborted) {
-        // Release semaphore, already aborted
-        acquired[1]();
-      } else {
+    semaphone.acquire().then(
+      (acquired) => {
+        hasSemaphore = true;
+        if (aborted) {
+          // Release semaphore, already aborted
+          acquired[1]();
+        } else {
+          abort.removeEventListener('abort', listener);
+          resolve(acquired);
+        }
+      },
+      (error) => {
         abort.removeEventListener('abort', listener);
-        resolve(acquired);
+        reject(error);
       }
-    }, reject);
+    );
   });
 }
 

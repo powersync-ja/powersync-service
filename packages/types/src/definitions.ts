@@ -1,4 +1,5 @@
 import * as t from 'ts-codec';
+import { enumLiteral, orNull } from './codecs.js';
 
 export const SourceSpan = t.object({
   start_offset: t.number,
@@ -8,7 +9,7 @@ export type SourceSpan = t.Encoded<typeof SourceSpan>;
 
 export const ReplicationError = t.object({
   /** Warning: Could indicate an issue. Fatal: Prevents replicating. */
-  level: t.literal('warning').or(t.literal('fatal')),
+  level: enumLiteral('warning', 'fatal'),
   message: t.string,
   location: SourceSpan.optional(),
   ts: t.string.optional()
@@ -35,6 +36,10 @@ export const TableInfo = t.object({
 export type TableInfo = t.Encoded<typeof TableInfo>;
 
 export const SyncRulesStatus = t.object({
+  /**
+   * Optional label identifying this deployed sync config version.
+   */
+  version_label: orNull(t.string).optional(),
   content: t.string.optional(),
   connections: t.array(
     t.object({

@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ObjectStorageDeletionMarker } from '../models.js';
 import { VersionedPowerSyncMongoV3 } from '../VersionedPowerSyncMongoV3.js';
 import { BucketDataObjectStorage } from './BucketDataObjectStorage.js';
-import { ObjectStorage } from './ObjectStorage.js';
+import { ObjectStorage, ObjectStorageOperationOptions } from './ObjectStorage.js';
 
 export const OBJECT_STORAGE_UPLOAD_LEASE_MS = 60 * 60 * 1000;
 export const OBJECT_STORAGE_PUBLICATION_SAFETY_MARGIN_MS = 2 * 60 * 1000;
@@ -137,11 +137,12 @@ export class ObjectStorageLifecycle {
    * Discover and delete objects by their storage prefix
    * without touching the database.
    */
-  async deletePrefix(prefix: string, options?: { signal?: AbortSignal }): Promise<{ objectCount: number }> {
+  async deletePrefix(prefix: string, options?: ObjectStorageOperationOptions): Promise<{ objectCount: number }> {
     return this.objectStorage.deletePrefix(prefix, { signal: options?.signal });
   }
 
-  async cleanup(logger: Logger): Promise<void> {
+  async cleanup(logger: Logger, options?: ObjectStorageOperationOptions): Promise<void> {
+    const signal = options?.signal;
     const markers = this.db.pendingObjectStorageDeletes(this.replicationStreamId);
     const cursor = markers.find({ delete_after: { $lte: new Date() } });
     let batch: ObjectStorageDeletionMarker[] = [];
@@ -153,14 +154,24 @@ export class ObjectStorageLifecycle {
       const deleting = batch;
       batch = [];
       try {
-        await this.bucketData.delete(deleting.map((marker) => marker.path));
+        await this.bucketData.delete(
+          deleting.map((marker) => marker.path),
+          { signal }
+        );
         await markers.deleteMany({ _id: { $in: deleting.map((marker) => marker._id) } });
       } catch (error) {
+        if (signal?.aborted) {
+          // Shutting down: stop instead of working through the remaining markers. They stay
+          // pending, and are cleaned up during the next compaction. Checked on the signal rather
+          // than the error, since a caller may abort with any reason.
+          throw error;
+        }
         logger.warn('Failed to clean up object storage deletion markers; will retry during the next compaction', error);
       }
     };
 
     for await (const marker of cursor) {
+      signal?.throwIfAborted();
       batch.push(marker);
       if (batch.length === 500) {
         await deleteBatch();

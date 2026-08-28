@@ -49,11 +49,17 @@ export class MySQLConnectionManager extends BaseObserver<MySQLConnectionManagerL
    * Create a new replication listener
    */
   createBinlogListener(): ZongJi {
+    // These options apply to both the binlog connection and the control connection Zongji creates.
     const listener = new ZongJi({
       host: this.options.hostname,
       port: this.options.port,
       user: this.options.username,
       password: this.options.password,
+      // TCP keepalive is disabled by default in @vlasky/mysql. Without it, the idle control
+      // connection can be silently dropped by stateful firewalls, freezing replication on the
+      // next table metadata query until the TCP retransmission timeout (~950s).
+      enableKeepAlive: true,
+      keepAliveInitialDelay: mysql_utils.TCP_KEEPALIVE_INITIAL_DELAY,
       // We want to avoid parsing date/time values to Date, because that drops sub-millisecond precision.
       dateStrings: true,
       timeZone: 'Z'
