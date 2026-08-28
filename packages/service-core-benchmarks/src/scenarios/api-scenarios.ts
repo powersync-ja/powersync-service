@@ -14,6 +14,19 @@ export function createMongoQuickApiScenario(version: number): ApiBenchmarkScenar
   return createQuickApiScenario('mongodb-storage', version);
 }
 
+export function createMongoCategoryApiScenario(version: number): ApiBenchmarkScenario {
+  const scenario = createMongoQuickApiScenario(version);
+  return {
+    ...scenario,
+    id: `api.initial.buckets-10.direct.mongodb-storage.v${version}.quick.ndjson`,
+    description: 'Drain an initial single-client NDJSON sync across 10 category buckets from mongodb-storage',
+    tags: [...scenario.tags, 'multi-buckets', 'buckets-10'],
+    syncRule: createCategoryStorageSyncRules,
+    sync_parameters: createCategorySyncParameters(),
+    expected_bucket_count: 10
+  };
+}
+
 export function createPostgresCategoryApiScenario(version: number): ApiBenchmarkScenario {
   const scenario = createPostgresQuickApiScenario(version);
   return {

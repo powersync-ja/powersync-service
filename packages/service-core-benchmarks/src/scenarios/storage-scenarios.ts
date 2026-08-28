@@ -34,6 +34,19 @@ export function createPostgresCategoryStorageScenario(version: number): StorageB
   };
 }
 
+export function createMongoCategoryStorageScenario(version: number): StorageBenchmarkScenario {
+  const scenario = createMongoQuickStorageScenario(version);
+  return {
+    ...scenario,
+    id: `storage.write.buckets-10.mongo-storage.v${version}.quick`,
+    description: 'Write 10000 rows across 10 category buckets directly to MongoDB bucket storage',
+    tags: [...scenario.tags, 'multi-buckets', 'buckets-10'],
+    syncRule: createCategoryStorageSyncRules,
+    sync_parameters: createCategorySyncParameters(),
+    expected_bucket_count: 10
+  };
+}
+
 function createQuickStorageScenario(
   implementation: StorageBenchmarkImplementationId,
   description: string,

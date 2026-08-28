@@ -8,6 +8,7 @@ import { NodeProcessResourceMonitor } from '../monitors/NodeProcessResourceMonit
 import { UnavailableResourceMonitor } from '../monitors/UnavailableResourceMonitor.js';
 import { StorageBenchmark } from '../runner/StorageBenchmark.js';
 import {
+  createMongoCategoryStorageScenario,
   createMongoQuickStorageScenario,
   createPostgresCategoryStorageScenario,
   createPostgresQuickStorageScenario
@@ -28,6 +29,14 @@ interface StorageBenchmarkCase {
 }
 
 const benchmarkCases: readonly StorageBenchmarkCase[] = [
+  {
+    scenario: createPostgresCategoryStorageScenario(STORAGE_VERSION_1),
+    implementation: new PostgresStorageBenchmarkImplementation({
+      url: process.env.PG_STORAGE_TEST_URL ?? 'postgres://postgres:postgres@localhost:5432/powersync_storage_test'
+    }),
+    expectedStorage: { implementation: 'postgres-storage', version: 1 },
+    unavailableMonitorReason: 'PostgreSQL database resource monitoring is not implemented'
+  },
   {
     scenario: createPostgresCategoryStorageScenario(STORAGE_VERSION_2),
     implementation: new PostgresStorageBenchmarkImplementation({
@@ -72,6 +81,33 @@ const benchmarkCases: readonly StorageBenchmarkCase[] = [
   },
   {
     scenario: createMongoQuickStorageScenario(STORAGE_VERSION_3),
+    implementation: new MongoStorageBenchmarkImplementation({
+      url: process.env.MONGO_TEST_URL ?? 'mongodb://localhost:27017/powersync_test',
+      isCI: process.env.CI === 'true'
+    }),
+    expectedStorage: { implementation: 'mongodb-storage', version: STORAGE_VERSION_3 },
+    unavailableMonitorReason: 'MongoDB database resource monitoring is not implemented'
+  },
+  {
+    scenario: createMongoCategoryStorageScenario(STORAGE_VERSION_1),
+    implementation: new MongoStorageBenchmarkImplementation({
+      url: process.env.MONGO_TEST_URL ?? 'mongodb://localhost:27017/powersync_test',
+      isCI: process.env.CI === 'true'
+    }),
+    expectedStorage: { implementation: 'mongodb-storage', version: STORAGE_VERSION_1 },
+    unavailableMonitorReason: 'MongoDB database resource monitoring is not implemented'
+  },
+  {
+    scenario: createMongoCategoryStorageScenario(STORAGE_VERSION_2),
+    implementation: new MongoStorageBenchmarkImplementation({
+      url: process.env.MONGO_TEST_URL ?? 'mongodb://localhost:27017/powersync_test',
+      isCI: process.env.CI === 'true'
+    }),
+    expectedStorage: { implementation: 'mongodb-storage', version: STORAGE_VERSION_2 },
+    unavailableMonitorReason: 'MongoDB database resource monitoring is not implemented'
+  },
+  {
+    scenario: createMongoCategoryStorageScenario(STORAGE_VERSION_3),
     implementation: new MongoStorageBenchmarkImplementation({
       url: process.env.MONGO_TEST_URL ?? 'mongodb://localhost:27017/powersync_test',
       isCI: process.env.CI === 'true'

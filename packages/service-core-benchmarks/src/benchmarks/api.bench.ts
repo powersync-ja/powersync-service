@@ -9,6 +9,7 @@ import { NodeProcessResourceMonitor } from '../monitors/NodeProcessResourceMonit
 import { UnavailableResourceMonitor } from '../monitors/UnavailableResourceMonitor.js';
 import { ApiBenchmark } from '../runner/ApiBenchmark.js';
 import {
+  createMongoCategoryApiScenario,
   createMongoQuickApiScenario,
   createPostgresCategoryApiScenario,
   createPostgresQuickApiScenario
@@ -42,6 +43,13 @@ const cases: readonly ApiBenchmarkCase[] = [
   },
   {
     scenario: createMongoQuickApiScenario(CURRENT_STORAGE_VERSION),
+    implementation: new MongoStorageBenchmarkImplementation({
+      url: process.env.MONGO_TEST_URL ?? 'mongodb://localhost:27017/powersync_test',
+      isCI: process.env.CI === 'true'
+    })
+  },
+  {
+    scenario: createMongoCategoryApiScenario(CURRENT_STORAGE_VERSION),
     implementation: new MongoStorageBenchmarkImplementation({
       url: process.env.MONGO_TEST_URL ?? 'mongodb://localhost:27017/powersync_test',
       isCI: process.env.CI === 'true'
