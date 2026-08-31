@@ -149,7 +149,27 @@ export interface Equatable {
 export function listEquality<E>(equality: Equality<E>): Equality<Iterable<E>> {
   return {
     equals: (a, b) => {
-      return orderedEquals(a, b, equality.equals.bind(equality));
+      if (a === b) return true;
+
+      const iteratorA = a[Symbol.iterator]();
+      const iteratorB = b[Symbol.iterator]();
+
+      while (true) {
+        let nextA = iteratorA.next();
+        let nextB = iteratorB.next();
+
+        if (nextA.done != nextB.done) {
+          return false; // Different lengths
+        } else if (nextA.done) {
+          return true; // Both done
+        } else {
+          const elementA = nextA.value;
+          const elementB = nextB.value;
+          if (!equality.equals(elementA, elementB)) {
+            return false;
+          }
+        }
+      }
     },
     hash: (hasher, value) => {
       for (const e of value) {
@@ -157,30 +177,6 @@ export function listEquality<E>(equality: Equality<E>): Equality<Iterable<E>> {
       }
     }
   };
-}
-
-export function orderedEquals<T>(a: Iterable<T>, b: Iterable<T>, comparator: (a: T, b: T) => boolean) {
-  if (a === b) return true;
-
-  const iteratorA = a[Symbol.iterator]();
-  const iteratorB = b[Symbol.iterator]();
-
-  while (true) {
-    let nextA = iteratorA.next();
-    let nextB = iteratorB.next();
-
-    if (nextA.done != nextB.done) {
-      return false; // Different lengths
-    } else if (nextA.done) {
-      return true; // Both done
-    } else {
-      const elementA = nextA.value;
-      const elementB = nextB.value;
-      if (!comparator(elementA, elementB)) {
-        return false;
-      }
-    }
-  }
 }
 
 /**
