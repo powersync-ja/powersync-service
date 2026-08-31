@@ -37,7 +37,11 @@ export class SimpleSnapshotQuery implements SnapshotQuery {
   ) {}
 
   public async initialize(): Promise<void> {
-    await rquery(this.connection, `DECLARE snapshot_cursor CURSOR FOR SELECT * FROM ${this.table.qualifiedName}`);
+    let query = `SELECT * FROM ${this.table.qualifiedName}`;
+    if (this.table.initialSnapshotFilter?.sql) {
+      query += ` WHERE (${this.table.initialSnapshotFilter.sql})`;
+    }
+    await rquery(this.connection, `DECLARE snapshot_cursor CURSOR FOR ${query}`);
   }
 
   public nextChunk(): AsyncIterableIterator<PgChunk> {
@@ -120,18 +124,26 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
   public async *nextChunk(): AsyncIterableIterator<PgChunk> {
     let stream: AsyncIterableIterator<PgChunk>;
     const escapedKeyName = escapeIdentifier(this.key.name);
+    const snapshotFilter = this.table.initialSnapshotFilter?.sql;
     if (this.lastKey == null) {
-      stream = rstream(
-        this.connection,
-        `SELECT * FROM ${this.table.qualifiedName} ORDER BY ${escapedKeyName} LIMIT ${this.chunkSize}`
-      );
+      let query = `SELECT * FROM ${this.table.qualifiedName}`;
+      if (snapshotFilter) {
+        query += ` WHERE (${snapshotFilter})`;
+      }
+      query += ` ORDER BY ${escapedKeyName} LIMIT ${this.chunkSize}`;
+      stream = rstream(this.connection, query);
     } else {
       if (this.key.typeId == null) {
         throw new Error(`typeId required for primary key ${this.key.name}`);
       }
       const type = Number(this.key.typeId);
+      let query = `SELECT * FROM ${this.table.qualifiedName} WHERE ${escapedKeyName} > $1`;
+      if (snapshotFilter) {
+        query += ` AND (${snapshotFilter})`;
+      }
+      query += ` ORDER BY ${escapedKeyName} LIMIT ${this.chunkSize}`;
       stream = rstream(this.connection, {
-        statement: `SELECT * FROM ${this.table.qualifiedName} WHERE ${escapedKeyName} > $1 ORDER BY ${escapedKeyName} LIMIT ${this.chunkSize}`,
+        statement: query,
         params: [{ value: this.lastKey, type }]
       });
     }
@@ -202,8 +214,12 @@ export class IdSnapshotQuery implements SnapshotQuery {
     if (type == null) {
       throw new Error(`Cannot determine primary key array type for ${JSON.stringify(keyDefinition)}`);
     }
+    let query = `SELECT * FROM ${this.table.qualifiedName} WHERE ${escapeIdentifier(keyDefinition.name)} = ANY($1)`;
+    if (this.table.initialSnapshotFilter?.sql) {
+      query += ` AND (${this.table.initialSnapshotFilter.sql})`;
+    }
     yield* rstream(this.connection, {
-      statement: `SELECT * FROM ${this.table.qualifiedName} WHERE ${escapeIdentifier(keyDefinition.name)} = ANY($1)`,
+      statement: query,
       params: [
         {
           type: type,

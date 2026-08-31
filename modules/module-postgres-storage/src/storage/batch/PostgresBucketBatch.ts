@@ -304,6 +304,7 @@ export class PostgresBucketBatch
         ) ?? [],
       snapshotComplete: row.snapshot_done ?? true,
       sourceMetadata: row.source_metadata,
+      initialSnapshotFilter: syncRules.getInitialSnapshotFilter(ref),
       ...syncRules.getMatchingSources(ref)
     });
 
