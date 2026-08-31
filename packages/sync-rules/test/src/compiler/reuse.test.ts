@@ -82,4 +82,32 @@ streams:
 
     expect(compiled.parameterIndexes).toHaveLength(1);
   });
+
+  test('reuse with filter referencing a table-valued function column', () => {
+    const compiled = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  a:
+    query: SELECT posts.* FROM posts, json_each(posts.a) AS ja WHERE ja.value = 'x'
+  b:
+    query: SELECT posts.* FROM posts, json_each(posts.a) AS ja WHERE ja.value = 'x'
+`);
+
+    expect(compiled.dataSources).toHaveLength(1);
+  });
+
+  test('point lookup with same-named output columns from two different table-valued functions', () => {
+    const compiled = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  a:
+    query: SELECT users.* FROM users, orgs, json_each(orgs.a) as ja, json_each(orgs.b) as jb WHERE users.x = ja.value AND users.y = jb.value AND orgs.id = auth.parameter('org')
+`);
+
+    expect(compiled.parameterIndexes).toHaveLength(1);
+  });
 });

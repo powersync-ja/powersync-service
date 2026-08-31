@@ -1,10 +1,6 @@
 import type { BucketDataSource, ParameterIndexLookupCreator } from '../BucketSource.js';
 import { ImplicitSchemaTablePattern } from '../TablePattern.js';
-import {
-  EqualsIgnoringResultSet,
-  equalsIgnoringResultSetList,
-  equalsIgnoringResultSetUnordered
-} from './compatibility.js';
+import { EqualsIgnoringPrimaryResultSet, TableValuedFunctionEquality } from './compatibility.js';
 import { StableHasher } from './equality.js';
 import { RowExpression } from './filter.js';
 import { PhysicalSourceResultSet, TableValuedResultSet } from './table.js';
@@ -15,53 +11,20 @@ import { PhysicalSourceResultSet, TableValuedResultSet } from './table.js';
  * When constructing buckets, a value needs to be passed for each such key.
  * When invoking parameter lookups, values need to be passed as inputs.
  */
-export abstract class PartitionKey implements EqualsIgnoringResultSet {
-  abstract equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean;
-  abstract assumingSameResultSetEqualityHashCode(hasher: StableHasher): void;
-}
+export class PartitionKey implements EqualsIgnoringPrimaryResultSet {
+  constructor(readonly expression: RowExpression) {}
 
-export class ScalarPartitionKey extends PartitionKey {
-  constructor(readonly expression: RowExpression) {
-    super();
-  }
-
-  equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
+  equalsAssumingSamePrimaryResultSet(
+    other: EqualsIgnoringPrimaryResultSet,
+    tableValued: TableValuedFunctionEquality
+  ): boolean {
     return (
-      other instanceof ScalarPartitionKey &&
-      other.expression.expression.equalsAssumingSameResultSet(this.expression.expression)
+      other instanceof PartitionKey && this.expression.equalsAssumingSamePrimaryResultSet(other.expression, tableValued)
     );
   }
 
-  assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
-    this.expression.expression.assumingSameResultSetEqualityHashCode(hasher);
-  }
-}
-
-/**
- * A partition key derived from the output of a table-valued function added to a {@link SourceRowProcessor}.
- */
-export class TableValuedPartitionKey extends PartitionKey {
-  constructor(
-    readonly fromFunction: SourceRowProcessorAddedTableValuedFunction,
-    readonly output: RowExpression
-  ) {
-    super();
-  }
-
-  equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
-    if (!(other instanceof TableValuedPartitionKey)) {
-      return false;
-    }
-
-    return (
-      other.fromFunction.equalsAssumingSameResultSet(this.fromFunction) &&
-      other.output.equalsAssumingSameResultSet(this.output)
-    );
-  }
-
-  assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
-    this.fromFunction.assumingSameResultSetEqualityHashCode(hasher);
-    this.output.assumingSameResultSetEqualityHashCode(hasher);
+  assumingSamePrimaryResultSetEqualityHashCode(tableValued: TableValuedFunctionEquality, hasher: StableHasher): void {
+    this.expression.assumingSamePrimaryResultSetEqualityHashCode(tableValued, hasher);
   }
 }
 
@@ -71,7 +34,7 @@ export class TableValuedPartitionKey extends PartitionKey {
  * This includes {@link RowEvaluator}s, which assigns rows into buckets, and {@link PointLookup}, which creates
  * parameter lookups used to resolve bucket ids when a user connects.
  */
-export type SourceRowProcessor = RowEvaluator | PointLookup;
+export type SourceRowProcessor = RowEvaluator | EventRowEvaluator | PointLookup;
 
 interface SourceProcessorOptions {
   readonly syntacticSource: PhysicalSourceResultSet;
@@ -95,11 +58,22 @@ abstract class BaseSourceRowProcessor {
   readonly partitionBy: PartitionKey[];
   readonly addedFunctions: SourceRowProcessorAddedTableValuedFunction[];
 
+  readonly #tableValuedFunctionToHashCode = new Map<TableValuedResultSet, number>();
+  protected readonly tableValuedHashCodes: TableValuedFunctionEquality;
+
   constructor(options: SourceProcessorOptions) {
     this.syntacticSource = options.syntacticSource;
     this.filters = options.filters;
     this.partitionBy = options.partitionBy;
     this.addedFunctions = options.addedFunctions;
+
+    this.tableValuedHashCodes = TableValuedFunctionEquality.forHashCode(this.#tableValuedFunctionToHashCode);
+
+    for (const fn of options.addedFunctions) {
+      const hasher = new StableHasher();
+      fn.assumingSamePrimaryResultSetEqualityHashCode(this.tableValuedHashCodes, hasher);
+      this.#tableValuedFunctionToHashCode.set(fn.syntacticSource, hasher.buildHashCode());
+    }
   }
 
   /**
@@ -130,32 +104,69 @@ abstract class BaseSourceRowProcessor {
 
   protected addBaseHashCode(hasher: StableHasher) {
     hasher.add(this.tablePattern);
-    equalsIgnoringResultSetUnordered.hash(
+
+    this.tableValuedHashCodes.unorderedEquality.hash(
       hasher,
       this.filters.map((f) => f.expression)
     );
-    equalsIgnoringResultSetList.hash(hasher, this.partitionBy);
-    equalsIgnoringResultSetUnordered.hash(hasher, this.addedFunctions);
+    this.tableValuedHashCodes.listEquality.hash(hasher, this.partitionBy);
+    this.tableValuedHashCodes.unorderedEquality.hash(hasher, this.addedFunctions);
   }
 
   protected baseMatchesOther(other: BaseSourceRowProcessor) {
     if (!other.tablePattern.equals(this.tablePattern)) {
-      return false;
+      return null;
     }
 
-    if (!equalsIgnoringResultSetList.equals(other.partitionBy, this.partitionBy)) {
-      return false;
+    // Verify that table-valued functions on the two row processors are equal (in any order). Also, construct a mapping
+    // of functions in both processors to a unique symbol so that if two table-valued functions are equal, the mapping
+    // will report the exact same symbol. This allows expressions to compare references to table-valued functions across
+    // the two processors.
+    const symbolsForTableValuedFunctions = new Map<TableValuedResultSet, symbol>();
+    const identities = TableValuedFunctionEquality.mergeForEquality(
+      this.tableValuedHashCodes,
+      other.tableValuedHashCodes,
+      symbolsForTableValuedFunctions
+    );
+
+    {
+      const unmatchedLocalFunctions = new Set(this.addedFunctions);
+
+      other: for (const otherFunction of other.addedFunctions) {
+        const otherHash = other.#tableValuedFunctionToHashCode.get(otherFunction.syntacticSource);
+
+        for (const thisFunction of unmatchedLocalFunctions) {
+          const thisHash = this.#tableValuedFunctionToHashCode.get(thisFunction.syntacticSource);
+
+          if (thisHash === otherHash && thisFunction.equalsAssumingSamePrimaryResultSet(otherFunction, identities)) {
+            const symbol = Symbol();
+            symbolsForTableValuedFunctions.set(otherFunction.syntacticSource, symbol);
+            symbolsForTableValuedFunctions.set(thisFunction.syntacticSource, symbol);
+            unmatchedLocalFunctions.delete(thisFunction);
+
+            continue other;
+          }
+        }
+
+        // No match found for otherFunction
+        return null;
+      }
+
+      if (unmatchedLocalFunctions.size > 0) {
+        // Local functions with no other function exist.
+        return null;
+      }
     }
 
-    if (!equalsIgnoringResultSetUnordered.equals(other.filters, this.filters)) {
-      return false;
+    if (!identities.listEquality.equals(other.partitionBy, this.partitionBy)) {
+      return null;
     }
 
-    if (!equalsIgnoringResultSetUnordered.equals(other.addedFunctions, this.addedFunctions)) {
-      return false;
+    if (!identities.unorderedEquality.equals(other.filters, this.filters)) {
+      return null;
     }
 
-    return true;
+    return identities;
   }
 }
 
@@ -190,18 +201,31 @@ export class RowEvaluator extends BaseSourceRowProcessor {
 
   buildBehaviorHashCode(hasher: StableHasher): void {
     this.addBaseHashCode(hasher);
-    equalsIgnoringResultSetList.hash(hasher, this.columns);
+    this.tableValuedHashCodes.listEquality.hash(hasher, this.columns);
     if (this.outputName) {
       hasher.addString(this.outputName);
     }
   }
 
   behavesIdenticalTo(other: RowEvaluator): boolean {
-    return (
-      this.baseMatchesOther(other) &&
-      equalsIgnoringResultSetList.equals(other.columns, this.columns) &&
-      other.outputName == this.outputName
-    );
+    if (other === this) return true;
+    if (other.outputName != this.outputName) return false;
+
+    const identities = this.baseMatchesOther(other);
+    if (identities == null) return false;
+
+    return identities.listEquality.equals(other.columns, this.columns);
+  }
+}
+
+/**
+ * A row evaluator producing an event payload.
+ */
+export class EventRowEvaluator extends RowEvaluator {
+  override get outputName(): undefined {
+    // Stream output names determine the logical destination table. Event handlers instead receive the named event and
+    // physical source table, so changing a payload query's source alias does not change event behavior.
+    return undefined;
   }
 }
 
@@ -227,11 +251,14 @@ export class PointLookup extends BaseSourceRowProcessor {
 
   buildBehaviorHashCode(hasher: StableHasher): void {
     this.addBaseHashCode(hasher);
-    equalsIgnoringResultSetList.hash(hasher, this.result);
+    this.tableValuedHashCodes.listEquality.hash(hasher, this.result);
   }
 
   behavesIdenticalTo(other: PointLookup): boolean {
-    return this.baseMatchesOther(other) && equalsIgnoringResultSetList.equals(other.result, this.result);
+    if (other === this) return true;
+
+    const identities = this.baseMatchesOther(other);
+    return identities != null && identities.listEquality.equals(other.result, this.result);
   }
 }
 
@@ -240,57 +267,63 @@ export class PointLookup extends BaseSourceRowProcessor {
  *
  * When processing source rows, all attached table-valued functions are expanded as well.
  */
-export class SourceRowProcessorAddedTableValuedFunction implements EqualsIgnoringResultSet {
+export class SourceRowProcessorAddedTableValuedFunction implements EqualsIgnoringPrimaryResultSet {
   constructor(
     readonly syntacticSource: TableValuedResultSet,
     readonly functionName: string,
     readonly inputs: RowExpression[]
   ) {}
 
-  equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
+  equalsAssumingSamePrimaryResultSet(
+    other: EqualsIgnoringPrimaryResultSet,
+    tableValued: TableValuedFunctionEquality
+  ): boolean {
     if (!(other instanceof SourceRowProcessorAddedTableValuedFunction)) {
       return false;
     }
 
-    return other.functionName == this.functionName && equalsIgnoringResultSetList.equals(other.inputs, this.inputs);
+    return other.functionName == this.functionName && tableValued.listEquality.equals(other.inputs, this.inputs);
   }
 
-  assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
+  assumingSamePrimaryResultSetEqualityHashCode(tableValued: TableValuedFunctionEquality, hasher: StableHasher): void {
     hasher.addString(this.functionName);
-    equalsIgnoringResultSetList.hash(hasher, this.inputs);
+    tableValued.listEquality.hash(hasher, this.inputs);
   }
 }
 
 export type ColumnSource = StarColumnSource | ExpressionColumnSource;
 
-export class StarColumnSource implements EqualsIgnoringResultSet {
+export class StarColumnSource implements EqualsIgnoringPrimaryResultSet {
   private constructor() {}
 
-  equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
+  equalsAssumingSamePrimaryResultSet(other: EqualsIgnoringPrimaryResultSet): boolean {
     return other instanceof StarColumnSource;
   }
 
-  assumingSameResultSetEqualityHashCode(): void {}
+  assumingSamePrimaryResultSetEqualityHashCode(): void {}
 
   static readonly instance = new StarColumnSource();
 }
 
-export class ExpressionColumnSource implements EqualsIgnoringResultSet {
+export class ExpressionColumnSource implements EqualsIgnoringPrimaryResultSet {
   constructor(
     readonly expression: RowExpression,
     readonly alias: string
   ) {}
 
-  equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
+  equalsAssumingSamePrimaryResultSet(
+    other: EqualsIgnoringPrimaryResultSet,
+    tableValued: TableValuedFunctionEquality
+  ): boolean {
     return (
       other instanceof ExpressionColumnSource &&
       other.alias == this.alias &&
-      other.expression.equalsAssumingSameResultSet(this.expression)
+      other.expression.equalsAssumingSamePrimaryResultSet(this.expression, tableValued)
     );
   }
 
-  assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
-    this.expression.assumingSameResultSetEqualityHashCode(hasher);
+  assumingSamePrimaryResultSetEqualityHashCode(tableValued: TableValuedFunctionEquality, hasher: StableHasher): void {
+    this.expression.assumingSamePrimaryResultSetEqualityHashCode(tableValued, hasher);
     hasher.addString(this.alias);
   }
 }

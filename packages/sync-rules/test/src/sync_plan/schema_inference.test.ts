@@ -39,7 +39,7 @@ describe('schema inference', () => {
   function generateSchema(...queries: string[]) {
     const serializedPlan = compileSingleStreamAndSerialize(...queries);
     const plan = deserializeSyncPlan(serializedPlan);
-    const rules = new PrecompiledSyncConfig(plan, new CompatibilityContext({ edition: 3 }), [], {
+    const rules = new PrecompiledSyncConfig(plan, new CompatibilityContext({ edition: 3 }), {
       sourceText: '',
       defaultSchema: 'test_schema'
     });

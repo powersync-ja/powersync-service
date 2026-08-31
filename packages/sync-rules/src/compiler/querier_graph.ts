@@ -10,20 +10,13 @@ import {
   ResolveBucket,
   StreamResolver
 } from './bucket_resolver.js';
-import { equalsIgnoringResultSet } from './compatibility.js';
+import { TableValuedFunctionEquality } from './compatibility.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
 import { HashMap, HashSet, StableHasher } from './equality.js';
 import { RowReference, SourceLocation } from './expression.js';
 import { And, BaseTerm, EqualsClause, RequestExpression, RowExpression, SingleDependencyExpression } from './filter.js';
 import { ParsedStreamQuery } from './parser.js';
-import {
-  PartitionKey,
-  PointLookup,
-  RowEvaluator,
-  ScalarPartitionKey,
-  SourceRowProcessorAddedTableValuedFunction,
-  TableValuedPartitionKey
-} from './rows.js';
+import { PartitionKey, PointLookup, RowEvaluator, SourceRowProcessorAddedTableValuedFunction } from './rows.js';
 import { PhysicalSourceResultSet, SourceResultSet, TableValuedResultSet } from './table.js';
 
 /**
@@ -69,7 +62,7 @@ export class QuerierGraphBuilder {
       return [];
     }
 
-    this.compiler.output.resolvers.push(...buckets);
+    this.compiler.output.streams.resolvers.push(...buckets);
     return buckets;
   }
 
@@ -164,13 +157,13 @@ class PendingQuerierPath {
     const state = this.resolveResultSet(this.query.sourceTable);
     const [partitions, partitionValues] = state.resolvePartitions();
 
-    const evaluator = this.builder.compiler.output.canonicalizeEvaluator(
+    const evaluator = this.builder.compiler.output.streams.canonicalizeEvaluator(
       new RowEvaluator({
         columns: this.query.resultColumns,
         syntacticSource: this.query.sourceTable,
         filters: state.filters,
         partitionBy: partitions,
-        addedFunctions: [...state.addedFunctions.values()]
+        addedFunctions: [...state.addedFunctions()]
       })
     );
     this.processExistsOperators();
@@ -218,22 +211,20 @@ class PendingQuerierPath {
     return new PendingExpandingLookup({
       type: 'point',
       source: resultSet,
-      resultSet: resolved
+      resultSet: resolved,
+      tableValuedFunctionEquality: resolved.equality
     });
   }
 
   private resolveTableValuedLookup(resultSet: TableValuedResultSet): PendingExpandingLookup {
     const resolved = this.resolveResultSet(resultSet);
-    if (!resolved.partition.isEmpty) {
-      // This function is only called for table-valued result sets operating on request data. Partitions are only
-      // supported for buckets and parameter lookups.
-      this.errors.report(
-        `This table-valued function depends on request data and can't be partitioned. If possible, try rewriting the query to not use = operators on this function and multiple other tables.`,
-        resultSet.source.origin
-      );
-    }
 
-    return new PendingExpandingLookup({ type: 'table_valued', source: resultSet, filters: resolved.filters });
+    return new PendingExpandingLookup({
+      type: 'table_valued',
+      source: resultSet,
+      filters: resolved.filters,
+      tableValuedFunctionEquality: TableValuedFunctionEquality.forSingleTableValuedFunction(resultSet)
+    });
   }
 
   private resolveExpandingLookup(resultSet: SourceResultSet): PendingExpandingLookup {
@@ -323,6 +314,14 @@ class PendingQuerierPath {
           }
 
           this.removePendingExpression(expression);
+          if (source instanceof TableValuedResultSet) {
+            this.errors.report(
+              `This table-valued function depends on request data and can't be partitioned. If possible, try rewriting the query to not use = operators on this function and multiple other tables.`,
+              source.source.origin
+            );
+            return;
+          }
+
           const values = state.partition.putIfAbsent(key, () => []);
 
           if (otherResultSet != null) {
@@ -338,7 +337,7 @@ class PendingQuerierPath {
         };
 
         const partitionByScalar = (thisRow: SingleDependencyExpression, otherRow: SingleDependencyExpression) => {
-          const key = new ScalarPartitionKey(new RowExpression(thisRow));
+          const key = new PartitionKey(new RowExpression(thisRow));
           partitionBy(key, otherRow);
         };
 
@@ -347,8 +346,8 @@ class PendingQuerierPath {
           tableValuedOutput: RowExpression,
           otherRow: SingleDependencyExpression
         ) => {
-          const resolvedFunction = state.getOrAddTableValuedFunction(tableValued);
-          const key = new TableValuedPartitionKey(resolvedFunction, tableValuedOutput);
+          state.getOrAddTableValuedFunction(tableValued);
+          const key = new PartitionKey(tableValuedOutput);
           return partitionBy(key, otherRow);
         };
 
@@ -435,13 +434,13 @@ class PendingQuerierPath {
         if (data.type == 'point') {
           const resultSet = data.resultSet;
           const [partitionKeys, partitionInputs] = resultSet.resolvePartitions();
-          const canonicalized = this.builder.compiler.output.canonicalizePointLookup(
+          const canonicalized = this.builder.compiler.output.streams.canonicalizePointLookup(
             new PointLookup({
               syntacticSource: data.source,
               filters: resultSet.filters,
               partitionBy: partitionKeys,
               result: lookup.usedOutputs,
-              addedFunctions: [...resultSet.addedFunctions.values()]
+              addedFunctions: [...resultSet.addedFunctions()]
             })
           );
           lookupWithInputs = new ParameterLookup(canonicalized, partitionInputs);
@@ -459,20 +458,40 @@ class PendingQuerierPath {
 }
 
 class ResolvedResultSet {
+  readonly #addedFunctions = new Map<SourceResultSet, [SourceRowProcessorAddedTableValuedFunction, number, symbol]>();
+
+  readonly equality = TableValuedFunctionEquality.forSingleOwner(
+    {
+      get: (tableValued) => this.#addedFunctions.get(tableValued)?.[1]
+    },
+    {
+      get: (tableValued) => this.#addedFunctions.get(tableValued)?.[2]
+    }
+  );
+
   readonly filters: RowExpression[] = [];
-  readonly partition = new HashMap<PartitionKey, ParameterValue[]>(equalsIgnoringResultSet);
-  readonly addedFunctions = new Map<SourceResultSet, SourceRowProcessorAddedTableValuedFunction>();
+  readonly partition = new HashMap<PartitionKey, ParameterValue[]>(this.equality);
+
+  *addedFunctions(): Iterable<SourceRowProcessorAddedTableValuedFunction> {
+    for (const [added] of this.#addedFunctions.values()) {
+      yield added;
+    }
+  }
 
   getOrAddTableValuedFunction(source: TableValuedResultSet) {
-    if (this.addedFunctions.has(source)) {
-      return this.addedFunctions.get(source)!;
+    if (this.#addedFunctions.has(source)) {
+      return this.#addedFunctions.get(source)!;
     } else {
       const pendingFunction = new SourceRowProcessorAddedTableValuedFunction(
         source,
         source.tableValuedFunctionName,
         source.parameters.map((e) => new RowExpression(e))
       );
-      this.addedFunctions.set(source, pendingFunction);
+      this.#addedFunctions.set(source, [
+        pendingFunction,
+        StableHasher.hashWith(this.equality, pendingFunction),
+        Symbol()
+      ]);
       return pendingFunction;
     }
   }
@@ -491,10 +510,7 @@ class ResolvedResultSet {
     // partition keys should be unordered: Instantiating a bucket is a `Map<Parameter, Value>` that just happens to be
     // encoded as `Value[]` since parameters are known from context.
     // To make it easier to merge buckets, we sort parameters by some stable hash.
-    entries.sort(
-      (a, b) =>
-        StableHasher.hashWith(equalsIgnoringResultSet, a[0]) - StableHasher.hashWith(equalsIgnoringResultSet, b[0])
-    );
+    entries.sort((a, b) => StableHasher.hashWith(this.equality, a[0]) - StableHasher.hashWith(this.equality, b[0]));
 
     const keys: PartitionKey[] = [];
     const values: ParameterValue[] = [];
@@ -515,7 +531,7 @@ class PendingExpandingLookup {
   addOutput(param: RowExpression) {
     for (let i = 0; i < this.usedOutputs.length; i++) {
       const existing = this.usedOutputs[i];
-      if (existing.equalsAssumingSameResultSet(param)) {
+      if (existing.equalsAssumingSamePrimaryResultSet(param, this.data.tableValuedFunctionEquality)) {
         return i;
       }
     }
@@ -540,12 +556,14 @@ interface PendingPointLookup {
   type: 'point';
   source: PhysicalSourceResultSet;
   resultSet: ResolvedResultSet;
+  tableValuedFunctionEquality: TableValuedFunctionEquality;
 }
 
 interface PendingTableValuedFunctionLookup {
   type: 'table_valued';
   source: TableValuedResultSet;
   filters: RowExpression[];
+  tableValuedFunctionEquality: TableValuedFunctionEquality;
 }
 
 interface PendingStage {

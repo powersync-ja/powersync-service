@@ -2,7 +2,7 @@ import { SqlExpression } from '../sync_plan/expression.js';
 import { MapSourceVisitor, visitExpr } from '../sync_plan/expression_visitor.js';
 import * as plan from '../sync_plan/plan.js';
 import * as resolver from './bucket_resolver.js';
-import { CompiledStreamQueries } from './compiler.js';
+import type { CompiledEvent, SyncPlanCompilerModel } from './compiler.js';
 import { Equality, HashMap, StableHasher, unorderedEquality } from './equality.js';
 import { ColumnInRow, ExpressionInput, RowMetadata, SyncExpression } from './expression.js';
 import * as rows from './rows.js';
@@ -46,12 +46,12 @@ export class CompilerModelToSyncPlan {
     return mapped;
   }
 
-  translate(source: CompiledStreamQueries): plan.SyncPlan {
-    const queriersByStream = Object.groupBy(source.resolvers, (r) => r.options.name);
+  translate(source: SyncPlanCompilerModel): plan.SyncPlan {
+    const queriersByStream = Object.groupBy(source.streams.resolvers, (r) => r.options.name);
 
     return {
-      dataSources: source.evaluators.map((e) => this.translateRowEvaluator(e)),
-      parameterIndexes: source.pointLookups.map((p, i) => this.translatePointLookup(p, i)),
+      dataSources: source.streams.evaluators.map((e) => this.translateRowEvaluator(e)),
+      parameterIndexes: source.streams.pointLookups.map((p, i) => this.translatePointLookup(p, i)),
       // Note: data sources and parameter indexes must be translated first because we reference them in stream
       // resolvers.
       streams: Object.values(queriersByStream).map((resolvers) => {
@@ -60,7 +60,8 @@ export class CompilerModelToSyncPlan {
           queriers: resolvers!.map((e) => this.translateStreamResolver(e))
         };
       }),
-      buckets: this.buckets
+      buckets: this.buckets,
+      events: source.events.map((e) => this.translateCompiledEvent(e))
     };
   }
 
@@ -79,20 +80,8 @@ export class CompilerModelToSyncPlan {
   }
 
   private translatePartitionKey(value: rows.PartitionKey, context: rows.SourceRowProcessor): plan.PartitionKey {
-    let sourceExpression: SyncExpression;
-
-    // TODO: Unify scalar and table-valued partition keys in compiler IR?
-    if (value instanceof rows.ScalarPartitionKey) {
-      sourceExpression = value.expression.expression;
-      return { expr: this.translateExpression(value.expression.expression, context.syntacticSource) };
-    } else if (value instanceof rows.TableValuedPartitionKey) {
-      sourceExpression = value.output.expression;
-    } else {
-      throw new Error('Unhandled partition key');
-    }
-
     return {
-      expr: this.translateExpression(sourceExpression, context.syntacticSource, context.addedFunctions)
+      expr: this.translateExpression(value.expression.expression, context.syntacticSource, context.addedFunctions)
     };
   }
 
@@ -112,30 +101,37 @@ export class CompilerModelToSyncPlan {
 
   private translateRowEvaluator(value: rows.RowEvaluator): plan.StreamDataSource {
     return this.translateStatefulObject(value, () => {
-      const hasher = new StableHasher();
-      value.buildBehaviorHashCode(hasher);
       const mapped = {
-        sourceTable: value.tablePattern,
-        hashCode: hasher.buildHashCode(),
-        tableValuedFunctions: this.translateAddedTableValuedFunctions(value.addedFunctions, value),
-        columns: value.columns.map((e) => {
-          if (e instanceof rows.StarColumnSource) {
-            return 'star';
-          } else {
-            return {
-              expr: this.translateExpression(e.expression.expression, value.syntacticSource, value.addedFunctions),
-              alias: e.alias ?? null
-            };
-          }
-        }),
-        outputTableName: value.outputName,
-        filters: value.filters.map((e) =>
-          this.translateExpression(e.expression, value.syntacticSource, value.addedFunctions)
-        ),
-        parameters: value.partitionBy.map((e) => this.translatePartitionKey(e, value))
+        ...this.translateRowProjection(value),
+        outputTableName: value.outputName
       } satisfies plan.StreamDataSource;
       return mapped;
     });
+  }
+
+  private translateRowProjection(value: rows.RowEvaluator | rows.EventRowEvaluator): plan.RowProjection {
+    const hasher = new StableHasher();
+    value.buildBehaviorHashCode(hasher);
+
+    return {
+      sourceTable: value.tablePattern,
+      hashCode: hasher.buildHashCode(),
+      tableValuedFunctions: this.translateAddedTableValuedFunctions(value.addedFunctions, value),
+      columns: value.columns.map((e) => {
+        if (e instanceof rows.StarColumnSource) {
+          return 'star';
+        } else {
+          return {
+            expr: this.translateExpression(e.expression.expression, value.syntacticSource, value.addedFunctions),
+            alias: e.alias ?? null
+          };
+        }
+      }),
+      filters: value.filters.map((e) =>
+        this.translateExpression(e.expression, value.syntacticSource, value.addedFunctions)
+      ),
+      parameters: value.partitionBy.map((e) => this.translatePartitionKey(e, value))
+    };
   }
 
   private translatePointLookup(value: rows.PointLookup, index: number): plan.StreamParameterIndexLookupCreator {
@@ -250,5 +246,16 @@ export class CompilerModelToSyncPlan {
     } else {
       return { type: 'intersection', values: value.inner.map((e) => this.translateParameterValue(e)) };
     }
+  }
+
+  private translateCompiledEvent(event: CompiledEvent): plan.CompiledEventDescriptor {
+    return {
+      name: event.name,
+      sourceQueries: event.sourceQueries.map((query) => ({
+        sql: query.sql,
+        sourceTable: query.sourceTable.tablePattern,
+        variants: query.variants.map((variant) => this.translateRowProjection(variant))
+      }))
+    };
   }
 }
