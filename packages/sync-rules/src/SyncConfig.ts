@@ -25,7 +25,7 @@ export abstract class SyncConfig {
   eventDefinitions: EventDefinition[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
   /**
-   * If not defined, the storage module picks the latest stable version.
+   * If not defined, the storage module picks the version.
    *
    * Only supported storage versions can be set here when parsing from yaml.
    */
