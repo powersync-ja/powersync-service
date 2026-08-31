@@ -1953,7 +1953,7 @@ streams:
     }
   );
 
-  test.runIf(storageVersion == 3)('cleans pending deletes only for tracked v3 source tables', async () => {
+  test.runIf(storageVersion >= 3)('cleans pending deletes only for tracked v3 source tables', async () => {
     await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
@@ -2089,7 +2089,7 @@ describe('sync - mongodb', () => {
     describe(`storage v${storageVersion}`, () => {
       registerSyncStorageTests(INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion);
 
-      describe.runIf(storageVersion == 3)('V3 read filtering boundaries', () => {
+      describe.runIf(storageVersion >= 3)('V3 read filtering boundaries', () => {
         async function setupFilteringTest() {
           await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
           const syncRules = await factory.updateSyncRules(
