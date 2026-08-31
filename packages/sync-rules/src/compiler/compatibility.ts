@@ -1,4 +1,4 @@
-import { Equality, listEquality, orderedEquals, StableHasher, unorderedEquality } from './equality.js';
+import { Equality, listEquality, StableHasher, unorderedEquality } from './equality.js';
 import { PhysicalSourceResultSet, SourceResultSet, TableValuedResultSet } from './table.js';
 
 /**
@@ -16,65 +16,42 @@ import { PhysicalSourceResultSet, SourceResultSet, TableValuedResultSet } from '
  * 1:1 correspondence between compared structures.
  */
 export interface EqualsIgnoringPrimaryResultSet {
-  equalsAssumingSamePrimaryResultSet(other: EqualsIgnoringPrimaryResultSet, identities: TableValuedIdentities): boolean;
+  equalsAssumingSamePrimaryResultSet(
+    other: EqualsIgnoringPrimaryResultSet,
+    tableValued: TableValuedFunctionEquality
+  ): boolean;
 
-  assumingSamePrimaryResultSetEqualityHashCode(codes: TableValuedHashCodes, hasher: StableHasher): void;
+  assumingSamePrimaryResultSetEqualityHashCode(tableValued: TableValuedFunctionEquality, hasher: StableHasher): void;
 }
 
-/**
- * Pre-computed hash codes for table-valued functions available to a {@link EqualsIgnoringPrimaryResultSet}.
- *
- * This is used to embed hashes for table-valued functions when their columns are referenced.
- */
-export class TableValuedHashCodes {
-  readonly #tableValued: Map<TableValuedResultSet, number>;
-
-  constructor(tableValued: Map<TableValuedResultSet, number>) {
-    this.#tableValued = tableValued;
-  }
-
-  hashTableValued(resultSet: SourceResultSet, hasher: StableHasher) {
-    // There's only one primary result set which we ignore by design.
-    if (resultSet instanceof PhysicalSourceResultSet) return;
-
-    const hash = this.#tableValued.get(resultSet);
-    if (hash == null) {
-      throw new Error('Hashing unknown table-valued result set');
-    }
-
-    hasher.addHash(hash);
-  }
-
-  hashOrdered(inner: Iterable<EqualsIgnoringPrimaryResultSet>, hasher: StableHasher) {
-    for (const element of inner) {
-      element.assumingSamePrimaryResultSetEqualityHashCode(this, hasher);
-    }
-  }
-
-  static readonly empty = new TableValuedHashCodes(new Map());
+interface ReadOnlyMap<K, V> {
+  get(key: K): V | undefined;
 }
 
-/**
- * When comparing two bucket data or parameter processors that can both have table-valued functions on them, an identity
- * for those functions that is valid for both processors.
- *
- * This allows testing expressions referencing table-valued functions for equality across different queries: A caller
- * first verifies that added table-valued functions are equal on the given queries by constructing an identity mapping
- * so that `identityOf(tableValuedFunctionInA) == identityOf(tableValuedFunctionInB)` iff `tableValuedFunctionInA` and
- * `tableValuedFunctionInB` are equivalent.
- */
-export class TableValuedIdentities {
-  readonly #identities: Map<TableValuedResultSet, symbol>;
+export class TableValuedFunctionEquality implements Equality<EqualsIgnoringPrimaryResultSet> {
+  readonly #hashes: ReadOnlyMap<TableValuedResultSet, number>;
+  readonly #identities: ReadOnlyMap<TableValuedResultSet, unknown>;
 
-  constructor(identities: Map<TableValuedResultSet, symbol>) {
+  #ordered: Equality<Iterable<EqualsIgnoringPrimaryResultSet>> | undefined;
+  #unordered: Equality<Iterable<EqualsIgnoringPrimaryResultSet>> | undefined;
+
+  private constructor(
+    hashes: ReadOnlyMap<TableValuedResultSet, number>,
+    identities: ReadOnlyMap<TableValuedResultSet, unknown>
+  ) {
+    this.#hashes = hashes;
     this.#identities = identities;
   }
 
-  identityOf(resultSet: SourceResultSet): symbol {
-    if (resultSet instanceof PhysicalSourceResultSet) {
-      return TableValuedIdentities.primarySymbol;
-    }
+  get listEquality() {
+    return (this.#ordered ??= listEquality(this));
+  }
 
+  get unorderedEquality() {
+    return (this.#unordered ??= unorderedEquality(this));
+  }
+
+  #lookupIdentity(resultSet: TableValuedResultSet) {
     const symbol = this.#identities.get(resultSet);
     if (symbol == null) {
       throw new Error('Unknown table-valued result set for equals');
@@ -83,32 +60,80 @@ export class TableValuedIdentities {
     return symbol;
   }
 
-  orderedEquals(a: Iterable<EqualsIgnoringPrimaryResultSet>, b: Iterable<EqualsIgnoringPrimaryResultSet>): boolean {
-    return orderedEquals(a, b, (elementA, elementB) => elementA.equalsAssumingSamePrimaryResultSet(elementB, this));
+  equals(a: EqualsIgnoringPrimaryResultSet, b: EqualsIgnoringPrimaryResultSet): boolean {
+    return a.equalsAssumingSamePrimaryResultSet(b, this);
   }
 
-  static readonly empty = new TableValuedIdentities(new Map());
-
-  private static readonly primarySymbol = Symbol.for('primary');
-}
-
-/**
- * An equals and hash code operator for {@link EqualsIgnoringPrimaryResultSet} by binding hash codes and identities for
- * table-valued functions.
- */
-export function resultSetIgnoringEquality(hashes: TableValuedHashCodes, identities: TableValuedIdentities) {
-  const equality: Equality<EqualsIgnoringPrimaryResultSet> = {
-    hash(hasher: StableHasher, value: EqualsIgnoringPrimaryResultSet): void {
-      value.assumingSamePrimaryResultSetEqualityHashCode(hashes, hasher);
-    },
-    equals(a: EqualsIgnoringPrimaryResultSet, b: EqualsIgnoringPrimaryResultSet): boolean {
-      return a.equalsAssumingSamePrimaryResultSet(b, identities);
+  resultSetEquals(a: SourceResultSet, b: SourceResultSet): boolean {
+    // We don't need to compare primary result sets, those are assumed to be equal.
+    if (a instanceof PhysicalSourceResultSet) {
+      return b instanceof PhysicalSourceResultSet;
+    } else if (b instanceof PhysicalSourceResultSet) {
+      return a instanceof PhysicalSourceResultSet;
     }
-  };
 
-  return {
-    equality,
-    listEquality: listEquality(equality),
-    unorderedEquality: unorderedEquality(equality)
-  };
+    return this.#lookupIdentity(a) === this.#lookupIdentity(b);
+  }
+
+  hashResultSet(hasher: StableHasher, resultSet: SourceResultSet): void {
+    // There's only one primary result set which we ignore by design.
+    if (resultSet instanceof PhysicalSourceResultSet) return;
+
+    const hash = this.#hashes.get(resultSet);
+    if (hash == null) {
+      throw new Error('Hashing unknown table-valued result set');
+    }
+
+    hasher.addHash(hash);
+  }
+
+  hash(hasher: StableHasher, value: EqualsIgnoringPrimaryResultSet): void {
+    return value.assumingSamePrimaryResultSetEqualityHashCode(this, hasher);
+  }
+
+  /**
+   * An equality operator for table-valued functions, suitable only for generating hash codes within a single structure
+   * owning table-valued functions.
+   *
+   * This can't be used to compare functions across streams or to test for equality.
+   */
+  static forHashCode(innerHashes: ReadOnlyMap<TableValuedResultSet, number>) {
+    return this.forSingleOwner(innerHashes, {
+      // Compare by identity within the single owner.
+      get: (tableValued) => tableValued
+    });
+  }
+
+  static forSingleTableValuedFunction(resultSet: TableValuedResultSet) {
+    const hashCodeMap = new Map<TableValuedResultSet, number>();
+    // Hash codes are only used to ensure column references to different table-valued functions generate different
+    // codes. Since there's just one, it can be an arbitrary value.
+    hashCodeMap.set(resultSet, 0);
+
+    return this.forHashCode(hashCodeMap);
+  }
+
+  static forSingleOwner(
+    innerHashes: ReadOnlyMap<TableValuedResultSet, number>,
+    equality: ReadOnlyMap<TableValuedResultSet, unknown>
+  ) {
+    return new TableValuedFunctionEquality(innerHashes, equality);
+  }
+
+  static mergeForEquality(
+    localHashes: TableValuedFunctionEquality,
+    otherHashes: TableValuedFunctionEquality,
+    equality: ReadOnlyMap<TableValuedResultSet, symbol>
+  ) {
+    return new TableValuedFunctionEquality(
+      {
+        get(key) {
+          return localHashes.#hashes.get(key) ?? otherHashes.#hashes.get(key);
+        }
+      },
+      equality
+    );
+  }
+
+  static readonly empty = new TableValuedFunctionEquality(new Map(), new Map());
 }

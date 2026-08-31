@@ -2,7 +2,7 @@ import { PGNode } from 'pgsql-ast-parser';
 import { ImplicitSchemaTablePattern, SourceSchemaTable } from '../index.js';
 import { SqlExpression } from '../sync_plan/expression.js';
 import { MapSourceVisitor, visitExpr } from '../sync_plan/expression_visitor.js';
-import { TableValuedHashCodes, TableValuedIdentities } from './compatibility.js';
+import { TableValuedFunctionEquality } from './compatibility.js';
 import { StableHasher } from './equality.js';
 import { ColumnInRow, ExpressionInput, NodeLocations, RowMetadata, SyncExpression } from './expression.js';
 import { SingleDependencyExpression } from './filter.js';
@@ -166,15 +166,15 @@ export class TableValuedResultSet extends BaseSourceResultSet {
     }
   }
 
-  buildBehaviorHashCode(codes: TableValuedHashCodes, hasher: StableHasher): void {
+  buildBehaviorHashCode(tableValued: TableValuedFunctionEquality, hasher: StableHasher): void {
     hasher.addString(this.tableValuedFunctionName);
-    codes.hashOrdered(this.parameters, hasher);
+    tableValued.listEquality.hash(hasher, this.parameters);
   }
 
-  behavesIdenticalTo(other: TableValuedResultSet, identities: TableValuedIdentities): boolean {
+  behavesIdenticalTo(other: TableValuedResultSet, tableValued: TableValuedFunctionEquality): boolean {
     return (
       this.tableValuedFunctionName == other.tableValuedFunctionName &&
-      identities.orderedEquals(this.parameters, other.parameters)
+      tableValued.listEquality.equals(this.parameters, other.parameters)
     );
   }
 

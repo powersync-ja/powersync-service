@@ -1,6 +1,6 @@
 import { NodeLocation } from 'pgsql-ast-parser';
 import { expandNodeLocations } from '../errors.js';
-import { EqualsIgnoringPrimaryResultSet, TableValuedHashCodes, TableValuedIdentities } from './compatibility.js';
+import { EqualsIgnoringPrimaryResultSet, TableValuedFunctionEquality } from './compatibility.js';
 import { StableHasher } from './equality.js';
 import { ExpressionInput, RowReference, SyncExpression } from './expression.js';
 import { BaseSourceResultSet, SourceResultSet } from './table.js';
@@ -62,16 +62,16 @@ export class SingleDependencyExpression implements EqualsIgnoringPrimaryResultSe
 
   equalsAssumingSamePrimaryResultSet(
     other: EqualsIgnoringPrimaryResultSet,
-    identities: TableValuedIdentities
+    tableValued: TableValuedFunctionEquality
   ): boolean {
     return (
       other instanceof SingleDependencyExpression &&
-      other.expression.equalsAssumingSamePrimaryResultSet(this.expression, identities)
+      other.expression.equalsAssumingSamePrimaryResultSet(this.expression, tableValued)
     );
   }
 
-  assumingSamePrimaryResultSetEqualityHashCode(codes: TableValuedHashCodes, hasher: StableHasher): void {
-    this.expression.assumingSamePrimaryResultSetEqualityHashCode(codes, hasher);
+  assumingSamePrimaryResultSetEqualityHashCode(tableValued: TableValuedFunctionEquality, hasher: StableHasher): void {
+    this.expression.assumingSamePrimaryResultSetEqualityHashCode(tableValued, hasher);
   }
 
   /**

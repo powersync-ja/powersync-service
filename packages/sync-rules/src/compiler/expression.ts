@@ -4,7 +4,7 @@ import { ExternalData, SqlExpression } from '../sync_plan/expression.js';
 import { ExpressionToSqlite } from '../sync_plan/expression_to_sql.js';
 import { RecursiveExpressionVisitor } from '../sync_plan/expression_visitor.js';
 import { ConnectionParameterSource } from '../sync_plan/plan.js';
-import { EqualsIgnoringPrimaryResultSet, TableValuedHashCodes, TableValuedIdentities } from './compatibility.js';
+import { EqualsIgnoringPrimaryResultSet, TableValuedFunctionEquality } from './compatibility.js';
 import { ParsingErrorListener } from './compiler.js';
 import { Equatable, StableHasher } from './equality.js';
 import { SourceResultSet } from './table.js';
@@ -65,18 +65,18 @@ export class SyncExpression implements EqualsIgnoringPrimaryResultSet {
 
   equalsAssumingSamePrimaryResultSet(
     other: EqualsIgnoringPrimaryResultSet,
-    identities: TableValuedIdentities
+    tableValued: TableValuedFunctionEquality
   ): boolean {
     return (
       other instanceof SyncExpression &&
       other.sql == this.sql &&
-      identities.orderedEquals(other.instantiation, this.instantiation)
+      tableValued.listEquality.equals(other.instantiation, this.instantiation)
     );
   }
 
-  assumingSamePrimaryResultSetEqualityHashCode(codes: TableValuedHashCodes, hasher: StableHasher): void {
+  assumingSamePrimaryResultSetEqualityHashCode(tableValued: TableValuedFunctionEquality, hasher: StableHasher): void {
     hasher.addString(this.sql);
-    codes.hashOrdered(this.instantiation, hasher);
+    tableValued.listEquality.hash(hasher, this.instantiation);
   }
 }
 
@@ -106,9 +106,12 @@ export abstract class RowReference implements EqualsIgnoringPrimaryResultSet {
 
   abstract equalsAssumingSamePrimaryResultSet(
     other: EqualsIgnoringPrimaryResultSet,
-    identities: TableValuedIdentities
+    tableValued: TableValuedFunctionEquality
   ): boolean;
-  abstract assumingSamePrimaryResultSetEqualityHashCode(codes: TableValuedHashCodes, hasher: StableHasher): void;
+  abstract assumingSamePrimaryResultSetEqualityHashCode(
+    tableValued: TableValuedFunctionEquality,
+    hasher: StableHasher
+  ): void;
 }
 
 export class ColumnInRow extends RowReference {
@@ -122,18 +125,21 @@ export class ColumnInRow extends RowReference {
 
   override equalsAssumingSamePrimaryResultSet(
     other: EqualsIgnoringPrimaryResultSet,
-    identities: TableValuedIdentities
+    tableValued: TableValuedFunctionEquality
   ): boolean {
     return (
       other instanceof ColumnInRow &&
       other.column == this.column &&
-      identities.identityOf(other.resultSet) === identities.identityOf(this.resultSet)
+      tableValued.resultSetEquals(other.resultSet, this.resultSet)
     );
   }
 
-  override assumingSamePrimaryResultSetEqualityHashCode(codes: TableValuedHashCodes, hasher: StableHasher): void {
+  override assumingSamePrimaryResultSetEqualityHashCode(
+    tableValued: TableValuedFunctionEquality,
+    hasher: StableHasher
+  ): void {
     hasher.addString(this.column);
-    codes.hashTableValued(this.resultSet, hasher);
+    tableValued.hashResultSet(hasher, this.resultSet);
   }
 }
 
@@ -158,7 +164,10 @@ export class RowMetadata extends RowReference {
     return other instanceof RowMetadata && other.kind == this.kind;
   }
 
-  override assumingSamePrimaryResultSetEqualityHashCode(_codes: TableValuedHashCodes, hasher: StableHasher): void {
+  override assumingSamePrimaryResultSetEqualityHashCode(
+    _tableValued: TableValuedFunctionEquality,
+    hasher: StableHasher
+  ): void {
     hasher.addString(`table.${this.kind}`);
   }
 }
@@ -181,7 +190,7 @@ export class ConnectionParameter implements EqualsIgnoringPrimaryResultSet, Equa
     return this.equals(other);
   }
 
-  assumingSamePrimaryResultSetEqualityHashCode(_codes: TableValuedHashCodes, hasher: StableHasher): void {
+  assumingSamePrimaryResultSetEqualityHashCode(_tableValued: TableValuedFunctionEquality, hasher: StableHasher): void {
     return this.buildHash(hasher);
   }
 }

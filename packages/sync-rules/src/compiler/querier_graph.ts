@@ -10,7 +10,7 @@ import {
   ResolveBucket,
   StreamResolver
 } from './bucket_resolver.js';
-import { resultSetIgnoringEquality, TableValuedHashCodes, TableValuedIdentities } from './compatibility.js';
+import { TableValuedFunctionEquality } from './compatibility.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
 import { HashMap, HashSet, StableHasher } from './equality.js';
 import { RowReference, SourceLocation } from './expression.js';
@@ -163,7 +163,7 @@ class PendingQuerierPath {
         syntacticSource: this.query.sourceTable,
         filters: state.filters,
         partitionBy: partitions,
-        addedFunctions: [...state.addedFunctions]
+        addedFunctions: [...state.addedFunctions()]
       })
     );
     this.processExistsOperators();
@@ -211,14 +211,20 @@ class PendingQuerierPath {
     return new PendingExpandingLookup({
       type: 'point',
       source: resultSet,
-      resultSet: resolved
+      resultSet: resolved,
+      tableValuedFunctionEquality: resolved.equality
     });
   }
 
   private resolveTableValuedLookup(resultSet: TableValuedResultSet): PendingExpandingLookup {
     const resolved = this.resolveResultSet(resultSet);
 
-    return new PendingExpandingLookup({ type: 'table_valued', source: resultSet, filters: resolved.filters });
+    return new PendingExpandingLookup({
+      type: 'table_valued',
+      source: resultSet,
+      filters: resolved.filters,
+      tableValuedFunctionEquality: TableValuedFunctionEquality.forSingleTableValuedFunction(resultSet)
+    });
   }
 
   private resolveExpandingLookup(resultSet: SourceResultSet): PendingExpandingLookup {
@@ -434,7 +440,7 @@ class PendingQuerierPath {
               filters: resultSet.filters,
               partitionBy: partitionKeys,
               result: lookup.usedOutputs,
-              addedFunctions: [...resultSet.addedFunctions]
+              addedFunctions: [...resultSet.addedFunctions()]
             })
           );
           lookupWithInputs = new ParameterLookup(canonicalized, partitionInputs);
@@ -452,20 +458,24 @@ class PendingQuerierPath {
 }
 
 class ResolvedResultSet {
-  readonly #functionHashes = new Map<TableValuedResultSet, number>();
-  readonly #functionSymbols = new Map<TableValuedResultSet, symbol>();
-  readonly #addedFunctions = new Map<SourceResultSet, SourceRowProcessorAddedTableValuedFunction>();
+  readonly #addedFunctions = new Map<SourceResultSet, [SourceRowProcessorAddedTableValuedFunction, number, symbol]>();
 
-  readonly #equality = resultSetIgnoringEquality(
-    new TableValuedHashCodes(this.#functionHashes),
-    new TableValuedIdentities(this.#functionSymbols)
-  ).equality;
+  readonly equality = TableValuedFunctionEquality.forSingleOwner(
+    {
+      get: (tableValued) => this.#addedFunctions.get(tableValued)?.[1]
+    },
+    {
+      get: (tableValued) => this.#addedFunctions.get(tableValued)?.[2]
+    }
+  );
 
   readonly filters: RowExpression[] = [];
-  readonly partition = new HashMap<PartitionKey, ParameterValue[]>(this.#equality);
+  readonly partition = new HashMap<PartitionKey, ParameterValue[]>(this.equality);
 
-  get addedFunctions() {
-    return this.#addedFunctions.values();
+  *addedFunctions(): Iterable<SourceRowProcessorAddedTableValuedFunction> {
+    for (const [added] of this.#addedFunctions.values()) {
+      yield added;
+    }
   }
 
   getOrAddTableValuedFunction(source: TableValuedResultSet) {
@@ -477,9 +487,11 @@ class ResolvedResultSet {
         source.tableValuedFunctionName,
         source.parameters.map((e) => new RowExpression(e))
       );
-      this.#addedFunctions.set(source, pendingFunction);
-      this.#functionHashes.set(source, StableHasher.hashWith(this.#equality, pendingFunction));
-      this.#functionSymbols.set(source, Symbol());
+      this.#addedFunctions.set(source, [
+        pendingFunction,
+        StableHasher.hashWith(this.equality, pendingFunction),
+        Symbol()
+      ]);
       return pendingFunction;
     }
   }
@@ -498,7 +510,7 @@ class ResolvedResultSet {
     // partition keys should be unordered: Instantiating a bucket is a `Map<Parameter, Value>` that just happens to be
     // encoded as `Value[]` since parameters are known from context.
     // To make it easier to merge buckets, we sort parameters by some stable hash.
-    entries.sort((a, b) => StableHasher.hashWith(this.#equality, a[0]) - StableHasher.hashWith(this.#equality, b[0]));
+    entries.sort((a, b) => StableHasher.hashWith(this.equality, a[0]) - StableHasher.hashWith(this.equality, b[0]));
 
     const keys: PartitionKey[] = [];
     const values: ParameterValue[] = [];
@@ -519,7 +531,7 @@ class PendingExpandingLookup {
   addOutput(param: RowExpression) {
     for (let i = 0; i < this.usedOutputs.length; i++) {
       const existing = this.usedOutputs[i];
-      if (existing.equalsAssumingSamePrimaryResultSet(param, TableValuedIdentities.empty)) {
+      if (existing.equalsAssumingSamePrimaryResultSet(param, this.data.tableValuedFunctionEquality)) {
         return i;
       }
     }
@@ -544,12 +556,14 @@ interface PendingPointLookup {
   type: 'point';
   source: PhysicalSourceResultSet;
   resultSet: ResolvedResultSet;
+  tableValuedFunctionEquality: TableValuedFunctionEquality;
 }
 
 interface PendingTableValuedFunctionLookup {
   type: 'table_valued';
   source: TableValuedResultSet;
   filters: RowExpression[];
+  tableValuedFunctionEquality: TableValuedFunctionEquality;
 }
 
 interface PendingStage {
