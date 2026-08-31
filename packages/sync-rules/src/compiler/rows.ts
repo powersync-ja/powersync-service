@@ -34,7 +34,7 @@ export class PartitionKey implements EqualsIgnoringPrimaryResultSet {
  * This includes {@link RowEvaluator}s, which assigns rows into buckets, and {@link PointLookup}, which creates
  * parameter lookups used to resolve bucket ids when a user connects.
  */
-export type SourceRowProcessor = RowEvaluator | PointLookup;
+export type SourceRowProcessor = RowEvaluator | EventRowEvaluator | PointLookup;
 
 interface SourceProcessorOptions {
   readonly syntacticSource: PhysicalSourceResultSet;
@@ -215,6 +215,17 @@ export class RowEvaluator extends BaseSourceRowProcessor {
     if (identities == null) return false;
 
     return identities.listEquality.equals(other.columns, this.columns);
+  }
+}
+
+/**
+ * A row evaluator producing an event payload.
+ */
+export class EventRowEvaluator extends RowEvaluator {
+  override get outputName(): undefined {
+    // Stream output names determine the logical destination table. Event handlers instead receive the named event and
+    // physical source table, so changing a payload query's source alias does not change event behavior.
+    return undefined;
   }
 }
 
