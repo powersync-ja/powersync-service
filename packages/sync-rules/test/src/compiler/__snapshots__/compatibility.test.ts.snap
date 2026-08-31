@@ -2602,7 +2602,7 @@ exports[`old streams test > overlap 1`] = `
 {
   "buckets": [
     {
-      "hash": 148726195,
+      "hash": 238904010,
       "sources": [
         0,
       ],
@@ -2615,7 +2615,7 @@ exports[`old streams test > overlap 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 448514192,
+      "hash": 217410568,
       "outputTableName": "comments",
       "partitionBy": [
         {

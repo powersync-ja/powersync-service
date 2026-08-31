@@ -1,9 +1,11 @@
 import { StreamOptions } from '../sync_plan/plan.js';
-import { equalsIgnoringResultSetList, equalsIgnoringResultSetUnordered } from './compatibility.js';
+import { resultSetIgnoringEquality, TableValuedHashCodes, TableValuedIdentities } from './compatibility.js';
 import { Equality, Equatable, HashSet, StableHasher, unorderedEquality } from './equality.js';
 import { RequestExpression, RowExpression } from './filter.js';
 import { PointLookup, RowEvaluator, SourceRowProcessor } from './rows.js';
 import { TableValuedResultSet } from './table.js';
+
+const equalsIgnoringNoResultSets = resultSetIgnoringEquality(TableValuedHashCodes.empty, TableValuedIdentities.empty);
 
 /**
  * Describes how to resolve a subscription to buckets.
@@ -18,7 +20,7 @@ export class StreamResolver {
   ) {}
 
   buildInstantiationHash(hasher: StableHasher) {
-    equalsIgnoringResultSetUnordered.hash(hasher, this.requestFilters);
+    equalsIgnoringNoResultSets.unorderedEquality.hash(hasher, this.requestFilters);
     StreamResolver.lookupStageEquality.hash(hasher, this.lookupStages);
     this.resolvedBucket.buildInstantiationHash(hasher);
   }
@@ -28,7 +30,7 @@ export class StreamResolver {
       return false;
     }
 
-    if (!equalsIgnoringResultSetUnordered.equals(other.requestFilters, this.requestFilters)) {
+    if (!equalsIgnoringNoResultSets.unorderedEquality.equals(other.requestFilters, this.requestFilters)) {
       return false;
     }
 
@@ -87,24 +89,36 @@ export class ParameterLookup implements Equatable {
 }
 
 export class EvaluateTableValuedFunction implements Equatable {
+  readonly #equalities: ReturnType<typeof resultSetIgnoringEquality>;
+
   constructor(
     readonly tableValuedFunction: TableValuedResultSet,
     readonly outputs: RowExpression[],
     readonly filters: RowExpression[]
-  ) {}
+  ) {
+    const hashCodeMap = new Map<TableValuedResultSet, number>();
+    hashCodeMap.set(tableValuedFunction, 0);
+    const symbolMap = new Map<TableValuedResultSet, symbol>();
+    symbolMap.set(tableValuedFunction, Symbol());
+
+    this.#equalities = resultSetIgnoringEquality(
+      new TableValuedHashCodes(hashCodeMap),
+      new TableValuedIdentities(symbolMap)
+    );
+  }
 
   buildHash(hasher: StableHasher): void {
-    this.tableValuedFunction.buildBehaviorHashCode(hasher);
-    equalsIgnoringResultSetList.hash(hasher, this.outputs);
-    equalsIgnoringResultSetList.hash(hasher, this.filters);
+    this.tableValuedFunction.buildBehaviorHashCode(TableValuedHashCodes.empty, hasher);
+    this.#equalities.listEquality.hash(hasher, this.outputs);
+    this.#equalities.unorderedEquality.hash(hasher, this.filters);
   }
 
   equals(other: unknown): boolean {
     return (
       other instanceof EvaluateTableValuedFunction &&
-      other.tableValuedFunction.behavesIdenticalTo(this.tableValuedFunction) &&
-      equalsIgnoringResultSetList.equals(other.outputs, this.outputs) &&
-      equalsIgnoringResultSetList.equals(other.filters, this.filters)
+      other.tableValuedFunction.behavesIdenticalTo(this.tableValuedFunction, TableValuedIdentities.empty) &&
+      this.#equalities.listEquality.equals(this.outputs, other.outputs) &&
+      this.#equalities.unorderedEquality.equals(this.filters, other.filters)
     );
   }
 }
@@ -143,11 +157,14 @@ export class RequestParameterValue implements Equatable {
   constructor(readonly expression: RequestExpression) {}
 
   buildHash(hasher: StableHasher): void {
-    this.expression.assumingSameResultSetEqualityHashCode(hasher);
+    this.expression.assumingSamePrimaryResultSetEqualityHashCode(TableValuedHashCodes.empty, hasher);
   }
 
   equals(other: unknown): boolean {
-    return other instanceof RequestParameterValue && other.expression.equalsAssumingSameResultSet(this.expression);
+    return (
+      other instanceof RequestParameterValue &&
+      this.expression.equalsAssumingSamePrimaryResultSet(other.expression, TableValuedIdentities.empty)
+    );
   }
 }
 

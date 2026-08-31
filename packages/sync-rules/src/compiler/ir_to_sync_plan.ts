@@ -79,20 +79,8 @@ export class CompilerModelToSyncPlan {
   }
 
   private translatePartitionKey(value: rows.PartitionKey, context: rows.SourceRowProcessor): plan.PartitionKey {
-    let sourceExpression: SyncExpression;
-
-    // TODO: Unify scalar and table-valued partition keys in compiler IR?
-    if (value instanceof rows.ScalarPartitionKey) {
-      sourceExpression = value.expression.expression;
-      return { expr: this.translateExpression(value.expression.expression, context.syntacticSource) };
-    } else if (value instanceof rows.TableValuedPartitionKey) {
-      sourceExpression = value.output.expression;
-    } else {
-      throw new Error('Unhandled partition key');
-    }
-
     return {
-      expr: this.translateExpression(sourceExpression, context.syntacticSource, context.addedFunctions)
+      expr: this.translateExpression(value.expression.expression, context.syntacticSource, context.addedFunctions)
     };
   }
 

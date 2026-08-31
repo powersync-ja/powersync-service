@@ -807,7 +807,7 @@ exports[`new sync stream features > circular references > table-valued 1`] = `
 {
   "buckets": [
     {
-      "hash": 108933878,
+      "hash": 282829133,
       "sources": [
         0,
       ],
@@ -820,7 +820,7 @@ exports[`new sync stream features > circular references > table-valued 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 309686539,
+      "hash": 305649577,
       "outputTableName": "a",
       "partitionBy": [
         {
@@ -1066,7 +1066,7 @@ exports[`new sync stream features > in array and additional filter in subquery 1
           "type": "binary",
         },
       ],
-      "hash": 450331817,
+      "hash": 240610331,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1169,7 +1169,7 @@ exports[`new sync stream features > in json array 1`] = `
 {
   "buckets": [
     {
-      "hash": 267897099,
+      "hash": 5526323,
       "sources": [
         0,
       ],
@@ -1200,7 +1200,7 @@ exports[`new sync stream features > in json array 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 484392710,
+      "hash": 95074145,
       "outputTableName": "notes",
       "partitionBy": [],
       "table": {
@@ -2466,7 +2466,7 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 225571037,
+      "hash": 433960658,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -3012,7 +3012,7 @@ exports[`new sync stream features > json-each of cte 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 98845667,
+      "hash": 364859438,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -3602,7 +3602,7 @@ exports[`new sync stream features > table-valued functions > partition on data 1
 {
   "buckets": [
     {
-      "hash": 28022504,
+      "hash": 255270316,
       "sources": [
         0,
       ],
@@ -3615,7 +3615,7 @@ exports[`new sync stream features > table-valued functions > partition on data 1
         "star",
       ],
       "filters": [],
-      "hash": 332279886,
+      "hash": 424201067,
       "outputTableName": "posts",
       "partitionBy": [
         {
@@ -3730,7 +3730,7 @@ exports[`new sync stream features > table-valued functions > partition on parame
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 368987341,
+      "hash": 267281834,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -3836,7 +3836,7 @@ exports[`new sync stream features > table-valued functions > static filter 1`] =
 {
   "buckets": [
     {
-      "hash": 378144963,
+      "hash": 338603392,
       "sources": [
         0,
       ],
@@ -3865,7 +3865,7 @@ exports[`new sync stream features > table-valued functions > static filter 1`] =
           "type": "binary",
         },
       ],
-      "hash": 219838904,
+      "hash": 499908229,
       "outputTableName": "posts",
       "partitionBy": [],
       "table": {
