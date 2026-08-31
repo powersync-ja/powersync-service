@@ -25,12 +25,14 @@ import {
   taggedBucketParameterDocumentToTagged
 } from './models.js';
 import { ObjectStorageLifecycle } from './object-storage/ObjectStorageLifecycle.js';
+import { ObjectStorageUsage } from './object-storage/ObjectStorageUsage.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
   currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
   sourceTablePendingDeletes = new Map<string, InternalOpId>();
   protected readonly objectStorageLifecycle?: ObjectStorageLifecycle;
+  protected readonly objectStorageUsage?: ObjectStorageUsage;
 
   declare protected readonly db: VersionedPowerSyncMongoV3;
 
@@ -44,6 +46,7 @@ export class PersistedBatchV3 extends PersistedBatch {
     super(db, group_id, mapping, writtenSize, options);
     if (this.objectStorage) {
       this.objectStorageLifecycle = new ObjectStorageLifecycle(this.db, this.group_id, this.objectStorage);
+      this.objectStorageUsage = new ObjectStorageUsage(this.db, this.group_id, this.objectStorageUsageWriterId);
     }
   }
 
@@ -226,11 +229,11 @@ export class PersistedBatchV3 extends PersistedBatch {
       operationsByDefinition.set(document.bucketKey.definitionId, existing);
     }
 
-    let uploadCount = 0;
     const plans = Array.from(operationsByDefinition, ([definitionId, documents]) => {
       const operationsByBucket = Map.groupBy(documents, (document) => document.bucketKey.bucket);
       const lifecycle = this.objectStorageLifecycle;
-      const createInserts: (() => Promise<mongo.AnyBulkWriteOperation<BucketDataDocumentV3>>)[] = [];
+      type BucketDataInsert = { insertOne: { document: BucketDataDocumentV3 } };
+      const createInserts: (() => Promise<BucketDataInsert>)[] = [];
 
       for (const [bucket, ops] of operationsByBucket) {
         this.resetBucketPersistedBytes(definitionId, bucket);
@@ -246,7 +249,6 @@ export class PersistedBatchV3 extends PersistedBatch {
             continue;
           }
 
-          uploadCount += 1;
           createInserts.push(async () => {
             const minOp = chunk[0].o;
             const maxOp = chunk[chunk.length - 1].o;
@@ -284,13 +286,26 @@ export class PersistedBatchV3 extends PersistedBatch {
     // separate limiter here.
     const writes = await createAllInserts();
 
+    const usageDeltas = this.objectStorageUsage == null ? undefined : new Map<BucketDefinitionId, bigint>();
     for (const { definitionId, inserts } of writes) {
+      if (usageDeltas != null) {
+        const delta = inserts.reduce(
+          (sum, operation) => sum + ObjectStorageUsage.bytes(operation.insertOne.document),
+          0n
+        );
+        if (delta !== 0n) {
+          usageDeltas.set(definitionId, delta);
+        }
+      }
       if (inserts.length > 0) {
         await this.db.bucketData(this.group_id, definitionId).bulkWrite(inserts, {
           session,
           ordered: false
         });
       }
+    }
+    if (usageDeltas != null) {
+      await this.objectStorageUsage!.applyDeltas(usageDeltas, session);
     }
   }
 

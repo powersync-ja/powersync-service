@@ -4,7 +4,7 @@ exports[`common table expressions > as data source 1`] = `
 {
   "buckets": [
     {
-      "hash": 68553592,
+      "hash": 175706552,
       "sources": [
         0,
       ],
@@ -34,7 +34,7 @@ exports[`common table expressions > as data source 1`] = `
         },
       ],
       "filters": [],
-      "hash": 472729660,
+      "hash": 210323829,
       "outputTableName": "organisations",
       "partitionBy": [
         {
@@ -57,7 +57,7 @@ exports[`common table expressions > as data source 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 283023369,
+      "hash": 505749374,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -150,7 +150,7 @@ exports[`common table expressions > as parameter query 1`] = `
 {
   "buckets": [
     {
-      "hash": 29476625,
+      "hash": 377732370,
       "sources": [
         0,
       ],
@@ -163,7 +163,7 @@ exports[`common table expressions > as parameter query 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 27460384,
+      "hash": 39898946,
       "outputTableName": "projects",
       "partitionBy": [
         {
@@ -186,7 +186,7 @@ exports[`common table expressions > as parameter query 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 283023369,
+      "hash": 505749374,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -218,7 +218,7 @@ exports[`common table expressions > as parameter query 1`] = `
     },
     {
       "filters": [],
-      "hash": 500582714,
+      "hash": 371913368,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -327,7 +327,7 @@ exports[`common table expressions > can reference CTE multiple times 1`] = `
 {
   "buckets": [
     {
-      "hash": 187425881,
+      "hash": 436886157,
       "sources": [
         0,
       ],
@@ -340,7 +340,7 @@ exports[`common table expressions > can reference CTE multiple times 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 6968780,
+      "hash": 365381597,
       "outputTableName": "tbl_a",
       "partitionBy": [
         {
@@ -371,7 +371,7 @@ exports[`common table expressions > can reference CTE multiple times 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 250920890,
+      "hash": 40997809,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -403,7 +403,7 @@ exports[`common table expressions > can reference CTE multiple times 1`] = `
     },
     {
       "filters": [],
-      "hash": 215867003,
+      "hash": 91539928,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -545,7 +545,7 @@ exports[`common table expressions > multiple output references 1`] = `
 {
   "buckets": [
     {
-      "hash": 498511015,
+      "hash": 326810458,
       "sources": [
         0,
       ],
@@ -558,7 +558,7 @@ exports[`common table expressions > multiple output references 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 28119074,
+      "hash": 337175667,
       "outputTableName": "workspace",
       "partitionBy": [
         {

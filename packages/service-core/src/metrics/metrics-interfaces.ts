@@ -19,7 +19,12 @@ export interface ObservableGauge {
    *  Set a value provider that provides the value for the gauge at the time of observation.
    *  @param valueProvider
    */
-  setValueProvider(valueProvider: () => Promise<number | undefined>): void;
+  setValueProvider(valueProvider: () => Promise<number | ObservableGaugeObservation[] | undefined>): void;
+}
+
+export interface ObservableGaugeObservation {
+  value: number;
+  attributes?: Record<string, string>;
 }
 
 export enum Precision {

@@ -8,9 +8,12 @@ import {
   BucketStateDocumentV3,
   CurrentDataDocumentV3,
   ObjectStorageDeletionMarker,
+  ObjectStorageUsageDocument,
   SourceTableDocumentV3,
   SyncConfigDefinition
 } from './models.js';
+
+export const OBJECT_STORAGE_USAGE_COLLECTION = 'object_storage_usage';
 
 export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
   constructor(
@@ -72,6 +75,10 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
 
   pendingObjectStorageDeletes(replicationStreamId: number): mongo.Collection<ObjectStorageDeletionMarker> {
     return this.db.collection<ObjectStorageDeletionMarker>(`pending_object_storage_deletes_${replicationStreamId}`);
+  }
+
+  get objectStorageUsage(): mongo.Collection<ObjectStorageUsageDocument> {
+    return this.db.collection<ObjectStorageUsageDocument>(OBJECT_STORAGE_USAGE_COLLECTION);
   }
 
   listBucketDataCollections(replicationStreamId: number) {
