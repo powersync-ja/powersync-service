@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { BucketDefinitionId, ParameterIndexId } from '@powersync/service-sync-rules';
+import { BucketDefinitionId, EventDefinitionId, ParameterIndexId } from '@powersync/service-sync-rules';
 import { BaseVersionedPowerSyncMongo } from '../common/VersionedPowerSyncMongoBase.js';
 import { CommonSourceTableDocument } from '../models.js';
 import {
@@ -7,6 +7,7 @@ import {
   BucketParameterDocumentV3,
   BucketStateDocumentV3,
   CurrentDataDocumentV3,
+  CustomCheckpointRequestDocumentV3,
   ObjectStorageDeletionMarker,
   ObjectStorageUsageDocument,
   SourceTableDocumentV3,
@@ -14,6 +15,10 @@ import {
 } from './models.js';
 
 export const OBJECT_STORAGE_USAGE_COLLECTION = 'object_storage_usage';
+export type CustomCheckpointRequestCollectionSpecifier = {
+  replicationStreamId: number;
+  eventId: EventDefinitionId;
+};
 
 export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
   constructor(
@@ -81,6 +86,38 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
     return this.db.collection<ObjectStorageUsageDocument>(OBJECT_STORAGE_USAGE_COLLECTION);
   }
 
+  customCheckpointRequests(options: CustomCheckpointRequestCollectionSpecifier) {
+    const collectionName = this.customCheckpointRequestCollectionName(options);
+    return this.db.collection<CustomCheckpointRequestDocumentV3>(collectionName);
+  }
+
+  async initializeCustomCheckpointRequestsCollection(options: CustomCheckpointRequestCollectionSpecifier) {
+    // createIndexes also creates the collection on first use. Callers invoke
+    // this lazily before the transaction which writes the first checkpoint.
+    await this.customCheckpointRequests(options).createIndexes([
+      {
+        key: { user_id: 1 },
+        name: 'user_unique',
+        unique: true
+      },
+      {
+        // Find checkpoint changes over an operation-id range.
+        key: { op_id: 1 },
+        name: 'op_id'
+      },
+      {
+        // Limit retention scans to temporary client-requested checkpoints.
+        key: { checkpoint_requested_at: 1 },
+        name: 'checkpoint_requested_at',
+        partialFilterExpression: { checkpoint_requested_at: { $exists: true } }
+      }
+    ]);
+  }
+
+  listCustomCheckpointRequestCollections(replicationStreamId: number) {
+    return this.upstream.listCustomCheckpointRequestCollections(replicationStreamId);
+  }
+
   listBucketDataCollections(replicationStreamId: number) {
     return this.listCollectionsByPrefix(`bucket_data_${replicationStreamId}_`);
   }
@@ -133,5 +170,9 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
         partialFilterExpression: { next_compact_check: { $exists: true } }
       }
     );
+  }
+
+  customCheckpointRequestCollectionName(options: CustomCheckpointRequestCollectionSpecifier) {
+    return this.upstream.customCheckpointRequestCollectionName(options);
   }
 }

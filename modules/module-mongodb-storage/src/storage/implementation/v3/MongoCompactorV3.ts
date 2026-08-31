@@ -119,6 +119,19 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     return this.compactedBucketCount;
   }
 
+  protected override async deleteOldCustomCheckpointRequests() {
+    if (this.deleteCheckpointRequestsBefore == null) {
+      return;
+    }
+
+    for (const collection of await this.db.listCustomCheckpointRequestCollections(this.group_id)) {
+      this.signal?.throwIfAborted();
+      await collection.deleteMany({
+        checkpoint_requested_at: { $exists: true, $lt: this.deleteCheckpointRequestsBefore }
+      });
+    }
+  }
+
   /** An explicit compact request always runs a full compact for its buckets. */
   private async compactExplicitBuckets(buckets: string[]) {
     for (const bucket of buckets) {

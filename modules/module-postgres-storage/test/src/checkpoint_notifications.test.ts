@@ -44,7 +44,10 @@ bucket_definitions:
   const abortController = new AbortController();
   context.onTestFinished(() => abortController.abort());
   const iterator = bucketStorage
-    .watchCheckpointChanges({ user_id: 'user', signal: abortController.signal })
+    .watchCheckpointChanges({
+      user_id: 'user',
+      signal: abortController.signal
+    })
     [Symbol.asyncIterator]();
 
   await expect(
@@ -149,7 +152,10 @@ bucket_definitions:
   const abortController = new AbortController();
   context.onTestFinished(() => abortController.abort());
   const iterator = bucketStorage
-    .watchCheckpointChanges({ user_id: 'user', signal: abortController.signal })
+    .watchCheckpointChanges({
+      user_id: 'user',
+      signal: abortController.signal
+    })
     [Symbol.asyncIterator]();
 
   await expect(

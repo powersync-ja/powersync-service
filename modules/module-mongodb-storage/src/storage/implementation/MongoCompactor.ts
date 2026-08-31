@@ -98,6 +98,14 @@ export abstract class MongoCompactor {
       checkpoint_requested_at: { $exists: true, $lt: this.deleteCheckpointRequestsBefore },
       processed_at_lsn: { $ne: null }
     });
+    await this.deleteOldCustomCheckpointRequests();
+  }
+
+  protected async deleteOldCustomCheckpointRequests() {
+    if (this.deleteCheckpointRequestsBefore == null) {
+      return;
+    }
+
     await this.db.custom_write_checkpoints.deleteMany({
       checkpoint_requested_at: { $exists: true, $lt: this.deleteCheckpointRequestsBefore }
     });
