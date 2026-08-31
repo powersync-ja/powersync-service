@@ -495,7 +495,8 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
 
       interface PendingLookup {
         lookup: ScopedParameterLookup;
-        provenance: { origin: VirtualSourceRow[]; symbol: symbol }[];
+        provenancePaths: VirtualSourceRow[][];
+        resultSet: symbol;
       }
 
       // It's possible that we'll have the same logical lookup with multiple provenance values. For instance, if the
@@ -516,18 +517,19 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
           if (old == null) {
             return {
               lookup: ScopedParameterLookup.normalized(scope, UnscopedParameterLookup.normalized(directValues)),
-              provenance: [{ origin: provenance, symbol: Symbol(`lookup ${stage}.${index}`) }]
+              provenancePaths: [provenance],
+              resultSet: Symbol(`lookup ${stage}.${index}`)
             };
           } else {
-            old.provenance.push({ origin: provenance, symbol: Symbol(`lookup ${stage}.${index}`) });
+            old.provenancePaths.push(provenance);
             return old;
           }
         });
       }
 
-      const lookupsToProvenance = new Map<ScopedParameterLookup, { origin: VirtualSourceRow[]; symbol: symbol }[]>();
-      for (const [_, { lookup, provenance }] of pendingLookups.entries) {
-        lookupsToProvenance.set(lookup, provenance);
+      const lookupsToProvenance = new Map<ScopedParameterLookup, PendingLookup>();
+      for (const [_, pending] of pendingLookups.entries) {
+        lookupsToProvenance.set(pending.lookup, pending);
       }
 
       const outputs = await this.input.source.getParameterSets(
@@ -535,16 +537,20 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
         `Stream ${this.evaluators.stream.name} evaluating parameter on ${resolvedLookup.sourceTable.tablePattern}`
       );
 
-      // Stream parameters generate an output row like {0: <expr>, 1: <expr>, ...}.
       const values = outputs.flatMap(({ lookup, rows }) => {
-        return lookupsToProvenance.get(lookup)!.flatMap(({ symbol, origin }) => {
+        const { provenancePaths, resultSet } = lookupsToProvenance.get(lookup)!;
+        return provenancePaths.flatMap((origin, provenanceIndex) => {
           return rows.map((row, rowid) => {
             const length = Object.entries(row).length;
             const asArray: ParameterValueWithRow[] = [];
 
             for (let i = 0; i < length; i++) {
+              // Stream parameters generate an output row like {0: <expr>, 1: <expr>, ...}.
               const value = row[i.toString()] as SqliteParameterValue;
-              const directOrigin = length > 1 ? { resultSet: symbol, row: rowid } : undefined;
+
+              // All paths share one result set because the lookup was deduplicated. Include the path index in the row
+              // identity because the same output rows are instantiated once for every path.
+              const directOrigin = length > 1 ? { resultSet, row: provenanceIndex * rows.length + rowid } : undefined;
 
               asArray.push({
                 value,
