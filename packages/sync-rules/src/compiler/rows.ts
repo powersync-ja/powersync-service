@@ -125,9 +125,9 @@ abstract class BaseSourceRowProcessor {
     }
 
     // Verify that table-valued functions on the two row processors are equal (in any order). Also, construct a mapping
-    // of functions in both processors to a unique symbol so that if two processors are equal, the mapping will report
-    // the exact same symbol. This allows expressions to compare references to table-valued functions across the two
-    // processors.
+    // of functions in both processors to a unique symbol so that if two table-valued functions are equal, the mapping
+    // will report the exact same symbol. This allows expressions to compare references to table-valued functions across
+    // the two processors.
     const symbolsForTableValuedFunctions = new Map<TableValuedResultSet, symbol>();
     const identities = new TableValuedIdentities(symbolsForTableValuedFunctions);
 

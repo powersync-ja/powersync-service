@@ -5,6 +5,10 @@ import { RequestExpression, RowExpression } from './filter.js';
 import { PointLookup, RowEvaluator, SourceRowProcessor } from './rows.js';
 import { TableValuedResultSet } from './table.js';
 
+/**
+ * Most expressions we compare here are only derived from request data without any table-valued functions that would be
+ * in scope implicitly. So we can use an empty identity mapping for table-valued functions to compare them.
+ */
 const equalsIgnoringNoResultSets = resultSetIgnoringEquality(TableValuedHashCodes.empty, TableValuedIdentities.empty);
 
 /**
