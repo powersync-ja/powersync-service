@@ -46,7 +46,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       logger: this.logger,
       objectStorage: this.options.objectStorage,
       inlineThresholdBytes: this.options.inlineThresholdBytes,
-      signal: this.options.signal
+      signal: this.options.signal,
+      objectStorageUsageWriterId: this.objectStorageUsageWriterId
     });
   }
 
@@ -133,7 +134,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         .sourceRecords(this.replicationStreamId, mongoTableId(table.id))
         .drop()
         .catch((error) => {
-          if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
             return;
           }
           throw error;

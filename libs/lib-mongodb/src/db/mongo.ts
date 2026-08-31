@@ -111,6 +111,10 @@ export const isMongoServerError = (error: any): error is mongo.MongoServerError 
   return error instanceof mongo.MongoServerError || error?.name == 'MongoServerError';
 };
 
+export const isMongoNamespaceNotFoundError = (error: unknown): error is mongo.MongoServerError => {
+  return isMongoServerError(error) && error.codeName === 'NamespaceNotFound';
+};
+
 export const isMongoNetworkTimeoutError = (error: any): error is mongo.MongoNetworkTimeoutError => {
   return error instanceof mongo.MongoNetworkTimeoutError || error?.name == 'MongoNetworkTimeoutError';
 };

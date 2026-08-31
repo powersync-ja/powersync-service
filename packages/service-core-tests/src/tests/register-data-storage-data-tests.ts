@@ -1458,10 +1458,11 @@ bucket_definitions:
   test('empty storage metrics', async () => {
     await using f = await generateStorageFactory({ dropAll: true });
     const metrics = await f.getStorageMetrics();
-    expect(metrics).toEqual({
+    expect(metrics).toMatchObject({
       operations_size_bytes: 0,
       parameters_size_bytes: 0,
-      replication_size_bytes: 0
+      replication_size_bytes: 0,
+      object_storage_size_bytes: 0
     });
 
     const r = await f.configureSyncRules(updateSyncRulesFromYaml('bucket_definitions: {}'));

@@ -235,6 +235,15 @@ export interface StorageRef {
   file_size: number;
 }
 
+export interface ObjectStorageUsageDocument {
+  _id: {
+    g: number;
+    w: string;
+  };
+  updated_at: Date;
+  definitions: Record<BucketDefinitionId, bigint>;
+}
+
 /** An S3 object that may be deleted once its grace period has elapsed. */
 export interface ObjectStorageDeletionMarker {
   _id: bson.ObjectId;

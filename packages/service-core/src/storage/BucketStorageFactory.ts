@@ -148,6 +148,25 @@ export interface StorageMetrics {
    * Size of current_data.
    */
   replication_size_bytes: number;
+
+  /**
+   * Size of active object-storage references, such as S3 bucket-data objects.
+   */
+  object_storage_size_bytes?: number;
+
+  /**
+   * Per-sync-config storage sizes, when the storage backend can provide them.
+   */
+  sync_config_metrics?: StorageSyncConfigMetrics[];
+}
+
+export interface StorageSyncConfigMetrics {
+  sync_config_id: string;
+  sync_config_state: string;
+  attributed_bucket_data_bytes: number;
+  attributed_parameter_indexes_bytes: number;
+  attributed_source_records_bytes: number;
+  attributed_object_storage_bytes: number;
 }
 
 export interface UpdateSyncRulesOptions {
