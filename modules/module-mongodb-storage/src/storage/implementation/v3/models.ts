@@ -8,6 +8,7 @@ import {
 } from '@powersync/service-core';
 import {
   BucketDefinitionId,
+  EventDefinitionId,
   ParameterIndexId,
   ScopedParameterLookup,
   SqliteJsonValue
@@ -158,6 +159,10 @@ export interface SourceTableDocumentV3 {
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
+  /**
+   * Stream-local ids of the compiled event definitions evaluated by this source table.
+   */
+  event_definition_ids: EventDefinitionId[];
   latest_pending_delete?: InternalOpId | undefined;
   /**
    * Source-specific metadata. Absent for legacy records.
@@ -286,6 +291,31 @@ export interface BucketDataDocumentV3 {
    * documents have been removed.
    */
   has_clear_op?: true;
+}
+
+/**
+ * v3 Custom checkpoints (new name for legacy write checkpoints) are related to
+ * a replication stream and a specific event (in a sync config) which created them.
+ * Unchanged events, between sync configs, can share the documents.
+ * For v3, we store each replication stream's custom checkpoint requests in their own collection:
+ * `custom_checkpoint_requests_${replicationStreamId}_${eventId}`
+ */
+export interface CustomCheckpointRequestDocumentV3 {
+  _id: bson.ObjectId;
+  user_id: string;
+  checkpoint: bigint;
+  /**
+   * Unlike managed write checkpoints, custom write checkpoints are flushed together with
+   * normal ops. This means we can assign an op_id for ordering / correlating with read checkpoints.
+   *
+   * This is not unique - multiple write checkpoints can have the same op_id.
+   */
+  op_id?: InternalOpId;
+  /**
+   * Set when this checkpoint was created from a client-supplied checkpoint
+   * request rather than a persistent custom write checkpoint.
+   */
+  checkpoint_requested_at?: Date | null;
 }
 
 export function serializeParameterLookup(lookup: ScopedParameterLookup): bson.Binary {
