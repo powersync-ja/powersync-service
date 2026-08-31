@@ -2,6 +2,7 @@ import {
   BucketDataSource,
   BucketDefinitionId,
   DEFAULT_TAG,
+  EventDefinitionId,
   ParameterIndexId,
   ParameterIndexLookupCreator,
   SourceTableRef
@@ -35,6 +36,13 @@ export interface SourceTableOptions {
   parameterLookupSources: ParameterIndexLookupCreator[];
   bucketDataSourceIds?: Set<BucketDefinitionId>;
   parameterLookupSourceIds?: Set<ParameterIndexId>;
+  /**
+   * Compiled event definitions assigned to this persisted source-table record.
+   *
+   * Undefined is the legacy/non-incremental representation where event selection is
+   * based on the table ref. V3 incremental storage always supplies this set.
+   */
+  eventDefinitionIds?: Set<EventDefinitionId>;
   /**
    * Source-specific metadata. Null when no metadata has been recorded.
    */
@@ -75,11 +83,11 @@ export class SourceTable {
   public syncParameters = true;
 
   /**
-   * True if this table should fire events for row changes.
+   * True if this table should evaluate event definitions for row changes.
    *
-   * This value is resolved externally, and cached here. When multiple SourceTables exist
-   * for the same SourceTableRef (v3 storage), resolveTables designates exactly one of them
-   * as the event carrier, so that a row change saved once per table fires each event once.
+   * This value is resolved externally, and cached here. V3 storage assigns disjoint
+   * event-definition ids to SourceTables for the same physical table. Multiple records
+   * may evaluate different events, but each event id is evaluated through at most one record.
    *
    * Defaults to true for tests.
    */
@@ -150,6 +158,10 @@ export class SourceTable {
     return this.options.parameterLookupSourceIds;
   }
 
+  get eventDefinitionIds() {
+    return this.options.eventDefinitionIds;
+  }
+
   get sourceMetadata() {
     return this.options.sourceMetadata ?? null;
   }
@@ -192,6 +204,7 @@ export class SourceTable {
       bucketDataSourceIds: this.bucketDataSourceIds == null ? undefined : new Set(this.bucketDataSourceIds),
       parameterLookupSourceIds:
         this.parameterLookupSourceIds == null ? undefined : new Set(this.parameterLookupSourceIds),
+      eventDefinitionIds: this.eventDefinitionIds == null ? undefined : new Set(this.eventDefinitionIds),
       sourceMetadata: structuredClone(sourceMetadata)
     });
     copy.syncData = this.syncData;

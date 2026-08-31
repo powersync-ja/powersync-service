@@ -324,7 +324,9 @@ export class PostgresBucketBatch
     // TODO maybe share with abstract class
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.options.store_current_data && sourceTable.storeCurrentData;
-    // Only the table designated as event carrier by resolveTables may fire events.
+    // PostgreSQL storage resolves each physical table to one SourceTable. syncEvent records whether
+    // that table matches any event definition; each matching definition is evaluated once here and
+    // may produce multiple payloads from its matching queries.
     if (sourceTable.syncEvent) {
       for (const event of this.getTableEvents(sourceTable)) {
         this.iterateListeners((cb) =>

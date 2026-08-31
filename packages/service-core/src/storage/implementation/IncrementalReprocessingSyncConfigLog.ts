@@ -1,4 +1,9 @@
-import { BucketDataSource, ParameterIndexLookupCreator, SyncConfigWithErrors } from '@powersync/service-sync-rules';
+import {
+  BucketDataSource,
+  EventDefinition,
+  ParameterIndexLookupCreator,
+  SyncConfigWithErrors
+} from '@powersync/service-sync-rules';
 import {
   IncrementalMappingChanges,
   IncrementalMappingDefinitionChange,
@@ -30,6 +35,8 @@ export function describeIncrementalSyncConfigUpdate(options: {
   mappingChanges: IncrementalMappingChanges;
 }): IncrementalSyncConfigUpdateLog {
   const { activeMappings, newMapping, newSyncConfig, mappingChanges } = options;
+  // Buckets, parameter lookups and events all flow through the mapping's assigned ids, so their changes are
+  // already present in mappingChanges and allDefinitionEntries().
   const newDefinitionKeys = new Set(newMapping.allDefinitionEntries().map(definitionKey));
   const activeDefinitions = uniqueDefinitions(activeMappings.flatMap((mapping) => mapping.allDefinitionEntries()));
 
@@ -57,15 +64,25 @@ function sourceTablesForDefinition(
     );
   }
 
-  return sourceTablesForSources(
-    syncConfig.config.bucketParameterLookupSources.filter(
-      (source) => mapping.parameterLookupId(source) == definition.id
-    )
+  if (definition.type == 'parameter_lookup') {
+    return sourceTablesForSources(
+      syncConfig.config.bucketParameterLookupSources.filter(
+        (source) => mapping.parameterLookupId(source) == definition.id
+      )
+    );
+  }
+
+  return sourceTablesForEvents(
+    syncConfig.config.eventDefinitions.filter((event) => mapping.eventId(event) == definition.id)
   );
 }
 
 function sourceTablesForSources(sources: Array<BucketDataSource | ParameterIndexLookupCreator>) {
   return uniqueSorted(sources.flatMap((source) => [...source.getSourceTables()].map((table) => table.tablePattern)));
+}
+
+function sourceTablesForEvents(events: EventDefinition[]) {
+  return uniqueSorted(events.flatMap((event) => [...event.getSourceTables()].map((table) => table.tablePattern)));
 }
 
 function definitionKey(definition: IncrementalMappingDefinitionChange) {

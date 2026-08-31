@@ -768,9 +768,10 @@ export abstract class MongoBucketBatch
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
-    // syncEvent is the per-table designation from resolveTables. With v3 storage, multiple
-    // SourceTables can exist for the same ref, with a row change saved once per table -
-    // only the designated event carrier may fire events, so each event fires once per row.
+    // V3 source tables own disjoint event-definition ids for each physical table. Multiple
+    // SourceTables may evaluate different events, but each definition is evaluated through
+    // at most one record for this row change.
+    // Legacy storage leaves eventDefinitionIds undefined and selects by table ref.
     if (sourceTable.syncEvent) {
       for (const event of this.getTableEvents(sourceTable)) {
         this.iterateListeners((cb) =>
@@ -943,8 +944,22 @@ export abstract class MongoBucketBatch
    * Gets relevant {@link HydratedEventDescriptor}s for the given {@link SourceTable}
    */
   protected getTableEvents(table: storage.SourceTable): HydratedEventDescriptor[] {
-    return this.sync_rules.eventDescriptors.filter((evt) =>
-      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table.ref))
-    );
+    // V3 storage assigns event-definition ids to each source table, so membership is authoritative.
+    // Iterate the table's distinct ids and resolve each through the stream's deduped event map, so a
+    // definition reused across configs has one evaluator for that id. The evaluator may still return
+    // multiple payloads from matching queries. Legacy storage leaves this undefined and selects by table ref.
+    if (table.eventDefinitionIds != null) {
+      const eventById = this.options.parsedSyncConfig.eventById;
+      const events: HydratedEventDescriptor[] = [];
+      for (const id of table.eventDefinitionIds) {
+        const event = eventById.get(id);
+        if (event != null && event.tableTriggersEvent(table.ref)) {
+          events.push(event);
+        }
+      }
+      return events;
+    }
+
+    return this.sync_rules.eventDescriptors.filter((event) => event.tableTriggersEvent(table.ref));
   }
 }

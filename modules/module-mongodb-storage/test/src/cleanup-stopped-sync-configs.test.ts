@@ -324,7 +324,7 @@ streams:
   test('drops current_data when a table becomes event-only but is kept by a live event', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
 
-    // The first config syncs `todos` data and also fires events for it.
+    // The first config syncs `todos` data and also evaluates the audit event for its rows.
     const first = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
         `
@@ -366,9 +366,10 @@ event_definitions:
     const sourceTableId = resolved.tables[0].id as bson.ObjectId;
     const sourceRecordsCollection = db.sourceRecords(first.replicationStreamId, sourceTableId).collectionName;
     const ownerDefinitionId = first.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
-    expect(
-      (await db.sourceTables(first.replicationStreamId).findOne({ _id: sourceTableId }))?.bucket_data_source_ids
-    ).toEqual([ownerDefinitionId]);
+    const initialSourceTable = await db.sourceTables(first.replicationStreamId).findOne({ _id: sourceTableId });
+    expect(initialSourceTable?.bucket_data_source_ids).toEqual([ownerDefinitionId]);
+    expect(initialSourceTable?.event_definition_ids).toHaveLength(1);
+    const eventDefinitionIds = initialSourceTable!.event_definition_ids;
     // The prior snapshot is persisted in current_data.
     expect(await collectionExists(db, sourceRecordsCollection)).toBe(true);
 
@@ -414,12 +415,13 @@ event_definitions:
       sourceTablesDeleted: 0
     });
 
-    // The source table row survives (the live event still needs it), narrowed to empty
-    // memberships, but its now-unused current_data collection is dropped.
+    // The source table row survives (the live event still needs it), narrowed to empty data and
+    // parameter memberships, but its event membership remains and current_data is dropped.
     const sourceTable = await db.sourceTables(first.replicationStreamId).findOne({ _id: sourceTableId });
     expect(sourceTable).not.toBeNull();
     expect(sourceTable?.bucket_data_source_ids).toEqual([]);
     expect(sourceTable?.parameter_lookup_source_ids).toEqual([]);
+    expect(sourceTable?.event_definition_ids).toEqual(eventDefinitionIds);
     expect(await collectionExists(db, sourceRecordsCollection)).toBe(false);
 
     const streamDoc = (await db.sync_rules.findOne({ _id: first.replicationStreamId })) as ReplicationStreamDocumentV3;
@@ -429,9 +431,9 @@ event_definitions:
   test('cleans up event-only source tables no longer triggered by a live sync config', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
 
-    // The first config syncs `todos` and additionally fires events for `audit_log`. The
-    // `audit_log` table is referenced only by the event trigger, so its source table carries
-    // empty membership arrays (an event-only table).
+    // The first config syncs `todos` and additionally evaluates the audit event for `audit_log`. The
+    // `audit_log` table is referenced only by the event trigger, so its source table has only an
+    // event membership (an event-only table).
     const first = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
         `
@@ -490,16 +492,16 @@ event_definitions:
 
     const todosTableId = todosTable.id as bson.ObjectId;
     const auditTableId = auditTable.id as bson.ObjectId;
-    // The event-only table is persisted with empty membership arrays, so the membership filter
-    // never selects it.
+    // The event-only table has empty bucket and parameter memberships, plus its event id.
     const auditSourceTable = await db.sourceTables(first.replicationStreamId).findOne({ _id: auditTableId });
     expect(auditSourceTable?.bucket_data_source_ids).toEqual([]);
     expect(auditSourceTable?.parameter_lookup_source_ids).toEqual([]);
+    expect(auditSourceTable?.event_definition_ids).toHaveLength(1);
     const auditRecordsCollection = db.sourceRecords(first.replicationStreamId, auditTableId).collectionName;
 
     // The second (active) config keeps the same `by_owner` stream but drops the audit event.
-    // The shared bucket definition stays in use, so no bucket/parameter ids become unused and
-    // the membership-cleanup block is skipped entirely.
+    // The shared bucket definition stays in use, while the unused event id selects this table for
+    // membership cleanup.
     const second = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
         `

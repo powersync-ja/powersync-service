@@ -149,8 +149,8 @@ export interface CompiledEventDescriptor {
  * A single payload query for an event.
  *
  * Event payload queries are restricted to one physical source table. A query can have multiple variants after its
- * filter has been normalized to disjunctive normal form; evaluation stops after the first matching variant so one
- * source row produces at most one event payload for this query.
+ * filter has been normalized to disjunctive normal form. Evaluation stops after the first matching variant, which may
+ * itself produce multiple payload rows, for example through a table-valued expansion.
  */
 export interface CompiledEventSourceQuery {
   /**
