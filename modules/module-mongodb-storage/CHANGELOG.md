@@ -1,5 +1,50 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.21.0
+
+### Minor Changes
+
+- 189bd9e: Add storage_version: 4 as a stable storage version.
+- 332d649: [MongoDB Storage] Support incremental parameter compacting jobs.
+- 33a3c23: Add optional version_label for sync configs.
+- fccdff2: Add object storage metrics, and storage metrics split by sync config.
+- 989d9e1: Scope MongoDB v3 custom write checkpoint records and reads to the stream-assigned event definition that created them. Custom checkpoint mode names the event whose id is resolved through the active sync config's persisted mapping, while event handlers copy the assigned id from replication event payloads when writing checkpoints. This keeps active and incrementally processing checkpoint events separate when their definitions change.
+- 646c0de: Track replication events as MongoDB storage v3 source-table memberships so unchanged event definitions retain their assigned ids while new or changed definitions are resnapshotted during incremental reprocessing.
+- 2407f71: Apply timeouts and abortSignal handling to all S3 operations. The broad timeouts can be configured using the new `storage.object_storage.defaults_mode` option, or the `AWS_DEFAULTS_MODE` environment variable. Upgrade S3 SDK to fix further timeout issues.
+- a997c88: Restructure MongoDB V3 bucket compacting.
+
+### Patch Changes
+
+- e11c54b: Add S3 timing info for sync checkpoints.
+- aecf844: Persist subkey instead of re-computing every time.
+- cc121b3: [MongoDB Storage V3] Force create new replication stream when the old one is invalidated, and fix other consistency issues with V3 replication stream updates.
+- 4e4063b: Optimize runtime type checks, closes https://github.com/powersync-ja/powersync-service/issues/771.
+- 4037e8f: Add storage.default_storage_version config option.
+- dd7a22f: Add the sync config version label to attributed storage metrics while excluding it from shared OTLP telemetry.
+- Updated dependencies [e11c54b]
+- Updated dependencies [4b6a23e]
+- Updated dependencies [189bd9e]
+- Updated dependencies [bb08068]
+- Updated dependencies [0077a8d]
+- Updated dependencies [332d649]
+- Updated dependencies [33a3c23]
+- Updated dependencies [fccdff2]
+- Updated dependencies [989d9e1]
+- Updated dependencies [646c0de]
+- Updated dependencies [cc121b3]
+- Updated dependencies [4e4063b]
+- Updated dependencies [2407f71]
+- Updated dependencies [10131ca]
+- Updated dependencies [4037e8f]
+- Updated dependencies [3972bac]
+- Updated dependencies [dd7a22f]
+- Updated dependencies [a997c88]
+  - @powersync/service-core@1.26.0
+  - @powersync/service-sync-rules@0.41.0
+  - @powersync/service-types@0.18.0
+  - @powersync/lib-services-framework@0.10.1
+  - @powersync/lib-service-mongodb@0.6.31
+
 ## 0.20.0
 
 ### Minor Changes
