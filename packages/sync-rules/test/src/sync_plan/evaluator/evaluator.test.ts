@@ -550,6 +550,32 @@ streams:
     expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual(['stream|0["user"]']);
   });
 
+  syncTest('intersection of request data', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT * FROM issues WHERE a = auth.parameter('x') AND a = auth.parameter('y')
+`);
+
+    function queryWith(x: string, y: string) {
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user', x, y }),
+        hasDefaultStreams: true,
+        streams: {}
+      });
+      expect(errors).toStrictEqual([]);
+      expect(querier.hasDynamicBuckets).toStrictEqual(false);
+      return querier.staticBuckets.map((e) => e.bucket);
+    }
+
+    expect(queryWith('p1', 'p2')).toStrictEqual([]);
+    expect(queryWith('p1', 'p1')).toStrictEqual(['stream|0["p1"]']);
+  });
+
   syncTest('parameter lookups', async ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
