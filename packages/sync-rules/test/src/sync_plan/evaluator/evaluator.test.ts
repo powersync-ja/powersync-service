@@ -867,11 +867,7 @@ streams:
 
     // Duplicates do not need to be removed here, but they must not make lookup
     // columns independent and create impossible pairs like [2, "A"].
-    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual([
-      'stream|0[1,"A"]',
-      'stream|0[1,"A"]',
-      'stream|0[2,"B"]'
-    ]);
+    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual(['stream|0[1,"A"]', 'stream|0[2,"B"]']);
   });
 
   syncTest('preserves correlation across bigint lookup output columns', async ({ sync }) => {
@@ -1124,8 +1120,8 @@ streams:
 
     expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual([
       'stream|0["a1","b1"]',
-      'stream|0["a1","b2"]',
       'stream|0["a2","b1"]',
+      'stream|0["a1","b2"]',
       'stream|0["a2","b2"]'
     ]);
   });
