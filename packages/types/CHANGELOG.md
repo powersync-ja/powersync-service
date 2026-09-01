@@ -1,5 +1,17 @@
 # @powersync/service-types
 
+## 0.18.0
+
+### Minor Changes
+
+- 33a3c23: Add optional version_label for sync configs.
+
+### Patch Changes
+
+- fccdff2: Add object storage metrics, and storage metrics split by sync config.
+- 4e4063b: Optimize runtime type checks, closes https://github.com/powersync-ja/powersync-service/issues/771.
+- 4037e8f: Add storage.default_storage_version config option.
+
 ## 0.17.0
 
 ### Minor Changes

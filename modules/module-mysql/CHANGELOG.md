@@ -1,5 +1,35 @@
 # @powersync/service-module-mysql
 
+## 0.16.1
+
+### Patch Changes
+
+- d89195c: Enable TCP keepalive on MySQL connections, as well as a periodic liveness probe on the control connection, so that idle connections are no longer silently dropped by stateful firewalls.
+- 2407f71: Apply timeouts and abortSignal handling to all S3 operations. The broad timeouts can be configured using the new `storage.object_storage.defaults_mode` option, or the `AWS_DEFAULTS_MODE` environment variable. Upgrade S3 SDK to fix further timeout issues.
+- a997c88: Restructure MongoDB V3 bucket compacting.
+- Updated dependencies [e11c54b]
+- Updated dependencies [4b6a23e]
+- Updated dependencies [189bd9e]
+- Updated dependencies [bb08068]
+- Updated dependencies [0077a8d]
+- Updated dependencies [332d649]
+- Updated dependencies [33a3c23]
+- Updated dependencies [fccdff2]
+- Updated dependencies [989d9e1]
+- Updated dependencies [646c0de]
+- Updated dependencies [cc121b3]
+- Updated dependencies [4e4063b]
+- Updated dependencies [2407f71]
+- Updated dependencies [10131ca]
+- Updated dependencies [4037e8f]
+- Updated dependencies [3972bac]
+- Updated dependencies [dd7a22f]
+- Updated dependencies [a997c88]
+  - @powersync/service-core@1.26.0
+  - @powersync/service-sync-rules@0.41.0
+  - @powersync/service-types@0.18.0
+  - @powersync/lib-services-framework@0.10.1
+
 ## 0.16.0
 
 ### Minor Changes
