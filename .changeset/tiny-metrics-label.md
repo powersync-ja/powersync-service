@@ -3,4 +3,4 @@
 '@powersync/service-core': patch
 ---
 
-Add the sync config version label to attributed storage metrics.
+Add the sync config version label to attributed storage metrics while excluding it from shared OTLP telemetry.
