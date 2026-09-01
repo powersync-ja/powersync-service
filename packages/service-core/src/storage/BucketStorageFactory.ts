@@ -163,6 +163,8 @@ export interface StorageMetrics {
 export interface StorageSyncConfigMetrics {
   sync_config_id: string;
   sync_config_state: string;
+  /** Optional operator-supplied label identifying this sync config version. */
+  version_label?: string;
   attributed_bucket_data_bytes: number;
   attributed_parameter_indexes_bytes: number;
   attributed_source_records_bytes: number;

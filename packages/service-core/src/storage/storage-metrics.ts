@@ -1,7 +1,7 @@
 import { logger } from '@powersync/lib-services-framework';
 import { StorageMetric } from '@powersync/service-types';
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
-import { BucketStorageFactory, StorageMetrics } from './BucketStorageFactory.js';
+import { BucketStorageFactory, StorageMetrics, StorageSyncConfigMetrics } from './BucketStorageFactory.js';
 
 export function createCoreStorageMetrics(engine: MetricsEngine): void {
   engine.createObservableGauge({
@@ -74,6 +74,7 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
   type SyncConfigAttributes = {
     sync_config_id: string;
     sync_config_state: string;
+    version_label?: string;
   };
 
   /**
@@ -89,7 +90,13 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
   const reportedSyncConfigs = new Map<string, { attributes: SyncConfigAttributes; lastSeen: number }>();
 
   const syncConfigKey = (attributes: SyncConfigAttributes) =>
-    `${attributes.sync_config_id}|${attributes.sync_config_state}`;
+    JSON.stringify([attributes.sync_config_id, attributes.sync_config_state, attributes.version_label]);
+
+  const syncConfigAttributes = (syncConfig: StorageSyncConfigMetrics): SyncConfigAttributes => ({
+    sync_config_id: syncConfig.sync_config_id,
+    sync_config_state: syncConfig.sync_config_state,
+    ...(syncConfig.version_label == null ? {} : { version_label: syncConfig.version_label })
+  });
 
   const trackSyncConfigs = (metrics: StorageMetrics | null) => {
     if (metrics == null) {
@@ -98,10 +105,7 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
     }
     const now = Date.now();
     for (const syncConfig of metrics.sync_config_metrics ?? []) {
-      const attributes = {
-        sync_config_id: syncConfig.sync_config_id,
-        sync_config_state: syncConfig.sync_config_state
-      };
+      const attributes = syncConfigAttributes(syncConfig);
       reportedSyncConfigs.set(syncConfigKey(attributes), { attributes, lastSeen: now });
     }
     for (const [key, entry] of reportedSyncConfigs) {
@@ -147,10 +151,7 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
     const observations: { value: number; attributes?: Record<string, string> }[] = [];
     const present = new Set<string>();
     for (const syncConfig of metrics.sync_config_metrics ?? []) {
-      const attributes = {
-        sync_config_id: syncConfig.sync_config_id,
-        sync_config_state: syncConfig.sync_config_state
-      };
+      const attributes = syncConfigAttributes(syncConfig);
       present.add(syncConfigKey(attributes));
       observations.push({ value: nonNegative(syncConfig[key]), attributes });
     }

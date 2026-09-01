@@ -908,7 +908,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       syncConfigIds.length == 0
         ? []
         : await v3Db.syncConfigDefinitions
-            .find({ _id: { $in: syncConfigIds } }, { projection: { _id: 1, rule_mapping: 1 } })
+            .find({ _id: { $in: syncConfigIds } }, { projection: { _id: 1, rule_mapping: 1, version_label: 1 } })
             .toArray();
     const syncConfigDefinitionsById = new Map(
       syncConfigDefinitions.map((definition) => [definition._id.toHexString(), definition])
@@ -966,6 +966,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         syncConfigMetrics.push({
           sync_config_id: syncConfig._id.toHexString(),
           sync_config_state: String(syncConfig.state),
+          version_label: definition.version_label,
           attributed_bucket_data_bytes: sumCollectionSizes('bucket_data_', stream._id, bucketDefinitionIdSet),
           attributed_parameter_indexes_bytes: sumCollectionSizes('parameter_index_', stream._id, parameterIndexIdSet),
           attributed_source_records_bytes: replicationSize,

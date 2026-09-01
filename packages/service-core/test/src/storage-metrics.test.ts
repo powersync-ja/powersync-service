@@ -26,10 +26,11 @@ function testEngine() {
   return { engine, providers };
 }
 
-function syncConfigMetrics(id: string, state: string, bytes: number): StorageSyncConfigMetrics {
+function syncConfigMetrics(id: string, state: string, bytes: number, versionLabel?: string): StorageSyncConfigMetrics {
   return {
     sync_config_id: id,
     sync_config_state: state,
+    version_label: versionLabel,
     attributed_bucket_data_bytes: bytes,
     attributed_parameter_indexes_bytes: bytes,
     attributed_source_records_bytes: bytes,
@@ -90,7 +91,7 @@ describe('storage metrics', () => {
   });
 
   it('treats a state transition as a retired attribute set', async () => {
-    let current = storageMetrics([syncConfigMetrics('config-a', 'PROCESSING', 100)]);
+    let current = storageMetrics([syncConfigMetrics('config-a', 'PROCESSING', 100, 'v1')]);
     const storage = {
       getStorageMetrics: async () => current
     } as unknown as BucketStorageFactory;
@@ -101,12 +102,18 @@ describe('storage metrics', () => {
 
     await provider();
 
-    current = storageMetrics([syncConfigMetrics('config-a', 'ACTIVE', 120)]);
+    current = storageMetrics([syncConfigMetrics('config-a', 'ACTIVE', 120, 'v1')]);
     vi.setSystemTime(61_000);
 
     expect(await provider()).toEqual([
-      { value: 120, attributes: { sync_config_id: 'config-a', sync_config_state: 'ACTIVE' } },
-      { value: 0, attributes: { sync_config_id: 'config-a', sync_config_state: 'PROCESSING' } }
+      {
+        value: 120,
+        attributes: { sync_config_id: 'config-a', sync_config_state: 'ACTIVE', version_label: 'v1' }
+      },
+      {
+        value: 0,
+        attributes: { sync_config_id: 'config-a', sync_config_state: 'PROCESSING', version_label: 'v1' }
+      }
     ]);
   });
 
