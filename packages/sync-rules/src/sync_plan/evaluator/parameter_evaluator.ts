@@ -491,21 +491,21 @@ interface RequiredIntersection {
 export type PreparedParameterValue = RequestParameterValue | LookupParameterValue;
 
 class RequestParameterValue {
-  resolved: SqliteParameterValue | undefined;
+  #resolved: SqliteParameterValue | undefined;
 
   constructor(private readonly read: (request: RequestParameters) => SqliteValue) {}
 
   requireResolved() {
-    if (!this.resolved) throw new Error('Expected request values to be resolved here');
-    return this.resolved;
+    if (this.#resolved === undefined) throw new Error('Expected request values to be resolved here');
+    return this.#resolved;
   }
 
   resolveWith({ request }: PartialInstantiationInput): SqliteParameterValue {
-    if (this.resolved) return this.resolved;
+    if (this.#resolved !== undefined) return this.#resolved;
 
     const value = this.read(request);
     if (isValidParameterValue(value)) {
-      return (this.resolved = value);
+      return (this.#resolved = value);
     } else {
       throw uninstantiableException;
     }
@@ -513,7 +513,7 @@ class RequestParameterValue {
 
   clone(): RequestParameterValue {
     const clone = new RequestParameterValue(this.read);
-    clone.resolved = this.resolved;
+    clone.#resolved = this.#resolved;
     return clone;
   }
 }
