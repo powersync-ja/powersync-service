@@ -60,6 +60,30 @@ export class ResultSet {
     }
   }
 
+  /**
+   * Removes rows where the given columns have different values.
+   *
+   * If a fixed value is passed, this also removes rows where any of the given columns has a different value.
+   */
+  formIntersection(columns: ResultSetColumn[], fixedValue?: SqliteParameterValue) {
+    row: for (let i = 0; i < this.#rows.length; i++) {
+      const row = this.#rows[i];
+      let requiredValue = fixedValue;
+
+      for (const column of columns) {
+        const evaluated = lookupInRow(row, column);
+        if (requiredValue !== undefined && evaluated != requiredValue) {
+          // This row needs to be removed!
+          this.#rows.splice(i, 1);
+          i--;
+          continue row;
+        }
+
+        requiredValue = evaluated;
+      }
+    }
+  }
+
   async joinAsync(
     keys: ResultSetColumn[],
     resultSetIndex: number,

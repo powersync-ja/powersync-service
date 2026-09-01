@@ -73,6 +73,34 @@ describe('ResultSet', () => {
     });
   });
 
+  describe('formIntersection', () => {
+    const col0 = { lookup: element(0), outputIndex: 0 };
+    const col1 = { lookup: element(1), outputIndex: 0 };
+
+    test('with a fixed value, removes rows where any column differs from it', () => {
+      const rs = new ResultSet(2);
+      rs.multiply(0, [['a'], ['b']]);
+      rs.multiply(1, [['a'], ['b']]);
+
+      rs.formIntersection([col0, col1], 'a');
+
+      expect([...rs.projectUnique([col0, col1])]).toStrictEqual([['a', 'a']]);
+    });
+
+    test('without a fixed value, removes rows where the columns differ from each other', () => {
+      const rs = new ResultSet(2);
+      rs.multiply(0, [['a'], ['b']]);
+      rs.multiply(1, [['a'], ['b']]);
+
+      rs.formIntersection([col0, col1]);
+
+      expect([...rs.projectUnique([col0, col1])]).toStrictEqual([
+        ['a', 'a'],
+        ['b', 'b']
+      ]);
+    });
+  });
+
   describe('joinAsync', () => {
     const col0 = { lookup: element(0), outputIndex: 0 };
     const col1 = { lookup: element(1), outputIndex: 0 };
