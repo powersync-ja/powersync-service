@@ -1,6 +1,5 @@
 import { ParameterLookupSource, ScopedParameterLookup, UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
 import { ParameterIndexLookupCreator } from '../../BucketSource.js';
-import { HashMap, listEquality, StableHasher } from '../../compiler/equality.js';
 import { HydrationState } from '../../HydrationState.js';
 import { RequestParameters, SqliteParameterValue, SqliteValue } from '../../types.js';
 import { isValidParameterValue } from '../../utils.js';
@@ -14,6 +13,7 @@ import { MapSourceVisitor, visitExpr } from '../expression_visitor.js';
 import * as plan from '../plan.js';
 import { StreamInput } from './bucket_source.js';
 import { PreparedParameterIndexLookupCreator } from './parameter_index_lookup_creator.js';
+import { AsyncJoinLookup, ResultSet, ResultSetColumn, ResultSetElement } from './result_set.js';
 
 /**
  * Finds bucket parameters for a given request or subscription.
@@ -63,7 +63,12 @@ export class RequestParameterEvaluators {
     /**
      * Pending parameter values, or their cached outputs.
      */
-    readonly parameterValues: PreparedParameterValue[]
+    readonly parameterValues: PreparedParameterValue[],
+
+    /**
+     * The materialized result set into which
+     */
+    readonly resultSet: ResultSet
   ) {}
 
   /**
@@ -77,33 +82,10 @@ export class RequestParameterEvaluators {
    * instead of re-evaluating them on every parameter lookup change.
    */
   clone(): RequestParameterEvaluators {
-    function cloneValue(value: PreparedParameterValue): PreparedParameterValue {
-      switch (value.type) {
-        case 'intersection':
-          return { type: 'intersection', values: value.values.map(cloneValue) };
-        case 'request':
-        case 'lookup':
-        case 'cached':
-          return value;
-      }
-    }
+    const copiedStages = this.lookupStages.map((s) => s.map((e) => e.clone()));
+    const outputValues = this.parameterValues.map((v) => v.clone());
 
-    function cloneLookup(lookup: PreparedExpandingLookup): PreparedExpandingLookup {
-      switch (lookup.type) {
-        case 'parameter':
-          // We need to clone the instantiation array as well.
-          return { type: 'parameter', lookup: lookup.lookup, instantiation: lookup.instantiation.map(cloneValue) };
-        case 'table_valued':
-        case 'cached':
-          return lookup;
-      }
-    }
-
-    return new RequestParameterEvaluators(
-      this.stream,
-      this.lookupStages.map((stage) => stage.map(cloneLookup)),
-      this.parameterValues.map(cloneValue)
-    );
+    return new RequestParameterEvaluators(this.stream, copiedStages, outputValues, this.resultSet.clone());
   }
 
   /**
@@ -115,13 +97,34 @@ export class RequestParameterEvaluators {
    * If dynamic lookups are required to resolve parameters, returns `undefined`.
    */
   partiallyInstantiate(input: PartialInstantiationInput): SqliteParameterValue[][] | undefined {
-    const helper = new PartialInstantiator(input, this);
+    try {
+      // At this point, we can resolve table-valued lookups and parameter values based only on request data.
+      for (const stage of this.lookupStages) {
+        for (const element of stage) {
+          if (element instanceof TableValuedExpandingLookup) {
+            const outputs = element.read(input.request);
+            element.wasResolved = true;
+            this.resultSet.multiply(element.resultSetIndex, outputs);
 
-    this.lookupStages.forEach((stage, stageIndex) => {
-      stage.forEach((_, indexInStage) => helper.expandingLookupSync(stageIndex, indexInStage));
-    });
+            this.#checkInstantiable();
+          } else {
+            for (const instantiation of element.instantiation) {
+              if (instantiation instanceof RequestParameterValue) instantiation.resolveWith(input);
+            }
+          }
+        }
+      }
 
-    return helper.tryResolveInstantiation(this.parameterValues)?.map(withoutProvenance);
+      for (const parameter of this.parameterValues) {
+        if (parameter instanceof RequestParameterValue) parameter.resolveWith(input);
+      }
+
+      return this.#readParameters();
+    } catch (e) {
+      if (e === uninstantiableException) return [];
+
+      throw e;
+    }
   }
 
   /**
@@ -130,16 +133,103 @@ export class RequestParameterEvaluators {
    * Because this needs to lookup parameter indexes, it is asynchronous.
    */
   async instantiate(input: InstantiationInput): Promise<SqliteParameterValue[][]> {
-    const helper = new FullInstantiator(input, this);
+    try {
+      for (const stage of this.lookupStages) {
+        for (const lookup of stage) {
+          if (lookup instanceof ParameterIndexExpandingLookup) {
+            await this.#instantiateLookup(lookup, input);
+          }
+        }
+      }
 
-    for (let i = 0; i < this.lookupStages.length; i++) {
-      // Within a stage, we can resolve lookups concurrently.
-      await Promise.all(this.lookupStages[i].map((_, j) => helper.expandingLookup(i, j)));
+      return this.#readParameters()!;
+    } catch (e) {
+      if (e === uninstantiableException) return [];
+
+      throw e;
+    }
+  }
+
+  #checkInstantiable() {
+    if (this.resultSet.length === 0) throw uninstantiableException;
+  }
+
+  #readParameters(): SqliteParameterValue[][] | undefined {
+    for (const stage of this.lookupStages) {
+      for (const element of stage) {
+        if (!element.wasResolved) {
+          return undefined;
+        }
+      }
     }
 
-    // At this point, all lookups have been resolved and we can synchronously evaluate parameters which might depend on
-    // those lookups.
-    return helper.resolveInstantiation(this.parameterValues).map(withoutProvenance);
+    return this.#readValues(this.parameterValues);
+  }
+
+  #readValues(values: PreparedParameterValue[]): SqliteParameterValue[][] {
+    const allInstantiations: SqliteParameterValue[][] = [];
+
+    for (const row of this.resultSet.projectUnique(values.filter((v) => v instanceof LookupParameterValue))) {
+      allInstantiations.push(this.#evaluateAgainstRow(row, values));
+    }
+
+    return allInstantiations;
+  }
+
+  #evaluateAgainstRow(row: SqliteParameterValue[], projection: PreparedParameterValue[]) {
+    let lookupIndex = 0;
+
+    return projection.map((v) => {
+      if (v instanceof LookupParameterValue) {
+        return row[lookupIndex++];
+      } else {
+        if (!v.resolved) throw new Error('Expected request values to be resolved here');
+        return v.resolved;
+      }
+    });
+  }
+
+  async #instantiateLookup(lookup: ParameterIndexExpandingLookup, input: InstantiationInput) {
+    const scope = input.hydrationState.getParameterIndexLookupScope(lookup.lookup);
+    const resolvedLookup = lookup.lookup as PreparedParameterIndexLookupCreator;
+
+    await this.resultSet.joinAsync(
+      lookup.instantiation.filter((v) => v instanceof LookupParameterValue),
+      lookup.resultSetIndex,
+      async (inputs) => {
+        const bucketStorageLookups = new Map<ScopedParameterLookup, AsyncJoinLookup>();
+        for (const input of inputs) {
+          bucketStorageLookups.set(
+            ScopedParameterLookup.normalized(
+              scope,
+              UnscopedParameterLookup.normalized(this.#evaluateAgainstRow(input.inputs, lookup.instantiation))
+            ),
+            input
+          );
+        }
+
+        const outputs = await input.source.getParameterSets(
+          [...bucketStorageLookups.keys()],
+          `Stream ${this.stream.name} evaluating parameter on ${resolvedLookup.sourceTable.tablePattern}`
+        );
+
+        for (const { lookup, rows } of outputs) {
+          const join = bucketStorageLookups.get(lookup)!;
+
+          for (const row of rows) {
+            const length = Object.entries(row).length;
+            const asArray: SqliteParameterValue[] = [];
+            for (let i = 0; i < length; i++) {
+              asArray.push(row[i.toString()] as SqliteParameterValue);
+            }
+
+            join.foundRows.push(asArray);
+          }
+        }
+      }
+    );
+    lookup.wasResolved = true;
+    this.#checkInstantiable();
   }
 
   /**
@@ -160,7 +250,8 @@ export class RequestParameterEvaluators {
     engine: ScalarExpressionEngine
   ) {
     const mappedStages: PreparedExpandingLookup[][] = [];
-    const lookupToStage = new Map<plan.ExpandingLookup, { stage: number; index: number }>();
+    let amountOfLookups = 0;
+    const lookupToStage = new Map<plan.ExpandingLookup, PreparedExpandingLookup>();
 
     function mapParameterValue(value: plan.ParameterValue): PreparedParameterValue {
       if (value.type == 'request') {
@@ -169,17 +260,14 @@ export class RequestParameterEvaluators {
         const prepared = engine.prepareEvaluator({ filters: [], outputs: [mapper.transform(value.expr)] });
         const instantiation = mapper.instantiation;
 
-        return {
-          type: 'request',
-          read(request) {
-            return prepared.evaluate(parametersForRequest(request, instantiation))[0][0];
-          }
-        };
+        return new RequestParameterValue(
+          (request) => prepared.evaluate(parametersForRequest(request, instantiation))[0][0]
+        );
       } else if (value.type == 'lookup') {
-        const stagePosition = lookupToStage.get(value.lookup)!;
-        return { type: 'lookup', lookup: stagePosition, resultIndex: value.resultIndex };
+        const lookup = lookupToStage.get(value.lookup)!;
+        return new LookupParameterValue(lookup, value.resultIndex);
       } else {
-        return { type: 'intersection', values: mapParameterValues(value.values) };
+        throw new Error('TODO: intersection');
       }
     }
 
@@ -194,14 +282,14 @@ export class RequestParameterEvaluators {
 
       for (const lookup of stage) {
         const index = mappedStage.length;
-        lookupToStage.set(lookup, { stage: stageIndex, index });
+        let resolved: PreparedExpandingLookup;
 
         if (lookup.type == 'parameter') {
-          mappedStage.push({
-            type: 'parameter',
-            lookup: input.preparedLookups.get(lookup.lookup)!,
-            instantiation: mapParameterValues(lookup.instantiation)
-          });
+          resolved = new ParameterIndexExpandingLookup(
+            amountOfLookups++,
+            input.preparedLookups.get(lookup.lookup)!,
+            mapParameterValues(lookup.instantiation)
+          );
         } else {
           // Create an expression like SELECT <output> FROM table_valued(<functionInputs>) WHERE <filters>
           const mapInputs = mapExternalDataToInstantiation();
@@ -222,430 +310,107 @@ export class RequestParameterEvaluators {
             filters: lookup.filters.map((e) => visitExpr(mapOutputs, e, null))
           });
 
-          mappedStage.push({
-            type: 'table_valued',
-            read(request) {
-              return [
-                ...filterParameterRows(prepared.evaluate(parametersForRequest(request, mapInputs.instantiation)))
-              ];
-            }
-          });
+          resolved = new TableValuedExpandingLookup(amountOfLookups++, (request) => [
+            ...filterParameterRows(prepared.evaluate(parametersForRequest(request, mapInputs.instantiation)))
+          ]);
         }
+
+        lookupToStage.set(lookup, resolved);
       }
     }
 
-    return new RequestParameterEvaluators(stream, mappedStages, mapParameterValues(values));
+    const rs = new ResultSet(amountOfLookups);
+    return new RequestParameterEvaluators(stream, mappedStages, mapParameterValues(values), rs);
   }
 }
 
-class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantiationInput> {
+/**
+ * An internal exception thrown when no instantiation exists for a parameter.
+ *
+ * This is an exception to allow aborting the evaluator early.
+ */
+const uninstantiableException = Symbol.for('uninstantiable');
+
+export type PreparedExpandingLookup = TableValuedExpandingLookup | ParameterIndexExpandingLookup;
+
+abstract class BasePreparedExpandingLookup implements ResultSetElement {
+  wasResolved = false;
+
+  constructor(readonly resultSetIndex: number) {}
+
+  abstract clone(): BasePreparedExpandingLookup;
+}
+
+class TableValuedExpandingLookup extends BasePreparedExpandingLookup {
   constructor(
-    protected readonly input: I,
-    protected readonly evaluators: RequestParameterEvaluators
-  ) {}
-
-  tryResolveInstantiation(params: PreparedParameterValue[]): ParameterValueWithRow[][] | undefined {
-    const stages = this.evaluators.lookupStages;
-    let hasUninstantiatedStage = false;
-    for (let stageIndex = 0; stageIndex < stages.length; stageIndex++) {
-      const stage = stages[stageIndex];
-      for (let indexInStage = 0; indexInStage < stage.length; indexInStage++) {
-        const resolvedValues = this.expandingLookupSync(stageIndex, indexInStage);
-        if (resolvedValues == null) {
-          // Requires an asynchronous lookup to instantiate.
-          hasUninstantiatedStage = true;
-          continue;
-        }
-
-        if (resolvedValues.length == 0) {
-          // Empty lookup stages make the entire graph uninstantiable, even if they're not used as a parameter. The
-          // reason for that is that queries like `WHERE 'static_value' IN (SELECT name FROM users WHERE id = auth.user_id())`
-          // are implemented as lookup stages, so we can't ignore them.
-          // Note that there is no construct like `OR` in a querier lookup (those always get compiled into separate
-          // queries), so any stage being empty guarantees that everything is uninstantiable.
-          return [];
-        }
-      }
-    }
-
-    if (hasUninstantiatedStage) {
-      return undefined;
-    }
-
-    // If we got to this point, all stages have been resolved. So we can resolve parameters without further async work.
-    return [...this.resolveInputs(params)];
+    resultSetIndex: number,
+    readonly read: (request: RequestParameters) => SqliteParameterValue[][]
+  ) {
+    super(resultSetIndex);
   }
 
-  protected *resolveInputs(params: PreparedParameterValue[]): Generator<ParameterValueWithRow[]> {
-    const parameterValues = params.map((_, index) => {
-      const cached = this.parameterSync(params, index);
-      if (cached == null) {
-        // This method is only called for inputs from an earlier stage, which should have been resolved at this point.
-        throw new Error('Should have been able to resolve parameter from earlier stage synchronously.');
-      }
-      return cached;
-    });
-
-    yield* mergeValueCombinations(parameterValues);
-  }
-
-  /**
-   * If possible, evaluates an element in an array of parameter values and replaces the parameter with a marker
-   * indicating it as cached.
-   */
-  parameterSync(parent: PreparedParameterValue[], index: number): ParameterValueWithRow[] | undefined {
-    const current = parent[index];
-    if (current.type === 'cached') {
-      return current.values;
-    } else if (current.type === 'intersection') {
-      const columns: ParameterValueWithRow[][] = [];
-      for (let i = 0; i < current.values.length; i++) {
-        const evaluated = this.parameterSync(current.values, i);
-        if (evaluated == null) {
-          return undefined; // Can't evaluate sub-parameter
-        }
-        columns.push(evaluated);
-      }
-
-      // For the most part, this just needs to find an intersection of values present in all columns. It gets more
-      // complicated for rows with provenance, however. For those. we need to ensure we find an intersection of values
-      // with compatible source rows. For example, consider an intersection of the same parameter lookup with columns
-      // `c1` and `c2`, and assume that we had the following rows:
-      //
-      //   1. Row {c1: 'a', c2: 'a'}
-      //   2. Row {c1: 'a', c2: 'b'}
-      //
-      // The intersection of this has one value: `a`, with a provenance of Row 1.  To achieve this, we re-create rows
-      // by tracking a canonical value per row. If we see another value in the same row, we know that row can't
-      // contribute to the intersection because it has different values for `c1` and `c2`.
-      const poison = Symbol('poison');
-      const valuesByResultSet = new Map<symbol, Map<number, SqliteParameterValue | typeof poison>>();
-      const completedRows = new Map<symbol, Set<number>>();
-      function markRowAsCompleted(resultSet: symbol, rowid: number) {
-        let rowids = completedRows.get(resultSet);
-        if (rowids == null) {
-          rowids = new Set();
-          completedRows.set(resultSet, rowids);
-        }
-
-        rowids.add(rowid);
-      }
-
-      // Eliminate rows with conflicting values.
-      for (const column of columns) {
-        nextValue: for (const value of column) {
-          const row = value.directOrigin;
-          if (row) {
-            let forResultSet = valuesByResultSet.get(row.resultSet);
-            if (forResultSet == null) {
-              forResultSet = new Map();
-              valuesByResultSet.set(row.resultSet, forResultSet);
-            }
-
-            const existingValue = forResultSet.get(row.row);
-            if (existingValue != null && existingValue != value.value) {
-              forResultSet.set(row.row, poison);
-              markRowAsCompleted(row.resultSet, row.row);
-              continue nextValue;
-            } else {
-              forResultSet.set(row.row, value.value);
-            }
-          }
-        }
-      }
-
-      function shouldSkipValue(value: ParameterValueWithRow): boolean {
-        if (value.directOrigin) {
-          const { resultSet, row } = value.directOrigin;
-
-          const ignoredRowIds = completedRows.get(resultSet);
-          if (ignoredRowIds?.has(row)) return true;
-
-          const valuesForResultSet = valuesByResultSet.get(resultSet);
-          if (valuesForResultSet == null) return false;
-
-          if (valuesForResultSet.get(row) != value.value) return true;
-        }
-
-        return false;
-      }
-
-      let intersection: Map<SqliteParameterValue, VirtualSourceRow[][]> | null = null;
-      for (const column of columns) {
-        if (intersection == null) {
-          intersection = new Map();
-
-          for (const value of column) {
-            if (shouldSkipValue(value)) continue;
-
-            const existing = intersection.get(value.value);
-            if (existing != null) {
-              existing.push(value.provenance);
-            } else {
-              intersection.set(value.value, [value.provenance]);
-            }
-
-            for (const { resultSet, row } of value.provenance) {
-              // Any other value derived from this row must have the same value (otherwise we would have eliminated it).
-              // So we don't have to consider this row again.
-              markRowAsCompleted(resultSet, row);
-            }
-          }
-        } else {
-          const unmatchedValues = new Set(intersection.keys());
-
-          for (const value of column) {
-            const existing = intersection.get(value.value);
-            if (existing == null) {
-              // Value not in intersection, ignore.
-            } else {
-              unmatchedValues.delete(value.value);
-
-              if (!shouldSkipValue(value)) {
-                // An intersection value is derived from all inputs, so we track them all as provenance.
-                existing.push(value.provenance);
-              }
-            }
-          }
-
-          for (const unmatched of unmatchedValues) {
-            // Values in intersection before, but not in evaluated
-            intersection.delete(unmatched);
-          }
-        }
-
-        if (intersection!.size == 0) {
-          // Empty intersection, we don't even need to evaluate the rest.
-          break;
-        }
-      }
-
-      let values: ParameterValueWithRow[] = [];
-      if (intersection) {
-        intersection.forEach((provenances, value) => {
-          for (const provenance of provenances) {
-            values.push({ value, provenance });
-          }
-        });
-      }
-
-      parent[index] = { type: 'cached', values };
-      return values;
-    } else if (current.type === 'lookup') {
-      const resolvedLookup = this.expandingLookupSync(current.lookup.stage, current.lookup.index);
-      if (resolvedLookup) {
-        const values = resolvedLookup.map((row) => row[current.resultIndex]);
-        parent[index] = { type: 'cached', values };
-        return values;
-      }
-    } else if (current.type === 'request') {
-      const value = current.read(this.input.request);
-      const values: ParameterValueWithRow[] = isValidParameterValue(value)
-        ? [
-            {
-              value,
-              provenance: []
-            }
-          ]
-        : [];
-
-      parent[index] = { type: 'cached', values };
-      return values;
-    }
-
-    return undefined;
-  }
-
-  expandingLookupSync(stage: number, index: number): ParameterValueWithRow[][] | undefined {
-    const lookup = this.evaluators.lookupStages[stage][index];
-    if (lookup.type == 'table_valued') {
-      // We can evaluate this table-valued function already.
-      const resultSetMarker = Symbol();
-      const values = lookup.read(this.input.request).map((values, rowid) => {
-        const directOrigin: VirtualSourceRow = { resultSet: resultSetMarker, row: rowid };
-        const provenance: [VirtualSourceRow] = [directOrigin];
-        return values.map((value) => ({ value, provenance, directOrigin }) satisfies ParameterValueWithRow);
-      });
-
-      this.evaluators.lookupStages[stage][index] = { type: 'cached', values };
-      return values;
-    } else if (lookup.type == 'cached') {
-      return lookup.values;
-    }
-
-    return undefined;
+  override clone(): TableValuedExpandingLookup {
+    const lookup = new TableValuedExpandingLookup(this.resultSetIndex, this.read);
+    lookup.wasResolved = this.wasResolved;
+    return lookup;
   }
 }
 
-class FullInstantiator extends PartialInstantiator<InstantiationInput> {
-  resolveInstantiation(params: PreparedParameterValue[]): ParameterValueWithRow[][] {
-    const resolved = this.tryResolveInstantiation(params);
-    if (resolved == null) {
-      throw new Error('internal error: Should have been able to resolve instantiation after instantiating stages.');
-    }
-
-    return resolved;
+class ParameterIndexExpandingLookup extends BasePreparedExpandingLookup {
+  constructor(
+    resultSetIndex: number,
+    readonly lookup: ParameterIndexLookupCreator,
+    readonly instantiation: PreparedParameterValue[]
+  ) {
+    super(resultSetIndex);
   }
 
-  async expandingLookup(stage: number, index: number): Promise<ParameterValueWithRow[][]> {
-    const lookup = this.evaluators.lookupStages[stage][index];
-    if (lookup.type == 'parameter') {
-      const scope = this.input.hydrationState.getParameterIndexLookupScope(lookup.lookup);
-      const resolvedLookup = lookup.lookup as PreparedParameterIndexLookupCreator;
-
-      interface PendingLookup {
-        lookup: ScopedParameterLookup;
-        provenancePaths: VirtualSourceRow[][];
-        resultSet: symbol;
-      }
-
-      // It's possible that we'll have the same logical lookup with multiple provenance values. For instance, if the
-      // outputs of another lookup with two columns (where only one column is an input to this lookup) are passed into
-      // this, we can have two lookups with identical keys but different provenances. This hash map de-duplicates keys.
-      const pendingLookups = new HashMap<SqliteParameterValue[], PendingLookup>(
-        FullInstantiator.parameterArrayEquality
-      );
-
-      for (const values of this.resolveInputs(lookup.instantiation)) {
-        const provenance: VirtualSourceRow[] = [];
-        for (const value of values) {
-          provenance.push(...value.provenance);
-        }
-
-        const directValues = withoutProvenance(values);
-        pendingLookups.setOrUpdate(directValues, (old) => {
-          if (old == null) {
-            return {
-              lookup: ScopedParameterLookup.normalized(scope, UnscopedParameterLookup.normalized(directValues)),
-              provenancePaths: [provenance],
-              resultSet: Symbol(`lookup ${stage}.${index}`)
-            };
-          } else {
-            old.provenancePaths.push(provenance);
-            return old;
-          }
-        });
-      }
-
-      const lookupsToProvenance = new Map<ScopedParameterLookup, PendingLookup>();
-      for (const [_, pending] of pendingLookups.entries) {
-        lookupsToProvenance.set(pending.lookup, pending);
-      }
-
-      const outputs = await this.input.source.getParameterSets(
-        [...lookupsToProvenance.keys()],
-        `Stream ${this.evaluators.stream.name} evaluating parameter on ${resolvedLookup.sourceTable.tablePattern}`
-      );
-
-      const values = outputs.flatMap(({ lookup, rows }) => {
-        const { provenancePaths, resultSet } = lookupsToProvenance.get(lookup)!;
-        return provenancePaths.flatMap((origin, provenanceIndex) => {
-          return rows.map((row, rowid) => {
-            const length = Object.entries(row).length;
-            const asArray: ParameterValueWithRow[] = [];
-
-            for (let i = 0; i < length; i++) {
-              // Stream parameters generate an output row like {0: <expr>, 1: <expr>, ...}.
-              const value = row[i.toString()] as SqliteParameterValue;
-
-              // All paths share one result set because the lookup was deduplicated. Include the path index in the row
-              // identity because the same output rows are instantiated once for every path.
-              const directOrigin = length > 1 ? { resultSet, row: provenanceIndex * rows.length + rowid } : undefined;
-
-              asArray.push({
-                value,
-                // Note: Not tracking provenance for parameters with just a single output is purely a performance
-                // optimization. If there's just a single value, we don't need to correlate it with other columns in the
-                // row. Not adding provenance saves some work in mergeValueCombinations.
-                provenance: directOrigin != null ? [...origin, directOrigin] : origin,
-                directOrigin
-              });
-            }
-            return asArray;
-          });
-        });
-      });
-
-      this.evaluators.lookupStages[stage][index] = { type: 'cached', values };
-      return values;
-    }
-
-    const other = this.expandingLookupSync(stage, index);
-    if (other == null) {
-      throw new Error('internal error: Unable to resolve non-parameter lookup synchronously?');
-    }
-    return other;
+  override clone(): ParameterIndexExpandingLookup {
+    const lookup = new ParameterIndexExpandingLookup(this.resultSetIndex, this.lookup, this.instantiation);
+    lookup.wasResolved = this.wasResolved;
+    return lookup;
   }
-
-  private static readonly parameterArrayEquality = listEquality(StableHasher.parameterValueEquality);
 }
-
-export type PreparedExpandingLookup =
-  | { type: 'parameter'; lookup: ParameterIndexLookupCreator; instantiation: PreparedParameterValue[] }
-  | { type: 'table_valued'; read(request: RequestParameters): SqliteParameterValue[][] }
-  | { type: 'cached'; values: ParameterValueWithRow[][] };
 
 /**
  * A {@link plan.ParameterValue} that can be evaluated against request parameters.
  *
- * Additionally, this includes the `cached` variant which allows partially instantiating parameters.
+ * Additionally, this includes the `static` variant which allows partially instantiating parameters.
  */
-export type PreparedParameterValue =
-  | { type: 'request'; read(request: RequestParameters): SqliteValue }
-  | { type: 'lookup'; lookup: { stage: number; index: number }; resultIndex: number }
-  | { type: 'intersection'; values: PreparedParameterValue[] }
-  | { type: 'cached'; values: ParameterValueWithRow[] };
+export type PreparedParameterValue = RequestParameterValue | LookupParameterValue;
 
-interface ParameterValueWithRow {
-  value: SqliteParameterValue;
+class RequestParameterValue {
+  resolved: SqliteParameterValue | undefined;
 
-  /**
-   * Information on how this value was resolved.
-   *
-   * We track how a parameter value was resolved to be able to merge parameters correctly. A Sync Stream with multiple
-   * independent parameters generates their cartesian product as buckets. When multiple parameters are resolved from the
-   * same row though, we can't use the full cartesian product. As an example, consider this stream:
-   *
-   * ```sql
-   * SELECT products.* FROM products, stores
-   *   WHERE stores.name = products.store_name
-   *     AND stores.region = products.region
-   *     AND stores.id = subscription.parameter('store');
-   * ```
-   *
-   * Here, the bucket shape consists of two parameters (`store_name` and `region`). But since they're derived from the
-   * same `stores` row, we can't combine them freely. For each parameter, `store_name` and `region` must come from the
-   * same row. Here, the `provenance` would have a single entry and both parameters would have the same
-   * {@link VirtualSourceRow.resultSet}.
-   *
-   * For static values, such as constants or scalar values derived from request parameters, this array is empty. It's
-   * also possible for this to contain more than one entry, though:
-   *
-   *  1. For intersection values, we track the provenance of all input values.
-   *  2. It's possible to nest parameters. For instance, in the query `SELECT data.* FROM data, a, b WHERE a.a = data.a
-   *     AND b.b = a.b AND data.c = b.c`, we have to parameters (`a` and `c`). `a` can be resolved from a lookup in
-   *     table `a`, but we need to go through a second lookup to resolve `c`. Here, we can only combine value `c` with
-   *     value `a` if the two were derived from the same row in `a`. So, the row `b` derived through `a` would include
-   *     provenance elements of row `a` here.
-   */
-  provenance: VirtualSourceRow[];
-  // If set, must be contained in provenance
-  directOrigin?: VirtualSourceRow;
+  constructor(private readonly read: (request: RequestParameters) => SqliteValue) {}
+
+  resolveWith({ request }: PartialInstantiationInput): SqliteParameterValue {
+    if (this.resolved) return this.resolved;
+
+    const value = this.read(request);
+    if (isValidParameterValue(value)) {
+      return (this.resolved = value);
+    } else {
+      throw uninstantiableException;
+    }
+  }
+
+  clone(): RequestParameterValue {
+    const clone = new RequestParameterValue(this.read);
+    clone.resolved = this.resolved;
+    return clone;
+  }
 }
 
-interface VirtualSourceRow {
-  /**
-   * An opaque identifier for the result set this row was derived from.
-   */
-  resultSet: symbol;
-  /**
-   * A number uniquely identifying this row in its result set.
-   */
-  row: number;
-}
+class LookupParameterValue implements ResultSetColumn {
+  constructor(
+    readonly lookup: PreparedExpandingLookup,
+    readonly outputIndex: number
+  ) {}
 
-function withoutProvenance(source: ParameterValueWithRow[]): SqliteParameterValue[] {
-  return source.map(({ value }) => value);
+  clone(): LookupParameterValue {
+    return new LookupParameterValue(this.lookup, this.outputIndex);
+  }
 }
 
 export interface PartialInstantiationInput {
@@ -690,65 +455,4 @@ function* filterParameterRows(rows: SqliteValue[][]): Generator<SqliteParameterV
       yield row;
     }
   }
-}
-
-/**
- * Builds a cartesian product of parameter instantiations, taking {@link ParameterValueWithRow.provenance} into account
- * to avoid combining values from different rows of the same result set.
- *
- * @param valuesByParameter An array containing possible instantiations for each parameter.
- * @returns All allowed instantiations.
- */
-function* mergeValueCombinations(valuesByParameter: ParameterValueWithRow[][]): Generator<ParameterValueWithRow[]> {
-  // Partial backtracking results, the current instantiation is fixed for 0..nextParameter in generateCombinations.
-  const partialResults = new Array(valuesByParameter.length);
-  // A map from result sets to rows used in the partial instantiation.
-  const usedRows = new Map<symbol, number>();
-
-  function installRowIfNoConflict(value: ParameterValueWithRow): [boolean, symbol[]] {
-    const addedResultSets: symbol[] = [];
-
-    for (const origin of value.provenance) {
-      const { resultSet, row } = origin;
-      const existingRow = usedRows.get(resultSet);
-      if (existingRow === undefined) {
-        addedResultSets.push(resultSet);
-        usedRows.set(resultSet, row);
-      } else if (existingRow == row) {
-        continue;
-      } else {
-        // The current instantiation already contains a value from the same result set but derived from a different
-        // row. So we must ignore this parameter value.
-        return [false, addedResultSets];
-      }
-    }
-
-    return [true, addedResultSets];
-  }
-
-  function uninstallResultSets(resultSets: symbol[]) {
-    for (const rs of resultSets) {
-      usedRows.delete(rs);
-    }
-  }
-
-  function* generateCombinations(nextParameter: number): Generator<ParameterValueWithRow[]> {
-    if (nextParameter >= valuesByParameter.length) {
-      yield [...partialResults];
-      return;
-    }
-
-    const availableValues = valuesByParameter[nextParameter];
-    for (const available of availableValues) {
-      const [canUse, addedResultSets] = installRowIfNoConflict(available);
-      if (canUse) {
-        partialResults[nextParameter] = available;
-        yield* generateCombinations(nextParameter + 1);
-      }
-
-      uninstallResultSets(addedResultSets);
-    }
-  }
-
-  yield* generateCombinations(0);
 }
