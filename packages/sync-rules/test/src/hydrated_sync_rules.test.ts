@@ -188,6 +188,31 @@ bucket_definitions:
     ]);
   });
 
+  test('keeps event descriptors grouped by their source sync config', () => {
+    const yaml = `
+config:
+  edition: 3
+
+streams: {}
+
+event_definitions:
+  write_checkpoints:
+    payloads:
+      - SELECT user_id, checkpoint FROM checkpoints
+`;
+    const { config: first } = SqlSyncRules.fromYaml(yaml, PARSE_OPTIONS);
+    const { config: second } = SqlSyncRules.fromYaml(yaml, PARSE_OPTIONS);
+
+    const hydrated = new HydratedSyncConfig({
+      definitions: [first, second],
+      createParams: hydrationParams
+    });
+
+    expect(hydrated.eventDescriptors).toHaveLength(2);
+    expect(hydrated.eventDescriptorsByDefinition.get(first)).toEqual([hydrated.eventDescriptors[0]]);
+    expect(hydrated.eventDescriptorsByDefinition.get(second)).toEqual([hydrated.eventDescriptors[1]]);
+  });
+
   test('requires matching compatibility contexts for multiple sync configs', () => {
     const { config: legacy } = SqlSyncRules.fromYaml(
       `

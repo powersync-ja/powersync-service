@@ -62,6 +62,12 @@ export class PostgresPersistedReplicationStream extends storage.PersistedReplica
       state: row.state as storage.SyncRuleState,
       storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION
     });
+    if (this.storageVersion >= storage.STORAGE_VERSION_4) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1005,
+        `Unsupported storage version ${this.storageVersion} for PostgreSQL storage`
+      );
+    }
     this.syncConfigContent = [new PostgresPersistedSyncConfigContent(this.db, this.row)];
   }
 

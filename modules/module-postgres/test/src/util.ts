@@ -2,17 +2,12 @@ import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js'
 import * as types from '@module/types/types.js';
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger } from '@powersync/lib-services-framework';
-import {
-  BucketStorageFactory,
-  ReplicationCheckpoint,
-  SUPPORTED_STORAGE_VERSIONS,
-  TestStorageConfig,
-  TestStorageFactory
-} from '@powersync/service-core';
+import { BucketStorageFactory, ReplicationCheckpoint, TestStorageFactory } from '@powersync/service-core';
+import { describeStorageCombinations } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
-import { describe, TestOptions } from 'vitest';
+import { TestOptions } from 'vitest';
 import { env } from './env.js';
 
 export const TEST_URI = env.PG_TEST_URL;
@@ -26,8 +21,6 @@ export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.
   url: env.PG_STORAGE_TEST_URL
 });
 
-const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS;
-
 export interface StorageVersionTestContext {
   factory: TestStorageFactory;
   storageVersion: number;
@@ -37,27 +30,14 @@ export function describeWithStorage(
   options: TestOptions & { storageVersions?: number[] },
   fn: (context: StorageVersionTestContext) => void
 ) {
-  const storageVersions = options.storageVersions ?? TEST_STORAGE_VERSIONS;
-  const describeFactory = (storageName: string, config: TestStorageConfig) => {
-    describe(`${storageName} storage`, options, function () {
-      for (const storageVersion of storageVersions) {
-        describe(`storage v${storageVersion}`, function () {
-          fn({
-            factory: config.factory,
-            storageVersion
-          });
-        });
-      }
-    });
-  };
-
-  if (env.TEST_MONGO_STORAGE) {
-    describeFactory('mongodb', INITIALIZED_MONGO_STORAGE_FACTORY);
-  }
-
-  if (env.TEST_POSTGRES_STORAGE) {
-    describeFactory('postgres', INITIALIZED_POSTGRES_STORAGE_FACTORY);
-  }
+  describeStorageCombinations(
+    {
+      mongodb: env.TEST_MONGO_STORAGE ? INITIALIZED_MONGO_STORAGE_FACTORY : undefined,
+      postgres: env.TEST_POSTGRES_STORAGE ? INITIALIZED_POSTGRES_STORAGE_FACTORY : undefined
+    },
+    options,
+    fn
+  );
 }
 
 export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({

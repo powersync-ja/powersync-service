@@ -9,13 +9,14 @@ import {
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.js';
 import { CommonTableExpression } from './compiler/sqlite.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
-import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
+import { PreparedEventDefinition } from './events/CompiledEventSourceQuery.js';
 import { validateSyncRulesSchema } from './json_schema.js';
 import { QueryParseResult, SqlBucketDescriptor } from './legacy/SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './legacy/streams/from_sql.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
 import { validateStorageVersion } from './StorageVersion.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
+import { CompiledEventDescriptor } from './sync_plan/plan.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { TablePattern } from './TablePattern.js';
 import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js';
@@ -118,22 +119,29 @@ export class SyncConfigFromYaml {
     const bucketMap = rootState.get('bucket_definitions')?.requireMap();
     const streamMap = rootState.get('streams')?.requireMap();
     const globalCtes = rootState.get('with')?.requireMap();
+    const eventMap = rootState.get('event_definitions')?.requireMap();
 
     let result: SyncConfig;
     if (compatibility.edition >= CompatibilityEdition.COMPILED_STREAMS) {
-      result = this.#compileSyncPlan(bucketMap, streamMap, globalCtes, compatibility);
+      result = this.#compileSyncPlan(bucketMap, streamMap, globalCtes, eventMap, compatibility);
       this.#warnOnUnusedCtes();
     } else {
       // We don't support CTEs at all in this compiler implementation.
       globalCtes?.reportError('Common table expressions require edition 3.');
 
-      result = this.#legacyParseBucketDefinitionsAndStreams(bucketMap, streamMap, compatibility);
+      const eventCompiler = new SyncStreamsCompiler({
+        defaultSchema: this.options.defaultSchema,
+        schema: this.options.schema,
+        // Editions 1 and 2 don't persist compiled plans. Keep their event behavior stable across deploys and restarts;
+        // moving to edition 3 validates and enables event payload filters.
+        compileEventPayloadFilters: false
+      });
+      this.#compileEventDefinitions(eventMap, eventCompiler);
+      const eventPlan = eventCompiler.toSyncPlan();
+      result = this.#legacyParseBucketDefinitionsAndStreams(bucketMap, streamMap, compatibility, eventPlan.events);
     }
 
     result.storageVersion = storageVersion;
-
-    const eventDefinitions = this.#parseEventDefinitions(rootState, compatibility);
-    result.eventDescriptors.push(...eventDefinitions);
 
     return result;
   }
@@ -190,6 +198,7 @@ export class SyncConfigFromYaml {
     bucketMap: YamlMapState | undefined,
     streamMap: YamlMapState | undefined,
     globalCtes: YamlMapState | undefined,
+    eventMap: YamlMapState | undefined,
     compatibility: CompatibilityContext
   ) {
     bucketMap?.reportError(
@@ -286,8 +295,9 @@ export class SyncConfigFromYaml {
       streamCompiler.finish();
     }
 
-    // We pass an empty array for eventDefinitions here because those will get parsed in #parseEventDefinitions.
-    return new PrecompiledSyncConfig(compiler.output.toSyncPlan(), compatibility, [], {
+    this.#compileEventDefinitions(eventMap, compiler);
+
+    return new PrecompiledSyncConfig(compiler.toSyncPlan(), compatibility, {
       defaultSchema: this.options.defaultSchema,
       sourceText: this.yaml
     });
@@ -304,10 +314,14 @@ export class SyncConfigFromYaml {
   #legacyParseBucketDefinitionsAndStreams(
     bucketMap: YamlMapState | undefined,
     streamMap: YamlMapState | undefined,
-    compatibility: CompatibilityContext
+    compatibility: CompatibilityContext,
+    events: CompiledEventDescriptor[]
   ) {
     const rules = new SqlSyncRules(this.yaml);
     rules.compatibility = compatibility;
+    rules.eventDefinitions.push(
+      ...events.map((event) => new PreparedEventDefinition(event, this.options.defaultSchema))
+    );
 
     if (bucketMap == null && streamMap == null) {
       this.#errors.push(new YamlError(new Error(`'bucket_definitions' or 'streams' is required`)));
@@ -438,31 +452,23 @@ export class SyncConfigFromYaml {
     return undefined;
   }
 
-  #parseEventDefinitions(parsed: YamlMapState, compatibility: CompatibilityContext) {
-    const eventMap = parsed.get('event_definitions')?.requireMap();
-    const eventDescriptors: SqlEventDescriptor[] = [];
-
-    for (const { key: name, keyScalar, value: maybeMap } of eventMap?.stringKeyedItems() ?? []) {
+  #compileEventDefinitions(eventMap: YamlMapState | undefined, compiler: SyncStreamsCompiler): void {
+    for (const { key: name, value: maybeMap } of eventMap?.stringKeyedItems() ?? []) {
       using value = maybeMap.requireMap(`Event definitions must be objects.`);
       if (value == null) continue;
 
       const payloads = value.get('payloads')?.requireSequence(`Event definition payloads must be an array.`);
       if (payloads == null) continue;
 
-      const eventDescriptor = new SqlEventDescriptor(name, compatibility);
-      for (let item of payloads.items) {
+      const eventCompiler = compiler.event(name);
+      for (const item of payloads.items) {
         const itemScalar = item.requireScalar(`Payload queries for events must be scalar.`);
         if (itemScalar == null) continue;
 
-        this.#withScalar(item, (q) => {
-          return eventDescriptor.addSourceQuery(q, this.options);
-        });
+        const [sql, errorListener] = this.#scalarErrorListener(itemScalar.node);
+        eventCompiler.addSourceQuery(sql, errorListener);
       }
-
-      eventDescriptors.push(eventDescriptor);
     }
-
-    return eventDescriptors;
   }
 
   #checkUniqueName(name: string, literal: YamlState): boolean {

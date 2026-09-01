@@ -1,5 +1,11 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { HydratedSyncConfig, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
+import {
+  EventDefinitionId,
+  HydratedEventDescriptor,
+  HydratedSyncConfig,
+  SqliteRow,
+  SqliteValue
+} from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
@@ -30,7 +36,6 @@ import type { VersionedPowerSyncMongo } from './db.js';
 import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
-import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 import { createObjectStorageUsageWriterId } from './v3/object-storage/ObjectStorageUsage.js';
@@ -112,7 +117,7 @@ export abstract class MongoBucketBatch
   protected readonly objectStorageUsageWriterId = createObjectStorageUsageWriterId();
 
   private batch: OperationBatch | null = null;
-  private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
+  protected write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private hooks: storage.StorageHooks | undefined;
   private clearedError = false;
@@ -191,6 +196,11 @@ export abstract class MongoBucketBatch
     no_checkpoint_before_lsn?: string
   ): Promise<storage.SourceTable[]>;
 
+  protected abstract batchCreateCustomWriteCheckpoints(session: mongo.ClientSession, opId: InternalOpId): Promise<void>;
+
+  /** Perform any version-specific setup required before writing custom checkpoints. */
+  protected async prepareCustomWriteCheckpoints(): Promise<void> {}
+
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;
     // One flush may be split over multiple transactions.
@@ -213,6 +223,10 @@ export abstract class MongoBucketBatch
     using _ = this.tracer.span('storage', 'flush');
 
     await this.hooks?.beforeBatchFlush?.(this);
+    if (this.write_checkpoint_batch.length > 0) {
+      // Collection/index creation cannot run inside the replication transaction.
+      await this.prepareCustomWriteCheckpoints();
+    }
 
     await this.withReplicationTransaction(`Flushing ${batch?.length ?? 0} ops`, async (session, opSeq) => {
       clearedError = false;
@@ -224,7 +238,7 @@ export abstract class MongoBucketBatch
 
       if (this.write_checkpoint_batch.length > 0) {
         this.logger.info(`Writing ${this.write_checkpoint_batch.length} custom write checkpoints`);
-        await batchCreateCustomWriteCheckpoints(this.db, session, this.write_checkpoint_batch, opSeq.next());
+        await this.batchCreateCustomWriteCheckpoints(session, opSeq.next());
         this.write_checkpoint_batch = [];
       }
 
@@ -768,11 +782,12 @@ export abstract class MongoBucketBatch
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
-    // syncEvent is the per-table designation from resolveTables. With v3 storage, multiple
-    // SourceTables can exist for the same ref, with a row change saved once per table -
-    // only the designated event carrier may fire events, so each event fires once per row.
+    // V3 source tables own disjoint event-definition ids for each physical table. Multiple
+    // SourceTables may evaluate different events, but each definition is evaluated through
+    // at most one record for this row change.
+    // Legacy storage leaves eventDefinitionIds undefined and selects by table ref.
     if (sourceTable.syncEvent) {
-      for (const event of this.getTableEvents(sourceTable)) {
+      for (const { event, eventId } of this.getTableEvents(sourceTable)) {
         this.iterateListeners((cb) =>
           cb.replicationEvent?.({
             batch: this,
@@ -782,7 +797,8 @@ export abstract class MongoBucketBatch
               after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
               before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
             },
-            event
+            event,
+            event_id: eventId
           })
         );
       }
@@ -940,11 +956,29 @@ export abstract class MongoBucketBatch
   }
 
   /**
-   * Gets relevant {@link SqlEventDescriptor}s for the given {@link SourceTable}
+   * Gets relevant {@link HydratedEventDescriptor}s for the given {@link SourceTable}
    */
-  protected getTableEvents(table: storage.SourceTable): SqlEventDescriptor[] {
-    return this.sync_rules.eventDescriptors.filter((evt) =>
-      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table.ref))
-    );
+  protected getTableEvents(
+    table: storage.SourceTable
+  ): { event: HydratedEventDescriptor; eventId?: EventDefinitionId }[] {
+    // V3 storage assigns event-definition ids to each source table, so membership is authoritative.
+    // Iterate the table's distinct ids and resolve each through the stream's deduped event map, so a
+    // definition reused across configs has one evaluator for that id. The evaluator may still return
+    // multiple payloads from matching queries. Legacy storage leaves this undefined and selects by table ref.
+    if (table.eventDefinitionIds != null) {
+      const eventById = this.options.parsedSyncConfig.eventById;
+      const events: { event: HydratedEventDescriptor; eventId: EventDefinitionId }[] = [];
+      for (const id of table.eventDefinitionIds) {
+        const event = eventById.get(id);
+        if (event != null && event.tableTriggersEvent(table.ref)) {
+          events.push({ event, eventId: id });
+        }
+      }
+      return events;
+    }
+
+    return this.sync_rules.eventDescriptors
+      .filter((event) => event.tableTriggersEvent(table.ref))
+      .map((event) => ({ event }));
   }
 }

@@ -26,6 +26,7 @@ export interface SyncPlan {
   buckets: StreamBucketDataSource[];
   parameterIndexes: StreamParameterIndexLookupCreator[];
   streams: CompiledSyncStream[];
+  events: CompiledEventDescriptor[];
 }
 
 /**
@@ -118,21 +119,53 @@ export interface PartitionKey {
  * duplicate bucket data but can still share the actual processing logic between multiple streams (to avoid evaluating
  * the same filters and expressions multiple times).
  */
-export interface StreamDataSource extends TableProcessor {
+export interface RowProjection extends TableProcessor {
+  /**
+   * Output columns produced when a matching source row is evaluated.
+   */
+  columns: ColumnSource[];
+}
+
+export interface StreamDataSource extends RowProjection {
   /**
    * The name of the output table for evaluated rows.
    *
    * If null, the name of the table being evaluated should be used instead.
    */
   outputTableName?: string;
-
-  /**
-   * Output columns describing the row to store in buckets.
-   */
-  columns: ColumnSource[];
 }
 
 export type ColumnSource = 'star' | { expr: SqlExpression<TableProcessorData>; alias: string };
+
+/**
+ * A named replication event compiled from `event_definitions`.
+ */
+export interface CompiledEventDescriptor {
+  name: string;
+  sourceQueries: CompiledEventSourceQuery[];
+}
+
+/**
+ * A single payload query for an event.
+ *
+ * Event payload queries are restricted to one physical source table. A query can have multiple variants after its
+ * filter has been normalized to disjunctive normal form. Evaluation stops after the first matching variant, which may
+ * itself produce multiple payload rows, for example through a table-valued expansion.
+ */
+export interface CompiledEventSourceQuery {
+  /**
+   * Original SQL retained as a compatibility mirror for services using the legacy event evaluator. Compiled event
+   * evaluation uses the remaining fields.
+   */
+  sql: string;
+  sourceTable: ImplicitSchemaTablePattern;
+  variants: EventRowEvaluator[];
+}
+
+/**
+ * A row projection used by one normalized filter variant of an event payload query.
+ */
+export interface EventRowEvaluator extends RowProjection {}
 
 /**
  * A mapping describing how {@link StreamDataSource}s are combined into buckets.
