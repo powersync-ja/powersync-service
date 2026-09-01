@@ -276,12 +276,10 @@ export class RequestParameterEvaluators {
     }
 
     for (const stage of lookupStages) {
-      const stageIndex = mappedStages.length;
       const mappedStage: PreparedExpandingLookup[] = [];
       mappedStages.push(mappedStage);
 
       for (const lookup of stage) {
-        const index = mappedStage.length;
         let resolved: PreparedExpandingLookup;
 
         if (lookup.type == 'parameter') {
@@ -316,6 +314,7 @@ export class RequestParameterEvaluators {
         }
 
         lookupToStage.set(lookup, resolved);
+        mappedStage.push(resolved);
       }
     }
 
