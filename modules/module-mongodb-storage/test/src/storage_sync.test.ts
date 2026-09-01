@@ -1901,6 +1901,22 @@ streams:
     expect(metricsAfter.replication_size_bytes).toBeGreaterThan(metricsBefore.replication_size_bytes);
   });
 
+  test.runIf(storageVersion >= 3)('storage metrics include the sync config version label', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion, version_label: 'metrics-test' })
+    );
+
+    const metrics = await factory.getStorageMetrics();
+
+    expect(metrics.sync_config_metrics).toContainEqual(
+      expect.objectContaining({
+        sync_config_id: syncRules.syncConfigContent[0].syncConfigId,
+        version_label: 'metrics-test'
+      })
+    );
+  });
+
   test.runIf(storageVersion >= 3)(
     'loads parameter checkpoint changes across all v3 parameter index collections',
     async () => {
