@@ -199,6 +199,22 @@ describe('ResultSet', () => {
         [2, 'x', 301]
       ]);
     });
+
+    test('empty join key', async () => {
+      const rs = new ResultSet(2);
+      rs.multiply(0, [['a'], ['b']]);
+
+      await rs.joinAsync([], 1, async (lookups) => {
+        expect(lookups).toMatchObject([{ inputs: [] }]);
+
+        lookups[0].foundRows.push(['x']);
+      });
+
+      expect([...rs.projectUnique([col0, col1])]).toStrictEqual([
+        ['a', 'x'],
+        ['b', 'x']
+      ]);
+    });
   });
 });
 

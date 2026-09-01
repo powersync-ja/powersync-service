@@ -55,7 +55,7 @@ import { AsyncJoinLookup, ResultSet, ResultSetColumn, ResultSetElement } from '.
  */
 export class RequestParameterEvaluators {
   private constructor(
-    readonly stream: plan.StreamOptions,
+    private readonly stream: plan.StreamOptions,
     /**
      * Pending lookup stages, or their cached outputs.
      */
@@ -66,9 +66,10 @@ export class RequestParameterEvaluators {
     private readonly parameterValues: PreparedParameterValue[],
 
     /**
-     * The materialized result set into which
+     * The materialized result set containing lookup values. {@link parameterValues} are read from this result set as a
+     * final step.
      */
-    readonly resultSet: ResultSet
+    private readonly resultSet: ResultSet
   ) {}
 
   /**

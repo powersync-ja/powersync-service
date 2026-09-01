@@ -12,6 +12,9 @@ export class ResultSet {
   #totalLookups: number;
   #rows: ResultSetRow[];
 
+  /**
+   * @param totalLookups - The total amount of lookups that will be joined to this result set.
+   */
   constructor(totalLookups: number) {
     this.#totalLookups = totalLookups;
     const initialRow = new Array(totalLookups);
@@ -35,8 +38,6 @@ export class ResultSet {
 
   /**
    * Extracts unique values by looking values for each column in this result set.
-   *
-   * For each unique projection row, also returns all source rows the value was derived from.
    */
   *projectUnique(columns: ResultSetColumn[]): Iterable<SqliteParameterValue[]> {
     for (const { group, first } of this.#groupBy(columns, (values) => values)) {
@@ -61,29 +62,10 @@ export class ResultSet {
   }
 
   /**
-   * Removes rows where the given columns have different values.
-   *
-   * If a fixed value is passed, this also removes rows where any of the given columns has a different value.
+   * @param keys - Join keys that are already present in the result set.
+   * @param resultSetIndex - The index of the resl set being joined.
+   * @param performLookup - Adds resolved rows to each unique instantiation of join keys.
    */
-  formIntersection(columns: ResultSetColumn[], fixedValue?: SqliteParameterValue) {
-    row: for (let i = 0; i < this.#rows.length; i++) {
-      const row = this.#rows[i];
-      let requiredValue = fixedValue;
-
-      for (const column of columns) {
-        const evaluated = lookupInRow(row, column);
-        if (requiredValue !== undefined && evaluated != requiredValue) {
-          // This row needs to be removed!
-          this.#rows.splice(i, 1);
-          i--;
-          continue row;
-        }
-
-        requiredValue = evaluated;
-      }
-    }
-  }
-
   async joinAsync(
     keys: ResultSetColumn[],
     resultSetIndex: number,
@@ -116,6 +98,30 @@ export class ResultSet {
     for (const toDelete of deletedRows) {
       this.#rows.splice(toDelete - offset, 1);
       offset++;
+    }
+  }
+
+  /**
+   * Removes rows where the given columns have different values.
+   *
+   * If a fixed value is passed, this also removes rows where any of the given columns has a different value.
+   */
+  formIntersection(columns: ResultSetColumn[], fixedValue?: SqliteParameterValue) {
+    row: for (let i = 0; i < this.#rows.length; i++) {
+      const row = this.#rows[i];
+      let requiredValue = fixedValue;
+
+      for (const column of columns) {
+        const evaluated = lookupInRow(row, column);
+        if (requiredValue !== undefined && evaluated != requiredValue) {
+          // This row needs to be removed!
+          this.#rows.splice(i, 1);
+          i--;
+          continue row;
+        }
+
+        requiredValue = evaluated;
+      }
     }
   }
 
@@ -195,7 +201,12 @@ export interface AsyncJoinLookup {
 type ResultSetRow = (SqliteParameterValue[] | undefined)[];
 
 function lookupInRow(row: ResultSetRow, column: ResultSetColumn): SqliteParameterValue {
-  return row[column.lookup.resultSetIndex]![column.outputIndex];
+  const valuesForResultSet = row[column.lookup.resultSetIndex];
+  if (valuesForResultSet === undefined) {
+    throw new Error('Tried to lookup values set before it was joined to result set');
+  }
+
+  return valuesForResultSet[column.outputIndex];
 }
 
 const parameterArrayEquality = listEquality(StableHasher.parameterValueEquality);
