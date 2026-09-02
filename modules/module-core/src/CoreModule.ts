@@ -75,7 +75,14 @@ export class CoreModule extends core.modules.AbstractModule {
           });
 
           const socketRouter = new ReactiveSocketRouter<core.routes.Context>({
-            max_concurrent_connections: context.configuration.api_parameters.max_concurrent_connections
+            max_concurrent_connections: context.configuration.api_parameters.max_concurrent_connections,
+            on_concurrency_limit_rejected: (error) => {
+              core.metrics.recordSyncConnection(context.metricsEngine, {
+                transport: core.metrics.SyncTransport.RSocket,
+                closeReason: core.metrics.SyncCloseReason.ConcurrencyLimit,
+                error
+              });
+            }
           });
 
           core.routes.configureRSocket(socketRouter, {
