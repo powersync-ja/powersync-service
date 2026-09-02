@@ -172,7 +172,11 @@ export class RequestParameterEvaluators {
         }
       }
 
-      return this.#readParameters()!;
+      const params = this.#readParameters();
+      if (params == null) {
+        throw new Error('internal error: Should have been able to resolve instantiation after instantiating stages.');
+      }
+      return params;
     } catch (e) {
       if (e === uninstantiableException) return [];
 
@@ -228,7 +232,7 @@ export class RequestParameterEvaluators {
     for (const value of constraint.values) {
       if (value instanceof RequestParameterValue) {
         const evaluated = value.requireResolved();
-        if (knownValue !== undefined && evaluated != knownValue) {
+        if (knownValue !== undefined && evaluated !== knownValue) {
           throw uninstantiableException;
         }
 

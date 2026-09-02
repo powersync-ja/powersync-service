@@ -32,7 +32,7 @@ export class ResultSet {
 
     for (const row of this.#rows) {
       // We can shallow-clone rows, inner items are frozen once added into the result set.
-      rs.#rows.push([...row]);
+      rs.#rows.push(row.slice());
     }
     return rs;
   }
@@ -108,22 +108,25 @@ export class ResultSet {
    * If a fixed value is passed, this also removes rows where any of the given columns has a different value.
    */
   formIntersection(columns: ResultSetColumn[], fixedValue?: SqliteParameterValue) {
-    row: for (let i = 0; i < this.#rows.length; i++) {
-      const row = this.#rows[i];
+    const keptRows: ResultSetRow[] = [];
+
+    row: for (const row of this.#rows) {
       let requiredValue = fixedValue;
 
       for (const column of columns) {
         const evaluated = lookupInRow(row, column);
-        if (requiredValue !== undefined && evaluated != requiredValue) {
-          // This row needs to be removed!
-          this.#rows.splice(i, 1);
-          i--;
+        if (requiredValue !== undefined && evaluated !== requiredValue) {
+          // Intersection doesn't match, skip this row.
           continue row;
         }
 
         requiredValue = evaluated;
       }
+
+      keptRows.push(row);
     }
+
+    this.#rows = keptRows;
   }
 
   #multiplyAtRow(resultSetIndex: number, rowIndex: number, rows: SqliteParameterValue[][]) {
@@ -132,7 +135,7 @@ export class ResultSet {
     row[resultSetIndex] = Object.freeze(rows[0]);
 
     for (let j = 1; j < rows.length; j++) {
-      const copy = Array.from(row);
+      const copy = row.slice();
       copy[resultSetIndex] = Object.freeze(rows[j]);
       this.#rows.push(copy);
     }
@@ -152,11 +155,11 @@ export class ResultSet {
         const existingGroup = foundValues.get(value);
 
         if (existingGroup != null) {
-          yield { index: i, group: existingGroup, first: false };
+          yield { group: existingGroup, first: false };
         } else {
           const group = generateGroup([value]);
           foundValues.set(value, group);
-          yield { index: i, group, first: true };
+          yield { group, first: true };
         }
       }
     } else {
@@ -172,7 +175,7 @@ export class ResultSet {
           return generateGroup(values);
         });
 
-        yield { index: i, group, first: isFirst };
+        yield { group, first: isFirst };
       }
     }
   }
