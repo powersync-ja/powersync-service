@@ -1,4 +1,4 @@
-import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
+import { router, schema } from '@powersync/lib-services-framework';
 import Negotiator from 'negotiator';
 import { Readable } from 'stream';
 
@@ -9,8 +9,15 @@ import { APIMetric, event_types } from '@powersync/service-types';
 import { authUser } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
+import {
+  recordSyncConnection,
+  SyncCloseReason,
+  syncConnectionCloseReasonLogText,
+  SyncTransport
+} from '../../metrics/connection-metrics.js';
 import { limitParamsForLogging } from '../../util/param-logging.js';
 import { maybeCompressResponseStream } from '../compression.js';
+import { resolveSyncConnectionSetup } from '../sync-connection.js';
 
 export enum SyncRoutes {
   STREAM = '/sync/stream'
@@ -27,7 +34,7 @@ export const syncStreamed = routeDefinition({
   validator: schema.createTsCodecValidator(util.StreamingSyncRequest, { allowAdditional: true }),
   handler: async (payload) => {
     const { service_context, logger, token_payload } = payload.context;
-    const { routerEngine, storageEngine, metricsEngine, syncContext } = service_context;
+    const { routerEngine, metricsEngine, syncContext } = service_context;
     const headers = payload.request.headers;
     const userAgent = headers['x-user-agent'] ?? headers['user-agent'];
     const clientId = payload.params.client_id;
@@ -54,25 +61,11 @@ export const syncStreamed = routeDefinition({
       connected_at: new Date(streamStart)
     };
 
-    if (routerEngine.closed) {
-      throw new errors.ServiceError({
-        status: 503,
-        code: ErrorCode.PSYNC_S2003,
-        description: 'Service temporarily unavailable'
-      });
+    const setup = await resolveSyncConnectionSetup(service_context, SyncTransport.HttpStream);
+    if (setup.rejected) {
+      throw setup.error;
     }
-
-    const bucketStorage = (await storageEngine.activeBucketStorage.getActiveSyncConfig())?.storage;
-
-    if (bucketStorage == null) {
-      throw new errors.ServiceError({
-        status: 500,
-        code: ErrorCode.PSYNC_S2302,
-        description: 'No sync config available'
-      });
-    }
-
-    const syncRules = bucketStorage.getParsedSyncRules(routerEngine.getAPI().getParseSyncRulesOptions());
+    const { bucketStorage, syncRules } = setup;
 
     const controller = new AbortController();
     const tracker = new sync.RequestTracker(metricsEngine);
@@ -108,21 +101,21 @@ export const syncStreamed = routeDefinition({
       });
       const { stream, encodingHeaders } = maybeCompressResponseStream(negotiator, plainStream, tracker);
 
-      // Best effort guess on why the stream was closed.
-      // We use the `??=` operator everywhere, so that we catch the first relevant
-      // event, which is usually the most specific.
-      let closeReason: string | undefined = undefined;
+      // Best effort guess on why the stream was closed. Keep the first relevant event,
+      // which is usually the most specific.
+      let closeReason: SyncCloseReason | undefined = undefined;
+      let connectionError: unknown;
 
       const deregister = routerEngine.addStopHandler(() => {
         // This error is not currently propagated to the client
         controller.abort();
-        closeReason ??= 'process shutdown';
+        closeReason ??= SyncCloseReason.ProcessShutdown;
         stream.destroy(new Error('Shutting down system'));
       });
 
       stream.on('end', () => {
         // Auth failure or switch to new sync config
-        closeReason ??= 'service closing stream';
+        closeReason ??= SyncCloseReason.ServiceClosed;
       });
 
       stream.on('close', () => {
@@ -130,7 +123,10 @@ export const syncStreamed = routeDefinition({
       });
 
       stream.on('error', (error) => {
-        closeReason ??= 'stream error';
+        if (closeReason == null) {
+          closeReason = SyncCloseReason.StreamError;
+          connectionError = error;
+        }
         controller.abort();
         // Note: This appears as a 200 response in the logs.
         if (error.message != 'Shutting down system') {
@@ -151,11 +147,20 @@ export const syncStreamed = routeDefinition({
         },
         data: stream,
         afterSend: async (details) => {
+          // A hangup closes the response stream without erroring it, so a closed request socket
+          // with no other reason attributed is the client going away. `??=` keeps it from
+          // overriding a server-initiated close or a mid-stream failure, which the socket closing
+          // is only a consequence of.
           if (details.clientClosed) {
-            closeReason ??= 'client closing stream';
+            closeReason ??= SyncCloseReason.ClientClosed;
           }
           controller.abort();
           metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
+          recordSyncConnection(metricsEngine, {
+            transport: SyncTransport.HttpStream,
+            closeReason: closeReason ?? SyncCloseReason.Unknown,
+            error: connectionError
+          });
           service_context.eventsEngine.emit(event_types.EventsEngineEventType.SDK_DISCONNECT_EVENT, {
             ...sdkData,
             disconnected_at: new Date()
@@ -164,13 +169,18 @@ export const syncStreamed = routeDefinition({
             ...tracker.getLogMeta(),
             app_metadata: formattedAppMetadata,
             stream_ms: Date.now() - streamStart,
-            close_reason: closeReason ?? 'unknown'
+            close_reason: syncConnectionCloseReasonLogText(closeReason)
           });
         }
       });
     } catch (ex) {
       controller.abort();
       metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
+      recordSyncConnection(metricsEngine, {
+        transport: SyncTransport.HttpStream,
+        closeReason: SyncCloseReason.StreamError,
+        error: ex
+      });
       service_context.eventsEngine.emit(event_types.EventsEngineEventType.SDK_DISCONNECT_EVENT, {
         ...sdkData,
         disconnected_at: new Date()

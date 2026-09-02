@@ -27,6 +27,11 @@ export function createCoreAPIMetrics(engine: MetricsEngine): void {
     name: APIMetric.CONCURRENT_CONNECTIONS,
     description: 'Number of concurrent sync connections'
   });
+
+  engine.createCounter({
+    name: APIMetric.SYNC_CONNECTIONS,
+    description: 'Sync connections counted once at close, by outcome, close_reason, error_code and transport'
+  });
 }
 
 /**
