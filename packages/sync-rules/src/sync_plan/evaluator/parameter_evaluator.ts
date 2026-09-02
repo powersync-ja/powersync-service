@@ -129,7 +129,7 @@ export class RequestParameterEvaluators {
         for (const instantiation of stage.inputParameters()) {
           if (instantiation instanceof RequestParameterValue) {
             instantiation.resolveWith(input);
-          } else {
+          } else if (instantiation.lookup instanceof ParameterIndexExpandingLookup) {
             needsParameterLookups = true;
           }
         }
@@ -225,6 +225,8 @@ export class RequestParameterEvaluators {
   }
 
   #applyIntersectionConstraint(constraint: RequiredIntersection) {
+    if (constraint.wasApplied) return;
+
     // If any parameter of the intersection is a scalar value derived from a request, that value.
     let knownValue: SqliteParameterValue | undefined;
     const intersection: ResultSetColumn[] = [];
