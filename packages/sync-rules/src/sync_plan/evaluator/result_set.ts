@@ -31,6 +31,7 @@ export class ResultSet {
     rs.#rows.splice(0, 1); // Remove the initial unit row
 
     for (const row of this.#rows) {
+      // We can shallow-clone rows, inner items are frozen once added into the result set.
       rs.#rows.push([...row]);
     }
     return rs;
@@ -128,11 +129,11 @@ export class ResultSet {
   #multiplyAtRow(resultSetIndex: number, rowIndex: number, rows: SqliteParameterValue[][]) {
     // Add first element of product to existing row, remaining as new rows.
     const row = this.#rows[rowIndex];
-    row[resultSetIndex] = rows[0];
+    row[resultSetIndex] = Object.freeze(rows[0]);
 
     for (let j = 1; j < rows.length; j++) {
       const copy = Array.from(row);
-      copy[resultSetIndex] = rows[j];
+      copy[resultSetIndex] = Object.freeze(rows[j]);
       this.#rows.push(copy);
     }
   }
@@ -198,7 +199,7 @@ export interface AsyncJoinLookup {
  * So, we represent each lookup result as an array of values (that we can re-use when we create new rows for joins).
  * Result sets that have not yet been processed are represented as undefined.
  */
-type ResultSetRow = (SqliteParameterValue[] | undefined)[];
+type ResultSetRow = (ReadonlyArray<SqliteParameterValue> | undefined)[];
 
 function lookupInRow(row: ResultSetRow, column: ResultSetColumn): SqliteParameterValue {
   const valuesForResultSet = row[column.lookup.resultSetIndex];
