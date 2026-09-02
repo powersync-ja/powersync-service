@@ -558,10 +558,10 @@ config:
 streams:
   stream:
       auto_subscribe: true
-      query: SELECT * FROM issues WHERE a = auth.parameter('x') AND a = auth.parameter('y')
+      query: SELECT * FROM issues WHERE a = auth.parameter('x') AND a IN auth.parameter('y')
 `);
 
-    function queryWith(x: string, y: string) {
+    function queryWith(x: string, y: string[]) {
       const { querier, errors } = desc.getBucketParameterQuerier({
         globalParameters: requestParameters({ sub: 'user', x, y }),
         hasDefaultStreams: true,
@@ -572,8 +572,8 @@ streams:
       return querier.staticBuckets.map((e) => e.bucket);
     }
 
-    expect(queryWith('p1', 'p2')).toStrictEqual([]);
-    expect(queryWith('p1', 'p1')).toStrictEqual(['stream|0["p1"]']);
+    expect(queryWith('p1', ['p2'])).toStrictEqual([]);
+    expect(queryWith('p1', ['p1', 'p2'])).toStrictEqual(['stream|0["p1"]']);
   });
 
   syncTest('parameter lookups', async ({ sync }) => {
