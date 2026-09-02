@@ -13,7 +13,10 @@ import {
 } from '@/index.js';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
 
-export function mockServiceContext(storage: Partial<SyncRulesBucketStorage> | null) {
+export function mockServiceContext(
+  storage: Partial<SyncRulesBucketStorage> | null,
+  overrideMetricsEngine?: MetricsEngine
+) {
   // This is very incomplete - just enough to get the current tests passing.
 
   const storageEngine: StorageEngine = {
@@ -28,15 +31,18 @@ export function mockServiceContext(storage: Partial<SyncRulesBucketStorage> | nu
     } as Partial<BucketStorageFactory>
   } as any;
 
-  const meterProvider = new MeterProvider({
-    readers: []
-  });
-  const meter = meterProvider.getMeter('powersync-tests');
-  const metricsEngine = new MetricsEngine({
-    disable_telemetry_sharing: true,
-    factory: new OpenTelemetryMetricsFactory(meter)
-  });
-  createCoreAPIMetrics(metricsEngine);
+  let metricsEngine = overrideMetricsEngine;
+  if (metricsEngine == null) {
+    const meterProvider = new MeterProvider({
+      readers: []
+    });
+    const meter = meterProvider.getMeter('powersync-tests');
+    metricsEngine = new MetricsEngine({
+      disable_telemetry_sharing: true,
+      factory: new OpenTelemetryMetricsFactory(meter)
+    });
+    createCoreAPIMetrics(metricsEngine);
+  }
   const service_context: Partial<ServiceContext> = {
     syncContext: new SyncContext({ maxBuckets: 1, maxDataFetchConcurrency: 1, maxParameterQueryResults: 1 }),
     eventsEngine: new EventsEngine(),
