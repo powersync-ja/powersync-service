@@ -14,6 +14,10 @@ export interface RawChangeStreamOptions {
   /**
    * How long to wait for new data per batch (max time for long-polling).
    * This is sent as maxTimeMS for the getMore command.
+   *
+   * A value of 0 removes the explicit await limit and leaves the server's
+   * default awaitData behavior in effect; it does not make getMore return
+   * immediately. Snapshot probes use 0 for this purpose.
    */
   maxAwaitTimeMS: number;
 
