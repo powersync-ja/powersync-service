@@ -213,7 +213,7 @@ export class ChangeStream {
     this.isDocumentDb = await detectDocumentDb(this.defaultDb);
     if (this.isDocumentDb) {
       this.logger.warn(
-        'Azure DocumentDB support is experimental. APIs and behavior may change, and long-term stability is not yet guaranteed.'
+        'Azure DocumentDB support is in alpha. APIs and behavior may change, and long-term stability is not yet guaranteed.'
       );
     }
     this._checkpointImplementation = createCheckpointImplementation(this.isDocumentDb, {
