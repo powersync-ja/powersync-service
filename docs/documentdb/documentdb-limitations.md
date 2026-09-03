@@ -60,18 +60,6 @@ DocumentDB delivers large change events much more slowly than standard MongoDB. 
 
 If your workload includes large documents (especially frequently-updated ones), validate replication latency against your cluster.
 
-### Temporary idle `getMore` workaround
-
-At the time of writing, Azure DocumentDB may return an empty idle `getMore` batch before `getMore.maxTimeMS` has elapsed. With small test values, DocumentDB may also surface timeout errors like:
-
-```text
-MongoServerError: Query exceeded command timeout of 200ms
-```
-
-PowerSync works around the early-empty-batch behavior in DocumentDB mode by still sending `maxTimeMS` on `getMore`, but also adding a capped local delay when an empty batch returns too quickly. This avoids tight idle polling while staying forwards-compatible with the server-side behavior once Microsoft releases the DocumentDB fix.
-
-The tradeoff in the initial version is higher latency for streaming updates after an idle period. Because DocumentDB does not reliably long-poll today, PowerSync may sleep locally before polling again. That local delay is capped at 1 second, so an update that arrives just after an empty batch can be delayed by up to roughly 1 second. This is expected to be fixed in an upcoming Azure DocumentDB release; after the fixed version is available on supported clusters, this workaround should be removed and the skipped `maxAwaitTimeMS` characterization test should be re-enabled.
-
 ## Operational note: the internal checkpoints collection
 
 PowerSync maintains a `_powersync_checkpoints` collection in the source database for replication bookkeeping. Do not drop it or delete its documents: doing so disrupts replication (dropping the collection forces a resync; the implementation defends against the sentinel counter document being deleted, but deleting it should still be avoided).
