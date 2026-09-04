@@ -1,5 +1,12 @@
 # @powersync/service-module-mongodb
 
+## 0.21.1
+
+### Patch Changes
+
+- 2412d7a: Remove the client-side `maxAwaitTimeMS` workaround for Azure DocumentDB and label DocumentDB support as alpha.
+  - @powersync/service-core@1.26.1
+
 ## 0.21.0
 
 ### Minor Changes

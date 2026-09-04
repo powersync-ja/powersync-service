@@ -1,5 +1,11 @@
 # @powersync/service-module-core
 
+## 0.2.35
+
+### Patch Changes
+
+- @powersync/service-core@1.26.1
+
 ## 0.2.34
 
 ### Patch Changes
