@@ -1,0 +1,216 @@
+import { HashMap, listEquality, StableHasher } from '../../compiler/equality.js';
+import { SqliteParameterValue } from '../../types.js';
+
+/**
+ * A mutable result set of parameter results.
+ *
+ * This is used to represent parameter results when resolving buckets: Each expanding lookup is joined onto a pending
+ * result set until all lookups have been applied. Once all result sets have been added, bucket parameters can be read
+ * by reading columns in each row.
+ */
+export class ResultSet {
+  #totalLookups: number;
+  #rows: ResultSetRow[];
+
+  /**
+   * @param totalLookups - The total amount of lookups that will be joined to this result set.
+   */
+  constructor(totalLookups: number) {
+    this.#totalLookups = totalLookups;
+    const initialRow = new Array(totalLookups);
+    initialRow.fill(undefined);
+    this.#rows = [initialRow];
+  }
+
+  get length(): number {
+    return this.#rows.length;
+  }
+
+  clone(): ResultSet {
+    const rs = new ResultSet(this.#totalLookups);
+    rs.#rows.splice(0, 1); // Remove the initial unit row
+
+    for (const row of this.#rows) {
+      // We can shallow-clone rows, inner items are frozen once added into the result set.
+      rs.#rows.push(row.slice());
+    }
+    return rs;
+  }
+
+  /**
+   * Extracts unique values by looking values for each column in this result set.
+   */
+  *projectUnique(columns: ResultSetColumn[]): Iterable<SqliteParameterValue[]> {
+    for (const { group, first } of this.#groupBy(columns, (values) => values)) {
+      if (first) {
+        yield group;
+      }
+    }
+  }
+
+  /**
+   * Adds a new result set by forming the cartesian product with the given values.
+   */
+  multiply(resultSetIndex: number, rows: SqliteParameterValue[][]) {
+    if (rows.length === 0) {
+      this.#rows = [];
+    }
+
+    const originalLength = this.#rows.length;
+    for (let i = 0; i < originalLength; i++) {
+      this.#multiplyAtRow(resultSetIndex, i, rows);
+    }
+  }
+
+  /**
+   * @param keys - Join keys that are already present in the result set.
+   * @param resultSetIndex - The index of the resl set being joined.
+   * @param performLookup - Adds resolved rows to each unique instantiation of join keys.
+   */
+  async joinAsync(
+    keys: ResultSetColumn[],
+    resultSetIndex: number,
+    performLookup: (lookups: AsyncJoinLookup[]) => Promise<void>
+  ) {
+    const lookupsByRow: AsyncJoinLookup[] = [];
+    const uniqueLookups: AsyncJoinLookup[] = [];
+
+    for (const { group, first } of this.#groupBy(keys, (values) => ({ inputs: values, foundRows: [] }))) {
+      if (first) uniqueLookups.push(group);
+      lookupsByRow.push(group);
+    }
+
+    await performLookup(uniqueLookups);
+
+    const deletedRows: number[] = [];
+    const originalLength = this.#rows.length;
+    for (let i = 0; i < originalLength; i++) {
+      const lookup = lookupsByRow[i];
+      if (lookup.foundRows.length > 0) {
+        this.#multiplyAtRow(resultSetIndex, i, lookup.foundRows);
+      } else {
+        // The row has no matching join partner, so remove it. We can't split it immediately because #multiplyAtRow is
+        // still iterating through rows.
+        deletedRows.push(i);
+      }
+    }
+
+    let offset = 0;
+    for (const toDelete of deletedRows) {
+      this.#rows.splice(toDelete - offset, 1);
+      offset++;
+    }
+  }
+
+  /**
+   * Removes rows where the given columns have different values.
+   *
+   * If a fixed value is passed, this also removes rows where any of the given columns has a different value.
+   */
+  formIntersection(columns: ResultSetColumn[], fixedValue?: SqliteParameterValue) {
+    const keptRows: ResultSetRow[] = [];
+
+    row: for (const row of this.#rows) {
+      let requiredValue = fixedValue;
+
+      for (const column of columns) {
+        const evaluated = lookupInRow(row, column);
+        if (requiredValue !== undefined && evaluated !== requiredValue) {
+          // Intersection doesn't match, skip this row.
+          continue row;
+        }
+
+        requiredValue = evaluated;
+      }
+
+      keptRows.push(row);
+    }
+
+    this.#rows = keptRows;
+  }
+
+  #multiplyAtRow(resultSetIndex: number, rowIndex: number, rows: SqliteParameterValue[][]) {
+    // Add first element of product to existing row, remaining as new rows.
+    const row = this.#rows[rowIndex];
+    row[resultSetIndex] = Object.freeze(rows[0]);
+
+    for (let j = 1; j < rows.length; j++) {
+      const copy = row.slice();
+      copy[resultSetIndex] = Object.freeze(rows[j]);
+      this.#rows.push(copy);
+    }
+  }
+
+  *#groupBy<T>(columns: ResultSetColumn[], generateGroup: (values: SqliteParameterValue[]) => T) {
+    const originalLength = this.#rows.length;
+
+    if (columns.length === 1) {
+      // Fast path, we can use native sets.
+      const [column] = columns;
+      const foundValues = new Map<SqliteParameterValue, T>();
+
+      for (let i = 0; i < originalLength; i++) {
+        const row = this.#rows[i];
+        const value = lookupInRow(row, column);
+        const existingGroup = foundValues.get(value);
+
+        if (existingGroup != null) {
+          yield { group: existingGroup, first: false };
+        } else {
+          const group = generateGroup([value]);
+          foundValues.set(value, group);
+          yield { group, first: true };
+        }
+      }
+    } else {
+      const foundValues = new HashMap<SqliteParameterValue[], T>(parameterArrayEquality);
+
+      for (let i = 0; i < originalLength; i++) {
+        const row = this.#rows[i];
+        const values = columns.map((c) => lookupInRow(row, c));
+
+        let isFirst = false;
+        const group = foundValues.putIfAbsent(values, () => {
+          isFirst = true;
+          return generateGroup(values);
+        });
+
+        yield { group, first: isFirst };
+      }
+    }
+  }
+}
+
+export interface ResultSetElement {
+  resultSetIndex: number;
+}
+
+export interface ResultSetColumn {
+  lookup: ResultSetElement;
+  outputIndex: number;
+}
+
+export interface AsyncJoinLookup {
+  inputs: SqliteParameterValue[];
+  foundRows: SqliteParameterValue[][];
+}
+
+/**
+ * A row in a result set.
+ *
+ * While this is semantically a list of columns, that representation would require a lot of copying on each join.
+ * So, we represent each lookup result as an array of values (that we can re-use when we create new rows for joins).
+ * Result sets that have not yet been processed are represented as undefined.
+ */
+type ResultSetRow = (ReadonlyArray<SqliteParameterValue> | undefined)[];
+
+function lookupInRow(row: ResultSetRow, column: ResultSetColumn): SqliteParameterValue {
+  const valuesForResultSet = row[column.lookup.resultSetIndex];
+  if (valuesForResultSet === undefined) {
+    throw new Error('Tried to lookup values set before it was joined to result set');
+  }
+
+  return valuesForResultSet[column.outputIndex];
+}
+
+const parameterArrayEquality = listEquality(StableHasher.parameterValueEquality);

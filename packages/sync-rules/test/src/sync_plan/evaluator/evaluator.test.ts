@@ -550,6 +550,32 @@ streams:
     expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual(['stream|0["user"]']);
   });
 
+  syncTest('intersection of request data', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT * FROM issues WHERE a = auth.parameter('x') AND a IN auth.parameter('y')
+`);
+
+    function queryWith(x: string, y: string[]) {
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user', x, y }),
+        hasDefaultStreams: true,
+        streams: {}
+      });
+      expect(errors).toStrictEqual([]);
+      expect(querier.hasDynamicBuckets).toStrictEqual(false);
+      return querier.staticBuckets.map((e) => e.bucket);
+    }
+
+    expect(queryWith('p1', ['p2'])).toStrictEqual([]);
+    expect(queryWith('p1', ['p1', 'p2'])).toStrictEqual(['stream|0["p1"]']);
+  });
+
   syncTest('parameter lookups', async ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
@@ -846,11 +872,7 @@ streams:
 
     // Duplicates do not need to be removed here, but they must not make lookup
     // columns independent and create impossible pairs like [2, "A"].
-    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual([
-      'stream|0[1,"A"]',
-      'stream|0[1,"A"]',
-      'stream|0[2,"B"]'
-    ]);
+    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual(['stream|0[1,"A"]', 'stream|0[2,"B"]']);
   });
 
   syncTest('preserves correlation across bigint lookup output columns', async ({ sync }) => {
@@ -1103,8 +1125,8 @@ streams:
 
     expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual([
       'stream|0["a1","b1"]',
-      'stream|0["a1","b2"]',
       'stream|0["a2","b1"]',
+      'stream|0["a1","b2"]',
       'stream|0["a2","b2"]'
     ]);
   });
