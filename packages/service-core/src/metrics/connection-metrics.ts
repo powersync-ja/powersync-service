@@ -56,8 +56,7 @@ const ERROR_CODES: ReadonlySet<string> = new Set(Object.values(ErrorCode));
 export function recordSyncConnection(engine: MetricsEngine, metric: SyncConnectionMetric): void {
   const { outcome } = SYNC_CONNECTION_REASON_POLICY[metric.closeReason];
 
-  // A success never carries an error code: a routine disconnect that also tripped an error handler
-  // would otherwise split the success series across error codes.
+  // Keep successful closes in one error_code series, even if an error was supplied.
   let errorCode = 'none';
   if (outcome !== 'success') {
     const code = errors.ServiceError.isServiceError(metric.error) ? metric.error.errorData?.code : undefined;

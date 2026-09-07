@@ -5,10 +5,7 @@ import { recordSyncConnection, SyncCloseReason, SyncTransport } from '../metrics
 import type { SyncRulesBucketStorage } from '../storage/storage-index.js';
 import type { RouterServiceContext } from './router.js';
 
-/**
- * The connection was rejected before it could be accepted as a sync stream. The rejection has
- * already been counted; the caller is responsible for delivering `error` over its transport.
- */
+/** Already counted as a rejection; the caller must send the error. */
 export type SyncConnectionRejected = { rejected: true; error: errors.ServiceError };
 
 export type SyncConnectionAccepted = {
@@ -18,12 +15,8 @@ export type SyncConnectionAccepted = {
 };
 
 /**
- * Applies the service-state checks an incoming sync connection must pass before it is accepted as
- * a sync stream, and resolves the bucket storage and sync rules it will run against.
- *
- * Router-closed, missing-config, and storage-query failures are counted here before the caller
- * delivers or propagates them. Delivery differs per transport, so a rejection is returned rather
- * than thrown; a failing storage query is counted and rethrown.
+ * Resolves storage and sync rules, recording service-state rejections.
+ * Storage lookup failures are counted and rethrown.
  */
 export async function resolveSyncConnectionSetup(
   serviceContext: RouterServiceContext,

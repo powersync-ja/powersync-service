@@ -39,8 +39,9 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         connected_at: new Date(streamStart)
       };
 
-      // Best effort guess on why the stream was closed. Keep the first relevant event,
-      // which is usually the most specific.
+      // Best effort guess on why the stream was closed.
+      // We use the `??=` operator everywhere, so that we catch the first relevant
+      // event, which is usually the most specific.
       let closeReason: SyncCloseReason | undefined = undefined;
       let connectionError: unknown;
 

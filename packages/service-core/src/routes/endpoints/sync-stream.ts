@@ -101,8 +101,9 @@ export const syncStreamed = routeDefinition({
       });
       const { stream, encodingHeaders } = maybeCompressResponseStream(negotiator, plainStream, tracker);
 
-      // Best effort guess on why the stream was closed. Keep the first relevant event,
-      // which is usually the most specific.
+      // Best effort guess on why the stream was closed.
+      // We use the `??=` operator everywhere, so that we catch the first relevant
+      // event, which is usually the most specific.
       let closeReason: SyncCloseReason | undefined = undefined;
       let connectionError: unknown;
 
@@ -147,10 +148,7 @@ export const syncStreamed = routeDefinition({
         },
         data: stream,
         afterSend: async (details) => {
-          // A hangup closes the response stream without erroring it, so a closed request socket
-          // with no other reason attributed is the client going away. `??=` keeps it from
-          // overriding a server-initiated close or a mid-stream failure, which the socket closing
-          // is only a consequence of.
+          // A client disconnect must not overwrite an earlier error or server close.
           if (details.clientClosed) {
             closeReason ??= SyncCloseReason.ClientClosed;
           }

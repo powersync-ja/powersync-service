@@ -10,14 +10,7 @@ import { registerFastifyErrorHandler, registerFastifyRoutes } from '../../../src
 import { recordingMetricsEngine } from '../recording-metrics.js';
 import { mockServiceContext } from './mocks.js';
 
-/**
- * The HTTP transport infers a client disconnect from `clientClosed` with no other close reason
- * attributed, since the route handler has no access to the request socket. That relies on a hangup
- * closing the response stream without erroring it: were it to error, the stream error would take
- * the reason first and every routine reconnect would count as an error, which is exactly what the
- * metric exists to rule out. These tests abort a real client against the route as the service
- * registers it, rather than asserting the assumption against a hand-built error.
- */
+// Use real HTTP disconnects to verify that transport teardown isn't counted as a stream error.
 describe('Sync stream client disconnect', () => {
   /** A stream still writing operations when the client disconnects, as on an initial sync. */
   function busyStorage() {
@@ -55,11 +48,6 @@ describe('Sync stream client disconnect', () => {
     } as Partial<SyncRulesBucketStorage>;
   }
 
-  /**
-   * Serves one sync stream over a real HTTP server and hangs the client up once the response body
-   * starts arriving. The route is registered through `registerFastifyRoutes`, so `clientClosed` and
-   * `afterSend` are computed exactly as they are in the service; only authorization is stubbed.
-   */
   async function abortClientMidStream(acceptEncoding: string) {
     const recorder = recordingMetricsEngine('stream-disconnect-test');
     const service_context = mockServiceContext(busyStorage(), recorder.engine);
@@ -92,7 +80,6 @@ describe('Sync stream client disconnect', () => {
           },
           (clientResponse) => {
             clientResponse.once('data', () => {
-              // Hang up the way a client that loses connectivity does, mid-response.
               clientRequest.destroy();
               resolve();
             });
@@ -103,7 +90,7 @@ describe('Sync stream client disconnect', () => {
         clientRequest.end(JSON.stringify({ raw_data: true }));
       });
 
-      // `afterSend` runs once the client is gone, so the metric lands shortly after the abort.
+      // Wait for afterSend to record the close.
       await expect
         .poll(() =>
           recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, {
@@ -115,8 +102,6 @@ describe('Sync stream client disconnect', () => {
         )
         .toBe(1);
 
-      // Nothing errored the response stream: had it, `stream.on('error')` would have claimed the
-      // close reason first and an error series would exist instead.
       expect(await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, { outcome: 'error' })).toBeUndefined();
     } finally {
       await app.close();
@@ -128,8 +113,7 @@ describe('Sync stream client disconnect', () => {
   });
 
   it('counts a real client hangup on a compressed response as a success', async () => {
-    // Compression inserts a pipeline between the sync stream and the socket, so the teardown the
-    // handler sees is not necessarily the same one.
+    // Gzip adds a separate teardown path.
     await abortClientMidStream('gzip');
   });
 });
