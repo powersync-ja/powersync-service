@@ -62,13 +62,11 @@ describe('Concurrency limit', () => {
     cleanup.push(() => firstClient.close());
     expect(onLimitRejected).not.toHaveBeenCalled();
 
-    // A server-side SETUP rejection doesn't reject connect() — it surfaces as the connection
-    // closing with the error.
+    // SETUP rejection reaches onClose, not connect().
     const secondClient = await createConnector(address).connect();
     const closeError = await new Promise<Error | undefined>((resolve) => secondClient.onClose(resolve));
     expect(closeError?.message).toMatch(/Maximum active concurrent connections limit has been reached/);
     expect(onLimitRejected).toHaveBeenCalledTimes(1);
-    // The hook receives the error returned to the client, so callers need not restate its code.
     expect(onLimitRejected.mock.calls[0][0].errorData.code).toBe(ErrorCode.PSYNC_S2304);
   });
 });
