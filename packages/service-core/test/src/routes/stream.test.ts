@@ -192,11 +192,7 @@ describe('Stream Route', () => {
       );
     });
 
-    /**
-     * Runs a sync stream that fails with `streamError`, then reports the client as having hung up.
-     * A real hangup does not error the response stream (see stream-disconnect.integration.test.ts),
-     * so an error here is always a genuine failure that the disconnect must not mask.
-     */
+    // Fail the stream before reporting a client disconnect.
     const runClientDisconnectAfter = async (streamError: Error) => {
       const recorder = recordingMetricsEngine('stream-route-test');
       const storage = {
@@ -220,22 +216,18 @@ describe('Stream Route', () => {
       const request: BasicRouterRequest = { headers: {}, hostname: '', protocol: 'http' };
 
       const response = await (syncStreamed.handler({ context, params: {}, request }) as Promise<RouterResponse>);
-      // Errors the stream, setting the best-effort close reason to `stream error`.
       await drainWithTimeout(response.data as Readable).catch((error) => error);
       await response.afterSend({ clientClosed: true });
       return recorder;
     };
 
     it('keeps a genuine mid-stream failure as an error even when the client then disconnects', async () => {
-      // The client hanging up after the service already reported a real failure does not turn the
-      // stream into a success - otherwise every failure the client reacts to would be hidden.
       const recorder = await runClientDisconnectAfter(new Error('Simulated storage error'));
 
       expect(
         await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, {
           outcome: 'error',
           close_reason: 'stream_error',
-          // A raw exception carries no PowerSync error code of its own.
           error_code: 'other',
           transport: 'http_stream'
         })
@@ -250,8 +242,6 @@ describe('Stream Route', () => {
     });
 
     it('reports the PowerSync code for a ServiceError mid-stream', async () => {
-      // A ServiceError reports its own code, which is what distinguishes it from the `other`
-      // bucket that raw exceptions land in.
       const recorder = await runClientDisconnectAfter(
         new ServiceError({ status: 500, code: ErrorCode.PSYNC_S2305, description: 'Too many buckets' })
       );
