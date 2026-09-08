@@ -71,33 +71,53 @@ describe('ResultSet', () => {
         ['b', 1]
       ]);
     });
-  });
 
-  describe('formIntersection', () => {
-    const col0 = { lookup: element(0), outputIndex: 0 };
-    const col1 = { lookup: element(1), outputIndex: 0 };
+    describe('respects intersection', () => {
+      test('with constant', () => {
+        const rs = new ResultSet(1);
 
-    test('with a fixed value, removes rows where any column differs from it', () => {
-      const rs = new ResultSet(2);
-      rs.multiply(0, [['a'], ['b']]);
-      rs.multiply(1, [['a'], ['b']]);
+        rs.addIntersectionConstraints([{ fixedValue: 'test', columns: [{ lookup: element(0), outputIndex: 0 }] }]);
+        rs.multiply(0, [['test'], ['otherValue']]);
+        expect(rs.length).toStrictEqual(1);
+      });
 
-      rs.formIntersection([col0, col1], 'a');
+      test('with column in same row', () => {
+        const rs = new ResultSet(1);
 
-      expect([...rs.projectUnique([col0, col1])]).toStrictEqual([['a', 'a']]);
-    });
+        rs.addIntersectionConstraints([
+          {
+            columns: [
+              { lookup: element(0), outputIndex: 0 },
+              { lookup: element(0), outputIndex: 1 }
+            ]
+          }
+        ]);
+        rs.multiply(0, [
+          ['a', 'a'],
+          ['a', 'b'],
+          ['b', 'a'],
+          ['b', 'b']
+        ]);
+        expect(rs.length).toStrictEqual(2);
+      });
 
-    test('without a fixed value, removes rows where the columns differ from each other', () => {
-      const rs = new ResultSet(2);
-      rs.multiply(0, [['a'], ['b']]);
-      rs.multiply(1, [['a'], ['b']]);
+      test('with existing column', () => {
+        const rs = new ResultSet(2);
 
-      rs.formIntersection([col0, col1]);
+        rs.addIntersectionConstraints([
+          {
+            columns: [
+              { lookup: element(0), outputIndex: 0 },
+              { lookup: element(1), outputIndex: 0 }
+            ]
+          }
+        ]);
 
-      expect([...rs.projectUnique([col0, col1])]).toStrictEqual([
-        ['a', 'a'],
-        ['b', 'b']
-      ]);
+        rs.multiply(0, [['test0'], ['test1']]);
+        expect(rs.length).toStrictEqual(2);
+        rs.multiply(1, [['test0'], ['unrelated']]);
+        expect(rs.length).toStrictEqual(1);
+      });
     });
   });
 
@@ -214,6 +234,62 @@ describe('ResultSet', () => {
         ['a', 'x'],
         ['b', 'x']
       ]);
+    });
+
+    describe('respects intersection', () => {
+      test('with constant', async () => {
+        const rs = new ResultSet(1);
+
+        rs.addIntersectionConstraints([{ fixedValue: 'test', columns: [{ lookup: element(0), outputIndex: 0 }] }]);
+        await rs.joinAsync([], 0, async (lookups) => {
+          lookups[0].foundRows.push(['test'], ['otherValue']);
+        });
+
+        expect(rs.length).toStrictEqual(1);
+      });
+
+      test('with column in same row', async () => {
+        const rs = new ResultSet(1);
+
+        rs.addIntersectionConstraints([
+          {
+            columns: [
+              { lookup: element(0), outputIndex: 0 },
+              { lookup: element(0), outputIndex: 1 }
+            ]
+          }
+        ]);
+        await rs.joinAsync([], 0, async (lookups) => {
+          lookups[0].foundRows.push(['a', 'a'], ['a', 'b'], ['b', 'a'], ['b', 'b']);
+        });
+
+        expect(rs.length).toStrictEqual(2);
+      });
+
+      test('with existing column', async () => {
+        const rs = new ResultSet(2);
+
+        rs.addIntersectionConstraints([
+          {
+            columns: [
+              { lookup: element(0), outputIndex: 0 },
+              { lookup: element(1), outputIndex: 0 }
+            ]
+          }
+        ]);
+
+        rs.multiply(0, [['test0'], ['test1']]);
+        expect(rs.length).toStrictEqual(2);
+
+        // Both rows share the same (empty) join key, so the lookup is only performed once even though the
+        // intersection filter must still be checked per-row against the existing column's value.
+        await rs.joinAsync([], 1, async (lookups) => {
+          expect(lookups.length).toStrictEqual(1);
+          lookups[0].foundRows.push(['test0'], ['unrelated']);
+        });
+
+        expect(rs.length).toStrictEqual(1);
+      });
     });
   });
 });
