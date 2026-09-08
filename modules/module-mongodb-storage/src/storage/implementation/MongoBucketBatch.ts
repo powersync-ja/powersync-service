@@ -102,7 +102,9 @@ export abstract class MongoBucketBatch
   protected readonly sync_rules: HydratedSyncConfig;
   private preparationWorker?: storage.RowPreparationWorker;
   private preparationWorkerUrl?: string;
-  private pendingPreparation?: Promise<void>;
+  private pendingApplication?: Promise<void>;
+  private preparationReady?: Promise<void>;
+  private previousApplication?: Promise<void>;
 
   protected readonly replicationStreamId: number;
 
@@ -262,26 +264,40 @@ export abstract class MongoBucketBatch
 
   /** Auto-flush admits work; explicit flush/commit remains a durability barrier. */
   private async enqueuePipelineBatch(wait = true): Promise<void> {
-    // One admitted block can prepare while the source accumulates the next block.
-    // Explicit boundaries always join it before sealing a publication group.
-    if (this.pendingPreparation != null) {
-      await this.pendingPreparation;
-      this.pendingPreparation = undefined;
-    }
-    const pending = this.processPipelineBatch();
-    if (wait) {
-      await pending;
-    } else {
-      this.pendingPreparation = pending;
-      // flush/commit or the next admission observes failures; avoid an unhandled rejection meanwhile.
-      void pending.catch(() => {});
-    }
-  }
-
-  private async processPipelineBatch(): Promise<void> {
+    // Keep at most one prepared/preparing block ahead of ordered application,
+    // plus the source's accumulating input block. The worker accepts one request at a time.
+    await this.previousApplication;
+    await this.preparationReady;
     this.pipeline?.check();
     const input = this.batch;
     this.batch = null;
+    const prepared = input == null ? Promise.resolve() : this.prepareRawRows(input.batch);
+    // A worker failure can arrive while the previous block is still applying.
+    void prepared.catch((error) => this.pipeline?.cancel(error));
+    const previous = this.pendingApplication;
+    const pending = this.processPipelineBatch(input, prepared, previous).catch((error) => {
+      this.pipeline?.cancel(error);
+      throw error;
+    });
+    this.previousApplication = previous;
+    this.preparationReady = prepared;
+    this.pendingApplication = pending;
+    // flush/commit or the next admission observes failures; avoid an unhandled rejection meanwhile.
+    void pending.catch(() => {});
+    if (wait) {
+      await pending;
+      this.previousApplication = undefined;
+      this.preparationReady = undefined;
+      this.pendingApplication = undefined;
+    }
+  }
+
+  private async processPipelineBatch(
+    input: OperationBatch | null,
+    prepared: Promise<void>,
+    previous: Promise<void> | undefined
+  ): Promise<void> {
+    this.pipeline?.check();
     this.pipeline ??= new MongoReplicationPipeline(
       this.db,
       this.options.signal,
@@ -307,11 +323,15 @@ export abstract class MongoBucketBatch
         await this.hooks?.afterBatchFlush?.(this);
       }
     );
+    // Preparation is independent of storage state. Membership reads, reconciliation,
+    // operation allocation and publication admission remain strictly ordered.
+    await previous;
+    await prepared;
+    this.pipeline.check();
     if (input == null || !input.hasData()) return;
     await this.hooks?.beforeBatchFlush?.(this);
     await this.pipeline.prepare(async (context) => {
-      // Replica ids are derived on the worker before constructing storage lookups.
-      await this.prepareRawRows(input.batch);
+      // Replica ids were derived on the worker before constructing storage lookups.
       const { session, sequence, state } = context;
       const lookups = input.batch.map((op) => ({
         sourceTableId: mongoTableId(op.record.sourceTable.id),
@@ -817,7 +837,7 @@ export abstract class MongoBucketBatch
 
   protected async withTransaction(cb: () => Promise<void>) {
     // Metadata mutations must not wait on a lease held by our own unsealed group.
-    if (this.pendingPreparation != null || this.pipeline?.hasWork) await this.flush();
+    if (this.pendingApplication != null || this.pipeline?.hasWork) await this.flush();
     using lockSpan = this.tracer.span('storage', 'internal_lock');
     await replicationMutex.exclusiveLock(async () => {
       lockSpan.end();
@@ -946,7 +966,8 @@ export abstract class MongoBucketBatch
   async [Symbol.asyncDispose]() {
     this.pipeline?.cancel();
     await this.preparationWorker?.[Symbol.asyncDispose]();
-    await this.pendingPreparation?.catch(() => {});
+    await this.preparationReady?.catch(() => {});
+    await this.pendingApplication?.catch(() => {});
     await this.pipeline?.[Symbol.asyncDispose]();
     if (this.batch?.hasData() || this.write_checkpoint_batch.length > 0) {
       // We don't error here, since:

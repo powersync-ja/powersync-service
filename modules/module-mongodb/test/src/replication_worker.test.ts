@@ -6,6 +6,101 @@ import { expect, test, vi } from 'vitest';
 import { env } from './env.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 
+test.skipIf(!env.TEST_MONGO_STORAGE).each(['none', 'application', 'preparation'])(
+  'prepares one block ahead of ordered application (failure=%s)',
+  async (failure) => {
+    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+    const stream = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+bucket_definitions:
+  global:
+    data:
+      - SELECT _id AS id, description FROM items
+`,
+        { storageVersion: 4 }
+      )
+    );
+    const bucketStorage = factory.getInstance(stream);
+    const release = Promise.withResolvers<void>();
+    const applying = Promise.withResolvers<void>();
+    const secondPrepared = Promise.withResolvers<void>();
+    let applications = 0;
+    let preparations = 0;
+    await using writer = await bucketStorage.createWriter({
+      ...test_utils.BATCH_OPTIONS,
+      storeCurrentData: false,
+      hooks: {
+        beforeBatchFlush: async () => {
+          if (++applications === 1) {
+            applying.resolve();
+            await release.promise;
+            if (failure === 'application') throw new Error('application failed');
+          }
+        }
+      }
+    });
+    const table = await test_utils.resolveTestTable(writer, 'items', ['_id'], INITIALIZED_MONGO_STORAGE_FACTORY);
+    await writer.markAllSnapshotDone('1/1');
+    const prepare = storage.RowPreparationWorker.prototype.prepare;
+    const spy = vi.spyOn(storage.RowPreparationWorker.prototype, 'prepare').mockImplementation(async function (
+      this: storage.RowPreparationWorker,
+      rows
+    ) {
+      const result = await prepare.call(this, rows);
+      if (++preparations === 2) {
+        secondPrepared.resolve();
+        if (failure === 'preparation') throw new Error('preparation failed');
+      }
+      return result;
+    });
+    const saveBlock = async (description: string) => {
+      for (let i = 0; i < 2000; i++)
+        await writer.saveRaw!({
+          tag: storage.SaveOperationTag.UPDATE,
+          sourceTable: table,
+          raw: BSON.serialize({ _id: `${i}`, description }),
+          worker: MONGO_PREPARATION_WORKER,
+          convert: () => {
+            throw new Error('Expected worker preparation');
+          }
+        });
+    };
+    try {
+      await saveBlock('first');
+      await applying.promise;
+      await saveBlock('second');
+      await secondPrepared.promise;
+      expect(applications).toBe(1);
+      let thirdAdmitted = false;
+      const third = saveBlock('third').then(() => {
+        thirdAdmitted = true;
+      });
+      void third.catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(thirdAdmitted).toBe(false);
+      expect(preparations).toBe(2);
+      expect((await bucketStorage.getCheckpoint()).checkpoint).toBe(0n);
+      release.resolve();
+      if (failure !== 'none') {
+        await expect(third).rejects.toThrow(`${failure} failed`);
+        await expect(writer.commit('1/2')).rejects.toThrow();
+        expect(applications).toBe(1);
+        expect((await bucketStorage.getCheckpoint()).checkpoint).toBe(0n);
+      } else {
+        await third;
+        await writer.commit('1/2');
+        expect(preparations).toBe(3);
+        expect(applications).toBe(3);
+        expect((await bucketStorage.getCheckpoint()).checkpoint).toBe(6000n);
+      }
+    } finally {
+      release.resolve();
+      spy.mockRestore();
+    }
+  }
+);
+
 test.skipIf(!env.TEST_MONGO_STORAGE)('source admission overlaps preparation, but progress waits for it', async () => {
   await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
   const stream = await factory.updateSyncRules(

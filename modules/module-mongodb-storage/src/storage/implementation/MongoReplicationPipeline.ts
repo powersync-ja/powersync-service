@@ -215,8 +215,8 @@ export class MongoReplicationPipeline implements AsyncDisposable {
   }
 
   /** Stop admission and uploads before joining an outstanding preparation block. */
-  cancel() {
-    this.abort.abort();
+  cancel(reason?: unknown) {
+    this.abort.abort(reason);
   }
 
   async [Symbol.asyncDispose]() {
