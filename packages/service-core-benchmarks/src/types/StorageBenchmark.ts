@@ -1,4 +1,5 @@
 import { storage } from '@powersync/service-core';
+import type { S3ObjectStorageOptions } from '@powersync/service-module-mongodb-storage';
 import { BenchmarkIterationRuntime } from './BenchmarkRunOptions.js';
 import { BenchmarkScenario } from './BenchmarkScenario.js';
 
@@ -38,6 +39,7 @@ export interface StorageBenchmarkManifest {
 export interface StorageBenchmarkRunResource {
   readonly factory: storage.BucketStorageFactory;
   readonly tableIdStrings: boolean;
+  objectStorageMetrics?(): { uploads: number; bytes: number; required: boolean };
   readonly environment: object;
   dispose(): Promise<void>;
 }
@@ -54,6 +56,8 @@ export interface PostgresStorageBenchmarkImplementationOptions {
 export interface MongoStorageBenchmarkImplementationOptions {
   readonly url: string;
   readonly isCI: boolean;
+  readonly objectStorage?: S3ObjectStorageOptions;
+  readonly inlineThresholdBytes?: number;
 }
 
 export interface StorageBenchmarkRunContext {

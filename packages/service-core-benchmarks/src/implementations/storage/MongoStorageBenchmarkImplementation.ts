@@ -1,4 +1,6 @@
-import { MongoBucketStorage, test_utils as mongoTestUtils } from '@powersync/service-module-mongodb-storage';
+import { mongo } from '@powersync/lib-service-mongodb';
+import { MongoBucketStorage, PowerSyncMongo, S3ObjectStorage } from '@powersync/service-module-mongodb-storage';
+import { randomUUID } from 'node:crypto';
 import {
   MongoStorageBenchmarkImplementationOptions,
   StorageBenchmarkImplementation,
@@ -12,18 +14,49 @@ export class MongoStorageBenchmarkImplementation implements StorageBenchmarkImpl
 
   async open(signal: AbortSignal): Promise<StorageBenchmarkRunResource> {
     signal.throwIfAborted();
-    const database = mongoTestUtils.connectMongoForTests(this.options.url, this.options.isCI);
+    if (
+      this.options.inlineThresholdBytes != null &&
+      (!Number.isSafeInteger(this.options.inlineThresholdBytes) || this.options.inlineThresholdBytes < 0)
+    )
+      throw new Error('inlineThresholdBytes must be a non-negative integer');
+    const name = `powersync_benchmark_${randomUUID().replaceAll('-', '')}`;
+    const database = new PowerSyncMongo(
+      new mongo.MongoClient(this.options.url, {
+        serverSelectionTimeoutMS: 30_000,
+        socketTimeoutMS: 120_000
+      }),
+      { database: name }
+    );
+    const objectStorage =
+      this.options.objectStorage == null
+        ? undefined
+        : new S3ObjectStorage({
+            ...this.options.objectStorage,
+            prefix: name
+          });
+    let uploads = 0;
+    let bytes = 0;
+    if (objectStorage) {
+      const put = objectStorage.put.bind(objectStorage);
+      objectStorage.put = async (...args: Parameters<typeof put>) => {
+        await put(...args);
+        uploads++;
+        bytes += args[1].byteLength;
+      };
+    }
+    const required = this.options.inlineThresholdBytes === 0;
     let factory: MongoBucketStorage | undefined;
 
     try {
       if (!(await database.db.listCollections({ name: database.bucket_parameters.collectionName }).hasNext())) {
         await database.db.createCollection(database.bucket_parameters.collectionName);
       }
-      await database.clear();
       await database.createCheckpointEventsCollection();
       factory = new MongoBucketStorage(database, {
         replicationStreamNamePrefix: 'benchmark_',
-        supportsMultipleSyncConfigs: true
+        supportsMultipleSyncConfigs: true,
+        objectStorage,
+        inlineThresholdBytes: this.options.inlineThresholdBytes
       });
       signal.throwIfAborted();
       const serverVersion = await readServerVersion(factory);
@@ -31,18 +64,22 @@ export class MongoStorageBenchmarkImplementation implements StorageBenchmarkImpl
       return {
         factory,
         tableIdStrings: false,
+        objectStorageMetrics: objectStorage ? () => ({ uploads, bytes, required }) : undefined,
         environment: {
           implementation: this.id,
           server_version: serverVersion,
-          system_identifier: systemIdentifier
+          system_identifier: systemIdentifier,
+          storage_database: name,
+          object_storage: objectStorage != null,
+          inline_threshold_bytes: this.options.inlineThresholdBytes
         },
         async dispose() {
-          await disposeMongoResources(factory, database);
+          await disposeMongoResources(factory, database, objectStorage);
         }
       };
     } catch (error) {
       try {
-        await disposeMongoResources(factory, database);
+        await disposeMongoResources(factory, database, objectStorage);
       } catch (cleanupError) {
         throw new AggregateError([error, cleanupError], 'MongoDB benchmark setup and cleanup failed');
       }
@@ -61,9 +98,18 @@ async function readServerVersion(factory: MongoBucketStorage): Promise<string> {
 
 async function disposeMongoResources(
   factory: MongoBucketStorage | undefined,
-  database: MongoBucketStorage['db']
+  database: MongoBucketStorage['db'],
+  objectStorage?: S3ObjectStorage
 ): Promise<void> {
   const errors: unknown[] = [];
+  try {
+    await database.db.dropDatabase();
+    await objectStorage?.deletePrefix('');
+  } catch (error) {
+    errors.push(error);
+  } finally {
+    objectStorage?.client.destroy();
+  }
   if (factory != null) {
     try {
       await factory[Symbol.asyncDispose]();

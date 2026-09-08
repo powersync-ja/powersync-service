@@ -1,3 +1,4 @@
+import type { Sequence } from '../utils/generated-sequence.js';
 import { BenchmarkIterationRuntime } from './BenchmarkRunOptions.js';
 import { BenchmarkScenario, BenchmarkSourceTable } from './BenchmarkScenario.js';
 import { SnapshotBenchmarkItem, SnapshotBenchmarkManifest, SnapshotBenchmarkTarget } from './SnapshotBenchmark.js';
@@ -24,12 +25,13 @@ export interface ReplicationBenchmarkScenario extends BenchmarkScenario<Replicat
   };
   readonly checkpoint_policy: 'target-visible';
   readonly core_verification: false;
+  createManifest?(scenario: ReplicationBenchmarkScenario): ReplicationBenchmarkManifest;
 }
 
 export interface ReplicationBenchmarkItem extends SnapshotBenchmarkItem {}
 
 export interface ReplicationBenchmarkMutation {
-  readonly tag: 'insert';
+  readonly tag: 'insert' | 'update' | 'delete';
   readonly row: ReplicationBenchmarkItem;
 }
 
@@ -44,8 +46,8 @@ export interface ReplicationBenchmarkTarget extends SnapshotBenchmarkTarget {
 }
 
 export interface ReplicationBenchmarkManifest extends SnapshotBenchmarkManifest {
-  readonly snapshotRows: readonly ReplicationBenchmarkItem[];
-  readonly transactions: readonly ReplicationBenchmarkTransaction[];
+  readonly snapshotRows: Sequence<ReplicationBenchmarkItem>;
+  readonly transactions: Sequence<ReplicationBenchmarkTransaction>;
   readonly target: ReplicationBenchmarkTarget;
 }
 
@@ -115,8 +117,12 @@ export interface ReplicationReleaseObservation {
 }
 
 export interface ReplicationBenchmarkIterationResource {
+  beginMeasurement(): Promise<void>;
+  pauseReplication(): Promise<void>;
+  resumeReplication(): Promise<void>;
+  collectEvidence(targetMarker: string): Promise<ReplicationVerificationEvidence>;
   releaseReplication(waitForSnapshot?: boolean): Promise<ReplicationReleaseObservation>;
-  commitTransaction(transactionId: string): Promise<ReplicationBenchmarkTarget>;
+  commitTransaction(transaction: ReplicationBenchmarkTransaction): Promise<ReplicationBenchmarkTarget>;
   keepalive(): Promise<ReplicationBenchmarkTarget>;
   observeCheckpoint(options: {
     target: ReplicationBenchmarkTarget;
@@ -137,4 +143,15 @@ export interface ReplicationBenchmarkImplementation {
   readonly storageId: StorageBenchmarkImplementationId;
   readonly storageVersion: number;
   open(signal: AbortSignal, runId: string): Promise<ReplicationBenchmarkRunResource>;
+}
+
+export interface ReplicationVerificationEvidence {
+  readonly operationCount: number;
+  readonly putCount: number;
+  readonly bucketCount: number;
+  readonly markerVisible: boolean;
+  readonly putPayloadBytes: number;
+  readonly minPutPayloadBytes: number;
+  readonly maxPutPayloadBytes: number;
+  readonly s3?: { uploads: number; bytes: number; required: boolean };
 }

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { generateBaselineReplicationManifest } from '../generators/generate-baseline-replication-manifest.js';
 import { monotonicMilliseconds } from '../replication/replication-child-protocol.js';
 import { BenchmarkCorrectnessCheck, BenchmarkCorrectnessResult } from '../types/BenchmarkIteration.js';
@@ -16,6 +17,7 @@ import { Benchmark } from './Benchmark.js';
 
 interface IterationState extends ReplicationBenchmarkIterationContext<ReplicationBenchmarkIterationResource> {
   keepalives: number;
+  backlogTarget?: ReplicationBenchmarkTarget;
 }
 
 export class ReplicationBenchmark extends Benchmark<
@@ -35,9 +37,6 @@ export class ReplicationBenchmark extends Benchmark<
   protected async setupRun(
     signal: AbortSignal
   ): Promise<ReplicationBenchmarkRunContext<ReplicationBenchmarkRunResource>> {
-    if (this.scenario.phase === 'catch-up') {
-      throw new Error('Replication catch-up is not supported by the current benchmark implementation');
-    }
     if (this.implementation.sourceId !== this.scenario.producer) {
       throw new Error(`Source implementation ${this.implementation.sourceId} does not match ${this.scenario.producer}`);
     }
@@ -55,16 +54,23 @@ export class ReplicationBenchmark extends Benchmark<
     runtime: IterationState['runtime']
   ): Promise<IterationState> {
     runtime.signal.throwIfAborted();
-    const manifest = generateBaselineReplicationManifest(this.scenario);
+    const manifest = (this.scenario.createManifest ?? generateBaselineReplicationManifest)(this.scenario);
     const resource = await run.resource.createIteration({
       iterationId: `${this.runOptions.runId}-${runtime.kind}-${runtime.iteration}`,
       scenario: this.scenario,
       manifest
     });
     const context: IterationState = { runtime, resource, manifest, keepalives: 0 };
-    if (this.scenario.phase === 'streaming') {
+    if (this.scenario.phase !== 'snapshot') {
       await resource.releaseReplication(true);
     }
+    if (this.scenario.phase === 'catch-up') {
+      await resource.pauseReplication();
+      for (const transaction of manifest.transactions) {
+        context.backlogTarget = await resource.commitTransaction(transaction);
+      }
+    }
+    await resource.beginMeasurement();
     return context;
   }
 
@@ -77,16 +83,23 @@ export class ReplicationBenchmark extends Benchmark<
     let releasedAtNs: string | undefined;
 
     if (this.scenario.phase === 'snapshot') {
+      startAtNs = process.hrtime.bigint().toString();
       const release = await resource.releaseReplication(false);
       target = release.target ?? manifest.target;
-      startAtNs = release.releasedAtNs;
+
       startEvent = 'replication_released';
       releasedAtNs = release.releasedAtNs;
+    } else if (this.scenario.phase === 'catch-up') {
+      target = context.backlogTarget!;
+      startAtNs = process.hrtime.bigint().toString();
+      startEvent = 'replication_resumed';
+      await resource.resumeReplication();
     } else {
+      startAtNs = process.hrtime.bigint().toString();
       let firstTarget: ReplicationBenchmarkTarget | undefined;
       let lastTarget: ReplicationBenchmarkTarget | undefined;
       for (const transaction of manifest.transactions) {
-        const committed = await resource.commitTransaction(transaction.id);
+        const committed = await resource.commitTransaction(transaction);
         firstTarget ??= committed;
         lastTarget = committed;
       }
@@ -94,13 +107,13 @@ export class ReplicationBenchmark extends Benchmark<
         throw new Error('Streaming workload did not produce a committed target');
       }
       target = lastTarget;
-      startAtNs = firstTarget.committedAtNs;
-      startEvent = 'source_committed';
+
+      startEvent = 'producer_started';
     }
 
     const observation = await resource.observeCheckpoint({ target, releasedAtNs });
     runtime.metrics.recordBoundary(
-      this.scenario.phase === 'snapshot' ? 'replication_snapshot' : 'replication_streaming',
+      `replication_${this.scenario.phase}`,
       startEvent,
       'checkpoint_visible',
       monotonicMilliseconds(startAtNs),
@@ -109,7 +122,7 @@ export class ReplicationBenchmark extends Benchmark<
     const sourceRows =
       this.scenario.phase === 'snapshot'
         ? manifest.snapshotRows.length
-        : manifest.transactions.reduce((total, transaction) => total + transaction.mutations.length, 0);
+        : this.scenario.workload.streaming_mutation_count;
     runtime.metrics.setCounter('source_rows', sourceRows);
     runtime.metrics.setCounter(
       'source_transactions',
@@ -117,18 +130,10 @@ export class ReplicationBenchmark extends Benchmark<
     );
     runtime.metrics.setCounter('source_logical_bytes', manifest.sourceLogicalBytes);
     runtime.metrics.setCounter('payload_bytes', manifest.payloadBytes);
-    runtime.metrics.setCounter('writer_save_calls', manifest.expectedPutCount);
-    runtime.metrics.setCounter('bucket_operations', observation.operations.length);
-    runtime.metrics.setCounter('parameter_operations', 0);
-    runtime.metrics.setCounter('distinct_buckets', observation.bucketCount);
-    runtime.metrics.setCounter(
-      'visible_checkpoints',
-      this.scenario.phase === 'snapshot' ? 1 : manifest.transactions.length + 1
-    );
-    runtime.metrics.setCounter('target_markers', this.scenario.phase === 'snapshot' ? 1 : manifest.transactions.length);
-    runtime.metrics.setCounter('keepalives', observation.keepalives + context.keepalives);
-    runtime.metrics.setCounter('retries', observation.retries);
-    runtime.metrics.setCounter('restarts', observation.restarts);
+    const seconds =
+      (monotonicMilliseconds(observation.checkpointVisibleAtNs) - monotonicMilliseconds(startAtNs)) / 1000;
+    runtime.metrics.setCounter('rows_per_second', sourceRows / seconds);
+    runtime.metrics.setCounter('logical_mib_per_second', manifest.sourceLogicalBytes / 1024 ** 2 / seconds);
     return observation;
   }
 
@@ -136,29 +141,36 @@ export class ReplicationBenchmark extends Benchmark<
     observation: ReplicationBenchmarkObservation,
     context: IterationState
   ): Promise<BenchmarkCorrectnessResult> {
+    // Full data verification is outside both timing and resource monitoring.
+    const evidence = await context.resource.collectEvidence(observation.target.markerId);
     const comparison = context.resource.comparePosition(observation.checkpoint, observation.target);
-    const puts = observation.operations.filter((operation) => operation.op === 'PUT');
-    const marker = observation.operations.find((operation) => operation.object_id === observation.target.markerId);
     const checks: BenchmarkCorrectnessCheck[] = [
       check('snapshot_complete', observation.snapshotDone, { actual: observation.snapshotDone }),
       check('checkpoint_position', comparison.reached, comparison),
-      check('bucket_count', observation.bucketCount === this.scenario.expected_bucket_count, {
+      check('bucket_count', evidence.bucketCount === this.scenario.expected_bucket_count, {
         expected: this.scenario.expected_bucket_count,
-        actual: observation.bucketCount
+        actual: evidence.bucketCount
       }),
-      check('operation_count', observation.operations.length === this.scenario.expected_bucket_operation_count, {
+      check('operation_count', evidence.operationCount === this.scenario.expected_bucket_operation_count, {
         expected: this.scenario.expected_bucket_operation_count,
-        actual: observation.operations.length
+        actual: evidence.operationCount
       }),
-      check('put_operation_count', puts.length === this.scenario.expected_bucket_operation_count, {
-        expected: this.scenario.expected_bucket_operation_count,
-        actual: puts.length
+      check('put_operation_count', evidence.putCount === context.manifest.expectedPutCount, {
+        expected: context.manifest.expectedPutCount,
+        actual: evidence.putCount
       }),
-      check('target_marker_visible', markerContainsTarget(marker), {
-        marker_id: observation.target.markerId,
-        actual: marker ?? null
-      })
+      check('target_marker_visible', evidence.markerVisible, { marker_id: observation.target.markerId })
     ];
+    const metrics = context.runtime.metrics;
+    metrics.setCounter('bucket_operations', evidence.operationCount);
+    metrics.setCounter('put_payload_bytes_mean', evidence.putPayloadBytes / Math.max(1, evidence.putCount));
+    metrics.setCounter('put_payload_bytes_min', evidence.minPutPayloadBytes);
+    metrics.setCounter('put_payload_bytes_max', evidence.maxPutPayloadBytes);
+    if (evidence.s3) {
+      metrics.setCounter('s3_uploads', evidence.s3.uploads);
+      metrics.setCounter('s3_uploaded_bytes', evidence.s3.bytes);
+      checks.push(check('s3_uploads_observed', !evidence.s3.required || evidence.s3.uploads > 0, evidence.s3));
+    }
     return { passed: checks.every((candidate) => candidate.passed), checks };
   }
 
@@ -171,6 +183,8 @@ export class ReplicationBenchmark extends Benchmark<
   ): Promise<object> {
     return {
       ...run.resource.environment,
+      node_version: process.version,
+      git_revision: gitRevision(),
       producer: this.scenario.producer,
       phase: this.scenario.phase,
       storage_version: this.scenario.storage.version
@@ -182,15 +196,14 @@ export class ReplicationBenchmark extends Benchmark<
   }
 }
 
-function markerContainsTarget(operation: { op: string; data?: string | null } | undefined): boolean {
-  if (operation?.op !== 'PUT' || typeof operation.data !== 'string') return false;
-  try {
-    return (JSON.parse(operation.data) as { is_target?: number }).is_target === 1;
-  } catch {
-    return false;
-  }
-}
-
 function check(name: string, passed: boolean, details: object): BenchmarkCorrectnessCheck {
   return { name, passed, details };
+}
+
+function gitRevision(): string | null {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return null;
+  }
 }

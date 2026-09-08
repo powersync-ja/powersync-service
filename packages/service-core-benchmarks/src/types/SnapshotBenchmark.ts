@@ -1,5 +1,6 @@
+import type { Sequence } from '../utils/generated-sequence.js';
 export interface SnapshotBenchmarkItem {
-  readonly [column: string]: string | number;
+  readonly [column: string]: unknown;
   readonly id: string;
   readonly owner_id: string;
   readonly category: string;
@@ -15,7 +16,7 @@ export interface SnapshotBenchmarkTarget {
 }
 
 export interface SnapshotBenchmarkManifest {
-  readonly snapshotRows: readonly SnapshotBenchmarkItem[];
+  readonly snapshotRows: Sequence<SnapshotBenchmarkItem>;
   readonly target: SnapshotBenchmarkTarget;
   readonly sourceLogicalBytes: number;
   readonly payloadBytes: number;

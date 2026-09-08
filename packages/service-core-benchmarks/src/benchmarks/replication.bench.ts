@@ -7,6 +7,7 @@ import { assertDistinctPostgresSourceAndStorage } from '../implementations/repli
 import { NodeProcessResourceMonitor } from '../monitors/NodeProcessResourceMonitor.js';
 import { UnavailableResourceMonitor } from '../monitors/UnavailableResourceMonitor.js';
 import { ReplicationBenchmark } from '../runner/ReplicationBenchmark.js';
+import { mongoThroughputCase } from '../scenarios/mongodb-throughput-scenarios.js';
 import {
   mongoReplicationStorage,
   mongoSourceCase,
@@ -22,36 +23,42 @@ beforeAll(async () => {
 
 const postgresStorage = postgresReplicationStorage(CURRENT_STORAGE_VERSION);
 const mongoStorage = mongoReplicationStorage(CURRENT_STORAGE_VERSION);
-const cases = [
-  mongoSourceCategoryCase(postgresStorage),
-  mongoSourceCase('snapshot', postgresStorage),
-  mongoSourceCase('streaming', postgresStorage),
-  mongoSourceCase('snapshot', mongoStorage, assertDistinctMongoSourceAndStorage),
-  mongoSourceCase('streaming', mongoStorage, assertDistinctMongoSourceAndStorage),
-  postgresSourceCase(postgresStorage, assertDistinctPostgresSourceAndStorage),
-  postgresSourceCase(mongoStorage)
-];
+const cases =
+  process.env.BENCHMARK_THROUGHPUT === 'true'
+    ? [mongoThroughputCase('snapshot'), mongoThroughputCase('streaming'), mongoThroughputCase('catch-up')]
+    : [
+        mongoSourceCategoryCase(postgresStorage),
+        mongoSourceCase('snapshot', postgresStorage),
+        mongoSourceCase('streaming', postgresStorage),
+        mongoSourceCase('snapshot', mongoStorage, assertDistinctMongoSourceAndStorage),
+        mongoSourceCase('streaming', mongoStorage, assertDistinctMongoSourceAndStorage),
+        postgresSourceCase(postgresStorage, assertDistinctPostgresSourceAndStorage),
+        postgresSourceCase(mongoStorage)
+      ];
 
-describe.each(cases)('$scenario.id', ({ scenario, implementation }) => {
-  test('runs', { timeout: scenario.timeout_ms, sequential: true, tags: scenario.tags }, async () => {
-    const benchmark = new ReplicationBenchmark(scenario, implementation, {
-      runId: randomUUID(),
-      monitors: [
-        new NodeProcessResourceMonitor(),
-        implementation.createServiceMonitor(),
-        new UnavailableResourceMonitor('storage_database', 'Database resource monitoring is not implemented')
-      ],
-      signal: AbortSignal.timeout(scenario.timeout_ms - 10_000)
+for (const { scenario, implementation } of cases) {
+  describe(scenario.id, () => {
+    test('runs', { timeout: scenario.timeout_ms, sequential: true, tags: scenario.tags }, async () => {
+      const runId = randomUUID();
+      const benchmark = new ReplicationBenchmark(scenario, implementation, {
+        runId,
+        monitors: [
+          new NodeProcessResourceMonitor(),
+          implementation.createServiceMonitor(),
+          new UnavailableResourceMonitor('storage_database', 'Database resource monitoring is not implemented')
+        ],
+        signal: AbortSignal.timeout(scenario.timeout_ms - 10_000)
+      });
+
+      const result = await benchmark.run();
+      await writeFile(getArtifactFilename(`${scenario.id}.${runId}`), `${JSON.stringify(result)}\n`, 'utf8');
+
+      expect(result.status, JSON.stringify(result, null, 2)).toBe('passed');
+      expect(result.iterations).toHaveLength(scenario.warmup_iterations + scenario.measured_iterations);
+      expect(result.iterations.every((iteration) => iteration.status === 'passed')).toBe(true);
+      expect(result.iterations.filter((iteration) => iteration.kind === 'measured')).toHaveLength(
+        scenario.measured_iterations
+      );
     });
-
-    const result = await benchmark.run();
-    await writeFile(getArtifactFilename(scenario.id), `${JSON.stringify(result)}\n`, 'utf8');
-
-    expect(result.status, JSON.stringify(result, null, 2)).toBe('passed');
-    expect(result.iterations).toHaveLength(scenario.warmup_iterations + scenario.measured_iterations);
-    expect(result.iterations.every((iteration) => iteration.status === 'passed')).toBe(true);
-    expect(result.iterations.filter((iteration) => iteration.kind === 'measured')).toHaveLength(
-      scenario.measured_iterations
-    );
   });
-});
+}

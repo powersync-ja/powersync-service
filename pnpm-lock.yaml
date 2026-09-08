@@ -800,6 +800,9 @@ importers:
       '@powersync/service-module-postgres-storage':
         specifier: workspace:*
         version: link:../../modules/module-postgres-storage
+      bson:
+        specifier: ^6.10.4
+        version: 6.10.4
       jose:
         specifier: ^4.15.9
         version: 4.15.9

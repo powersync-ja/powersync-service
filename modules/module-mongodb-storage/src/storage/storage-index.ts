@@ -23,5 +23,6 @@ export {
   taggedBucketParameterDocumentToTagged
 } from './implementation/v3/models.js';
 export * from './implementation/v3/object-storage/ObjectStorageUsage.js';
+export { S3ObjectStorage, type S3ObjectStorageOptions } from './implementation/v3/object-storage/S3ObjectStorage.js';
 export * from './MongoBucketStorage.js';
 export * from './MongoReportStorage.js';

@@ -116,7 +116,7 @@ export function postgresReplicationStorage(version: number): ReplicationBenchmar
   };
 }
 
-export function mongoReplicationStorage(version: number): ReplicationBenchmarkStorageSelection {
+export function mongoReplicationStorage(version: number, s3 = false): ReplicationBenchmarkStorageSelection {
   return {
     id: 'mongodb-storage',
     version,
@@ -126,7 +126,25 @@ export function mongoReplicationStorage(version: number): ReplicationBenchmarkSt
       return {
         moduleUrl: import.meta.resolve('../implementations/storage/MongoStorageBenchmarkImplementation.js'),
         exportName: 'MongoStorageBenchmarkImplementation',
-        constructorArgs: [{ url, isCI: environment.CI === 'true' }]
+        constructorArgs: [
+          {
+            url,
+            isCI: environment.CI === 'true',
+            ...(s3
+              ? {
+                  inlineThresholdBytes: Number(environment.BENCHMARK_S3_INLINE_THRESHOLD_BYTES ?? 0),
+                  objectStorage: {
+                    endpoint: requiredEnvironmentUrl(environment, 'BENCHMARK_S3_ENDPOINT', 'S3 storage'),
+                    bucket: environment.BENCHMARK_S3_BUCKET ?? 'powersync-benchmark',
+                    region: environment.BENCHMARK_S3_REGION ?? 'us-east-1',
+                    forcePathStyle: true,
+                    accessKeyId: environment.BENCHMARK_S3_ACCESS_KEY ?? 'minioadmin',
+                    secretAccessKey: environment.BENCHMARK_S3_SECRET_KEY ?? 'minioadmin'
+                  }
+                }
+              : {})
+          }
+        ]
       };
     }
   };
@@ -138,7 +156,10 @@ export function mongoReplicationSource(): ReplicationBenchmarkSourceSelection {
     resolveIterationFactory(environment) {
       const { sourceUrl } = resolveMongoSourceBenchmarkConfiguration(environment);
       return () => {
-        const adapter = new MongoReplicationSourceAdapter(sourceUrl);
+        const adapter = new MongoReplicationSourceAdapter(
+          environment.BENCHMARK_MONGODB_WRITER_URL ?? sourceUrl,
+          sourceUrl
+        );
         return {
           adapter,
           createChildDescriptor() {

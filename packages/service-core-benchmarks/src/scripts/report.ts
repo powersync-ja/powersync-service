@@ -19,9 +19,15 @@ const convertToTable = (results) => {
   const mapped = results.map((result) => ({
     id: result.scenario.id,
     status: result.status,
+    description: result.scenario.description,
+    rows: result.scenario.workload.snapshot_row_count,
+    buckets: result.scenario.expected_bucket_count,
+    put_payload_bytes_mean: result.summary?.counters?.put_payload_bytes_mean?.median,
     implementation: result.environment.implementation,
     version: result.environment.storage_version,
-    ...Object.values(result.summary?.boundaries)[0]
+    rows_per_second: result.summary?.counters?.rows_per_second?.median,
+    logical_mib_per_second: result.summary?.counters?.logical_mib_per_second?.median,
+    ...Object.values(result.summary?.boundaries ?? {})[0]
   }));
   return mapped;
 };

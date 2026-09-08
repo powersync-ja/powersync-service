@@ -38,6 +38,12 @@
     },
     {
       "path": "../../modules/module-postgres-storage"
+    },
+    {
+      "path": "../service-core-tests"
+    },
+    {
+      "path": "../../modules/module-core"
     }
   ]
 }

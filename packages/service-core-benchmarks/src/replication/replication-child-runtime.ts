@@ -1,13 +1,15 @@
 import {
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
+  isBatchEnd,
   MetricsEngine,
   replication,
   storage,
   system,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { METRICS_HELPER, StorageDataHelpers } from '@powersync/service-core-tests';
+import { METRICS_HELPER } from '@powersync/service-core-tests';
+import type { ReplicationVerificationEvidence } from '../types/ReplicationBenchmark.js';
 import { StorageBenchmarkImplementation, StorageBenchmarkRunResource } from '../types/StorageBenchmark.js';
 import { bucketRequests, resolveBenchmarkBuckets } from '../utils/benchmark-buckets.js';
 import { createBenchmarkServiceContext } from './BenchmarkServiceContext.js';
@@ -15,7 +17,6 @@ import { constructReplicationChildImplementation } from './ReplicationChildClass
 import { ReplicationChildSourceImplementation } from './ReplicationChildSourceImplementation.js';
 import {
   ReplicationChildCommand,
-  ReplicationChildEvidencePayload,
   ReplicationChildInitializePayload,
   ReplicationChildResponsePayloads,
   ReplicationChildSetupIterationPayload
@@ -28,6 +29,8 @@ interface ReplicationChildRuntimeState {
   bucketStorage?: storage.SyncRulesBucketStorage;
   syncRulesContent?: storage.PersistedSyncConfigContent;
   lifecycleStarted: boolean;
+  sourceImplementation?: ReplicationChildSourceImplementation;
+  initialS3?: { uploads: number; bytes: number; required: boolean };
   environment?: object;
   syncParameters?: Record<string, unknown>;
   defaultSchema?: string;
@@ -50,8 +53,23 @@ export class ReplicationChildRuntime {
         const waitForSnapshot = command.payload.waitForSnapshot === true;
         return { releasedAtNs, snapshot: waitForSnapshot ? await this.waitForSnapshotCompletion() : undefined };
       }
+      case 'checkpoint_status': {
+        if (command.payload.resetMetrics) this.state.initialS3 = this.state.resource?.objectStorageMetrics?.();
+        const bucketStorage = required(this.state.bucketStorage, 'bucket storage');
+        const [checkpoint, status] = await Promise.all([bucketStorage.getCheckpoint(), bucketStorage.getStatus()]);
+        return { checkpoint: checkpoint.lsn, snapshotDone: status.snapshotDone };
+      }
+      case 'pause_replication':
+        await required(this.state.context, 'service context').lifeCycleEngine.stop();
+        this.state.lifecycleStarted = false;
+        return {};
+      case 'resume_replication':
+        await this.configureService(required(this.state.sourceImplementation, 'source implementation'));
+        await required(this.state.context, 'service context').lifeCycleEngine.start();
+        this.state.lifecycleStarted = true;
+        return {};
       case 'collect_evidence':
-        return await this.collectEvidence();
+        return await this.collectEvidence(command.payload.targetMarker);
       case 'cleanup_iteration':
         await this.cleanupIteration();
         return {};
@@ -100,6 +118,7 @@ export class ReplicationChildRuntime {
     payload: ReplicationChildSetupIterationPayload
   ): Promise<ReplicationChildResponsePayloads['setup_iteration']> {
     const resource = required(this.state.resource, 'storage resource');
+    this.state.initialS3 = resource.objectStorageMetrics?.();
     if (this.state.context != null) throw new Error('An iteration is already configured');
     const implementation = await constructReplicationChildImplementation<unknown>(payload.source);
     assertSourceImplementation(implementation, payload.source.exportName);
@@ -124,14 +143,8 @@ export class ReplicationChildRuntime {
       this.state.syncParameters = payload.syncParameters;
       this.state.defaultSchema = sourceConfiguration.defaultSchema;
 
-      const engine = new replication.ReplicationEngine();
-      context.register(replication.ReplicationEngine, engine);
-      context.register(MetricsEngine, METRICS_HELPER.metricsEngine);
-      await implementation.initialize(context);
-      context.lifeCycleEngine.withLifecycle(engine, {
-        start: (component) => component.start(),
-        stop: (component) => component.shutDown()
-      });
+      this.state.sourceImplementation = implementation;
+      await this.configureService(implementation);
       return { replicationStreamName: this.state.replicationStream.replicationStreamName };
     } catch (error) {
       try {
@@ -141,6 +154,26 @@ export class ReplicationChildRuntime {
       }
       throw error;
     }
+  }
+
+  // Recreate the service lifecycle when resuming, retaining the same persisted stream.
+  // Do not restart a stopped replicator's run loop or deploy another sync config.
+  private async configureService(implementation: ReplicationChildSourceImplementation): Promise<void> {
+    const setup = implementation.getServiceSetup();
+    const context = createBenchmarkServiceContext({
+      serviceMode: system.ServiceContextMode.SYNC,
+      configuration: setup.configuration,
+      storageResource: required(this.state.resource, 'storage resource')
+    });
+    this.state.context = context;
+    const engine = new replication.ReplicationEngine();
+    context.register(replication.ReplicationEngine, engine);
+    context.register(MetricsEngine, METRICS_HELPER.metricsEngine);
+    await implementation.initialize(context);
+    context.lifeCycleEngine.withLifecycle(engine, {
+      start: (component) => component.start(),
+      stop: (component) => component.shutDown()
+    });
   }
 
   private async waitForSnapshotCompletion(): Promise<{ position: string; visibleAtNs: string }> {
@@ -154,15 +187,9 @@ export class ReplicationChildRuntime {
     }
   }
 
-  private async collectEvidence(): Promise<ReplicationChildEvidencePayload> {
+  private async collectEvidence(targetMarker: string): Promise<ReplicationVerificationEvidence> {
     const bucketStorage = required(this.state.bucketStorage, 'bucket storage');
-    const content = required(this.state.syncRulesContent, 'sync rules content');
     const checkpoint = await bucketStorage.getCheckpoint();
-    const status = await bucketStorage.getStatus();
-    const lsn = checkpoint.lsn;
-    if (lsn == null) {
-      return { checkpoint: null, operations: [], snapshotDone: status.snapshotDone, bucketCount: 0 };
-    }
     const buckets = await resolveBenchmarkBuckets({
       syncRules: bucketStorage.getParsedSyncRules({
         defaultSchema: required(this.state.defaultSchema, 'default schema')
@@ -170,20 +197,56 @@ export class ReplicationChildRuntime {
       checkpoint,
       syncParameters: required(this.state.syncParameters, 'sync parameters')
     });
-    const chunks = await new StorageDataHelpers(bucketStorage, content).getAllBucketData(
-      bucketRequests(buckets),
-      checkpoint
-    );
-    const operations = chunks.flatMap((chunk) => chunk.chunkData.data);
+    let operationCount = 0,
+      putCount = 0,
+      putPayloadBytes = 0,
+      minPutPayloadBytes = Infinity,
+      maxPutPayloadBytes = 0;
+    let markerVisible = false;
+    const remaining = new Map(bucketRequests(buckets).map((request) => [request.bucket, request]));
+    // Stream verification pages without retaining the output dataset or sending it over IPC.
+    while (remaining.size) {
+      let more = false;
+      for await (const chunk of bucketStorage.getBucketDataBatch(checkpoint, [...remaining.values()])) {
+        if (isBatchEnd(chunk)) {
+          more = chunk.hasMore;
+          break;
+        }
+        for (const operation of chunk.chunkData.data) {
+          operationCount++;
+          if (operation.op === 'PUT') {
+            putCount++;
+            const size = Buffer.byteLength(operation.data ?? '');
+            putPayloadBytes += size;
+            minPutPayloadBytes = Math.min(minPutPayloadBytes, size);
+            maxPutPayloadBytes = Math.max(maxPutPayloadBytes, size);
+            if (operation.object_id === targetMarker && operation.data) {
+              markerVisible ||= JSON.parse(operation.data).is_target === 1;
+            }
+          }
+        }
+        const request = remaining.get(chunk.chunkData.bucket)!;
+        if (chunk.chunkData.has_more) {
+          more = true;
+          remaining.set(request.bucket, { ...request, start: BigInt(chunk.chunkData.next_after) });
+        } else remaining.delete(request.bucket);
+      }
+      if (!more) break;
+    }
+    const metrics = this.state.resource?.objectStorageMetrics?.();
+    const initial = this.state.initialS3;
     return {
-      checkpoint: lsn,
-      operations: operations.map((operation) => ({
-        op: operation.op,
-        object_id: operation.object_id,
-        data: operation.data
-      })),
-      snapshotDone: status.snapshotDone,
-      bucketCount: buckets.length
+      operationCount,
+      putCount,
+      bucketCount: buckets.length,
+      markerVisible,
+      putPayloadBytes,
+      minPutPayloadBytes: putCount ? minPutPayloadBytes : 0,
+      maxPutPayloadBytes,
+      s3:
+        metrics && initial
+          ? { ...metrics, uploads: metrics.uploads - initial.uploads, bytes: metrics.bytes - initial.bytes }
+          : undefined
     };
   }
 

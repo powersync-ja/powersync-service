@@ -1,0 +1,5 @@
+[
+  { "name": "source", "listen": "0.0.0.0:27117", "upstream": "source:27017", "enabled": true },
+  { "name": "storage", "listen": "0.0.0.0:27118", "upstream": "storage:27017", "enabled": true },
+  { "name": "minio", "listen": "0.0.0.0:19000", "upstream": "minio:9000", "enabled": true }
+]

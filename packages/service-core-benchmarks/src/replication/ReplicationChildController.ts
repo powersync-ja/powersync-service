@@ -30,8 +30,17 @@ interface PendingRequest {
 const ALLOWED_COMMANDS: Record<ChildState, readonly ReplicationChildCommandKind[]> = {
   new: ['initialize', 'abort'],
   initialized: ['setup_iteration', 'shutdown', 'abort'],
-  'iteration-ready': ['release_replication', 'monitor_start', 'cleanup_iteration', 'abort'],
-  running: ['collect_evidence', 'monitor_start', 'monitor_stop', 'cleanup_iteration', 'abort'],
+  'iteration-ready': ['checkpoint_status', 'release_replication', 'monitor_start', 'cleanup_iteration', 'abort'],
+  running: [
+    'checkpoint_status',
+    'pause_replication',
+    'resume_replication',
+    'collect_evidence',
+    'monitor_start',
+    'monitor_stop',
+    'cleanup_iteration',
+    'abort'
+  ],
   'shutting-down': [],
   failed: [],
   stopped: []

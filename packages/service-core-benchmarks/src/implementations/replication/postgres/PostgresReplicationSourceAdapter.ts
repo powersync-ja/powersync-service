@@ -189,6 +189,8 @@ export class PostgresReplicationSourceAdapter implements ReplicationBenchmarkSou
     const connection = this.requiredConnection();
     const prepared = this.transactions.get(transaction.id);
     if (prepared == null) throw new Error(`Unknown PostgreSQL benchmark transaction ${transaction.id}`);
+    if (prepared.mutations.some((mutation) => mutation.tag !== 'insert'))
+      throw new Error('Postgres benchmark supports inserts only');
     await this.insertRowsInTransaction(
       connection,
       prepared.mutations.map((mutation) => mutation.row)

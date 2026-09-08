@@ -1,0 +1,62 @@
+name: powersync-replication-benchmark
+services:
+  source:
+    image: mongo:8.0
+    command: ['mongod', '--replSet', 'source-rs', '--bind_ip_all', '--oplogSize', '2048']
+    ports: ['127.0.0.1:27217:27017']
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "try { if (!rs.status().ok) quit(1); } catch (_) { rs.initiate({_id:'source-rs',members:[{_id:0,host:'source:27017'}]}); } if (!db.hello().isWritablePrimary) quit(1);"
+      interval: 2s
+      timeout: 5s
+      retries: 60
+  storage:
+    image: mongo:8.0
+    command: ['mongod', '--replSet', 'storage-rs', '--bind_ip_all']
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "try { if (!rs.status().ok) quit(1); } catch (_) { rs.initiate({_id:'storage-rs',members:[{_id:0,host:'storage:27017'}]}); } if (!db.hello().isWritablePrimary) quit(1);"
+      interval: 2s
+      timeout: 5s
+      retries: 60
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ['server', '/data']
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on: [minio]
+    entrypoint: ['/bin/sh', '-ec']
+    command:
+      - |
+        for attempt in $$(seq 1 60); do
+          if mc alias set local http://minio:9000 minioadmin minioadmin; then
+            mc mb --ignore-existing local/powersync-benchmark
+            exit 0
+          fi
+          sleep 1
+        done
+        exit 1
+  proxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    command: ['-host', '0.0.0.0', '-config', '/config/proxies.json']
+    volumes: ['./proxies.json:/config/proxies.json:ro']
+    ports:
+      - '127.0.0.1:8474:8474'
+      - '127.0.0.1:27117:27117'
+      - '127.0.0.1:27118:27118'
+      - '127.0.0.1:19000:19000'
+    depends_on:
+      source: { condition: service_healthy }
+      storage: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }

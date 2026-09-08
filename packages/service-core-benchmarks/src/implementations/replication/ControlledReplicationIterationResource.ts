@@ -1,50 +1,14 @@
 import { ReplicationChildController } from '../../replication/ReplicationChildController.js';
-import { ReplicationChildEvidencePayload } from '../../replication/replication-child-protocol.js';
 import {
   ReplicationBenchmarkIterationResource,
   ReplicationBenchmarkIterationSetup,
   ReplicationBenchmarkObservation,
   ReplicationBenchmarkSourceAdapter,
   ReplicationBenchmarkTarget,
+  ReplicationBenchmarkTransaction,
   ReplicationPositionComparison,
   ReplicationReleaseObservation
 } from '../../types/ReplicationBenchmark.js';
-
-export interface TargetEvidenceOptions {
-  readonly target: ReplicationBenchmarkTarget;
-  readonly releasedAtNs?: string;
-  readonly collectEvidence: () => Promise<ReplicationChildEvidencePayload>;
-  readonly comparePosition: (checkpoint: string, target: ReplicationBenchmarkTarget) => ReplicationPositionComparison;
-  readonly delay?: () => Promise<void>;
-}
-
-export async function waitForTargetEvidence(options: TargetEvidenceOptions): Promise<ReplicationBenchmarkObservation> {
-  const delay = options.delay ?? (() => new Promise((resolve) => setTimeout(resolve, 30)));
-  while (true) {
-    const evidence = await options.collectEvidence();
-    if (evidence.checkpoint == null) {
-      await delay();
-      continue;
-    }
-    const comparison = options.comparePosition(evidence.checkpoint, options.target);
-    const marker = evidence.operations.find((operation) => operation.object_id === options.target.markerId);
-    if (comparison.reached && markerContainsTarget(marker)) {
-      return {
-        target: options.target,
-        checkpoint: evidence.checkpoint,
-        checkpointVisibleAtNs: process.hrtime.bigint().toString(),
-        replicationReleasedAtNs: options.releasedAtNs,
-        operations: evidence.operations,
-        snapshotDone: evidence.snapshotDone,
-        bucketCount: evidence.bucketCount,
-        keepalives: 0,
-        retries: 0,
-        restarts: 0
-      };
-    }
-    await delay();
-  }
-}
 
 export class ControlledReplicationIterationResource implements ReplicationBenchmarkIterationResource {
   private disposed = false;
@@ -62,25 +26,55 @@ export class ControlledReplicationIterationResource implements ReplicationBenchm
     return { ...release, target: this.snapshotTarget };
   }
 
-  async commitTransaction(transactionId: string): Promise<ReplicationBenchmarkTarget> {
-    const transaction = this.setup.manifest.transactions.find((candidate) => candidate.id === transactionId);
-    if (transaction == null) throw new Error(`Unknown benchmark transaction ${transactionId}`);
-    return await this.source.commitTransaction(transaction);
+  async commitTransaction(transaction: ReplicationBenchmarkTransaction): Promise<ReplicationBenchmarkTarget> {
+    return this.source.commitTransaction(transaction);
   }
 
   async keepalive(): Promise<ReplicationBenchmarkTarget> {
     return await this.source.keepalive();
   }
 
+  async beginMeasurement(): Promise<void> {
+    await this.controller.request('checkpoint_status', { resetMetrics: true }, this.setup.iterationId);
+  }
+
+  async pauseReplication(): Promise<void> {
+    await this.controller.request('pause_replication', {}, this.setup.iterationId);
+  }
+
+  async resumeReplication(): Promise<void> {
+    await this.controller.request('resume_replication', {}, this.setup.iterationId);
+  }
+
+  async collectEvidence(targetMarker: string) {
+    return this.controller.request('collect_evidence', { targetMarker }, this.setup.iterationId);
+  }
+
   async observeCheckpoint(options: {
     target: ReplicationBenchmarkTarget;
     releasedAtNs?: string;
   }): Promise<ReplicationBenchmarkObservation> {
-    return await waitForTargetEvidence({
-      ...options,
-      collectEvidence: () => this.controller.request('collect_evidence', {}, this.setup.iterationId),
-      comparePosition: (checkpoint, target) => this.source.comparePosition(checkpoint, target)
-    });
+    while (true) {
+      const status = await this.controller.request('checkpoint_status', {}, this.setup.iterationId);
+      if (
+        status.snapshotDone &&
+        status.checkpoint != null &&
+        this.source.comparePosition(status.checkpoint, options.target).reached
+      ) {
+        return {
+          target: options.target,
+          checkpoint: status.checkpoint,
+          checkpointVisibleAtNs: process.hrtime.bigint().toString(),
+          snapshotDone: true,
+          bucketCount: 0,
+          operations: [],
+          keepalives: 0,
+          retries: 0,
+          restarts: 0
+        };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
   }
 
   comparePosition(checkpoint: string, target: ReplicationBenchmarkTarget): ReplicationPositionComparison {
@@ -104,14 +98,5 @@ export class ControlledReplicationIterationResource implements ReplicationBenchm
       this.onDispose();
     }
     if (errors.length > 0) throw new AggregateError(errors, 'Controlled replication iteration cleanup failed');
-  }
-}
-
-function markerContainsTarget(operation: { op: string; data?: string | null } | undefined): boolean {
-  if (operation?.op !== 'PUT' || typeof operation.data !== 'string') return false;
-  try {
-    return (JSON.parse(operation.data) as { is_target?: number }).is_target === 1;
-  } catch {
-    return false;
   }
 }

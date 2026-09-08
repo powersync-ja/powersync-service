@@ -50,7 +50,7 @@ export function generateBaselineReplicationManifest(
     sourceLogicalBytes:
       scenario.phase === 'snapshot'
         ? snapshotManifest.sourceLogicalBytes
-        : measuredRows.reduce((total, row) => total + Buffer.byteLength(JSON.stringify(row), 'utf8'), 0),
+        : Array.from(measuredRows).reduce((total, row) => total + Buffer.byteLength(JSON.stringify(row), 'utf8'), 0),
     payloadBytes:
       scenario.phase === 'snapshot'
         ? snapshotManifest.payloadBytes

@@ -120,6 +120,9 @@
     },
     {
       "path": "./libs/lib-postgres/test"
+    },
+    {
+      "path": "./packages/service-core-benchmarks"
     }
   ]
 }

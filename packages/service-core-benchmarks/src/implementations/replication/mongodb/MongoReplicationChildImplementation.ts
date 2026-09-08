@@ -41,7 +41,7 @@ export class MongoReplicationChildImplementation implements ReplicationChildSour
           type: 'mongodb',
           uri: this.options.uri,
           database: this.options.database,
-          post_images: 'off',
+          post_images: 'auto_configure',
           heartbeat_interval_seconds: 5
         }
       ]
