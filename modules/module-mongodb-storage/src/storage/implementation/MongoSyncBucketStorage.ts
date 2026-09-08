@@ -43,6 +43,7 @@ import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import { MongoPersistedReplicationStream } from './MongoPersistedReplicationStream.js';
+import { MongoReplicationLease } from './MongoReplicationLease.js';
 import { MongoCheckpointAPIOptions, MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 
@@ -385,6 +386,9 @@ export abstract class MongoSyncBucketStorage
       throw new ReplicationAbortedError('Aborted clearing data', signal.reason);
     }
 
+    // Wait for admitted uploads/publications before deleting their objects and
+    // lifecycle markers. Callers still own the replication stream lifecycle lock.
+    await using lease = await MongoReplicationLease.acquire(this.db, signal);
     await this.clearSyncRuleState();
 
     await this.clearBucketData(signal);

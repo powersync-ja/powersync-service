@@ -2,6 +2,18 @@
 
 Status: architectural direction. Target: MongoDB source → MongoDB metadata storage + S3 payload storage.
 
+## Initial implementation
+
+The implementation focuses on overlap between stages. MongoDB storage versions 3/4 use one preparation stage, a bounded window of groups (including uploads when object storage is configured), and one ordered MongoDB publisher. Preparation retains the existing 2,000-row / approximately 5 MB input blocks; publication combines multiple blocks before packing bucket objects. Explicit `flush()` and `commit()` seal partial work immediately and await durability.
+
+Publication uses a 24 MiB estimated group-size target, an 8 MiB source-record/parameter-write target, and separate operation-count limits. The window permits three outstanding groups and 64 MiB of estimated group data, plus one open publication group and the existing input/read buffers. These are admission limits checked after each row, not an exact process-memory cap. The object chunk target remains 1 MiB. Preparation retains pending membership changes so repeated source keys do not wait for upload. Publication retries reuse immutable uploads; failed groups abort their dependent suffix and leave existing lifecycle markers for orphan cleanup.
+
+MongoDB source pages now seal and enqueue progress through `queueResumeLsn()`. The next page can be read and prepared while preceding pages upload. Each page's resume token commits atomically with its final publication group, after earlier groups; an empty page also queues behind preceding work. Completion receipts update durable-progress tracking and abort the source reader on failure. Ordinary checkpoint markers still await `commit()`, preserving marker-driven throttled batching. No work is admitted past a checkpoint marker while that marker commits. The change-batch benchmark follows the same page-admission path.
+
+A database-wide renewable writer lease in the existing `locks` collection orders reservations and publication across writers. Publication fences the lease inside its transaction. Legacy v1/v2 writers also participate, and abandoned operation IDs remain gaps. **All replication processes sharing a storage database must be upgraded together before using this pipeline:** older writers do not honor the lease. The on-disk schema and object format are unchanged.
+
+Concurrent snapshots, worker pools, concurrency within preparation stages, source fetching during preparation itself, and membership-write coalescing remain future optimizations. The architecture below describes that broader direction. Tests cover combined preparation blocks, overlapping pages/uploads, backpressure, ordered resume positions and visibility, membership dependencies, publication retries and orphan cleanup. The 30 MB/s target remains unvalidated.
+
 ## Objective and constraints
 
 Aim for **30 MB/s through durable checkpoints at both low S3 latency and 100 ms added S3 latency**, with concurrent table snapshots and controlled MongoDB IOPS.

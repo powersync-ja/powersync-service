@@ -4,7 +4,6 @@ import { BucketDefinitionMapping, InternalOpId, storage } from '@powersync/servi
 import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
-import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
   BucketStateUpdate,
   PersistedBatch,
@@ -24,11 +23,12 @@ import {
   SourceTableDocumentV3,
   taggedBucketParameterDocumentToTagged
 } from './models.js';
-import { ObjectStorageLifecycle } from './object-storage/ObjectStorageLifecycle.js';
+import { ObjectStorageLifecycle, PreparedObjectStorageUpload } from './object-storage/ObjectStorageLifecycle.js';
 import { ObjectStorageUsage } from './object-storage/ObjectStorageUsage.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
+  private metadataSize = 0;
   currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
   sourceTablePendingDeletes = new Map<string, InternalOpId>();
   protected readonly objectStorageLifecycle?: ObjectStorageLifecycle;
@@ -102,7 +102,9 @@ export class PersistedBatchV3 extends PersistedBatch {
         index: sourceDefinitionId
       });
 
-      this.currentSize += 200;
+      const size = bson.calculateObjectSize(values) + 32;
+      this.currentSize += size;
+      this.metadataSize += size;
     }
 
     for (let lookup of remaining_lookups.values()) {
@@ -126,7 +128,9 @@ export class PersistedBatchV3 extends PersistedBatch {
         index: indexId
       });
 
-      this.currentSize += 200;
+      const size = bson.calculateObjectSize(values) + 32;
+      this.currentSize += size;
+      this.metadataSize += size;
     }
   }
 
@@ -139,7 +143,7 @@ export class PersistedBatchV3 extends PersistedBatch {
         }
       }
     });
-    this.currentSize += 50;
+    this.accountCurrentData();
   }
 
   softDeleteCurrentData(
@@ -170,7 +174,7 @@ export class PersistedBatchV3 extends PersistedBatch {
       this.sourceTablePendingDeletes.set(sourceTableKey, checkpointGreaterThan);
     }
 
-    this.currentSize += 50;
+    this.accountCurrentData();
   }
 
   upsertCurrentData(values: UpsertCurrentDataOptions) {
@@ -212,7 +216,26 @@ export class PersistedBatchV3 extends PersistedBatch {
         }
       }
     });
-    this.currentSize += (values.data?.length() ?? 0) + 100;
+    this.accountCurrentData();
+  }
+
+  private accountCurrentData() {
+    const size = bson.calculateObjectSize(this.currentData.at(-1)!.operation);
+    this.currentSize += size;
+    this.metadataSize += size;
+  }
+
+  override shouldPublish(): boolean {
+    // Preparation keeps its small input/read limits. Publication can combine
+    // several blocks into useful per-bucket objects, without counting every
+    // offloaded bucket operation as a separate MongoDB write. These are soft
+    // limits checked after each source row, as with the legacy transaction limit.
+    return (
+      this.currentSize >= 24 * 1024 * 1024 ||
+      this.metadataSize >= 8 * 1024 * 1024 ||
+      this.currentDataCount + this.bucketParameters.length + 2 * this.bucketStates.size >= 16_000 ||
+      this.bucketDataCount >= 64_000
+    );
   }
 
   protected get currentDataCount() {
@@ -221,92 +244,71 @@ export class PersistedBatchV3 extends PersistedBatch {
 
   // Flush methods
 
-  protected async flushBucketData(session: mongo.ClientSession) {
-    const operationsByDefinition = new Map<BucketDefinitionId, BucketDataDoc[]>();
-    for (const document of this.bucketData) {
-      const existing = operationsByDefinition.get(document.bucketKey.definitionId) ?? [];
-      existing.push(document);
-      operationsByDefinition.set(document.bucketKey.definitionId, existing);
-    }
+  private preparation?: Promise<void>;
+  private preparedWrites?: { definitionId: BucketDefinitionId; documents: BucketDataDocumentV3[] }[];
+  private preparedUploads: PreparedObjectStorageUpload[] = [];
 
-    const plans = Array.from(operationsByDefinition, ([definitionId, documents]) => {
-      const operationsByBucket = Map.groupBy(documents, (document) => document.bucketKey.bucket);
-      const lifecycle = this.objectStorageLifecycle;
-      type BucketDataInsert = { insertOne: { document: BucketDataDocumentV3 } };
-      const createInserts: (() => Promise<BucketDataInsert>)[] = [];
+  override prepare(): Promise<void> {
+    return (this.preparation ??= this.prepareBucketData());
+  }
 
-      for (const [bucket, ops] of operationsByBucket) {
+  private async prepareBucketData(): Promise<void> {
+    const byDefinition = Map.groupBy(this.bucketData, (document) => document.bucketKey.definitionId);
+    const uploads: { path: string; document: BucketDataDocumentV3 }[] = [];
+    this.preparedWrites = Array.from(byDefinition, ([definitionId, operations]) => {
+      const documents: BucketDataDocumentV3[] = [];
+      for (const [bucket, ops] of Map.groupBy(operations, (document) => document.bucketKey.bucket)) {
         this.resetBucketPersistedBytes(definitionId, bucket);
         for (const chunk of chunkBucketData(ops)) {
-          const serialized = serializeBucketData(bucket, chunk);
-          this.incrementBucketPersistedChunk(definitionId, bucket, serialized.size);
-          if (lifecycle == null || serialized.size <= this.inlineThresholdBytes) {
-            createInserts.push(async () => ({
-              insertOne: {
-                document: serialized
-              }
-            }));
-            continue;
+          const document = serializeBucketData(bucket, chunk);
+          this.incrementBucketPersistedChunk(definitionId, bucket, document.size);
+          documents.push(document);
+          if (this.objectStorageLifecycle != null && document.size > this.inlineThresholdBytes) {
+            uploads.push({
+              path: this.objectStorageLifecycle.allocatePath(definitionId, bucket, chunk[0].o, chunk.at(-1)!.o),
+              document
+            });
           }
-
-          createInserts.push(async () => {
-            const minOp = chunk[0].o;
-            const maxOp = chunk[chunk.length - 1].o;
-            const { ops: bucketOps, ...metadata } = serialized;
-            const path = lifecycle.allocatePath(definitionId, bucket, minOp, maxOp);
-            const { fileSize } = await lifecycle.bucketData.store(path, bucketOps!, { signal: this.signal });
-            return {
-              insertOne: {
-                document: {
-                  ...metadata,
-                  storage_ref: {
-                    path,
-                    file_size: fileSize
-                  }
-                }
-              }
-            };
-          });
         }
       }
-
-      return { definitionId, createInserts };
+      return { definitionId, documents };
     });
 
-    const createAllInserts = () =>
-      Promise.all(
-        plans.map(async ({ definitionId, createInserts }) => ({
-          definitionId,
-          inserts: await Promise.all(createInserts.map((createInsert) => createInsert()))
-        }))
+    if (uploads.length === 0) return;
+    const lifecycle = this.objectStorageLifecycle!;
+    // Markers must predate the publication transaction and survive its rollback.
+    this.preparedUploads = await lifecycle.prepareUploads(uploads.map((upload) => upload.path));
+    // The object storage applies its shared request limit. Settle every request
+    // before returning an error, including PUTs completing after another failed.
+    const results = await Promise.allSettled(
+      uploads.map(async ({ path, document }) => {
+        const { fileSize } = await lifecycle.bucketData.store(path, document.ops!, { signal: this.signal });
+        delete document.ops;
+        document.storage_ref = { path, file_size: fileSize };
+      })
+    );
+    for (const result of results) {
+      if (result.status === 'rejected') throw result.reason;
+    }
+  }
+
+  protected async flushBucketData(session: mongo.ClientSession) {
+    if (this.preparation == null && this.objectStorage != null && session.inTransaction()) {
+      throw new ReplicationAssertionError('S3 replication payloads must be prepared before the transaction');
+    }
+    await this.prepare();
+    const usageDeltas = new Map<BucketDefinitionId, bigint>();
+    for (const { definitionId, documents } of this.preparedWrites!) {
+      if (documents.length === 0) continue;
+      await this.db.bucketData(this.group_id, definitionId).bulkWrite(
+        documents.map((document) => ({ insertOne: { document } })),
+        { session, ordered: false }
       );
-
-    // S3ObjectStorage applies one shared concurrency limit across all callers,
-    // so replication can schedule its uploads together without creating a
-    // separate limiter here.
-    const writes = await createAllInserts();
-
-    const usageDeltas = this.objectStorageUsage == null ? undefined : new Map<BucketDefinitionId, bigint>();
-    for (const { definitionId, inserts } of writes) {
-      if (usageDeltas != null) {
-        const delta = inserts.reduce(
-          (sum, operation) => sum + ObjectStorageUsage.bytes(operation.insertOne.document),
-          0n
-        );
-        if (delta !== 0n) {
-          usageDeltas.set(definitionId, delta);
-        }
-      }
-      if (inserts.length > 0) {
-        await this.db.bucketData(this.group_id, definitionId).bulkWrite(inserts, {
-          session,
-          ordered: false
-        });
-      }
+      const delta = documents.reduce((sum, document) => sum + ObjectStorageUsage.bytes(document), 0n);
+      if (delta !== 0n) usageDeltas.set(definitionId, delta);
     }
-    if (usageDeltas != null) {
-      await this.objectStorageUsage!.applyDeltas(usageDeltas, session);
-    }
+    await this.objectStorageLifecycle?.publishUploads(this.preparedUploads, session);
+    await this.objectStorageUsage?.applyDeltas(usageDeltas, session);
   }
 
   protected async flushBucketParameters(session: mongo.ClientSession) {
@@ -380,8 +382,12 @@ export class PersistedBatchV3 extends PersistedBatch {
   }
 
   protected resetCurrentData() {
+    this.metadataSize = 0;
     this.currentData = [];
     this.sourceTablePendingDeletes.clear();
+    this.preparation = undefined;
+    this.preparedWrites = undefined;
+    this.preparedUploads = [];
   }
 
   private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[] {

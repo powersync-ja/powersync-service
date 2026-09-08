@@ -532,8 +532,11 @@ describe('S3 object storage reads', () => {
     expect(maxActiveDeletes).toBe(12);
   });
 
-  test('shares the concurrency limit across S3 operations', async () => {
-    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit: 4 });
+  test.each([
+    { concurrencyLimit: undefined, expected: 64 },
+    { concurrencyLimit: 4, expected: 4 }
+  ])('shares the concurrency limit across S3 operations ($expected)', async ({ concurrencyLimit, expected }) => {
+    const objectStorage = new S3ObjectStorage({ bucket: 'test', region: 'test', concurrencyLimit });
     let activeOperations = 0;
     let maxActiveOperations = 0;
     objectStorage.client.send = async (command: any) => {
@@ -564,7 +567,7 @@ describe('S3 object storage reads', () => {
     };
 
     await Promise.all(
-      Array.from({ length: 32 }, (_, index) =>
+      Array.from({ length: expected * 2 }, (_, index) =>
         index % 2 === 0
           ? objectStorage.get(`object-${index}`)
           : objectStorage.put(`object-${index}`, new Uint8Array(), {
@@ -573,7 +576,8 @@ describe('S3 object storage reads', () => {
             })
       )
     );
-    expect(maxActiveOperations).toBe(4);
+    expect(maxActiveOperations).toBe(expected);
+    objectStorage.client.destroy();
   });
 
   test('aborts active object downloads', async () => {

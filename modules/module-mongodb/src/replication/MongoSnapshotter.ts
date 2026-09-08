@@ -514,13 +514,16 @@ export class MongoSnapshotter {
       // Important: flush before marking progress
       await batch.flush();
       at += docBatch.length;
-      rowsReplicatedMetric.add(docBatch.length);
 
       table = await batch.updateTableProgress(table, {
         lastKey,
         replicatedCount: at,
         totalEstimatedCount
       });
+      // Count completed pages after their restart cursor persists. Cancellation
+      // between data publication and progress otherwise counts the same page
+      // again when the snapshot resumes.
+      rowsReplicatedMetric.add(docBatch.length);
 
       const duration = performance.now() - lastBatch;
       lastBatch = performance.now();

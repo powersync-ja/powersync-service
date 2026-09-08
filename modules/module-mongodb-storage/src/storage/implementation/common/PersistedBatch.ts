@@ -345,7 +345,15 @@ export abstract class PersistedBatch {
     );
   }
 
-  async flush(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
+  /** Publication groups may span several input preparation batches. */
+  shouldPublish() {
+    return this.shouldFlushTransaction();
+  }
+
+  /** Prepare immutable external payloads before opening a publication transaction. */
+  async prepare(): Promise<void> {}
+
+  async flush(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions, reset = true) {
     const startAt = performance.now();
     let flushedSomething = false;
     if (this.bucketDataCount > 0) {
@@ -411,12 +419,15 @@ export abstract class PersistedBatch {
       flushedAny: flushedSomething
     };
 
-    this.bucketData = [];
-    this.bucketParameters = [];
-    this.resetCurrentData();
-    this.bucketStates.clear();
-    this.currentSize = 0;
-    this.debugLastOpId = null;
+    // Pipelined publication retries reuse the same immutable plan and uploads.
+    if (reset) {
+      this.bucketData = [];
+      this.bucketParameters = [];
+      this.resetCurrentData();
+      this.bucketStates.clear();
+      this.currentSize = 0;
+      this.debugLastOpId = null;
+    }
 
     return stats;
   }

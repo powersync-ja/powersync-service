@@ -24,7 +24,9 @@ start them. It starts MongoDB storage, MinIO and the latency proxies, without a 
 The timer starts with pre-generated raw BSON change-event buffers in memory. It includes
 the production `parseChangeDocument`, `DirectSourceRowConverter`, and shared `writeMongoChange`
 path, sync-rule evaluation, bucket routing, serialization/compression, MongoDB v4 writes,
-S3 uploads, per-batch flush/resume-position persistence, and the final checkpoint commit.
+S3 uploads, per-page publication/resume-position persistence, and the final checkpoint commit.
+MongoDB v4 queues page publication so processing continues while earlier pages upload; the
+final commit waits for all queued progress. Preparation blocks can share a publication group.
 The writer uses `storeCurrentData: false`, as the MongoDB connector does for complete postimages.
 There is no source connection, snapshot, change-stream polling, or source checkpoint-marker round trip.
 Collection discovery, transaction/split-event assembly, reconnect/recovery, and the outer connector
@@ -116,10 +118,15 @@ so replication encodes them back into operation payloads. Strings are generated 
 deterministic seeds. Numbers and booleans are synthesized; nulls and empty values preserve
 their types. Names inside nested structures are anonymized too.
 
-The example output payloads have 31–42 fields and a mean size of approximately 2.5 KB
-(range 1.4–3.2 KB). This models structure and approximate sizes, not the original semantics
-or compressibility. Generated data includes additional benchmark identity, routing and marker
-fields. Actual output sizes are recorded as `put_payload_bytes_min/mean/max` for comparison.
+The original example output payloads have 31–42 fields and a mean size of approximately 2.5 KB
+(range 1.4–3.2 KB). The default sample generator now retains approximately 38% of each profile's
+fields, targeting **1 KiB per output PUT payload**, including benchmark identity, routing and
+marker fields. Field selection varies deterministically across rows and stays fixed across
+revisions of the same row. Retained fields preserve their types, nested structure, and value sizes.
+This models a smaller document with similar field shapes, not the original semantics or
+compressibility. Sizes vary by row; the target excludes the operation envelope and does not apply
+to REMOVE operations. Check `put_payload_bytes_mean` for the measured average (the full replication
+suite also records min/max).
 
 [createDocument](src/scenarios/mongodb-throughput-workload.ts) is the editing point for source
 documents. Profiles cycle deterministically as row counts increase. Use `BENCHMARK_SHAPE=synthetic`

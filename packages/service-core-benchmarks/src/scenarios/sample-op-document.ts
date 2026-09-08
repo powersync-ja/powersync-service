@@ -45,5 +45,16 @@ function generate(shape: Shape, seed: string): unknown {
 /** Source documents derived solely from anonymized type/size profiles of processed ops. */
 export function sampleOpDocument(index: number, revision: number): Record<string, unknown> {
   const profile = fixture.profiles[index % fixture.profiles.length];
-  return generate(fixture.nodes[profile.shape], `${index}/${revision}`) as Record<string, unknown>;
+  const shape = fixture.nodes[profile.shape];
+  if (shape[0] !== 'object') throw new Error('Sample profile must describe an object');
+  const fields = Object.entries(shape[1]);
+  // Keep a representative subset to target approximately 1 KiB per output PUT,
+  // including benchmark metadata. Retained fields keep their original type/size profiles.
+  // Rotate with the row (not the revision), so updates retain the same field set.
+  const count = Math.round(fields.length * 0.38);
+  const selected = Array.from(
+    { length: count },
+    (_, offset) => fields[(index + Math.floor((offset * fields.length) / count)) % fields.length]
+  );
+  return generate(['object', Object.fromEntries(selected)], `${index}/${revision}`) as Record<string, unknown>;
 }

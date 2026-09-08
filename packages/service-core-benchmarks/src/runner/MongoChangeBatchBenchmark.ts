@@ -127,9 +127,15 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
         bytes += raw.length;
         await writeMongoChange(context.writer, context.table, parseChangeDocument(raw), context.converter);
       }
-      // Match the production flush/resume cadence. These fixtures contain no split transactions.
-      await context.writer.flush();
-      await context.writer.setResumeLsn(`1/${String(index + 1).padStart(12, '0')}`);
+      // Match production page admission. The final commit awaits every receipt;
+      // these fixtures contain no split transactions or intermediate markers.
+      const lsn = `1/${String(index + 1).padStart(12, '0')}`;
+      if (context.writer.queueResumeLsn != null) {
+        await context.writer.queueResumeLsn(lsn);
+      } else {
+        await context.writer.flush();
+        await context.writer.setResumeLsn(lsn);
+      }
     }
     // Model one safe checkpoint marker after the backlog, without a source marker round trip.
     const commit = await context.writer.commit(TARGET);
@@ -246,7 +252,7 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
       ...run.resource.environment,
       storage_version: this.scenario.storage.version,
       source: 'synthetic-raw-bson',
-      checkpoint_policy: 'flush-resume-per-batch-final-commit'
+      checkpoint_policy: 'queued-resume-per-page-final-commit'
     };
   }
   protected async cleanupRun(run: Run) {

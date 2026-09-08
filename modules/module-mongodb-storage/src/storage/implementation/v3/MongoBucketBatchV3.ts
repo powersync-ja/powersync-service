@@ -7,6 +7,7 @@ import { mongoTableId } from '../../../utils/util.js';
 import { canCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoParsedSyncConfigSet } from '../MongoParsedSyncConfigSet.js';
+import { MongoReplicationLease } from '../MongoReplicationLease.js';
 import { stopReplicationStreamPipeline } from '../SyncRuleStateUpdate.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
@@ -51,9 +52,13 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       logger: this.logger,
       objectStorage: this.options.objectStorage,
       inlineThresholdBytes: this.options.inlineThresholdBytes,
-      signal: this.options.signal,
+      signal: this.uploadSignal,
       objectStorageUsageWriterId: this.objectStorageUsageWriterId
     });
+  }
+
+  protected override get usePipeline(): boolean {
+    return true;
   }
 
   protected get sourceRecordStore(): SourceRecordStore {
@@ -149,6 +154,11 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
+    // Table reconciliation is a barrier for speculative membership plans.
+    if (this.usePipeline) await this.flush();
+    await using lease = this.usePipeline
+      ? await MongoReplicationLease.acquire(this.db, this.options.signal)
+      : undefined;
     // The test-only override is a whole parsed set, so the sync rules and the mapping
     // used below always come from the same parse.
     const parsedOverride = options.parsedSyncConfig as MongoParsedSyncConfigSet | undefined;
@@ -174,6 +184,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     await using _ = { [Symbol.asyncDispose]: () => session.endSession() };
 
     await session.withTransaction(async () => {
+      await lease?.fence(session);
       const col = this.db.sourceTables(this.replicationStreamId);
 
       // Find records that overlap by name or relation id.

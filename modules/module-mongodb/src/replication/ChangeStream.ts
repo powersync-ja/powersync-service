@@ -603,11 +603,13 @@ export class ChangeStream {
         this.checkpointImplementation.logResume(resumeFromLsn);
 
         const filters = this.getSourceNamespaceFilters();
+        const progressAbort = new AbortController();
+        const progressSignal = AbortSignal.any([this.abortSignal, progressAbort.signal]);
         // This is closed when the for loop below returns/breaks/throws
         const batchStream = this.rawChangeStreamBatches({
           lsn: resumeFromLsn,
           filters,
-          signal: this.abortSignal,
+          signal: progressSignal,
           tracer
         });
 
@@ -883,21 +885,32 @@ export class ChangeStream {
           }
 
           if (splitDocument == null) {
-            // We flush and mark progress on every batch of data we receive.
+            // Seal and queue progress on every batch of data we receive.
             // Batches are generally large (64MB or 6000 events, whichever comes first),
-            // so this is a good natural point to flush and mark progress.
+            // so this is a good natural point to seal a publication group.
+            // Pipelined storage can keep processing the next page while this
+            // page uploads. Its resume token is persisted after its data.
             // We avoid this when splitDocument is set, since we cannot resume in the middle of a split event.
             const { lsn, timestamp } = this.checkpointImplementation.lsnFromResumeToken(resumeToken);
-            await batch.flush({ oldestUncommittedChange: this.replicationLag.oldestUncommittedChange });
-            // TODO: We should consider making this standard behavior of flush().
-            await batch.setResumeLsn(lsn);
-
-            if (timestamp != null) {
-              // Note that this timestamp provided by MongoDB is not exact - it can be around 10s behind.
-              this.lastPersistedResumeTimestamp = timestamp.getTime();
+            const options = { oldestUncommittedChange: this.replicationLag.oldestUncommittedChange };
+            const markPersisted = () => {
+              if (timestamp != null) {
+                // Note that this timestamp provided by MongoDB is not exact - it can be around 10s behind.
+                this.lastPersistedResumeTimestamp = timestamp.getTime();
+              } else {
+                // DocumentDB: No timestamp associated with the resumeToken. Just use the current time.
+                this.lastPersistedResumeTimestamp = Date.now();
+              }
+            };
+            if (batch.queueResumeLsn != null) {
+              const receipt = await batch.queueResumeLsn(lsn, options);
+              // Observe errors while getMore is waiting too, rather than waiting
+              // for another source row to discover a failed publication.
+              void receipt.persisted.then(markPersisted).catch((error) => progressAbort.abort(error));
             } else {
-              // DocumentDB: No timestamp associated with the resumeToken. Just use the current time.
-              this.lastPersistedResumeTimestamp = Date.now();
+              await batch.flush(options);
+              await batch.setResumeLsn(lsn);
+              markPersisted();
             }
           }
 
