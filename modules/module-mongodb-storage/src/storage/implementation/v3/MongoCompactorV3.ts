@@ -38,6 +38,7 @@ import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { BucketDataObjectStorage, hydrateBucketDataDocuments } from './object-storage/BucketDataObjectStorage.js';
 import { ObjectStorageLifecycle, PreparedObjectStorageUpload } from './object-storage/ObjectStorageLifecycle.js';
+import { createObjectStorageUsageWriterId, ObjectStorageUsage } from './object-storage/ObjectStorageUsage.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 const DEFAULT_MIN_COMPACT_FULL_INTERVAL_MS = 2 * 60 * 60 * 1000;
@@ -68,6 +69,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
   readonly maxCompactFullIntervalMs: number;
   readonly compactLeaseDurationMs: number;
   readonly maxOpIdCap: InternalOpId | undefined;
+  private readonly objectStorageUsage: ObjectStorageUsage;
 
   constructor(bucketStorage: MongoSyncBucketStorageV3, db: VersionedPowerSyncMongoV3, options: storage.CompactOptions) {
     super(bucketStorage, db, options);
@@ -76,6 +78,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     this.maxCompactFullIntervalMs = options.maxCompactFullIntervalMs ?? DEFAULT_MAX_COMPACT_FULL_INTERVAL_MS;
     this.compactLeaseDurationMs = options.compactLeaseDurationMs ?? DEFAULT_COMPACT_LEASE_DURATION_MS;
     this.maxOpIdCap = options.maxOpId;
+    this.objectStorageUsage = new ObjectStorageUsage(this.db, this.group_id, createObjectStorageUsageWriterId());
   }
 
   override async compact(): Promise<number> {
@@ -111,8 +114,22 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       // Note that markers only expire after a delay, so this may skip many produced during this compact
       // run. However, during long compact runs, this may also have many ones it can clean up.
       await this.objectStorageLifecycle.cleanup(this.logger, { signal: this.signal });
+      await this.objectStorageUsage.foldStaleWriterDeltas();
     }
     return this.compactedBucketCount;
+  }
+
+  protected override async deleteOldCustomCheckpointRequests() {
+    if (this.deleteCheckpointRequestsBefore == null) {
+      return;
+    }
+
+    for (const collection of await this.db.listCustomCheckpointRequestCollections(this.group_id)) {
+      this.signal?.throwIfAborted();
+      await collection.deleteMany({
+        checkpoint_requested_at: { $exists: true, $lt: this.deleteCheckpointRequestsBefore }
+      });
+    }
   }
 
   /** An explicit compact request always runs a full compact for its buckets. */
@@ -932,6 +949,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     const expectedChecksum = inputs.reduce((sum, doc) => sum + doc.checksum, 0n);
     const expectedOpCount = inputs.reduce((sum, doc) => sum + doc.count, 0);
     const oldStoragePaths = inputs.flatMap((doc) => (doc.storage_ref ? [doc.storage_ref.path] : []));
+    const oldStorageBytes = inputs.reduce((sum, document) => sum + ObjectStorageUsage.bytes(document), 0n);
     const {
       documents,
       storagePaths: newStoragePaths,
@@ -972,6 +990,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           await bucketContext.collection.deleteMany({ _id: { $in: idsToDelete } }, { session });
           await bucketContext.collection.insertMany(documents, { session });
           await this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, uploads, session);
+          await this.recordObjectStorageReplacement(oldStorageBytes, documents, context.definitionId, session);
         },
         {
           writeConcern: { w: 'majority' },
@@ -1069,6 +1088,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         before = emptyBucketStats();
         after = emptyBucketStats();
         const oldStoragePaths: string[] = [];
+        let oldStorageBytes = 0n;
         const query = collection.find(
           {
             _id: {
@@ -1117,6 +1137,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           if (doc.storage_ref) {
             oldStoragePaths.push(doc.storage_ref.path);
           }
+          oldStorageBytes += ObjectStorageUsage.bytes(doc);
 
           // The compaction scan established that every operation before the
           // boundary is MOVE/REMOVE/CLEAR. Root metadata is sufficient to fold
@@ -1166,6 +1187,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         });
         await collection.insertOne(persisted.documents[0], { session });
         await this.finishObjectStorageReplacement(oldStoragePaths, persisted.storagePaths, persisted.uploads, session);
+        await this.recordObjectStorageReplacement(oldStorageBytes, persisted.documents, context.definitionId, session);
 
         opCountDiff = -clearedOpCount + 1;
         before = inputStats;
@@ -1201,6 +1223,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         before = emptyBucketStats();
         after = emptyBucketStats();
         const oldStoragePaths: string[] = [];
+        let oldStorageBytes = 0n;
         const query = collection.find(
           {
             // This is a range query, but should only ever return two documents:
@@ -1251,6 +1274,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           if (doc.storage_ref) {
             oldStoragePaths.push(doc.storage_ref.path);
           }
+          oldStorageBytes += ObjectStorageUsage.bytes(doc);
           await hydrateBucketDataDocuments([doc], this.storage.objectStorage, { signal: this.signal });
           maxTargetOp = maxOpId(maxTargetOp, doc.target_op);
           for (const op of loadBucketDataDocument(context, doc)) {
@@ -1311,6 +1335,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         });
         await collection.insertMany(persisted.documents, { session });
         await this.finishObjectStorageReplacement(oldStoragePaths, persisted.storagePaths, persisted.uploads, session);
+        await this.recordObjectStorageReplacement(oldStorageBytes, persisted.documents, context.definitionId, session);
 
         opCountDiff = -clearedOpCount + 1;
         before = inputStats;
@@ -1363,6 +1388,22 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       Array.from(oldStoragePaths).filter((path) => !newStoragePaths.has(path)),
       session
     );
+  }
+
+  private async recordObjectStorageReplacement(
+    oldBytes: bigint,
+    newDocuments: Iterable<Pick<BucketDataDocumentV3, 'storage_ref'>>,
+    definitionId: BucketDefinitionId,
+    session: mongo.ClientSession
+  ): Promise<void> {
+    if (!this.storage.objectStorage) {
+      return;
+    }
+    let newBytes = 0n;
+    for (const document of newDocuments) {
+      newBytes += ObjectStorageUsage.bytes(document);
+    }
+    await this.objectStorageUsage.applyDelta(definitionId, newBytes - oldBytes, session);
   }
 
   private async persistBucketData(

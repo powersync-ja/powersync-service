@@ -132,7 +132,9 @@ bucket_definitions:
             .first()
         )?.checkpoint_requested_at;
 
-      bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
+      bucketStorage.setWriteCheckpointMode({
+        mode: storage.WriteCheckpointMode.CUSTOM
+      });
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       await writer.markAllSnapshotDone('1/1');
       const customCheckpointRequestedAt = new Date('2024-01-01T00:00:00.000Z');

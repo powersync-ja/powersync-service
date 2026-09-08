@@ -187,8 +187,8 @@ export class PostgresSyncRulesStorage
     });
   }
 
-  setWriteCheckpointMode(mode: storage.WriteCheckpointMode): void {
-    return this.writeCheckpointAPI.setWriteCheckpointMode(mode);
+  setWriteCheckpointMode(config: storage.WriteCheckpointModeConfig): void {
+    return this.writeCheckpointAPI.setWriteCheckpointMode(config);
   }
 
   createManagedWriteCheckpoints(

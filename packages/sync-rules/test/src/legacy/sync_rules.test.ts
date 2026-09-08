@@ -1108,7 +1108,19 @@ event_definitions:
       PARSE_OPTIONS
     );
     expect(errors).toStrictEqual([]);
-    expect(rules.eventDescriptors).toHaveLength(1);
+    expect(rules).not.toHaveProperty('eventDescriptors');
+    expect(rules.eventDefinitions).toHaveLength(1);
+
+    const [event] = rules.hydrate(hydrationParams).eventDescriptors;
+    expect(
+      event.evaluateRowWithErrors({
+        sourceTable: new TestSourceTable('checkpoints'),
+        record: { user_id: 'user-1', checkpoint: 2n, client_id: 'client-1' }
+      })
+    ).toEqual({
+      results: [{ data: { user_id: 'user-1', checkpoint: 2n, client_id: 'client-1' } }],
+      errors: []
+    });
   });
 
   test('suggests upgrading for streams on edition 2', () => {

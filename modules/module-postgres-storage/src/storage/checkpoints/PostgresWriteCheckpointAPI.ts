@@ -21,8 +21,8 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     return this._mode;
   }
 
-  setWriteCheckpointMode(mode: storage.WriteCheckpointMode): void {
-    this._mode = mode;
+  setWriteCheckpointMode(config: storage.WriteCheckpointModeConfig): void {
+    this._mode = config.mode;
   }
 
   async batchCreateCustomWriteCheckpoints(

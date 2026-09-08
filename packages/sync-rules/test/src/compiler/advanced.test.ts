@@ -353,4 +353,19 @@ streams:
     expect(serialized.version).toStrictEqual(2);
     expect(serialized).toMatchSnapshot();
   });
+
+  test('preserves table-valued-function bindings', () => {
+    const compiled = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  a:
+    queries:
+      - SELECT posts.* FROM posts, json_each(posts.a) AS ja, json_each(posts.b) AS jb WHERE ja.value = 'x' AND jb.value = 'y'
+      - SELECT posts.* FROM posts, json_each(posts.a) AS ja, json_each(posts.b) AS jb WHERE jb.value = 'x' AND ja.value = 'y'
+`);
+
+    expect(compiled.dataSources).toHaveLength(2);
+  });
 });

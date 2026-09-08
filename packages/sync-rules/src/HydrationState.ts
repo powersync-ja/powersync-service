@@ -2,6 +2,8 @@ import { BucketDataSource, ParameterIndexLookupCreator } from './BucketSource.js
 
 export type BucketDefinitionId = string;
 export type ParameterIndexId = string;
+/** Stream-local storage identity assigned to a replication event definition. */
+export type EventDefinitionId = string;
 
 export interface BucketDataScope {
   /**

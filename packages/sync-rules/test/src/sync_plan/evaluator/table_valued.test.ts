@@ -130,7 +130,8 @@ streams:
         dataSources: [source],
         buckets: [{ hashCode: 0, uniqueName: 'a', sources: [source] }],
         parameterIndexes: [],
-        streams: []
+        streams: [],
+        events: []
       })
     );
 

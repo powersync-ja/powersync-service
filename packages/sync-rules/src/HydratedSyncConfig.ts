@@ -8,6 +8,7 @@ import {
   EvaluationError,
   GetBucketParameterQuerierResult,
   GetQuerierOptions,
+  HydratedEventDescriptor,
   HydrateSyncConfigParams,
   HydrationInput,
   isEvaluatedParameters,
@@ -21,7 +22,6 @@ import {
   QuerierError,
   ScopedEvaluateParameterRow,
   ScopedEvaluateRow,
-  SqlEventDescriptor,
   SqliteInputValue,
   SqliteValue,
   SyncConfig,
@@ -52,7 +52,15 @@ export class HydratedSyncConfig {
    */
   private bucketSources: HydratedBucketSource[] = [];
 
-  eventDescriptors: SqlEventDescriptor[] = [];
+  eventDescriptors: HydratedEventDescriptor[] = [];
+
+  /**
+   * Hydrated events grouped by their source definition.
+   *
+   * Deduplication of events across definitions is left to the caller (storage resolves each event to its
+   * per-config assigned id and dedupes on that), so this keeps every definition's events intact for that.
+   */
+  readonly eventDescriptorsByDefinition = new Map<SyncConfig, HydratedEventDescriptor[]>();
 
   /**
    * Only a single compatibility context is supported across all merged SyncConfigs.
@@ -118,7 +126,11 @@ export class HydratedSyncConfig {
       this.bucketParameterLookupSources
     ).evaluateParameterRow;
 
-    this.eventDescriptors = definitions.flatMap((definition) => definition.eventDescriptors);
+    this.eventDescriptors = definitions.flatMap((definition) => {
+      const events = definition.eventDefinitions.map((event) => event.createEvaluator(this.hydrationInput));
+      this.eventDescriptorsByDefinition.set(definition, events);
+      return events;
+    });
 
     if (definitions.length == 1) {
       this.#bucketSourceDefinitions = definitions[0].bucketSources;

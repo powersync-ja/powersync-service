@@ -1,5 +1,23 @@
 # @powersync/service-sync-rules
 
+## 0.41.0
+
+### Minor Changes
+
+- 189bd9e: Add storage_version: 4 as a stable storage version.
+- bb08068: Compile event payload queries into serialized sync plans and evaluate them through the shared row-projection implementation. Existing event deployments use one basic, direct-projection query per physical table; filters and other advanced SQL forms are not currently documented or recommended.
+
+  Edition 3 now validates and applies event `WHERE` clauses. Existing persisted plans and editions 1 and 2 retain the legacy behavior of ignoring filters and emit a warning; deploy a new sync config to enable compiled filtering. Remove event `WHERE` clauses before rolling the service back to an older version.
+
+  Event evaluation now follows sync stream semantics by returning all payloads from matching queries, including overlapping exact and wildcard sources, or no payloads when filters do not match. Payload query order does not affect persisted equality. Compiled `SELECT *` payloads also include underscore-prefixed columns, matching sync streams.
+
+- 646c0de: Track replication events as MongoDB storage v3 source-table memberships so unchanged event definitions retain their assigned ids while new or changed definitions are resnapshotted during incremental reprocessing.
+
+### Patch Changes
+
+- 4b6a23e: Preserve multi-column parameter correlation when a deduplicated lookup is reached through multiple provenance paths.
+- 3972bac: Correctly reuse equivalent Sync Streams query components when independent filters or attached table-valued functions appear in a different order.
+
 ## 0.40.0
 
 ### Minor Changes

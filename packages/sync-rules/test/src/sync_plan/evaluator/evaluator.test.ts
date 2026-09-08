@@ -751,6 +751,64 @@ streams:
     ]);
   });
 
+  syncTest('preserves correlation across provenance paths for a deduplicated lookup', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      auto_subscribe: true
+      query: |
+        SELECT a.*
+        FROM a, b, c
+        WHERE a.x = b.x
+          AND a.y = b.y
+          AND b.k = c.k
+          AND c.user_id = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: true,
+      streams: {}
+    });
+    expect(errors).toStrictEqual([]);
+    let requestedLookups = 0;
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups, debugDefinition): Promise<ParameterLookupRows[]> {
+        expect(lookups).toHaveLength(1);
+        requestedLookups++;
+
+        if (debugDefinition.endsWith(' on c')) {
+          // Both c rows produce the same b lookup key. PowerSync must query b
+          // once while retaining the two provenance paths that reached it.
+          return [{ lookup: lookups[0], rows: [{ '0': 'shared-k' }, { '0': 'shared-k' }] }];
+        } else if (debugDefinition.endsWith(' on b')) {
+          // Each b row is one correlated (x, y) pair. Copies of this result set
+          // for different provenance paths must not make its columns independent.
+          return [
+            {
+              lookup: lookups[0],
+              rows: [
+                { '0': 'X1', '1': 'Y1' },
+                { '0': 'X2', '1': 'Y2' }
+              ]
+            }
+          ];
+        }
+
+        throw new Error(`Unexpected lookup: ${debugDefinition}`);
+      }
+    });
+
+    // One on c (deduplicated), one on b.
+    expect(requestedLookups).toStrictEqual(2);
+    const parameters = new Set(dynamicBuckets.map(({ bucket }) => bucket.slice(bucket.indexOf('['))));
+    expect(parameters).toStrictEqual(new Set(['["Y1","X1"]', '["Y2","X2"]']));
+  });
+
   syncTest('preserves correlation across duplicate lookup output rows', async ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:

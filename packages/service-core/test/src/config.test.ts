@@ -77,7 +77,7 @@ describe('Config', () => {
         connections: []
       storage:
         type: mongodb
-        default_storage_version: 3
+        default_storage_version: 4
     `;
 
     const collector = new CompoundConfigCollector();
@@ -86,10 +86,10 @@ describe('Config', () => {
       config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
     });
 
-    expect(config.storage.default_storage_version).toBe(3);
+    expect(config.storage.default_storage_version).toBe(4);
   });
 
-  it.each([1, 1.5, 4])('should reject unsupported storage default version %s', async (defaultStorageVersion) => {
+  it.each([1, 1.5, 5])('should reject unsupported storage default version %s', async (defaultStorageVersion) => {
     const yamlConfig = /* yaml */ `
       # PowerSync config
       replication:

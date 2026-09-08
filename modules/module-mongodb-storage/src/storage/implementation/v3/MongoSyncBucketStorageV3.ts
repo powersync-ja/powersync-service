@@ -33,6 +33,7 @@ import {
   MongoSyncBucketStorage,
   MongoSyncBucketStorageOptions
 } from '../MongoSyncBucketStorage.js';
+import { MongoCheckpointAPIOptions } from '../MongoWriteCheckpointAPI.js';
 import { loadBucketDataDocument, maxOpId } from './bucket-format.js';
 import {
   BucketDataDocumentV3,
@@ -47,9 +48,11 @@ import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
 import { MongoParameterCompactorV3 } from './MongoParameterCompactorV3.js';
 import { MongoStoppedSyncConfigCleanup } from './MongoStoppedSyncConfigCleanup.js';
+import { MongoWriteCheckpointAPIV3 } from './MongoWriteCheckpointAPIV3.js';
 import { hydrateBucketDataDocuments } from './object-storage/BucketDataObjectStorage.js';
 import { ObjectStorage } from './object-storage/ObjectStorage.js';
 import { ObjectStorageLifecycle } from './object-storage/ObjectStorageLifecycle.js';
+import { ObjectStorageUsage } from './object-storage/ObjectStorageUsage.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export interface MongoSyncBucketStorageContextV3 {
@@ -198,6 +201,14 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     });
   }
 
+  protected override createWriteCheckpointAPI(options: MongoCheckpointAPIOptions): MongoWriteCheckpointAPIV3 {
+    return new MongoWriteCheckpointAPIV3({
+      ...options,
+      db: this.db,
+      syncConfigMapping: () => this.singleSyncConfigMapping()
+    });
+  }
+
   createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
     return new MongoCompactorV3(this, this.db, options);
   }
@@ -234,13 +245,14 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected async createWriterImpl(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
+    const batchOptions = this.writerBatchOptions(options);
     const doc = await this.syncRulesCollection.findOne(
       { _id: this.replicationStreamId },
       { projection: { resume_lsn: 1 } }
     );
 
     return new MongoBucketBatchV3({
-      ...this.writerBatchOptions(options),
+      ...batchOptions,
       // The stream-level replication position - per-config checkpoint LSNs are consistency
       // markers and do not affect where replication resumes.
       resumeFromLsn: doc?.resume_lsn ?? null,
@@ -399,6 +411,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     for (const collection of await this.db.listBucketDataCollections(this.replicationStreamId)) {
       await collection.drop();
     }
+    const usage = new ObjectStorageUsage(this.db, this.replicationStreamId);
+    await this.db.client.withSession((session) => session.withTransaction(() => usage.removeStream(session)));
     if (this.objectStorage) {
       const lifecycle = new ObjectStorageLifecycle(this.db, this.replicationStreamId, this.objectStorage);
       await lifecycle.deletePrefix(lifecycle.streamPrefix(), { signal });
@@ -407,7 +421,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       .pendingObjectStorageDeletes(this.replicationStreamId)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
       .catch((error) => {
-        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+        if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
           return;
         }
         throw error;
@@ -431,7 +445,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       .bucketState(this.replicationStreamId)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
       .catch((error) => {
-        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+        if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
           return;
         }
         throw error;
@@ -443,11 +457,23 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       .sourceTables(this.replicationStreamId)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
       .catch((error) => {
+        if (lib_mongo.isMongoNamespaceNotFoundError(error)) {
+          return;
+        }
+        throw error;
+      });
+  }
+
+  protected override async clearCustomCheckpointRequests(signal?: AbortSignal): Promise<void> {
+    for (const collection of await this.db.listCustomCheckpointRequestCollections(this.replicationStreamId)) {
+      signal?.throwIfAborted();
+      await collection.drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }).catch((error) => {
         if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
           return;
         }
         throw error;
       });
+    }
   }
 
   async cleanupStoppedSyncConfigs(

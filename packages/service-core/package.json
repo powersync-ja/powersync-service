@@ -4,7 +4,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.25.0",
+  "version": "1.26.0",
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "exports": "./dist/index.js",
@@ -17,6 +17,7 @@
   "dependencies": {
     "@js-sdsl/ordered-set": "^4.4.2",
     "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/core": "^2.0.1",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.203.0",
     "@opentelemetry/exporter-prometheus": "^0.203.0",
     "@opentelemetry/resources": "^2.0.1",

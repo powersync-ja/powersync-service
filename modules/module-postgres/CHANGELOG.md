@@ -1,5 +1,42 @@
 # @powersync/service-module-postgres
 
+## 0.23.0
+
+### Minor Changes
+
+- 189bd9e: Add storage_version: 4 as a stable storage version.
+- 2725f87: Add a `snapshot_socket_timeout` connection option for the idle timeout of snapshot connection sockets. Defaults to the previous fixed 30 seconds. When storage flushes stall the snapshot loop for longer than the timeout (for example when replicating while an active sync rules instance is streaming on the same storage), the source connection is killed mid-snapshot; raising the timeout avoids the reconnect cycle.
+
+### Patch Changes
+
+- 4e4063b: Optimize runtime type checks, closes https://github.com/powersync-ja/powersync-service/issues/771.
+- 2407f71: Apply timeouts and abortSignal handling to all S3 operations. The broad timeouts can be configured using the new `storage.object_storage.defaults_mode` option, or the `AWS_DEFAULTS_MODE` environment variable. Upgrade S3 SDK to fix further timeout issues.
+- a997c88: Restructure MongoDB V3 bucket compacting.
+- Updated dependencies [e11c54b]
+- Updated dependencies [4b6a23e]
+- Updated dependencies [189bd9e]
+- Updated dependencies [bb08068]
+- Updated dependencies [0077a8d]
+- Updated dependencies [332d649]
+- Updated dependencies [33a3c23]
+- Updated dependencies [fccdff2]
+- Updated dependencies [989d9e1]
+- Updated dependencies [646c0de]
+- Updated dependencies [cc121b3]
+- Updated dependencies [4e4063b]
+- Updated dependencies [2407f71]
+- Updated dependencies [10131ca]
+- Updated dependencies [4037e8f]
+- Updated dependencies [3972bac]
+- Updated dependencies [dd7a22f]
+- Updated dependencies [a997c88]
+  - @powersync/service-core@1.26.0
+  - @powersync/service-sync-rules@0.41.0
+  - @powersync/service-types@0.18.0
+  - @powersync/lib-service-postgres@0.5.4
+  - @powersync/lib-services-framework@0.10.1
+  - @powersync/service-jpgwire@0.21.23
+
 ## 0.22.1
 
 ### Patch Changes

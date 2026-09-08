@@ -1,29 +1,31 @@
-import { mongo } from '@powersync/lib-service-mongodb';
 import * as framework from '@powersync/lib-services-framework';
-import { GetCheckpointChangesOptions, InternalOpId, storage } from '@powersync/service-core';
+import { GetCheckpointChangesOptions, storage } from '@powersync/service-core';
 import { VersionedPowerSyncMongo } from './db.js';
 
 export type MongoCheckpointAPIOptions = {
   db: VersionedPowerSyncMongo;
-  mode: storage.WriteCheckpointMode;
-  sync_rules_id: number;
+  writeCheckpointMode: storage.WriteCheckpointModeConfig;
+  replicationStreamId: number;
 };
 
 export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
   readonly db: VersionedPowerSyncMongo;
+  readonly replicationStreamId: number;
+
   private _mode: storage.WriteCheckpointMode;
 
   constructor(options: MongoCheckpointAPIOptions) {
     this.db = options.db;
-    this._mode = options.mode;
+    this._mode = options.writeCheckpointMode.mode;
+    this.replicationStreamId = options.replicationStreamId;
   }
 
   get writeCheckpointMode() {
     return this._mode;
   }
 
-  setWriteCheckpointMode(mode: storage.WriteCheckpointMode): void {
-    this._mode = mode;
+  setWriteCheckpointMode(config: storage.WriteCheckpointModeConfig): void {
+    this._mode = config.mode;
   }
 
   async createManagedWriteCheckpoints(
@@ -247,6 +249,7 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
   }
 
   protected async lastCustomWriteCheckpoint(filters: storage.CustomWriteCheckpointFilters) {
+    // Legacy V1/V2 implementation.
     const { user_id, sync_rules_id } = filters;
     const lastWriteCheckpoint = await this.db.custom_write_checkpoints.findOne({
       user_id,
@@ -301,8 +304,9 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     };
   }
 
-  private async getCustomWriteCheckpointChanges(options: GetCheckpointChangesOptions) {
+  protected async getCustomWriteCheckpointChanges(options: GetCheckpointChangesOptions) {
     const limit = 1000;
+    // Legacy V1/V2 implementation.
     const changes = await this.db.custom_write_checkpoints
       .find(
         {
@@ -331,40 +335,4 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
       updatedWriteCheckpoints
     };
   }
-}
-
-export async function batchCreateCustomWriteCheckpoints(
-  db: VersionedPowerSyncMongo,
-  session: mongo.ClientSession,
-  checkpoints: storage.CustomWriteCheckpointOptions[],
-  opId: InternalOpId
-): Promise<void> {
-  if (checkpoints.length == 0) {
-    return;
-  }
-
-  await db.custom_write_checkpoints.bulkWrite(
-    checkpoints.map((checkpointOptions) => {
-      const set: Record<string, unknown> = {
-        checkpoint: checkpointOptions.checkpoint,
-        sync_rules_id: checkpointOptions.sync_rules_id,
-        op_id: opId
-      };
-      if (checkpointOptions.checkpoint_requested_at != null) {
-        set.checkpoint_requested_at = checkpointOptions.checkpoint_requested_at;
-      }
-
-      return {
-        updateOne: {
-          filter: { user_id: checkpointOptions.user_id, sync_rules_id: checkpointOptions.sync_rules_id },
-          update: {
-            $set: set,
-            ...(checkpointOptions.checkpoint_requested_at == null ? { $unset: { checkpoint_requested_at: 1 } } : {})
-          },
-          upsert: true
-        }
-      };
-    }),
-    { session }
-  );
 }

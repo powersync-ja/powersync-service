@@ -12,6 +12,8 @@ import {
 import {
   CompatibilityOption,
   DEFAULT_HYDRATION_STATE,
+  EventDefinitionId,
+  HydratedEventDescriptor,
   HydratedSyncConfig,
   HydrationState,
   nodeSqlite,
@@ -27,6 +29,8 @@ export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
   public readonly replicationStreamName: string;
   public readonly mapping: BucketDefinitionMapping;
 
+  readonly #configsWithMapping: readonly SyncConfigWithMapping[];
+
   constructor(
     public readonly replicationStreamId: number,
     storageConfig: StorageConfig,
@@ -34,6 +38,7 @@ export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
     syncConfigs: SyncConfigWithMapping[]
   ) {
     this.replicationStreamName = slotName;
+    this.#configsWithMapping = [...syncConfigs];
     this.syncConfigs = syncConfigs.map((config) => config.syncConfig);
     if (this.syncConfigs.length == 0) {
       throw new ServiceAssertionError(`At least one sync config is required`);
@@ -84,5 +89,34 @@ export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
       }
     });
     return this.#hydratedSyncConfig;
+  }
+
+  #eventById: ReadonlyMap<EventDefinitionId, HydratedEventDescriptor> | undefined;
+
+  /**
+   * Hydrated events for the replication stream, keyed by their assigned storage id.
+   *
+   * Each config's events are resolved against that config's own (single-config) mapping, so the resolution is
+   * unambiguous, and the result is deduplicated by assigned id: unchanged events shared across configs collapse to
+   * one entry, while a changed event keeps a separate entry under its new id.
+   */
+  get eventById(): ReadonlyMap<EventDefinitionId, HydratedEventDescriptor> {
+    if (this.#eventById == null) {
+      const map = new Map<EventDefinitionId, HydratedEventDescriptor>();
+      const byDefinition = this.hydratedSyncConfig.eventDescriptorsByDefinition;
+      for (const config of this.#configsWithMapping) {
+        if (config.mapping == null) {
+          continue;
+        }
+        for (const event of byDefinition.get(config.syncConfig.config) ?? []) {
+          const id = config.mapping.eventId(event);
+          if (!map.has(id)) {
+            map.set(id, event);
+          }
+        }
+      }
+      this.#eventById = map;
+    }
+    return this.#eventById;
   }
 }

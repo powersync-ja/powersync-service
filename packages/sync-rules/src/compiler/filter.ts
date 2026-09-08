@@ -1,6 +1,6 @@
 import { NodeLocation } from 'pgsql-ast-parser';
 import { expandNodeLocations } from '../errors.js';
-import { EqualsIgnoringResultSet } from './compatibility.js';
+import { EqualsIgnoringPrimaryResultSet, TableValuedFunctionEquality } from './compatibility.js';
 import { StableHasher } from './equality.js';
 import { ExpressionInput, RowReference, SyncExpression } from './expression.js';
 import { BaseSourceResultSet, SourceResultSet } from './table.js';
@@ -29,7 +29,7 @@ export function isBaseTerm(value: unknown): value is BaseTerm {
 /**
  * A {@link SyncExpression} that only depends on a single result set or connection data.
  */
-export class SingleDependencyExpression implements EqualsIgnoringResultSet {
+export class SingleDependencyExpression implements EqualsIgnoringPrimaryResultSet {
   readonly expression: SyncExpression;
   /**
    * The single result set on which the expression depends on.
@@ -60,12 +60,18 @@ export class SingleDependencyExpression implements EqualsIgnoringResultSet {
     }
   }
 
-  equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
-    return other instanceof SingleDependencyExpression && other.expression.equalsAssumingSameResultSet(this.expression);
+  equalsAssumingSamePrimaryResultSet(
+    other: EqualsIgnoringPrimaryResultSet,
+    tableValued: TableValuedFunctionEquality
+  ): boolean {
+    return (
+      other instanceof SingleDependencyExpression &&
+      other.expression.equalsAssumingSamePrimaryResultSet(this.expression, tableValued)
+    );
   }
 
-  assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
-    this.expression.assumingSameResultSetEqualityHashCode(hasher);
+  assumingSamePrimaryResultSetEqualityHashCode(tableValued: TableValuedFunctionEquality, hasher: StableHasher): void {
+    this.expression.assumingSamePrimaryResultSetEqualityHashCode(tableValued, hasher);
   }
 
   /**

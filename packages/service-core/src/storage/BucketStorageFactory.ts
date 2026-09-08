@@ -148,6 +148,27 @@ export interface StorageMetrics {
    * Size of current_data.
    */
   replication_size_bytes: number;
+
+  /**
+   * Size of active object-storage references, such as S3 bucket-data objects.
+   */
+  object_storage_size_bytes?: number;
+
+  /**
+   * Per-sync-config storage sizes, when the storage backend can provide them.
+   */
+  sync_config_metrics?: StorageSyncConfigMetrics[];
+}
+
+export interface StorageSyncConfigMetrics {
+  sync_config_id: string;
+  sync_config_state: string;
+  /** Optional operator-supplied label identifying this sync config version. */
+  version_label?: string;
+  attributed_bucket_data_bytes: number;
+  attributed_parameter_indexes_bytes: number;
+  attributed_source_records_bytes: number;
+  attributed_object_storage_bytes: number;
 }
 
 export interface UpdateSyncRulesOptions {
@@ -189,11 +210,10 @@ export interface SerializedSyncPlan {
   plan: RawSerializedSyncPlan;
   compatibility: SerializedCompatibilityContext;
   /**
-   * Event descriptors are not currently represented in the sync plan because they don't use the sync streams compiler
-   * yet.
+   * Raw event SQL persisted as a compatibility mirror for compiled {@link plan} events.
    *
-   * We might revisit that in the future, but for now we store SQL text of their definitions here to be able to restore
-   * them.
+   * Compiled events are an additive plan field. Older services ignore that field and restore these descriptors through
+   * the legacy evaluator. Keep dual-writing this field until a future plan version explicitly removes that support.
    */
   eventDescriptors: Record<string, string[]>;
   errors?: ReplicationError[];
@@ -221,13 +241,14 @@ export function updateSyncRulesFromConfig(
   const { config, errors } = parsed;
   if (config instanceof PrecompiledSyncConfig) {
     const eventDescriptors: Record<string, string[]> = {};
-    for (const event of config.eventDescriptors) {
-      eventDescriptors[event.name] = event.sourceQueries.map((q) => q.sql);
+    for (const event of config.plan.events) {
+      eventDescriptors[event.name] = event.sourceQueries.map((query) => query.sql);
     }
 
     plan = {
       compatibility: config.compatibility.serialize(),
       plan: serializeSyncPlan(config.plan),
+      // Dual-write raw SQL so older services can ignore additive compiled plan events without losing event behavior.
       eventDescriptors,
       errors: errors.map((e) => syncConfigYamlErrorToReplicationError(e))
     };

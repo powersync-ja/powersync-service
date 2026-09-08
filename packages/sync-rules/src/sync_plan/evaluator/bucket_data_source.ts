@@ -3,26 +3,14 @@ import { idFromData } from '../../cast.js';
 import { ColumnDefinition } from '../../ExpressionType.js';
 import { SourceTableRef } from '../../SourceTableRef.js';
 import { TablePattern } from '../../TablePattern.js';
-import {
-  EvaluateRowOptions,
-  SourceSchema,
-  SqliteJsonRow,
-  UnscopedEvaluatedRow,
-  UnscopedEvaluationResult
-} from '../../types.js';
-import { filterJsonRow, isJsonValue, isValidParameterValue, JSONBucketNameSerialize } from '../../utils.js';
-import {
-  ScalarExpressionEngine,
-  ScalarStatement,
-  scalarStatementToSql,
-  TableValuedFunctionOutput
-} from '../engine/scalar_expression_engine.js';
-import { SqlExpression } from '../expression.js';
+import { EvaluateRowOptions, SourceSchema, UnscopedEvaluatedRow, UnscopedEvaluationResult } from '../../types.js';
+import { isValidParameterValue, JSONBucketNameSerialize } from '../../utils.js';
+import { ScalarExpressionEngine } from '../engine/scalar_expression_engine.js';
 import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';
 import { SyncPlanSchemaAnalyzer } from '../schema_inference.js';
 import { StreamEvaluationContext } from './index.js';
-import { resolveRowMetadata, TableProcessorToSqlHelper } from './table_processor_to_sql.js';
+import { PendingRowProjection } from './row_projection.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables = new Set<TablePattern>();
@@ -107,72 +95,27 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
 
 class PendingStreamDataSource {
   readonly tablePattern: TablePattern;
-  private readonly outputs: ('star' | { index: number; alias: string })[] = [];
-  private readonly numberOfOutputExpressions: number;
-  private readonly numberOfParameters: number;
-  private readonly evaluatorInputs: (plan.ColumnSqlParameterValue | plan.RowMetadataSqlValue)[];
-  private readonly statement: ScalarStatement;
+  private readonly projection: PendingRowProjection;
   readonly fixedOutputTableName?: string;
 
   constructor(evaluator: plan.StreamDataSource, defaultSchema: string) {
-    const translationHelper = new TableProcessorToSqlHelper(evaluator);
-    const outputExpressions: SqlExpression<number | TableValuedFunctionOutput>[] = [];
-
-    for (const column of evaluator.columns) {
-      if (column === 'star') {
-        this.outputs.push('star');
-      } else {
-        const expressionIndex = outputExpressions.length;
-        outputExpressions.push(translationHelper.mapper.transform(column.expr));
-        this.outputs.push({ index: expressionIndex, alias: column.alias });
-      }
-    }
-
-    this.numberOfOutputExpressions = outputExpressions.length;
-    for (const parameter of evaluator.parameters) {
-      outputExpressions.push(translationHelper.mapper.transform(parameter.expr));
-    }
-    this.numberOfParameters = evaluator.parameters.length;
-
-    this.statement = {
-      outputs: outputExpressions,
-      filters: translationHelper.filterExpressions,
-      tableValuedFunctions: translationHelper.tableValuedFunctions
-    };
+    this.projection = new PendingRowProjection(evaluator, defaultSchema);
     this.fixedOutputTableName = evaluator.outputTableName;
-    this.tablePattern = evaluator.sourceTable.toTablePattern(defaultSchema);
-    this.evaluatorInputs = translationHelper.mapper.instantiation;
+    this.tablePattern = this.projection.tablePattern;
   }
 
   get debugSql(): string {
-    return scalarStatementToSql(this.statement);
+    return this.projection.debugSql;
   }
 
   instantiate(engine: ScalarExpressionEngine) {
-    const evaluator = engine.prepareEvaluator(this.statement);
-    const pattern = this.tablePattern;
+    const evaluate = this.projection.instantiate(engine);
 
     return (options: EvaluateRowOptions, results: UnscopedEvaluationResult[]) => {
       try {
-        const inputInstantiation = this.evaluatorInputs.map((input) =>
-          'column' in input ? options.record[input.column] : resolveRowMetadata(input, pattern, options.sourceTable)
-        );
-        row: for (const source of evaluator.evaluate(inputInstantiation)) {
-          const record: SqliteJsonRow = {};
-          for (const output of this.outputs) {
-            if (output === 'star') {
-              Object.assign(record, filterJsonRow(options.record));
-            } else {
-              const value = source[output.index];
-              if (isJsonValue(value)) {
-                record[output.alias] = value;
-              }
-            }
-          }
-          const id = idFromData(record);
-          // source is [...outputs, ...partitionValues]
-          const partitionValues = source.splice(this.numberOfOutputExpressions, this.numberOfParameters);
-
+        row: for (const projected of evaluate(options)) {
+          const id = idFromData(projected.data);
+          const partitionValues = projected.partitionValues;
           for (const bucketParameter of partitionValues) {
             if (!isValidParameterValue(bucketParameter)) {
               continue row;
@@ -181,7 +124,7 @@ class PendingStreamDataSource {
 
           results.push({
             id,
-            data: record,
+            data: projected.data,
             table: this.fixedOutputTableName ?? options.sourceTable.name,
             serializedBucketParameters: JSONBucketNameSerialize.stringify(partitionValues)
           } satisfies UnscopedEvaluatedRow);

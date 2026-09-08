@@ -759,8 +759,7 @@ bucket_definitions:
     expect(JSON.parse(lastOp.data as string)).toMatchObject({ description: 'after_keepalive' });
   });
 
-  // Skipped until Azure DocumentDB ships the server-side getMore maxAwaitTimeMS fix.
-  test.skip('respects maxAwaitTimeMS for idle getMore calls in documentDbMode', async () => {
+  test('respects maxAwaitTimeMS for idle getMore calls in documentDbMode', async () => {
     const maxAwaitTimeMS = 2_000;
 
     await using context = await openContext({

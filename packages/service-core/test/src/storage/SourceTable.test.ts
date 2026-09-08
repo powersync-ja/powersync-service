@@ -43,7 +43,8 @@ describe('SourceTable', () => {
     test('clone preserves all properties including storeCurrentData', () => {
       const table = makeTable({
         replicaIdColumns: [{ name: 'id', type: 'int4' }],
-        snapshotComplete: false
+        snapshotComplete: false,
+        eventDefinitionIds: new Set(['event-1'])
       });
 
       table.syncData = false;
@@ -63,6 +64,8 @@ describe('SourceTable', () => {
       expect(cloned.syncEvent).toBe(false);
       expect(cloned.storeCurrentData).toBe(false);
       expect(cloned.snapshotStatus).toEqual(table.snapshotStatus);
+      expect(cloned.eventDefinitionIds).toEqual(new Set(['event-1']));
+      expect(cloned.eventDefinitionIds).not.toBe(table.eventDefinitionIds);
     });
   });
 

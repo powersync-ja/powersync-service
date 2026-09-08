@@ -4,6 +4,7 @@ import {
   MetricMetadata,
   MetricsFactory,
   ObservableGauge,
+  ObservableGaugeObservation,
   Precision,
   UpDownCounter
 } from '../metrics-interfaces.js';
@@ -31,12 +32,16 @@ export class OpenTelemetryMetricsFactory implements MetricsFactory {
     });
 
     return {
-      setValueProvider(valueProvider: () => Promise<number | undefined>) {
+      setValueProvider(valueProvider: () => Promise<number | ObservableGaugeObservation[] | undefined>) {
         gauge.addCallback(async (result) => {
           const value = await valueProvider();
 
-          if (value != undefined) {
+          if (typeof value === 'number') {
             result.observe(value);
+          } else if (value != undefined) {
+            for (const observation of value) {
+              result.observe(observation.value, observation.attributes);
+            }
           }
         });
       }

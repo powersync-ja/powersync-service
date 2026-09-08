@@ -1,3 +1,4 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { ColumnDescriptor, InternalOpId, SourceTable, storage } from '@powersync/service-core';
 import { HydratedSyncConfig } from '@powersync/service-sync-rules';
@@ -48,6 +49,36 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   }
   protected async cleanupDroppedSourceTables(_tables: SourceTable[]) {
     // No-op for V1: source records live in a shared collection.
+  }
+
+  protected override async batchCreateCustomWriteCheckpoints(
+    session: mongo.ClientSession,
+    opId: InternalOpId
+  ): Promise<void> {
+    await this.db.custom_write_checkpoints.bulkWrite(
+      this.write_checkpoint_batch.map((checkpointOptions) => {
+        const set: Record<string, unknown> = {
+          checkpoint: checkpointOptions.checkpoint,
+          sync_rules_id: checkpointOptions.sync_rules_id,
+          op_id: opId
+        };
+        if (checkpointOptions.checkpoint_requested_at != null) {
+          set.checkpoint_requested_at = checkpointOptions.checkpoint_requested_at;
+        }
+
+        return {
+          updateOne: {
+            filter: { user_id: checkpointOptions.user_id, sync_rules_id: checkpointOptions.sync_rules_id },
+            update: {
+              $set: set,
+              ...(checkpointOptions.checkpoint_requested_at == null ? { $unset: { checkpoint_requested_at: 1 } } : {})
+            },
+            upsert: true
+          }
+        };
+      }),
+      { session }
+    );
   }
 
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {

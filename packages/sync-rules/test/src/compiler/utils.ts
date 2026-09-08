@@ -69,7 +69,7 @@ function compileSingleStream(...sql: string[]): [TranslationError[], SyncPlan] {
   }
   builder.finish();
 
-  const originalPlan = compiler.output.toSyncPlan();
+  const originalPlan = compiler.toSyncPlan();
   // Add a serialization roundtrip to ensure sync plans are correctly evaluated even after being deserialized.
   const afterSerializationRoundtrip = deserializeSyncPlan(JSON.parse(JSON.stringify(serializeSyncPlan(originalPlan))));
 

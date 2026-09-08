@@ -79,7 +79,8 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       return {
         operations_size_bytes: 0,
         parameters_size_bytes: 0,
-        replication_size_bytes: 0
+        replication_size_bytes: 0,
+        object_storage_size_bytes: 0
       };
     }
 
@@ -105,7 +106,8 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     return {
       operations_size_bytes: Number(sizes!.operations_size_bytes),
       parameters_size_bytes: Number(sizes!.parameter_size_bytes),
-      replication_size_bytes: Number(sizes!.v1_current_size_bytes) + Number(sizes!.v3_current_size_bytes)
+      replication_size_bytes: Number(sizes!.v1_current_size_bytes) + Number(sizes!.v3_current_size_bytes),
+      object_storage_size_bytes: 0
     };
   }
 
@@ -162,10 +164,10 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       this.options.defaultStorageVersion ??
       storage.CURRENT_STORAGE_VERSION;
     const storageConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
-    if (storageConfig == null) {
+    if (storageConfig == null || storageVersion >= storage.STORAGE_VERSION_4) {
       throw new framework.ServiceError(
         framework.ErrorCode.PSYNC_S1005,
-        `Unsupported storage version ${storageVersion}`
+        `Unsupported storage version ${storageVersion} for PostgreSQL storage`
       );
     }
     await this.initializeStorageVersion(storageConfig);

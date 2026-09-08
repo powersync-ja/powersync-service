@@ -4,6 +4,7 @@ import { MeterProvider, MetricReader, PeriodicExportingMetricReader } from '@ope
 import { logger } from '@powersync/lib-services-framework';
 import { ServiceContext } from '../../system/ServiceContext.js';
 import { MetricsFactory } from '../metrics-interfaces.js';
+import { MetricAttributeFilteringExporter } from './MetricAttributeFilteringExporter.js';
 import { OpenTelemetryMetricsFactory } from './OpenTelemetryMetricsFactory.js';
 
 import { resourceFromAttributes } from '@opentelemetry/resources';
@@ -29,10 +30,13 @@ export function createOpenTelemetryMetricsFactory(context: ServiceContext): Metr
   }
 
   if (!configuration.telemetry.disable_telemetry_sharing) {
+    const otlpExporter = new OTLPMetricExporter({
+      url: configuration.telemetry.internal_service_endpoint
+    });
     const periodicExporter = new PeriodicExportingMetricReader({
-      exporter: new OTLPMetricExporter({
-        url: configuration.telemetry.internal_service_endpoint
-      }),
+      // sync_config_id uniquely identifies these metric series after version_label is removed,
+      // so filtering cannot create duplicate data points.
+      exporter: new MetricAttributeFilteringExporter(otlpExporter, new Set(['version_label'])),
       exportIntervalMillis: 1000 * 60 * 5 // 5 minutes
     });
 
