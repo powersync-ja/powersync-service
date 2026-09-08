@@ -12,7 +12,9 @@ A global `initial_snapshot_filters` section in the sync config maps table patter
 (including schema and table wildcards) to a SQL WHERE clause applied during the initial
 snapshot, so the source database skips rows outside the filter instead of the service
 reading and discarding them. The filter is applied in all snapshot query types, including
-the chunked resume path.
+the chunked resume path. The snapshot progress estimate (`replicated/~total`) is also computed
+with the filter applied, using the query planner's row estimate instead of the table's
+`reltuples`, so the logged total reflects the rows that will actually be replicated.
 
 Filters are also persisted alongside the compiled sync plan, so configs using
 `edition: 3` restore them correctly when replication rebuilds the config from the stored

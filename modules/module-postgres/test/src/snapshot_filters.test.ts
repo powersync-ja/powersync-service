@@ -89,6 +89,49 @@ config:
     expect(reduced.length).toEqual(150);
   });
 
+  test('estimates the snapshot row count with the filter applied', async () => {
+    await using context = await WalStreamTestContext.open(factory, { storageVersion });
+
+    await context.updateSyncRules(`
+initial_snapshot_filters:
+  test_data:
+    sql: "archived = false"
+
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM test_data WHERE archived = false`);
+    const { pool } = context;
+
+    await pool.query(`
+      CREATE TABLE test_data(
+        id int4 primary key,
+        description text,
+        archived boolean not null default false
+      )`);
+    // 1000 rows, of which only 150 match the filter.
+    await pool.query(`
+      INSERT INTO test_data(id, description, archived)
+      SELECT i, 'row ' || i, i % 10 >= 5 OR i > 300 FROM generate_series(1, 1000) i`);
+    // Both the table estimate (reltuples) and the filtered estimate come from planner statistics.
+    await pool.query(`ANALYZE test_data`);
+
+    const tables = await context.getResolvedTables();
+    expect(tables.length).toEqual(1);
+    expect(tables[0].initialSnapshotFilter?.sql).toEqual('archived = false');
+
+    const db = await context.connectionManager.snapshotConnection();
+    try {
+      const estimate = await context.walStream.estimatedCountNumber(db, tables[0]);
+      // Without the filter this would be ~1000. With fresh statistics on a boolean column the
+      // planner gets close to the exact 150; the range leaves room for sampling.
+      expect(estimate).toBeGreaterThanOrEqual(100);
+      expect(estimate).toBeLessThanOrEqual(200);
+    } finally {
+      await db.end();
+    }
+  });
+
   test('filter with a plain table name matches the table in any schema', async () => {
     await using context = await WalStreamTestContext.open(factory, { storageVersion });
 

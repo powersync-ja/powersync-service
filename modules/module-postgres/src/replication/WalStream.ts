@@ -534,7 +534,36 @@ WHERE  oid = $1::regclass`,
       params: [{ value: table.qualifiedName, type: 'varchar' }]
     });
     const row = results.rows[0];
-    return Number(row?.decodeWithoutCustomTypes(0) ?? -1n);
+    const tableEstimate = Number(row?.decodeWithoutCustomTypes(0) ?? -1n);
+    const filter = table.initialSnapshotFilter?.sql;
+    if (filter == null || tableEstimate < 0) {
+      // No filter, or no statistics yet (reltuples = -1), so a filtered estimate would be a guess too.
+      return tableEstimate;
+    }
+    return await this.estimatedFilteredCountNumber(db, table, filter);
+  }
+
+  /**
+   * Estimate the number of rows matching the initial snapshot filter.
+   *
+   * `reltuples` covers the whole table, which with a selective filter is far more than the
+   * snapshot will read. The planner's row estimate for the filtered query uses the same
+   * statistics without reading the table, while a `count(*)` would scan every table before
+   * the snapshot starts and again on each re-estimate.
+   */
+  private async estimatedFilteredCountNumber(
+    db: pgwire.PgConnection,
+    table: storage.SourceTable,
+    filter: string
+  ): Promise<number> {
+    const results = await rquery(db, `EXPLAIN (FORMAT JSON) SELECT * FROM ${table.qualifiedName} WHERE (${filter})`);
+    const row = results.rows[0];
+    if (row == null) {
+      return -1;
+    }
+    const plan = JSON.parse(String(row.decodeWithoutCustomTypes(0)));
+    const estimate = Number(plan?.[0]?.Plan?.['Plan Rows']);
+    return Number.isFinite(estimate) ? estimate : -1;
   }
 
   /**
