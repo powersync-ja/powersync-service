@@ -1,4 +1,4 @@
-import { STORAGE_VERSION_1, STORAGE_VERSION_2, STORAGE_VERSION_3 } from '@powersync/service-core';
+import { STORAGE_VERSION_1, STORAGE_VERSION_2, STORAGE_VERSION_4 } from '@powersync/service-core';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { beforeAll, describe, expect, test } from 'vitest';
@@ -80,12 +80,12 @@ const benchmarkCases: readonly StorageBenchmarkCase[] = [
     unavailableMonitorReason: 'MongoDB database resource monitoring is not implemented'
   },
   {
-    scenario: createMongoQuickStorageScenario(STORAGE_VERSION_3),
+    scenario: createMongoQuickStorageScenario(STORAGE_VERSION_4),
     implementation: new MongoStorageBenchmarkImplementation({
       url: process.env.MONGO_TEST_URL ?? 'mongodb://localhost:27017/powersync_test',
       isCI: process.env.CI === 'true'
     }),
-    expectedStorage: { implementation: 'mongodb-storage', version: STORAGE_VERSION_3 },
+    expectedStorage: { implementation: 'mongodb-storage', version: STORAGE_VERSION_4 },
     unavailableMonitorReason: 'MongoDB database resource monitoring is not implemented'
   },
   {
@@ -107,12 +107,12 @@ const benchmarkCases: readonly StorageBenchmarkCase[] = [
     unavailableMonitorReason: 'MongoDB database resource monitoring is not implemented'
   },
   {
-    scenario: createMongoCategoryStorageScenario(STORAGE_VERSION_3),
+    scenario: createMongoCategoryStorageScenario(STORAGE_VERSION_4),
     implementation: new MongoStorageBenchmarkImplementation({
       url: process.env.MONGO_TEST_URL ?? 'mongodb://localhost:27017/powersync_test',
       isCI: process.env.CI === 'true'
     }),
-    expectedStorage: { implementation: 'mongodb-storage', version: STORAGE_VERSION_3 },
+    expectedStorage: { implementation: 'mongodb-storage', version: STORAGE_VERSION_4 },
     unavailableMonitorReason: 'MongoDB database resource monitoring is not implemented'
   }
 ];

@@ -13,7 +13,6 @@ import {
   PerformanceTracer,
   RelationCache,
   ReplicationLagTracker,
-  SaveOperationTag,
   SourceEntityDescriptor,
   SourceTable,
   storage
@@ -36,6 +35,7 @@ import {
 } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, detectDocumentDb, timestampToDate } from './replication-utils.js';
 import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
+import { writeMongoChange } from './writeMongoChange.js';
 export interface ChangeStreamOptions {
   connections: MongoManager;
   storage: storage.SyncRulesBucketStorage;
@@ -387,48 +387,7 @@ export class ChangeStream {
     }
 
     this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-    if (change.operationType == 'insert') {
-      const { row: baseRecord, replicaId: _replicaId } = this.rawToSqliteRow(change.fullDocument);
-      return await batch.save({
-        tag: SaveOperationTag.INSERT,
-        sourceTable: table,
-        before: undefined,
-        beforeReplicaId: undefined,
-        after: baseRecord,
-        // Same as _replicaId
-        // We specifically need to use the source _id, not the converted one in baseRecord,
-        // to preserve _id uniqueness properties.
-        afterReplicaId: change.documentKey._id
-      });
-    } else if (change.operationType == 'update' || change.operationType == 'replace') {
-      if (change.fullDocument == null) {
-        // Treat as delete
-        return await batch.save({
-          tag: SaveOperationTag.DELETE,
-          sourceTable: table,
-          before: undefined,
-          beforeReplicaId: change.documentKey._id
-        });
-      }
-      const { row: after, replicaId: _replicaId } = this.rawToSqliteRow(change.fullDocument!);
-      return await batch.save({
-        tag: SaveOperationTag.UPDATE,
-        sourceTable: table,
-        before: undefined,
-        beforeReplicaId: undefined,
-        after: after,
-        afterReplicaId: change.documentKey._id // Same as _replicaId
-      });
-    } else if (change.operationType == 'delete') {
-      return await batch.save({
-        tag: SaveOperationTag.DELETE,
-        sourceTable: table,
-        before: undefined,
-        beforeReplicaId: change.documentKey._id
-      });
-    } else {
-      throw new ReplicationAssertionError(`Unsupported operation: ${change.operationType}`);
-    }
+    return writeMongoChange(batch, table, change, this.sourceRowConverter);
   }
 
   async replicate() {
@@ -601,10 +560,6 @@ export class ChangeStream {
       logger: this.logger,
       tracer: options.tracer
     });
-  }
-
-  private rawToSqliteRow(row: Buffer) {
-    return this.sourceRowConverter.rawToSqliteRow(row);
   }
 
   private async createBatchCheckpoint() {

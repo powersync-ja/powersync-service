@@ -1,3 +1,4 @@
+import { STORAGE_VERSION_4 } from '@powersync/service-core';
 import { ControlledReplicationBenchmarkImplementation } from '../implementations/replication/ControlledReplicationBenchmarkImplementation.js';
 import { assertDistinctMongoSourceAndStorage } from '../implementations/replication/mongodb/MongoSourceBenchmarkConfiguration.js';
 import type { ReplicationBenchmarkPhase } from '../types/ReplicationBenchmark.js';
@@ -16,7 +17,7 @@ function integer(name: string, fallback: number, minimum = 1): number {
 }
 
 export function mongoThroughputCase(phase: ReplicationBenchmarkPhase) {
-  const scenario = createMongoSourceQuickReplicationScenario(phase, 'mongodb-storage', 3);
+  const scenario = createMongoSourceQuickReplicationScenario(phase, 'mongodb-storage', STORAGE_VERSION_4);
   if (!['sample', 'synthetic'].includes(process.env.BENCHMARK_SHAPE ?? 'sample'))
     throw new Error('BENCHMARK_SHAPE must be sample or synthetic');
   const mode = process.env.BENCHMARK_MUTATIONS ?? 'mixed';
@@ -30,10 +31,10 @@ export function mongoThroughputCase(phase: ReplicationBenchmarkPhase) {
   if (mutations % batchSize !== 0)
     throw new Error('BENCHMARK_MUTATION_COUNT must be divisible by BENCHMARK_BATCH_SIZE');
   Object.assign(scenario, {
-    id: `replication.${phase}.mongodb-v3.${s3 ? 's3' : 'inline'}.${mode}.throughput`,
-    description: `MongoDB v3 ${phase}, ${mode}, ${s3 ? 'S3' : 'inline'}; ${process.env.BENCHMARK_SHAPE ?? 'sample'}, ${users} users; ${process.env.BENCHMARK_LABEL ?? 'baseline'}`,
+    id: `replication.${phase}.mongodb-v4.${s3 ? 's3' : 'inline'}.${mode}.throughput`,
+    description: `MongoDB v4 ${phase}, ${mode}, ${s3 ? 'S3' : 'inline'}; ${process.env.BENCHMARK_SHAPE ?? 'sample'}, ${users} users; ${process.env.BENCHMARK_LABEL ?? 'baseline'}`,
     profile: 'manual',
-    tags: ['replication', 'throughput', phase, 'mongodb-source', 'mongodb-storage', 'storage-v3'],
+    tags: ['replication', 'throughput', phase, 'mongodb-source', 'mongodb-storage', 'storage-v4'],
     timeout_ms: integer('BENCHMARK_TIMEOUT_MS', 3_600_000),
     warmup_iterations: integer('BENCHMARK_WARMUPS', 1, 0),
     measured_iterations: integer('BENCHMARK_ITERATIONS', 3),
@@ -71,7 +72,7 @@ export function mongoThroughputCase(phase: ReplicationBenchmarkPhase) {
     scenario,
     implementation: new ControlledReplicationBenchmarkImplementation({
       source: mongoReplicationSource(),
-      storage: mongoReplicationStorage(3, s3),
+      storage: mongoReplicationStorage(STORAGE_VERSION_4, s3),
       validateEnvironment: assertDistinctMongoSourceAndStorage,
       environment
     })

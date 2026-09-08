@@ -16,7 +16,9 @@
     "benchmark:replication": "BENCHMARK_THROUGHPUT=true vitest --config src/vitest.config.ts --run src/benchmarks/replication.bench.ts",
     "benchmark:up": "docker compose up -d --wait",
     "benchmark:down": "docker compose down --volumes",
-    "benchmark:latency": "node src/scripts/latency.ts"
+    "benchmark:latency": "node src/scripts/latency.ts",
+    "benchmark:changes": "BENCHMARK_CHANGE_BATCHES=true vitest --config src/vitest.config.ts --run src/benchmarks/change-batches.bench.ts",
+    "benchmark:up:storage": "docker compose up -d --wait storage minio-init proxy"
   },
   "dependencies": {
     "@powersync/lib-services-framework": "workspace:^",

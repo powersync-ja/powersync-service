@@ -25,7 +25,7 @@ export default defineConfig({
       { name: 'postgres-storage' },
       { name: 'mongodb-storage' },
       { name: 'storage-v2' },
-      { name: 'storage-v3' },
+      { name: 'storage-v4' },
       { name: 'throughput' },
       { name: 'catch-up' }
     ]

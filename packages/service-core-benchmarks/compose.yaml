@@ -57,6 +57,5 @@ services:
       - '127.0.0.1:27118:27118'
       - '127.0.0.1:19000:19000'
     depends_on:
-      source: { condition: service_healthy }
       storage: { condition: service_healthy }
       minio-init: { condition: service_completed_successfully }

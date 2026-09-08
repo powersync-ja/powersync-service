@@ -1,8 +1,83 @@
 # PowerSync Service Core Benchmarks
 
+## Raw change-batch benchmark (no source database)
+
+Use this focused benchmark when optimizing the code after MongoDB delivers change events:
+
+```sh
+# Once, from the repository root (also rebuild after changing production code):
+pnpm --filter @powersync/service-core-benchmarks build
+cd packages/service-core-benchmarks
+pnpm benchmark:up:storage
+
+# Defaults: 10,000 inserts, 100 users/buckets, sample shape, v4 + S3,
+# no warmups, one measured iteration.
+pnpm benchmark:changes
+pnpm benchmark:report
+# Open benchmark-artifacts/report/output.html in a browser.
+```
+
+Keep the services running between executions; `benchmark:up:storage` is only needed to
+start them. It starts MongoDB storage, MinIO and the latency proxies, without a source DB.
+`benchmark:up` also works if the full replication stack is already running.
+
+The timer starts with pre-generated raw BSON change-event buffers in memory. It includes
+the production `parseChangeDocument`, `DirectSourceRowConverter`, and shared `writeMongoChange`
+path, sync-rule evaluation, bucket routing, serialization/compression, MongoDB v4 writes,
+S3 uploads, per-batch flush/resume-position persistence, and the final checkpoint commit.
+The writer uses `storeCurrentData: false`, as the MongoDB connector does for complete postimages.
+There is no source connection, snapshot, change-stream polling, or source checkpoint-marker round trip.
+Collection discovery, transaction/split-event assembly, reconnect/recovery, and the outer connector
+loop are outside this benchmark. Synthetic events belong to one already resolved collection and
+contain complete, independent changes. One safe checkpoint marker is simulated after the backlog;
+this is a focused processing benchmark, not an end-to-end latency measurement.
+
+Fixture generation, storage setup, optional prefill, verification, and cleanup are outside the
+timed interval. `run_wall_ms` reports the complete runner time (excluding Vitest startup), and
+`fixture_generation_ms`, `setup_ms`, and `verification_ms` help explain overhead. Node CPU/memory
+sampling covers the processing interval; the monitor's existing `load_generator` label refers
+to that same process here. Database and MinIO CPU are not measured.
+
+```sh
+# More batches and a mix of inserts, updates and deletes:
+BENCHMARK_ROWS=10000 BENCHMARK_USERS=100 BENCHMARK_BATCH_SIZE=1000 \
+  BENCHMARK_MUTATIONS=mixed pnpm benchmark:changes
+
+# Repeat for more stable comparisons:
+BENCHMARK_WARMUPS=1 BENCHMARK_ITERATIONS=3 pnpm benchmark:changes
+
+# Inject downstream response latency (milliseconds), then compare with baseline:
+pnpm benchmark:latency storage 2
+pnpm benchmark:latency minio 10
+BENCHMARK_LABEL=storage-2ms-s3-10ms pnpm benchmark:changes
+pnpm benchmark:latency storage 0
+pnpm benchmark:latency minio 0
+```
+
+`BENCHMARK_ROWS` is the number of **measured change events**. `BENCHMARK_MUTATIONS` accepts
+`insert` (default), `update`, `delete`, or `mixed` (round-robin insert/update/delete). Inserts
+require no data prefill. Other modes prefill only the rows to update/delete directly into
+storage using the same conversion/save path; the prefill is excluded from throughput and S3
+upload counters. Verification checks all resulting operations, final row versions/deletions,
+user routing, checkpoint position, and required S3 uploads. It reads output in bounded pages.
+
+`BENCHMARK_BATCH_SIZE` defaults to 6,000 events, also capped at 64 MiB per batch; a final
+partial batch is allowed. Events are generated once and reused across iterations, each with
+fresh storage state. Memory grows with the total raw BSON fixture size, so start with 10,000
+rows before increasing it. `raw_bson_bytes` and the throughput report's `logical_mib_per_second`
+measure input BSON here, not output JSON or compressed S3 bytes. `put_payload_bytes_mean`
+reports the actual output payload size (including prefill PUTs in mutation modes).
+
+The existing data-shape controls below also apply: `BENCHMARK_SHAPE=sample|synthetic`,
+`BENCHMARK_PAYLOAD_BYTES`, and `BENCHMARK_USERS`. Edit `createDocument` to customize the data.
+`BENCHMARK_TIMEOUT_MS` defaults to 300,000. Existing `BENCHMARK_MONGODB_STORAGE_URL` and
+`BENCHMARK_S3_*` endpoint/credential/inline-threshold settings apply. `BENCHMARK_S3=false`
+disables object storage. Source settings and `BENCHMARK_MUTATION_COUNT` are unused.
+This benchmark is opt-in via `benchmark:changes`; the existing quick suite skips it.
+
 ## MongoDB replication throughput
 
-The MongoDB throughput suite runs the real source connector against MongoDB storage v3,
+The MongoDB throughput suite runs the real source connector against MongoDB storage v4,
 with MinIO/S3 enabled by default. It is opt-in and does not enlarge the existing quick suite.
 
 From the repository root, build the benchmark and its references:
@@ -107,7 +182,7 @@ each other. Use `BENCHMARK_LABEL` to record the experiment; the git revision and
 | `BENCHMARK_PAYLOAD_BYTES`                             | `1024`                                             | Synthetic padding; unused for sample profiles                                                 |
 | `BENCHMARK_WARMUPS` / `BENCHMARK_ITERATIONS`          | `1` / `3`                                          | Iterations per phase                                                                          |
 | `BENCHMARK_TIMEOUT_MS`                                | `3600000`                                          | Whole scenario timeout, including setup and verification                                      |
-| `BENCHMARK_S3`                                        | `true`                                             | Set `false` for MongoDB v3 with inline storage only                                           |
+| `BENCHMARK_S3`                                        | `true`                                             | Set `false` for MongoDB v4 with inline storage only                                           |
 | `BENCHMARK_S3_INLINE_THRESHOLD_BYTES`                 | `0`                                                | Force S3 uploads by default; set a larger value to study hybrid storage                       |
 | `BENCHMARK_MONGODB_SOURCE_URL`                        | `mongodb://127.0.0.1:27117/?directConnection=true` | Proxied replicator connection                                                                 |
 | `BENCHMARK_MONGODB_STORAGE_URL`                       | `mongodb://127.0.0.1:27118/?directConnection=true` | Proxied storage connection                                                                    |
@@ -182,7 +257,11 @@ pnpm benchmark:test --tags-filter="quick"
 
 A full list of available tags can be retrieved either from the [vitest config](./src/vitest.config.ts), or by running `pnpm benchmark:test --list-tags`.
 
-After a successful run `pnpm benchmark:report` can be run to generate report, both in CLI, and saved to a `benchmark-artifacts` folder.
+After a run, `pnpm benchmark:report` prints a compact terminal summary and generates
+`benchmark-artifacts/report/output.html`. Open that file directly in your browser—no server
+or internet connection is needed. Each run has a summary card, searchable by scenario or
+experiment label, with expandable timing statistics, counters, resource measurements and
+diagnostics. Markdown (`output.md`) and JSON (`output.json`) summaries are also generated.
 
 ### Available commands
 
