@@ -60,8 +60,10 @@ export class ResultSet {
     for (const constraint of constraints) {
       for (const { lookup } of constraint.columns) {
         const tracked = this.#intersections[lookup.resultSetIndex];
-        if (tracked != null && !tracked.includes(constraint)) {
-          tracked.push(constraint);
+        if (tracked != null) {
+          if (!tracked.includes(constraint)) {
+            tracked.push(constraint);
+          }
         } else {
           this.#intersections[lookup.resultSetIndex] = [constraint];
         }

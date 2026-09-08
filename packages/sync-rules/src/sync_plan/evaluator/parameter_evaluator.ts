@@ -104,7 +104,7 @@ export class RequestParameterEvaluators {
       this.stream,
       copiedStages,
       outputValues,
-      this.intersectionConstraints.slice(),
+      this.intersectionConstraints.map(({ inputs }) => ({ inputs: inputs.map(cloneParameter) })),
       this.resultSet.clone()
     );
   }
