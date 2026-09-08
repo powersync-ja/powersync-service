@@ -13,7 +13,7 @@ import { MapSourceVisitor, visitExpr } from '../expression_visitor.js';
 import * as plan from '../plan.js';
 import { StreamInput } from './bucket_source.js';
 import { PreparedParameterIndexLookupCreator } from './parameter_index_lookup_creator.js';
-import { AsyncJoinLookup, ResultSet, ResultSetColumn, ResultSetElement } from './result_set.js';
+import { AsyncJoinLookup, IntersectionConstraint, ResultSet, ResultSetColumn, ResultSetElement } from './result_set.js';
 
 /**
  * Finds bucket parameters for a given request or subscription.
@@ -64,7 +64,10 @@ export class RequestParameterEvaluators {
      * Pending parameter values, or their cached outputs.
      */
     private readonly parameterValues: PreparedParameterValue[],
-
+    /**
+     * Intersection constraints to take into consideration when adding rows to the result set.
+     */
+    private readonly intersectionConstraints: PendingIntersectionConstraint[],
     /**
      * The materialized result set containing lookup values. {@link parameterValues} are read from this result set as a
      * final step.
@@ -97,7 +100,13 @@ export class RequestParameterEvaluators {
     const copiedStages = this.lookupStages.map((s) => s.clone(cloneParameter));
     const outputValues = this.parameterValues.map(cloneParameter);
 
-    return new RequestParameterEvaluators(this.stream, copiedStages, outputValues, this.resultSet.clone());
+    return new RequestParameterEvaluators(
+      this.stream,
+      copiedStages,
+      outputValues,
+      this.intersectionConstraints.slice(),
+      this.resultSet.clone()
+    );
   }
 
   /**
@@ -110,10 +119,12 @@ export class RequestParameterEvaluators {
    */
   partiallyInstantiate(input: PartialInstantiationInput): SqliteParameterValue[][] | undefined {
     try {
+      this.resultSet.addIntersectionConstraints(
+        this.intersectionConstraints.map((c) => this.#createIntersectionResult(c, input))
+      );
+
       // At this point, we can resolve table-valued lookups and parameter values based only on request data.
       for (const stage of this.lookupStages) {
-        let needsParameterLookups = false;
-
         for (const element of stage.lookups) {
           if (element instanceof TableValuedExpandingLookup) {
             const outputs = element.read(input.request);
@@ -121,22 +132,12 @@ export class RequestParameterEvaluators {
             this.resultSet.multiply(element.resultSetIndex, outputs);
 
             this.#checkInstantiable();
-          } else {
-            needsParameterLookups = true;
           }
         }
 
         for (const instantiation of stage.inputParameters()) {
           if (instantiation instanceof RequestParameterValue) {
             instantiation.resolveWith(input);
-          } else if (instantiation.lookup instanceof ParameterIndexExpandingLookup) {
-            needsParameterLookups = true;
-          }
-        }
-
-        if (!needsParameterLookups) {
-          for (const intersection of stage.intersections) {
-            this.#applyIntersectionConstraint(intersection);
           }
         }
       }
@@ -160,15 +161,11 @@ export class RequestParameterEvaluators {
    */
   async instantiate(input: InstantiationInput): Promise<SqliteParameterValue[][]> {
     try {
-      for (const { lookups, intersections } of this.lookupStages) {
+      for (const { lookups } of this.lookupStages) {
         for (const lookup of lookups) {
           if (lookup instanceof ParameterIndexExpandingLookup) {
             await this.#instantiateLookup(lookup, input);
           }
-        }
-
-        for (const intersection of intersections) {
-          this.#applyIntersectionConstraint(intersection);
         }
       }
 
@@ -189,11 +186,7 @@ export class RequestParameterEvaluators {
   }
 
   #readParameters(): SqliteParameterValue[][] | undefined {
-    for (const { intersections, lookups } of this.lookupStages) {
-      for (const intersection of intersections) {
-        if (!intersection.wasApplied) return undefined;
-      }
-
+    for (const { lookups } of this.lookupStages) {
       for (const element of lookups) {
         if (!element.wasResolved) return undefined;
       }
@@ -224,29 +217,28 @@ export class RequestParameterEvaluators {
     });
   }
 
-  #applyIntersectionConstraint(constraint: RequiredIntersection) {
-    if (constraint.wasApplied) return;
-
+  #createIntersectionResult(
+    constraint: PendingIntersectionConstraint,
+    input: PartialInstantiationInput
+  ): IntersectionConstraint {
     // If any parameter of the intersection is a scalar value derived from a request, that value.
-    let knownValue: SqliteParameterValue | undefined;
+    let fixedValue: SqliteParameterValue | undefined;
     const intersection: ResultSetColumn[] = [];
 
-    for (const value of constraint.values) {
+    for (const value of constraint.inputs) {
       if (value instanceof RequestParameterValue) {
-        const evaluated = value.requireResolved();
-        if (knownValue !== undefined && evaluated !== knownValue) {
+        const evaluated = value.resolveWith(input);
+        if (fixedValue !== undefined && evaluated !== fixedValue) {
           throw uninstantiableException;
         }
 
-        knownValue = evaluated;
+        fixedValue = evaluated;
       } else {
         intersection.push(value);
       }
     }
 
-    this.resultSet.formIntersection(intersection, knownValue);
-    constraint.wasApplied = true;
-    this.#checkInstantiable();
+    return { fixedValue, columns: intersection };
   }
 
   async #instantiateLookup(lookup: ParameterIndexExpandingLookup, input: InstantiationInput) {
@@ -312,6 +304,7 @@ export class RequestParameterEvaluators {
     const mappedStages: LookupStage[] = [];
     let amountOfLookups = 0;
     const lookupToStage = new Map<plan.ExpandingLookup, PreparedExpandingLookup>();
+    const intersections: PendingIntersectionConstraint[] = [];
 
     function mapParameterValue(value: plan.ParameterValue): PreparedParameterValue {
       if (value.type == 'request') {
@@ -328,14 +321,7 @@ export class RequestParameterEvaluators {
         return new LookupParameterValue(lookup, value.resultIndex);
       } else {
         const intersectionInputs = mapParameterValues(value.values);
-
-        if (mappedStages.length > 0) {
-          mappedStages[mappedStages.length - 1].intersections.push({ values: intersectionInputs, wasApplied: false });
-        } else {
-          // Intersection in first stage, e.g. for request parameters. Add a stage just for this.
-          const stage = new LookupStage([], [{ values: intersectionInputs, wasApplied: false }]);
-          mappedStages.push(stage);
-        }
+        intersections.push({ inputs: intersectionInputs });
 
         // Non-intersecting rows will be pruned from the result set or, for scalar parameter values, mark the querier
         // as uninstantiable. So, we can replace the intersection value with any inner value.
@@ -348,7 +334,7 @@ export class RequestParameterEvaluators {
     }
 
     for (const stage of lookupStages) {
-      const mappedStage = new LookupStage([], []);
+      const mappedStage = new LookupStage([]);
 
       for (const lookup of stage) {
         let resolved: PreparedExpandingLookup;
@@ -392,7 +378,7 @@ export class RequestParameterEvaluators {
     }
 
     const rs = new ResultSet(amountOfLookups);
-    return new RequestParameterEvaluators(stream, mappedStages, mapParameterValues(values), rs);
+    return new RequestParameterEvaluators(stream, mappedStages, mapParameterValues(values), intersections, rs);
   }
 }
 
@@ -455,20 +441,10 @@ class LookupStage {
     /**
      * Lookups that only have dependencies on prior stages.
      */
-    readonly lookups: PreparedExpandingLookup[],
-    /**
-     * A list of constraints enforcing that specific columns must have equal values.
-     *
-     * These constraints are evaluated after lookups, and may reference lookups in this stage.
-     */
-    readonly intersections: RequiredIntersection[]
+    readonly lookups: PreparedExpandingLookup[]
   ) {}
 
   *inputParameters() {
-    for (const intersection of this.intersections) {
-      yield* intersection.values;
-    }
-
     for (const lookup of this.lookups) {
       if (lookup instanceof ParameterIndexExpandingLookup) {
         yield* lookup.instantiation;
@@ -477,16 +453,12 @@ class LookupStage {
   }
 
   clone(cloneParameter: CloneParameter): LookupStage {
-    return new LookupStage(
-      this.lookups.map((l) => l.clone(cloneParameter)),
-      this.intersections.map(({ values, wasApplied }) => ({ values: values.map(cloneParameter), wasApplied }))
-    );
+    return new LookupStage(this.lookups.map((l) => l.clone(cloneParameter)));
   }
 }
 
-interface RequiredIntersection {
-  values: PreparedParameterValue[];
-  wasApplied: boolean;
+interface PendingIntersectionConstraint {
+  inputs: PreparedParameterValue[];
 }
 
 /**

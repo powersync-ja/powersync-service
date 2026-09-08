@@ -9,14 +9,24 @@ import { SqliteParameterValue } from '../../types.js';
  * by reading columns in each row.
  */
 export class ResultSet {
-  #totalLookups: number;
+  #containsLookup: boolean[];
   #rows: ResultSetRow[];
+
+  /**
+   * Intersection constraints to respect when adding new rows, keyed by result sets affected by them.
+   *
+   * Invariant: For all lookups that have already been added, no row contradicts any intersection constraint. In other
+   * words, we only have to check _one_ existing column of the intersection when processing new lookups to add.
+   */
+  #intersections: (IntersectionConstraint[] | undefined)[];
 
   /**
    * @param totalLookups - The total amount of lookups that will be joined to this result set.
    */
   constructor(totalLookups: number) {
-    this.#totalLookups = totalLookups;
+    this.#containsLookup = new Array(totalLookups).fill(false);
+    this.#intersections = new Array(totalLookups).fill(undefined);
+
     const initialRow = new Array(totalLookups);
     initialRow.fill(undefined);
     this.#rows = [initialRow];
@@ -27,14 +37,36 @@ export class ResultSet {
   }
 
   clone(): ResultSet {
-    const rs = new ResultSet(this.#totalLookups);
+    const rs = new ResultSet(this.#containsLookup.length);
+    rs.#containsLookup = this.#containsLookup.slice();
+    rs.#intersections = this.#intersections.slice();
     rs.#rows.splice(0, 1); // Remove the initial unit row
 
     for (const row of this.#rows) {
       // We can shallow-clone rows, inner items are frozen once added into the result set.
       rs.#rows.push(row.slice());
     }
+
     return rs;
+  }
+
+  addIntersectionConstraints(constraints: Iterable<IntersectionConstraint>) {
+    // To make it easy to uphold the invariant that all rows must satisfy the constraint, we only allow adding
+    // intersection constraints to the initial result set.
+    if (this.length != 1 || this.#rows[0].some((s) => s !== undefined)) {
+      throw new Error('Can only add intersection constraints to unit result set');
+    }
+
+    for (const constraint of constraints) {
+      for (const { lookup } of constraint.columns) {
+        const tracked = this.#intersections[lookup.resultSetIndex];
+        if (tracked != null && !tracked.includes(constraint)) {
+          tracked.push(constraint);
+        } else {
+          this.#intersections[lookup.resultSetIndex] = [constraint];
+        }
+      }
+    }
   }
 
   /**
@@ -54,11 +86,16 @@ export class ResultSet {
   multiply(resultSetIndex: number, rows: SqliteParameterValue[][]) {
     if (rows.length === 0) {
       this.#rows = [];
+      return;
     }
 
+    using add = this.#prepareAddingResultSet(resultSetIndex);
     const originalLength = this.#rows.length;
+
     for (let i = 0; i < originalLength; i++) {
-      this.#multiplyAtRow(resultSetIndex, i, rows);
+      if (!this.#multiplyAtRow(resultSetIndex, add.filter, i, rows)) {
+        add.deletedRows.push(i);
+      }
     }
   }
 
@@ -82,63 +119,120 @@ export class ResultSet {
 
     await performLookup(uniqueLookups);
 
-    const deletedRows: number[] = [];
+    using add = this.#prepareAddingResultSet(resultSetIndex);
+
     const originalLength = this.#rows.length;
     for (let i = 0; i < originalLength; i++) {
       const lookup = lookupsByRow[i];
-      if (lookup.foundRows.length > 0) {
-        this.#multiplyAtRow(resultSetIndex, i, lookup.foundRows);
-      } else {
+      if (lookup.foundRows.length === 0 || !this.#multiplyAtRow(resultSetIndex, add.filter, i, lookup.foundRows)) {
         // The row has no matching join partner, so remove it. We can't split it immediately because #multiplyAtRow is
         // still iterating through rows.
-        deletedRows.push(i);
+        add.deletedRows.push(i);
       }
     }
+  }
 
-    let offset = 0;
-    for (const toDelete of deletedRows) {
-      this.#rows.splice(toDelete - offset, 1);
-      offset++;
+  #intersectionFilter(intersection: IntersectionConstraint, addedResultSetIndex: number): IntersectionFilter {
+    const affectedColumnsInAddedResultSet = intersection.columns.filter(
+      ({ lookup }) => lookup.resultSetIndex === addedResultSetIndex
+    );
+
+    if (intersection.fixedValue !== undefined) {
+      // All rows already in the result set satisfy the intersection and must match the fixed value in relevant columns.
+      // So when checking a new row, we just need to check columns there.
+      return function (_existingRow: ResultSetRow, added: SqliteParameterValue[]): boolean {
+        for (const { outputIndex } of affectedColumnsInAddedResultSet) {
+          if (added[outputIndex] !== intersection.fixedValue) return false;
+        }
+
+        return true;
+      };
+    } else {
+      const anyExistingColumn = intersection.columns.find(({ lookup }) => this.#containsLookup[lookup.resultSetIndex]);
+
+      return function (existingRow: ResultSetRow, added: SqliteParameterValue[]): boolean {
+        let referenceValue: SqliteParameterValue | undefined;
+
+        if (anyExistingColumn != null) {
+          referenceValue = lookupInRow(existingRow, anyExistingColumn);
+        }
+
+        for (const { outputIndex } of affectedColumnsInAddedResultSet) {
+          const value = added[outputIndex];
+
+          if (referenceValue !== undefined && value !== referenceValue) return false;
+          referenceValue = value;
+        }
+
+        return true;
+      };
     }
+  }
+
+  #prepareAddingResultSet(addedResultSetIndex: number) {
+    if (this.#containsLookup[addedResultSetIndex]) {
+      throw new Error(`Already added results for ${addedResultSetIndex}`);
+    }
+
+    const filters = this.#intersections[addedResultSetIndex]?.map((intersection) =>
+      this.#intersectionFilter(intersection, addedResultSetIndex)
+    );
+
+    const deletedRows: number[] = [];
+    const filter = (existingRow: ResultSetRow, added: SqliteParameterValue[]): boolean => {
+      if (filters == null) return true;
+
+      return filters.every((f) => f(existingRow, added));
+    };
+
+    return {
+      deletedRows,
+      filter,
+      [Symbol.dispose]: () => {
+        let offset = 0;
+        for (const toDelete of deletedRows) {
+          this.#rows.splice(toDelete - offset, 1);
+          offset++;
+        }
+
+        this.#containsLookup[addedResultSetIndex] = true;
+      }
+    };
   }
 
   /**
-   * Removes rows where the given columns have different values.
+   * Adds the cartesian product of an existing row and a new result set.
    *
-   * If a fixed value is passed, this also removes rows where any of the given columns has a different value.
+   * Returns false if the original row needs to be removed because no row was added (e.g. because an intersection filter
+   * doesn't match).
    */
-  formIntersection(columns: ResultSetColumn[], fixedValue?: SqliteParameterValue) {
-    const keptRows: ResultSetRow[] = [];
+  #multiplyAtRow(
+    resultSetIndex: number,
+    filter: IntersectionFilter,
+    rowIndex: number,
+    rows: SqliteParameterValue[][]
+  ): boolean {
+    const originalRow = this.#rows[rowIndex];
 
-    row: for (const row of this.#rows) {
-      let requiredValue = fixedValue;
-
-      for (const column of columns) {
-        const evaluated = lookupInRow(row, column);
-        if (requiredValue !== undefined && evaluated !== requiredValue) {
-          // Intersection doesn't match, skip this row.
-          continue row;
-        }
-
-        requiredValue = evaluated;
+    let isFirst = true;
+    for (const row of rows) {
+      if (!filter(originalRow, row)) {
+        continue;
       }
 
-      keptRows.push(row);
+      if (isFirst) {
+        isFirst = false;
+
+        // Add first element of product to existing row, remaining as new rows.
+        originalRow[resultSetIndex] = Object.freeze(row);
+      } else {
+        const copy = originalRow.slice();
+        copy[resultSetIndex] = Object.freeze(row);
+        this.#rows.push(copy);
+      }
     }
 
-    this.#rows = keptRows;
-  }
-
-  #multiplyAtRow(resultSetIndex: number, rowIndex: number, rows: SqliteParameterValue[][]) {
-    // Add first element of product to existing row, remaining as new rows.
-    const row = this.#rows[rowIndex];
-    row[resultSetIndex] = Object.freeze(rows[0]);
-
-    for (let j = 1; j < rows.length; j++) {
-      const copy = row.slice();
-      copy[resultSetIndex] = Object.freeze(rows[j]);
-      this.#rows.push(copy);
-    }
+    return !isFirst;
   }
 
   *#groupBy<T>(columns: ResultSetColumn[], generateGroup: (values: SqliteParameterValue[]) => T) {
@@ -194,6 +288,13 @@ export interface AsyncJoinLookup {
   inputs: SqliteParameterValue[];
   foundRows: SqliteParameterValue[][];
 }
+
+export interface IntersectionConstraint {
+  readonly columns: ResultSetColumn[];
+  readonly fixedValue?: SqliteParameterValue;
+}
+
+type IntersectionFilter = (existingRow: ResultSetRow, added: SqliteParameterValue[]) => boolean;
 
 /**
  * A row in a result set.
