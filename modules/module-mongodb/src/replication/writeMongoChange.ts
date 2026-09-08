@@ -3,6 +3,11 @@ import { SaveOperationTag, storage } from '@powersync/service-core';
 import { ProjectedChangeStreamDocument } from './RawChangeStream.js';
 import { SourceRowConverter } from './SourceRowConverter.js';
 
+export const MONGO_PREPARATION_WORKER = new URL(
+  './replication/MongoRowPreparation.worker.js',
+  import.meta.resolve('@powersync/service-module-mongodb')
+);
+
 /** Convert a change for a resolved, synced collection and apply it through the storage writer. */
 export async function writeMongoChange(
   batch: storage.BucketStorageBatch,
@@ -10,6 +15,19 @@ export async function writeMongoChange(
   change: ProjectedChangeStreamDocument,
   converter: SourceRowConverter
 ): Promise<storage.FlushedResult | null> {
+  if (
+    batch.saveRaw &&
+    (change.operationType === 'insert' || change.operationType === 'update' || change.operationType === 'replace') &&
+    change.fullDocument != null
+  ) {
+    return batch.saveRaw({
+      tag: change.operationType === 'insert' ? SaveOperationTag.INSERT : SaveOperationTag.UPDATE,
+      sourceTable: table,
+      raw: change.fullDocument,
+      worker: MONGO_PREPARATION_WORKER,
+      convert: () => ({ row: converter.rawToSqliteRow(change.fullDocument!).row, replicaId: change.documentKey._id })
+    });
+  }
   if (change.operationType == 'insert') {
     const { row: baseRecord, replicaId: _replicaId } = converter.rawToSqliteRow(change.fullDocument);
     return await batch.save({

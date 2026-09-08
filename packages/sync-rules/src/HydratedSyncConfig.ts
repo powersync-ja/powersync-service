@@ -28,9 +28,24 @@ import {
   TablePattern
 } from './index.js';
 import { SourceTableRef, sourceTableRefKey } from './SourceTableRef.js';
+import { SqlSyncRules } from './SqlSyncRules.js';
 import { createScalarExpressionEngine } from './sync_plan/engine/factory.js';
+import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
+import { deserializeSyncPlan, SerializedSyncPlan, serializeSyncPlan } from './sync_plan/serialize.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
 import { applyRowContext, uniqueBy } from './utils.js';
+
+/** Cloneable evaluator initialization, sent once when starting a preparation worker. */
+export interface SerializedHydratedSyncConfig {
+  definitions: {
+    content: string;
+    defaultSchema: string;
+    plan?: SerializedSyncPlan;
+    compatibility: ReturnType<CompatibilityContext['serialize']>;
+    buckets: string[];
+    parameters: { lookupName: string; queryId: string }[];
+  }[];
+}
 
 export interface MatchingSources {
   bucketDataSources: BucketDataSource[];
@@ -146,6 +161,81 @@ export class HydratedSyncConfig {
   get bucketSourceDefinitions() {
     this.assertSingleSourceDefinition('bucketSourceDefinitions');
     return this.#bucketSourceDefinitions;
+  }
+
+  serializeForWorker(): SerializedHydratedSyncConfig {
+    return {
+      definitions: this.sourceDefinitions.map((definition) => {
+        if (definition.defaultSchema == null) throw new Error('Missing sync config default schema');
+        return {
+          content: definition.content,
+          defaultSchema: definition.defaultSchema,
+          plan: definition instanceof PrecompiledSyncConfig ? serializeSyncPlan(definition.plan) : undefined,
+          compatibility: definition.compatibility.serialize(),
+          buckets: definition.bucketDataSources.map(
+            (source) => this.hydrationInput.hydrationState.getBucketSourceScope(source).bucketPrefix
+          ),
+          parameters: definition.bucketParameterLookupSources.map((source) => {
+            const { lookupName, queryId } = this.hydrationInput.hydrationState.getParameterIndexLookupScope(source);
+            return { lookupName, queryId };
+          })
+        };
+      })
+    };
+  }
+
+  workerSourceSelection(buckets: BucketDataSource[], parameters: ParameterIndexLookupCreator[]) {
+    const state = this.hydrationInput.hydrationState;
+    return {
+      buckets: buckets.map((source) =>
+        this.bucketDataSources.findIndex(
+          (candidate) =>
+            state.getBucketSourceScope(candidate).bucketPrefix === state.getBucketSourceScope(source).bucketPrefix
+        )
+      ),
+      parameters: parameters.map((source) =>
+        this.bucketParameterLookupSources.findIndex(
+          (candidate) =>
+            parameterLookupScopeKey(state.getParameterIndexLookupScope(candidate)) ===
+            parameterLookupScopeKey(state.getParameterIndexLookupScope(source))
+        )
+      )
+    };
+  }
+
+  static fromWorkerData(data: SerializedHydratedSyncConfig, sqlite: HydrateSyncConfigParams['sqlite']) {
+    const buckets = new Map<BucketDataSource, string>();
+    const parameters = new Map<ParameterIndexLookupCreator, { lookupName: string; queryId: string }>();
+    const definitions = data.definitions.map((entry) => {
+      const compatibility = CompatibilityContext.deserialize(entry.compatibility);
+      const definition =
+        entry.plan != null
+          ? new PrecompiledSyncConfig(deserializeSyncPlan(entry.plan), compatibility, {
+              defaultSchema: entry.defaultSchema,
+              sourceText: entry.content
+            })
+          : SqlSyncRules.fromYaml(entry.content, { defaultSchema: entry.defaultSchema, throwOnError: false }).config;
+      definition.compatibility = compatibility;
+      if (
+        definition.bucketDataSources.length !== entry.buckets.length ||
+        definition.bucketParameterLookupSources.length !== entry.parameters.length
+      ) {
+        throw new Error('Worker sync config does not match its persisted mappings');
+      }
+      definition.bucketDataSources.forEach((source, i) => buckets.set(source, entry.buckets[i]));
+      definition.bucketParameterLookupSources.forEach((source, i) => parameters.set(source, entry.parameters[i]));
+      return definition;
+    });
+    return new HydratedSyncConfig({
+      definitions,
+      createParams: {
+        sqlite,
+        hydrationState: {
+          getBucketSourceScope: (source) => ({ source, bucketPrefix: buckets.get(source)! }),
+          getParameterIndexLookupScope: (source) => ({ source, ...parameters.get(source)! })
+        }
+      }
+    });
   }
 
   // These methods do not depend on hydration, so we can multiplex them across definitions.

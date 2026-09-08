@@ -100,6 +100,9 @@ export abstract class MongoBucketBatch
   readonly db: VersionedPowerSyncMongo;
   public readonly session: mongo.ClientSession;
   protected readonly sync_rules: HydratedSyncConfig;
+  private preparationWorker?: storage.RowPreparationWorker;
+  private preparationWorkerUrl?: string;
+  private pendingPreparation?: Promise<void>;
 
   protected readonly replicationStreamId: number;
 
@@ -258,7 +261,24 @@ export abstract class MongoBucketBatch
   }
 
   /** Auto-flush admits work; explicit flush/commit remains a durability barrier. */
-  private async enqueuePipelineBatch(): Promise<void> {
+  private async enqueuePipelineBatch(wait = true): Promise<void> {
+    // One admitted block can prepare while the source accumulates the next block.
+    // Explicit boundaries always join it before sealing a publication group.
+    if (this.pendingPreparation != null) {
+      await this.pendingPreparation;
+      this.pendingPreparation = undefined;
+    }
+    const pending = this.processPipelineBatch();
+    if (wait) {
+      await pending;
+    } else {
+      this.pendingPreparation = pending;
+      // flush/commit or the next admission observes failures; avoid an unhandled rejection meanwhile.
+      void pending.catch(() => {});
+    }
+  }
+
+  private async processPipelineBatch(): Promise<void> {
     this.pipeline?.check();
     const input = this.batch;
     this.batch = null;
@@ -290,6 +310,8 @@ export abstract class MongoBucketBatch
     if (input == null || !input.hasData()) return;
     await this.hooks?.beforeBatchFlush?.(this);
     await this.pipeline.prepare(async (context) => {
+      // Replica ids are derived on the worker before constructing storage lookups.
+      await this.prepareRawRows(input.batch);
       const { session, sequence, state } = context;
       const lookups = input.batch.map((op) => ({
         sourceTableId: mongoTableId(op.record.sourceTable.id),
@@ -350,6 +372,18 @@ export abstract class MongoBucketBatch
       // Event-only or skipped rows must not hold the writer lease indefinitely.
       if (context.group?.batch.currentSize === 0) context.group = undefined;
     });
+  }
+
+  private async prepareRawRows(records: RecordOperation[]) {
+    const raw = records.filter((op) => op.raw != null);
+    if (raw.length === 0) return;
+    const results = await this.preparationWorker!.prepare(
+      raw.map((op) => ({
+        raw: op.raw!.raw,
+        table: op.raw!.sourceTable
+      }))
+    );
+    raw.forEach((op, i) => op.completePreparation(results[i]));
   }
 
   private async flushInner(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
@@ -677,11 +711,13 @@ export abstract class MongoBucketBatch
     if (afterId && after && utils.isCompleteRow(storeCurrentData, after)) {
       // Insert or update
       if (sourceTable.syncData) {
-        const { results, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
-          record: after,
-          sourceTable: sourceTable.ref,
-          bucketDataSources: sourceTable.bucketDataSources
-        });
+        const { results, errors: syncErrors } =
+          operation.prepared?.data ??
+          this.sync_rules.evaluateRowWithErrors({
+            record: after,
+            sourceTable: sourceTable.ref,
+            bucketDataSources: sourceTable.bucketDataSources
+          });
         const evaluated = results;
 
         for (let error of syncErrors) {
@@ -705,6 +741,7 @@ export abstract class MongoBucketBatch
           op_seq: opSeq,
           sourceKey: afterId,
           evaluated,
+          prepared: operation.prepared,
           table: sourceTable,
           before_buckets: existing_buckets
         });
@@ -713,11 +750,11 @@ export abstract class MongoBucketBatch
 
       if (sourceTable.syncParameters) {
         // Parameters
-        const { results: paramEvaluated, errors: paramErrors } = this.sync_rules.evaluateParameterRowWithErrors(
-          sourceTable.ref,
-          after,
-          { parameterLookupSources: sourceTable.parameterLookupSources }
-        );
+        const { results: paramEvaluated, errors: paramErrors } =
+          operation.prepared?.parameters ??
+          this.sync_rules.evaluateParameterRowWithErrors(sourceTable.ref, after, {
+            parameterLookupSources: sourceTable.parameterLookupSources
+          });
 
         for (let error of paramErrors) {
           container.reporter.captureMessage(
@@ -780,7 +817,7 @@ export abstract class MongoBucketBatch
 
   protected async withTransaction(cb: () => Promise<void>) {
     // Metadata mutations must not wait on a lease held by our own unsealed group.
-    if (this.pipeline?.hasWork) await this.flush();
+    if (this.pendingPreparation != null || this.pipeline?.hasWork) await this.flush();
     using lockSpan = this.tracer.span('storage', 'internal_lock');
     await replicationMutex.exclusiveLock(async () => {
       lockSpan.end();
@@ -907,6 +944,9 @@ export abstract class MongoBucketBatch
   }
 
   async [Symbol.asyncDispose]() {
+    this.pipeline?.cancel();
+    await this.preparationWorker?.[Symbol.asyncDispose]();
+    await this.pendingPreparation?.catch(() => {});
     await this.pipeline?.[Symbol.asyncDispose]();
     if (this.batch?.hasData() || this.write_checkpoint_batch.length > 0) {
       // We don't error here, since:
@@ -957,12 +997,32 @@ export abstract class MongoBucketBatch
 
     this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
 
+    return this.appendOperation(new RecordOperation(record));
+  }
+
+  async saveRaw(raw: storage.RawSaveOptions): Promise<storage.FlushedResult | null> {
+    this.pipeline?.check();
+    if (!this.usePipeline || raw.sourceTable.syncEvent || (this.storeCurrentData && raw.sourceTable.storeCurrentData)) {
+      const { row, replicaId } = raw.convert();
+      return this.save({ tag: raw.tag, sourceTable: raw.sourceTable, afterReplicaId: replicaId, after: row });
+    }
+    if (!raw.sourceTable.syncData && !raw.sourceTable.syncParameters) return null;
+    if (this.preparationWorker == null) {
+      this.preparationWorker = new storage.RowPreparationWorker(raw.worker, this.sync_rules, this.options.signal);
+      this.preparationWorkerUrl = raw.worker.href;
+    } else if (raw.worker.href !== this.preparationWorkerUrl) {
+      throw new ReplicationAssertionError('Cannot mix raw row converters in one writer');
+    }
+    return this.appendOperation(new RecordOperation(raw));
+  }
+
+  private async appendOperation(operation: RecordOperation): Promise<storage.FlushedResult | null> {
     this.batch ??= new OperationBatch();
-    this.batch.push(new RecordOperation(record));
+    this.batch.push(operation);
 
     if (this.batch.shouldFlush()) {
       if (this.usePipeline && this.write_checkpoint_batch.length === 0) {
-        await this.enqueuePipelineBatch();
+        await this.enqueuePipelineBatch(operation.raw == null);
         return null;
       }
       const r = await this.flush();

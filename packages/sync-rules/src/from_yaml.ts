@@ -45,7 +45,9 @@ export class SyncConfigFromYaml {
   ) {}
 
   read(): SyncConfigWithErrors {
-    return { config: this.#read(), errors: this.#errors };
+    const config = this.#read();
+    config.defaultSchema = this.options.defaultSchema;
+    return { config, errors: this.#errors };
   }
 
   #read(): SyncConfig {

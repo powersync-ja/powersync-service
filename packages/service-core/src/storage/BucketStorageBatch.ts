@@ -48,6 +48,9 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    */
   save(record: SaveOptions): Promise<FlushedResult | null>;
 
+  /** Optional full-row preparation path. The converter is also used for inline fallbacks. */
+  saveRaw?(record: RawSaveOptions): Promise<FlushedResult | null>;
+
   /**
    * Replicate a truncate operation by removing all currently replicated rows
    * for the specified source tables.
@@ -227,6 +230,14 @@ export interface SaveBucketData {
 export type SaveOp = 'insert' | 'update' | 'delete';
 
 export type SaveOptions = SaveInsert | SaveUpdate | SaveDelete;
+
+export interface RawSaveOptions {
+  tag: SaveOperationTag.INSERT | SaveOperationTag.UPDATE;
+  sourceTable: SourceTable;
+  raw: Uint8Array;
+  worker: URL;
+  convert: () => { row: SqliteRow; replicaId: ReplicaId };
+}
 
 export enum SaveOperationTag {
   INSERT = 'insert',

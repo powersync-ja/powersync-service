@@ -18,6 +18,8 @@ import { applyRowContext } from './utils.js';
  * resolve buckets for connections).
  */
 export abstract class SyncConfig {
+  /** Schema used when parsing unqualified source references. */
+  defaultSchema?: string;
   bucketDataSources: BucketDataSource[] = [];
   bucketParameterLookupSources: ParameterIndexLookupCreator[] = [];
   bucketSources: BucketSource[] = [];

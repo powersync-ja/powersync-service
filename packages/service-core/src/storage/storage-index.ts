@@ -11,6 +11,7 @@ export * from './PersistedSyncConfigStatus.js';
 export * from './ReplicationEventPayload.js';
 export * from './ReplicationLock.js';
 export * from './ReportStorage.js';
+export * from './RowPreparation.js';
 export * from './SourceEntity.js';
 export * from './SourceTable.js';
 export * from './SourceTableReconciler.js';

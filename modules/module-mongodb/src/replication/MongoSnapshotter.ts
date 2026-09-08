@@ -22,6 +22,7 @@ import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { ChangeStreamBatch, parseChangeDocument, rawChangeStream } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, detectDocumentDb } from './replication-utils.js';
 import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
+import { MONGO_PREPARATION_WORKER } from './writeMongoChange.js';
 
 export interface MongoSnapshotterOptions {
   connections: MongoManager;
@@ -499,6 +500,16 @@ export class MongoSnapshotter {
       // Pre-fetch next batch, so that we can read and write concurrently
       nextChunkPromise = query.nextChunk();
       for (const buffer of docBatch) {
+        if (batch.saveRaw) {
+          await batch.saveRaw({
+            tag: SaveOperationTag.INSERT,
+            sourceTable: table,
+            raw: buffer,
+            worker: MONGO_PREPARATION_WORKER,
+            convert: () => this.sourceRowConverter.rawToSqliteRow(buffer)
+          });
+          continue;
+        }
         const { row, replicaId } = this.sourceRowConverter.rawToSqliteRow(buffer);
         // This auto-flushes when the batch reaches its size limit
         await batch.save({

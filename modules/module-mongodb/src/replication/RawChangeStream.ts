@@ -394,7 +394,18 @@ export function parseChangeDocument(buffer: Buffer): ProjectedChangeStreamDocume
     doc.to = deserialize(doc.to, DESERIALIZE_DEFAULT) as any;
   }
   if ('documentKey' in doc) {
-    doc.documentKey = deserialize(doc.documentKey, DESERIALIZE_DEFAULT) as any;
+    // Full post-images can be prepared on a worker without parsing their BSON identity here.
+    // Deletes, checkpoint handlers and inline writers still access the typed document key.
+    const rawKey = doc.documentKey;
+    Object.defineProperty(doc, 'documentKey', {
+      enumerable: true,
+      configurable: true,
+      get() {
+        const value = deserialize(rawKey, DESERIALIZE_DEFAULT);
+        Object.defineProperty(doc, 'documentKey', { value, enumerable: true, configurable: true, writable: true });
+        return value;
+      }
+    });
   }
   return doc as any;
 }

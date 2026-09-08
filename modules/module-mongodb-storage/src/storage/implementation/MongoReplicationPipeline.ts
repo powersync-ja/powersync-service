@@ -214,8 +214,13 @@ export class MongoReplicationPipeline implements AsyncDisposable {
     await this.releasing;
   }
 
-  async [Symbol.asyncDispose]() {
+  /** Stop admission and uploads before joining an outstanding preparation block. */
+  cancel() {
     this.abort.abort();
+  }
+
+  async [Symbol.asyncDispose]() {
+    this.cancel();
     // Unsealed output has no uploads or durable reservations of its own.
     if (this.context != null) this.context.group = undefined;
     await Promise.all(this.pending);

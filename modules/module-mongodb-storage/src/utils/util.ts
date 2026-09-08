@@ -5,7 +5,6 @@ import { storage, utils } from '@powersync/service-core';
 import * as bson from 'bson';
 import * as crypto from 'crypto';
 import * as timers from 'node:timers/promises';
-import * as uuid from 'uuid';
 import { BucketDataDoc } from '../storage/implementation/common/BucketDataDoc.js';
 import { DEFAULT_CLEAR_BATCH_THROTTLE_RATE } from '../types/types.js';
 
@@ -138,14 +137,7 @@ export function mapOpEntry(row: BucketDataDoc): utils.OplogEntry {
 }
 
 export function replicaIdToSubkey(table: storage.SourceTableId, id: storage.ReplicaId): string {
-  if (storage.isUUID(id)) {
-    // Special case for UUID for backwards-compatiblity
-    return `${tableIdString(table)}/${id.toHexString()}`;
-  } else {
-    // Hashed UUID from the table and id
-    const repr = bson.serialize({ table, id });
-    return uuid.v5(repr, utils.ID_NAMESPACE);
-  }
+  return utils.mongoReplicaIdToSubkey(table, id);
 }
 
 export function mongoTableId(table: storage.SourceTableId): bson.ObjectId {
@@ -153,14 +145,6 @@ export function mongoTableId(table: storage.SourceTableId): bson.ObjectId {
     throw new ServiceAssertionError(`Got string table id, expected ObjectId`);
   }
   return table;
-}
-
-function tableIdString(table: storage.SourceTableId) {
-  if (typeof table == 'string') {
-    return table;
-  } else {
-    return table.toHexString();
-  }
 }
 
 export function setSessionSnapshotTime(session: mongo.ClientSession, time: bson.Timestamp) {

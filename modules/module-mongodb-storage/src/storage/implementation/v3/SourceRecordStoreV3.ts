@@ -17,7 +17,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     private readonly mapping: BucketDefinitionMapping
   ) {}
 
-  mapEvaluatedBuckets(evaluated: EvaluatedRow[]): LoadedSourceRecord['buckets'] {
+  mapEvaluatedBuckets(evaluated: Omit<EvaluatedRow, 'data'>[]): LoadedSourceRecord['buckets'] {
     return evaluated.map((entry) => ({
       definitionId: this.mapping.bucketSourceId(entry.source),
       bucket: entry.bucket,

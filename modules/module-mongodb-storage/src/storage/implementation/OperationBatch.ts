@@ -76,21 +76,55 @@ export class OperationBatch {
 }
 
 export class RecordOperation {
-  public readonly afterId: storage.ReplicaId | null;
-  public readonly beforeId: storage.ReplicaId;
-  public readonly internalBeforeKey: string;
-  public readonly internalAfterKey: string | null;
+  raw?: storage.RawSaveOptions;
+  prepared?: storage.PreparedSourceRow;
+  public afterId!: storage.ReplicaId | null;
+  public beforeId!: storage.ReplicaId;
+  public internalBeforeKey!: string;
+  public internalAfterKey!: string | null;
   public readonly estimatedSize: number;
+  private convertedRecord?: storage.SaveOptions;
 
-  constructor(public readonly record: storage.SaveOptions) {
+  constructor(record: storage.SaveOptions | storage.RawSaveOptions) {
+    if ('raw' in record) {
+      this.raw = record;
+      this.estimatedSize = record.raw.byteLength;
+    } else {
+      this.initializeRecord(record);
+      this.estimatedSize = estimateRowSize(record.before) + estimateRowSize(record.after);
+    }
+  }
+
+  get record(): storage.SaveOptions {
+    if (this.convertedRecord == null) throw new Error('Raw operation has not been prepared');
+    return this.convertedRecord;
+  }
+
+  completePreparation(prepared: storage.PreparedSourceRow) {
+    const raw = this.raw!;
+    this.prepared = prepared;
+    this.initializeRecord({
+      tag: raw.tag,
+      sourceTable: raw.sourceTable,
+      afterReplicaId: bson.deserialize(prepared.replicaIdBson, storage.BSON_DESERIALIZE_DATA_OPTIONS)._id,
+      // Only the diagnostic id is needed after evaluation. Payloads remain encoded strings.
+      after: { id: prepared.id }
+    });
+    this.raw = undefined;
+  }
+
+  private initializeRecord(record: storage.SaveOptions) {
+    this.convertedRecord = record;
     const afterId = record.afterReplicaId ?? null;
     const beforeId = record.beforeReplicaId ?? record.afterReplicaId;
     this.afterId = afterId;
     this.beforeId = beforeId;
     this.internalBeforeKey = cacheKey(mongoTableId(record.sourceTable.id), beforeId);
-    this.internalAfterKey = afterId ? cacheKey(mongoTableId(record.sourceTable.id), afterId) : null;
-
-    this.estimatedSize = estimateRowSize(record.before) + estimateRowSize(record.after);
+    this.internalAfterKey = afterId
+      ? beforeId === afterId
+        ? this.internalBeforeKey
+        : cacheKey(mongoTableId(record.sourceTable.id), afterId)
+      : null;
   }
 }
 

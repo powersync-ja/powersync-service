@@ -61,6 +61,18 @@ export function hashDelete(sourceKey: string) {
   return buffer.readUInt32LE(0);
 }
 
+/** MongoDB storage's persisted subkey encoding. Keep BSON types and field order unchanged. */
+export function mongoReplicaIdToSubkey(table: storage.SourceTableId, id: storage.ReplicaId): string {
+  if (storage.isUUID(id)) {
+    // Special case for UUID for backwards-compatiblity
+    return `${typeof table === 'string' ? table : table.toHexString()}/${id.toHexString()}`;
+  } else {
+    // Hashed UUID from the table and id
+    const repr = bson.serialize({ table, id });
+    return uuid.v5(repr, ID_NAMESPACE);
+  }
+}
+
 /**
  * Internally we always use bigint for op_ids. Externally (in JSON) we use strings.
  * This converts between the two.

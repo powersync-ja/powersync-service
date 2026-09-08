@@ -93,7 +93,7 @@ export function createCategoryCombinedCases(storageVersion: number): CombinedBen
     createCategoryCombinedCase(postgresSource, mongoStorage),
     createCategoryCombinedCase(mongoSource, postgresStorage),
     createCategoryCombinedCase(mongoSource, mongoStorage, assertDistinctMongoSourceAndStorage)
-  ]
+  ];
 }
 
 function createCategoryCombinedCase(

@@ -38,10 +38,11 @@ const MAX_TRANSACTION_DOC_COUNT = 2_000;
 export const DEFAULT_INLINE_THRESHOLD_BYTES = 16 * 1024;
 
 export interface SaveBucketDataOptions {
+  prepared?: Pick<storage.PreparedSourceRow, 'subkey' | 'deleteChecksum'>;
   op_seq: MongoIdSequence;
   sourceKey: storage.ReplicaId;
   table: storage.SourceTable;
-  evaluated: EvaluatedRow[];
+  evaluated: (EvaluatedRow | storage.PreparedBucketRow)[];
   before_buckets: SourceRecordBucketState[];
 }
 
@@ -133,8 +134,8 @@ export abstract class PersistedBatch {
       remaining_buckets.set(currentBucketKey(mapped), mapped);
     }
 
-    const subkey = this.persistedSubkey(options.table.id, options.sourceKey);
-    const dchecksum = BigInt(utils.hashDelete(subkey));
+    const subkey = options.prepared?.subkey ?? this.persistedSubkey(options.table.id, options.sourceKey);
+    const dchecksum = BigInt(options.prepared?.deleteChecksum ?? utils.hashDelete(subkey));
 
     for (const evaluated of options.evaluated) {
       const definitionId = this.getBucketDefinitionId(evaluated.source);
@@ -145,8 +146,9 @@ export abstract class PersistedBatch {
         id: evaluated.id
       });
 
-      const recordData = JSONBig.stringify(evaluated.data);
-      const checksum = utils.hashData(evaluated.table, evaluated.id, recordData);
+      const recordData = 'json' in evaluated ? evaluated.json : JSONBig.stringify(evaluated.data);
+      const checksum =
+        'json' in evaluated ? evaluated.checksum : utils.hashData(evaluated.table, evaluated.id, recordData);
       if (recordData.length > MAX_ROW_SIZE) {
         this.logger.error(`Row ${key} too large: ${recordData.length} bytes. Removing.`);
         continue;

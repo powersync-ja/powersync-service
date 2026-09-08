@@ -31,7 +31,7 @@ export interface LoadedSourceRecord {
 }
 
 export interface SourceRecordStore {
-  mapEvaluatedBuckets(evaluated: EvaluatedRow[]): SourceRecordBucketState[];
+  mapEvaluatedBuckets(evaluated: Omit<EvaluatedRow, 'data'>[]): SourceRecordBucketState[];
   mapParameterLookups(paramEvaluated: EvaluatedParameters[]): SourceRecordLookupState[];
   loadSizes(session: mongo.ClientSession, entries: SourceRecordLookupEntry[]): Promise<Map<string, number>>;
   loadDocuments(
