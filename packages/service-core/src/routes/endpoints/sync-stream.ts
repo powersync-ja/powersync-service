@@ -61,11 +61,7 @@ export const syncStreamed = routeDefinition({
       connected_at: new Date(streamStart)
     };
 
-    const setup = await resolveSyncConnectionSetup(service_context, SyncTransport.HttpStream);
-    if (setup.rejected) {
-      throw setup.error;
-    }
-    const { bucketStorage, syncRules } = setup;
+    const { bucketStorage, syncRules } = await resolveSyncConnectionSetup(service_context, SyncTransport.HttpStream);
 
     const controller = new AbortController();
     const tracker = new sync.RequestTracker(metricsEngine);
