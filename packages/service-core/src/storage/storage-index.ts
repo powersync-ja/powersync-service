@@ -8,6 +8,7 @@ export * from './ParsedSyncConfigSet.js';
 export * from './PersistedReplicationStream.js';
 export * from './PersistedSyncConfigContent.js';
 export * from './PersistedSyncConfigStatus.js';
+export * from './ReplicationDiagnostics.js';
 export * from './ReplicationEventPayload.js';
 export * from './ReplicationLock.js';
 export * from './ReportStorage.js';

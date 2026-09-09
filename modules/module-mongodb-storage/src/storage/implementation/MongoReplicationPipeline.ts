@@ -70,6 +70,7 @@ export class MongoReplicationPipeline implements AsyncDisposable {
     try {
       await this.releasing;
       if (this.lease == null) {
+        using acquire = storage.ReplicationDiagnostics.active?.span('storage.lease_and_sequence');
         this.lease = await MongoReplicationLease.acquire(this.db, this.signal);
         const sequence = await this.db.op_id_sequence.findOne({ _id: 'main' }, { readConcern: { level: 'majority' } });
         this.context = {
@@ -100,6 +101,7 @@ export class MongoReplicationPipeline implements AsyncDisposable {
     // window. Like the existing transaction limit, a single row can overshoot the
     // estimated byte target; do not accumulate further rows while backpressured.
     const size = batch.currentSize;
+    using capacity = storage.ReplicationDiagnostics.active?.span('publication.capacity_wait');
     while (
       this.pending.size >= MAX_PENDING_GROUPS ||
       (this.pending.size > 0 && this.bytes + size > MAX_PENDING_BYTES)
@@ -107,16 +109,19 @@ export class MongoReplicationPipeline implements AsyncDisposable {
       await Promise.race(this.pending);
       this.check();
     }
+    capacity?.end();
     this.check();
     const lease = this.lease!;
     const context = this.context!;
     // Reserve durably before uploading. The lease prevents other writers from
     // reserving/publishing past us, and abandoned reservations remain gaps.
+    using reserve = storage.ReplicationDiagnostics.active?.span('storage.reserve_sequence');
     await this.db.op_id_sequence.updateOne(
       { _id: 'main' },
       { $max: { op_id: lastOp } },
       { upsert: true, writeConcern: { w: 'majority' } }
     );
+    reserve?.end();
     const upload = batch.prepare();
     // Observe failures immediately even when an earlier group's upload is slow.
     void upload.catch((error) => this.fail(error));
@@ -124,11 +129,16 @@ export class MongoReplicationPipeline implements AsyncDisposable {
     this.bytes += size;
     const work = (async () => {
       try {
+        using previousWait = storage.ReplicationDiagnostics.active?.span('publication.previous_wait');
         await previous;
+        previousWait?.end();
+        using uploadWait = storage.ReplicationDiagnostics.active?.span('publication.upload_wait');
         await upload;
+        uploadWait?.end();
         this.check();
         const session = this.db.client.startSession();
         await using sessionLifetime = { [Symbol.asyncDispose]: () => session.endSession() };
+        using transaction = storage.ReplicationDiagnostics.active?.span('publication.transaction');
         await session.withTransaction(
           async () => {
             this.check();
@@ -137,6 +147,7 @@ export class MongoReplicationPipeline implements AsyncDisposable {
           },
           { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, maxCommitTimeMS: 10000 }
         );
+        transaction?.end();
         for (const [key, value] of changes) context.published.set(key, value);
         if (!this.preparing) this.prunePublished(context);
         await this.committed(lastOp);

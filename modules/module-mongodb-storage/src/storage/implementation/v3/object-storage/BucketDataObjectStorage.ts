@@ -11,7 +11,9 @@ export class BucketDataObjectStorage {
     ops: BucketOperation[],
     options?: ObjectStorageOperationOptions
   ): Promise<{ fileSize: number }> {
+    using serialize = storage.ReplicationDiagnostics.active?.span('publication.bson_serialize_sync');
     const bsonBuffer = bson.serialize({ ops });
+    serialize?.end();
     await this.storage.put(path, bsonBuffer, { contentType: 'application/bson', contentEncoding: null }, options);
     return { fileSize: bsonBuffer.byteLength };
   }

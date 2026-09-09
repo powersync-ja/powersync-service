@@ -59,6 +59,38 @@ bucket_definitions:
 }
 
 describe('single Mongo row preparation worker', () => {
+  test.each([false, true])('diagnostics preserve results and support repeated capture (CPU=%s)', async (cpu) => {
+    const { config, tables } = fixture(false);
+    await using worker = new storage.RowPreparationWorker(MONGO_PREPARATION_WORKER, config);
+    const input = [{ table: tables[0], raw: BSON.serialize({ _id: 'a', owner: 'user' }) }];
+    const expected = await worker.prepare(input);
+    try {
+      for (let i = 0; i < 2; i++) {
+        const diagnostics = new storage.ReplicationDiagnostics(cpu);
+        storage.ReplicationDiagnostics.active = diagnostics;
+        expect(await worker.prepare(input)).toEqual(expected);
+        const timings = diagnostics.snapshot();
+        expect(timings['worker.execution'].count).toBe(1);
+        expect(timings['worker.roundtrip'].total_ms).toBeGreaterThanOrEqual(timings['worker.execution'].total_ms);
+        expect(timings['worker.input_delivery_and_startup'].total_ms).toBeGreaterThanOrEqual(0);
+        expect(timings['worker.output_delivery'].total_ms).toBeGreaterThanOrEqual(0);
+        expect(timings['worker.first_measured_roundtrip'].total_ms).toBeCloseTo(
+          timings['worker.input_delivery_and_startup'].total_ms +
+            timings['worker.execution'].total_ms +
+            timings['worker.output_delivery'].total_ms,
+          5
+        );
+        expect(await worker.prepare(input)).toEqual(expected);
+        expect(diagnostics.snapshot()['worker.first_measured_roundtrip'].count).toBe(1);
+        const profiles = await storage.RowPreparationWorker.collectProfiles();
+        expect(profiles).toHaveLength(cpu ? 1 : 0);
+        if (cpu) expect(profiles[0].profile).toMatchObject({ nodes: expect.any(Array), samples: expect.any(Array) });
+      }
+    } finally {
+      storage.ReplicationDiagnostics.active = undefined;
+    }
+    expect(await worker.prepare(input)).toEqual(expected);
+  });
   test.each([false, true])('matches inline preparation, compiled=%s', async (compiled) => {
     const { config, tables } = fixture(compiled);
     await using worker = new storage.RowPreparationWorker(MONGO_PREPARATION_WORKER, config);

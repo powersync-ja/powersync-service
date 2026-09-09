@@ -77,6 +77,34 @@ The existing data-shape controls below also apply: `BENCHMARK_SHAPE=sample|synth
 disables object storage. Source settings and `BENCHMARK_MUTATION_COUNT` are unused.
 This benchmark is opt-in via `benchmark:changes`; the existing quick suite skips it.
 
+### Profiling change batches
+
+After rebuilding, run from this package with your usual storage and workload settings:
+
+```sh
+BENCHMARK_PROFILE=true BENCHMARK_ROWS=100000 BENCHMARK_ITERATIONS=2 pnpm benchmark:changes
+# Stage timings without CPU sampling:
+BENCHMARK_PROFILE=timings pnpm benchmark:changes
+```
+
+Each measured iteration writes a summary JSON and, in CPU mode, separate main-thread and
+preparation-worker `.cpuprofile` files under `benchmark-artifacts/profiles/`. Override the
+directory with `BENCHMARK_PROFILE_DIR`. Load CPU profiles in Chrome DevTools' Performance
+panel. Summary frames report sampled **self time**, not inclusive call-tree time.
+
+Timings cover preparation, message construction/delivery, membership reads, reconciliation,
+packing, uploads, publication transactions and waits for pipeline capacity. They are bounded
+aggregates (count, total and maximum), not per-row traces. Spans overlap and nest: do not sum
+them as exclusive CPU time. Worker input delivery includes startup and profiler initialization;
+output delivery includes cloning and event-loop scheduling. Neither measures pure serialization.
+The first measured worker round trip is recorded separately to expose startup effects.
+
+Warmups and prefill are excluded. Worker CPU capture starts on its first measured request and
+ends after the final commit, so it includes trailing idle time during publication. Throughput
+excludes profile collection/file writing, but process resource monitoring includes that overhead.
+Profiling itself adds overhead; compare performance with profiling disabled (unset or `false`).
+For an initial analysis, see [replication profiling findings](../../docs/storage/mongodb-replication-profiling.md).
+
 ## MongoDB replication throughput
 
 The MongoDB throughput suite runs the real source connector against MongoDB storage v4,

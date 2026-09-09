@@ -12,6 +12,7 @@ import { BenchmarkIterationRuntime, BenchmarkRunOptions } from '../types/Benchma
 import { StorageBenchmarkRunResource } from '../types/StorageBenchmark.js';
 import { bucketRequests, resolveBenchmarkBuckets } from '../utils/benchmark-buckets.js';
 import { Benchmark } from './Benchmark.js';
+import { ChangeBatchProfile } from './ChangeBatchProfile.js';
 
 type Run = { resource: StorageBenchmarkRunResource; batches: Buffer[][]; generationMs: number };
 type Iteration = {
@@ -119,6 +120,10 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
   }
 
   protected async executeIteration(context: Iteration, runtime: BenchmarkIterationRuntime) {
+    await using profile =
+      runtime.kind === 'measured'
+        ? await ChangeBatchProfile.start(`${this.scenario.id}.${this.runOptions.runId}.${runtime.iteration}`)
+        : undefined;
     const started = performance.now();
     let bytes = 0;
     for (const [index, events] of context.run.batches.entries()) {
@@ -140,6 +145,7 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
     // Model one safe checkpoint marker after the backlog, without a source marker round trip.
     const commit = await context.writer.commit(TARGET);
     const ended = performance.now();
+    await profile?.finish(true);
     runtime.metrics.recordBoundary(
       'change_batches',
       'raw_bson_batch_received',
@@ -252,6 +258,7 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
       ...run.resource.environment,
       storage_version: this.scenario.storage.version,
       source: 'synthetic-raw-bson',
+      profiling: process.env.BENCHMARK_PROFILE ?? 'false',
       checkpoint_policy: 'queued-resume-per-page-final-commit'
     };
   }

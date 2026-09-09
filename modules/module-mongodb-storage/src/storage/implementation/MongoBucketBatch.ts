@@ -264,10 +264,15 @@ export abstract class MongoBucketBatch
 
   /** Auto-flush admits work; explicit flush/commit remains a durability barrier. */
   private async enqueuePipelineBatch(wait = true): Promise<void> {
+    const diagnostics = storage.ReplicationDiagnostics.active;
     // Keep at most one prepared/preparing block ahead of ordered application,
     // plus the source's accumulating input block. The worker accepts one request at a time.
+    using capacityWait = diagnostics?.span('admission.application_capacity_wait');
     await this.previousApplication;
+    capacityWait?.end();
+    using workerWait = diagnostics?.span('admission.worker_available_wait');
     await this.preparationReady;
+    workerWait?.end();
     this.pipeline?.check();
     const input = this.batch;
     this.batch = null;
@@ -325,8 +330,12 @@ export abstract class MongoBucketBatch
     );
     // Preparation is independent of storage state. Membership reads, reconciliation,
     // operation allocation and publication admission remain strictly ordered.
+    using previousWait = storage.ReplicationDiagnostics.active?.span('application.previous_wait');
     await previous;
+    previousWait?.end();
+    using readyWait = storage.ReplicationDiagnostics.active?.span('application.preparation_wait');
     await prepared;
+    readyWait?.end();
     this.pipeline.check();
     if (input == null || !input.hasData()) return;
     await this.hooks?.beforeBatchFlush?.(this);
@@ -350,11 +359,13 @@ export abstract class MongoBucketBatch
         for (const [key, value] of state) sizes.set(key, value.data?.length() ?? 0);
       }
       for (const records of input.batched(sizes)) {
+        using lookupSpan = storage.ReplicationDiagnostics.active?.span('storage.membership_read');
         const loaded = await this.sourceRecordStore.loadDocuments(
           session,
           records.map((op) => ({ sourceTableId: mongoTableId(op.record.sourceTable.id), replicaId: op.beforeId })),
           this.skipExistingRows
         );
+        lookupSpan?.end();
         for (const op of records) {
           const { batch: persisted, changes } = (context.group ??= {
             batch: this.createPersistedBatch(0),
@@ -583,6 +594,7 @@ export abstract class MongoBucketBatch
     sourceRecord: LoadedSourceRecord | null,
     opSeq: MongoIdSequence
   ) {
+    using reconcile = storage.ReplicationDiagnostics.active?.span('application.reconcile_sync');
     const record = operation.record;
     const beforeId = operation.beforeId;
     const afterId = operation.afterId;

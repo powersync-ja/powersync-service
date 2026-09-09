@@ -253,6 +253,7 @@ export class PersistedBatchV3 extends PersistedBatch {
   }
 
   private async prepareBucketData(): Promise<void> {
+    using packing = storage.ReplicationDiagnostics.active?.span('publication.packing_sync');
     const byDefinition = Map.groupBy(this.bucketData, (document) => document.bucketKey.definitionId);
     const uploads: { path: string; document: BucketDataDocumentV3 }[] = [];
     this.preparedWrites = Array.from(byDefinition, ([definitionId, operations]) => {
@@ -274,14 +275,18 @@ export class PersistedBatchV3 extends PersistedBatch {
       return { definitionId, documents };
     });
 
+    packing?.end();
     if (uploads.length === 0) return;
     const lifecycle = this.objectStorageLifecycle!;
     // Markers must predate the publication transaction and survive its rollback.
+    using markers = storage.ReplicationDiagnostics.active?.span('storage.upload_markers');
     this.preparedUploads = await lifecycle.prepareUploads(uploads.map((upload) => upload.path));
+    markers?.end();
     // The object storage applies its shared request limit. Settle every request
     // before returning an error, including PUTs completing after another failed.
     const results = await Promise.allSettled(
       uploads.map(async ({ path, document }) => {
+        using upload = storage.ReplicationDiagnostics.active?.span('publication.s3_upload');
         const { fileSize } = await lifecycle.bucketData.store(path, document.ops!, { signal: this.signal });
         delete document.ops;
         document.storage_ref = { path, file_size: fileSize };
