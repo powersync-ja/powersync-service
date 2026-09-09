@@ -18,7 +18,7 @@ import { APIMetric } from '@powersync/service-types';
 import * as sqlite from 'node:sqlite';
 import { Readable, Writable } from 'stream';
 import { pipeline } from 'stream/promises';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import winston from 'winston';
 import { syncStreamed } from '../../../src/routes/endpoints/sync-stream.js';
 import { DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS, limitParamsForLogging } from '../../../src/util/param-logging.js';
@@ -195,6 +195,7 @@ describe('Stream Route', () => {
     // Fail the stream before reporting a client disconnect.
     const runClientDisconnectAfter = async (streamError: Error) => {
       const recorder = recordingMetricsEngine('stream-route-test');
+      onTestFinished(() => recorder.shutdown());
       const storage = {
         getParsedSyncRules() {
           return new SqlSyncRules('bucket_definitions: {}').hydrate(defaultHydrationOptions);
@@ -218,6 +219,8 @@ describe('Stream Route', () => {
       const response = await (syncStreamed.handler({ context, params: {}, request }) as Promise<RouterResponse>);
       await drainWithTimeout(response.data as Readable).catch((error) => error);
       await response.afterSend({ clientClosed: true });
+      expect(await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, {})).toBe(1);
+      expect(await recorder.seriesValue(APIMetric.CONCURRENT_CONNECTIONS, {})).toBe(0);
       return recorder;
     };
 
@@ -238,7 +241,7 @@ describe('Stream Route', () => {
           close_reason: 'client_closed',
           transport: 'http_stream'
         })
-      ).toBeUndefined();
+      ).toBe(0);
     });
 
     it('reports the PowerSync code for a ServiceError mid-stream', async () => {

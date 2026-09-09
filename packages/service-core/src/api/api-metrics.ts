@@ -1,5 +1,6 @@
 import { APIMetric } from '@powersync/service-types';
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
+import { initializeSyncConnectionMetrics } from '../metrics/connection-metrics.js';
 
 /**
  *  Create and register the core API metrics.
@@ -30,7 +31,7 @@ export function createCoreAPIMetrics(engine: MetricsEngine): void {
 
   engine.createCounter({
     name: APIMetric.SYNC_CONNECTIONS,
-    description: 'Sync connections counted once at close, by outcome, close_reason, error_code and transport'
+    description: 'Sync stream closes and setup rejections, by outcome, close_reason, error_code and transport'
   });
 }
 
@@ -43,4 +44,5 @@ export function initializeCoreAPIMetrics(engine: MetricsEngine): void {
 
   // Initialize the metric, so that it reports a value before connections have been opened.
   concurrent_connections.add(0);
+  initializeSyncConnectionMetrics(engine);
 }

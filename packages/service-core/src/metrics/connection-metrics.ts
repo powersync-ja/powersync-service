@@ -53,6 +53,35 @@ export interface SyncConnectionMetric {
 
 const ERROR_CODES: ReadonlySet<string> = new Set(Object.values(ErrorCode));
 
+/** Seed valid series so a scrape before the first close supplies a zero baseline. */
+export function initializeSyncConnectionMetrics(engine: MetricsEngine): void {
+  const counter = engine.getCounter(APIMetric.SYNC_CONNECTIONS);
+  const failureCodes = [...ERROR_CODES, 'other'];
+  for (const transport of Object.values(SyncTransport)) {
+    for (const closeReason of Object.values(SyncCloseReason)) {
+      const { outcome } = SYNC_CONNECTION_REASON_POLICY[closeReason];
+      let errorCodes: readonly string[];
+      switch (closeReason) {
+        case SyncCloseReason.ServiceUnavailable:
+          errorCodes = [ErrorCode.PSYNC_S2003];
+          break;
+        case SyncCloseReason.NoSyncConfig:
+          errorCodes = [ErrorCode.PSYNC_S2302];
+          break;
+        case SyncCloseReason.ConcurrencyLimit:
+          // HTTP keeps its existing empty 429 response, without a PowerSync error code.
+          errorCodes = [transport === SyncTransport.HttpStream ? 'other' : ErrorCode.PSYNC_S2304];
+          break;
+        default:
+          errorCodes = outcome === 'success' ? ['none'] : failureCodes;
+      }
+      for (const errorCode of errorCodes) {
+        counter.add(0, { outcome, close_reason: closeReason, error_code: errorCode, transport });
+      }
+    }
+  }
+}
+
 export function recordSyncConnection(engine: MetricsEngine, metric: SyncConnectionMetric): void {
   const { outcome } = SYNC_CONNECTION_REASON_POLICY[metric.closeReason];
 
