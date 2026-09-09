@@ -39,6 +39,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         connected_at: new Date(streamStart)
       };
 
+      const { bucketStorage, syncRules } = await resolveSyncConnectionSetup(service_context, SyncTransport.RSocket);
+
       // Best effort guess on why the stream was closed.
       // We use the `??=` operator everywhere, so that we catch the first relevant
       // event, which is usually the most specific.
@@ -63,14 +65,6 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           requestedN += n;
         }
       });
-
-      const setup = await resolveSyncConnectionSetup(service_context, SyncTransport.RSocket);
-      if (setup.rejected) {
-        responder.onError(setup.error);
-        responder.onComplete();
-        return;
-      }
-      const { bucketStorage, syncRules } = setup;
 
       const removeStopHandler = routerEngine.addStopHandler(() => {
         closeReason ??= SyncCloseReason.ProcessShutdown;
