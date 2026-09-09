@@ -98,13 +98,14 @@ ${methods}
 
   private rustType({ type }: ColumnType): string {
     if (type.typeFlags & TYPE_TEXT) {
-      return 'String';
+      // The SDK clones parameters internally, so &str is more convenient for callers than String.
+      return '&str';
     } else if (type.typeFlags & TYPE_REAL) {
       return 'f64';
     } else if (type.typeFlags & TYPE_INTEGER) {
       return 'i64';
     } else {
-      return 'String';
+      return '&str';
     }
   }
 }

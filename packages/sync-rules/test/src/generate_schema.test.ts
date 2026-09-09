@@ -425,7 +425,7 @@ impl<'a> TypedSyncStreams<'a> {
         self.0.sync_stream("assets_one", None)
     }
 
-    pub fn assets2(&self, name: String) -> SyncStream<'a> {
+    pub fn assets2(&self, name: &str) -> SyncStream<'a> {
         let encoded_params = json!({"name": name});
 
         self.0.sync_stream("assets_2", Some(&encoded_params))
@@ -472,7 +472,7 @@ impl<'a> TypedSyncStreams<'a> {
         self.0.sync_stream("assets_one", None)
     }
 
-    pub fn assets2(&self, name: String) -> SyncStream<'a> {
+    pub fn assets2(&self, name: &str) -> SyncStream<'a> {
         let encoded_params = json!({"name": name});
 
         self.0.sync_stream("assets_2", Some(&encoded_params))
