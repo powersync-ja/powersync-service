@@ -48,6 +48,7 @@ import { createObjectStorageUsageWriterId } from './v3/object-storage/ObjectStor
 //
 // In the future, we can investigate allowing multiple replication streams operating independently.
 const replicationMutex = new utils.Mutex();
+const PREPARATION_WORKER_COUNT = 2;
 
 export interface MongoBucketBatchOptions {
   db: VersionedPowerSyncMongo;
@@ -100,11 +101,12 @@ export abstract class MongoBucketBatch
   readonly db: VersionedPowerSyncMongo;
   public readonly session: mongo.ClientSession;
   protected readonly sync_rules: HydratedSyncConfig;
-  private preparationWorker?: storage.RowPreparationWorker;
+  private preparationWorkers?: storage.RowPreparationWorker[];
+  private nextPreparationWorker = 0;
   private preparationWorkerUrl?: string;
   private pendingApplication?: Promise<void>;
   private preparationReady?: Promise<void>;
-  private previousApplication?: Promise<void>;
+  private outstandingApplications: Promise<void>[] = [];
 
   protected readonly replicationStreamId: number;
 
@@ -265,14 +267,13 @@ export abstract class MongoBucketBatch
   /** Auto-flush admits work; explicit flush/commit remains a durability barrier. */
   private async enqueuePipelineBatch(wait = true): Promise<void> {
     const diagnostics = storage.ReplicationDiagnostics.active;
-    // Keep at most one prepared/preparing block ahead of ordered application,
-    // plus the source's accumulating input block. The worker accepts one request at a time.
+    // Bound preparing/prepared/applying blocks together. Round-robin workers
+    // cannot be reused until their previous block has finished application.
     using capacityWait = diagnostics?.span('admission.application_capacity_wait');
-    await this.previousApplication;
+    if (this.outstandingApplications.length >= PREPARATION_WORKER_COUNT) {
+      await this.outstandingApplications.shift();
+    }
     capacityWait?.end();
-    using workerWait = diagnostics?.span('admission.worker_available_wait');
-    await this.preparationReady;
-    workerWait?.end();
     this.pipeline?.check();
     const input = this.batch;
     this.batch = null;
@@ -284,14 +285,14 @@ export abstract class MongoBucketBatch
       this.pipeline?.cancel(error);
       throw error;
     });
-    this.previousApplication = previous;
+    this.outstandingApplications.push(pending);
     this.preparationReady = prepared;
     this.pendingApplication = pending;
     // flush/commit or the next admission observes failures; avoid an unhandled rejection meanwhile.
     void pending.catch(() => {});
     if (wait) {
       await pending;
-      this.previousApplication = undefined;
+      this.outstandingApplications = [];
       this.preparationReady = undefined;
       this.pendingApplication = undefined;
     }
@@ -440,7 +441,8 @@ export abstract class MongoBucketBatch
   private async prepareRawRows(records: RecordOperation[]) {
     const raw = records.filter((op) => op.raw != null);
     if (raw.length === 0) return;
-    const results = await this.preparationWorker!.prepare(
+    const worker = this.preparationWorkers![this.nextPreparationWorker++ % PREPARATION_WORKER_COUNT];
+    const results = await worker.prepare(
       raw.map((op) => ({
         raw: op.raw!.raw,
         table: op.raw!.sourceTable
@@ -1012,7 +1014,7 @@ export abstract class MongoBucketBatch
 
   async [Symbol.asyncDispose]() {
     this.pipeline?.cancel();
-    await this.preparationWorker?.[Symbol.asyncDispose]();
+    await Promise.all(this.preparationWorkers?.map((worker) => worker[Symbol.asyncDispose]()) ?? []);
     await this.preparationReady?.catch(() => {});
     await this.pendingApplication?.catch(() => {});
     await this.pipeline?.[Symbol.asyncDispose]();
@@ -1075,8 +1077,11 @@ export abstract class MongoBucketBatch
       return this.save({ tag: raw.tag, sourceTable: raw.sourceTable, afterReplicaId: replicaId, after: row });
     }
     if (!raw.sourceTable.syncData && !raw.sourceTable.syncParameters) return null;
-    if (this.preparationWorker == null) {
-      this.preparationWorker = new storage.RowPreparationWorker(raw.worker, this.sync_rules, this.options.signal);
+    if (this.preparationWorkers == null) {
+      this.preparationWorkers = Array.from(
+        { length: PREPARATION_WORKER_COUNT },
+        () => new storage.RowPreparationWorker(raw.worker, this.sync_rules, this.options.signal)
+      );
       this.preparationWorkerUrl = raw.worker.href;
     } else if (raw.worker.href !== this.preparationWorkerUrl) {
       throw new ReplicationAssertionError('Cannot mix raw row converters in one writer');
