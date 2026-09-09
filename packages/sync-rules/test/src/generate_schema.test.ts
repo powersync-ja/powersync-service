@@ -388,6 +388,8 @@ struct TypedSyncStreams {
 
   test('rust', () => {
     expect(new RustSchemaGenerator().generate(rules, schema)).toEqual(`use powersync::schema::{Column, Schema, Table};
+use powersync::{PowerSyncDatabase, SyncStream};
+use serde_json::json;
 
 pub fn app_schema() -> Schema {
     let mut schema = Schema::default();
@@ -415,10 +417,26 @@ pub fn app_schema() -> Schema {
 
     schema
 }
+
+pub struct TypedSyncStreams<'a>(&'a PowerSyncDatabase);
+
+impl<'a> TypedSyncStreams<'a> {
+    pub fn assets_one(&self) -> SyncStream<'a> {
+        self.0.sync_stream("assets_one", None)
+    }
+
+    pub fn assets2(&self, name: String) -> SyncStream<'a> {
+        let encoded_params = json!({"name": name});
+
+        self.0.sync_stream("assets_2", Some(&encoded_params))
+    }
+}
 `);
 
     expect(new RustSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
       .toEqual(`use powersync::schema::{Column, Schema, Table};
+use powersync::{PowerSyncDatabase, SyncStream};
+use serde_json::json;
 
 pub fn app_schema() -> Schema {
     let mut schema = Schema::default();
@@ -445,6 +463,20 @@ pub fn app_schema() -> Schema {
     ));
 
     schema
+}
+
+pub struct TypedSyncStreams<'a>(&'a PowerSyncDatabase);
+
+impl<'a> TypedSyncStreams<'a> {
+    pub fn assets_one(&self) -> SyncStream<'a> {
+        self.0.sync_stream("assets_one", None)
+    }
+
+    pub fn assets2(&self, name: String) -> SyncStream<'a> {
+        let encoded_params = json!({"name": name});
+
+        self.0.sync_stream("assets_2", Some(&encoded_params))
+    }
 }
 `);
   });
