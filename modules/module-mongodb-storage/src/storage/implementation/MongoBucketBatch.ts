@@ -48,6 +48,9 @@ import { createObjectStorageUsageWriterId } from './v3/object-storage/ObjectStor
 //
 // In the future, we can investigate allowing multiple replication streams operating independently.
 const replicationMutex = new utils.Mutex();
+// Bound retained snapshot input independently of source page size. A normal
+// preparation block contains at most 2,000 rows / approximately 5 MB of input.
+const MAX_SNAPSHOT_REPLAY_BLOCKS = 4;
 const PREPARATION_WORKER_COUNT = 2;
 
 export interface MongoBucketBatchOptions {
@@ -107,6 +110,7 @@ export abstract class MongoBucketBatch
   private pendingApplication?: Promise<void>;
   private preparationReady?: Promise<void>;
   private outstandingApplications: Promise<void>[] = [];
+  private snapshotReplayBlocks: OperationBatch[] = [];
 
   protected readonly replicationStreamId: number;
 
@@ -274,14 +278,14 @@ export abstract class MongoBucketBatch
       await this.outstandingApplications.shift();
     }
     capacityWait?.end();
-    this.pipeline?.check();
+    this.checkPipelineAdmission();
     const input = this.batch;
     this.batch = null;
     const prepared = input == null ? Promise.resolve() : this.prepareRawRows(input.batch);
     // A worker failure can arrive while the previous block is still applying.
     void prepared.catch((error) => this.pipeline?.cancel(error));
     const previous = this.pendingApplication;
-    const pending = this.processPipelineBatch(input, prepared, previous).catch((error) => {
+    const pending = this.processPipelineBatch(input, prepared, previous, wait).catch((error) => {
       this.pipeline?.cancel(error);
       throw error;
     });
@@ -301,21 +305,51 @@ export abstract class MongoBucketBatch
   private async processPipelineBatch(
     input: OperationBatch | null,
     prepared: Promise<void>,
-    previous: Promise<void> | undefined
+    previous: Promise<void> | undefined,
+    flushSnapshot: boolean
   ): Promise<void> {
-    // Snapshot blocks publish before admitting more source input, so a conflict
-    // can discard all speculative state and replay this block with normal reads.
     using previousWait = storage.ReplicationDiagnostics.active?.span('application.previous_wait');
     await previous;
     previousWait?.end();
+    if (this.skipExistingRows) {
+      // Preparation is independent of storage and can finish out of order. Keep
+      // replayable, prepared input before observing any publication conflict.
+      await prepared;
+      if (input?.hasData()) this.snapshotReplayBlocks.push(input);
+    }
     try {
       await this.processPipelineBatchAttempt(input, prepared, true);
+      if (this.skipExistingRows && (flushSnapshot || this.snapshotReplayBlocks.length >= MAX_SNAPSHOT_REPLAY_BLOCKS)) {
+        await this.finishSnapshotWindow();
+      }
     } catch (error) {
       if (!this.skipExistingRows || !(error instanceof SourceRecordSnapshotConflict)) throw error;
       using retry = storage.ReplicationDiagnostics.active?.span('snapshot.conflict_retry');
       await this.pipeline?.[Symbol.asyncDispose]();
       this.pipeline = undefined;
-      await this.processPipelineBatchAttempt(input, prepared, false);
+      // Earlier groups may already have committed. Reading again skips those
+      // rows too, while aborted reservations remain harmless gaps in op IDs.
+      for (const block of this.snapshotReplayBlocks) {
+        await this.processPipelineBatchAttempt(block, Promise.resolve(), false);
+      }
+      await this.finishSnapshotWindow();
+    }
+  }
+
+  private async finishSnapshotWindow() {
+    await this.pipeline?.seal();
+    await this.pipeline?.drain();
+    this.snapshotReplayBlocks = [];
+  }
+
+  private checkPipelineAdmission() {
+    this.options.signal?.throwIfAborted();
+    try {
+      this.pipeline?.check();
+    } catch (error) {
+      // The next ordered application (or explicit flush) performs recovery.
+      // Admission remains bounded while independent worker preparation runs.
+      if (!this.skipExistingRows || !(error instanceof SourceRecordSnapshotConflict)) throw error;
     }
   }
 
@@ -432,10 +466,6 @@ export abstract class MongoBucketBatch
       // Event-only or skipped rows must not hold the writer lease indefinitely.
       if (context.group?.batch.currentSize === 0) context.group = undefined;
     });
-    if (this.skipExistingRows) {
-      await this.pipeline.seal();
-      await this.pipeline.drain();
-    }
   }
 
   private async prepareRawRows(records: RecordOperation[]) {
@@ -1033,7 +1063,7 @@ export abstract class MongoBucketBatch
   }
 
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
-    this.pipeline?.check();
+    this.checkPipelineAdmission();
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
     // V3 source tables own disjoint event-definition ids for each physical table. Multiple
@@ -1071,7 +1101,7 @@ export abstract class MongoBucketBatch
   }
 
   async saveRaw(raw: storage.RawSaveOptions): Promise<storage.FlushedResult | null> {
-    this.pipeline?.check();
+    this.checkPipelineAdmission();
     if (!this.usePipeline || raw.sourceTable.syncEvent || (this.storeCurrentData && raw.sourceTable.storeCurrentData)) {
       const { row, replicaId } = raw.convert();
       return this.save({ tag: raw.tag, sourceTable: raw.sourceTable, afterReplicaId: replicaId, after: row });
@@ -1095,7 +1125,7 @@ export abstract class MongoBucketBatch
 
     if (this.batch.shouldFlush()) {
       if (this.usePipeline && this.write_checkpoint_batch.length === 0) {
-        await this.enqueuePipelineBatch(operation.raw == null || this.skipExistingRows);
+        await this.enqueuePipelineBatch(operation.raw == null && !this.skipExistingRows);
         return null;
       }
       const r = await this.flush();

@@ -7,6 +7,7 @@ import { MongoSyncBucketStorage } from '../../src/storage/implementation/createM
 import { MongoReplicationLease } from '../../src/storage/implementation/MongoReplicationLease.js';
 import { ReplicationStreamDocumentV3 } from '../../src/storage/implementation/v3/models.js';
 import { ObjectStorageLifecycle } from '../../src/storage/implementation/v3/object-storage/ObjectStorageLifecycle.js';
+import { PersistedBatchV3 } from '../../src/storage/implementation/v3/PersistedBatchV3.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { mongoTableId } from '../../src/utils/util.js';
@@ -50,6 +51,102 @@ async function setup(syncRules = rules) {
 }
 
 describe('replication pipeline', () => {
+  test.each([6000, 10001])('coalesces snapshot preparation blocks with bounded replay (%s rows)', async (count) => {
+    const context = await setup();
+    await using factory = context.factory;
+    await using original = context.writer;
+    await using writer = await context.bucketStorage.createWriter({
+      ...test_utils.BATCH_OPTIONS,
+      storeCurrentData: false,
+      skipExistingRows: true
+    });
+    const diagnostics = new storage.ReplicationDiagnostics();
+    storage.ReplicationDiagnostics.active = diagnostics;
+    const reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
+    try {
+      for (let i = 0; i < count; i++) {
+        await writer.save({
+          sourceTable: context.sourceTable,
+          tag: storage.SaveOperationTag.INSERT,
+          after: { id: `${i}`, description: 'snapshot' },
+          afterReplicaId: test_utils.rid(`${i}`)
+        });
+      }
+      await writer.commit('1/2');
+      expect(diagnostics.snapshot()['publication.transaction'].count).toBe(count <= 8000 ? 1 : 2);
+      expect(reads).not.toHaveBeenCalled();
+      expect((await context.bucketStorage.getCheckpoint()).checkpoint).toBe(BigInt(count));
+    } finally {
+      storage.ReplicationDiagnostics.active = undefined;
+      reads.mockRestore();
+    }
+  });
+
+  test.each(['live', 'tombstone'])('replays a snapshot window after an earlier group commits (%s)', async (mode) => {
+    const context = await setup();
+    await using factory = context.factory;
+    await using original = context.writer;
+    const { sourceTable, bucketStorage, stream } = context;
+    await original.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: '2100', description: 'original' },
+      afterReplicaId: test_utils.rid('2100')
+    });
+    if (mode === 'tombstone')
+      await original.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.DELETE,
+        beforeReplicaId: test_utils.rid('2100')
+      });
+    if (mode === 'tombstone') await original.flush();
+    else await original.commit('1/2');
+    await using writer = await bucketStorage.createWriter({
+      ...test_utils.BATCH_OPTIONS,
+      storeCurrentData: false,
+      skipExistingRows: true
+    });
+    // Exercise multiple publications inside one replay window. The first group
+    // commits before the existing source key conflicts in the second group.
+    const limit = vi.spyOn(PersistedBatchV3.prototype, 'shouldPublish').mockImplementation(function (
+      this: PersistedBatchV3
+    ) {
+      return this.currentData.length >= 2000;
+    });
+    const diagnostics = new storage.ReplicationDiagnostics();
+    storage.ReplicationDiagnostics.active = diagnostics;
+    try {
+      for (let i = 0; i < 6000; i++) {
+        await writer.save({
+          sourceTable,
+          tag: storage.SaveOperationTag.INSERT,
+          after: { id: `${i}`, description: 'snapshot' },
+          afterReplicaId: test_utils.rid(`${i}`)
+        });
+      }
+      await writer.commit('1/3');
+      expect(diagnostics.snapshot()['snapshot.conflict_retry'].count).toBeGreaterThan(0);
+      const checkpoint = await bucketStorage.getCheckpoint();
+      const chunks = await test_utils.fromAsync(
+        bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(stream.syncConfigContent[0], 'global[]', 0n)], {
+          limit: 10000,
+          chunkLimitBytes: 16 * 1024 * 1024
+        })
+      );
+      const ops = chunks.flatMap((chunk) => ('chunkData' in chunk ? chunk.chunkData.data : []));
+      expect(ops).toHaveLength(mode === 'live' ? 6000 : 6001);
+      const retained = ops.filter((op) => op.object_id === '2100');
+      expect(retained).toHaveLength(mode === 'live' ? 1 : 2);
+      if (mode === 'live') expect(JSON.parse(retained[0].data!).description).toBe('original');
+      else expect(retained.at(-1)?.op).toBe('REMOVE');
+      expect(new Set(ops.filter((op) => op.object_id !== '2100').map((op) => op.object_id)).size).toBe(5999);
+      expect(checkpoint.lsn).toBe('1/3');
+    } finally {
+      storage.ReplicationDiagnostics.active = undefined;
+      limit.mockRestore();
+    }
+  });
+
   test.each(['new', 'existing', 'same-batch', 'tombstone'])(
     'optimistic membership inserts retry atomically on conflict (%s)',
     async (mode) => {
