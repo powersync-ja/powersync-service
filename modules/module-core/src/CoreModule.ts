@@ -19,13 +19,14 @@ export class CoreModule extends core.modules.AbstractModule {
       this.registerAPIRoutes(context);
     }
 
+    // Shutdown runs in reverse order: drain streams before the final metric export.
+    await this.configureMetrics(context);
+
     // Configures a Fastify server and RSocket server
     this.configureRouterImplementation(context);
 
     // Configures health check probes based off configuration
     this.configureHealthChecks(context);
-
-    await this.configureMetrics(context);
   }
 
   protected configureTags(context: core.ServiceContextContainer) {
@@ -108,7 +109,8 @@ export class CoreModule extends core.modules.AbstractModule {
             }
           };
         });
-      }
+      },
+      stop: (routerEngine) => routerEngine.shutDown()
     });
   }
 
