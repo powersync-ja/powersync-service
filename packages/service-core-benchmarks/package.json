@@ -18,6 +18,7 @@
     "benchmark:down": "docker compose down --volumes",
     "benchmark:latency": "node src/scripts/latency.ts",
     "benchmark:changes": "BENCHMARK_CHANGE_BATCHES=true vitest --config src/vitest.config.ts --run src/benchmarks/change-batches.bench.ts",
+    "benchmark:snapshot": "BENCHMARK_SNAPSHOT_BATCHES=true vitest --config src/vitest.config.ts --configLoader native --run src/benchmarks/change-batches.bench.ts",
     "benchmark:publication-sizes": "node src/scripts/publication-sizes.ts",
     "benchmark:up:storage": "docker compose up -d --wait storage minio-init proxy"
   },

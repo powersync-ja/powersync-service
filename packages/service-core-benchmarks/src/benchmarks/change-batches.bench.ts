@@ -6,8 +6,9 @@ import { MongoChangeBatchBenchmark } from '../runner/MongoChangeBatchBenchmark.j
 import { createChangeBatchScenario } from '../scenarios/mongodb-change-batches.js';
 import { createArtifactsFolder, getArtifactFilename } from '../utils/output.js';
 
-const scenario = createChangeBatchScenario();
-test.skipIf(process.env.BENCHMARK_CHANGE_BATCHES !== 'true')(
+const snapshot = process.env.BENCHMARK_SNAPSHOT_BATCHES === 'true';
+const scenario = createChangeBatchScenario(snapshot ? 'snapshot' : 'changes');
+test.skipIf(!snapshot && process.env.BENCHMARK_CHANGE_BATCHES !== 'true')(
   scenario.id,
   { timeout: scenario.timeout_ms },
   async () => {
@@ -27,7 +28,7 @@ test.skipIf(process.env.BENCHMARK_CHANGE_BATCHES !== 'true')(
         {
           scenario: scenario.id,
           status: result.status,
-          duration_ms: result.summary?.boundaries.change_batches?.median,
+          duration_ms: result.summary?.boundaries[snapshot ? 'snapshot_batches' : 'change_batches']?.median,
           rows_per_second: result.summary?.counters.rows_per_second?.median,
           run_wall_ms: performance.now() - started,
           artifact

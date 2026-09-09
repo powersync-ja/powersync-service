@@ -1,5 +1,35 @@
 # PowerSync Service Core Benchmarks
 
+## Raw snapshot-batch benchmark (no source database)
+
+Use `pnpm benchmark:snapshot` to isolate the snapshot writer path with pre-generated BSON
+documents. It uses MongoDB storage v4 and S3 by default, with `storeCurrentData: false` and
+`skipExistingRows: true`, matching the MongoDB snapshotter. Each page is flushed before
+its snapshot cursor/progress is persisted. The timed interval ends after marking the table
+snapshot complete and committing a simulated safe checkpoint.
+
+```sh
+pnpm build
+pnpm benchmark:up:storage
+BENCHMARK_ROWS=200000 BENCHMARK_BATCH_SIZE=6000 \
+  BENCHMARK_S3_INLINE_THRESHOLD_BYTES=16000 BENCHMARK_PROFILE=timings \
+  pnpm benchmark:snapshot
+```
+
+The default is 10,000 rows, 6,000-row pages, no warmup and one measured iteration.
+Pages also have a simulated 16 MiB BSON limit. The same storage, S3, shape, user-count,
+iteration and profiling settings as `benchmark:changes` apply. `BENCHMARK_MUTATIONS` is
+ignored: snapshot input consists entirely of inserts. Rows are ordered by source `_id`.
+
+Fixture generation, storage setup, verification and cleanup are outside the timed interval.
+The benchmark does not connect to a source database, query a collection, run concurrent CDC,
+or wait for a real source checkpoint marker. It starts with empty storage; it does not simulate
+resumed snapshots with existing rows. Verification checks every row's identity/version/routing,
+operation and bucket counts, the final checkpoint, table snapshot completion and S3 uploads.
+
+Results use `replication.snapshot-batches.*` artifact names and the `snapshot_batches` timing
+boundary, with the same JSON reports and CPU-profile files as the change-batch benchmark.
+
 ## Raw change-batch benchmark (no source database)
 
 Use this focused benchmark when optimizing the code after MongoDB delivers change events:

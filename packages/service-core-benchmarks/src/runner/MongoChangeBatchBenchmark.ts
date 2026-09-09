@@ -1,6 +1,12 @@
 import { isBatchEnd, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { BATCH_OPTIONS, resolveTestTable } from '@powersync/service-core-tests';
-import { DirectSourceRowConverter, parseChangeDocument, writeMongoChange } from '@powersync/service-module-mongodb';
+import {
+  DirectSourceRowConverter,
+  MONGO_PREPARATION_WORKER,
+  parseChangeDocument,
+  writeMongoChange
+} from '@powersync/service-module-mongodb';
+import { deserialize, serialize } from 'bson';
 import { MongoStorageBenchmarkImplementation } from '../implementations/storage/MongoStorageBenchmarkImplementation.js';
 import {
   ChangeBatchScenario,
@@ -14,7 +20,7 @@ import { bucketRequests, resolveBenchmarkBuckets } from '../utils/benchmark-buck
 import { Benchmark } from './Benchmark.js';
 import { ChangeBatchProfile } from './ChangeBatchProfile.js';
 
-type Run = { resource: StorageBenchmarkRunResource; batches: Buffer[][]; generationMs: number };
+type Run = { resource: StorageBenchmarkRunResource; batches: Buffer[][]; lastKeys: Uint8Array[]; generationMs: number };
 type Iteration = {
   run: Run;
   storage: storage.SyncRulesBucketStorage;
@@ -28,7 +34,7 @@ type Iteration = {
 };
 const TARGET = '2/0';
 
-/** Exercise the production conversion/save path with a synthetic, already received change stream. */
+/** Exercise the production writer with already received change events or snapshot documents. */
 export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Run, Iteration, { duration: number }> {
   constructor(scenario: ChangeBatchScenario, options: BenchmarkRunOptions) {
     super(scenario, options);
@@ -37,6 +43,10 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
   protected async setupRun(signal: AbortSignal): Promise<Run> {
     const started = performance.now();
     const batches = generateChangeBatches(this.scenario);
+    const lastKeys =
+      this.scenario.input === 'snapshot'
+        ? batches.map((batch) => serialize({ _id: deserialize(batch.at(-1)!)._id }))
+        : [];
     const generationMs = performance.now() - started;
     const resource = await new MongoStorageBenchmarkImplementation({
       url: process.env.BENCHMARK_MONGODB_STORAGE_URL ?? 'mongodb://127.0.0.1:27118/?directConnection=true',
@@ -55,7 +65,7 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
           }
         : {})
     }).open(signal);
-    return { resource, batches, generationMs };
+    return { resource, batches, lastKeys, generationMs };
   }
 
   protected async setupIteration(run: Run, runtime: BenchmarkIterationRuntime): Promise<Iteration> {
@@ -75,6 +85,7 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
         ...BATCH_OPTIONS,
         // MongoDB supplies complete postimages, matching ChangeStream.streamChangesInternal.
         storeCurrentData: false,
+        skipExistingRows: this.scenario.input === 'snapshot',
         signal: runtime.signal,
         hooks: {
           afterBatchFlush: async () => {
@@ -86,18 +97,25 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
       const converter = new DirectSourceRowConverter(
         bucketStorage.getParsedSyncRules({ defaultSchema: 'public' }).compatibility
       );
-      await writer.markAllSnapshotDone('0/0');
-      for (let i = 0; i < this.scenario.workload.row_count; i++) {
-        runtime.signal.throwIfAborted();
-        if (operationAt(this.scenario.workload.mutations, i) !== 'insert') {
-          await writeMongoChange(writer, table, parseChangeDocument(rawEvent(this.scenario, i, true)), converter);
+      if (this.scenario.input === 'snapshot') {
+        await writer.markTableSnapshotRequired(table);
+      } else {
+        await writer.markAllSnapshotDone('0/0');
+        for (let i = 0; i < this.scenario.workload.row_count; i++) {
+          runtime.signal.throwIfAborted();
+          if (operationAt(this.scenario.workload.mutations, i) !== 'insert') {
+            await writeMongoChange(writer, table, parseChangeDocument(rawEvent(this.scenario, i, true)), converter);
+          }
         }
+        await writer.commit('1/0');
       }
-      await writer.commit('1/0');
       flushes.count = 0;
       runtime.metrics.setCounter('setup_ms', performance.now() - started);
       runtime.metrics.setCounter('fixture_generation_ms', run.generationMs);
-      runtime.metrics.setCounter('prefill_rows', this.scenario.workload.snapshot_row_count);
+      runtime.metrics.setCounter(
+        'prefill_rows',
+        this.scenario.input === 'snapshot' ? 0 : this.scenario.workload.snapshot_row_count
+      );
       return {
         run,
         stream,
@@ -126,11 +144,34 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
         : undefined;
     const started = performance.now();
     let bytes = 0;
+    let replicatedCount = 0;
+    const snapshot = this.scenario.input === 'snapshot';
     for (const [index, events] of context.run.batches.entries()) {
       for (const raw of events) {
         runtime.signal.throwIfAborted();
         bytes += raw.length;
-        await writeMongoChange(context.writer, context.table, parseChangeDocument(raw), context.converter);
+        if (snapshot) {
+          await context.writer.saveRaw!({
+            tag: storage.SaveOperationTag.INSERT,
+            sourceTable: context.table,
+            raw,
+            worker: MONGO_PREPARATION_WORKER,
+            convert: () => context.converter.rawToSqliteRow(raw)
+          });
+        } else {
+          await writeMongoChange(context.writer, context.table, parseChangeDocument(raw), context.converter);
+        }
+      }
+      if (snapshot) {
+        // Match MongoSnapshotter: data is durable before recording the page cursor.
+        await context.writer.flush();
+        replicatedCount += events.length;
+        context.table = await context.writer.updateTableProgress(context.table, {
+          lastKey: context.run.lastKeys[index],
+          replicatedCount,
+          totalEstimatedCount: this.scenario.workload.row_count
+        });
+        continue;
       }
       // Match production page admission. The final commit awaits every receipt;
       // these fixtures contain no split transactions or intermediate markers.
@@ -142,13 +183,18 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
         await context.writer.setResumeLsn(lsn);
       }
     }
-    // Model one safe checkpoint marker after the backlog, without a source marker round trip.
+    if (snapshot) {
+      await context.writer.markTableSnapshotDone([context.table], TARGET);
+      // Simulate streaming reaching the snapshot boundary; no source marker round trip.
+      await context.writer.markAllSnapshotDone(TARGET);
+    }
+    // Model one safe checkpoint marker after the input, without a source marker round trip.
     const commit = await context.writer.commit(TARGET);
     const ended = performance.now();
     await profile?.finish(true);
     runtime.metrics.recordBoundary(
-      'change_batches',
-      'raw_bson_batch_received',
+      snapshot ? 'snapshot_batches' : 'change_batches',
+      snapshot ? 'raw_snapshot_batch_received' : 'raw_bson_batch_received',
       'checkpoint_safe_commit',
       started,
       ended
@@ -161,7 +207,7 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
       raw_bson_bytes: bytes,
       rows_per_second: (this.scenario.workload.row_count * 1000) / duration,
       logical_mib_per_second: ((bytes / (1024 * 1024)) * 1000) / duration,
-      change_batches: context.run.batches.length,
+      [snapshot ? 'snapshot_batches' : 'change_batches']: context.run.batches.length,
       writer_save_calls: this.scenario.workload.row_count,
       writer_flushes: context.flushes.count,
       s3_uploads: (context.run.resource.objectStorageMetrics?.().uploads ?? 0) - context.uploadsBefore,
@@ -236,6 +282,10 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
       },
       { name: 's3_uploads', passed: !context.run.resource.objectStorageMetrics?.().required || uploads > 0 }
     ];
+    if (this.scenario.input === 'snapshot') {
+      const table = await context.writer.getSourceTableStatus(context.table);
+      checks.push({ name: 'snapshot_complete', passed: table?.snapshotComplete === true });
+    }
     runtime.metrics.setCounter('bucket_operations', operations);
     runtime.metrics.setCounter('distinct_buckets', buckets.length);
     runtime.metrics.setCounter('put_payload_bytes_mean', puts ? payloadBytes / puts : 0);
@@ -258,8 +308,12 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
       ...run.resource.environment,
       storage_version: this.scenario.storage.version,
       source: 'synthetic-raw-bson',
+      input: this.scenario.input,
       profiling: process.env.BENCHMARK_PROFILE ?? 'false',
-      checkpoint_policy: 'queued-resume-per-page-final-commit'
+      checkpoint_policy:
+        this.scenario.input === 'snapshot'
+          ? 'snapshot-flush-and-progress-per-page-final-commit'
+          : 'queued-resume-per-page-final-commit'
     };
   }
   protected async cleanupRun(run: Run) {

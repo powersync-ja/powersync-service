@@ -14,6 +14,7 @@ export interface ChangeBatchScenario
   }> {
   storage: { implementation: 'mongodb-storage'; version: typeof STORAGE_VERSION_4 };
   s3: boolean;
+  input: 'changes' | 'snapshot';
 }
 
 function integer(name: string, fallback: number, minimum = 1): number {
@@ -26,11 +27,11 @@ export function operationAt(mode: MutationMode, index: number): Exclude<Mutation
   return mode === 'mixed' ? (['insert', 'update', 'delete'] as const)[index % 3] : mode;
 }
 
-export function createChangeBatchScenario(): ChangeBatchScenario {
+export function createChangeBatchScenario(input: ChangeBatchScenario['input'] = 'changes'): ChangeBatchScenario {
   const rows = integer('BENCHMARK_ROWS', 10_000);
   const users = integer('BENCHMARK_USERS', 100);
   if (users > rows) throw new Error('BENCHMARK_USERS must not exceed BENCHMARK_ROWS');
-  const mode = process.env.BENCHMARK_MUTATIONS ?? 'insert';
+  const mode = input === 'snapshot' ? 'insert' : (process.env.BENCHMARK_MUTATIONS ?? 'insert');
   if (!['insert', 'update', 'delete', 'mixed'].includes(mode)) throw new Error('Invalid BENCHMARK_MUTATIONS');
   const shape = process.env.BENCHMARK_SHAPE ?? 'sample';
   if (!['sample', 'synthetic'].includes(shape)) throw new Error('BENCHMARK_SHAPE must be sample or synthetic');
@@ -38,8 +39,8 @@ export function createChangeBatchScenario(): ChangeBatchScenario {
   const s3 = process.env.BENCHMARK_S3 !== 'false';
   const seeded = mode === 'insert' ? 0 : mode === 'mixed' ? rows - Math.ceil(rows / 3) : rows;
   return {
-    id: `replication.change-batches.mongodb-v4.${s3 ? 's3' : 'inline'}.${mode}`,
-    description: `Raw BSON to MongoDB v4 ${s3 ? '+ S3' : 'inline'}; ${mode}, ${shape}, ${users} users; ${process.env.BENCHMARK_LABEL ?? 'baseline'}`,
+    id: `replication.${input === 'snapshot' ? 'snapshot-batches' : 'change-batches'}.mongodb-v4.${s3 ? 's3' : 'inline'}.${mode}`,
+    description: `Raw BSON ${input} to MongoDB v4 ${s3 ? '+ S3' : 'inline'}; ${mode}, ${shape}, ${users} users; ${process.env.BENCHMARK_LABEL ?? 'baseline'}`,
     layer: 'replication',
     profile: 'manual',
     tags: ['replication', 'mongodb-storage', 'storage-v4'],
@@ -49,9 +50,10 @@ export function createChangeBatchScenario(): ChangeBatchScenario {
     measured_iterations: integer('BENCHMARK_ITERATIONS', 1),
     storage: { implementation: 'mongodb-storage', version: STORAGE_VERSION_4 },
     s3,
+    input,
     workload: {
       row_count: rows,
-      snapshot_row_count: seeded,
+      snapshot_row_count: input === 'snapshot' ? rows : seeded,
       batch_size: integer('BENCHMARK_BATCH_SIZE', 6000),
       payload_bytes: integer('BENCHMARK_PAYLOAD_BYTES', 1024, 0),
       shape,
@@ -91,9 +93,14 @@ export function generateChangeBatches(scenario: ChangeBatchScenario): Buffer[][]
   const batches: Buffer[][] = [];
   let batch: Buffer[] = [];
   let bytes = 0;
-  for (let i = 0; i < scenario.workload.row_count; i++) {
-    const event = rawEvent(scenario, i);
-    if (batch.length && (batch.length >= scenario.workload.batch_size || bytes + event.length > 64 * 1024 * 1024)) {
+  const indices = Array.from({ length: scenario.workload.row_count }, (_, i) => i);
+  // Snapshot cursors are ordered by _id. Keep the same row identities as change fixtures.
+  if (scenario.input === 'snapshot') indices.sort((a, b) => (`row-${a}` < `row-${b}` ? -1 : 1));
+  for (const i of indices) {
+    const document = scenario.input === 'snapshot' ? createDocument(i, 1, scenario.workload.payload_bytes) : undefined;
+    const event = document == null ? rawEvent(scenario, i) : Buffer.from(serialize({ ...document, _id: document.id }));
+    const byteLimit = (scenario.input === 'snapshot' ? 16 : 64) * 1024 * 1024;
+    if (batch.length && (batch.length >= scenario.workload.batch_size || bytes + event.length > byteLimit)) {
       batches.push(batch);
       batch = [];
       bytes = 0;
