@@ -68,7 +68,8 @@ ${streamHelper}`;
   private generateStreamHelper(streams: OptionalStream[]): string {
     const methods = streams.map((stream) => this.generateStreamMethod(stream)).join('\n\n');
 
-    return `pub struct TypedSyncStreams<'a>(&'a PowerSyncDatabase);
+    // The field must be pub so that the helper can be constructed from outside the generated module.
+    return `pub struct TypedSyncStreams<'a>(pub &'a PowerSyncDatabase);
 
 impl<'a> TypedSyncStreams<'a> {
 ${methods}

@@ -418,7 +418,7 @@ pub fn app_schema() -> Schema {
     schema
 }
 
-pub struct TypedSyncStreams<'a>(&'a PowerSyncDatabase);
+pub struct TypedSyncStreams<'a>(pub &'a PowerSyncDatabase);
 
 impl<'a> TypedSyncStreams<'a> {
     pub fn assets_one(&self) -> SyncStream<'a> {
@@ -465,7 +465,7 @@ pub fn app_schema() -> Schema {
     schema
 }
 
-pub struct TypedSyncStreams<'a>(&'a PowerSyncDatabase);
+pub struct TypedSyncStreams<'a>(pub &'a PowerSyncDatabase);
 
 impl<'a> TypedSyncStreams<'a> {
     pub fn assets_one(&self) -> SyncStream<'a> {
