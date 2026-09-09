@@ -50,7 +50,9 @@ import { createObjectStorageUsageWriterId } from './v3/object-storage/ObjectStor
 const replicationMutex = new utils.Mutex();
 // Bound retained snapshot input independently of source page size. A normal
 // preparation block contains at most 2,000 rows / approximately 5 MB of input.
-const MAX_SNAPSHOT_REPLAY_BLOCKS = 4;
+// Allow a 24,000-row snapshot write window without intermediate durability
+// barriers. Large rows remain bounded by the per-block byte limit.
+const MAX_SNAPSHOT_REPLAY_BLOCKS = 12;
 const PREPARATION_WORKER_COUNT = 2;
 
 export interface MongoBucketBatchOptions {

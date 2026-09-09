@@ -4,8 +4,13 @@
 
 Use `pnpm benchmark:snapshot` to isolate the snapshot writer path with pre-generated BSON
 documents. It uses MongoDB storage v4 and S3 by default, with `storeCurrentData: false` and
-`skipExistingRows: true`, matching the MongoDB snapshotter. Each page is flushed before
-its snapshot cursor/progress is persisted. The timed interval ends after marking the table
+`skipExistingRows: true`, matching the MongoDB snapshotter. Source pages are combined into
+write windows targeting 24,000 rows, 16 MiB of raw BSON, or four source pages, whichever
+comes first (checked at page boundaries).
+Each window is flushed before its snapshot cursor/progress is persisted; a final partial
+window is flushed at end-of-input. This reduces publication overhead without increasing
+the source page size. An interrupted snapshot may replay the unfinished window.
+The timed interval ends after marking the table
 snapshot complete and committing a simulated safe checkpoint.
 
 ```sh

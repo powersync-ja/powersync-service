@@ -19,6 +19,7 @@ import { createCheckpointImplementation } from './checkpoints/create-checkpoint-
 import { MongoManager } from './MongoManager.js';
 import { getMongoRelation } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
+import { MongoSnapshotWriteWindow } from './MongoSnapshotWriteWindow.js';
 import { ChangeStreamBatch, parseChangeDocument, rawChangeStream } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, detectDocumentDb } from './replication-utils.js';
 import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
@@ -467,7 +468,7 @@ export class MongoSnapshotter {
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
     const totalEstimatedCount = await this.estimatedCountNumber(table);
-    let at = table.snapshotStatus?.replicatedCount ?? 0;
+    const writeWindow = new MongoSnapshotWriteWindow(batch, table, totalEstimatedCount);
     const collection = this.client.db(table.schema).collection(table.name);
     await using query = new ChunkedSnapshotQuery({
       collection,
@@ -522,19 +523,12 @@ export class MongoSnapshotter {
         });
       }
 
-      // Important: flush before marking progress
-      await batch.flush();
-      at += docBatch.length;
-
-      table = await batch.updateTableProgress(table, {
-        lastKey,
-        replicatedCount: at,
-        totalEstimatedCount
-      });
-      // Count completed pages after their restart cursor persists. Cancellation
-      // between data publication and progress otherwise counts the same page
-      // again when the snapshot resumes.
-      rowsReplicatedMetric.add(docBatch.length);
+      const persistedRows = await writeWindow.addPage(docBatch.length, chunkBytes, lastKey);
+      this.touch();
+      if (persistedRows === 0) continue;
+      table = writeWindow.table;
+      // Count only rows whose restart cursor has persisted.
+      rowsReplicatedMetric.add(persistedRows);
 
       const duration = performance.now() - lastBatch;
       lastBatch = performance.now();
@@ -545,6 +539,7 @@ export class MongoSnapshotter {
     }
     // In case the loop was interrupted, make sure we await the last promise.
     await nextChunkPromise;
+    rowsReplicatedMetric.add(await writeWindow.flush());
   }
 
   private async handleRelation(

@@ -51,7 +51,7 @@ async function setup(syncRules = rules) {
 }
 
 describe('replication pipeline', () => {
-  test.each([6000, 10001])('coalesces snapshot preparation blocks with bounded replay (%s rows)', async (count) => {
+  test.each([6000, 24001])('coalesces snapshot preparation blocks with bounded replay (%s rows)', async (count) => {
     const context = await setup();
     await using factory = context.factory;
     await using original = context.writer;
@@ -73,7 +73,9 @@ describe('replication pipeline', () => {
         });
       }
       await writer.commit('1/2');
-      expect(diagnostics.snapshot()['publication.transaction'].count).toBe(count <= 8000 ? 1 : 2);
+      // The normal publication-size limit splits the 24k window in two;
+      // the final row belongs to a new replay window and publication.
+      expect(diagnostics.snapshot()['publication.transaction'].count).toBe(count <= 24000 ? 1 : 3);
       expect(reads).not.toHaveBeenCalled();
       expect((await context.bucketStorage.getCheckpoint()).checkpoint).toBe(BigInt(count));
     } finally {

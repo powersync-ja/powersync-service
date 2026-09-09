@@ -3,6 +3,7 @@ import { BATCH_OPTIONS, resolveTestTable } from '@powersync/service-core-tests';
 import {
   DirectSourceRowConverter,
   MONGO_PREPARATION_WORKER,
+  MongoSnapshotWriteWindow,
   parseChangeDocument,
   writeMongoChange
 } from '@powersync/service-module-mongodb';
@@ -144,12 +145,18 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
         : undefined;
     const started = performance.now();
     let bytes = 0;
-    let replicatedCount = 0;
     const snapshot = this.scenario.input === 'snapshot';
+    const snapshotWindow = new MongoSnapshotWriteWindow(
+      context.writer,
+      context.table,
+      this.scenario.workload.row_count
+    );
     for (const [index, events] of context.run.batches.entries()) {
+      let pageBytes = 0;
       for (const raw of events) {
         runtime.signal.throwIfAborted();
         bytes += raw.length;
+        pageBytes += raw.length;
         if (snapshot) {
           await context.writer.saveRaw!({
             tag: storage.SaveOperationTag.INSERT,
@@ -163,14 +170,7 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
         }
       }
       if (snapshot) {
-        // Match MongoSnapshotter: data is durable before recording the page cursor.
-        await context.writer.flush();
-        replicatedCount += events.length;
-        context.table = await context.writer.updateTableProgress(context.table, {
-          lastKey: context.run.lastKeys[index],
-          replicatedCount,
-          totalEstimatedCount: this.scenario.workload.row_count
-        });
+        await snapshotWindow.addPage(events.length, pageBytes, context.run.lastKeys[index]);
         continue;
       }
       // Match production page admission. The final commit awaits every receipt;
@@ -184,6 +184,8 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
       }
     }
     if (snapshot) {
+      await snapshotWindow.flush();
+      context.table = snapshotWindow.table;
       await context.writer.markTableSnapshotDone([context.table], TARGET);
       // Simulate streaming reaching the snapshot boundary; no source marker round trip.
       await context.writer.markAllSnapshotDone(TARGET);
@@ -312,7 +314,7 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
       profiling: process.env.BENCHMARK_PROFILE ?? 'false',
       checkpoint_policy:
         this.scenario.input === 'snapshot'
-          ? 'snapshot-flush-and-progress-per-page-final-commit'
+          ? 'snapshot-bounded-write-window-and-progress-final-commit'
           : 'queued-resume-per-page-final-commit'
     };
   }
