@@ -79,6 +79,20 @@ This benchmark is opt-in via `benchmark:changes`; the existing quick suite skips
 
 ### Profiling change batches
 
+To compare publication sizing, run `pnpm benchmark:publication-sizes`. This runs 6,000,
+12,000, 24,000 and then 6,000 events per source page sequentially, with 200,000 changes,
+two measured iterations and timings-only profiling by default. The repeated baseline helps
+expose run drift. Existing storage, latency, workload and profiling environment settings are
+retained; page size is overridden. Pass explicit sizes with
+`pnpm benchmark:publication-sizes 6000 12000`. The command prints throughput/upload counts
+and writes `benchmark-artifacts/publication-sizing-<timestamp>.json` linking the full results.
+Do not run other change benchmarks concurrently with the sweep.
+
+This tests larger source pages as a proxy for larger publication groups. Existing publication
+byte limits still split oversized groups. It does not implement cross-page coalescing or test
+low-load checkpoint latency. Inspect `publication.transaction.count` in the profile summaries
+for actual group counts; page counts need not equal publication counts.
+
 After rebuilding, run from this package with your usual storage and workload settings:
 
 ```sh
