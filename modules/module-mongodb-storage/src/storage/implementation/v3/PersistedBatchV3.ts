@@ -9,6 +9,8 @@ import {
   PersistedBatch,
   PersistedBatchOptions,
   SaveParameterDataOptions,
+  SourceRecordInsertConflict,
+  SourceRecordSnapshotConflict,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
 import { SourceRecordLookupState } from '../common/SourceRecordStore.js';
@@ -29,7 +31,11 @@ import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
   private metadataSize = 0;
-  currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
+  currentData: {
+    sourceTableId: bson.ObjectId;
+    operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3>;
+    skipExistingOnConflict?: boolean;
+  }[] = [];
   sourceTablePendingDeletes = new Map<string, InternalOpId>();
   protected readonly objectStorageLifecycle?: ObjectStorageLifecycle;
   protected readonly objectStorageUsage?: ObjectStorageUsage;
@@ -201,20 +207,25 @@ export class PersistedBatchV3 extends PersistedBatch {
 
     this.currentData.push({
       sourceTableId: values.sourceTableId,
-      operation: {
-        updateOne: {
-          filter: { _id: values.replicaId },
-          update: {
-            $set: {
-              data: values.data,
-              buckets,
-              lookups
-            },
-            $unset: { pending_delete: 1 }
-          },
-          upsert: true
-        }
-      }
+      skipExistingOnConflict: values.skipExistingOnConflict,
+      operation: values.assumeNew
+        ? {
+            insertOne: { document: { _id: values.replicaId, data: values.data, buckets, lookups } }
+          }
+        : {
+            updateOne: {
+              filter: { _id: values.replicaId },
+              update: {
+                $set: {
+                  data: values.data,
+                  buckets,
+                  lookups
+                },
+                $unset: { pending_delete: 1 }
+              },
+              upsert: true
+            }
+          }
     });
     this.accountCurrentData();
   }
@@ -379,13 +390,48 @@ export class PersistedBatchV3 extends PersistedBatch {
     for (const operations of operationsBySourceTable.values()) {
       using timing = storage.ReplicationDiagnostics.active?.span('transaction.current_data.membership_write');
       const sourceTableId = operations[0]!.sourceTableId;
-      await this.db.sourceRecords(this.group_id, sourceTableId).bulkWrite(
-        operations.map((entry) => entry.operation),
-        {
-          session,
-          ordered: true
+      try {
+        await this.db.sourceRecords(this.group_id, sourceTableId).bulkWrite(
+          operations.map((entry) => entry.operation),
+          { session, ordered: true }
+        );
+      } catch (error) {
+        // A duplicate aborts the transaction. Only retry conflicts from our
+        // optimistic source-record inserts, not other writes or constraints.
+        if (!(error instanceof mongo.MongoBulkWriteError)) throw error;
+        const writeErrors = Array.isArray(error.writeErrors) ? error.writeErrors : [error.writeErrors];
+        if (
+          writeErrors.length === 0 ||
+          !writeErrors.every((write) => {
+            const operation = operations[write.index]?.operation;
+            return write.code === 11000 && operation != null && 'insertOne' in operation;
+          })
+        ) {
+          throw error;
         }
-      );
+        if (operations.some((entry) => entry.skipExistingOnConflict)) {
+          // Snapshot rows must not overwrite existing records or publish their
+          // speculative bucket operations. Rebuild from source input instead.
+          throw new SourceRecordSnapshotConflict('Retry snapshot with source-record lookups', { cause: error });
+        }
+        // Disable the assumption for the entire publication, including tables
+        // already written in the now-aborted transaction. Preserve write order.
+        for (const entry of this.currentData) {
+          if (!('insertOne' in entry.operation)) continue;
+          const document = entry.operation.insertOne.document;
+          entry.operation = {
+            updateOne: {
+              filter: { _id: document._id },
+              update: {
+                $set: { data: document.data, buckets: document.buckets, lookups: document.lookups },
+                $unset: { pending_delete: 1 }
+              },
+              upsert: true
+            }
+          };
+        }
+        throw new SourceRecordInsertConflict('Retry publication with membership upserts', { cause: error });
+      }
     }
   }
 

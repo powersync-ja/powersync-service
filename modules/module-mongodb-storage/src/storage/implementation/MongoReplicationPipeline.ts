@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
-import { PersistedBatch } from './common/PersistedBatch.js';
+import { PersistedBatch, SourceRecordInsertConflict } from './common/PersistedBatch.js';
 import { LoadedSourceRecord } from './common/SourceRecordStore.js';
 import { VersionedPowerSyncMongo } from './db.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
@@ -154,18 +154,28 @@ export class MongoReplicationPipeline implements AsyncDisposable {
           };
         }
         using transaction = diagnostics?.span('publication.transaction');
-        await session.withTransaction(
-          async () => {
-            // A retry records another callback attempt, including any failed phase.
-            using attempt = diagnostics?.span('transaction.callback');
-            this.check();
-            using fence = diagnostics?.span('transaction.fence');
-            await lease.fence(session);
-            fence?.end();
-            await this.publish(batch, lastOp, session, options);
-          },
-          { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, maxCommitTimeMS: 10000 }
-        );
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await session.withTransaction(
+              async () => {
+                // A retry records another callback attempt, including any failed phase.
+                using attempt = diagnostics?.span('transaction.callback');
+                this.check();
+                using fence = diagnostics?.span('transaction.fence');
+                await lease.fence(session);
+                fence?.end();
+                await this.publish(batch, lastOp, session, options);
+              },
+              { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, maxCommitTimeMS: 10000 }
+            );
+            break;
+          } catch (error) {
+            if (attempt !== 0 || !(error instanceof SourceRecordInsertConflict)) throw error;
+            // withTransaction has aborted all writes. The batch has replaced
+            // optimistic inserts with upserts; immutable bucket ops and S3 PUTs
+            // are reused, and progress is published only after this succeeds.
+          }
+        }
         transaction?.end();
         for (const [key, value] of changes) context.published.set(key, value);
         if (!this.preparing) this.prunePublished(context);

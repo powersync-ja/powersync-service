@@ -9,6 +9,7 @@ import { ReplicationStreamDocumentV3 } from '../../src/storage/implementation/v3
 import { ObjectStorageLifecycle } from '../../src/storage/implementation/v3/object-storage/ObjectStorageLifecycle.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
+import { mongoTableId } from '../../src/utils/util.js';
 import { env } from './env.js';
 import { createMemoryS3TestStorageSuite } from './helpers/s3TestFactory.js';
 
@@ -41,11 +42,175 @@ async function setup(syncRules = rules) {
   const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
   await writer.markAllSnapshotDone('1/1');
   const db = bucketStorage.db as VersionedPowerSyncMongoV3;
+  // clear() preserves S3 deletion markers. This setup creates a new in-memory
+  // object store, so markers from previous test stores have no remaining objects.
+  await db.pendingObjectStorageDeletes(bucketStorage.replicationStreamId).deleteMany({});
   const definition = stream.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
   return { factory, writer, sourceTable, bucketStorage, stream, db, definition, objectStorage };
 }
 
 describe('replication pipeline', () => {
+  test.each(['new', 'existing', 'same-batch', 'tombstone'])(
+    'optimistic membership inserts retry atomically on conflict (%s)',
+    async (mode) => {
+      const context = await setup();
+      await using factory = context.factory;
+      await using writer = context.writer;
+      const { db, objectStorage, sourceTable, bucketStorage, definition, stream } = context;
+      const records = db.sourceRecords(bucketStorage.replicationStreamId, mongoTableId(sourceTable.id));
+      if (mode === 'existing' || mode === 'tombstone') {
+        // A real unique-key conflict, including resurrection of a soft-deleted record.
+        await records.insertOne({
+          _id: test_utils.rid('row'),
+          data: null,
+          buckets: [],
+          lookups: [],
+          ...(mode === 'tombstone' ? { pending_delete: 1n } : {})
+        });
+      }
+      const uploads = vi.spyOn(objectStorage, 'put');
+      const reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
+      const diagnostics = new storage.ReplicationDiagnostics();
+      storage.ReplicationDiagnostics.active = diagnostics;
+      const save = async (
+        id: string,
+        description: string,
+        tag: storage.SaveOperationTag.INSERT | storage.SaveOperationTag.UPDATE = storage.SaveOperationTag.INSERT
+      ) => {
+        await writer.save({ sourceTable, tag, after: { id, description }, afterReplicaId: test_utils.rid(id) });
+      };
+      try {
+        await save('prefix', 'one');
+        if (mode === 'same-batch') await save('row', 'initial');
+        await save('row', 'insert');
+        await save('row', 'updated', storage.SaveOperationTag.UPDATE);
+        await save('suffix', 'last');
+        const receipt = await writer.queueResumeLsn!('1/2');
+        await receipt.persisted;
+        // Only the UPDATE is looked up, even when INSERTs conflict at publication.
+        expect(reads).toHaveBeenCalledTimes(1);
+        expect(reads.mock.calls[0][1]).toHaveLength(1);
+        const timings = diagnostics.snapshot();
+        expect(timings['transaction.callback'].count).toBe(mode === 'new' ? 1 : 2);
+        expect(timings['transaction.abort']?.count ?? 0).toBe(mode === 'new' ? 0 : 1);
+        expect(timings['transaction.commit'].count).toBe(1);
+        expect(uploads).toHaveBeenCalledTimes(1);
+        expect(await records.countDocuments()).toBe(3);
+        const row = (await records.find({}).toArray()).find((record) =>
+          record.buckets.some((bucket) => bucket.id === 'row')
+        );
+        expect(row?.pending_delete).toBeUndefined();
+        expect(row?.buckets).toHaveLength(1);
+        expect(await db.bucketData(bucketStorage.replicationStreamId, definition).countDocuments()).toBe(1);
+        expect(await db.pendingObjectStorageDeletes(bucketStorage.replicationStreamId).countDocuments()).toBe(0);
+        const count = mode === 'same-batch' ? 5 : 4;
+        const bucket = await db.bucketState(bucketStorage.replicationStreamId).findOne({});
+        expect(bucket?.bucket_stats.count).toBe(count);
+        await writer.commit('1/2');
+        const checkpoint = await bucketStorage.getCheckpoint();
+        expect(checkpoint.checkpoint).toBe(BigInt(count));
+        const chunks = await test_utils.fromAsync(
+          bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(stream.syncConfigContent[0], 'global[]', 0n)])
+        );
+        const data = chunks.flatMap((chunk) => ('chunkData' in chunk ? chunk.chunkData.data : []));
+        expect(data).toHaveLength(count);
+        expect(data.at(-2)).toMatchObject({ op: 'PUT', object_id: 'row' });
+        expect(JSON.parse(data.at(-2)!.data!)).toMatchObject({ description: 'updated' });
+      } finally {
+        storage.ReplicationDiagnostics.active = undefined;
+        uploads.mockRestore();
+        reads.mockRestore();
+      }
+    }
+  );
+
+  test.each([false, true])(
+    'skips insert lookups but preserves snapshot skips (skipExistingRows=%s)',
+    async (skipExistingRows) => {
+      const context = await setup();
+      await using factory = context.factory;
+      await using original = context.writer;
+      await original.save({
+        sourceTable: context.sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'row', description: 'original' },
+        afterReplicaId: test_utils.rid('row')
+      });
+      await original.commit('1/2');
+      await using writer = await context.bucketStorage.createWriter({
+        ...test_utils.BATCH_OPTIONS,
+        storeCurrentData: true,
+        skipExistingRows
+      });
+      const reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
+      const sizes = vi.spyOn(SourceRecordStoreV3.prototype, 'loadSizes');
+      try {
+        await writer.save({
+          sourceTable: context.sourceTable,
+          tag: storage.SaveOperationTag.INSERT,
+          after: { id: 'row', description: 'replacement' },
+          afterReplicaId: test_utils.rid('row')
+        });
+        await writer.save({
+          sourceTable: context.sourceTable,
+          tag: storage.SaveOperationTag.INSERT,
+          after: { id: 'new', description: 'new' },
+          afterReplicaId: test_utils.rid('new')
+        });
+        await writer.commit('1/3');
+        expect(reads).toHaveBeenCalledTimes(skipExistingRows ? 1 : 0);
+        expect(sizes).not.toHaveBeenCalled();
+        const checkpoint = await context.bucketStorage.getCheckpoint();
+        const chunks = await test_utils.fromAsync(
+          context.bucketStorage.getBucketDataBatch(checkpoint, [
+            bucketRequest(context.stream.syncConfigContent[0], 'global[]', 0n)
+          ])
+        );
+        const data = chunks.flatMap((chunk) => ('chunkData' in chunk ? chunk.chunkData.data : []));
+        expect(data).toHaveLength(skipExistingRows ? 2 : 3);
+        const existing = data.filter((op) => op.object_id === 'row');
+        expect(JSON.parse(existing.at(-1)!.data!)).toMatchObject({
+          description: skipExistingRows ? 'original' : 'replacement'
+        });
+        expect(data.filter((op) => op.object_id === 'new')).toHaveLength(1);
+      } finally {
+        reads.mockRestore();
+        sizes.mockRestore();
+      }
+    }
+  );
+
+  test('fresh snapshots skip membership and size reads', async () => {
+    const context = await setup();
+    await using factory = context.factory;
+    await using original = context.writer;
+    await using writer = await context.bucketStorage.createWriter({
+      ...test_utils.BATCH_OPTIONS,
+      storeCurrentData: true,
+      skipExistingRows: true
+    });
+    const reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
+    const sizes = vi.spyOn(SourceRecordStoreV3.prototype, 'loadSizes');
+    try {
+      for (const id of ['first', 'second']) {
+        await writer.save({
+          sourceTable: context.sourceTable,
+          tag: storage.SaveOperationTag.INSERT,
+          after: { id, description: id },
+          afterReplicaId: test_utils.rid(id)
+        });
+      }
+      await writer.commit('1/2');
+      expect(reads).not.toHaveBeenCalled();
+      expect(sizes).not.toHaveBeenCalled();
+      const checkpoint = await context.bucketStorage.getCheckpoint();
+      expect(checkpoint.checkpoint).toBe(2n);
+    } finally {
+      reads.mockRestore();
+      sizes.mockRestore();
+    }
+  });
+
   test.each([false, true])('records transaction phases without changing publication (retry=%s)', async (retry) => {
     const context = await setup();
     await using factory = context.factory;

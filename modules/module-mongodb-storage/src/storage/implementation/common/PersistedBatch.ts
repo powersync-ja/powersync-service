@@ -55,12 +55,21 @@ export interface SaveParameterDataOptions {
 }
 
 export interface UpsertCurrentDataOptions {
+  /** Optimistically insert; only supported by publication paths that can retry the transaction. */
+  assumeNew?: boolean;
+  /** A conflicting snapshot insert requires re-reading and skipping existing rows. */
+  skipExistingOnConflict?: boolean;
   sourceTableId: bson.ObjectId;
   replicaId: storage.ReplicaId;
   data: bson.Binary | null;
   buckets: SourceRecordBucketState[];
   lookups: SourceRecordLookupState[];
 }
+
+/** The publication plan has switched membership inserts to upserts and must be retried. */
+export class SourceRecordInsertConflict extends Error {}
+
+export class SourceRecordSnapshotConflict extends Error {}
 
 export interface PersistedBatchOptions {
   logger?: Logger;

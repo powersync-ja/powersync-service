@@ -30,7 +30,7 @@ import {
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../utils/util.js';
-import { PersistedBatch } from './common/PersistedBatch.js';
+import { PersistedBatch, SourceRecordSnapshotConflict } from './common/PersistedBatch.js';
 import { LoadedSourceRecord, SourceRecordStore } from './common/SourceRecordStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
@@ -302,6 +302,27 @@ export abstract class MongoBucketBatch
     prepared: Promise<void>,
     previous: Promise<void> | undefined
   ): Promise<void> {
+    // Snapshot blocks publish before admitting more source input, so a conflict
+    // can discard all speculative state and replay this block with normal reads.
+    using previousWait = storage.ReplicationDiagnostics.active?.span('application.previous_wait');
+    await previous;
+    previousWait?.end();
+    try {
+      await this.processPipelineBatchAttempt(input, prepared, true);
+    } catch (error) {
+      if (!this.skipExistingRows || !(error instanceof SourceRecordSnapshotConflict)) throw error;
+      using retry = storage.ReplicationDiagnostics.active?.span('snapshot.conflict_retry');
+      await this.pipeline?.[Symbol.asyncDispose]();
+      this.pipeline = undefined;
+      await this.processPipelineBatchAttempt(input, prepared, false);
+    }
+  }
+
+  private async processPipelineBatchAttempt(
+    input: OperationBatch | null,
+    prepared: Promise<void>,
+    optimisticSnapshot: boolean
+  ): Promise<void> {
     this.pipeline?.check();
     this.pipeline ??= new MongoReplicationPipeline(
       this.db,
@@ -336,9 +357,6 @@ export abstract class MongoBucketBatch
     );
     // Preparation is independent of storage state. Membership reads, reconciliation,
     // operation allocation and publication admission remain strictly ordered.
-    using previousWait = storage.ReplicationDiagnostics.active?.span('application.previous_wait');
-    await previous;
-    previousWait?.end();
     using readyWait = storage.ReplicationDiagnostics.active?.span('application.preparation_wait');
     await prepared;
     readyWait?.end();
@@ -348,30 +366,28 @@ export abstract class MongoBucketBatch
     await this.pipeline.prepare(async (context) => {
       // Replica ids were derived on the worker before constructing storage lookups.
       const { session, sequence, state } = context;
-      const lookups = input.batch.map((op) => ({
-        sourceTableId: mongoTableId(op.record.sourceTable.id),
-        replicaId: op.beforeId
-      }));
+      // Snapshot retries restore existence checks; the first attempt lets the
+      // unique source-record key detect conflicts without reading existing rows.
+      const needsLookup = (op: RecordOperation) =>
+        (this.skipExistingRows && !optimisticSnapshot) || op.record.tag !== SaveOperationTag.INSERT;
+      const sizeLookups = input.batch
+        .filter((op) => needsLookup(op) && op.record.sourceTable.storeCurrentData)
+        .map((op) => ({ sourceTableId: mongoTableId(op.record.sourceTable.id), replicaId: op.beforeId }));
       let sizes: Map<string, number> | undefined;
-      if (
-        this.storeCurrentData &&
-        !this.skipExistingRows &&
-        input.batch.some((op) => op.record.sourceTable.storeCurrentData)
-      ) {
-        sizes = await this.sourceRecordStore.loadSizes(
-          session,
-          lookups.filter((_, i) => input.batch[i].record.sourceTable.storeCurrentData)
-        );
+      if (this.storeCurrentData && !this.skipExistingRows && sizeLookups.length > 0) {
+        sizes = await this.sourceRecordStore.loadSizes(session, sizeLookups);
         for (const [key, value] of state) sizes.set(key, value.data?.length() ?? 0);
       }
       for (const records of input.batched(sizes)) {
-        using lookupSpan = storage.ReplicationDiagnostics.active?.span('storage.membership_read');
-        const loaded = await this.sourceRecordStore.loadDocuments(
-          session,
-          records.map((op) => ({ sourceTableId: mongoTableId(op.record.sourceTable.id), replicaId: op.beforeId })),
-          this.skipExistingRows
-        );
-        lookupSpan?.end();
+        const lookups = records.filter(needsLookup).map((op) => ({
+          sourceTableId: mongoTableId(op.record.sourceTable.id),
+          replicaId: op.beforeId
+        }));
+        let loaded = new Map<string, LoadedSourceRecord>();
+        if (lookups.length > 0) {
+          using lookupSpan = storage.ReplicationDiagnostics.active?.span('storage.membership_read');
+          loaded = await this.sourceRecordStore.loadDocuments(session, lookups, this.skipExistingRows);
+        }
         for (const op of records) {
           const { batch: persisted, changes } = (context.group ??= {
             batch: this.createPersistedBatch(0),
@@ -379,7 +395,13 @@ export abstract class MongoBucketBatch
           });
           this.pipeline!.check();
           const before = state.get(op.internalBeforeKey) ?? loaded.get(op.internalBeforeKey) ?? null;
-          const after = this.saveOperation(persisted, op, before, sequence);
+          const after = this.saveOperation(
+            persisted,
+            op,
+            before,
+            sequence,
+            !this.skipExistingRows || optimisticSnapshot
+          );
           if (after != null) {
             state.set(op.internalAfterKey!, after);
             changes.set(op.internalAfterKey!, after);
@@ -409,6 +431,10 @@ export abstract class MongoBucketBatch
       // Event-only or skipped rows must not hold the writer lease indefinitely.
       if (context.group?.batch.currentSize === 0) context.group = undefined;
     });
+    if (this.skipExistingRows) {
+      await this.pipeline.seal();
+      await this.pipeline.drain();
+    }
   }
 
   private async prepareRawRows(records: RecordOperation[]) {
@@ -598,7 +624,8 @@ export abstract class MongoBucketBatch
     batch: PersistedBatch,
     operation: RecordOperation,
     sourceRecord: LoadedSourceRecord | null,
-    opSeq: MongoIdSequence
+    opSeq: MongoIdSequence,
+    assumeNew = false
   ) {
     using reconcile = storage.ReplicationDiagnostics.active?.span('application.reconcile_sync');
     const record = operation.record;
@@ -827,6 +854,8 @@ export abstract class MongoBucketBatch
     if (afterId) {
       // Insert or update
       batch.upsertCurrentData({
+        assumeNew: assumeNew && record.tag === SaveOperationTag.INSERT,
+        skipExistingOnConflict: this.skipExistingRows,
         sourceTableId,
         replicaId: afterId,
         data: afterData,
@@ -1061,7 +1090,7 @@ export abstract class MongoBucketBatch
 
     if (this.batch.shouldFlush()) {
       if (this.usePipeline && this.write_checkpoint_batch.length === 0) {
-        await this.enqueuePipelineBatch(operation.raw == null);
+        await this.enqueuePipelineBatch(operation.raw == null || this.skipExistingRows);
         return null;
       }
       const r = await this.flush();
