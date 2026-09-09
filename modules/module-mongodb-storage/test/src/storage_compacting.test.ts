@@ -458,9 +458,60 @@ bucket_definitions:
     expect(goodState?.compacted_state?.op_id).toBe(2n);
   });
 
+  test('initial compaction processes at most eight buckets concurrently', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
+    const buckets = Array.from({ length: 18 }, (_, index) => `concurrent-${index}[]`);
+    const documents = buckets.map((bucket) =>
+      serializeBucketData(bucket, [makeOp(2, bucket, bucket, { ...ctx, bucket }, sourceTableId)])
+    );
+    await insertDocs(collection, documents);
+    await bucketStateCollection.insertMany(
+      documents.map((document, index) => ({
+        _id: { d: ctx.definitionId, b: buckets[index] },
+        last_op: 2n,
+        next_compact_check: new Date(0),
+        first_uncompacted_write: new Date(0),
+        bucket_stats: { count: document.count, bytes: BigInt(document.size), chunks: 1 }
+      }))
+    );
+    const compactor = bucketStorage.createMongoCompactor({ maxOpId: 2n, compactChunksOnly: true });
+    const observed = compactor as unknown as { compactClaimedBucket(...args: unknown[]): Promise<void> };
+    const original = observed.compactClaimedBucket.bind(compactor);
+    const ready = Promise.withResolvers<void>();
+    let active = 0;
+    let peak = 0;
+    const spy = vi.spyOn(observed, 'compactClaimedBucket').mockImplementation(async (...args) => {
+      active++;
+      peak = Math.max(peak, active);
+      if (active === 8) ready.resolve();
+      try {
+        await ready.promise;
+        await original(...args);
+      } finally {
+        active--;
+      }
+    });
+    try {
+      await expect(compactor.compact()).resolves.toBe(18);
+      expect(peak).toBe(8);
+      expect(active).toBe(0);
+      expect(spy).toHaveBeenCalledTimes(18);
+      const states = await bucketStateCollection.find({ '_id.b': { $in: buckets } }).toArray();
+      expect(states).toHaveLength(18);
+      for (const state of states) {
+        expect(state.compacted_state?.op_id).toBe(2n);
+        expect(state.compact_lease).toBeUndefined();
+      }
+      await expect(collection.find({}).toArray()).resolves.toEqual(documents);
+    } finally {
+      ready.resolve();
+      spy.mockRestore();
+    }
+  });
+
   test('aborting scheduled compaction does not reschedule the remaining batch', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
-    const buckets = ['first[]', 'second[]', 'third[]'];
+    const buckets = Array.from({ length: 18 }, (_, index) => `abort-${index}[]`);
     const documents = buckets.map((bucket) =>
       serializeBucketData(bucket, [makeOp(2, bucket, bucket, { ...ctx, bucket }, sourceTableId)])
     );
@@ -499,8 +550,10 @@ bucket_definitions:
     const states = await bucketStateCollection.find({ '_id.b': { $in: buckets } }).toArray();
     const completed = states.filter((state) => state.compacted_state != null);
     const remaining = states.filter((state) => state.compacted_state == null);
-    expect(completed).toHaveLength(1);
-    expect(remaining).toHaveLength(2);
+    expect(completed.length).toBeGreaterThanOrEqual(1);
+    expect(completed.length).toBeLessThanOrEqual(8);
+    expect(remaining.length).toBeGreaterThanOrEqual(10);
+    for (const state of states) expect(state.compact_lease).toBeUndefined();
     for (const state of remaining) {
       expect(state.next_compact_check).toEqual(new Date(0));
       expect(state.compact_lease).toBeUndefined();

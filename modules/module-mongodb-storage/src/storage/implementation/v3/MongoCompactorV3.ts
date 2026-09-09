@@ -45,6 +45,7 @@ const DEFAULT_MIN_COMPACT_FULL_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_MAX_COMPACT_FULL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_COMPACT_LEASE_DURATION_MS = 10 * 60 * 1000;
 const SCHEDULED_COMPACTION_BATCH_SIZE = 100;
+const INITIAL_COMPACTION_CONCURRENCY = 8;
 
 interface CompactionGroupResult {
   documentId: BucketDataKey;
@@ -210,16 +211,17 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       );
       await this.rescheduleUnclaimedBuckets(noOpStates, rescheduleNotBefore);
 
-      for (const { state, decision, forcedKind } of scheduled) {
+      const compactBucket = async ({ state, decision, forcedKind }: (typeof scheduled)[number]) => {
+        this.signal?.throwIfAborted();
         const kind = forceKind == null ? decision.kind : forcedKind;
         if (state.compact_lease == null && kind == null) {
-          continue;
+          return;
         }
 
         try {
           await using lease = await this.claimBucket({ _id: state._id, next_compact_check: { $lte: dueBefore } });
           if (lease == null) {
-            continue;
+            return;
           }
           const claimedDecision = chooseCompactionKind(lease.state, lease.startedAt, this);
           const claimedKind =
@@ -241,6 +243,16 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           }
           await this.rescheduleFailedBucket(state, rescheduleNotBefore, error);
         }
+      };
+
+      // Only the post-snapshot chunk pass runs buckets concurrently. Each bucket
+      // retains its own lease, context and retries. Drain every started bucket
+      // before propagating an error so no leases or writes outlive this pass.
+      const concurrency = this.compactChunksOnly ? INITIAL_COMPACTION_CONCURRENCY : 1;
+      for (let offset = 0; offset < scheduled.length; offset += concurrency) {
+        const results = await Promise.allSettled(scheduled.slice(offset, offset + concurrency).map(compactBucket));
+        const failure = results.find((result) => result.status === 'rejected');
+        if (failure?.status === 'rejected') throw failure.reason;
       }
     }
   }
