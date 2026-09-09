@@ -25,6 +25,15 @@ export function mongoAtomicityForHello(hello: Record<string, unknown>): MongoBen
   return supportsSessions && (isReplicaSet || isShardedCluster) ? 'transaction' : 'ordered-batch';
 }
 
+export function mongoSourceRequiresOrderedWrites(transaction: ReplicationBenchmarkTransaction): boolean {
+  const ids = new Set<string>();
+  for (const { row } of transaction.mutations) {
+    if (ids.has(row.id)) return true;
+    ids.add(row.id);
+  }
+  return false;
+}
+
 const COLLECTION_NAME = 'benchmark_items';
 type SourceDocument = mongo.Document & { _id: string };
 
@@ -124,13 +133,15 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
       return { insertOne: { document: { ...row, _id: row.id } } };
     });
     if (this.atomicity === 'transaction') {
+      // Ordered mixed bulks split at every operation-type transition. Independent
+      // document writes can be grouped by type within this atomic transaction;
+      // repeated IDs must retain their original order.
+      const ordered = mongoSourceRequiresOrderedWrites(prepared);
       const session = this.client.startSession();
       try {
         await session.withTransaction(
           async () => {
-            await database
-              .collection<SourceDocument>(COLLECTION_NAME)
-              .bulkWrite(operations, { ordered: true, session });
+            await database.collection<SourceDocument>(COLLECTION_NAME).bulkWrite(operations, { ordered, session });
           },
           { writeConcern: { w: 'majority' } }
         );
@@ -138,6 +149,8 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
         await session.endSession();
       }
     } else {
+      // Preserve ordered-batch semantics (including stopping at the first error)
+      // when the source cannot provide an atomic transaction.
       await database.collection<SourceDocument>(COLLECTION_NAME).bulkWrite(operations, {
         ordered: true,
         writeConcern: { w: 'majority' }

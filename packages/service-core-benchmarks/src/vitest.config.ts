@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['src/benchmarks/**/*.bench.ts'],
+    include: ['src/benchmarks/**/*.bench.ts', 'src/**/*.test.ts'],
     pool: 'threads',
     fileParallelism: false,
     maxWorkers: 1,
