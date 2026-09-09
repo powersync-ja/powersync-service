@@ -7,6 +7,7 @@ import {
   JsLegacySchemaGenerator,
   KotlinSchemaGenerator,
   RoomSchemaGenerator,
+  RustSchemaGenerator,
   SqlSyncRules,
   StaticSchema,
   SwiftSchemaGenerator,
@@ -381,6 +382,69 @@ struct TypedSyncStreams {
             "name": JsonValue.string(name)
         ])
     }
+}
+`);
+  });
+
+  test('rust', () => {
+    expect(new RustSchemaGenerator().generate(rules, schema)).toEqual(`use powersync::schema::{Column, Schema, Table};
+
+pub fn app_schema() -> Schema {
+    let mut schema = Schema::default();
+
+    schema.tables.push(Table::create(
+        "assets1",
+        vec![
+            Column::text("name"),
+            Column::integer("count"),
+            Column::text("owner_id"),
+        ],
+        |_| {},
+    ));
+
+    schema.tables.push(Table::create(
+        "assets2",
+        vec![
+            Column::text("name"),
+            Column::integer("count"),
+            Column::text("other_id"),
+            Column::text("foo"),
+        ],
+        |_| {},
+    ));
+
+    schema
+}
+`);
+
+    expect(new RustSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
+      .toEqual(`use powersync::schema::{Column, Schema, Table};
+
+pub fn app_schema() -> Schema {
+    let mut schema = Schema::default();
+
+    schema.tables.push(Table::create(
+        "assets1",
+        vec![
+            Column::text("name"), // text
+            Column::integer("count"), // int4
+            Column::text("owner_id"), // uuid
+        ],
+        |_| {},
+    ));
+
+    schema.tables.push(Table::create(
+        "assets2",
+        vec![
+            Column::text("name"), // text
+            Column::integer("count"), // int4
+            Column::text("other_id"), // uuid
+            Column::text("foo"),
+        ],
+        |_| {},
+    ));
+
+    schema
 }
 `);
   });
