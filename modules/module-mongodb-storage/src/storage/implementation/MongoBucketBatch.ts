@@ -308,7 +308,11 @@ export abstract class MongoBucketBatch
       this.options.signal,
       async (batch, lastOp, session, options) => {
         await batch.flush(session, options?.flushOptions, false);
-        if (!this.clearedError) await this.clearError(session);
+        if (!this.clearedError) {
+          using timing = storage.ReplicationDiagnostics.active?.span('transaction.clear_error');
+          await this.clearError(session);
+        }
+        using progress = storage.ReplicationDiagnostics.active?.span('transaction.resume_lsn');
         await this.db.sync_rules.updateOne(
           { _id: this.replicationStreamId },
           {
@@ -319,6 +323,8 @@ export abstract class MongoBucketBatch
           },
           { session }
         );
+        progress?.end();
+        using persisted = storage.ReplicationDiagnostics.active?.span('transaction.persisted_op');
         await this.onReplicationTransactionFlush(session, lastOp);
       },
       async (lastOp) => {

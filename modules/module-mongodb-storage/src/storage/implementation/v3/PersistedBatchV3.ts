@@ -305,15 +305,23 @@ export class PersistedBatchV3 extends PersistedBatch {
     const usageDeltas = new Map<BucketDefinitionId, bigint>();
     for (const { definitionId, documents } of this.preparedWrites!) {
       if (documents.length === 0) continue;
+      using insert = storage.ReplicationDiagnostics.active?.span('transaction.bucket_data.insert');
       await this.db.bucketData(this.group_id, definitionId).bulkWrite(
         documents.map((document) => ({ insertOne: { document } })),
         { session, ordered: false }
       );
+      insert?.end();
       const delta = documents.reduce((sum, document) => sum + ObjectStorageUsage.bytes(document), 0n);
       if (delta !== 0n) usageDeltas.set(definitionId, delta);
     }
-    await this.objectStorageLifecycle?.publishUploads(this.preparedUploads, session);
-    await this.objectStorageUsage?.applyDeltas(usageDeltas, session);
+    if (this.objectStorageLifecycle) {
+      using timing = storage.ReplicationDiagnostics.active?.span('transaction.bucket_data.publish_uploads');
+      await this.objectStorageLifecycle.publishUploads(this.preparedUploads, session);
+    }
+    if (this.objectStorageUsage) {
+      using timing = storage.ReplicationDiagnostics.active?.span('transaction.bucket_data.usage');
+      await this.objectStorageUsage.applyDeltas(usageDeltas, session);
+    }
   }
 
   protected async flushBucketParameters(session: mongo.ClientSession) {
@@ -364,10 +372,12 @@ export class PersistedBatchV3 extends PersistedBatch {
     });
 
     if (sourceTableUpdates.length > 0) {
+      using timing = storage.ReplicationDiagnostics.active?.span('transaction.current_data.source_tables');
       await this.db.sourceTables(this.group_id).bulkWrite(sourceTableUpdates, { session, ordered: false });
     }
 
     for (const operations of operationsBySourceTable.values()) {
+      using timing = storage.ReplicationDiagnostics.active?.span('transaction.current_data.membership_write');
       const sourceTableId = operations[0]!.sourceTableId;
       await this.db.sourceRecords(this.group_id, sourceTableId).bulkWrite(
         operations.map((entry) => entry.operation),

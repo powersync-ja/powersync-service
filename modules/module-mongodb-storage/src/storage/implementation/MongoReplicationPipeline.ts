@@ -138,11 +138,30 @@ export class MongoReplicationPipeline implements AsyncDisposable {
         this.check();
         const session = this.db.client.startSession();
         await using sessionLifetime = { [Symbol.asyncDispose]: () => session.endSession() };
-        using transaction = storage.ReplicationDiagnostics.active?.span('publication.transaction');
+        const diagnostics = storage.ReplicationDiagnostics.active;
+        if (diagnostics) {
+          // This session is private to this publication. Time the driver's actual commit
+          // calls without replacing withTransaction's retry/abort handling.
+          const commit = session.commitTransaction.bind(session);
+          session.commitTransaction = async () => {
+            using timing = diagnostics.span('transaction.commit');
+            await commit();
+          };
+          const abort = session.abortTransaction.bind(session);
+          session.abortTransaction = async () => {
+            using timing = diagnostics.span('transaction.abort');
+            await abort();
+          };
+        }
+        using transaction = diagnostics?.span('publication.transaction');
         await session.withTransaction(
           async () => {
+            // A retry records another callback attempt, including any failed phase.
+            using attempt = diagnostics?.span('transaction.callback');
             this.check();
+            using fence = diagnostics?.span('transaction.fence');
             await lease.fence(session);
+            fence?.end();
             await this.publish(batch, lastOp, session, options);
           },
           { readConcern: { level: 'snapshot' }, writeConcern: { w: 'majority' }, maxCommitTimeMS: 10000 }

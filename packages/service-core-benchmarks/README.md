@@ -113,6 +113,17 @@ them as exclusive CPU time. Worker input delivery includes startup and profiler 
 output delivery includes cloning and event-loop scheduling. Neither measures pure serialization.
 The first measured worker round trip is recorded separately to expose startup effects.
 
+Publication internals appear under `transaction.*`: `fence`, `bucket_data`, `parameters`,
+`current_data`, `bucket_states`, `clear_error`, `resume_lsn`, `persisted_op`, `commit` and
+`abort`. Bucket-data subspans separate `insert`, `publish_uploads` (lifecycle marker removal)
+and `usage`; current-data subspans separate `source_tables` and `membership_write`.
+Parent spans include their subspans. All include client work, scheduling and database waits,
+not just server execution. `callback.count` counts transaction attempts; retries repeat phase
+measurements, including failed attempts. `commit` measures driver commit calls (including
+internal retries), while `publication.transaction` covers the complete `withTransaction` call,
+including retry handling. These timings cover pipeline publication, not the later checkpoint
+commit. Empty phases may be absent or complete without a database request.
+
 Warmups and prefill are excluded. Worker CPU capture starts on its first measured request and
 ends after the final commit, so it includes trailing idle time during publication. Throughput
 excludes profile collection/file writing, but process resource monitoring includes that overhead.

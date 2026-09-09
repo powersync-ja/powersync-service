@@ -359,19 +359,23 @@ export abstract class PersistedBatch {
     const startAt = performance.now();
     let flushedSomething = false;
     if (this.bucketDataCount > 0) {
+      using timing = storage.ReplicationDiagnostics.active?.span('transaction.bucket_data');
       flushedSomething = true;
       await this.flushBucketData(session);
     }
     if (this.bucketParameters.length > 0) {
+      using timing = storage.ReplicationDiagnostics.active?.span('transaction.parameters');
       flushedSomething = true;
       await this.flushBucketParameters(session);
     }
     if (this.currentDataCount > 0) {
+      using timing = storage.ReplicationDiagnostics.active?.span('transaction.current_data');
       flushedSomething = true;
       await this.flushCurrentData(session);
     }
 
     if (this.bucketStates.size > 0) {
+      using timing = storage.ReplicationDiagnostics.active?.span('transaction.bucket_states');
       flushedSomething = true;
       await this.flushBucketStates(session);
     }

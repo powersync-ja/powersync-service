@@ -46,6 +46,63 @@ async function setup(syncRules = rules) {
 }
 
 describe('replication pipeline', () => {
+  test.each([false, true])('records transaction phases without changing publication (retry=%s)', async (retry) => {
+    const context = await setup();
+    await using factory = context.factory;
+    await using writer = context.writer;
+    const diagnostics = new storage.ReplicationDiagnostics();
+    const publish = ObjectStorageLifecycle.prototype.publishUploads;
+    let calls = 0;
+    const spy = vi.spyOn(ObjectStorageLifecycle.prototype, 'publishUploads').mockImplementation(async function (
+      this: ObjectStorageLifecycle,
+      ...args
+    ) {
+      await publish.apply(this, args);
+      if (retry && calls++ === 0) {
+        throw new mongo.MongoServerError({
+          message: 'Retry instrumentation test',
+          code: 112,
+          errorLabels: ['TransientTransactionError']
+        });
+      }
+    });
+    storage.ReplicationDiagnostics.active = diagnostics;
+    try {
+      await writer.save({
+        sourceTable: context.sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'profile', description: 'one' },
+        afterReplicaId: test_utils.rid('profile')
+      });
+      const receipt = await writer.queueResumeLsn!('1/2');
+      await receipt.persisted;
+      const timings = diagnostics.snapshot();
+      expect(timings['publication.transaction'].count).toBe(1);
+      expect(timings['transaction.callback'].count).toBe(retry ? 2 : 1);
+      expect(timings['transaction.commit'].count).toBe(1);
+      expect(timings['transaction.abort']?.count ?? 0).toBe(retry ? 1 : 0);
+      for (const phase of [
+        'fence',
+        'bucket_data.insert',
+        'bucket_data.publish_uploads',
+        'current_data.membership_write',
+        'bucket_states',
+        'resume_lsn',
+        'persisted_op'
+      ]) {
+        expect(timings[`transaction.${phase}`].total_ms).toBeGreaterThanOrEqual(0);
+      }
+      const head = await context.db.sync_rules.findOne<ReplicationStreamDocumentV3>({
+        _id: context.bucketStorage.replicationStreamId
+      });
+      expect(head?.resume_lsn).toBe('1/2');
+      expect(head?.last_persisted_op).toBe(1n);
+    } finally {
+      storage.ReplicationDiagnostics.active = undefined;
+      spy.mockRestore();
+    }
+  });
+
   test('persists each page resume position with its prefix, including empty pages', async () => {
     const context = await setup();
     await using factory = context.factory;
