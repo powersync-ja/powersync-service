@@ -4,7 +4,7 @@ import { APIMetric } from '@powersync/service-types';
 import Fastify from 'fastify';
 import * as http from 'node:http';
 import * as sqlite from 'node:sqlite';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import { syncStreamed } from '../../../src/routes/endpoints/sync-stream.js';
 import { registerFastifyErrorHandler, registerFastifyRoutes } from '../../../src/routes/route-register.js';
 import { recordingMetricsEngine } from '../recording-metrics.js';
@@ -50,6 +50,7 @@ describe('Sync stream client disconnect', () => {
 
   async function abortClientMidStream(acceptEncoding: string) {
     const recorder = recordingMetricsEngine('stream-disconnect-test');
+    onTestFinished(() => recorder.shutdown());
     const service_context = mockServiceContext(busyStorage(), recorder.engine);
     const contextProvider: ContextProvider = async (_request, options) => ({
       logger: options.logger,
@@ -102,7 +103,9 @@ describe('Sync stream client disconnect', () => {
         )
         .toBe(1);
 
-      expect(await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, { outcome: 'error' })).toBeUndefined();
+      expect(await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, { outcome: 'error' })).toBe(0);
+      expect(await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, {})).toBe(1);
+      expect(await recorder.seriesValue(APIMetric.CONCURRENT_CONNECTIONS, {})).toBe(0);
     } finally {
       await app.close();
     }
