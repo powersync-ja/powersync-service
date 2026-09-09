@@ -7,9 +7,12 @@ documents. It uses MongoDB storage v4 and S3 by default, with `storeCurrentData:
 `skipExistingRows: true`, matching the MongoDB snapshotter. Source pages are combined into
 write windows targeting 24,000 rows, 16 MiB of raw BSON, or four source pages, whichever
 comes first (checked at page boundaries).
-Each window is flushed before its snapshot cursor/progress is persisted; a final partial
-window is flushed at end-of-input. This reduces publication overhead without increasing
-the source page size. An interrupted snapshot may replay the unfinished window.
+Each window queues an ordered progress receipt: its cursor is committed in the same
+transaction as the final publication for that window. Later windows can prepare and upload
+concurrently, subject to bounded backpressure. Only final completion waits for all receipts.
+Unsupported storage implementations retain the synchronous flush/progress path.
+An interrupted snapshot may replay unpublished input; insert conflicts replay the retained
+input with existence checks without advancing progress past missing rows.
 The timed interval ends after marking the table
 snapshot complete and committing a simulated safe checkpoint.
 

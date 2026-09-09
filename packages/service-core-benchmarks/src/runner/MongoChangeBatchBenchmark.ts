@@ -314,7 +314,7 @@ export class MongoChangeBatchBenchmark extends Benchmark<ChangeBatchScenario, Ru
       profiling: process.env.BENCHMARK_PROFILE ?? 'false',
       checkpoint_policy:
         this.scenario.input === 'snapshot'
-          ? 'snapshot-bounded-write-window-and-progress-final-commit'
+          ? 'snapshot-queued-progress-receipts-final-commit'
           : 'queued-resume-per-page-final-commit'
     };
   }

@@ -393,7 +393,7 @@ export class PersistedBatchV3 extends PersistedBatch {
       try {
         await this.db.sourceRecords(this.group_id, sourceTableId).bulkWrite(
           operations.map((entry) => entry.operation),
-          { session, ordered: true }
+          { session, ordered: !this.canReorderMembershipWrites(operations) }
         );
       } catch (error) {
         // A duplicate aborts the transaction. Only retry conflicts from our
@@ -433,6 +433,36 @@ export class PersistedBatchV3 extends PersistedBatch {
         throw new SourceRecordInsertConflict('Retry publication with membership upserts', { cause: error });
       }
     }
+  }
+
+  private canReorderMembershipWrites(operations: typeof this.currentData): boolean {
+    // Ordered bulks split at every insert/update/delete transition. For mixed
+    // CDC input this can mean thousands of sequential database round trips.
+    // Reordering is safe only when every operation targets a different record.
+    const keys = new Set<string>();
+    for (const { operation } of operations) {
+      const id: unknown =
+        'insertOne' in operation
+          ? operation.insertOne.document._id
+          : 'updateOne' in operation
+            ? operation.updateOne.filter._id
+            : 'deleteOne' in operation
+              ? operation.deleteOne.filter._id
+              : undefined;
+      let key: string;
+      if (typeof id === 'string') key = `string:${id}`;
+      else if (storage.isUUID(id)) key = `uuid:${id.toHexString()}`;
+      else if (id != null && typeof id === 'object' && '_bsontype' in id && id._bsontype === 'ObjectId') {
+        // ObjectIds may come from another installed copy of bson.
+        key = `objectid:${(id as bson.ObjectId).toHexString()}`;
+      }
+      // BSON numeric representations can compare equal in MongoDB despite
+      // differing encodings, including inside compound IDs. Be conservative.
+      else return false;
+      if (keys.has(key)) return false;
+      keys.add(key);
+    }
+    return true;
   }
 
   protected async flushBucketStates(session: mongo.ClientSession) {

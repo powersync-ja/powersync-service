@@ -24,6 +24,7 @@ export interface PublicationGroup {
 
 export interface PublicationOptions {
   resumeLsn?: string;
+  snapshotProgress?: storage.SourceTable;
   flushOptions?: storage.BatchBucketFlushOptions;
 }
 
@@ -54,7 +55,7 @@ export class MongoReplicationPipeline implements AsyncDisposable {
       session: mongo.ClientSession,
       options?: PublicationOptions
     ) => Promise<void>,
-    private readonly committed: (lastOp: bigint) => Promise<void>
+    private readonly committed: (lastOp: bigint, batch: PersistedBatch) => Promise<void>
   ) {
     this.signal = signal == null ? this.abort.signal : AbortSignal.any([signal, this.abort.signal]);
   }
@@ -179,7 +180,7 @@ export class MongoReplicationPipeline implements AsyncDisposable {
         transaction?.end();
         for (const [key, value] of changes) context.published.set(key, value);
         if (!this.preparing) this.prunePublished(context);
-        await this.committed(lastOp);
+        await this.committed(lastOp, batch);
       } catch (error) {
         this.fail(error);
       } finally {
@@ -221,6 +222,12 @@ export class MongoReplicationPipeline implements AsyncDisposable {
     await Promise.all(this.pending);
     await this.releaseIfIdle();
     await this.releasing;
+    this.check();
+  }
+
+  /** Wait for capacity to reclaim committed snapshot input, not the entire pipeline. */
+  async waitForPublication() {
+    if (this.pending.size > 0) await Promise.race(this.pending);
     this.check();
   }
 

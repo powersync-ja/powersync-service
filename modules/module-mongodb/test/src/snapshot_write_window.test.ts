@@ -22,6 +22,8 @@ test.skipIf(!env.TEST_MONGO_STORAGE).each(['rows', 'pages', 'bytes', 'tail', 'fl
       storeCurrentData: false
     });
     const table = await test_utils.resolveTestTable(writer, 'items', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
+    // Exercise the compatibility path for storage implementations without receipts.
+    writer.queueTableProgress = undefined;
     const count = mode === 'rows' ? 24001 : mode === 'pages' ? 5 : 1;
     const window = new MongoSnapshotWriteWindow(writer, table, count);
     const flush = vi.spyOn(writer, 'flush');

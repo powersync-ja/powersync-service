@@ -176,6 +176,18 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
   updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 
   /**
+   * Queue snapshot progress after all preceding rows, without waiting for durability.
+   * The returned table includes admitted progress; use the receipt before reporting
+   * durable progress. Flush/commit also await publication and conflict recovery.
+   * Does not create a client checkpoint. Unsupported writers must flush and then
+   * updateTableProgress instead. Receipt rejections are observed internally.
+   */
+  queueTableProgress?(
+    table: SourceTable,
+    progress: Partial<TableSnapshotStatus>
+  ): Promise<{ table: SourceTable; persisted: Promise<void> }>;
+
+  /**
    * Get the current status for an existing source table without creating or resolving a replacement table.
    */
   getSourceTableStatus(table: SourceTable): Promise<SourceTable | null>;

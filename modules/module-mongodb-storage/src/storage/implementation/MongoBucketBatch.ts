@@ -50,10 +50,14 @@ import { createObjectStorageUsageWriterId } from './v3/object-storage/ObjectStor
 const replicationMutex = new utils.Mutex();
 // Bound retained snapshot input independently of source page size. A normal
 // preparation block contains at most 2,000 rows / approximately 5 MB of input.
-// Allow a 24,000-row snapshot write window without intermediate durability
-// barriers. Large rows remain bounded by the per-block byte limit.
+// Retain at most 24,000 applied rows for conflict replay. Reclaim published
+// prefixes continuously; wait for publication only when this bound is reached.
 const MAX_SNAPSHOT_REPLAY_BLOCKS = 12;
 const PREPARATION_WORKER_COUNT = 2;
+
+type SnapshotReplayEntry =
+  | { input: OperationBatch; publication?: PersistedBatch | null }
+  | { table: storage.SourceTable; receipt: PromiseWithResolvers<void>; published: boolean };
 
 export interface MongoBucketBatchOptions {
   db: VersionedPowerSyncMongo;
@@ -112,7 +116,9 @@ export abstract class MongoBucketBatch
   private pendingApplication?: Promise<void>;
   private preparationReady?: Promise<void>;
   private outstandingApplications: Promise<void>[] = [];
-  private snapshotReplayBlocks: OperationBatch[] = [];
+  private snapshotReplay: SnapshotReplayEntry[] = [];
+  private readonly publishedSnapshotBatches = new WeakSet<PersistedBatch>();
+  private disposing = false;
 
   protected readonly replicationStreamId: number;
 
@@ -271,7 +277,7 @@ export abstract class MongoBucketBatch
   }
 
   /** Auto-flush admits work; explicit flush/commit remains a durability barrier. */
-  private async enqueuePipelineBatch(wait = true): Promise<void> {
+  private async enqueuePipelineBatch(wait = true, flushSnapshot = wait): Promise<void> {
     const diagnostics = storage.ReplicationDiagnostics.active;
     // Bound preparing/prepared/applying blocks together. Round-robin workers
     // cannot be reused until their previous block has finished application.
@@ -287,8 +293,9 @@ export abstract class MongoBucketBatch
     // A worker failure can arrive while the previous block is still applying.
     void prepared.catch((error) => this.pipeline?.cancel(error));
     const previous = this.pendingApplication;
-    const pending = this.processPipelineBatch(input, prepared, previous, wait).catch((error) => {
+    const pending = this.processPipelineBatch(input, prepared, previous, flushSnapshot).catch((error) => {
       this.pipeline?.cancel(error);
+      this.rejectSnapshotReceipts(error);
       throw error;
     });
     this.outstandingApplications.push(pending);
@@ -298,6 +305,12 @@ export abstract class MongoBucketBatch
     void pending.catch(() => {});
     if (wait) {
       await pending;
+      // A publication failure may have appended ordered recovery while we waited.
+      while (this.pendingApplication !== pending && this.pendingApplication != null) {
+        const recovery: Promise<void> = this.pendingApplication;
+        await recovery;
+        if (this.pendingApplication === recovery) break;
+      }
       this.outstandingApplications = [];
       this.preparationReady = undefined;
       this.pendingApplication = undefined;
@@ -317,31 +330,133 @@ export abstract class MongoBucketBatch
       // Preparation is independent of storage and can finish out of order. Keep
       // replayable, prepared input before observing any publication conflict.
       await prepared;
-      if (input?.hasData()) this.snapshotReplayBlocks.push(input);
+      this.pruneSnapshotReplay();
     }
+    const entry: Extract<SnapshotReplayEntry, { input: OperationBatch }> | undefined =
+      input?.hasData() && this.skipExistingRows ? { input } : undefined;
+    if (entry) this.snapshotReplay.push(entry);
     try {
-      await this.processPipelineBatchAttempt(input, prepared, true);
-      if (this.skipExistingRows && (flushSnapshot || this.snapshotReplayBlocks.length >= MAX_SNAPSHOT_REPLAY_BLOCKS)) {
-        await this.finishSnapshotWindow();
+      const publication = await this.processPipelineBatchAttempt(input, prepared, true);
+      if (entry) entry.publication = publication;
+      if (this.skipExistingRows) {
+        this.pruneSnapshotReplay();
+        if (flushSnapshot) await this.finishSnapshotWindow();
+        else if (this.snapshotReplay.filter((entry) => 'input' in entry).length >= MAX_SNAPSHOT_REPLAY_BLOCKS) {
+          await this.pipeline?.seal();
+          while (this.snapshotReplay.filter((entry) => 'input' in entry).length >= MAX_SNAPSHOT_REPLAY_BLOCKS) {
+            await this.pipeline!.waitForPublication();
+            this.pruneSnapshotReplay();
+          }
+        }
       }
     } catch (error) {
       if (!this.skipExistingRows || !(error instanceof SourceRecordSnapshotConflict)) throw error;
-      using retry = storage.ReplicationDiagnostics.active?.span('snapshot.conflict_retry');
-      await this.pipeline?.[Symbol.asyncDispose]();
-      this.pipeline = undefined;
-      // Earlier groups may already have committed. Reading again skips those
-      // rows too, while aborted reservations remain harmless gaps in op IDs.
-      for (const block of this.snapshotReplayBlocks) {
-        await this.processPipelineBatchAttempt(block, Promise.resolve(), false);
-      }
-      await this.finishSnapshotWindow();
+      await this.replaySnapshot();
     }
   }
 
   private async finishSnapshotWindow() {
     await this.pipeline?.seal();
     await this.pipeline?.drain();
-    this.snapshotReplayBlocks = [];
+    this.pruneSnapshotReplay();
+  }
+
+  private pruneSnapshotReplay() {
+    this.snapshotReplay = this.snapshotReplay.filter((entry) =>
+      'input' in entry
+        ? entry.publication === undefined ||
+          (entry.publication !== null && !this.publishedSnapshotBatches.has(entry.publication))
+        : !entry.published
+    );
+  }
+
+  private rejectSnapshotReceipts(error: unknown) {
+    for (const entry of this.snapshotReplay) if ('receipt' in entry) entry.receipt.reject(error);
+  }
+
+  private async replaySnapshot() {
+    using retry = storage.ReplicationDiagnostics.active?.span('snapshot.conflict_retry');
+    await this.pipeline?.[Symbol.asyncDispose]();
+    this.pipeline = undefined;
+    this.pruneSnapshotReplay();
+    // Keep source rows and progress boundaries in order. Earlier committed rows
+    // are skipped on reread, including tombstones; op reservations may leave gaps.
+    for (const entry of this.snapshotReplay) {
+      if ('input' in entry)
+        entry.publication = await this.processPipelineBatchAttempt(entry.input, Promise.resolve(), false);
+      else {
+        await this.processPipelineBatchAttempt(null, Promise.resolve(), false);
+        await this.submitSnapshotProgress(entry);
+      }
+    }
+    await this.finishSnapshotWindow();
+  }
+
+  private async submitSnapshotProgress(entry: Extract<SnapshotReplayEntry, { table: storage.SourceTable }>) {
+    const pipeline = this.pipeline!;
+    let receipt!: storage.BatchProgressReceipt;
+    await pipeline.prepare(async (context) => {
+      const group = context.group ?? { batch: this.createPersistedBatch(0), changes: new Map() };
+      context.group = undefined;
+      receipt = await pipeline.submit(group.batch, context.sequence.last(), group.changes, {
+        snapshotProgress: entry.table
+      });
+    });
+    void receipt.persisted.then(
+      () => {
+        entry.published = true;
+        entry.receipt.resolve();
+      },
+      (error) => {
+        if (!(error instanceof SourceRecordSnapshotConflict) || this.disposing) {
+          entry.receipt.reject(error);
+          return;
+        }
+        // Receipts must settle even if the producer stops admitting rows. Append
+        // recovery behind admitted applications; never race storage reconciliation.
+        const previous = this.pendingApplication;
+        const recovery = (async () => {
+          await previous;
+          if (this.pipeline === pipeline && !this.disposing) await this.replaySnapshot();
+        })().catch((failure) => {
+          this.pipeline?.cancel(failure);
+          this.rejectSnapshotReceipts(failure);
+          throw failure;
+        });
+        this.pendingApplication = recovery;
+        void recovery.catch(() => {});
+      }
+    );
+  }
+
+  async queueTableProgress(table: storage.SourceTable, progress: Partial<storage.TableSnapshotStatus>) {
+    if (!this.usePipeline || !this.skipExistingRows || this.write_checkpoint_batch.length > 0) {
+      await this.flush();
+      return { table: await this.updateTableProgress(table, progress), persisted: Promise.resolve() };
+    }
+    await this.enqueuePipelineBatch(true, false);
+    const copy = this.copyTableProgress(table, progress);
+    const entry = { table: this.copyTableProgress(copy, {}), receipt: Promise.withResolvers<void>(), published: false };
+    void entry.receipt.promise.catch(() => {});
+    const previous = this.pendingApplication;
+    const pending = (async () => {
+      await previous;
+      this.snapshotReplay.push(entry);
+      try {
+        await this.submitSnapshotProgress(entry);
+      } catch (error) {
+        if (!(error instanceof SourceRecordSnapshotConflict)) throw error;
+        await this.replaySnapshot();
+      }
+    })().catch((error) => {
+      entry.receipt.reject(error);
+      this.rejectSnapshotReceipts(error);
+      this.pipeline?.cancel(error);
+      throw error;
+    });
+    this.pendingApplication = pending;
+    await pending;
+    return { table: copy, persisted: entry.receipt.promise };
   }
 
   private checkPipelineAdmission() {
@@ -359,13 +474,14 @@ export abstract class MongoBucketBatch
     input: OperationBatch | null,
     prepared: Promise<void>,
     optimisticSnapshot: boolean
-  ): Promise<void> {
+  ): Promise<PersistedBatch | null> {
     this.pipeline?.check();
     this.pipeline ??= new MongoReplicationPipeline(
       this.db,
       this.options.signal,
       async (batch, lastOp, session, options) => {
         await batch.flush(session, options?.flushOptions, false);
+        if (options?.snapshotProgress) await this.persistTableProgress(options.snapshotProgress, session);
         if (!this.clearedError) {
           using timing = storage.ReplicationDiagnostics.active?.span('transaction.clear_error');
           await this.clearError(session);
@@ -385,7 +501,8 @@ export abstract class MongoBucketBatch
         using persisted = storage.ReplicationDiagnostics.active?.span('transaction.persisted_op');
         await this.onReplicationTransactionFlush(session, lastOp);
       },
-      async (lastOp) => {
+      async (lastOp, batch) => {
+        if (this.skipExistingRows) this.publishedSnapshotBatches.add(batch);
         this.clearedError = true;
         this.recordPersistedOp(lastOp);
         this.last_flushed_op = lastOp;
@@ -398,8 +515,9 @@ export abstract class MongoBucketBatch
     await prepared;
     readyWait?.end();
     this.pipeline.check();
-    if (input == null || !input.hasData()) return;
+    if (input == null || !input.hasData()) return null;
     await this.hooks?.beforeBatchFlush?.(this);
+    let publication: PersistedBatch | null = null;
     await this.pipeline.prepare(async (context) => {
       // Replica ids were derived on the worker before constructing storage lookups.
       const { session, sequence, state } = context;
@@ -459,6 +577,8 @@ export abstract class MongoBucketBatch
             loaded.set(op.internalBeforeKey, deleted);
             changes.set(op.internalBeforeKey, deleted);
           }
+          // Membership-only writes need durability too, even without a new op ID.
+          if (persisted.currentSize > 0) publication = persisted;
           if (persisted.shouldPublish()) {
             context.group = undefined;
             await this.pipeline!.submit(persisted, sequence.last(), changes);
@@ -468,6 +588,7 @@ export abstract class MongoBucketBatch
       // Event-only or skipped rows must not hold the writer lease indefinitely.
       if (context.group?.batch.currentSize === 0) context.group = undefined;
     });
+    return publication;
   }
 
   private async prepareRawRows(records: RecordOperation[]) {
@@ -1045,6 +1166,8 @@ export abstract class MongoBucketBatch
   }
 
   async [Symbol.asyncDispose]() {
+    this.disposing = true;
+    this.rejectSnapshotReceipts(new Error('Snapshot writer disposed'));
     this.pipeline?.cancel();
     await Promise.all(this.preparationWorkers?.map((worker) => worker[Symbol.asyncDispose]()) ?? []);
     await this.preparationReady?.catch(() => {});
@@ -1262,6 +1385,12 @@ export abstract class MongoBucketBatch
     table: storage.SourceTable,
     progress: Partial<storage.TableSnapshotStatus>
   ): Promise<storage.SourceTable> {
+    const copy = this.copyTableProgress(table, progress);
+    await this.withTransaction(() => this.persistTableProgress(copy, this.session));
+    return copy;
+  }
+
+  private copyTableProgress(table: storage.SourceTable, progress: Partial<storage.TableSnapshotStatus>) {
     const copy = table.clone();
     const snapshotStatus = {
       totalEstimatedCount: progress.totalEstimatedCount ?? copy.snapshotStatus?.totalEstimatedCount ?? 0,
@@ -1269,24 +1398,26 @@ export abstract class MongoBucketBatch
       lastKey: progress.lastKey ?? copy.snapshotStatus?.lastKey ?? null
     };
     copy.snapshotStatus = snapshotStatus;
-
-    await this.withTransaction(async () => {
-      await this.db.commonSourceTables(this.replicationStreamId).updateOne(
-        { _id: mongoTableId(table.id) },
-        {
-          $set: {
-            snapshot_status: {
-              last_key: snapshotStatus.lastKey == null ? null : new bson.Binary(snapshotStatus.lastKey),
-              total_estimated_count: snapshotStatus.totalEstimatedCount,
-              replicated_count: snapshotStatus.replicatedCount
-            }
-          }
-        },
-        { session: this.session }
-      );
-    });
-
+    if (snapshotStatus.lastKey != null) snapshotStatus.lastKey = Uint8Array.from(snapshotStatus.lastKey);
     return copy;
+  }
+
+  private async persistTableProgress(table: storage.SourceTable, session: mongo.ClientSession) {
+    using timing = storage.ReplicationDiagnostics.active?.span('transaction.snapshot_progress');
+    const snapshotStatus = table.snapshotStatus!;
+    await this.db.commonSourceTables(this.replicationStreamId).updateOne(
+      { _id: mongoTableId(table.id) },
+      {
+        $set: {
+          snapshot_status: {
+            last_key: snapshotStatus.lastKey == null ? null : new bson.Binary(snapshotStatus.lastKey),
+            total_estimated_count: snapshotStatus.totalEstimatedCount,
+            replicated_count: snapshotStatus.replicatedCount
+          }
+        }
+      },
+      { session }
+    );
   }
 
   protected async clearError(session: mongo.ClientSession): Promise<void> {
