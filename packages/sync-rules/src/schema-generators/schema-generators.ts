@@ -6,6 +6,7 @@ export * from './generators.js';
 export * from './JsLegacySchemaGenerator.js';
 export * from './KotlinSchemaGenerator.js';
 export * from './RoomSchemaGenerator.js';
+export * from './RustSchemaGenerator.js';
 export * from './SchemaGenerator.js';
 export * from './SwiftSchemaGenerator.js';
 export * from './TsSchemaGenerator.js';
