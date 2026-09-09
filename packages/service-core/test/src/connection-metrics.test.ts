@@ -68,6 +68,7 @@ describe('recordSyncConnection', () => {
     { outcome: 'rejected', close_reason: 'service_unavailable', error_code: 'PSYNC_S2003', transport: 'http_stream' },
     { outcome: 'rejected', close_reason: 'no_sync_config', error_code: 'PSYNC_S2302', transport: 'rsocket' },
     { outcome: 'rejected', close_reason: 'storage_error', error_code: 'PSYNC_S2403', transport: 'http_stream' },
+    { outcome: 'rejected', close_reason: 'sync_config_error', error_code: 'other', transport: 'rsocket' },
     { outcome: 'rejected', close_reason: 'concurrency_limit', error_code: 'other', transport: 'http_stream' },
     { outcome: 'rejected', close_reason: 'concurrency_limit', error_code: 'PSYNC_S2304', transport: 'rsocket' }
   ])('initializes $transport / $close_reason / $error_code to zero', async (labels) => {

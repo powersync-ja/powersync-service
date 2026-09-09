@@ -12,6 +12,7 @@ export enum SyncCloseReason {
   ServiceUnavailable = 'service_unavailable',
   NoSyncConfig = 'no_sync_config',
   StorageError = 'storage_error',
+  SyncConfigError = 'sync_config_error',
   ConcurrencyLimit = 'concurrency_limit',
   Unknown = 'unknown'
 }
@@ -34,6 +35,7 @@ const SYNC_CONNECTION_REASON_POLICY = {
   [SyncCloseReason.ServiceUnavailable]: { outcome: 'rejected', logText: 'service unavailable' },
   [SyncCloseReason.NoSyncConfig]: { outcome: 'rejected', logText: 'no sync config' },
   [SyncCloseReason.StorageError]: { outcome: 'rejected', logText: 'storage error' },
+  [SyncCloseReason.SyncConfigError]: { outcome: 'rejected', logText: 'sync config error' },
   [SyncCloseReason.ConcurrencyLimit]: { outcome: 'rejected', logText: 'concurrency limit' },
   // Nothing was thrown or reported, so the stream ended cleanly without a specific reason.
   [SyncCloseReason.Unknown]: { outcome: 'success', logText: 'unknown' }

@@ -1,69 +1,39 @@
 import { ErrorCode, errors } from '@powersync/lib-services-framework';
-import { HydratedSyncConfig } from '@powersync/service-sync-rules';
 
 import { recordSyncConnection, SyncCloseReason, SyncTransport } from '../metrics/connection-metrics.js';
-import type { SyncRulesBucketStorage } from '../storage/storage-index.js';
 import type { RouterServiceContext } from './router.js';
 
-/** Already counted as a rejection; the caller must send the error. */
-export type SyncConnectionRejected = { rejected: true; error: errors.ServiceError };
-
-export type SyncConnectionAccepted = {
-  rejected: false;
-  bucketStorage: SyncRulesBucketStorage;
-  syncRules: HydratedSyncConfig;
-};
-
-/**
- * Resolves storage and sync rules, recording service-state rejections.
- * Storage lookup failures are counted and rethrown.
- */
-export async function resolveSyncConnectionSetup(
-  serviceContext: RouterServiceContext,
-  transport: SyncTransport
-): Promise<SyncConnectionRejected | SyncConnectionAccepted> {
+/** Resolves stream resources, counting setup failures as rejections before rethrowing. */
+export async function resolveSyncConnectionSetup(serviceContext: RouterServiceContext, transport: SyncTransport) {
   const { routerEngine, storageEngine, metricsEngine } = serviceContext;
+  let closeReason = SyncCloseReason.ServiceUnavailable;
 
-  if (routerEngine.closed) {
-    const error = new errors.ServiceError({
-      status: 503,
-      code: ErrorCode.PSYNC_S2003,
-      description: 'Service temporarily unavailable'
-    });
-    recordSyncConnection(metricsEngine, {
-      transport,
-      closeReason: SyncCloseReason.ServiceUnavailable,
-      error
-    });
-    return { rejected: true, error };
-  }
-
-  let bucketStorage: SyncRulesBucketStorage | undefined;
   try {
-    bucketStorage = (await storageEngine.activeBucketStorage.getActiveSyncConfig())?.storage;
-  } catch (ex) {
-    recordSyncConnection(metricsEngine, {
-      transport,
-      closeReason: SyncCloseReason.StorageError,
-      error: ex
-    });
-    throw ex;
-  }
+    if (routerEngine.closed) {
+      throw new errors.ServiceError({
+        status: 503,
+        code: ErrorCode.PSYNC_S2003,
+        description: 'Service temporarily unavailable'
+      });
+    }
 
-  if (bucketStorage == null) {
-    const error = new errors.ServiceError({
-      status: 500,
-      code: ErrorCode.PSYNC_S2302,
-      description: 'No sync config available'
-    });
-    recordSyncConnection(metricsEngine, {
-      transport,
-      closeReason: SyncCloseReason.NoSyncConfig,
-      error
-    });
-    return { rejected: true, error };
-  }
+    closeReason = SyncCloseReason.StorageError;
+    const bucketStorage = (await storageEngine.activeBucketStorage.getActiveSyncConfig())?.storage;
 
-  const syncRules = bucketStorage.getParsedSyncRules(routerEngine.getAPI().getParseSyncRulesOptions());
-  return { rejected: false, bucketStorage, syncRules };
+    closeReason = SyncCloseReason.NoSyncConfig;
+    if (bucketStorage == null) {
+      throw new errors.ServiceError({
+        status: 500,
+        code: ErrorCode.PSYNC_S2302,
+        description: 'No sync config available'
+      });
+    }
+
+    closeReason = SyncCloseReason.SyncConfigError;
+    const syncRules = bucketStorage.getParsedSyncRules(routerEngine.getAPI().getParseSyncRulesOptions());
+    return { bucketStorage, syncRules };
+  } catch (error) {
+    recordSyncConnection(metricsEngine, { transport, closeReason, error });
+    throw error;
+  }
 }
