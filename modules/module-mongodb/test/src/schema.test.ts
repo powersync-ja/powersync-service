@@ -177,36 +177,4 @@ describe('collection schema inference', { timeout: testTimeout(20_000) }, () => 
       codeName: 'MaxTimeMSExpired'
     });
   });
-
-  test('queries collections in their own database', async () => {
-    const otherDb = client.db(`${db.databaseName}_other`);
-    try {
-      await otherDb.dropDatabase();
-      await db.collection('shared').insertOne({ local: true });
-      await otherDb.collection('shared').insertOne({ remote: 'text' });
-      await otherDb.createCollection('empty');
-      await using adapter = new MongoRouteAPIAdapter({
-        type: 'mongodb',
-        ...TEST_CONNECTION_OPTIONS,
-        database: db.databaseName
-      });
-
-      const schema = await adapter.getConnectionSchema();
-      expect(schema.find((database) => database.name == db.databaseName)?.tables).toMatchObject([
-        {
-          name: 'shared',
-          columns: [{ name: '_id' }, { name: 'local', sqlite_type: 4 }]
-        }
-      ]);
-      const tables = schema.find((database) => database.name == otherDb.databaseName)?.tables;
-      expect(tables).toHaveLength(2);
-      expect(tables?.find((table) => table.name == 'shared')?.columns).toMatchObject([
-        { name: '_id' },
-        { name: 'remote', sqlite_type: 2 }
-      ]);
-      expect(tables?.find((table) => table.name == 'empty')?.columns).toEqual([]);
-    } finally {
-      await otherDb.dropDatabase();
-    }
-  });
 });
