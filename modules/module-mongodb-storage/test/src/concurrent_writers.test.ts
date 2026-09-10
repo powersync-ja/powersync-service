@@ -210,20 +210,31 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     );
   });
 
-  test('range exhaustion rolls back and restarts with a fresh sequence', async () => {
+  test.each([false, true])('extends a nearly exhausted range (fallback: %s)', async (fallback) => {
     await using factory = await factoryGen.factory();
     const { writer: batch, table, bucketStorage } = await openStream(factory, version);
     await using writer = batch;
-    // Simulate the last ID of an existing reservation being consumed before this row.
-    // Use the real allocator/transaction path with a deliberately nearly-exhausted range.
     const allocator = factory.getOpIdAllocator(bucketStorage.replicationStream);
     await allocator.reserve();
     allocator.committed(65_535n);
-    await insert(writer, table, 'first');
-    await insert(writer, table, 'second');
-    await writer.commit('1/2');
-    expect(writer.last_flushed_op).toBe(65_537n);
-    expect((await bucketStorage.getCheckpoint()).checkpoint).toBe(65_537n);
+    // Simulate capacity becoming insufficient after the pre-transaction check.
+    // The fallback must still abort and retry safely in that case.
+    const capacity = vi.spyOn(allocator, 'ensureCapacity');
+    if (fallback) {
+      capacity.mockResolvedValueOnce(undefined);
+    }
+    const sequences = vi.spyOn(allocator, 'sequence');
+    try {
+      await insert(writer, table, 'first');
+      await insert(writer, table, 'second');
+      await writer.commit('1/2');
+      expect(writer.last_flushed_op).toBe(65_537n);
+      expect((await bucketStorage.getCheckpoint()).checkpoint).toBe(65_537n);
+      expect(sequences).toHaveBeenCalledTimes(fallback ? 2 : 1);
+    } finally {
+      capacity.mockRestore();
+      sequences.mockRestore();
+    }
   });
 });
 
@@ -246,6 +257,30 @@ describe('operation ID reservations', () => {
       initialize.mockRestore();
       reserve.mockRestore();
     }
+  });
+
+  test('refills below 16k remaining IDs, preserving the tail across disjoint ranges', async () => {
+    await using factory = await factoryGen.factory();
+    const a = await openStream(factory, 4);
+    await using writer = a.writer;
+    const db = factory.db.versioned(a.bucketStorage.replicationStream.getStorageConfig());
+    const allocator = factory.getOpIdAllocator(a.bucketStorage.replicationStream);
+    await allocator.ensureCapacity();
+    allocator.committed(49_152n);
+    await allocator.ensureCapacity();
+    expect((await db.op_id_sequence.findOne({ _id: 'main' }))!.op_id).toBe(65_536n);
+
+    // Another stream's reservation creates a gap that must not count as capacity.
+    await new MongoOpIdAllocator(db).reserve();
+    allocator.committed(49_153n);
+    await Promise.all([allocator.ensureCapacity(), allocator.ensureCapacity()]);
+    expect((await db.op_id_sequence.findOne({ _id: 'main' }))!.op_id).toBe(196_608n);
+    expect(allocator.sequence(49_153n).next()).toBe(49_154n);
+    const sequence = allocator.sequence(65_535n);
+    expect(sequence.next()).toBe(65_536n);
+    expect(sequence.next()).toBe(131_073n);
+    await allocator.ensureCapacity();
+    expect((await db.op_id_sequence.findOne({ _id: 'main' }))!.op_id).toBe(196_608n);
   });
 
   test('refuses a reservation that would overflow without changing the watermark', async () => {

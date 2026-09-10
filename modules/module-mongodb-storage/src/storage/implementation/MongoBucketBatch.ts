@@ -691,6 +691,10 @@ export abstract class MongoBucketBatch
     const lastTry = Date.now() + 90000;
     const allocator = this.options.opIdAllocator;
     let lastOp = 0n;
+    // Refill outside the publication transaction, before evaluating any rows.
+    // Exhaustion remains a fallback for large batches or a newer stream head.
+    this.options.signal?.throwIfAborted();
+    await allocator.ensureCapacity();
     for (;;) {
       try {
         await this.withTransaction(async (stream) => {
