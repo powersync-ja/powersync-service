@@ -307,29 +307,38 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
   ): Promise<void> {
     const signal = this.signal;
     let nextBucket = 0;
+    let failed = false;
 
     const runWorker = async (usage: ObjectStorageUsage) => {
-      while (nextBucket < buckets.length) {
-        // Taking an entry has no await, so each worker gets a different bucket.
-        // A worker takes another only after finishing its current bucket.
-        const bucket = buckets[nextBucket++];
+      try {
+        while (!failed && nextBucket < buckets.length) {
+          // Taking an entry has no await, so each worker gets a different bucket.
+          // A worker takes another only after finishing its current bucket.
+          const bucket = buckets[nextBucket++];
 
-        // This pool bounds one job; the factory semaphore bounds all jobs together.
-        // Acquire before claiming the bucket lease, and hold until it is released.
-        const acquired = await acquireSemaphoreAbortable(this.storage.factory.chunkCompactionSlots, signal);
-        if (acquired === 'aborted') {
-          signal?.throwIfAborted();
-          return;
+          // This pool bounds one job; the factory semaphore bounds all jobs together.
+          // Acquire before claiming the bucket lease, and hold until it is released.
+          const acquired = await acquireSemaphoreAbortable(this.storage.factory.chunkCompactionSlots, signal);
+          if (acquired === 'aborted') {
+            signal?.throwIfAborted();
+            return;
+          }
+          const [, releaseSlot] = acquired;
+          try {
+            // A sibling may have failed while this worker waited for a slot.
+            if (failed) return;
+            signal?.throwIfAborted();
+            await processBucket(bucket, usage);
+          } finally {
+            releaseSlot();
+          }
+          // Let replication and other event-loop work run between buckets.
+          await setImmediate();
         }
-        const [, releaseSlot] = acquired;
-        try {
-          signal?.throwIfAborted();
-          await processBucket(bucket, usage);
-        } finally {
-          releaseSlot();
-        }
-        // Let replication and other event-loop work run between buckets.
-        await setImmediate();
+      } catch (error) {
+        // Drain work already started, but do not let siblings start new buckets.
+        failed = true;
+        throw error;
       }
     };
 

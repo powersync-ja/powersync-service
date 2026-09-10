@@ -1877,6 +1877,49 @@ bucket_definitions:
     expect(activeBytes).toBe(documents.reduce((sum, doc) => sum + BigInt(doc.storage_ref!.file_size), 0n));
   });
 
+  test.each([2, 3])('failed chunk worker stops queued work and drains siblings (%s workers)', async (workerCount) => {
+    const { bucketStorage } = await setupV3();
+    const compactor = bucketStorage.createMongoCompactor({}) as any;
+    const failure = new Error('worker failed');
+    const failing = Promise.withResolvers<void>();
+    const draining = Promise.withResolvers<void>();
+    const started: number[] = [];
+    let settled = false;
+    // The factory has two slots. With three workers, one also waits for a slot
+    // when its sibling fails; it must release that slot without starting work.
+    const run = compactor
+      .runChunkCompactionWorkers(
+        [0, 1, 2, 3, 4],
+        Array.from({ length: workerCount }, () => compactor.objectStorageUsage),
+        async (bucket: number) => {
+          started.push(bucket);
+          if (bucket === 0) await failing.promise;
+          if (bucket === 1) await draining.promise;
+        }
+      )
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      )
+      .finally(() => {
+        settled = true;
+      });
+    try {
+      await vi.waitFor(() => expect(started).toEqual([0, 1]));
+      failing.reject(failure);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(started).toEqual([0, 1]);
+      expect(settled).toBe(false);
+    } finally {
+      failing.resolve();
+      draining.resolve();
+      await run;
+    }
+    expect(await run).toBe(failure);
+    expect(started).toEqual([0, 1]);
+    expect(bucketStorage.factory.chunkCompactionSlots.getValue()).toBe(2);
+  });
+
   test('unforced chunk workers drain before full compaction and reclassify aged buckets on the next scan', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
     const buckets = ['chunk1[]', 'chunk2[]', 'promoted[]', 'full1[]', 'full2[]'];
