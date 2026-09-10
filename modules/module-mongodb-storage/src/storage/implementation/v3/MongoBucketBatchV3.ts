@@ -7,6 +7,7 @@ import { mongoTableId } from '../../../utils/util.js';
 import { canCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoParsedSyncConfigSet } from '../MongoParsedSyncConfigSet.js';
+import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { stopReplicationStreamPipeline } from '../SyncRuleStateUpdate.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
@@ -60,14 +61,12 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     return this.store;
   }
 
-  protected override async onReplicationTransactionFlush(
-    session: lib_mongo.mongo.ClientSession,
-    lastOp: bigint
-  ): Promise<void> {
+  protected override onReplicationTransactionFlush(writes: MongoWriteBatch, lastOp: bigint): void {
     // Durably advance the stream-level head of persisted ops within the flush transaction.
     // This ensures a checkpoint created later (even by an empty commit, or by a freshly-appended
     // config that replicates nothing) covers all ops persisted before a potential crash.
-    await this.db.sync_rules.updateOne(
+    writes.updateOne(
+      this.db.sync_rules,
       {
         _id: this.replicationStreamId
       },
@@ -75,8 +74,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         $max: {
           last_persisted_op: lastOp
         }
-      },
-      { session }
+      }
     );
   }
 
@@ -652,7 +650,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const syncConfigIds = this.relevantSyncConfigIdsForTables(tables);
 
     await this.withTransaction(async () => {
-      await this.db.sourceTables(this.replicationStreamId).updateMany(
+      const writes = this.db.createWriteBatch(session, { ordered: false });
+      writes.updateMany(
+        this.db.sourceTables(this.replicationStreamId),
         { _id: { $in: ids } },
         {
           $set: {
@@ -661,12 +661,12 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           $unset: {
             snapshot_status: 1
           }
-        },
-        { session }
+        }
       );
 
       if (no_checkpoint_before_lsn != null && syncConfigIds.length > 0) {
-        await this.db.sync_rules.updateOne(
+        writes.updateOne(
+          this.db.sync_rules,
           {
             _id: this.replicationStreamId,
             'sync_configs._id': { $in: syncConfigIds }
@@ -680,12 +680,12 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
             }
           },
           {
-            session: this.session,
             // Only set for sync configs that use this table
             arrayFilters: [{ 'config._id': { $in: syncConfigIds } }]
           }
         );
       }
+      await writes.execute();
     });
     return tables.map((table) => {
       const copy = table.clone();
@@ -706,9 +706,11 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       this.validateCustomCheckpointEventId(checkpoint.event_id)
     );
 
+    const writes = this.db.createWriteBatch(session, { ordered: false });
     for (const [eventId, checkpoints] of checkpointsByEvent) {
-      await this.batchCreateEventCustomWriteCheckpoints(session, opId, eventId, checkpoints);
+      this.batchCreateEventCustomWriteCheckpoints(writes, opId, eventId, checkpoints);
     }
+    await writes.execute();
   }
 
   protected override async prepareCustomWriteCheckpoints(): Promise<void> {
@@ -741,48 +743,48 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     return eventId;
   }
 
-  private async batchCreateEventCustomWriteCheckpoints(
-    session: lib_mongo.mongo.ClientSession,
+  private batchCreateEventCustomWriteCheckpoints(
+    writes: MongoWriteBatch,
     opId: InternalOpId,
     eventId: EventDefinitionId,
     checkpoints: storage.CustomWriteCheckpointOptions[]
-  ): Promise<void> {
-    await this.db
-      .customCheckpointRequests({
+  ): void {
+    // A repeated user within an event replaces the complete checkpoint state.
+    const uniqueCheckpoints = new Map(checkpoints.map((checkpoint) => [checkpoint.user_id, checkpoint]));
+    writes.bulkWriteUnordered(
+      this.db.customCheckpointRequests({
         eventId,
         replicationStreamId: this.replicationStreamId
-      })
-      .bulkWrite(
-        checkpoints.map((checkpointOptions) => {
-          const set: Partial<CustomCheckpointRequestDocumentV3> = {
-            user_id: checkpointOptions.user_id,
-            checkpoint: checkpointOptions.checkpoint,
-            op_id: opId
-          };
-          if (checkpointOptions.checkpoint_requested_at != null) {
-            set.checkpoint_requested_at = checkpointOptions.checkpoint_requested_at;
-          }
+      }),
+      [...uniqueCheckpoints.values()].map((checkpointOptions) => {
+        const set: Partial<CustomCheckpointRequestDocumentV3> = {
+          user_id: checkpointOptions.user_id,
+          checkpoint: checkpointOptions.checkpoint,
+          op_id: opId
+        };
+        if (checkpointOptions.checkpoint_requested_at != null) {
+          set.checkpoint_requested_at = checkpointOptions.checkpoint_requested_at;
+        }
 
-          return {
-            updateOne: {
-              filter: {
-                user_id: checkpointOptions.user_id
-              },
-              update: {
-                $set: set,
-                ...(checkpointOptions.checkpoint_requested_at == null
-                  ? {
-                      $unset: {
-                        checkpoint_requested_at: 1
-                      }
+        return {
+          updateOne: {
+            filter: {
+              user_id: checkpointOptions.user_id
+            },
+            update: {
+              $set: set,
+              ...(checkpointOptions.checkpoint_requested_at == null
+                ? {
+                    $unset: {
+                      checkpoint_requested_at: 1
                     }
-                  : {})
-              },
-              upsert: true
-            }
-          };
-        }),
-        { session }
-      );
+                  }
+                : {})
+            },
+            upsert: true
+          }
+        };
+      })
+    );
   }
 }

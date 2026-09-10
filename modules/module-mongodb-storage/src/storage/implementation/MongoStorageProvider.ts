@@ -47,6 +47,8 @@ export class MongoStorageProvider implements storage.StorageProvider {
       maxPoolSize: resolvedConfig.storage.max_pool_size ?? 8
     });
 
+    const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
+
     let shuttingDown = false;
 
     // Explicitly connect on startup.
@@ -56,7 +58,6 @@ export class MongoStorageProvider implements storage.StorageProvider {
     // Errors here will cause the process to exit.
     await client.connect();
 
-    const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
     const readPreference =
       decodedConfig.bulk_read_preference == null
         ? undefined

@@ -17,6 +17,7 @@ import {
   SyncRuleDocumentBase,
   WriteCheckpointDocument
 } from './models.js';
+import { MongoWriteBatch } from './MongoWriteBatch.js';
 import {
   BucketDataDocumentV1,
   BucketParameterDocument,
@@ -54,9 +55,25 @@ export class PowerSyncMongo {
 
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;
+  private clientBulkWriteSupport = false;
+
+  createWriteBatch(session: mongo.ClientSession | undefined, options: { ordered: boolean }): MongoWriteBatch {
+    return new MongoWriteBatch(this.client, () => this.clientBulkWriteSupport, session, options);
+  }
 
   constructor(client: mongo.MongoClient, options?: PowerSyncMongoOptions) {
     this.client = client;
+
+    // Register before connecting to reuse the driver's handshakes. MongoDB 8.0
+    // introduced client bulkWrite at wire version 25. Unknown / mixed-version
+    // topologies use collection writes until all known servers support it.
+    client.on('topologyDescriptionChanged', ({ newDescription }) => {
+      const servers = [...newDescription.servers.values()];
+      this.clientBulkWriteSupport = servers.length > 0 && servers.every((server) => server.maxWireVersion >= 25);
+    });
+    client.on('topologyClosed', () => {
+      this.clientBulkWriteSupport = false;
+    });
 
     const db = client.db(options?.database, {
       ...storage.BSON_DESERIALIZE_INTERNAL_OPTIONS

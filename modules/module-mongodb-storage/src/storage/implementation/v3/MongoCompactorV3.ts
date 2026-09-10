@@ -5,6 +5,7 @@ import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketDataKey } from '../models.js';
 import { ConcurrentCompactionError, MongoCompactor } from '../MongoCompactor.js';
+import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { cacheKey } from '../OperationBatch.js';
 import { loadBucketDataDocument, maxOpId, serializeBucketData } from './bucket-format.js';
 import { BucketDataContextV3 } from './BucketDataContextV3.js';
@@ -987,10 +988,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
             );
           }
 
-          await bucketContext.collection.deleteMany({ _id: { $in: idsToDelete } }, { session });
-          await bucketContext.collection.insertMany(documents, { session });
-          await this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, uploads, session);
-          await this.recordObjectStorageReplacement(oldStorageBytes, documents, context.definitionId, session);
+          // Replacement documents can reuse deleted IDs, so retain delete-before-insert ordering.
+          const writes = this.db.createWriteBatch(session, { ordered: true });
+          writes.deleteMany(bucketContext.collection, { _id: { $in: idsToDelete } });
+          writes.insertMany(bucketContext.collection, documents);
+          this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, uploads, writes);
+          this.recordObjectStorageReplacement(oldStorageBytes, documents, context.definitionId, writes);
+          await writes.execute();
         },
         {
           writeConcern: { w: 'majority' },
@@ -1165,15 +1169,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
 
         prepared ??= await this.prepareCompactionUploads(bucket, context, [lastNotPut]);
         this.logger.info(`Flushing CLEAR for ${clearedOpCount} ops at ${lastDocId?.o}`);
-        await collection.deleteMany(
-          {
-            _id: {
-              $gte: bucketContext.minId,
-              $lte: lastDocId!
-            }
-          },
-          { session }
-        );
+        const writes = this.db.createWriteBatch(session, { ordered: true });
+        writes.deleteMany(collection, {
+          _id: {
+            $gte: bucketContext.minId,
+            $lte: lastDocId!
+          }
+        });
 
         const clearOp = {
           bucketKey: { ...context, bucket },
@@ -1185,9 +1187,10 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         const persisted = await this.persistBucketData(bucket, [[clearOp]], context, prepared, {
           targetOp: maxTargetOp
         });
-        await collection.insertOne(persisted.documents[0], { session });
-        await this.finishObjectStorageReplacement(oldStoragePaths, persisted.storagePaths, persisted.uploads, session);
-        await this.recordObjectStorageReplacement(oldStorageBytes, persisted.documents, context.definitionId, session);
+        writes.insertOne(collection, persisted.documents[0]);
+        this.finishObjectStorageReplacement(oldStoragePaths, persisted.storagePaths, persisted.uploads, writes);
+        this.recordObjectStorageReplacement(oldStorageBytes, persisted.documents, context.definitionId, writes);
+        await writes.execute();
 
         opCountDiff = -clearedOpCount + 1;
         before = inputStats;
@@ -1307,15 +1310,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         }
 
         this.logger.info(`Flushing CLEAR for ${clearedOpCount} ops at ${lastNotPut}`);
-        await collection.deleteMany(
-          {
-            _id: {
-              $gte: bucketContext.minId,
-              $lte: boundaryDocId
-            }
-          },
-          { session }
-        );
+        const writes = this.db.createWriteBatch(session, { ordered: true });
+        writes.deleteMany(collection, {
+          _id: {
+            $gte: bucketContext.minId,
+            $lte: boundaryDocId
+          }
+        });
 
         const clearOp = {
           bucketKey: { ...context, bucket },
@@ -1333,9 +1334,10 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         const persisted = await this.persistBucketData(bucket, chunks, context, prepared, {
           targetOp: maxTargetOp ?? undefined
         });
-        await collection.insertMany(persisted.documents, { session });
-        await this.finishObjectStorageReplacement(oldStoragePaths, persisted.storagePaths, persisted.uploads, session);
-        await this.recordObjectStorageReplacement(oldStorageBytes, persisted.documents, context.definitionId, session);
+        writes.insertMany(collection, persisted.documents);
+        this.finishObjectStorageReplacement(oldStoragePaths, persisted.storagePaths, persisted.uploads, writes);
+        this.recordObjectStorageReplacement(oldStorageBytes, persisted.documents, context.definitionId, writes);
+        await writes.execute();
 
         opCountDiff = -clearedOpCount + 1;
         before = inputStats;
@@ -1374,28 +1376,28 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
   }
 
   /** Publish replacement uploads and retire superseded objects in the same transaction. */
-  private async finishObjectStorageReplacement(
+  private finishObjectStorageReplacement(
     oldStoragePaths: Iterable<string>,
     newStoragePaths: Set<string>,
     uploads: PreparedObjectStorageUpload[],
-    session: mongo.ClientSession
-  ): Promise<void> {
+    writes: MongoWriteBatch
+  ): void {
     if (!this.storage.objectStorage) {
       return;
     }
-    await this.objectStorageLifecycle.publishUploads(uploads, session);
-    await this.objectStorageLifecycle.retire(
+    this.objectStorageLifecycle.publishUploads(uploads, writes);
+    this.objectStorageLifecycle.retire(
       Array.from(oldStoragePaths).filter((path) => !newStoragePaths.has(path)),
-      session
+      writes
     );
   }
 
-  private async recordObjectStorageReplacement(
+  private recordObjectStorageReplacement(
     oldBytes: bigint,
     newDocuments: Iterable<Pick<BucketDataDocumentV3, 'storage_ref'>>,
     definitionId: BucketDefinitionId,
-    session: mongo.ClientSession
-  ): Promise<void> {
+    writes: MongoWriteBatch
+  ): void {
     if (!this.storage.objectStorage) {
       return;
     }
@@ -1403,7 +1405,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     for (const document of newDocuments) {
       newBytes += ObjectStorageUsage.bytes(document);
     }
-    await this.objectStorageUsage.applyDelta(definitionId, newBytes - oldBytes, session);
+    this.objectStorageUsage.applyDelta(definitionId, newBytes - oldBytes, writes);
   }
 
   private async persistBucketData(

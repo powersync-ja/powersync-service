@@ -123,14 +123,18 @@ describe('ObjectStorageUsage', () => {
       await expect(
         withTransaction(db, async (session) => {
           await bucketData.insertOne(document, { session });
-          await usage.applyDelta(definitionId, 123n, session);
+          const writes = db.createWriteBatch(session, { ordered: false });
+          usage.applyDelta(definitionId, 123n, writes);
+          await writes.execute();
           throw new Error('abort this attempt');
         })
       ).rejects.toThrow('abort this attempt');
 
       await withTransaction(db, async (session) => {
         await bucketData.insertOne(document, { session });
-        await usage.applyDelta(definitionId, 123n, session);
+        const writes = db.createWriteBatch(session, { ordered: false });
+        usage.applyDelta(definitionId, 123n, writes);
+        await writes.execute();
       });
 
       expect(await bucketData.countDocuments({ storage_ref: { $exists: true } })).toBe(1);
@@ -182,7 +186,11 @@ describe('ObjectStorageUsage', () => {
       const writerId = 'reused-writer';
       const usage = new ObjectStorageUsage(db, replicationStreamId, writerId);
 
-      await withTransaction(db, (session) => usage.applyDelta(definitionId, 10n, session));
+      await withTransaction(db, async (session) => {
+        const writes = db.createWriteBatch(session, { ordered: false });
+        usage.applyDelta(definitionId, 10n, writes);
+        await writes.execute();
+      });
       await db.objectStorageUsage.updateOne(
         { _id: { g: replicationStreamId, w: writerId } },
         { $set: { updated_at: new Date(0) } }
@@ -191,7 +199,11 @@ describe('ObjectStorageUsage', () => {
 
       // The folder committed first and deleted the writer shard. The writer's
       // next transaction must recreate it through the upsert.
-      await withTransaction(db, (session) => usage.applyDelta(definitionId, 4n, session));
+      await withTransaction(db, async (session) => {
+        const writes = db.createWriteBatch(session, { ordered: false });
+        usage.applyDelta(definitionId, 4n, writes);
+        await writes.execute();
+      });
       expect((await readUsageEntries(db, replicationStreamId))[0].active_bytes).toBe(14n);
 
       await db.objectStorageUsage.updateOne(
