@@ -1,7 +1,15 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
-import { addChecksums, formatBytes, InternalOpId, storage, utils } from '@powersync/service-core';
+import {
+  acquireSemaphoreAbortable,
+  addChecksums,
+  formatBytes,
+  InternalOpId,
+  storage,
+  utils
+} from '@powersync/service-core';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
+import { setImmediate } from 'node:timers/promises';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketDataKey } from '../models.js';
 import { ConcurrentCompactionError, MongoCompactor } from '../MongoCompactor.js';
@@ -46,6 +54,7 @@ const DEFAULT_MIN_COMPACT_FULL_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_MAX_COMPACT_FULL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_COMPACT_LEASE_DURATION_MS = 10 * 60 * 1000;
 const SCHEDULED_COMPACTION_BATCH_SIZE = 100;
+const uninterruptibleSignal = new AbortController().signal;
 
 interface CompactionGroupResult {
   documentId: BucketDataKey;
@@ -162,7 +171,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
    * Batching specifically help to cover cases of many buckets where no compaction is required:
    * Instead of sequentially claiming and then rescheduling a bucket, this handles it in bulk.
    *
-   * Buckets that do need compaction are still claimed and processed sequentially.
+   * Chunk-only passes overlap a bounded number of buckets. Full compaction stays
+   * sequential because its working set includes operation deduplication state.
    *
    * Any concurrent workers may read the same batch. Rescheduling filters out buckets handled
    * by a concurrent worker or replication write, while buckets that do need compaction are
@@ -182,6 +192,11 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     const dueBefore = new Date(jobStartedAt.getTime() + (options.dueAheadMs ?? 0));
     const forceKind = options.forceKind;
     const rescheduleNotBefore = new Date(dueBefore.getTime() + 1);
+    // Keep accounting documents bounded by workers, not buckets or scan batches.
+    const workerUsage = Array.from(
+      { length: forceKind === CompactionKind.Chunks ? this.storage.factory.chunkCompactionConcurrency : 0 },
+      () => new ObjectStorageUsage(this.db, this.group_id, createObjectStorageUsageWriterId())
+    );
     while (true) {
       this.signal?.throwIfAborted();
       const states = await this.findScheduledBucketBatch(dueBefore);
@@ -211,16 +226,19 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       );
       await this.rescheduleUnclaimedBuckets(noOpStates, rescheduleNotBefore);
 
-      for (const { state, decision, forcedKind } of scheduled) {
+      const processBucket = async (
+        { state, decision, forcedKind }: (typeof scheduled)[number],
+        objectStorageUsage: ObjectStorageUsage
+      ) => {
         const kind = forceKind == null ? decision.kind : forcedKind;
         if (state.compact_lease == null && kind == null) {
-          continue;
+          return;
         }
 
         try {
           await using lease = await this.claimBucket({ _id: state._id, next_compact_check: { $lte: dueBefore } });
           if (lease == null) {
-            continue;
+            return;
           }
           const claimedDecision = chooseCompactionKind(lease.state, lease.startedAt, this);
           const claimedKind =
@@ -232,7 +250,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
             // already-published progress. Keep any newer work scheduled.
             await this.rescheduleClaimedBucket(lease, claimedDecision, rescheduleNotBefore);
           } else {
-            await this.compactClaimedBucket(lease, claimedKind, claimedDecision, rescheduleNotBefore);
+            await this.compactClaimedBucket(
+              lease,
+              claimedKind,
+              claimedDecision,
+              rescheduleNotBefore,
+              objectStorageUsage
+            );
           }
         } catch (error) {
           if (this.signal?.aborted) {
@@ -242,6 +266,63 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           }
           await this.rescheduleFailedBucket(state, rescheduleNotBefore, error);
         }
+      };
+
+      if (forceKind !== CompactionKind.Chunks) {
+        for (const entry of scheduled) {
+          await processBucket(entry, this.objectStorageUsage);
+        }
+      } else {
+        await this.runChunkCompactionWorkers(scheduled, workerUsage, processBucket);
+      }
+    }
+  }
+
+  /** Process one scheduled batch with a fixed pool of workers. */
+  private async runChunkCompactionWorkers<T>(
+    buckets: readonly T[],
+    workerUsage: readonly ObjectStorageUsage[],
+    processBucket: (bucket: T, usage: ObjectStorageUsage) => Promise<void>
+  ): Promise<void> {
+    const signal = this.signal ?? uninterruptibleSignal;
+    let nextBucket = 0;
+
+    const runWorker = async (usage: ObjectStorageUsage) => {
+      while (nextBucket < buckets.length) {
+        // Taking an entry has no await, so each worker gets a different bucket.
+        // A worker takes another only after finishing its current bucket.
+        const bucket = buckets[nextBucket++];
+
+        // This pool bounds one job; the factory semaphore bounds all jobs together.
+        // Acquire before claiming the bucket lease, and hold until it is released.
+        const acquired = await acquireSemaphoreAbortable(this.storage.factory.chunkCompactionSlots, signal);
+        if (acquired === 'aborted') {
+          signal.throwIfAborted();
+          return;
+        }
+        const [, releaseSlot] = acquired;
+        try {
+          signal.throwIfAborted();
+          await processBucket(bucket, usage);
+        } finally {
+          releaseSlot();
+        }
+        // Let replication and other event-loop work run between buckets.
+        await setImmediate();
+      }
+    };
+
+    // Concurrent transactions must not all increment the same usage document.
+    // Reuse one writer for each worker instead of creating one per bucket.
+    const workers = workerUsage.map(runWorker);
+
+    // Do not release the caller's replication lock or run cleanup while a
+    // sibling worker still owns a bucket lease or is finishing a replacement.
+    // Wait for every worker even on failure, then propagate the first error.
+    const results = await Promise.allSettled(workers);
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        throw result.reason;
       }
     }
   }
@@ -315,7 +396,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     lease: CompactionLease,
     kind: CompactionKind,
     decision: CompactionDecision,
-    rescheduleNotBefore?: Date
+    rescheduleNotBefore?: Date,
+    objectStorageUsage = this.objectStorageUsage
   ) {
     const context = new CompactionContext(
       lease,
@@ -325,7 +407,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       this.compactionTarget(lease.state)
     );
     lease.startRenewal();
-    await this.compactSingleBucket(context);
+    await this.compactSingleBucket(context, objectStorageUsage);
   }
 
   private async rescheduleClaimedBucket(lease: CompactionLease, decision: CompactionDecision, notBefore?: Date) {
@@ -361,9 +443,9 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     return new ObjectStorageLifecycle(this.db, this.group_id, this.storage.objectStorage);
   }
 
-  private async compactSingleBucket(context: CompactionContext) {
+  private async compactSingleBucket(context: CompactionContext, objectStorageUsage: ObjectStorageUsage) {
     if (context.kind == CompactionKind.Chunks) {
-      return this.compactSingleBucketChunks(context);
+      return this.compactSingleBucketChunks(context, objectStorageUsage);
     }
 
     return this.compactSingleBucketFully(context);
@@ -375,7 +457,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
    * update the persisted checksum state and to decide whether a group can fit
    * in one chunk.
    */
-  private async compactSingleBucketChunks(context: CompactionContext) {
+  private async compactSingleBucketChunks(context: CompactionContext, objectStorageUsage: ObjectStorageUsage) {
     const bucket = context.state._id.b;
     const resolvedDefinitionId = context.state._id.d;
     const bucketContext = new BucketDataContextV3(this.db, {
@@ -468,7 +550,14 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
 
         const nextSize = pendingSize + doc.size;
         if (pendingChunks.length > 0 && nextSize > DEFAULT_MAX_DOC_SIZE_BYTES) {
-          const groupStats = await this.flushChunkMerge(bucket, pendingChunks, collection, dataContext, bucketContext);
+          const groupStats = await this.flushChunkMerge(
+            bucket,
+            pendingChunks,
+            collection,
+            dataContext,
+            bucketContext,
+            objectStorageUsage
+          );
           compactedTail = combineAdjacentStats(compactedTail, groupStats);
           pendingChunks = [];
           pendingSize = 0;
@@ -485,7 +574,14 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     }
 
     if (pendingChunks.length > 0) {
-      const groupStats = await this.flushChunkMerge(bucket, pendingChunks, collection, dataContext, bucketContext);
+      const groupStats = await this.flushChunkMerge(
+        bucket,
+        pendingChunks,
+        collection,
+        dataContext,
+        bucketContext,
+        objectStorageUsage
+      );
       compactedTail = combineAdjacentStats(compactedTail, groupStats);
     }
 
@@ -519,44 +615,57 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     inputs: BucketDataDocumentV3[],
     collection: mongo.Collection<BucketDataDocumentV3>,
     context: { replicationStreamId: number; definitionId: string },
-    bucketContext: BucketDataContextV3
+    bucketContext: BucketDataContextV3,
+    objectStorageUsage: ObjectStorageUsage
   ): Promise<BucketStatsWithChecksum> {
     if (inputs.length == 1) {
       return statsForDocument(inputs[0]);
     }
 
-    // The metadata scan deliberately excluded ops. Read inline payloads only
-    // for this merge group; object-storage payloads are fetched below using
-    // the same rule.
-    const inlineInputs = inputs.filter((input) => input.storage_ref == null);
-    if (inlineInputs.length > 0) {
-      const inlineDocuments = await collection
-        .find({ _id: { $in: inlineInputs.map((input) => input._id) } }, { projection: { _id: 1, ops: 1 } })
-        .toArray();
-      const opsById = new Map(inlineDocuments.map((document) => [document._id.o.toString(), document.ops]));
-      for (const input of inlineInputs) {
-        input.ops = opsById.get(input._id.o.toString());
-      }
-    }
-    await hydrateBucketDataDocuments(inputs, this.storage.objectStorage, { signal: this.signal });
+    try {
+      this.signal?.throwIfAborted();
 
-    const operations = inputs.flatMap((input) => Array.from(loadBucketDataDocument(context, input)));
-    const targetOp = inputs.reduce<InternalOpId | null>(
-      (maxTarget, input) => maxOpId(maxTarget, input.target_op),
-      null
-    );
-    const result = await this.flushCompactionGroup(
-      bucket,
-      {
-        inputs,
-        ops: operations,
-        changed: true,
-        targetOp
-      },
-      bucketContext,
-      context
-    );
-    return result.stats;
+      // The metadata scan deliberately excluded ops. Read inline payloads only
+      // for this merge group; object-storage payloads are fetched below using
+      // the same rule.
+      const inlineInputs = inputs.filter((input) => input.storage_ref == null);
+      if (inlineInputs.length > 0) {
+        const inlineDocuments = await collection
+          .find({ _id: { $in: inlineInputs.map((input) => input._id) } }, { projection: { _id: 1, ops: 1 } })
+          .toArray();
+        const opsById = new Map(inlineDocuments.map((document) => [document._id.o.toString(), document.ops]));
+        for (const input of inlineInputs) {
+          input.ops = opsById.get(input._id.o.toString());
+        }
+      }
+      await hydrateBucketDataDocuments(inputs, this.storage.objectStorage, { signal: this.signal });
+
+      const operations = inputs.flatMap((input) => Array.from(loadBucketDataDocument(context, input)));
+      const targetOp = inputs.reduce<InternalOpId | null>(
+        (maxTarget, input) => maxOpId(maxTarget, input.target_op),
+        null
+      );
+      const result = await this.flushCompactionGroup(
+        bucket,
+        {
+          inputs,
+          ops: operations,
+          changed: true,
+          targetOp
+        },
+        bucketContext,
+        context,
+        objectStorageUsage
+      );
+      return result.stats;
+    } finally {
+      // The scan batch also references these documents. Do not retain hydrated
+      // operations after finishing this merge group.
+      for (const input of inputs) {
+        delete input.ops;
+      }
+      await setImmediate();
+    }
   }
 
   private async finalizeCompactedBucket({
@@ -935,7 +1044,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     bucket: string,
     group: PendingCompactionGroup,
     bucketContext: BucketDataContextV3,
-    context: { replicationStreamId: number; definitionId: string }
+    context: { replicationStreamId: number; definitionId: string },
+    objectStorageUsage = this.objectStorageUsage
   ): Promise<CompactionGroupResult> {
     if (group.inputs.length == 1 && !group.changed) {
       return {
@@ -993,7 +1103,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           writes.deleteMany(bucketContext.collection, { _id: { $in: idsToDelete } });
           writes.insertMany(bucketContext.collection, documents);
           this.finishObjectStorageReplacement(oldStoragePaths, newStoragePaths, uploads, writes);
-          this.recordObjectStorageReplacement(oldStorageBytes, documents, context.definitionId, writes);
+          this.recordObjectStorageReplacement(
+            oldStorageBytes,
+            documents,
+            context.definitionId,
+            writes,
+            objectStorageUsage
+          );
           await writes.execute();
         },
         {
@@ -1396,7 +1512,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     oldBytes: bigint,
     newDocuments: Iterable<Pick<BucketDataDocumentV3, 'storage_ref'>>,
     definitionId: BucketDefinitionId,
-    writes: MongoWriteBatch
+    writes: MongoWriteBatch,
+    objectStorageUsage = this.objectStorageUsage
   ): void {
     if (!this.storage.objectStorage) {
       return;
@@ -1405,7 +1522,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     for (const document of newDocuments) {
       newBytes += ObjectStorageUsage.bytes(document);
     }
-    this.objectStorageUsage.applyDelta(definitionId, newBytes - oldBytes, writes);
+    objectStorageUsage.applyDelta(definitionId, newBytes - oldBytes, writes);
   }
 
   private async persistBucketData(
