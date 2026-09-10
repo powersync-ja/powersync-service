@@ -19,10 +19,10 @@ import {
   type ObjectStoragePutMetadata
 } from './ObjectStorage.js';
 
-const DEFAULT_S3_OPERATION_CONCURRENCY = 16;
+const DEFAULT_S3_OPERATION_CONCURRENCY = 64;
 const S3_DELETE_PREFIX_BATCH_SIZE = 1000;
 /**
- * Slightly smaller than DEFAULT_S3_OPERATION_CONCURRENCY.
+ * Keep prefix deletion below the default shared limit to leave capacity for other operations.
  */
 const S3_DELETE_PREFIX_CONCURRENCY = 12;
 const MAX_S3_PREFIX_BYTES = 256;
@@ -55,11 +55,19 @@ const BASELINE_CONNECTION_TIMEOUT_MS = 3_100;
 const REQUEST_TIMEOUT_FACTOR = 5;
 const OPERATION_TIMEOUT_FACTOR = 2;
 /**
+ * Don't keep idle http sockets around for longer than this timeout.
+ *
+ * This covers the case where we have large bursts of activity during replication, followed by
+ * long periods of inactivity.
+ */
+const SOCKET_IDLE_TIMEOUT_MS = 60_000;
+
+/**
  * How long an operation may wait for a concurrency slot, as a multiple of the operation timeout.
  *
  * Every slot holder now releases within the operation timeout, so the queue always drains: this is
  * a backpressure limit rather than a deadlock guard. Waiting this long means at least
- * `factor * concurrencyLimit` operations ahead of us each took their full deadline - 64 at the
+ * `factor * concurrencyLimit` operations ahead of us each took their full deadline - 256 at the
  * default concurrency. Real operations complete in a fraction of the deadline, so the number of
  * queued operations this actually tolerates is far higher, well above the ~2000 uploads that the
  * largest possible replication flush (MAX_TRANSACTION_DOC_COUNT) can enqueue at once.
@@ -221,6 +229,15 @@ export class S3ObjectStorage implements ObjectStorage {
       forcePathStyle: options.forcePathStyle,
       defaultsMode,
       requestHandler: new NodeHttpHandler({
+        // Match the shared request limit instead of queuing again at the HTTP pool.
+        httpAgent: {
+          keepAlive: true,
+          maxSockets: concurrencyLimit,
+          // The timeout here is a little more general than an "idle timeout", but it does cover the
+          // case of closing idle sockets after a period of inactivity.
+          timeout: SOCKET_IDLE_TIMEOUT_MS
+        },
+        httpsAgent: { keepAlive: true, maxSockets: concurrencyLimit, timeout: SOCKET_IDLE_TIMEOUT_MS },
         connectionTimeout: this.timeouts.connectionTimeoutMs,
         requestTimeout: this.timeouts.requestTimeoutMs,
         // Without this, exceeding requestTimeout only logs a warning.
