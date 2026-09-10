@@ -18,7 +18,7 @@ export class MongoWriteBatch {
 
   constructor(
     private readonly client: mongo.MongoClient,
-    private readonly supportsClientBulkWrite: () => boolean,
+    private readonly supportsClientBulkWrite: boolean,
     private readonly session: mongo.ClientSession | undefined,
     options: { ordered: boolean }
   ) {
@@ -39,18 +39,24 @@ export class MongoWriteBatch {
     operations: mongo.AnyBulkWriteOperation<T>[]
   ): void {
     if (operations.length === 0) return;
+    if (!this.supportsClientBulkWrite) {
+      this.fallback.push(() => collection.bulkWrite(operations, { ordered: false, session: this.session }));
+      return;
+    }
     for (const operation of operations) {
       // Collection and client models contain the same operation fields, with a
       // different envelope. Keep the schema checked at the collection boundary.
       const [name, model] = Object.entries(operation)[0];
       this.operations.push({ ...model, name, namespace: collection.namespace });
     }
-    this.fallback.push(() => collection.bulkWrite(operations, { ordered: false, session: this.session }));
   }
 
   insertOne<T extends mongo.Document>(collection: mongo.Collection<T>, document: mongo.OptionalUnlessRequiredId<T>) {
+    if (!this.supportsClientBulkWrite) {
+      this.fallback.push(() => collection.insertOne(document, { session: this.session }));
+      return;
+    }
     this.addModel<T>({ name: 'insertOne', namespace: collection.namespace, document: document as mongo.OptionalId<T> });
-    this.fallback.push(() => collection.insertOne(document, { session: this.session }));
   }
 
   insertMany<T extends mongo.Document>(
@@ -58,6 +64,10 @@ export class MongoWriteBatch {
     documents: mongo.OptionalUnlessRequiredId<T>[]
   ) {
     if (documents.length === 0) return;
+    if (!this.supportsClientBulkWrite) {
+      this.fallback.push(() => collection.insertMany(documents, { session: this.session }));
+      return;
+    }
     for (const document of documents) {
       this.addModel<T>({
         name: 'insertOne',
@@ -65,7 +75,6 @@ export class MongoWriteBatch {
         document: document as mongo.OptionalId<T>
       });
     }
-    this.fallback.push(() => collection.insertMany(documents, { session: this.session }));
   }
 
   deleteMany<T extends mongo.Document>(
@@ -77,13 +86,18 @@ export class MongoWriteBatch {
       // Client-bulk results are checked after all writes execute. A failed
       // invariant must roll back the entire batch, not leave later writes visible.
       if (!this.session?.inTransaction()) throw new Error('Checked deletes require a transaction');
+    }
+    if (!this.supportsClientBulkWrite) {
+      this.fallback.push(async () => {
+        const result = await collection.deleteMany(filter, { session: this.session });
+        checkDeletedCount?.(result.deletedCount);
+      });
+      return;
+    }
+    if (checkDeletedCount) {
       this.deleteChecks.push({ index: this.operations.length, check: checkDeletedCount });
     }
     this.addModel<T>({ name: 'deleteMany', namespace: collection.namespace, filter });
-    this.fallback.push(async () => {
-      const result = await collection.deleteMany(filter, { session: this.session });
-      checkDeletedCount?.(result.deletedCount);
-    });
   }
 
   updateOne<T extends mongo.Document>(
@@ -92,8 +106,11 @@ export class MongoWriteBatch {
     update: mongo.UpdateFilter<T> | mongo.Document[],
     options: Pick<mongo.UpdateOptions, 'upsert' | 'arrayFilters'> = {}
   ) {
+    if (!this.supportsClientBulkWrite) {
+      this.fallback.push(() => collection.updateOne(filter, update, { ...options, session: this.session }));
+      return;
+    }
     this.addModel({ name: 'updateOne', namespace: collection.namespace, filter, update, ...options });
-    this.fallback.push(() => collection.updateOne(filter, update, { ...options, session: this.session }));
   }
 
   updateMany<T extends mongo.Document>(
@@ -102,8 +119,11 @@ export class MongoWriteBatch {
     update: mongo.UpdateFilter<T> | mongo.Document[],
     options: Pick<mongo.UpdateOptions, 'upsert' | 'arrayFilters'> = {}
   ) {
+    if (!this.supportsClientBulkWrite) {
+      this.fallback.push(() => collection.updateMany(filter, update, { ...options, session: this.session }));
+      return;
+    }
     this.addModel({ name: 'updateMany', namespace: collection.namespace, filter, update, ...options });
-    this.fallback.push(() => collection.updateMany(filter, update, { ...options, session: this.session }));
   }
 
   private addModel<T extends mongo.Document>(operation: mongo.AnyClientBulkWriteModel<T>) {
@@ -122,13 +142,12 @@ export class MongoWriteBatch {
    * If no operations were queued, this is a no-op.
    */
   async execute(): Promise<void> {
-    if (this.operations.length === 0) return;
-    await this.client.connect();
-    if (!this.supportsClientBulkWrite()) {
+    if (!this.supportsClientBulkWrite) {
       // Sessions cannot execute concurrent operations within a transaction.
       for (const write of this.fallback) await write();
       return;
     }
+    if (this.operations.length === 0) return;
 
     try {
       const result = await this.client.bulkWrite(this.operations, {

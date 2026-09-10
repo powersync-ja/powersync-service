@@ -55,25 +55,22 @@ export class PowerSyncMongo {
 
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;
-  private clientBulkWriteSupport = false;
+  private get clientBulkWriteSupport(): boolean {
+    // The driver exposes topology at runtime, but omits this internal property
+    // from its public types. Reuse its handshake results without another command.
+    const client = this.client as mongo.MongoClient & { topology?: { description: mongo.TopologyDescription } };
+    const servers = [...(client.topology?.description.servers.values() ?? [])];
+    // MongoDB 8.0 introduced client bulkWrite at wire version 25. Unknown / mixed-version
+    // topologies use collection writes until all known servers support it.
+    return servers.length > 0 && servers.every((server) => server.maxWireVersion >= 25);
+  }
 
   createWriteBatch(session: mongo.ClientSession | undefined, options: { ordered: boolean }): MongoWriteBatch {
-    return new MongoWriteBatch(this.client, () => this.clientBulkWriteSupport, session, options);
+    return new MongoWriteBatch(this.client, this.clientBulkWriteSupport, session, options);
   }
 
   constructor(client: mongo.MongoClient, options?: PowerSyncMongoOptions) {
     this.client = client;
-
-    // Register before connecting to reuse the driver's handshakes. MongoDB 8.0
-    // introduced client bulkWrite at wire version 25. Unknown / mixed-version
-    // topologies use collection writes until all known servers support it.
-    client.on('topologyDescriptionChanged', ({ newDescription }) => {
-      const servers = [...newDescription.servers.values()];
-      this.clientBulkWriteSupport = servers.length > 0 && servers.every((server) => server.maxWireVersion >= 25);
-    });
-    client.on('topologyClosed', () => {
-      this.clientBulkWriteSupport = false;
-    });
 
     const db = client.db(options?.database, {
       ...storage.BSON_DESERIALIZE_INTERNAL_OPTIONS
