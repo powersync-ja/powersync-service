@@ -28,7 +28,10 @@ export class MongoStorageProvider implements storage.StorageProvider {
     }
 
     const decodedConfig = MongoStorageConfig.decode(storage as any);
-    const chunkCompactionConcurrency = normalizeChunkCompactionConcurrency(decodedConfig.chunk_compaction_concurrency);
+    const chunkCompactionConcurrency = normalizeChunkCompactionConcurrency(
+      decodedConfig.chunk_compaction_concurrency,
+      decodedConfig.object_storage != null
+    );
 
     let objectStorage: ObjectStorage | undefined;
     if (decodedConfig.object_storage?.type === 's3') {

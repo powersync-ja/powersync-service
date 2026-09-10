@@ -43,7 +43,7 @@ export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   objectStorage?: ObjectStorage;
   inlineThresholdBytes?: number;
-  /** Shared across chunk-compaction jobs. Default: 2. */
+  /** Shared across chunk-compaction jobs. Default: 4 with object storage, otherwise 2. */
   chunkCompactionConcurrency?: number;
   /**
    * Prefix for replication stream name and Postgres logical replication slot name.
@@ -80,7 +80,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     private options: MongoBucketStorageOptions
   ) {
     super();
-    this.chunkCompactionConcurrency = normalizeChunkCompactionConcurrency(options.chunkCompactionConcurrency);
+    this.chunkCompactionConcurrency = normalizeChunkCompactionConcurrency(
+      options.chunkCompactionConcurrency,
+      options.objectStorage != null
+    );
     // All replication streams created by this factory share the configured limit.
     this.chunkCompactionSlots = new Semaphore(this.chunkCompactionConcurrency);
     this.client = db.client;

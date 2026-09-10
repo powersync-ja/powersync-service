@@ -1782,7 +1782,7 @@ bucket_definitions:
     { payloadSize: 100, workers: 1, abort: false },
     { payloadSize: 450_000, workers: 4, abort: true }
   ])('chunk compaction shares configured workers across runs: %o', async ({ payloadSize, workers, abort }) => {
-    const concurrency = workers ?? 2;
+    const concurrency = workers ?? 4;
     const objectStorage = new MemoryObjectStorage();
     const generator = mongoTestStorageFactoryGenerator({
       url: env.MONGO_TEST_URL,

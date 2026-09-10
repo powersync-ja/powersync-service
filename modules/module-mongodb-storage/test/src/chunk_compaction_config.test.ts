@@ -6,6 +6,14 @@ describe('chunk compaction concurrency configuration', () => {
     expect(normalizeChunkCompactionConcurrency(undefined)).toBe(2);
   });
 
+  test('defaults to four workers with object storage', () => {
+    expect(normalizeChunkCompactionConcurrency(undefined, true)).toBe(4);
+  });
+
+  test.each([false, true])('preserves an explicit override with object storage %s', (hasObjectStorage) => {
+    expect(normalizeChunkCompactionConcurrency(3, hasObjectStorage)).toBe(3);
+  });
+
   test('decodes a configured worker count', () => {
     const config = MongoStorageConfig.decode({
       type: 'mongodb',
