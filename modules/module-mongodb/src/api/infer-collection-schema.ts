@@ -100,10 +100,10 @@ export async function inferCollectionSchema(
         // Bound execution per collection below the default 60-second socket timeout
         // so MongoDB can return a query timeout before the connection times out.
         maxTimeMS: 30_000,
-        // When $sample can't use a random cursor, it sorts full documents before the
-        // projection. Allow that sort to spill to disk if large documents exceed its
-        // memory limit, instead of failing schema inference.
-        allowDiskUse: true,
+        // Small collections can require $sample to sort full documents. Disable
+        // disk spill explicitly so concurrent schema queries fail at the memory
+        // limit without adding temporary-file I/O on the source database.
+        allowDiskUse: false,
         // Field names are case-sensitive even when the collection's default collation isn't.
         // DocumentDB rejects the collation option, including simple collation.
         ...(isDocumentDb ? {} : { collation: { locale: 'simple' } })
