@@ -2,7 +2,7 @@ import { DeleteObjectsCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { hydrateBucketDataDocuments } from '../../src/storage/implementation/v3/object-storage/BucketDataObjectStorage.js';
@@ -574,6 +574,52 @@ describe('S3 object storage reads', () => {
       )
     );
     expect(maxActiveOperations).toBe(4);
+  });
+
+  test('drains sibling downloads before reporting a hydration failure', async () => {
+    const objectStorage = new MemoryObjectStorage();
+    const gate = Promise.withResolvers<void>();
+    const failure = new Error('download failed');
+    const documents = ['failed', 'pending'].map((path, index) => ({
+      _id: { b: 'bucket', o: BigInt(index + 1) },
+      min_op: BigInt(index + 1),
+      checksum: 0n,
+      count: 0,
+      size: 1,
+      storage_ref: { path, file_size: 1 }
+    }));
+    const get = vi.spyOn(objectStorage, 'get').mockImplementation(async (path) => {
+      if (path === 'failed') {
+        throw failure;
+      }
+      await gate.promise;
+      return {
+        data: bson.serialize({ ops: [] }),
+        metadata: { contentType: 'application/bson', contentEncoding: null }
+      };
+    });
+    let settled = false;
+    const result = hydrateBucketDataDocuments(documents, objectStorage, {}).then(
+      () => {
+        settled = true;
+        return undefined;
+      },
+      (error) => {
+        settled = true;
+        return error;
+      }
+    );
+    try {
+      await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(settled).toBe(false);
+    } finally {
+      gate.resolve();
+      await result;
+      get.mockRestore();
+    }
+    expect(await result).toBe(failure);
+    expect(documents[1]).toHaveProperty('ops', []);
   });
 
   test('aborts active object downloads', async () => {
