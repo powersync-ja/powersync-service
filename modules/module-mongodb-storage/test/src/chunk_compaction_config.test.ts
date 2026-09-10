@@ -15,9 +15,16 @@ describe('chunk compaction concurrency configuration', () => {
     expect(normalizeChunkCompactionConcurrency(config.chunk_compaction_concurrency)).toBe(4);
   });
 
-  test.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])('rejects invalid worker count %s', (value) => {
-    expect(() => normalizeChunkCompactionConcurrency(value)).toThrow(
-      'storage.chunk_compaction_concurrency must be a positive integer'
-    );
+  test.each([1, 64])('accepts boundary worker count %s', (value) => {
+    expect(normalizeChunkCompactionConcurrency(value)).toBe(value);
   });
+
+  test.each([0, -1, 1.5, 65, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid worker count %s',
+    (value) => {
+      expect(() => normalizeChunkCompactionConcurrency(value)).toThrow(
+        'storage.chunk_compaction_concurrency must be an integer between 1 and 64'
+      );
+    }
+  );
 });
