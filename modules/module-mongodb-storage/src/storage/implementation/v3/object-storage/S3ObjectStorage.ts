@@ -19,6 +19,9 @@ import {
   type ObjectStoragePutMetadata
 } from './ObjectStorage.js';
 
+// Never statically import (or re-export) this module!
+// We want to avoid loading the AWS SDK unless the user has configured S3 object storage, since it's a large dependency.
+
 const DEFAULT_S3_OPERATION_CONCURRENCY = 64;
 const S3_DELETE_PREFIX_BATCH_SIZE = 1000;
 /**
