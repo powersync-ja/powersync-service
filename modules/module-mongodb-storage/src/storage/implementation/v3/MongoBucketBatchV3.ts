@@ -61,23 +61,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     return this.store;
   }
 
-  protected override onReplicationTransactionFlush(writes: MongoWriteBatch, lastOp: bigint): void {
-    // Durably advance the stream-level head of persisted ops within the flush transaction.
-    // This ensures a checkpoint created later (even by an empty commit, or by a freshly-appended
-    // config that replicates nothing) covers all ops persisted before a potential crash.
-    writes.updateOne(
-      this.db.sync_rules,
-      {
-        _id: this.replicationStreamId
-      },
-      {
-        $max: {
-          last_persisted_op: lastOp
-        }
-      }
-    );
-  }
-
   private selectedSyncConfigObjectIds(syncConfigIds: string[]): bson.ObjectId[] {
     const selectedIds = new Set(this.syncConfigIds.map((id) => id.toHexString()));
     return syncConfigIds
@@ -172,6 +155,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     await using _ = { [Symbol.asyncDispose]: () => session.endSession() };
 
     await session.withTransaction(async () => {
+      await this.fence(session);
       const col = this.db.sourceTables(this.replicationStreamId);
 
       // Find records that overlap by name or relation id.
@@ -270,152 +254,160 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
     using _ = this.tracer.span('storage', 'commit');
 
-    const now = new Date();
+    const { checkpointBlocked, checkpointCreated, checkpointLogState, newCheckpoint } = await this.withTransaction(
+      async () => {
+        const now = new Date();
 
-    await this.db.write_checkpoints.updateMany(
-      {
-        processed_at_lsn: null,
-        'lsns.1': { $lte: lsn }
-      },
-      {
-        $set: {
-          processed_at_lsn: lsn
-        }
-      },
-      {
-        session: this.session
-      }
-    );
-
-    const preUpdateDocument = (await this.db.sync_rules.findOne(
-      {
-        _id: this.replicationStreamId,
-        'sync_configs._id': { $in: this.syncConfigIds }
-      },
-      {
-        session: this.session,
-        projection: {
-          sync_configs: 1,
-          last_persisted_op: 1
-        }
-      }
-    )) as ReplicationStreamDocumentV3 | null;
-
-    const states =
-      preUpdateDocument?.sync_configs?.filter((config) => this.syncConfigIds.some((id) => id.equals(config._id))) ?? [];
-    if (states.length == 0) {
-      throw new ReplicationAssertionError(
-        `Failed to update checkpoint - no matching sync_config for _id: ${this.replicationStreamId}/${this.syncConfigIds
-          .map((id) => id.toHexString())
-          .join(',')}`
-      );
-    }
-    // The replication job / MongoBucketBatch must be constructed with all replicating (PROCESSING / ACTIVE)
-    // sync configs in the stream, otherwise we'll get inconsistencies. Configs in other states (e.g. STOP)
-    // remain embedded in the document and are ignored here.
-    const missingSyncConfig = preUpdateDocument!.sync_configs.find(
-      (config) =>
-        [storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ACTIVE].includes(config.state) &&
-        !this.syncConfigIds.some((id) => id.equals(config._id))
-    );
-    if (missingSyncConfig != null) {
-      throw new ReplicationAssertionError(`Replication job not configured for sync config ${missingSyncConfig._id}`);
-    }
-
-    // Effective head of the stream's op sequence.
-    // last_persisted_op is $max-advanced durably in the same transaction as every flush, and this
-    // read uses the same session, so it covers all ops persisted by this batch.
-    const newCheckpoint =
-      preUpdateDocument?.last_persisted_op == null ? 0n : BigInt(preUpdateDocument.last_persisted_op);
-
-    let checkpointBlocked = false;
-    let checkpointCreated = false;
-    let checkpointLogState: unknown = null;
-    const unblockedConfigIds: bson.ObjectId[] = [];
-
-    for (const state of states) {
-      if (state.last_checkpoint != null && state.last_checkpoint > newCheckpoint) {
-        // last_persisted_op is $max-advanced durably in the same transaction as every flush, and
-        // checkpoints are only ever created at that head, so a checkpoint past the head means the
-        // op sequence or the stored state is corrupt.
-        throw new ReplicationAssertionError(
-          `Invariant violation: sync config ${state._id} has last_checkpoint ${state.last_checkpoint} > stream head ${newCheckpoint}`
+        await this.db.write_checkpoints.updateMany(
+          {
+            processed_at_lsn: null,
+            'lsns.1': { $lte: lsn }
+          },
+          {
+            $set: {
+              processed_at_lsn: lsn
+            }
+          },
+          {
+            session: this.session
+          }
         );
-      }
 
-      const canCheckpoint = canCheckpointState(lsn, {
-        snapshotDone: state.snapshot_done === true,
-        lastCheckpointLsn: state.last_checkpoint_lsn,
-        noCheckpointBefore: state.no_checkpoint_before
-      });
+        const preUpdateDocument = (await this.db.sync_rules.findOne(
+          {
+            _id: this.replicationStreamId,
+            'sync_configs._id': { $in: this.syncConfigIds }
+          },
+          {
+            session: this.session,
+            projection: {
+              sync_configs: 1,
+              last_persisted_op: 1
+            }
+          }
+        )) as ReplicationStreamDocumentV3 | null;
 
-      if (!canCheckpoint) {
-        checkpointBlocked = true;
-        // Log the first blocked config's state.
-        checkpointLogState ??= {
-          snapshot_done: state.snapshot_done,
-          last_checkpoint_lsn: state.last_checkpoint_lsn,
-          no_checkpoint_before: state.no_checkpoint_before
-        };
-        continue;
-      }
-
-      checkpointCreated ||= createEmptyCheckpoints || state.last_checkpoint !== newCheckpoint;
-      unblockedConfigIds.push(state._id);
-    }
-
-    // Every commit advances the stream's resume position: commit() flushes first, so all
-    // source changes up to this lsn have been persisted, even when checkpoints are blocked.
-    // In the future we could also advance this on flush, when the connector provides the
-    // current position (see setResumeLsn, which connectors may already call after flushing).
-    const resumeLsnUpdate = { resume_lsn: lsn };
-
-    if (unblockedConfigIds.length > 0) {
-      // All unblocked configs get the SAME new value, so we apply it with a single updateOne
-      // (single-document atomicity).
-      const updateSet: Record<string, any> = {
-        last_keepalive_ts: now,
-        last_fatal_error: null,
-        last_fatal_error_ts: null
-      };
-      // Only advance checkpoint fields when an actual (non-empty) checkpoint is created, matching
-      // the previous per-config / v1 behaviour.
-      if (checkpointCreated) {
-        updateSet['sync_configs.$[config].last_checkpoint'] = newCheckpoint;
-        updateSet['sync_configs.$[config].last_checkpoint_lsn'] = lsn;
-        updateSet['last_checkpoint_ts'] = now;
-      }
-
-      await this.db.sync_rules.updateOne(
-        {
-          _id: this.replicationStreamId,
-          'sync_configs._id': { $in: unblockedConfigIds }
-        },
-        { $set: updateSet, $max: resumeLsnUpdate },
-        {
-          session: this.session,
-          arrayFilters: checkpointCreated ? [{ 'config._id': { $in: unblockedConfigIds } }] : undefined
+        const states =
+          preUpdateDocument?.sync_configs?.filter((config) => this.syncConfigIds.some((id) => id.equals(config._id))) ??
+          [];
+        if (states.length == 0) {
+          throw new ReplicationAssertionError(
+            `Failed to update checkpoint - no matching sync_config for _id: ${this.replicationStreamId}/${this.syncConfigIds
+              .map((id) => id.toHexString())
+              .join(',')}`
+          );
         }
-      );
-    } else {
-      // All selected configs are blocked - only update keepalive/error tracking and the
-      // resume position.
-      await this.db.sync_rules.updateOne(
-        {
-          _id: this.replicationStreamId
-        },
-        {
-          $set: {
+        // The replication job / MongoBucketBatch must be constructed with all replicating (PROCESSING / ACTIVE)
+        // sync configs in the stream, otherwise we'll get inconsistencies. Configs in other states (e.g. STOP)
+        // remain embedded in the document and are ignored here.
+        const missingSyncConfig = preUpdateDocument!.sync_configs.find(
+          (config) =>
+            [storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ACTIVE].includes(config.state) &&
+            !this.syncConfigIds.some((id) => id.equals(config._id))
+        );
+        if (missingSyncConfig != null) {
+          throw new ReplicationAssertionError(
+            `Replication job not configured for sync config ${missingSyncConfig._id}`
+          );
+        }
+
+        // Effective head of the stream's op sequence.
+        // last_persisted_op is $max-advanced durably in the same transaction as every flush, and this
+        // read uses the same session, so it covers all ops persisted by this batch.
+        const newCheckpoint =
+          preUpdateDocument?.last_persisted_op == null ? 0n : BigInt(preUpdateDocument.last_persisted_op);
+
+        let checkpointBlocked = false;
+        let checkpointCreated = false;
+        let checkpointLogState: unknown = null;
+        const unblockedConfigIds: bson.ObjectId[] = [];
+
+        for (const state of states) {
+          if (state.last_checkpoint != null && state.last_checkpoint > newCheckpoint) {
+            // last_persisted_op is $max-advanced durably in the same transaction as every flush, and
+            // checkpoints are only ever created at that head, so a checkpoint past the head means the
+            // op sequence or the stored state is corrupt.
+            throw new ReplicationAssertionError(
+              `Invariant violation: sync config ${state._id} has last_checkpoint ${state.last_checkpoint} > stream head ${newCheckpoint}`
+            );
+          }
+
+          const canCheckpoint = canCheckpointState(lsn, {
+            snapshotDone: state.snapshot_done === true,
+            lastCheckpointLsn: state.last_checkpoint_lsn,
+            noCheckpointBefore: state.no_checkpoint_before
+          });
+
+          if (!canCheckpoint) {
+            checkpointBlocked = true;
+            // Log the first blocked config's state.
+            checkpointLogState ??= {
+              snapshot_done: state.snapshot_done,
+              last_checkpoint_lsn: state.last_checkpoint_lsn,
+              no_checkpoint_before: state.no_checkpoint_before
+            };
+            continue;
+          }
+
+          checkpointCreated ||= createEmptyCheckpoints || state.last_checkpoint !== newCheckpoint;
+          unblockedConfigIds.push(state._id);
+        }
+
+        // Every commit advances the stream's resume position: commit() flushes first, so all
+        // source changes up to this lsn have been persisted, even when checkpoints are blocked.
+        // In the future we could also advance this on flush, when the connector provides the
+        // current position (see setResumeLsn, which connectors may already call after flushing).
+        const resumeLsnUpdate = { resume_lsn: lsn };
+
+        if (unblockedConfigIds.length > 0) {
+          // All unblocked configs get the SAME new value, so we apply it with a single updateOne
+          // (single-document atomicity).
+          const updateSet: Record<string, any> = {
             last_keepalive_ts: now,
             last_fatal_error: null,
             last_fatal_error_ts: null
-          },
-          $max: resumeLsnUpdate
-        },
-        { session: this.session }
-      );
-    }
+          };
+          // Only advance checkpoint fields when an actual (non-empty) checkpoint is created, matching
+          // the previous per-config / v1 behaviour.
+          if (checkpointCreated) {
+            updateSet['sync_configs.$[config].last_checkpoint'] = newCheckpoint;
+            updateSet['sync_configs.$[config].last_checkpoint_lsn'] = lsn;
+            updateSet['last_checkpoint_ts'] = now;
+          }
 
+          await this.db.sync_rules.updateOne(
+            {
+              _id: this.replicationStreamId,
+              'sync_configs._id': { $in: unblockedConfigIds }
+            },
+            { $set: updateSet, $max: resumeLsnUpdate },
+            {
+              session: this.session,
+              arrayFilters: checkpointCreated ? [{ 'config._id': { $in: unblockedConfigIds } }] : undefined
+            }
+          );
+        } else {
+          // All selected configs are blocked - only update keepalive/error tracking and the
+          // resume position.
+          await this.db.sync_rules.updateOne(
+            {
+              _id: this.replicationStreamId
+            },
+            {
+              $set: {
+                last_keepalive_ts: now,
+                last_fatal_error: null,
+                last_fatal_error_ts: null
+              },
+              $max: resumeLsnUpdate
+            },
+            { session: this.session }
+          );
+        }
+
+        return { checkpointBlocked, checkpointCreated, checkpointLogState, newCheckpoint };
+      }
+    );
     if (checkpointBlocked) {
       if (Date.now() - this.lastWaitingLogThrottledV3 > 5_000) {
         this.logger.info(
@@ -445,6 +437,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   async setResumeLsn(lsn: string): Promise<void> {
+    if (!this.session.inTransaction()) {
+      return this.withTransaction(() => this.setResumeLsn(lsn));
+    }
     using _ = this.tracer.span('storage', 'set_resume_lsn');
     await this.db.sync_rules.updateOne(
       {
@@ -456,11 +451,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         }
       },
       {
-        session: this.session,
-        // Losing occasional resume LSN is fine. That may mean reprocessing
-        // some source changes in some edge cases, which is not an issue since
-        // changes are processed in an idempotent way.
-        writeConcern: { w: 1 }
+        session: this.session
+        // Losing occasional resume LSN would only reprocess source changes.
+        // This update now participates in the fenced writer transaction.
       }
     );
   }
@@ -474,6 +467,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     let activated = false;
     let needsFutureActivationCheck = true;
     await session.withTransaction(async () => {
+      await this.fence(session);
       // Reset on transaction retries.
       needsFutureActivationCheck = true;
       activated = false;
@@ -572,6 +566,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+    if (!this.session.inTransaction()) {
+      return this.withTransaction(() => this.markAllSnapshotDone(no_checkpoint_before_lsn));
+    }
     await this.db.sync_rules.updateOne(
       {
         _id: this.replicationStreamId,
@@ -619,6 +616,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
+    if (!this.session.inTransaction()) {
+      return this.withTransaction(() => this.markTableSnapshotRequired(table));
+    }
     const syncConfigIds = this.relevantSyncConfigIds(table);
     if (syncConfigIds.length == 0) {
       return;

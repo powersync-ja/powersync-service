@@ -33,22 +33,20 @@ import { mongoTableId } from '../../utils/util.js';
 import { PersistedBatch } from './common/PersistedBatch.js';
 import { LoadedSourceRecord, SourceRecordStore } from './common/SourceRecordStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';
+import { SyncRuleDocumentBase } from './models.js';
 import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
-import { MongoIdSequence } from './MongoIdSequence.js';
+import { MongoIdSequence, OpIdRangeExhausted } from './MongoIdSequence.js';
+import { MongoOpIdAllocator } from './MongoOpIdAllocator.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
+import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { MongoWriteBatch } from './MongoWriteBatch.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 import { createObjectStorageUsageWriterId } from './v3/object-storage/ObjectStorageUsage.js';
 
-// Currently, we can only have a single flush() at a time, since it locks the op_id sequence.
-// While the MongoDB transaction retry mechanism handles this okay, using an in-process Mutex
-// makes it more fair and has less overhead.
-//
-// In the future, we can investigate allowing multiple replication streams operating independently.
-const replicationMutex = new utils.Mutex();
-
 export interface MongoBucketBatchOptions {
+  replicationLock: MongoSyncRulesLock | null;
+  opIdAllocator: MongoOpIdAllocator;
   db: VersionedPowerSyncMongo;
   /**
    * The parsed sync config set for this batch.
@@ -145,7 +143,16 @@ export abstract class MongoBucketBatch
   constructor(options: MongoBucketBatchOptions) {
     super();
     this.logger = options.logger;
-    this.options = options;
+    this.options =
+      options.replicationLock == null
+        ? options
+        : {
+            ...options,
+            signal:
+              options.signal == null
+                ? options.replicationLock.signal
+                : AbortSignal.any([options.signal, options.replicationLock.signal])
+          };
     this.client = options.db.client;
     this.db = options.db;
     this.replicationStreamId = options.replicationStreamId;
@@ -643,29 +650,37 @@ export abstract class MongoBucketBatch
     return result;
   }
 
-  protected async withTransaction(cb: () => Promise<void>) {
-    using lockSpan = this.tracer.span('storage', 'internal_lock');
-    await replicationMutex.exclusiveLock(async () => {
-      lockSpan.end();
-      await this.session.withTransaction(
-        async () => {
-          try {
-            await cb();
-          } catch (e: unknown) {
-            if (e instanceof mongo.MongoError && e.hasErrorLabel('TransientTransactionError')) {
-              // Likely write conflict caused by concurrent write stream replicating
-            } else {
-              this.logger.warn('Transaction error', e as Error);
-            }
-            const delay = Math.random() * 50;
-            using _ = this.tracer.span('storage', 'retry_delay');
-            await timers.setTimeout(delay);
+  protected async fence(session = this.session) {
+    this.options.signal?.throwIfAborted();
+    return MongoSyncRulesLock.fence(this.db, this.replicationStreamId, this.options.replicationLock, session);
+  }
+
+  protected async withTransaction<T>(cb: (stream: SyncRuleDocumentBase) => Promise<T>): Promise<T> {
+    return this.session.withTransaction(
+      async () => {
+        const stream = await this.fence();
+        try {
+          const result = await cb(stream);
+          this.options.replicationLock?.signal.throwIfAborted();
+          this.options.signal?.throwIfAborted();
+          return result;
+        } catch (e: unknown) {
+          if (e instanceof OpIdRangeExhausted) {
             throw e;
           }
-        },
-        { maxCommitTimeMS: 10000 }
-      );
-    });
+          if (e instanceof mongo.MongoError && e.hasErrorLabel('TransientTransactionError')) {
+            // Likely write conflict caused by concurrent writes to this replication stream.
+          } else {
+            this.logger.warn('Transaction error', e as Error);
+          }
+          const delay = Math.random() * 50;
+          using _ = this.tracer.span('storage', 'retry_delay');
+          await timers.setTimeout(delay);
+          throw e;
+        }
+      },
+      { maxCommitTimeMS: 10000, writeConcern: { w: 'majority' } }
+    );
   }
 
   private async withReplicationTransaction(
@@ -673,83 +688,75 @@ export abstract class MongoBucketBatch
     callback: (session: mongo.ClientSession, opSeq: MongoIdSequence) => Promise<void>
   ): Promise<void> {
     let flushTry = 0;
+    const lastTry = Date.now() + 90000;
+    const allocator = this.options.opIdAllocator;
+    let lastOp = 0n;
+    for (;;) {
+      try {
+        await this.withTransaction(async (stream) => {
+          flushTry += 1;
+          if (flushTry % 10 == 0) {
+            this.logger.info(`${description} - try ${flushTry}`);
+          }
+          if (flushTry > 20 && Date.now() > lastTry) {
+            throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
+          }
+          // The fence already holds this stream document for the transaction.
+          // A different writer may have used higher IDs since our last flush.
+          const opSeq = allocator.sequence(stream?.last_persisted_op ?? 0n);
+          await callback(this.session, opSeq);
+          lastOp = opSeq.last();
 
-    const start = Date.now();
-    const lastTry = start + 90000;
-
-    const session = this.session;
-
-    await this.withTransaction(async () => {
-      flushTry += 1;
-      if (flushTry % 10 == 0) {
-        this.logger.info(`${description} - try ${flushTry}`);
+          const writes = this.db.createWriteBatch(this.session, { ordered: false });
+          writes.updateOne(
+            this.db.sync_rules,
+            { _id: this.replicationStreamId },
+            {
+              $set: { last_keepalive_ts: new Date() }
+            }
+          );
+          // Allow subclasses to persist additional flush-time state in the same transaction.
+          this.onReplicationTransactionFlush(writes, lastOp);
+          await writes.execute();
+          // We don't notify checkpoint here - we don't make any checkpoint updates directly.
+        });
+        allocator.committed(lastOp);
+        return;
+      } catch (error) {
+        if (!(error instanceof OpIdRangeExhausted)) {
+          throw error;
+        }
+        // withTransaction has aborted every write. Reserve outside that transaction,
+        // then replay evaluation from the same committed stream head. Existing
+        // ranges can be reused on retry because no operation from this attempt committed.
+        this.options.replicationLock?.signal.throwIfAborted();
+        this.options.signal?.throwIfAborted();
+        await allocator.reserve();
       }
-      if (flushTry > 20 && Date.now() > lastTry) {
-        throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
-      }
-
-      const next_op_id_doc = await this.db.op_id_sequence.findOneAndUpdate(
-        {
-          _id: 'main'
-        },
-        {
-          $setOnInsert: { op_id: 0n },
-          $set: {
-            // Force update to ensure we get a mongo lock
-            ts: Date.now()
-          }
-        },
-        {
-          upsert: true,
-          returnDocument: 'after',
-          session
-        }
-      );
-      const opSeq = new MongoIdSequence(next_op_id_doc?.op_id ?? 0n);
-
-      await callback(session, opSeq);
-
-      const writes = this.db.createWriteBatch(session, { ordered: false });
-      writes.updateOne(
-        this.db.op_id_sequence,
-        {
-          _id: 'main'
-        },
-        {
-          $set: {
-            op_id: opSeq.last()
-          }
-        }
-      );
-
-      writes.updateOne(
-        this.db.sync_rules,
-        {
-          _id: this.replicationStreamId
-        },
-        {
-          $set: {
-            last_keepalive_ts: new Date()
-          }
-        }
-      );
-
-      // Allow subclasses to persist additional flush-time state in the same transaction
-      // (e.g. v3 advances the stream-level last_persisted_op).
-      this.onReplicationTransactionFlush(writes, opSeq.last());
-      await writes.execute();
-      // We don't notify checkpoint here - we don't make any checkpoint updates directly
-    });
+    }
   }
 
   /**
    * Hook called inside the replication flush transaction, after ops have been persisted.
    *
-   * The base implementation does nothing; v3 storage overrides this to `$max` the stream-level
-   * `last_persisted_op` durably within the same transaction.
+   * Advance the stream-level `last_persisted_op` durably within the same transaction.
+   * This also keeps concurrent legacy writers above the committed stream head.
    */
-  protected onReplicationTransactionFlush(_writes: MongoWriteBatch, _lastOp: InternalOpId): void {
-    // No-op by default (v1 behaviour unchanged).
+  protected onReplicationTransactionFlush(writes: MongoWriteBatch, lastOp: bigint): void {
+    // Durably advance the stream-level head of persisted ops within the flush transaction.
+    // This ensures a checkpoint created later (even by an empty commit, or by a freshly-appended
+    // config that replicates nothing) covers all ops persisted before a potential crash.
+    writes.updateOne(
+      this.db.sync_rules,
+      {
+        _id: this.replicationStreamId
+      },
+      {
+        $max: {
+          last_persisted_op: lastOp
+        }
+      }
+    );
   }
 
   /**
@@ -837,7 +844,9 @@ export abstract class MongoBucketBatch
 
     await this.withTransaction(async () => {
       for (let table of sourceTables) {
-        await this.db.commonSourceTables(this.replicationStreamId).deleteOne({ _id: mongoTableId(table.id) });
+        await this.db
+          .commonSourceTables(this.replicationStreamId)
+          .deleteOne({ _id: mongoTableId(table.id) }, { session: this.session });
       }
     });
 

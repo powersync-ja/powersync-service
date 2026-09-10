@@ -31,7 +31,9 @@ import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBu
 import { PowerSyncMongo } from './implementation/db.js';
 import { getMongoStorageConfig, StorageConfig, SyncRuleDocumentBase } from './implementation/models.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
+import { MongoOpIdAllocator } from './implementation/MongoOpIdAllocator.js';
 import { MongoPersistedReplicationStream } from './implementation/MongoPersistedReplicationStream.js';
+import { MongoSyncRulesLock } from './implementation/MongoSyncRulesLock.js';
 import { stopReplicationStreamPipeline } from './implementation/SyncRuleStateUpdate.js';
 import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
 import { ObjectStorage } from './implementation/v3/object-storage/ObjectStorage.js';
@@ -68,6 +70,28 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
   private readonly client: mongo.MongoClient;
   public readonly replicationStreamNamePrefix: string;
+
+  private readonly opIdAllocators = new Map<
+    number,
+    { lock: MongoSyncRulesLock | null; allocator: MongoOpIdAllocator }
+  >();
+
+  discardOpIdAllocator(streamId: number) {
+    this.opIdAllocators.get(streamId)?.allocator.discard();
+    this.opIdAllocators.delete(streamId);
+  }
+
+  getOpIdAllocator(stream: MongoPersistedReplicationStream, lock = stream.current_lock): MongoOpIdAllocator {
+    lock?.signal.throwIfAborted();
+    const previous = this.opIdAllocators.get(stream.replicationStreamId);
+    if (previous?.lock === lock) {
+      return previous.allocator;
+    }
+    previous?.allocator.discard();
+    const allocator = new MongoOpIdAllocator(this.db.versioned(stream.getStorageConfig()));
+    this.opIdAllocators.set(stream.replicationStreamId, { lock, allocator });
+    return allocator;
+  }
 
   private activeStorageCache: MongoSyncBucketStorage | undefined;
 
@@ -107,6 +131,15 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       replicationStreamId = Number(replicationStreamId);
     }
     const storageConfig = replicationStream.getStorageConfig();
+    if (options?.replicationLock != null) {
+      if (
+        !(options.replicationLock instanceof MongoSyncRulesLock) ||
+        options.replicationLock.sync_rules_id !== replicationStream.replicationStreamId
+      ) {
+        throw new ReplicationAssertionError('Replication lock does not belong to this MongoDB stream');
+      }
+      replicationStream.current_lock = options.replicationLock;
+    }
     const syncRuleStorage = createMongoSyncBucketStorage(
       this,
       replicationStreamId,

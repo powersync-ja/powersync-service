@@ -175,6 +175,12 @@ export interface IdSequenceDocument {
  * Base for sync_rules collection.
  */
 export interface SyncRuleDocumentBase {
+  /** Incremented to serialize and fence transactions within this stream only. */
+  writer_transaction?: bigint;
+
+  /** Highest persisted operation, including operations not yet checkpointed. Never a reserved range end. */
+  last_persisted_op?: bigint | null;
+
   _id: number;
 
   state: storage.SyncRuleState;

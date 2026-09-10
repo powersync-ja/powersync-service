@@ -81,16 +81,17 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   protected async fetchPersistedOpHead(): Promise<InternalOpId | null> {
     const doc = (await this.db.sync_rules.findOne(
       { _id: this.replicationStreamId },
-      { projection: { keepalive_op: 1, last_checkpoint: 1 } }
+      { projection: { keepalive_op: 1, last_checkpoint: 1, last_persisted_op: 1 } }
     )) as SyncRuleDocumentV1;
     // keepalive_op covers ops not yet in a checkpoint (cleared once checkpointed),
     // so the head is the max of the two.
     const keepaliveOp = doc?.keepalive_op == null ? null : BigInt(doc.keepalive_op);
     const lastCheckpoint = doc?.last_checkpoint ?? null;
-    if (keepaliveOp == null && lastCheckpoint == null) {
+    const persistedOp = doc?.last_persisted_op ?? null;
+    if (keepaliveOp == null && lastCheckpoint == null && persistedOp == null) {
       return null;
     }
-    return (keepaliveOp ?? 0n) > (lastCheckpoint ?? 0n) ? keepaliveOp : lastCheckpoint;
+    return [keepaliveOp ?? 0n, lastCheckpoint ?? 0n, persistedOp ?? 0n].reduce((a, b) => (a > b ? a : b));
   }
 
   protected async createWriterImpl(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
@@ -189,6 +190,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
         },
         $unset: {
           snapshot_lsn: 1,
+          last_persisted_op: 1,
           parameter_compaction: 1
         }
       },
