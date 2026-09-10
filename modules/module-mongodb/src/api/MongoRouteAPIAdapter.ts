@@ -226,6 +226,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
+    const isDocumentDb = await detectDocumentDb(this.db);
     const databases = await this.db.admin().listDatabases({ nameOnly: true });
     const filteredDatabases = databases.databases.filter((db) => {
       return !['local', 'admin', 'config'].includes(db.name);
@@ -263,7 +264,10 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
           continue;
         }
         try {
-          const columns = await inferCollectionSchema(this.client.db(db.name).collection(collection.name));
+          const columns = await inferCollectionSchema(
+            this.client.db(db.name).collection(collection.name),
+            isDocumentDb
+          );
           tables.push({ name: collection.name, columns });
         } catch (e) {
           if (lib_mongo.isMongoServerError(e) && e.codeName == 'Unauthorized') {

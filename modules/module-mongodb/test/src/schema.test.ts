@@ -4,9 +4,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { inferCollectionSchema } from '@module/api/infer-collection-schema.js';
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
 import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
+import { testTimeout } from './test-timeouts.js';
 import { connectMongoData, requireFailCommand, TEST_CONNECTION_OPTIONS } from './util.js';
 
-describe('collection schema inference', () => {
+const isDocumentDb = DATABASE_TYPE == DatabaseType.DOCUMENTDB;
+
+describe('collection schema inference', { timeout: testTimeout(20_000) }, () => {
   let client: mongo.MongoClient;
   let db: mongo.Db;
 
@@ -43,7 +46,7 @@ describe('collection schema inference', () => {
       { _id: 5 as any, value: new mongo.Double(42) }
     ]);
 
-    expect(await inferCollectionSchema(collection)).toMatchObject([
+    expect(await inferCollectionSchema(collection, isDocumentDb)).toMatchObject([
       { name: '_id', sqlite_type: 4, internal_type: 'Integer' },
       { name: 'array', sqlite_type: 2, internal_type: 'Array' },
       { name: 'fractional', sqlite_type: 8, internal_type: 'Double' },
@@ -83,7 +86,7 @@ describe('collection schema inference', () => {
       { _id: 6 as any, binary: new mongo.Binary(Buffer.alloc(0)) }
     ]);
 
-    expect(await inferCollectionSchema(collection)).toMatchObject([
+    expect(await inferCollectionSchema(collection, isDocumentDb)).toMatchObject([
       { name: '_id', sqlite_type: 4, internal_type: 'Integer' },
       { name: 'binary', sqlite_type: 1, internal_type: 'Binary' },
       { name: 'mixed', sqlite_type: 3, internal_type: 'Binary | UUID' },
@@ -93,10 +96,10 @@ describe('collection schema inference', () => {
 
   test('handles empty collections and documents with only an id', async () => {
     const collection = await db.createCollection('empty');
-    expect(await inferCollectionSchema(collection)).toEqual([]);
+    expect(await inferCollectionSchema(collection, isDocumentDb)).toEqual([]);
 
     await collection.insertOne({});
-    expect(await inferCollectionSchema(collection)).toEqual([
+    expect(await inferCollectionSchema(collection, isDocumentDb)).toEqual([
       { name: '_id', sqlite_type: 2, type: 'ObjectId', internal_type: 'ObjectId', pg_type: 'ObjectId' }
     ]);
   });
@@ -107,7 +110,7 @@ describe('collection schema inference', () => {
       const collection = await db.createCollection('collation', { collation: { locale: 'en', strength: 1 } });
       await collection.insertOne({ Name: 'text', name: 1, 'with.dot': true, $field: [] });
 
-      const columns = await inferCollectionSchema(collection);
+      const columns = await inferCollectionSchema(collection, isDocumentDb);
       expect(columns).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ name: 'Name', sqlite_type: 2 }),
@@ -140,7 +143,7 @@ describe('collection schema inference', () => {
       }
     });
 
-    expect(await inferCollectionSchema(collection)).toMatchObject([
+    expect(await inferCollectionSchema(collection, isDocumentDb)).toMatchObject([
       { name: '_id', sqlite_type: 2, internal_type: 'ObjectId' },
       { name: 'array', sqlite_type: 2, internal_type: 'Array' },
       { name: 'binary', sqlite_type: 1, internal_type: 'Binary' },

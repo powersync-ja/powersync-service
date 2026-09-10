@@ -32,7 +32,10 @@ const BSON_TYPES: Record<string, { name: string; sqliteType: ExpressionType }> =
  * Infer top-level fields without transferring sampled document values to the service.
  * Memory on the service scales with the inferred schema, not the size of those values.
  */
-export async function inferCollectionSchema(collection: mongo.Collection): Promise<TableSchema['columns']> {
+export async function inferCollectionSchema(
+  collection: mongo.Collection,
+  isDocumentDb: boolean
+): Promise<TableSchema['columns']> {
   const fields = await collection
     .aggregate<{ _id: string; types: string[] }>(
       [
@@ -102,7 +105,8 @@ export async function inferCollectionSchema(collection: mongo.Collection): Promi
         // memory limit, instead of failing schema inference.
         allowDiskUse: true,
         // Field names are case-sensitive even when the collection's default collation isn't.
-        collation: { locale: 'simple' }
+        // DocumentDB rejects the collation option, including simple collation.
+        ...(isDocumentDb ? {} : { collation: { locale: 'simple' } })
       }
     )
     .toArray();
