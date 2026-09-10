@@ -13,6 +13,8 @@ import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { inferCollectionSchema } from './infer-collection-schema.js';
 
+const SCHEMA_INFERENCE_CONCURRENCY = 4;
+
 export class MongoRouteAPIAdapter implements api.RouteAPI {
   protected client: mongo.MongoClient;
   public db: mongo.Db;
@@ -232,7 +234,6 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
       return !['local', 'admin', 'config'].includes(db.name);
     });
     const databaseSchemas: service_types.DatabaseSchema[] = [];
-    // Infer one database at a time to avoid accumulating concurrent aggregation results.
     for (const db of filteredDatabases) {
       /**
        * Filtering the list of database with `authorizedDatabases: true`
@@ -250,37 +251,64 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
         throw e;
       }
 
-      let tables: service_types.TableSchema[] = [];
-      for (let collection of collections) {
-        if ([CHECKPOINTS_COLLECTION].includes(collection.name)) {
-          continue;
-        }
-        if (collection.name.startsWith('system.')) {
-          // system.views, system.js, system.profile, system.buckets
-          // https://www.mongodb.com/docs/manual/reference/system-collections/
-          continue;
-        }
-        if (collection.type == 'view') {
-          continue;
-        }
-        try {
-          const columns = await inferCollectionSchema(
-            this.client.db(db.name).collection(collection.name),
-            isDocumentDb
-          );
-          tables.push({ name: collection.name, columns });
-        } catch (e) {
-          if (lib_mongo.isMongoServerError(e) && e.codeName == 'Unauthorized') {
-            // Ignore collections we're not authorized to query
+      const tables: (service_types.TableSchema | undefined)[] = new Array(collections.length);
+      const pendingCollections = collections.entries();
+      let failed = false;
+      const inferCollections = async () => {
+        // Reading from the iterator automatically manages the queue
+        for (const [index, collection] of pendingCollections) {
+          if (failed) {
+            return;
+          }
+          if ([CHECKPOINTS_COLLECTION].includes(collection.name)) {
             continue;
           }
-          throw e;
+          if (collection.name.startsWith('system.')) {
+            // system.views, system.js, system.profile, system.buckets
+            // https://www.mongodb.com/docs/manual/reference/system-collections/
+            continue;
+          }
+          if (collection.type == 'view') {
+            continue;
+          }
+          try {
+            const columns = await inferCollectionSchema(
+              this.client.db(db.name).collection(collection.name),
+              isDocumentDb
+            );
+            // Preserve collection order even when queries finish out of order.
+            tables[index] = { name: collection.name, columns };
+          } catch (e) {
+            if (lib_mongo.isMongoServerError(e) && e.codeName == 'Unauthorized') {
+              // Ignore collections we're not authorized to query
+              continue;
+            }
+            // Fail the whole request on unexpected errors: the response cannot indicate
+            // partial results, so omitting a collection would make an incomplete schema
+            // appear complete and could produce an incorrect generated client schema.
+            failed = true;
+            throw e;
+          }
         }
+      };
+
+      // Each worker holds only schema metadata, with a bounded number of source queries.
+      const workers = Array.from(
+        { length: Math.min(SCHEMA_INFERENCE_CONCURRENCY, collections.length) },
+        inferCollections
+      );
+      try {
+        await Promise.all(workers);
+      } catch (e) {
+        // Finish in-flight queries before rejecting the request. Workers stop taking
+        // new collections as soon as one encounters a non-authorization error.
+        await Promise.allSettled(workers);
+        throw e;
       }
 
       databaseSchemas.push({
         name: db.name,
-        tables: tables
+        tables: tables.filter((table) => table != null)
       });
     }
     return databaseSchemas;
