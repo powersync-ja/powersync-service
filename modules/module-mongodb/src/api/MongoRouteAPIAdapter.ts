@@ -8,10 +8,10 @@ import { logger } from '@powersync/lib-services-framework';
 import { CheckpointImplementation } from '../replication/checkpoints/CheckpointImplementation.js';
 import { createCheckpointImplementation } from '../replication/checkpoints/create-checkpoint-implementation.js';
 import { MongoManager } from '../replication/MongoManager.js';
-import { constructAfterRecord } from '../replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION, detectDocumentDb } from '../replication/replication-utils.js';
 import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
+import { inferCollectionSchema } from './infer-collection-schema.js';
 
 export class MongoRouteAPIAdapter implements api.RouteAPI {
   protected client: mongo.MongoClient;
@@ -226,159 +226,59 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
-    const sampleSize = 50;
-
     const databases = await this.db.admin().listDatabases({ nameOnly: true });
     const filteredDatabases = databases.databases.filter((db) => {
       return !['local', 'admin', 'config'].includes(db.name);
     });
-    const databaseSchemas = await Promise.all(
-      filteredDatabases.map(async (db) => {
-        /**
-         * Filtering the list of database with `authorizedDatabases: true`
-         * does not produce the full list of databases under some circumstances.
-         * This catches any potential auth errors.
-         */
-        let collections: mongo.CollectionInfo[];
+    const databaseSchemas: service_types.DatabaseSchema[] = [];
+    // Infer one database at a time to avoid accumulating concurrent aggregation results.
+    for (const db of filteredDatabases) {
+      /**
+       * Filtering the list of database with `authorizedDatabases: true`
+       * does not produce the full list of databases under some circumstances.
+       * This catches any potential auth errors.
+       */
+      let collections: mongo.CollectionInfo[];
+      try {
+        collections = await this.client.db(db.name).listCollections().toArray();
+      } catch (e) {
+        if (lib_mongo.isMongoServerError(e) && e.codeName == 'Unauthorized') {
+          // Ignore databases we're not authorized to query
+          continue;
+        }
+        throw e;
+      }
+
+      let tables: service_types.TableSchema[] = [];
+      for (let collection of collections) {
+        if ([CHECKPOINTS_COLLECTION].includes(collection.name)) {
+          continue;
+        }
+        if (collection.name.startsWith('system.')) {
+          // system.views, system.js, system.profile, system.buckets
+          // https://www.mongodb.com/docs/manual/reference/system-collections/
+          continue;
+        }
+        if (collection.type == 'view') {
+          continue;
+        }
         try {
-          collections = await this.client.db(db.name).listCollections().toArray();
+          const columns = await inferCollectionSchema(this.client.db(db.name).collection(collection.name));
+          tables.push({ name: collection.name, columns });
         } catch (e) {
           if (lib_mongo.isMongoServerError(e) && e.codeName == 'Unauthorized') {
-            // Ignore databases we're not authorized to query
-            return null;
+            // Ignore collections we're not authorized to query
+            continue;
           }
           throw e;
         }
-
-        let tables: service_types.TableSchema[] = [];
-        for (let collection of collections) {
-          if ([CHECKPOINTS_COLLECTION].includes(collection.name)) {
-            continue;
-          }
-          if (collection.name.startsWith('system.')) {
-            // system.views, system.js, system.profile, system.buckets
-            // https://www.mongodb.com/docs/manual/reference/system-collections/
-            continue;
-          }
-          if (collection.type == 'view') {
-            continue;
-          }
-          try {
-            const sampleDocuments = await this.db
-              .collection(collection.name)
-              .aggregate([{ $sample: { size: sampleSize } }])
-              .toArray();
-
-            if (sampleDocuments.length > 0) {
-              const columns = this.getColumnsFromDocuments(sampleDocuments);
-
-              tables.push({
-                name: collection.name,
-                // Since documents are sampled in a random order, we need to sort
-                // to get a consistent order
-                columns: columns.sort((a, b) => a.name.localeCompare(b.name))
-              });
-            } else {
-              tables.push({
-                name: collection.name,
-                columns: []
-              });
-            }
-          } catch (e) {
-            if (lib_mongo.isMongoServerError(e) && e.codeName == 'Unauthorized') {
-              // Ignore collections we're not authorized to query
-              continue;
-            }
-            throw e;
-          }
-        }
-
-        return {
-          name: db.name,
-          tables: tables
-        } satisfies service_types.DatabaseSchema;
-      })
-    );
-    return databaseSchemas.filter((schema) => !!schema);
-  }
-
-  private getColumnsFromDocuments(documents: mongo.BSON.Document[]) {
-    let columns = new Map<string, { sqliteType: sync_rules.ExpressionType; bsonTypes: Set<string> }>();
-    for (const document of documents) {
-      const parsed = constructAfterRecord(document);
-      for (const key in parsed) {
-        const value = parsed[key];
-        const type = sync_rules.sqliteTypeOf(value);
-        const sqliteType = sync_rules.ExpressionType.fromTypeText(type);
-        let entry = columns.get(key);
-        if (entry == null) {
-          entry = { sqliteType, bsonTypes: new Set() };
-          columns.set(key, entry);
-        } else {
-          entry.sqliteType = entry.sqliteType.or(sqliteType);
-        }
-        const bsonType = this.getBsonType(document[key]);
-        if (bsonType != null) {
-          entry.bsonTypes.add(bsonType);
-        }
       }
-    }
-    return [...columns.entries()].map(([key, value]) => {
-      const internal_type = value.bsonTypes.size == 0 ? '' : [...value.bsonTypes].join(' | ');
-      return {
-        name: key,
-        type: internal_type,
-        sqlite_type: value.sqliteType.typeFlags,
-        internal_type,
-        pg_type: internal_type
-      };
-    });
-  }
 
-  private getBsonType(data: any): string | null {
-    if (data == null) {
-      // null or undefined
-      return 'Null';
-    } else if (typeof data == 'string') {
-      return 'String';
-    } else if (typeof data == 'number') {
-      if (Number.isInteger(data)) {
-        return 'Integer';
-      } else {
-        return 'Double';
-      }
-    } else if (typeof data == 'bigint') {
-      return 'Long';
-    } else if (typeof data == 'boolean') {
-      return 'Boolean';
-    } else if (data instanceof mongo.ObjectId) {
-      return 'ObjectId';
-    } else if (data instanceof mongo.UUID) {
-      return 'UUID';
-    } else if (data instanceof Date) {
-      return 'Date';
-    } else if (data instanceof mongo.Timestamp) {
-      return 'Timestamp';
-    } else if (data instanceof mongo.Binary) {
-      return 'Binary';
-    } else if (data instanceof mongo.Long) {
-      return 'Long';
-    } else if (data instanceof RegExp) {
-      return 'RegExp';
-    } else if (data instanceof mongo.MinKey) {
-      return 'MinKey';
-    } else if (data instanceof mongo.MaxKey) {
-      return 'MaxKey';
-    } else if (data instanceof mongo.Decimal128) {
-      return 'Decimal';
-    } else if (Array.isArray(data)) {
-      return 'Array';
-    } else if (data instanceof Uint8Array) {
-      return 'Binary';
-    } else if (typeof data == 'object') {
-      return 'Object';
-    } else {
-      return null;
+      databaseSchemas.push({
+        name: db.name,
+        tables: tables
+      });
     }
+    return databaseSchemas;
   }
 }
