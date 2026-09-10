@@ -469,7 +469,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       return this.compactSingleBucketChunks(context, objectStorageUsage);
     }
 
-    return this.compactSingleBucketFully(context);
+    return this.compactSingleBucketFully(context, objectStorageUsage);
   }
 
   /**
@@ -823,7 +823,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     };
   }
 
-  private async compactSingleBucketFully(context: CompactionContext) {
+  private async compactSingleBucketFully(context: CompactionContext, objectStorageUsage: ObjectStorageUsage) {
     const bucket = context.state._id.b;
     const resolvedDefinitionId = context.state._id.d;
     const bucketContext = new BucketDataContextV3(this.db, {
@@ -980,7 +980,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
             };
           } else {
             const flushedGroup = pendingGroup;
-            const result = await this.flushCompactionGroup(bucket, flushedGroup, bucketContext, dataContext);
+            const result = await this.flushCompactionGroup(
+              bucket,
+              flushedGroup,
+              bucketContext,
+              dataContext,
+              objectStorageUsage
+            );
             compactedStats = combineAdjacentStats(compactedStats, result.stats);
             if (
               lastNotPut != null &&
@@ -1005,7 +1011,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     }
 
     if (pendingGroup != null) {
-      const result = await this.flushCompactionGroup(bucket, pendingGroup, bucketContext, dataContext);
+      const result = await this.flushCompactionGroup(
+        bucket,
+        pendingGroup,
+        bucketContext,
+        dataContext,
+        objectStorageUsage
+      );
       compactedStats = combineAdjacentStats(compactedStats, result.stats);
       if (
         lastNotPut != null &&
@@ -1031,7 +1043,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         clearBoundary.documentId,
         bucketContext,
         collection,
-        dataContext
+        dataContext,
+        objectStorageUsage
       );
       totalOpCount += clearResult.opCountDiff;
       compactedStats = applyStatsReplacement(compactedStats, clearResult.before, clearResult.after);
@@ -1066,7 +1079,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     group: PendingCompactionGroup,
     bucketContext: BucketDataContextV3,
     context: { replicationStreamId: number; definitionId: string },
-    objectStorageUsage = this.objectStorageUsage
+    objectStorageUsage: ObjectStorageUsage
   ): Promise<CompactionGroupResult> {
     if (group.inputs.length == 1 && !group.changed) {
       return {
@@ -1161,7 +1174,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     boundaryDocId: BucketDataKey,
     bucketContext: BucketDataContextV3,
     collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
-    context: { replicationStreamId: number; definitionId: string }
+    context: { replicationStreamId: number; definitionId: string },
+    objectStorageUsage: ObjectStorageUsage
   ): Promise<ClearCompactionResult> {
     let opCountDiff = 0;
     let before = emptyBucketStats();
@@ -1178,7 +1192,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           boundaryDocId,
           bucketContext,
           collection,
-          context
+          context,
+          objectStorageUsage
         );
         done = batch.done;
         opCountDiff += batch.opCountDiff;
@@ -1194,7 +1209,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         boundaryDocId,
         bucketContext,
         collection,
-        context
+        context,
+        objectStorageUsage
       );
       opCountDiff += boundaryResult.opCountDiff;
       before = combineAdjacentStats(before, boundaryResult.before);
@@ -1212,7 +1228,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     boundaryDocId: BucketDataKey,
     bucketContext: BucketDataContextV3,
     collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
-    context: { replicationStreamId: number; definitionId: string }
+    context: { replicationStreamId: number; definitionId: string },
+    objectStorageUsage: ObjectStorageUsage
   ): Promise<{ done: boolean; opCountDiff: number } & CompactionStatsReplacement> {
     const bucket = bucketContext.key.bucket;
     this.signal?.throwIfAborted();
@@ -1326,7 +1343,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         });
         writes.insertOne(collection, persisted.documents[0]);
         this.finishObjectStorageReplacement(oldStoragePaths, persisted.storagePaths, persisted.uploads, writes);
-        this.recordObjectStorageReplacement(oldStorageBytes, persisted.documents, context.definitionId, writes);
+        this.recordObjectStorageReplacement(
+          oldStorageBytes,
+          persisted.documents,
+          context.definitionId,
+          writes,
+          objectStorageUsage
+        );
         await writes.execute();
 
         opCountDiff = -clearedOpCount + 1;
@@ -1348,7 +1371,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     boundaryDocId: BucketDataKey,
     bucketContext: BucketDataContextV3,
     collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
-    context: { replicationStreamId: number; definitionId: string }
+    context: { replicationStreamId: number; definitionId: string },
+    objectStorageUsage: ObjectStorageUsage
   ): Promise<ClearCompactionResult> {
     const bucket = bucketContext.key.bucket;
     this.signal?.throwIfAborted();
@@ -1473,7 +1497,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         });
         writes.insertMany(collection, persisted.documents);
         this.finishObjectStorageReplacement(oldStoragePaths, persisted.storagePaths, persisted.uploads, writes);
-        this.recordObjectStorageReplacement(oldStorageBytes, persisted.documents, context.definitionId, writes);
+        this.recordObjectStorageReplacement(
+          oldStorageBytes,
+          persisted.documents,
+          context.definitionId,
+          writes,
+          objectStorageUsage
+        );
         await writes.execute();
 
         opCountDiff = -clearedOpCount + 1;
@@ -1534,7 +1564,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     newDocuments: Iterable<Pick<BucketDataDocumentV3, 'storage_ref'>>,
     definitionId: BucketDefinitionId,
     writes: MongoWriteBatch,
-    objectStorageUsage = this.objectStorageUsage
+    objectStorageUsage: ObjectStorageUsage
   ): void {
     if (!this.storage.objectStorage) {
       return;
