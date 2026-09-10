@@ -171,7 +171,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
    * Batching specifically help to cover cases of many buckets where no compaction is required:
    * Instead of sequentially claiming and then rescheduling a bucket, this handles it in bulk.
    *
-   * Chunk-only passes overlap a bounded number of buckets. Full compaction stays
+   * Chunk merges overlap a bounded number of buckets. Full compaction stays
    * sequential because its working set includes operation deduplication state.
    *
    * Any concurrent workers may read the same batch. Rescheduling filters out buckets handled
@@ -186,15 +186,13 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     // Writers derive next_compact_check from MongoDB's $$NOW. Use the same
     // clock for the fixed job boundary so clock skew cannot exclude work at
     // the exact initial-replication interval.
-    const [{ now: jobStartedAt }] = await this.db.db
-      .aggregate<{ now: Date }>([{ $documents: [{}] }, { $project: { _id: 0, now: '$$NOW' } }])
-      .toArray();
+    const jobStartedAt = await this.readCompactionTime();
     const dueBefore = new Date(jobStartedAt.getTime() + (options.dueAheadMs ?? 0));
     const forceKind = options.forceKind;
     const rescheduleNotBefore = new Date(dueBefore.getTime() + 1);
     // Keep accounting documents bounded by workers, not buckets or scan batches.
     const workerUsage = Array.from(
-      { length: forceKind === CompactionKind.Chunks ? this.storage.factory.chunkCompactionConcurrency : 0 },
+      { length: this.storage.factory.chunkCompactionConcurrency },
       () => new ObjectStorageUsage(this.db, this.group_id, createObjectStorageUsageWriterId())
     );
     while (true) {
@@ -203,6 +201,9 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       if (states.length == 0) {
         break;
       }
+      // Keep eligibility bounded by dueBefore, but classify with the current
+      // server time so buckets that age into full compaction can advance.
+      const batchStartedAt = await this.readCompactionTime();
 
       const scheduled: {
         state: BucketStateDocumentV3;
@@ -213,7 +214,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         try {
           scheduled.push({
             state,
-            decision: chooseCompactionKind(state, jobStartedAt, this),
+            decision: chooseCompactionKind(state, batchStartedAt, this),
             forcedKind: forcedCompactionKind(state, forceKind, this)
           });
         } catch (error) {
@@ -228,7 +229,8 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
 
       const processBucket = async (
         { state, decision, forcedKind }: (typeof scheduled)[number],
-        objectStorageUsage: ObjectStorageUsage
+        objectStorageUsage: ObjectStorageUsage,
+        chunksOnly = false
       ) => {
         const kind = forceKind == null ? decision.kind : forcedKind;
         if (state.compact_lease == null && kind == null) {
@@ -243,6 +245,11 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           const claimedDecision = chooseCompactionKind(lease.state, lease.startedAt, this);
           const claimedKind =
             forceKind == null ? claimedDecision.kind : forcedCompactionKind(lease.state, forceKind, this);
+          if (chunksOnly && claimedKind === CompactionKind.Full) {
+            // The decision changed after scanning. Release the lease without
+            // rescheduling; the next batch will classify it with a fresh timestamp.
+            return;
+          }
           if (claimedKind == null) {
             await this.rescheduleClaimedBucket(lease, claimedDecision, rescheduleNotBefore);
           } else if (this.isCompactionTargetCovered(lease.state, claimedKind)) {
@@ -268,14 +275,29 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         }
       };
 
-      if (forceKind !== CompactionKind.Chunks) {
-        for (const entry of scheduled) {
-          await processBucket(entry, this.objectStorageUsage);
-        }
-      } else {
-        await this.runChunkCompactionWorkers(scheduled, workerUsage, processBucket);
+      const chunkBuckets = scheduled.filter(
+        ({ decision, forcedKind }) => (forceKind == null ? decision.kind : forcedKind) === CompactionKind.Chunks
+      );
+      const sequentialBuckets = scheduled.filter(
+        ({ decision, forcedKind }) => (forceKind == null ? decision.kind : forcedKind) !== CompactionKind.Chunks
+      );
+      await this.runChunkCompactionWorkers(chunkBuckets, workerUsage, (entry, usage) =>
+        processBucket(entry, usage, true)
+      );
+      // Full compaction cannot overlap chunk workers from this job, and only
+      // one full bucket is processed at a time.
+      for (const entry of sequentialBuckets) {
+        await processBucket(entry, this.objectStorageUsage);
       }
     }
+  }
+
+  /** Use MongoDB's clock, matching scheduling and lease timestamps. */
+  private async readCompactionTime(): Promise<Date> {
+    const [{ now }] = await this.db.db
+      .aggregate<{ now: Date }>([{ $documents: [{}] }, { $project: { _id: 0, now: '$$NOW' } }])
+      .toArray();
+    return now;
   }
 
   /** Process one scheduled batch with a fixed pool of workers. */

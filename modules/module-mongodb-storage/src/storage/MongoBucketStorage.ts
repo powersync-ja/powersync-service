@@ -43,7 +43,7 @@ export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   objectStorage?: ObjectStorage;
   inlineThresholdBytes?: number;
-  /** Shared across initial chunk-compaction jobs. Default: 2. */
+  /** Shared across chunk-compaction jobs. Default: 2. */
   chunkCompactionConcurrency?: number;
   /**
    * Prefix for replication stream name and Postgres logical replication slot name.
