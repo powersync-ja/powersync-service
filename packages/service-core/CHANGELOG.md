@@ -1,5 +1,15 @@
 # @powersync/service-core
 
+## 1.26.1
+
+### Patch Changes
+
+- f842b4e: Concurrent storage version 4 chunk-merge compaction across buckets during. Configure the shared worker limit with `storage.chunk_compaction_concurrency` (default: 4 with object storage, otherwise 2). Full compactions remain sequential within each job.
+- Updated dependencies [5ae6f75]
+  - @powersync/service-sync-rules@0.42.0
+  - @powersync/lib-services-framework@0.10.2
+  - @powersync/service-rsocket-router@0.2.27
+
 ## 1.26.0
 
 ### Minor Changes
