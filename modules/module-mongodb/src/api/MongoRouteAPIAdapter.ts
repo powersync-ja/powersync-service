@@ -23,6 +23,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   defaultSchema: string;
 
   private checkpointImplementation: CheckpointImplementation | null = null;
+  private documentDbDetection: Promise<boolean> | null = null;
 
   constructor(protected config: types.ResolvedConnectionConfig) {
     const manager = new MongoManager(config);
@@ -208,9 +209,18 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     return checkpointImplementation.createReplicationHead(callback);
   }
 
+  private isDocumentDb(): Promise<boolean> {
+    // Share in-flight detection and cache its result for this adapter's lifetime.
+    return (this.documentDbDetection ??= detectDocumentDb(this.db).catch((error) => {
+      // Allow a later request to retry after a transient connection error.
+      this.documentDbDetection = null;
+      throw error;
+    }));
+  }
+
   private async getCheckpointImplementation(): Promise<CheckpointImplementation> {
     if (this.checkpointImplementation == null) {
-      const isDocumentDb = await detectDocumentDb(this.db);
+      const isDocumentDb = await this.isDocumentDb();
       this.checkpointImplementation = createCheckpointImplementation(isDocumentDb, {
         client: this.client,
         db: this.db,
@@ -228,7 +238,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
-    const isDocumentDb = await detectDocumentDb(this.db);
+    const isDocumentDb = await this.isDocumentDb();
     const databases = await this.db.admin().listDatabases({ nameOnly: true });
     const filteredDatabases = databases.databases.filter((db) => {
       return !['local', 'admin', 'config'].includes(db.name);
