@@ -651,7 +651,9 @@ export abstract class MongoBucketBatch
   }
 
   protected async fence(session = this.session) {
-    this.options.signal?.throwIfAborted();
+    // Graceful cancellation belongs to the source connector's page/batch boundary.
+    // It must still be able to persist progress for rows already flushed. Lease
+    // loss is different: the fence rejects every subsequent writer transaction.
     return MongoSyncRulesLock.fence(this.db, this.replicationStreamId, this.options.replicationLock, session);
   }
 
@@ -662,7 +664,6 @@ export abstract class MongoBucketBatch
         try {
           const result = await cb(stream);
           this.options.replicationLock?.signal.throwIfAborted();
-          this.options.signal?.throwIfAborted();
           return result;
         } catch (e: unknown) {
           if (e instanceof OpIdRangeExhausted) {
@@ -693,7 +694,7 @@ export abstract class MongoBucketBatch
     let lastOp = 0n;
     // Refill outside the publication transaction, before evaluating any rows.
     // Exhaustion remains a fallback for large batches or a newer stream head.
-    this.options.signal?.throwIfAborted();
+    this.options.replicationLock?.signal.throwIfAborted();
     await allocator.ensureCapacity();
     for (;;) {
       try {
@@ -727,7 +728,6 @@ export abstract class MongoBucketBatch
         // then replay evaluation from the same committed stream head. Existing
         // ranges can be reused on retry because no operation from this attempt committed.
         this.options.replicationLock?.signal.throwIfAborted();
-        this.options.signal?.throwIfAborted();
         await allocator.reserve();
       }
     }

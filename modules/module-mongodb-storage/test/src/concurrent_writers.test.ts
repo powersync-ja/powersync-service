@@ -151,6 +151,40 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     }
   });
 
+  test.each(['during flush', 'after flush'])('graceful cancellation %s preserves snapshot progress', async (when) => {
+    await using factory = await factoryGen.factory();
+    const a = await openStream(factory, version);
+    await a.writer.dispose();
+    const abort = new AbortController();
+    await using writer = await a.bucketStorage.createWriter({ ...test_utils.BATCH_OPTIONS, signal: abort.signal });
+    const table = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, a.stream.replicationStreamId);
+    const flush = PersistedBatch.prototype.flush;
+    const interrupted = vi.spyOn(PersistedBatch.prototype, 'flush').mockImplementationOnce(async function (
+      this: PersistedBatch,
+      ...args
+    ) {
+      const result = await flush.apply(this, args);
+      if (when === 'during flush') {
+        abort.abort();
+      }
+      return result;
+    });
+    try {
+      await insert(writer, table, 'page');
+      await writer.flush();
+      if (when === 'after flush') {
+        abort.abort();
+      }
+      await writer.updateTableProgress(table, { replicatedCount: 1, totalEstimatedCount: 1 });
+      const persisted = await writer.getSourceTableStatus(table);
+      expect(persisted?.snapshotStatus?.replicatedCount).toBe(1);
+      await writer.commit('1/2');
+      expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(1n);
+    } finally {
+      interrupted.mockRestore();
+    }
+  });
+
   test('recovers flushed operations through existing version-specific fields', async () => {
     await using factory = await factoryGen.factory();
     const a = await openStream(factory, version);
