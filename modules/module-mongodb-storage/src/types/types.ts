@@ -76,9 +76,10 @@ export type MongoStorageConfig = t.Encoded<typeof MongoStorageConfig>;
 export type MongoStorageConfigDecoded = t.Decoded<typeof MongoStorageConfig>;
 
 export const DEFAULT_CLEAR_BATCH_THROTTLE_RATE = 0.2;
+export const DEFAULT_CHUNK_COMPACTION_CONCURRENCY = 2;
 
 export function normalizeChunkCompactionConcurrency(value: number | undefined): number {
-  const concurrency = value ?? 2;
+  const concurrency = value ?? DEFAULT_CHUNK_COMPACTION_CONCURRENCY;
   if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
     throw new ServiceError(ErrorCode.PSYNC_S3201, 'storage.chunk_compaction_concurrency must be a positive integer');
   }

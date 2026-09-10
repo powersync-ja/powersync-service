@@ -54,7 +54,6 @@ const DEFAULT_MIN_COMPACT_FULL_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const DEFAULT_MAX_COMPACT_FULL_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_COMPACT_LEASE_DURATION_MS = 10 * 60 * 1000;
 const SCHEDULED_COMPACTION_BATCH_SIZE = 100;
-const uninterruptibleSignal = new AbortController().signal;
 
 interface CompactionGroupResult {
   documentId: BucketDataKey;
@@ -306,7 +305,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     workerUsage: readonly ObjectStorageUsage[],
     processBucket: (bucket: T, usage: ObjectStorageUsage) => Promise<void>
   ): Promise<void> {
-    const signal = this.signal ?? uninterruptibleSignal;
+    const signal = this.signal;
     let nextBucket = 0;
 
     const runWorker = async (usage: ObjectStorageUsage) => {
@@ -319,12 +318,12 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
         // Acquire before claiming the bucket lease, and hold until it is released.
         const acquired = await acquireSemaphoreAbortable(this.storage.factory.chunkCompactionSlots, signal);
         if (acquired === 'aborted') {
-          signal.throwIfAborted();
+          signal?.throwIfAborted();
           return;
         }
         const [, releaseSlot] = acquired;
         try {
-          signal.throwIfAborted();
+          signal?.throwIfAborted();
           await processBucket(bucket, usage);
         } finally {
           releaseSlot();
