@@ -6,8 +6,10 @@ import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { calculateCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
+import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
+import { SyncRuleDocumentBase } from '../models.js';
 import { PersistedBatchV1 } from './PersistedBatchV1.js';
 import { SourceRecordStoreV1 } from './SourceRecordStoreV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
@@ -32,6 +34,27 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     super(options);
     this.persisted_op = options.keepaliveOp ?? null;
     this.store = new SourceRecordStoreV1(this.db, this.replicationStreamId);
+  }
+
+  protected override persistedOpHead(stream: SyncRuleDocumentBase): InternalOpId {
+    const legacy = stream as SyncRuleDocumentV1;
+    const checkpoint = legacy.last_checkpoint ?? 0n;
+    const keepalive = legacy.keepalive_op == null ? 0n : BigInt(legacy.keepalive_op);
+    return checkpoint > keepalive ? checkpoint : keepalive;
+  }
+
+  protected override onReplicationTransactionFlush(writes: MongoWriteBatch, lastOp: InternalOpId): void {
+    // Keep flushed operations recoverable before a checkpoint can be published.
+    // keepalive_op remains a decimal string for compatibility with legacy readers.
+    writes.updateOne(this.db.sync_rules, { _id: this.replicationStreamId }, [
+      {
+        $set: {
+          keepalive_op: {
+            $toString: { $max: [{ $toLong: '$keepalive_op' }, '$last_checkpoint', lastOp] }
+          }
+        }
+      }
+    ]);
   }
 
   protected override recordPersistedOp(lastOp: InternalOpId): void {
@@ -260,7 +283,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           { $literal: null },
           {
             $toString: {
-              $max: [{ $toLong: '$keepalive_op' }, { $literal: this.persisted_op }, '$last_persisted_op', 0n]
+              $max: [{ $toLong: '$keepalive_op' }, { $literal: this.persisted_op }, 0n]
             }
           }
         ]
@@ -270,13 +293,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         $cond: [
           can_checkpoint,
           {
-            $max: [
-              '$last_checkpoint',
-              { $literal: this.persisted_op },
-              { $toLong: '$keepalive_op' },
-              '$last_persisted_op',
-              0n
-            ]
+            $max: ['$last_checkpoint', { $literal: this.persisted_op }, { $toLong: '$keepalive_op' }, 0n]
           },
           '$last_checkpoint'
         ]
@@ -307,7 +324,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
               last_checkpoint_ts: {
                 $cond: [{ $and: ['$_can_checkpoint', '$_not_empty'] }, { $literal: now }, '$last_checkpoint_ts']
               },
-              last_keepalive_ts: { $literal: now },
+
               last_fatal_error: { $literal: null },
               last_fatal_error_ts: { $literal: null },
               keepalive_op: new_keepalive_op,
@@ -329,8 +346,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
             last_checkpoint_lsn: 1,
             no_checkpoint_before: 1,
             keepalive_op: 1,
-            last_checkpoint: 1,
-            last_persisted_op: 1
+            last_checkpoint: 1
           }
         }
       )) as SyncRuleDocumentV1;
@@ -348,7 +364,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         noCheckpointBefore: preUpdateDocument.no_checkpoint_before,
         keepaliveOp: preUpdateDocument.keepalive_op == null ? null : BigInt(preUpdateDocument.keepalive_op),
         lastCheckpoint: preUpdateDocument.last_checkpoint,
-        persistedOp: preUpdateDocument.last_persisted_op ?? this.persisted_op,
+        persistedOp: this.persistedOpHead(preUpdateDocument),
         createEmptyCheckpoints
       });
       return { checkpointState, preUpdateDocument };
@@ -420,8 +436,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       },
       {
         $set: {
-          snapshot_done: true,
-          last_keepalive_ts: new Date()
+          snapshot_done: true
         },
         $max: {
           no_checkpoint_before: no_checkpoint_before_lsn
@@ -508,9 +523,6 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
             _id: this.replicationStreamId
           },
           {
-            $set: {
-              last_keepalive_ts: new Date()
-            },
             $max: {
               no_checkpoint_before: no_checkpoint_before_lsn
             }

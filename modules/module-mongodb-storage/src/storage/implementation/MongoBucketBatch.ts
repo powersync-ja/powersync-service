@@ -707,18 +707,11 @@ export abstract class MongoBucketBatch
           }
           // The fence already holds this stream document for the transaction.
           // A different writer may have used higher IDs since our last flush.
-          const opSeq = allocator.sequence(stream?.last_persisted_op ?? 0n);
+          const opSeq = allocator.sequence(this.persistedOpHead(stream));
           await callback(this.session, opSeq);
           lastOp = opSeq.last();
 
           const writes = this.db.createWriteBatch(this.session, { ordered: false });
-          writes.updateOne(
-            this.db.sync_rules,
-            { _id: this.replicationStreamId },
-            {
-              $set: { last_keepalive_ts: new Date() }
-            }
-          );
           // Allow subclasses to persist additional flush-time state in the same transaction.
           this.onReplicationTransactionFlush(writes, lastOp);
           await writes.execute();
@@ -740,28 +733,11 @@ export abstract class MongoBucketBatch
     }
   }
 
-  /**
-   * Hook called inside the replication flush transaction, after ops have been persisted.
-   *
-   * Advance the stream-level `last_persisted_op` durably within the same transaction.
-   * This also keeps concurrent legacy writers above the committed stream head.
-   */
-  protected onReplicationTransactionFlush(writes: MongoWriteBatch, lastOp: bigint): void {
-    // Durably advance the stream-level head of persisted ops within the flush transaction.
-    // This ensures a checkpoint created later (even by an empty commit, or by a freshly-appended
-    // config that replicates nothing) covers all ops persisted before a potential crash.
-    writes.updateOne(
-      this.db.sync_rules,
-      {
-        _id: this.replicationStreamId
-      },
-      {
-        $max: {
-          last_persisted_op: lastOp
-        }
-      }
-    );
-  }
+  /** Highest durably persisted operation, including operations not yet checkpointed. */
+  protected abstract persistedOpHead(stream: SyncRuleDocumentBase): InternalOpId;
+
+  /** Advance the persisted head in the same transaction as the operations. */
+  protected abstract onReplicationTransactionFlush(writes: MongoWriteBatch, lastOp: InternalOpId): void;
 
   /**
    * Called after a replication transaction has successfully committed, with the last persisted op id.

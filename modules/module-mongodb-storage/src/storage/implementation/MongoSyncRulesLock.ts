@@ -116,8 +116,18 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
     lock?.signal.throwIfAborted();
     const doc = await db.sync_rules.findOneAndUpdate(
       { _id: streamId, ...(lock == null ? { lock: null } : { 'lock.id': lock.lock_id }) },
-      { $inc: { writer_transaction: 1n } },
-      { session, returnDocument: 'after', projection: { last_persisted_op: 1 } }
+      [
+        {
+          $set: {
+            // Always change the existing heartbeat, even for writes in the same
+            // millisecond. A no-op update is not sufficient for the lease fence.
+            last_keepalive_ts: {
+              $max: ['$$NOW', { $add: [{ $ifNull: ['$last_keepalive_ts', new Date(0)] }, 1] }]
+            }
+          }
+        }
+      ],
+      { session, returnDocument: 'after', projection: { last_persisted_op: 1, last_checkpoint: 1, keepalive_op: 1 } }
     );
     if (doc == null) {
       throw new ReplicationAbortedError('Replication writer no longer owns the stream');

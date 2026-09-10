@@ -151,6 +151,51 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     }
   });
 
+  test('recovers flushed operations through existing version-specific fields', async () => {
+    await using factory = await factoryGen.factory();
+    const a = await openStream(factory, version);
+    await using writer = a.writer;
+    await insert(writer, a.table, 'checkpointed');
+    await writer.commit('1/2');
+    await insert(writer, a.table, 'flushed');
+    await writer.flush();
+    const document = await factory.db.sync_rules.findOne({ _id: a.stream.replicationStreamId });
+    expect(document).not.toHaveProperty('writer_transaction');
+    if (version < 3) {
+      expect(document).not.toHaveProperty('last_persisted_op');
+      expect(document).toMatchObject({ last_checkpoint: 1n, keepalive_op: '2' });
+    } else {
+      expect(document).toHaveProperty('last_persisted_op', 2n);
+    }
+    await using other = await factoryGen.factory({ doNotClear: true });
+    const stream = (await other.getReplicatingReplicationStreams())[0];
+    const bucketStorage = other.getInstance(stream);
+    await using resumed = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await resumed.commit('1/3');
+    expect((await bucketStorage.getCheckpoint()).checkpoint).toBe(2n);
+    if (version < 3) {
+      expect(await factory.db.sync_rules.findOne({ _id: stream.replicationStreamId })).toMatchObject({
+        last_checkpoint: 2n,
+        keepalive_op: null
+      });
+    }
+  });
+
+  test('fencing changes the heartbeat even when it is ahead of the clock', async () => {
+    await using factory = await factoryGen.factory();
+    const a = await openStream(factory, version);
+    await using writer = a.writer;
+    const future = new Date(Date.now() + 60_000);
+    await factory.db.sync_rules.updateOne(
+      { _id: a.stream.replicationStreamId },
+      { $set: { last_keepalive_ts: future } }
+    );
+    await writer.setResumeLsn('1/2');
+    const document = await factory.db.sync_rules.findOne({ _id: a.stream.replicationStreamId });
+    expect(document!.last_keepalive_ts!.getTime()).toBe(future.getTime() + 1);
+    expect(document).not.toHaveProperty('writer_transaction');
+  });
+
   test('independent writers of the same stream never publish behind its durable head', async () => {
     await using factory = await factoryGen.factory();
     const a = await openStream(factory, version);

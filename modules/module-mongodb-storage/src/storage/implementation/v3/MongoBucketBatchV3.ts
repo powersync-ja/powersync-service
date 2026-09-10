@@ -11,6 +11,7 @@ import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { stopReplicationStreamPipeline } from '../SyncRuleStateUpdate.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
+import { SyncRuleDocumentBase } from '../models.js';
 import { PersistedBatchV3 } from './PersistedBatchV3.js';
 import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
@@ -59,6 +60,27 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   protected get sourceRecordStore(): SourceRecordStore {
     return this.store;
+  }
+
+  protected override persistedOpHead(stream: SyncRuleDocumentBase): InternalOpId {
+    return (stream as ReplicationStreamDocumentV3).last_persisted_op ?? 0n;
+  }
+
+  protected override onReplicationTransactionFlush(writes: MongoWriteBatch, lastOp: InternalOpId): void {
+    // Durably advance the stream-level head of persisted ops within the flush transaction.
+    // This ensures a checkpoint created later (even by an empty commit, or by a freshly-appended
+    // config that replicates nothing) covers all ops persisted before a potential crash.
+    writes.updateOne(
+      this.db.sync_rules,
+      {
+        _id: this.replicationStreamId
+      },
+      {
+        $max: {
+          last_persisted_op: lastOp
+        }
+      }
+    );
   }
 
   private selectedSyncConfigObjectIds(syncConfigIds: string[]): bson.ObjectId[] {
@@ -363,7 +385,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           // All unblocked configs get the SAME new value, so we apply it with a single updateOne
           // (single-document atomicity).
           const updateSet: Record<string, any> = {
-            last_keepalive_ts: now,
             last_fatal_error: null,
             last_fatal_error_ts: null
           };
@@ -395,7 +416,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
             },
             {
               $set: {
-                last_keepalive_ts: now,
                 last_fatal_error: null,
                 last_fatal_error_ts: null
               },
@@ -576,8 +596,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       },
       {
         $set: {
-          'sync_configs.$[config].snapshot_done': true,
-          last_keepalive_ts: new Date()
+          'sync_configs.$[config].snapshot_done': true
         },
         $max: {
           'sync_configs.$[config].no_checkpoint_before': no_checkpoint_before_lsn
@@ -672,9 +691,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
             'sync_configs._id': { $in: syncConfigIds }
           },
           {
-            $set: {
-              last_keepalive_ts: new Date()
-            },
             $max: {
               'sync_configs.$[config].no_checkpoint_before': no_checkpoint_before_lsn
             }
