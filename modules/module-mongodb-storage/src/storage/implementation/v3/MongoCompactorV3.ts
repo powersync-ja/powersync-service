@@ -1,18 +1,11 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
-import {
-  acquireSemaphoreAbortable,
-  addChecksums,
-  formatBytes,
-  InternalOpId,
-  storage,
-  utils
-} from '@powersync/service-core';
+import { acquireSemaphoreAbortable, addChecksums, formatBytes, InternalOpId, utils } from '@powersync/service-core';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { setImmediate } from 'node:timers/promises';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketDataKey } from '../models.js';
-import { ConcurrentCompactionError, MongoCompactor } from '../MongoCompactor.js';
+import { ConcurrentCompactionError, MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { cacheKey } from '../OperationBatch.js';
 import { loadBucketDataDocument, maxOpId, serializeBucketData } from './bucket-format.js';
@@ -23,6 +16,7 @@ import {
   bucketStats,
   BucketStatsWithChecksum,
   chooseCompactionKind,
+  chooseRequestedCompactionKind,
   combineAdjacentStats,
   combineChunkStats,
   CompactIntervalConfig,
@@ -33,7 +27,6 @@ import {
   CompactTargetConfig,
   emptyBucketStats,
   firstUncompactedWrite,
-  forcedCompactionKind,
   PendingCompactionGroup,
   readCompactionBatch,
   ScheduledCompactionOptions,
@@ -78,15 +71,17 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
   readonly maxCompactFullIntervalMs: number;
   readonly compactLeaseDurationMs: number;
   readonly maxOpIdCap: InternalOpId | undefined;
+  readonly forceChunkCompaction: boolean;
   private readonly objectStorageUsage: ObjectStorageUsage;
 
-  constructor(bucketStorage: MongoSyncBucketStorageV3, db: VersionedPowerSyncMongoV3, options: storage.CompactOptions) {
+  constructor(bucketStorage: MongoSyncBucketStorageV3, db: VersionedPowerSyncMongoV3, options: MongoCompactOptions) {
     super(bucketStorage, db, options);
     this.minCompactChunkIntervalMs = options.minCompactChunkIntervalMs ?? DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS;
     this.minCompactFullIntervalMs = options.minCompactFullIntervalMs ?? DEFAULT_MIN_COMPACT_FULL_INTERVAL_MS;
     this.maxCompactFullIntervalMs = options.maxCompactFullIntervalMs ?? DEFAULT_MAX_COMPACT_FULL_INTERVAL_MS;
     this.compactLeaseDurationMs = options.compactLeaseDurationMs ?? DEFAULT_COMPACT_LEASE_DURATION_MS;
     this.maxOpIdCap = options.maxOpId;
+    this.forceChunkCompaction = options.forceChunkCompaction ?? false;
     this.objectStorageUsage = new ObjectStorageUsage(this.db, this.group_id, createObjectStorageUsageWriterId());
   }
 
@@ -113,7 +108,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       // processes the work that existed when it started.
       await this.compactScheduledBuckets({
         dueAheadMs: DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS,
-        forceKind: CompactionKind.Chunks
+        requestedKind: CompactionKind.Chunks
       });
     } else {
       await this.compactScheduledBuckets();
@@ -187,7 +182,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     // the exact initial-replication interval.
     const jobStartedAt = await this.readCompactionTime();
     const dueBefore = new Date(jobStartedAt.getTime() + (options.dueAheadMs ?? 0));
-    const forceKind = options.forceKind;
+    const requestedKind = options.requestedKind;
     const rescheduleNotBefore = new Date(dueBefore.getTime() + 1);
     // Keep accounting documents bounded by workers, not buckets or scan batches.
     const workerUsage = Array.from(
@@ -207,31 +202,31 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       const scheduled: {
         state: BucketStateDocumentV3;
         decision: CompactionDecision;
-        forcedKind: CompactionKind | null;
+        selectedKind: CompactionKind | null;
       }[] = [];
       for (const state of states) {
         try {
           scheduled.push({
             state,
             decision: chooseCompactionKind(state, batchStartedAt, this),
-            forcedKind: forcedCompactionKind(state, forceKind, this)
+            selectedKind: chooseRequestedCompactionKind(state, requestedKind, this)
           });
         } catch (error) {
           await this.rescheduleFailedBucket(state, rescheduleNotBefore, error);
         }
       }
       const noOpStates = scheduled.filter(
-        ({ state, decision, forcedKind }) =>
-          state.compact_lease == null && (forceKind == null ? decision.kind : forcedKind) == null
+        ({ state, decision, selectedKind }) =>
+          state.compact_lease == null && (requestedKind == null ? decision.kind : selectedKind) == null
       );
       await this.rescheduleUnclaimedBuckets(noOpStates, rescheduleNotBefore);
 
       const processBucket = async (
-        { state, decision, forcedKind }: (typeof scheduled)[number],
+        { state, decision, selectedKind }: (typeof scheduled)[number],
         objectStorageUsage: ObjectStorageUsage,
         chunksOnly = false
       ) => {
-        const kind = forceKind == null ? decision.kind : forcedKind;
+        const kind = requestedKind == null ? decision.kind : selectedKind;
         if (state.compact_lease == null && kind == null) {
           return;
         }
@@ -243,7 +238,9 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
           }
           const claimedDecision = chooseCompactionKind(lease.state, lease.startedAt, this);
           const claimedKind =
-            forceKind == null ? claimedDecision.kind : forcedCompactionKind(lease.state, forceKind, this);
+            requestedKind == null
+              ? claimedDecision.kind
+              : chooseRequestedCompactionKind(lease.state, requestedKind, this);
           if (chunksOnly && claimedKind === CompactionKind.Full) {
             // The decision changed after scanning. Release the lease without
             // rescheduling; the next batch will classify it with a fresh timestamp.
@@ -275,10 +272,10 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
       };
 
       const chunkBuckets = scheduled.filter(
-        ({ decision, forcedKind }) => (forceKind == null ? decision.kind : forcedKind) === CompactionKind.Chunks
+        ({ decision, selectedKind }) => (requestedKind == null ? decision.kind : selectedKind) === CompactionKind.Chunks
       );
       const sequentialBuckets = scheduled.filter(
-        ({ decision, forcedKind }) => (forceKind == null ? decision.kind : forcedKind) !== CompactionKind.Chunks
+        ({ decision, selectedKind }) => (requestedKind == null ? decision.kind : selectedKind) !== CompactionKind.Chunks
       );
       await this.runChunkCompactionWorkers(chunkBuckets, workerUsage, (entry, usage) =>
         processBucket(entry, usage, true)

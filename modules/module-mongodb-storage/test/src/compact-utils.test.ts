@@ -3,12 +3,12 @@ import {
   applyStatsReplacement,
   bucketStats,
   chooseCompactionKind,
+  chooseRequestedCompactionKind,
   combineAdjacentStats,
   combineChunkStats,
   CompactIntervalConfig,
   CompactionKind,
   emptyBucketStats,
-  forcedCompactionKind,
   fullCompactionCheckAt,
   statsForDocument,
   statsForDocuments
@@ -130,44 +130,69 @@ describe('V3 compact utilities', () => {
   test.each([
     {
       name: 'does not force an unspecified kind',
-      forceKind: undefined,
+      requestedKind: undefined,
       compactedOpId: undefined,
       maxOpIdCap: undefined,
       expected: null
     },
     {
       name: 'forces work without previous compacted state',
-      forceKind: CompactionKind.Chunks,
+      requestedKind: CompactionKind.Chunks,
       compactedOpId: undefined,
       maxOpIdCap: undefined,
       expected: CompactionKind.Chunks
     },
     {
       name: 'skips work already compacted through the cap',
-      forceKind: CompactionKind.Chunks,
+      requestedKind: CompactionKind.Chunks,
       compactedOpId: 5n,
       maxOpIdCap: 5n,
       expected: null
     },
     {
       name: 'skips work already compacted through the bucket head',
-      forceKind: CompactionKind.Chunks,
+      requestedKind: CompactionKind.Chunks,
       compactedOpId: 10n,
       maxOpIdCap: undefined,
       expected: null
     },
     {
       name: 'forces work beyond the compacted state',
-      forceKind: CompactionKind.Chunks,
+      requestedKind: CompactionKind.Chunks,
       compactedOpId: 5n,
       maxOpIdCap: 6n,
       expected: CompactionKind.Chunks
     }
-  ])('$name', ({ forceKind, compactedOpId, maxOpIdCap, expected }) => {
+  ])('$name', ({ requestedKind, compactedOpId, maxOpIdCap, expected }) => {
     const state = bucketState({
+      bucket_stats: { count: 10, bytes: 100n, chunks: 9 },
       compacted_state: compactedOpId == null ? undefined : compactedState({ op_id: compactedOpId })
     });
-    expect(forcedCompactionKind(state, forceKind, { maxOpIdCap })).toBe(expected);
+    expect(chooseRequestedCompactionKind(state, requestedKind, { maxOpIdCap })).toBe(expected);
+  });
+
+  test.each([undefined, compactedState({ at: new Date() })])(
+    'initial chunk compaction requires eight new chunks, regardless of the interval: %o',
+    (compacted) => {
+      for (const newChunks of [1, 7, 8]) {
+        const state = bucketState({
+          bucket_stats: { count: 10, bytes: 100n, chunks: (compacted?.chunks ?? 0) + newChunks },
+          compacted_state: compacted
+        });
+        expect(chooseRequestedCompactionKind(state, CompactionKind.Chunks, { maxOpIdCap: undefined })).toBe(
+          newChunks < 8 ? null : CompactionKind.Chunks
+        );
+      }
+    }
+  );
+
+  test('the testing override bypasses the chunk threshold but preserves the compaction watermark', () => {
+    const state = bucketState();
+    const config = { maxOpIdCap: undefined, forceChunkCompaction: true };
+    expect(chooseRequestedCompactionKind(state, CompactionKind.Chunks, config)).toBe(CompactionKind.Chunks);
+    expect(chooseRequestedCompactionKind(state, undefined, config)).toBeNull();
+    state.compacted_state = compactedState({ op_id: state.last_op });
+    expect(chooseRequestedCompactionKind(state, CompactionKind.Chunks, config)).toBeNull();
   });
 
   test('derives and combines bucket statistics', () => {
