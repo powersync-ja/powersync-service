@@ -117,10 +117,14 @@ export abstract class BucketStorageFactory
    */
   abstract getSystemIdentifier(): Promise<BucketStorageSystemIdentifier>;
 
-  abstract [Symbol.asyncDispose](): PromiseLike<void>;
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.iterateAsyncListeners(async (listener) => listener.beforeDispose?.());
+  }
 }
 
 export interface BucketStorageFactoryListener {
+  /** Release owned resources before the factory closes its database connections. */
+  beforeDispose: () => Promise<void>;
   syncStorageCreated: (storage: SyncRulesBucketStorage) => void;
   replicationEvent: (event: ReplicationEventPayload) => void;
 }

@@ -112,10 +112,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     this.replicationStreamNamePrefix = options.replicationStreamNamePrefix;
   }
 
-  async [Symbol.asyncDispose]() {
-    // No-op
-  }
-
   getInstance(
     replicationStream: storage.PersistedReplicationStream,
     options?: GetIntanceOptions

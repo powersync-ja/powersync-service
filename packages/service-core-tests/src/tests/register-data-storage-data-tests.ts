@@ -37,6 +37,21 @@ export function registerDataStorageDataTests(config: storage.TestStorageConfig) 
   const generateStorageFactory = config.factory;
   const storageVersion = config.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
 
+  test('releases test replication leases when leaving an await using scope', async () => {
+    {
+      await using factory = await generateStorageFactory();
+      const stream = await factory.updateSyncRules(
+        updateSyncRulesFromYaml('bucket_definitions: {}', { storageVersion })
+      );
+      await getTestStorage(factory, stream);
+    }
+
+    await using replacement = await generateStorageFactory({ doNotClear: true });
+    const deploying = await replacement.getDeployingSyncConfig();
+    expect(deploying).not.toBeNull();
+    await getTestStorage(replacement, deploying!.replicationStream);
+  });
+
   test('removing row', async () => {
     await using factory = await generateStorageFactory();
     const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(

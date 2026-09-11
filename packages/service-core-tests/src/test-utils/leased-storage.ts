@@ -17,17 +17,20 @@ export async function getTestStorage<T extends storage.BucketStorageFactory>(
     owned = new Map();
     leases.set(factory, owned);
     const factoryLeases = owned;
-    const dispose = factory[Symbol.asyncDispose].bind(factory);
-    factory[Symbol.asyncDispose] = async () => {
-      try {
-        for (const lock of factoryLeases.values()) {
-          await (await lock).release();
+    // `await using` captures the disposer before this helper runs. Register a
+    // lifecycle callback instead of replacing that already-captured method.
+    const unregister = factory.registerListener({
+      beforeDispose: async () => {
+        unregister();
+        try {
+          for (const lock of factoryLeases.values()) {
+            await (await lock).release();
+          }
+        } finally {
+          factoryLeases.clear();
         }
-      } finally {
-        factoryLeases.clear();
-        await dispose();
       }
-    };
+    });
   }
   let pending = owned.get(stream.replicationStreamId);
   if (pending == null) {
