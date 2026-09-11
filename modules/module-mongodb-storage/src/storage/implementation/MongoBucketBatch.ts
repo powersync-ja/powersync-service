@@ -223,7 +223,34 @@ export abstract class MongoBucketBatch
     return result;
   }
 
-  private async flushInner(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
+  /** Publish the checkpoint in the final flush transaction, or use the empty-commit path. */
+  protected async flushAndCommit<T>(
+    checkpoint: (stream: SyncRuleDocumentBase, lastOp: InternalOpId) => Promise<T>,
+    commitWithoutFlush: () => Promise<T>,
+    options?: storage.BatchBucketFlushOptions,
+    projection?: mongo.Document
+  ): Promise<T> {
+    if (this.batch == null && this.write_checkpoint_batch.length === 0) {
+      return commitWithoutFlush();
+    }
+    let result!: T;
+    while (this.batch != null || this.write_checkpoint_batch.length > 0) {
+      await this.flushInner(
+        options,
+        async (stream, lastOp) => {
+          result = await checkpoint(stream, lastOp);
+        },
+        projection
+      );
+    }
+    return result;
+  }
+
+  private async flushInner(
+    options?: storage.BatchBucketFlushOptions,
+    checkpoint?: (stream: SyncRuleDocumentBase, lastOp: InternalOpId) => Promise<void>,
+    projection?: mongo.Document
+  ): Promise<storage.FlushedResult | null> {
     const batch = this.batch;
     let last_op: InternalOpId | null = null;
     let resumeBatch: OperationBatch | null = null;
@@ -237,21 +264,33 @@ export abstract class MongoBucketBatch
       await this.prepareCustomWriteCheckpoints();
     }
 
-    await this.withReplicationTransaction(`Flushing ${batch?.length ?? 0} ops`, async (session, opSeq) => {
-      clearedError = false;
-      if (batch != null) {
-        const result = await this.replicateBatch(session, batch, opSeq, options);
-        resumeBatch = result.resumeBatch;
-        clearedError ||= result.clearedError;
-      }
+    await this.withReplicationTransaction(
+      `Flushing ${batch?.length ?? 0} ops`,
+      async (session, opSeq) => {
+        clearedError = false;
+        if (batch != null) {
+          const result = await this.replicateBatch(session, batch, opSeq, options);
+          resumeBatch = result.resumeBatch;
+          clearedError ||= result.clearedError;
+        }
 
-      if (this.write_checkpoint_batch.length > 0) {
-        this.logger.info(`Writing ${this.write_checkpoint_batch.length} custom write checkpoints`);
-        await this.batchCreateCustomWriteCheckpoints(session, opSeq.next());
-      }
+        if (this.write_checkpoint_batch.length > 0) {
+          this.logger.info(`Writing ${this.write_checkpoint_batch.length} custom write checkpoints`);
+          await this.batchCreateCustomWriteCheckpoints(session, opSeq.next());
+        }
 
-      last_op = opSeq.last();
-    });
+        last_op = opSeq.last();
+      },
+      async (stream, lastOp) => {
+        if (checkpoint != null && resumeBatch == null) {
+          // The checkpoint must also persist the head, including when visibility is blocked.
+          await checkpoint(stream, lastOp);
+          return true;
+        }
+        return false;
+      },
+      projection
+    );
 
     // Keep checkpoints available if the transaction retries after writing them.
     this.write_checkpoint_batch = [];
@@ -716,7 +755,9 @@ export abstract class MongoBucketBatch
 
   private async withReplicationTransaction(
     description: string,
-    callback: (session: mongo.ClientSession, opSeq: MongoIdSequence) => Promise<void>
+    callback: (session: mongo.ClientSession, opSeq: MongoIdSequence) => Promise<void>,
+    finish?: (stream: SyncRuleDocumentBase, lastOp: InternalOpId) => Promise<boolean>,
+    projection?: mongo.Document
   ): Promise<void> {
     let flushTry = 0;
     const lastTry = Date.now() + 90000;
@@ -728,26 +769,31 @@ export abstract class MongoBucketBatch
     await allocator.ensureCapacity();
     for (;;) {
       try {
-        await this.withTransaction(async (stream) => {
-          flushTry += 1;
-          if (flushTry % 10 == 0) {
-            this.logger.info(`${description} - try ${flushTry}`);
-          }
-          if (flushTry > 20 && Date.now() > lastTry) {
-            throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
-          }
-          // The fence already holds this stream document for the transaction.
-          // A different writer may have used higher IDs since our last flush.
-          const opSeq = allocator.sequence(this.persistedOpHead(stream));
-          await callback(this.session, opSeq);
-          lastOp = opSeq.last();
+        await this.withFencedTransaction(
+          () => this.fence(this.session, projection),
+          async (stream) => {
+            flushTry += 1;
+            if (flushTry % 10 == 0) {
+              this.logger.info(`${description} - try ${flushTry}`);
+            }
+            if (flushTry > 20 && Date.now() > lastTry) {
+              throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
+            }
+            // The fence already holds this stream document for the transaction.
+            // A different writer may have used higher IDs since our last flush.
+            const opSeq = allocator.sequence(this.persistedOpHead(stream));
+            await callback(this.session, opSeq);
+            lastOp = opSeq.last();
 
-          const writes = this.db.createWriteBatch(this.session, { ordered: false });
-          // Allow subclasses to persist additional flush-time state in the same transaction.
-          this.onReplicationTransactionFlush(writes, lastOp);
-          await writes.execute();
-          // We don't notify checkpoint here - we don't make any checkpoint updates directly.
-        });
+            if (!(await finish?.(stream, lastOp))) {
+              const writes = this.db.createWriteBatch(this.session, { ordered: false });
+              // Allow subclasses to persist additional flush-time state in the same transaction.
+              this.onReplicationTransactionFlush(writes, lastOp);
+              await writes.execute();
+            }
+            // Notifications and cleanup must wait until the transaction commits.
+          }
+        );
         allocator.committed(lastOp);
         return;
       } catch (error) {
@@ -774,8 +820,8 @@ export abstract class MongoBucketBatch
    *
    * v1 storage tracks this in memory to fold into the next checkpoint. v3 storage does not need it:
    * the stream-level `last_persisted_op` is already advanced durably by
-   * {@link onReplicationTransactionFlush} within the same transaction, and checkpoints read it
-   * from the document.
+   * {@link onReplicationTransactionFlush} or the combined checkpoint update within the same
+   * transaction, and empty commits read it from the document.
    *
    * Keep calls to this adjacent to {@link withReplicationTransaction} usage - both must observe
    * every path that persists ops.

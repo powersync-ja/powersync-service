@@ -37,6 +37,129 @@ async function insert(writer: storage.BucketStorageBatch, table: storage.SourceT
 }
 
 describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
+  test('combines the final flush and checkpoint into one transaction', async () => {
+    const monitored = mongoTestStorageFactoryGenerator({
+      url: env.MONGO_TEST_URL,
+      isCI: env.CI,
+      monitorCommands: true
+    });
+    await using factory = await monitored.factory();
+    const a = await openStream(factory, version);
+    await using writer = a.writer;
+    // Warm up activation, the reservation and error clearing before measuring.
+    await insert(writer, a.table, 'warmup');
+    await writer.commit('1/2');
+    const commands: string[] = [];
+    const listener = (event: mongo.CommandStartedEvent) => {
+      if (event.command.autocommit === false) {
+        commands.push(event.commandName);
+      }
+    };
+    factory.db.client.on('commandStarted', listener);
+    try {
+      await insert(writer, a.table, 'separate');
+      await writer.flush();
+      await writer.commit('1/3');
+      const separate = [...commands];
+      commands.length = 0;
+      await insert(writer, a.table, 'combined');
+      await writer.commit('1/4');
+      expect(separate.filter((name) => name === 'commitTransaction')).toHaveLength(2);
+      expect(commands.filter((name) => name === 'commitTransaction')).toHaveLength(1);
+      expect(separate.length - commands.length).toBe(version < 3 ? 2 : 3);
+      expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(3n);
+    } finally {
+      factory.db.client.off('commandStarted', listener);
+    }
+  });
+
+  test('only checkpoints the last piece of a split flush', async () => {
+    await using factory = await factoryGen.factory();
+    const a = await openStream(factory, version);
+    await using writer = a.writer;
+    await insert(writer, a.table, 'warmup');
+    await writer.commit('1/2');
+    // Force a split after each row without needing a transaction-sized fixture.
+    const split = vi.spyOn(PersistedBatch.prototype, 'shouldFlushTransaction').mockReturnValue(true);
+    const flush = PersistedBatch.prototype.flush;
+    const observed: bigint[] = [];
+    const inspect = vi.spyOn(PersistedBatch.prototype, 'flush').mockImplementation(async function (
+      this: PersistedBatch,
+      ...args
+    ) {
+      observed.push((await a.bucketStorage.getCheckpoint()).checkpoint);
+      return flush.apply(this, args);
+    });
+    try {
+      await insert(writer, a.table, 'first');
+      await insert(writer, a.table, 'last');
+      await writer.commit('1/3');
+      expect(observed).toEqual([1n, 1n]);
+      expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(3n);
+    } finally {
+      inspect.mockRestore();
+      split.mockRestore();
+    }
+  });
+
+  test('retries the final rows and checkpoint together after a transaction conflict', async () => {
+    await using factory = await factoryGen.factory();
+    const a = await openStream(factory, version);
+    await using writer = a.writer;
+    await insert(writer, a.table, 'warmup');
+    await writer.commit('1/2');
+    const withTransaction = mongo.ClientSession.prototype.withTransaction;
+    let attempts = 0;
+    const retry = vi.spyOn(mongo.ClientSession.prototype, 'withTransaction').mockImplementationOnce(function (
+      this: mongo.ClientSession,
+      callback,
+      options
+    ) {
+      return withTransaction.call(
+        this,
+        async (session) => {
+          const result = await callback(session);
+          // Neither the final rows nor their checkpoint have committed yet.
+          expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(1n);
+          expect(writer.last_flushed_op).toBe(1n);
+          attempts += 1;
+          if (attempts === 1) {
+            throw new mongo.MongoServerError({
+              message: 'retry checkpoint',
+              code: 112,
+              errorLabels: ['TransientTransactionError']
+            });
+          }
+          return result;
+        },
+        options
+      );
+    });
+    try {
+      await insert(writer, a.table, 'retried');
+      await writer.commit('1/3');
+      expect(attempts).toBe(2);
+      expect(writer.last_flushed_op).toBe(2n);
+      expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(2n);
+    } finally {
+      retry.mockRestore();
+    }
+  });
+
+  test('a blocked combined checkpoint preserves the head for a new writer', async () => {
+    await using factory = await factoryGen.factory();
+    const a = await openStream(factory, version);
+    await using writer = a.writer;
+    await writer.markAllSnapshotDone('1/9');
+    await insert(writer, a.table, 'blocked');
+    expect(await writer.commit('1/2')).toMatchObject({ checkpointBlocked: true, checkpointCreated: false });
+    expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(0n);
+    await using resumed = await a.bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await resumed.commit('1/9');
+    expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(writer.last_flushed_op);
+    expect(writer.last_flushed_op).toBe(1n);
+  });
+
   test('another stream publishes while a transaction is stalled, without touching its reserved IDs', async () => {
     await using factory = await factoryGen.factory();
     const a = await openStream(factory, version);

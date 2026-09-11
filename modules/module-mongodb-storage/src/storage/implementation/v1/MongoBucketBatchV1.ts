@@ -244,11 +244,9 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
     const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
 
-    await this.flush(options);
-
     using _ = this.tracer.span('storage', 'commit');
 
-    const updateCheckpoint = async () => {
+    const updateCheckpoint = async (persistedOp = this.persisted_op) => {
       const now = new Date();
 
       const can_checkpoint = {
@@ -269,7 +267,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           { $literal: null },
           {
             $toString: {
-              $max: [{ $toLong: '$keepalive_op' }, { $literal: this.persisted_op }, 0n]
+              $max: [{ $toLong: '$keepalive_op' }, { $literal: persistedOp }, 0n]
             }
           }
         ]
@@ -279,7 +277,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         $cond: [
           can_checkpoint,
           {
-            $max: ['$last_checkpoint', { $literal: this.persisted_op }, { $toLong: '$keepalive_op' }, 0n]
+            $max: ['$last_checkpoint', { $literal: persistedOp }, { $toLong: '$keepalive_op' }, 0n]
           },
           '$last_checkpoint'
         ]
@@ -341,37 +339,40 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       return MongoSyncRulesLock.assertOwned(preUpdateDocument);
     };
 
-    // The checkpoint update itself fences the transaction, including empty commits.
-    const { checkpointState, preUpdateDocument } = await this.withFencedTransaction(
-      updateCheckpoint,
-      async (preUpdateDocument) => {
-        await this.db.write_checkpoints.updateMany(
-          {
-            processed_at_lsn: null,
-            'lsns.1': { $lte: lsn }
-          },
-          {
-            $set: {
-              processed_at_lsn: lsn
-            }
-          },
-          {
-            session: this.session
+    const finishCheckpoint = async (preUpdateDocument: SyncRuleDocumentV1, lastOp?: InternalOpId) => {
+      await this.db.write_checkpoints.updateMany(
+        {
+          processed_at_lsn: null,
+          'lsns.1': { $lte: lsn }
+        },
+        {
+          $set: {
+            processed_at_lsn: lsn
           }
-        );
+        },
+        {
+          session: this.session
+        }
+      );
 
-        const checkpointState = calculateCheckpointState({
-          lsn,
-          snapshotDone: preUpdateDocument.snapshot_done === true,
-          lastCheckpointLsn: preUpdateDocument.last_checkpoint_lsn,
-          noCheckpointBefore: preUpdateDocument.no_checkpoint_before,
-          keepaliveOp: preUpdateDocument.keepalive_op == null ? null : BigInt(preUpdateDocument.keepalive_op),
-          lastCheckpoint: preUpdateDocument.last_checkpoint,
-          persistedOp: this.persistedOpHead(preUpdateDocument),
-          createEmptyCheckpoints
-        });
-        return { checkpointState, preUpdateDocument };
-      }
+      const checkpointState = calculateCheckpointState({
+        lsn,
+        snapshotDone: preUpdateDocument.snapshot_done === true,
+        lastCheckpointLsn: preUpdateDocument.last_checkpoint_lsn,
+        noCheckpointBefore: preUpdateDocument.no_checkpoint_before,
+        keepaliveOp: preUpdateDocument.keepalive_op == null ? null : BigInt(preUpdateDocument.keepalive_op),
+        lastCheckpoint: preUpdateDocument.last_checkpoint,
+        persistedOp: lastOp ?? this.persistedOpHead(preUpdateDocument),
+        createEmptyCheckpoints
+      });
+      return { checkpointState, preUpdateDocument };
+    };
+
+    const { checkpointState, preUpdateDocument } = await this.flushAndCommit(
+      async (_stream, lastOp) => finishCheckpoint(await updateCheckpoint(lastOp), lastOp),
+      // Without a flush, the checkpoint update itself fences the transaction.
+      () => this.withFencedTransaction(updateCheckpoint, finishCheckpoint),
+      options
     );
     if (checkpointState.checkpointBlocked) {
       if (Date.now() - this.lastWaitingLogThrottled > 5_000) {

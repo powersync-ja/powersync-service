@@ -144,7 +144,8 @@ bucket_definitions:
           user_id: 'custom1',
           checkpoint: 52n
         });
-        await writer.flush();
+        // A custom-checkpoint-only commit uses the combined final flush path too.
+        await writer.commit('8/1');
         const customGenerated = await factory.db.custom_write_checkpoints.findOne({ user_id: 'custom1' });
         expect(customGenerated).not.toBeNull();
         expect(customGenerated?.checkpoint_requested_at).toBeUndefined();
@@ -228,7 +229,7 @@ event_definitions:
 
         writer.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 5n, event_id: eventAId });
         writer.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 8n, event_id: eventBId });
-        await writer.flush();
+        // Collections must be prepared before the combined flush/checkpoint transaction.
         await writer.keepalive('5/0');
 
         const eventACollection = db.customCheckpointRequests({
