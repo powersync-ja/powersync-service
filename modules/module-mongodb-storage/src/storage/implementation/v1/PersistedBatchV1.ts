@@ -181,8 +181,10 @@ export class PersistedBatchV1 extends PersistedBatch {
     writes.bulkWriteUnordered(this.db.bucketStateV1, this.getBucketStateUpdates());
   }
 
-  protected resetCurrentData() {
-    this.currentData.clear();
+  protected appendCurrentData(row: PersistedBatchV1): void {
+    for (const [key, value] of row.currentData) {
+      this.currentData.set(key, value);
+    }
   }
 
   private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<BucketStateDocumentV1>[] {

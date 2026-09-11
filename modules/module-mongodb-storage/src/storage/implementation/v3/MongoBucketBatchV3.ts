@@ -48,8 +48,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     this.store = new SourceRecordStoreV3(this.db, this.replicationStreamId, this.mapping);
   }
 
-  protected override get usePipeline(): boolean {
-    return true;
+  protected override get eagerPublication(): boolean {
+    return false;
   }
 
   protected createPersistedBatch(writtenSize: number): PersistedBatch {
@@ -414,8 +414,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const { checkpointBlocked, checkpointCreated, checkpointLogState, newCheckpoint } = await this.flushAndCommit(
       checkpoint,
       () => this.withFencedTransaction(() => this.fence(this.session, projection), checkpoint),
-      options,
-      projection
+      options
     );
     if (checkpointBlocked) {
       if (Date.now() - this.lastWaitingLogThrottledV3 > 5_000) {

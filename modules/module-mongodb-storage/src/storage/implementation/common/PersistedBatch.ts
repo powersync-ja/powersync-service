@@ -13,6 +13,7 @@ import type { VersionedPowerSyncMongo } from '../db.js';
 import { TaggedBucketParameterDocument } from '../models.js';
 import { ObjectStorage } from '../v3/object-storage/ObjectStorage.js';
 import { BucketDataDoc, BucketKey } from './BucketDataDoc.js';
+import { PreparedPublication } from './PreparedPublication.js';
 import { SourceRecordBucketState, SourceRecordLookupState } from './SourceRecordStore.js';
 
 /**
@@ -76,10 +77,12 @@ export interface PersistedBatchOptions {
 /**
  * Collects the bulk writes for one publication.
  *
- * Legacy transactions may use multiple batches. V3/v4 can prepare a batch outside
- * the transaction and retain it across retries, but publish it in a single commit.
+ * Rows accumulate here until sealing transfers the batch to a PreparedPublication.
+ * All storage versions reuse that write plan across transaction retries. V3/v4
+ * additionally pack and upload external payloads before publication.
  */
 export abstract class PersistedBatch {
+  private sealed = false;
   logger: Logger;
   bucketData: BucketDataDoc[] = [];
   bucketParameters: TaggedBucketParameterDocument[] = [];
@@ -225,7 +228,7 @@ export abstract class PersistedBatch {
 
   protected abstract queueBucketStates(writes: MongoWriteBatch): void;
 
-  protected abstract resetCurrentData(): void;
+  protected abstract appendCurrentData(row: PersistedBatch): void;
 
   protected abstract checkDefinitionId(definitionId: BucketDefinitionId | null): BucketDefinitionId;
   protected abstract getBucketDefinitionId(bucketSource: BucketDataSource): BucketDefinitionId;
@@ -346,15 +349,56 @@ export abstract class PersistedBatch {
     );
   }
 
+  /** Merge a fully evaluated row; a failed reservation never mutates this builder. */
+  append(row: PersistedBatch): void {
+    if (this.sealed) {
+      throw new Error('Cannot append to a sealed publication');
+    }
+    for (const operation of row.bucketData) {
+      this.bucketData.push(operation);
+    }
+    for (const parameter of row.bucketParameters) {
+      this.bucketParameters.push(parameter);
+    }
+    for (const [key, value] of row.bucketStates) {
+      const previous = this.bucketStates.get(key);
+      this.bucketStates.set(
+        key,
+        previous == null
+          ? value
+          : {
+              ...value,
+              incrementCount: previous.incrementCount + value.incrementCount,
+              incrementBytes: previous.incrementBytes + value.incrementBytes,
+              incrementChunks: previous.incrementChunks + value.incrementChunks
+            }
+      );
+    }
+    this.appendCurrentData(row);
+    this.currentSize += row.currentSize;
+    this.debugLastOpId = row.debugLastOpId ?? this.debugLastOpId;
+  }
+
+  /** Transfer this builder to a publication; callers must not append after sealing. */
+  seal(onUploadError: (error: unknown) => void): PreparedPublication {
+    if (this.sealed) {
+      throw new Error('Publication already sealed');
+    }
+    this.sealed = true;
+    return new PreparedPublication(this.currentSize, this.preparePayloads(onUploadError), (session, options) =>
+      this.write(session, options)
+    );
+  }
+
   /** Publication groups may span multiple input preparation blocks. */
   shouldPublish() {
     return this.shouldFlushTransaction();
   }
 
   /** Prepare external payloads once, before opening a publication transaction. */
-  async prepare(): Promise<void> {}
+  protected async preparePayloads(_onUploadError?: (error: unknown) => void): Promise<void> {}
 
-  async flush(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions, reset = true) {
+  private async write(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
     const startAt = performance.now();
     let flushedSomething = false;
     const writes = this.db.createWriteBatch(session, { ordered: false });
@@ -422,16 +466,6 @@ export abstract class PersistedBatch {
       currentDataCount: this.currentDataCount,
       flushedAny: flushedSomething
     };
-
-    // Retain the immutable plan until publication commits; transaction retries reuse it.
-    if (reset) {
-      this.bucketData = [];
-      this.bucketParameters = [];
-      this.resetCurrentData();
-      this.bucketStates.clear();
-      this.currentSize = 0;
-      this.debugLastOpId = null;
-    }
 
     return stats;
   }

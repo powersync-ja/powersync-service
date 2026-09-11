@@ -3,6 +3,7 @@ import { logger } from '@powersync/lib-services-framework';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test, vi } from 'vitest';
+import { PreparedPublication } from '../../src/storage/implementation/common/PreparedPublication.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { ReplicationStreamDocumentV3 } from '../../src/storage/implementation/v3/models.js';
 import { ObjectStorageLifecycle } from '../../src/storage/implementation/v3/object-storage/ObjectStorageLifecycle.js';
@@ -181,11 +182,12 @@ describe('replication pipeline', () => {
     }
   });
 
-  test('backpressures preparation when three groups are in flight', async () => {
+  test.each([false, true])('backpressures preparation when three groups are in flight (shared: %s)', async (shared) => {
     const context = await setup();
     await using factory = context.factory;
     await using writer = context.writer;
     const { objectStorage, sourceTable, bucketStorage } = context;
+    await using next = await bucketStorage.createWriter({ ...test_utils.BATCH_OPTIONS, storeCurrentData: false });
     const started = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const put = objectStorage.put.bind(objectStorage);
@@ -200,14 +202,15 @@ describe('replication pipeline', () => {
     let admitted = false;
     const saving = (async () => {
       for (let i = 0; i < 8000; i++) {
-        await writer.save({
+        const active = shared && Math.floor(i / 2000) % 2 === 1 ? next : writer;
+        await active.save({
           sourceTable,
           tag: storage.SaveOperationTag.INSERT,
           after: { id: 'row', description: `${i}` },
           afterReplicaId: test_utils.rid('row')
         });
         if ((i + 1) % 2000 === 0) {
-          await writer.queueResumeLsn!(`1/1.${i + 1}`);
+          await active.queueResumeLsn!(`1/1.${i + 1}`);
         }
       }
       admitted = true;
@@ -303,10 +306,10 @@ describe('replication pipeline', () => {
     await using writer = context.writer;
     const { db, objectStorage, sourceTable, bucketStorage, definition } = context;
     const uploads = vi.spyOn(objectStorage, 'put');
-    const flush = PersistedBatchV3.prototype.flush;
+    const flush = PreparedPublication.prototype.publish;
     let retried = false;
-    const writes = vi.spyOn(PersistedBatchV3.prototype, 'flush').mockImplementation(async function (
-      this: PersistedBatchV3,
+    const writes = vi.spyOn(PreparedPublication.prototype, 'publish').mockImplementation(async function (
+      this: PreparedPublication,
       ...args
     ) {
       const result = await flush.apply(this, args);
@@ -636,45 +639,236 @@ describe('replication pipeline', () => {
     expect(uploads).toHaveBeenCalledTimes(2);
   });
 
-  test('a later upload failure stops publication of the entire pending suffix', async () => {
+  test('truncate includes another writer admitted immediately before its table scan', async () => {
     const context = await setup();
     await using factory = context.factory;
     await using writer = context.writer;
-    const { sourceTable, objectStorage, db, stream, definition } = context;
+    const { sourceTable, bucketStorage, objectStorage, db, stream } = context;
+    await using next = await bucketStorage.createWriter({ ...test_utils.BATCH_OPTIONS, storeCurrentData: false });
+    const started = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const put = objectStorage.put.bind(objectStorage);
-    vi.spyOn(objectStorage, 'put')
+    vi.spyOn(objectStorage, 'put').mockImplementationOnce(async (...args) => {
+      started.resolve();
+      await release.promise;
+      await put(...args);
+    });
+    const flush = writer.flush.bind(writer);
+    vi.spyOn(writer, 'flush')
+      .mockImplementationOnce(flush)
       .mockImplementationOnce(async (...args) => {
+        const result = await flush(...args);
+        // Admit another writer after truncate's initial flush, before its scan.
+        await next.save({
+          sourceTable,
+          tag: storage.SaveOperationTag.INSERT,
+          after: { id: 'row', description: 'value' },
+          afterReplicaId: test_utils.rid('row')
+        });
+        await next.queueResumeLsn!('1/1.1');
+        return result;
+      });
+    const scan = vi.spyOn(SourceRecordStoreV3.prototype, 'loadTruncateBatch');
+    const truncating = writer.truncate([sourceTable]);
+    try {
+      await started.promise;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(scan).not.toHaveBeenCalled();
+    } finally {
+      release.resolve();
+      await truncating;
+    }
+    await writer.commit('1/2');
+    expect((await db.bucketState(stream.replicationStreamId).findOne({}))?.bucket_stats.count).toBe(2);
+    expect((await bucketStorage.getCheckpoint()).checkpoint).toBe(2n);
+  });
+
+  test('writers share speculative membership and overlap uploads without overtaking publication', async () => {
+    const context = await setup();
+    await using factory = context.factory;
+    await using writer = context.writer;
+    const { sourceTable, bucketStorage, objectStorage, db, stream, definition } = context;
+    await using next = await bucketStorage.createWriter({ ...test_utils.BATCH_OPTIONS, storeCurrentData: false });
+    const secondStarted = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const put = objectStorage.put.bind(objectStorage);
+    let calls = 0;
+    vi.spyOn(objectStorage, 'put').mockImplementation(async (...args) => {
+      calls++;
+      if (calls === 1) {
         await release.promise;
-        await put(...args);
-      })
-      .mockRejectedValueOnce(new Error('second upload failed'));
+      } else {
+        secondStarted.resolve();
+      }
+      await put(...args);
+    });
     try {
       await writer.save({
         sourceTable,
         tag: storage.SaveOperationTag.INSERT,
-        after: { id: 'one', description: 'one' },
-        afterReplicaId: test_utils.rid('one')
+        after: { id: 'old', description: 'old' },
+        afterReplicaId: test_utils.rid('row')
       });
       const first = await writer.queueResumeLsn!('1/1.1');
-      await writer.save({
+      await next.save({
         sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: { id: 'two', description: 'two' },
-        afterReplicaId: test_utils.rid('two')
+        tag: storage.SaveOperationTag.UPDATE,
+        after: { id: 'new', description: 'new' },
+        afterReplicaId: test_utils.rid('row')
       });
-      const second = await writer.queueResumeLsn!('1/1.2');
-      await expect.poll(() => objectStorage.put).toHaveBeenCalledTimes(2);
-      const firstFailed = expect(first.persisted).rejects.toThrow('second upload failed');
-      const secondFailed = expect(second.persisted).rejects.toThrow('second upload failed');
-      release.resolve();
-      await Promise.all([firstFailed, secondFailed]);
+      const second = await next.queueResumeLsn!('1/1.2');
+      await secondStarted.promise;
       expect(await db.bucketData(stream.replicationStreamId, definition).countDocuments()).toBe(0);
-      expect(await db.pendingObjectStorageDeletes(stream.replicationStreamId).countDocuments()).toBe(2);
+      release.resolve();
+      await Promise.all([first.persisted, second.persisted]);
+      await next.commit('1/2');
+      // The second writer sees the first writer's unpublished membership and
+      // removes the old output identity, although its database read found no row.
+      expect((await db.bucketState(stream.replicationStreamId).findOne({}))?.bucket_stats.count).toBe(3);
+      expect((await bucketStorage.getCheckpoint()).checkpoint).toBe(3n);
     } finally {
       release.resolve();
     }
   });
+
+  test('a finished writer can dispose while another writer is still uploading', async () => {
+    const context = await setup();
+    await using factory = context.factory;
+    const { writer, sourceTable, bucketStorage, objectStorage } = context;
+    await using next = await bucketStorage.createWriter({ ...test_utils.BATCH_OPTIONS, storeCurrentData: false });
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const put = objectStorage.put.bind(objectStorage);
+    vi.spyOn(objectStorage, 'put')
+      .mockImplementationOnce(async (...args) => {
+        await put(...args);
+      })
+      .mockImplementationOnce(async (...args) => {
+        started.resolve();
+        await release.promise;
+        await put(...args);
+      });
+    try {
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'first', description: 'first' },
+        afterReplicaId: test_utils.rid('first')
+      });
+      const first = await writer.queueResumeLsn!('1/1.1');
+      await first.persisted;
+      await next.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'second', description: 'second' },
+        afterReplicaId: test_utils.rid('second')
+      });
+      const second = await next.queueResumeLsn!('1/1.2');
+      await started.promise;
+      // Disposal joins this writer, not every writer registered on the stream.
+      await writer.dispose();
+      release.resolve();
+      await second.persisted;
+      await next.commit('1/2');
+      expect((await bucketStorage.getCheckpoint()).checkpoint).toBe(2n);
+    } finally {
+      release.resolve();
+      await writer.dispose();
+    }
+  });
+
+  test('flush waits for its admitted prefix without waiting for later writers', async () => {
+    const context = await setup();
+    await using factory = context.factory;
+    await using writer = context.writer;
+    const { sourceTable, bucketStorage, objectStorage } = context;
+    await using next = await bucketStorage.createWriter({ ...test_utils.BATCH_OPTIONS, storeCurrentData: false });
+    const started = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    const releases = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    const put = objectStorage.put.bind(objectStorage);
+    let uploads = 0;
+    vi.spyOn(objectStorage, 'put').mockImplementation(async (...args) => {
+      const index = uploads++;
+      started[index].resolve();
+      await releases[index].promise;
+      await put(...args);
+    });
+    try {
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'first', description: 'first' },
+        afterReplicaId: test_utils.rid('first')
+      });
+      const flushing = writer.flush();
+      await started[0].promise;
+      await next.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'second', description: 'second' },
+        afterReplicaId: test_utils.rid('second')
+      });
+      const second = await next.queueResumeLsn!('1/1.2');
+      await started[1].promise;
+      releases[0].resolve();
+      await flushing;
+      expect(next.last_flushed_op).toBeNull();
+      releases[1].resolve();
+      await second.persisted;
+    } finally {
+      for (const release of releases) {
+        release.resolve();
+      }
+    }
+  });
+
+  test.each([false, true])(
+    'a later upload failure stops publication of the entire pending suffix (shared: %s)',
+    async (shared) => {
+      const context = await setup();
+      await using factory = context.factory;
+      await using writer = context.writer;
+      const { sourceTable, objectStorage, db, stream, definition } = context;
+      await using next = await context.bucketStorage.createWriter({
+        ...test_utils.BATCH_OPTIONS,
+        storeCurrentData: false
+      });
+      const later = shared ? next : writer;
+      const release = Promise.withResolvers<void>();
+      const put = objectStorage.put.bind(objectStorage);
+      vi.spyOn(objectStorage, 'put')
+        .mockImplementationOnce(async (...args) => {
+          await release.promise;
+          await put(...args);
+        })
+        .mockRejectedValueOnce(new Error('second upload failed'));
+      try {
+        await writer.save({
+          sourceTable,
+          tag: storage.SaveOperationTag.INSERT,
+          after: { id: 'one', description: 'one' },
+          afterReplicaId: test_utils.rid('one')
+        });
+        const first = await writer.queueResumeLsn!('1/1.1');
+        await later.save({
+          sourceTable,
+          tag: storage.SaveOperationTag.INSERT,
+          after: { id: 'two', description: 'two' },
+          afterReplicaId: test_utils.rid('two')
+        });
+        const second = await later.queueResumeLsn!('1/1.2');
+        await expect.poll(() => objectStorage.put).toHaveBeenCalledTimes(2);
+        const firstFailed = expect(first.persisted).rejects.toThrow('second upload failed');
+        const secondFailed = expect(second.persisted).rejects.toThrow('second upload failed');
+        release.resolve();
+        await Promise.all([firstFailed, secondFailed]);
+        expect(await db.bucketData(stream.replicationStreamId, definition).countDocuments()).toBe(0);
+        expect(await db.pendingObjectStorageDeletes(stream.replicationStreamId).countDocuments()).toBe(2);
+      } finally {
+        release.resolve();
+      }
+    }
+  );
 
   test('an upload failure cancels and joins the other uploads in its group', async () => {
     const context = await setup(`bucket_definitions:
@@ -762,7 +956,7 @@ describe('replication pipeline', () => {
     await using factory = context.factory;
     await using writer = context.writer;
     const { sourceTable } = context;
-    const publications = vi.spyOn(PersistedBatchV3.prototype, 'prepare');
+    const publications = vi.spyOn(PersistedBatchV3.prototype, 'seal');
     try {
       // The input block is only a few rows, but its BSON parameter results are
       // large enough to require publication independently of the total byte target.
@@ -793,7 +987,7 @@ describe('replication pipeline', () => {
     await using writer = context.writer;
     const { sourceTable, bucketStorage, db } = context;
     const owners = JSON.stringify(Array.from({ length: 100 }, (_, i) => `owner-${i}`));
-    const publications = vi.spyOn(PersistedBatchV3.prototype, 'prepare');
+    const publications = vi.spyOn(PersistedBatchV3.prototype, 'seal');
     try {
       for (let i = 0; i < 900; i++) {
         await writer.save({
@@ -804,7 +998,7 @@ describe('replication pipeline', () => {
         });
       }
       await writer.commit('1/2');
-      // prepare() is also called by flush(), so compare distinct batch objects.
+      // Each sealed builder corresponds to one immutable publication.
       expect(new Set(publications.mock.instances).size).toBeGreaterThan(1);
       const buckets = await db.bucketState(bucketStorage.replicationStreamId).find({}).toArray();
       expect(buckets).toHaveLength(100);

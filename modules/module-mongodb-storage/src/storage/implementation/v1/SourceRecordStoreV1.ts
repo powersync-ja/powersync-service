@@ -16,6 +16,7 @@ import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 import { CurrentDataDocument } from './models.js';
 
 export class SourceRecordStoreV1 implements SourceRecordStore {
+  readonly retainsDeletes = false;
   constructor(
     private readonly db: VersionedPowerSyncMongoV1,
     private readonly groupId: number
@@ -89,7 +90,7 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
             }
           }
         ],
-        { session }
+        { session, readConcern: { level: 'majority' } }
       );
     for await (const doc of sizeCursor.stream()) {
       sizes.set(cacheKey(doc._id.t, doc._id.k), doc.size);
@@ -110,7 +111,7 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
           $in: entries.map((entry) => this.createId(entry.sourceTableId, entry.replicaId) as SourceKey)
         }
       },
-      { session, projection }
+      { session, projection, readConcern: { level: 'majority' } }
     );
     for await (const doc of cursor.stream()) {
       const loaded = this.createLoadedDocument(
@@ -142,6 +143,7 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
           lookups: 1
         },
         limit,
+        readConcern: { level: 'majority' },
         session
       }
     );

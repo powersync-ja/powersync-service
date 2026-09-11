@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { describe, expect, test, vi } from 'vitest';
 import { PersistedBatch } from '../../src/storage/implementation/common/PersistedBatch.js';
+import { PreparedPublication } from '../../src/storage/implementation/common/PreparedPublication.js';
 import { MongoOpIdAllocator } from '../../src/storage/implementation/MongoOpIdAllocator.js';
 import { MongoPersistedReplicationStream } from '../../src/storage/implementation/MongoPersistedReplicationStream.js';
 import { PersistedBatchV3 } from '../../src/storage/implementation/v3/PersistedBatchV3.js';
@@ -103,10 +104,10 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
       version < 3
         ? vi.spyOn(PersistedBatch.prototype, 'shouldFlushTransaction').mockReturnValue(true)
         : vi.spyOn(PersistedBatchV3.prototype, 'shouldPublish').mockReturnValue(true);
-    const flush = PersistedBatch.prototype.flush;
+    const flush = PreparedPublication.prototype.publish;
     const observed: bigint[] = [];
-    const inspect = vi.spyOn(PersistedBatch.prototype, 'flush').mockImplementation(async function (
-      this: PersistedBatch,
+    const inspect = vi.spyOn(PreparedPublication.prototype, 'publish').mockImplementation(async function (
+      this: PreparedPublication,
       ...args
     ) {
       observed.push((await a.bucketStorage.getCheckpoint()).checkpoint);
@@ -192,9 +193,9 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     await using writerB = b.writer;
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
-    const flush = PersistedBatch.prototype.flush;
-    const stalled = vi.spyOn(PersistedBatch.prototype, 'flush').mockImplementationOnce(async function (
-      this: PersistedBatch,
+    const flush = PreparedPublication.prototype.publish;
+    const stalled = vi.spyOn(PreparedPublication.prototype, 'publish').mockImplementationOnce(async function (
+      this: PreparedPublication,
       ...args
     ) {
       entered.resolve();
@@ -230,9 +231,9 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     await test_utils.releaseTestStorageLease(factory, b.stream.replicationStreamId);
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
-    const flush = PersistedBatch.prototype.flush;
-    const stalled = vi.spyOn(PersistedBatch.prototype, 'flush').mockImplementationOnce(async function (
-      this: PersistedBatch,
+    const flush = PreparedPublication.prototype.publish;
+    const stalled = vi.spyOn(PreparedPublication.prototype, 'publish').mockImplementationOnce(async function (
+      this: PreparedPublication,
       ...args
     ) {
       entered.resolve();
@@ -268,9 +269,9 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     const { writer: batch, table, bucketStorage } = await openStream(factory, version);
     await using writer = batch;
     const reservations = vi.spyOn(MongoOpIdAllocator.prototype, 'reserve');
-    const flush = PersistedBatch.prototype.flush;
-    const retry = vi.spyOn(PersistedBatch.prototype, 'flush').mockImplementationOnce(async function (
-      this: PersistedBatch,
+    const flush = PreparedPublication.prototype.publish;
+    const retry = vi.spyOn(PreparedPublication.prototype, 'publish').mockImplementationOnce(async function (
+      this: PreparedPublication,
       ...args
     ) {
       await flush.apply(this, args);
@@ -304,9 +305,9 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     const abort = new AbortController();
     await using writer = await a.bucketStorage.createWriter({ ...test_utils.BATCH_OPTIONS, signal: abort.signal });
     const table = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, a.stream.replicationStreamId);
-    const flush = PersistedBatch.prototype.flush;
-    const interrupted = vi.spyOn(PersistedBatch.prototype, 'flush').mockImplementationOnce(async function (
-      this: PersistedBatch,
+    const flush = PreparedPublication.prototype.publish;
+    const interrupted = vi.spyOn(PreparedPublication.prototype, 'publish').mockImplementationOnce(async function (
+      this: PreparedPublication,
       ...args
     ) {
       const result = await flush.apply(this, args);
@@ -465,8 +466,8 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
       await writer.commit('1/2');
       expect(writer.last_flushed_op).toBe(65_537n);
       expect((await bucketStorage.getCheckpoint()).checkpoint).toBe(65_537n);
-      // The pipeline allocates per row; legacy writers retry the whole transaction.
-      expect(sequences).toHaveBeenCalledTimes(version >= 3 ? 2 : fallback ? 2 : 1);
+      // All versions allocate per row and reuse prepared writes on transaction retries.
+      expect(sequences).toHaveBeenCalledTimes(2);
     } finally {
       capacity.mockRestore();
       sequences.mockRestore();

@@ -231,14 +231,7 @@ export class PersistedBatchV3 extends PersistedBatch {
     this.metadataSize += size;
   }
 
-  /** Merge one fully evaluated row. Failed range allocations never mutate the group. */
-  append(row: PersistedBatchV3): void {
-    for (const operation of row.bucketData) {
-      this.bucketData.push(operation);
-    }
-    for (const parameter of row.bucketParameters) {
-      this.bucketParameters.push(parameter);
-    }
+  protected appendCurrentData(row: PersistedBatchV3): void {
     for (const [key, value] of row.currentData) {
       this.currentData.set(key, value);
     }
@@ -246,23 +239,7 @@ export class PersistedBatchV3 extends PersistedBatch {
       const previous = this.sourceTablePendingDeletes.get(key) ?? 0n;
       this.sourceTablePendingDeletes.set(key, value > previous ? value : previous);
     }
-    for (const [key, value] of row.bucketStates) {
-      const previous = this.bucketStates.get(key);
-      this.bucketStates.set(
-        key,
-        previous == null
-          ? value
-          : {
-              ...value,
-              incrementCount: previous.incrementCount + value.incrementCount,
-              incrementBytes: previous.incrementBytes + value.incrementBytes,
-              incrementChunks: previous.incrementChunks + value.incrementChunks
-            }
-      );
-    }
-    this.currentSize += row.currentSize;
     this.metadataSize += row.metadataSize;
-    this.debugLastOpId = row.debugLastOpId ?? this.debugLastOpId;
   }
 
   protected get currentDataCount() {
@@ -287,15 +264,10 @@ export class PersistedBatchV3 extends PersistedBatch {
     );
   }
 
-  private preparation?: Promise<void>;
   private preparedWrites: { definitionId: BucketDefinitionId; documents: BucketDataDocumentV3[] }[] = [];
   private preparedUploads: PreparedObjectStorageUpload[] = [];
 
-  override prepare(onUploadError?: (error: unknown) => void): Promise<void> {
-    return (this.preparation ??= this.prepareBucketData(onUploadError));
-  }
-
-  private async prepareBucketData(onUploadError?: (error: unknown) => void): Promise<void> {
+  protected override async preparePayloads(onUploadError?: (error: unknown) => void): Promise<void> {
     const uploads: { path: string; document: BucketDataDocumentV3 }[] = [];
     const lifecycle = this.objectStorageLifecycle;
     const byDefinition = Map.groupBy(this.bucketData, (document) => document.bucketKey.definitionId);
@@ -348,7 +320,6 @@ export class PersistedBatchV3 extends PersistedBatch {
   }
 
   protected async queueBucketData(writes: MongoWriteBatch) {
-    await this.prepare();
     const usageDeltas = new Map<BucketDefinitionId, bigint>();
     for (const { definitionId, documents } of this.preparedWrites) {
       writes.bulkWriteUnordered(
@@ -423,15 +394,6 @@ export class PersistedBatchV3 extends PersistedBatch {
 
   protected queueBucketStates(writes: MongoWriteBatch): void {
     writes.bulkWriteUnordered(this.db.bucketState(this.group_id), this.getBucketStateUpdates());
-  }
-
-  protected resetCurrentData() {
-    this.metadataSize = 0;
-    this.preparation = undefined;
-    this.preparedWrites = [];
-    this.preparedUploads = [];
-    this.currentData.clear();
-    this.sourceTablePendingDeletes.clear();
   }
 
   private currentDataKey(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): string {
