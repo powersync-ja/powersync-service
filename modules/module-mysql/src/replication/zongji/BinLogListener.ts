@@ -352,7 +352,11 @@ export class BinLogListener {
           `BinLog processing queue has reached its memory limit of [${this.connectionManager.options.binlog_queue_memory_limit}MB]. Pausing BinLog Listener.`
         );
         await this.stopZongji();
-        await this.processingQueue.drain();
+        // The queue may have drained while waiting for Zongji's stop acknowledgement.
+        // drain() only waits for future events, so do not wait on an already idle queue.
+        if (!this.processingQueue.idle()) {
+          await this.processingQueue.drain();
+        }
         this.logger.info(`BinLog processing queue backlog cleared. Resuming BinLog Listener.`);
         await this.restartZongji();
       }
