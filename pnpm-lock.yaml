@@ -262,6 +262,10 @@ importers:
       fastify:
         specifier: ^5.8.5
         version: 5.8.5
+    devDependencies:
+      '@opentelemetry/sdk-metrics':
+        specifier: ^2.0.1
+        version: 2.0.1(@opentelemetry/api@1.9.0)
 
   modules/module-mongodb:
     dependencies:
