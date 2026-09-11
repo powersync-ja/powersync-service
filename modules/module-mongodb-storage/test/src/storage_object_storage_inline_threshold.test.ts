@@ -1,6 +1,6 @@
 import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { bucketRequest, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, getTestStorage, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_INLINE_THRESHOLD_BYTES } from '../../src/storage/implementation/common/PersistedBatch.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
@@ -31,7 +31,7 @@ describe('Object storage inline threshold', () => {
     const { memoryStorage, factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
     expect(bucketStorage.inlineThresholdBytes).toBe(DEFAULT_INLINE_THRESHOLD_BYTES);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -77,7 +77,7 @@ describe('Object storage inline threshold', () => {
     const { memoryStorage, factoryGen } = s3Factory(256);
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
     expect(bucketStorage.inlineThresholdBytes).toBe(256);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);

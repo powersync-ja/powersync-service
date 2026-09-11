@@ -41,7 +41,11 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   }
 
   async [Symbol.asyncDispose]() {
-    await this.db[Symbol.asyncDispose]();
+    try {
+      await super[Symbol.asyncDispose]();
+    } finally {
+      await this.db[Symbol.asyncDispose]();
+    }
   }
 
   async prepareStatements(connection: pg_wire.PgConnection) {

@@ -1,6 +1,7 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { ScopedParameterLookup } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
+import { getTestStorage } from '../test-utils/leased-storage.js';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { compactActive } from './util.js';
 
@@ -17,7 +18,7 @@ bucket_definitions:
     data: []
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
@@ -99,7 +100,7 @@ bucket_definitions:
     data: []
     `)
       );
-      const bucketStorage = factory.getInstance(syncRules);
+      const bucketStorage = await getTestStorage(factory, syncRules);
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 

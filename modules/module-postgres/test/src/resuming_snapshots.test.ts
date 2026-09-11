@@ -64,25 +64,28 @@ async function testResumingReplication(
   let done = false;
 
   const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
-  try {
-    (async () => {
-      while (!done) {
-        const count =
-          ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0) - startRowCount;
+  const stopReplication = (async () => {
+    while (!done) {
+      const count =
+        ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0) - startRowCount;
 
-        if (count >= stopAfter) {
-          break;
-        }
-        await timers.setTimeout(1);
+      if (count >= stopAfter) {
+        break;
       }
-      // This interrupts initial replication
-      await context.dispose();
-    })();
+      await timers.setTimeout(1);
+    }
+    // This interrupts initial replication
+    await context.dispose();
+  })();
+  try {
     // This confirms that initial replication was interrupted
     await expect(p).rejects.toThrowError();
     done = true;
   } finally {
     done = true;
+    // Replication rejects before dispose finishes closing connections and
+    // releasing the lease. Wait before the replacement tries to acquire it.
+    await stopReplication;
   }
 
   // Bypass the usual "clear db on factory open" step.

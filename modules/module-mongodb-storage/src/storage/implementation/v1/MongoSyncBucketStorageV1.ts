@@ -90,7 +90,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     if (keepaliveOp == null && lastCheckpoint == null) {
       return null;
     }
-    return (keepaliveOp ?? 0n) > (lastCheckpoint ?? 0n) ? keepaliveOp : lastCheckpoint;
+    return [keepaliveOp ?? 0n, lastCheckpoint ?? 0n].reduce((a, b) => (a > b ? a : b));
   }
 
   protected async createWriterImpl(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {

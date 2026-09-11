@@ -1,5 +1,5 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { test_utils } from '@powersync/service-core-tests';
+import { getTestStorage, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoParameterCompactorV3 } from '../../src/storage/implementation/v3/MongoParameterCompactorV3.js';
@@ -31,7 +31,7 @@ async function createActiveStorage(rules = PARAMETER_RULES) {
   const syncRules = await factory.updateSyncRules(
     updateSyncRulesFromYaml(rules, { storageVersion: storage.STORAGE_VERSION_3 })
   );
-  const processingStorage = factory.getInstance(syncRules);
+  const processingStorage = await getTestStorage(factory, syncRules);
   await using writer = await processingStorage.createWriter(test_utils.BATCH_OPTIONS);
   await writer.markAllSnapshotDone('1/1');
   await writer.commit('1/1');
