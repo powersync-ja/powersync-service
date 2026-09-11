@@ -102,9 +102,9 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
     }
   }
 
-  static ownerFilter(streamId: number, lock: MongoSyncRulesLock | null) {
-    lock?.signal.throwIfAborted();
-    return { _id: streamId, ...(lock == null ? { lock: null } : { 'lock.id': lock.lock_id }) };
+  static ownerFilter(streamId: number, lock: MongoSyncRulesLock) {
+    lock.signal.throwIfAborted();
+    return { _id: streamId, 'lock.id': lock.lock_id };
   }
 
   static heartbeatUpdate() {
@@ -126,13 +126,12 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
 
   /**
    * A write, not just an ownership read: takeover conflicts with every transaction
-   * that publishes under this owner. Unleased utility writers may only run while
-   * the stream has no job lease; they still serialize on this stream document.
+   * that publishes under this owner. Every writer must hold a stream lease.
    */
   static async fence(
     db: VersionedPowerSyncMongo,
     streamId: number,
-    lock: MongoSyncRulesLock | null,
+    lock: MongoSyncRulesLock,
     session: mongo.ClientSession,
     projection: mongo.Document = { last_persisted_op: 1, last_checkpoint: 1, keepalive_op: 1 }
   ) {

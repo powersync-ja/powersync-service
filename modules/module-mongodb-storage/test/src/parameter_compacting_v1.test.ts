@@ -1,5 +1,5 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { test_utils } from '@powersync/service-core-tests';
+import { getTestStorage, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import type { SyncRuleDocumentV1 } from '../../src/storage/implementation/v1/models.js';
@@ -20,7 +20,7 @@ async function createActiveStorage() {
   const syncRules = await factory.updateSyncRules(
     updateSyncRulesFromYaml(PARAMETER_RULES, { storageVersion: storage.STORAGE_VERSION_2 })
   );
-  const processingStorage = factory.getInstance(syncRules);
+  const processingStorage = await getTestStorage(factory, syncRules);
   await using writer = await processingStorage.createWriter(test_utils.BATCH_OPTIONS);
   await writer.markAllSnapshotDone('1/1');
   await writer.commit('1/1');

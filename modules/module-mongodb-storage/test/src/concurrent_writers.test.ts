@@ -20,7 +20,7 @@ const rules = `bucket_definitions:
 
 async function openStream(factory: Awaited<ReturnType<typeof factoryGen.factory>>, version: number) {
   const stream = await factory.updateSyncRules(updateSyncRulesFromYaml(rules, { storageVersion: version }));
-  const bucketStorage = factory.getInstance(stream);
+  const bucketStorage = await test_utils.getTestStorage(factory, stream);
   const writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
   const table = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, stream.replicationStreamId);
   await writer.markAllSnapshotDone('1/1');
@@ -37,6 +37,24 @@ async function insert(writer: storage.BucketStorageBatch, table: storage.SourceT
 }
 
 describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
+  test('requires a lease to create a writer, including after another lease is released', async () => {
+    await using factory = await factoryGen.factory();
+    const stream = await factory.updateSyncRules(updateSyncRulesFromYaml(rules, { storageVersion: version }));
+    const unleased = factory.getInstance(stream);
+    await expect(unleased.createWriter(test_utils.BATCH_OPTIONS)).rejects.toThrow('replication lease is required');
+    const lock = await stream.lock();
+    try {
+      const leased = factory.getInstance(stream, { replicationLock: lock });
+      await using writer = await leased.createWriter(test_utils.BATCH_OPTIONS);
+      await lock.release();
+      await expect(writer.commit('1/2')).rejects.toThrow('Replication lock released');
+      await expect(leased.createWriter(test_utils.BATCH_OPTIONS)).rejects.toThrow('Replication lock released');
+      await expect(unleased.createWriter(test_utils.BATCH_OPTIONS)).rejects.toThrow('replication lease is required');
+    } finally {
+      await lock.release();
+    }
+  });
+
   test('combines the final flush and checkpoint into one transaction', async () => {
     const monitored = mongoTestStorageFactoryGenerator({
       url: env.MONGO_TEST_URL,
@@ -205,6 +223,7 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     await using writerA = a.writer;
     const b = await openStream(factory, version);
     await b.writer.dispose();
+    await test_utils.releaseTestStorageLease(factory, b.stream.replicationStreamId);
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const flush = PersistedBatch.prototype.flush;
@@ -326,7 +345,8 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     }
     await using other = await factoryGen.factory({ doNotClear: true });
     const stream = (await other.getReplicatingReplicationStreams())[0];
-    const bucketStorage = other.getInstance(stream);
+    await test_utils.releaseTestStorageLease(factory, a.stream.replicationStreamId);
+    const bucketStorage = await test_utils.getTestStorage(other, stream);
     await using resumed = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await resumed.commit('1/3');
     expect((await bucketStorage.getCheckpoint()).checkpoint).toBe(2n);
@@ -363,7 +383,9 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     const reloaded = (await other.getReplicatingReplicationStreams()).find(
       (s) => s.replicationStreamId === a.stream.replicationStreamId
     )!;
-    await using writerB = await other.getInstance(reloaded).createWriter(test_utils.BATCH_OPTIONS);
+    await using writerB = await other
+      .getInstance(reloaded, { replicationLock: (a.stream as MongoPersistedReplicationStream).current_lock! })
+      .createWriter(test_utils.BATCH_OPTIONS);
     const tableB = await test_utils.resolveTestTable(writerB, 'items', ['id'], factoryGen, 1);
     await insert(writerB, tableB, 'b');
     await writerB.flush();
@@ -380,6 +402,7 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     const initial = await openStream(factory, version);
     await initial.writer.dispose();
     const stream = initial.stream as MongoPersistedReplicationStream;
+    await test_utils.releaseTestStorageLease(factory, stream.replicationStreamId);
     const first = await stream.lock();
     await using firstLifetime = { [Symbol.asyncDispose]: () => first.release() };
     await using oldWriter = await factory.getInstance(stream).createWriter(test_utils.BATCH_OPTIONS);
@@ -419,7 +442,10 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     await using factory = await factoryGen.factory();
     const { writer: batch, table, bucketStorage } = await openStream(factory, version);
     await using writer = batch;
-    const allocator = factory.getOpIdAllocator(bucketStorage.replicationStream);
+    const allocator = factory.getOpIdAllocator(
+      bucketStorage.replicationStream,
+      bucketStorage.replicationStream.current_lock!
+    );
     await allocator.reserve();
     allocator.committed(65_535n);
     // Simulate capacity becoming insufficient after the pre-transaction check.
@@ -469,7 +495,10 @@ describe('operation ID reservations', () => {
     const a = await openStream(factory, 4);
     await using writer = a.writer;
     const db = factory.db.versioned(a.bucketStorage.replicationStream.getStorageConfig());
-    const allocator = factory.getOpIdAllocator(a.bucketStorage.replicationStream);
+    const allocator = factory.getOpIdAllocator(
+      a.bucketStorage.replicationStream,
+      a.bucketStorage.replicationStream.current_lock!
+    );
     await allocator.ensureCapacity();
     allocator.committed(49_152n);
     await allocator.ensureCapacity();
@@ -494,7 +523,10 @@ describe('operation ID reservations', () => {
     await using writer = a.writer;
     const max = (1n << 63n) - 1n;
     await factory.db.op_id_sequence.insertOne({ _id: 'main', op_id: max - 65_536n });
-    const allocator = factory.getOpIdAllocator(a.bucketStorage.replicationStream);
+    const allocator = factory.getOpIdAllocator(
+      a.bucketStorage.replicationStream,
+      a.bucketStorage.replicationStream.current_lock!
+    );
     await allocator.reserve();
     expect(allocator.sequence(max - 1n).next()).toBe(max);
     await expect(allocator.reserve()).rejects.toThrow('Operation ID sequence exhausted');

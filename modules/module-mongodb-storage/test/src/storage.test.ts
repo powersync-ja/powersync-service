@@ -1,7 +1,7 @@
 import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { compactActive, register, test_utils } from '@powersync/service-core-tests';
+import { compactActive, getTestStorage, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
@@ -35,7 +35,7 @@ bucket_definitions:
           { storageVersion }
         )
       );
-      const bucketStorage = factory.getInstance(syncRules);
+      const bucketStorage = await getTestStorage(factory, syncRules);
 
       // user1 has no existing row, so this covers updateMany with upsert.
       // The initial request stores checkpoint id 42 at source head 5/0.
@@ -180,7 +180,7 @@ event_definitions:
             { storageVersion }
           )
         );
-        const bucketStorage = factory.getInstance(syncRules);
+        const bucketStorage = await getTestStorage(factory, syncRules);
         const db = bucketStorage.db as VersionedPowerSyncMongoV3;
         const activeSyncConfig = bucketStorage.getParsedSyncRules({ defaultSchema: 'public' });
         const eventA = activeSyncConfig.eventDescriptors.find((event) => event.name == 'checkpoint_a')!;
@@ -297,7 +297,7 @@ event_definitions:
         // A fresh storage instance has an empty initialization cache, just like
         // one created after a service restart. Recreating the existing indexes
         // must be idempotent before another checkpoint is written.
-        const freshBucketStorage = factory.getInstance(syncRules);
+        const freshBucketStorage = await getTestStorage(factory, syncRules);
         await using freshWriter = await freshBucketStorage.createWriter(test_utils.BATCH_OPTIONS);
         freshWriter.addCustomWriteCheckpoint({
           user_id: 'after-restart',
@@ -337,7 +337,7 @@ event_definitions:
           updateSyncRulesFromYaml(syncConfigYaml("kind = 'write'", false), { storageVersion })
         );
         const firstEventId = first.syncConfigContent[0].mapping.eventDefinitionIdByName('write_checkpoints');
-        const firstStorage = factory.getInstance(first);
+        const firstStorage = await getTestStorage(factory, first);
         await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
         firstWriter.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 5n, event_id: firstEventId });
         await firstWriter.markAllSnapshotDone('1/1');
@@ -349,7 +349,9 @@ event_definitions:
         const unchangedEventId = unchanged.syncConfigContent[1].mapping.eventDefinitionIdByName('write_checkpoints');
         expect(unchangedEventId).toBe(firstEventId);
 
-        await using unchangedWriter = await factory.getInstance(unchanged).createWriter(test_utils.BATCH_OPTIONS);
+        await using unchangedWriter = await (
+          await getTestStorage(factory, unchanged)
+        ).createWriter(test_utils.BATCH_OPTIONS);
         await unchangedWriter.markAllSnapshotDone('2/1');
         await unchangedWriter.commit('2/1');
 
@@ -370,7 +372,9 @@ event_definitions:
         const changedEventId = changed.syncConfigContent[1].mapping.eventDefinitionIdByName('write_checkpoints');
         expect(changedEventId).not.toBe(unchangedEventId);
 
-        await using changedWriter = await factory.getInstance(changed).createWriter(test_utils.BATCH_OPTIONS);
+        await using changedWriter = await (
+          await getTestStorage(factory, changed)
+        ).createWriter(test_utils.BATCH_OPTIONS);
         changedWriter.addCustomWriteCheckpoint({ user_id: 'user1', checkpoint: 9n, event_id: changedEventId });
         await changedWriter.flush();
 
@@ -416,7 +420,7 @@ bucket_definitions:
           { storageVersion }
         )
       );
-      const bucketStorage = factory.getInstance(syncRules);
+      const bucketStorage = await getTestStorage(factory, syncRules);
 
       // Replicate an extremely rare possibility where there are multiple records
       await factory.db.write_checkpoints.insertMany([

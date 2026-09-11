@@ -4,7 +4,7 @@ A lease assigns a replication stream to one process. A **fence** checks that the
 
 ## How it works
 
-Each writer keeps the lease token it started with. Every flush transaction checks that token against `sync_rules.lock.id` and updates the stream's existing heartbeat (`last_keepalive_ts`). The heartbeat always changes, even when two updates happen in the same millisecond.
+Creating a writer requires a replication lease. Each writer keeps the lease token it started with. Every flush transaction checks that token against `sync_rules.lock.id` and updates the stream's existing heartbeat (`last_keepalive_ts`). The heartbeat always changes, even when two updates happen in the same millisecond.
 
 Changing the stream document makes lease takeover conflict with the transaction. Either:
 
@@ -38,7 +38,7 @@ Both rules matter: fence every flush, and allocate above the persisted head. Fen
 - The fence checks the lease token, not its expiry time. Expiry permits takeover; it does not itself stop the old writer. Lease renewal failures also abort the local lease signal.
 - Graceful shutdown lets the connector finish its current page and save progress. Losing the lease prevents further fenced writes.
 - The fence orders transactions within a stream. The connector must still submit source changes in the correct order.
-- Writers without a lease may write only while the stream has no lease. They can become eligible again after a lease is released.
+- A writer that loses its lease cannot write again, even after the successor releases its lease. A new job must acquire a lease and construct new writable storage.
 - Setting a stream to `STOP` does not revoke its lease by itself.
 - Full storage clearing, error reporting, collection creation/drop, post-commit cleanup, and external uploads are outside this fence. They rely on separate lifecycle or cleanup rules. In particular, clearing is not protected against a stalled cleanup process resuming after lease loss.
 - Older service versions do not gain these ownership checks merely by sharing compatible storage.

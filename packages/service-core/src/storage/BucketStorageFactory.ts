@@ -258,7 +258,10 @@ export function updateSyncRulesFromConfig(
 }
 
 export interface GetIntanceOptions {
-  /** The job lease, including a lease acquired during initial configuration. */
+  /**
+   * The job lease, including a lease acquired during initial configuration.
+   * Required for writing; optional for reading.
+   */
   replicationLock?: ReplicationLock;
   /**
    * Set to true to skip trigger any events for creating the instance.

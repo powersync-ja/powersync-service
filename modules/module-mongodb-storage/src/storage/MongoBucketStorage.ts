@@ -71,18 +71,15 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   private readonly client: mongo.MongoClient;
   public readonly replicationStreamNamePrefix: string;
 
-  private readonly opIdAllocators = new Map<
-    number,
-    { lock: MongoSyncRulesLock | null; allocator: MongoOpIdAllocator }
-  >();
+  private readonly opIdAllocators = new Map<number, { lock: MongoSyncRulesLock; allocator: MongoOpIdAllocator }>();
 
   discardOpIdAllocator(streamId: number) {
     this.opIdAllocators.get(streamId)?.allocator.discard();
     this.opIdAllocators.delete(streamId);
   }
 
-  getOpIdAllocator(stream: MongoPersistedReplicationStream, lock = stream.current_lock): MongoOpIdAllocator {
-    lock?.signal.throwIfAborted();
+  getOpIdAllocator(stream: MongoPersistedReplicationStream, lock: MongoSyncRulesLock): MongoOpIdAllocator {
+    lock.signal.throwIfAborted();
     const previous = this.opIdAllocators.get(stream.replicationStreamId);
     if (previous?.lock === lock) {
       return previous.allocator;

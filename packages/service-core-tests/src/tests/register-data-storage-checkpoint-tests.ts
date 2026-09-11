@@ -1,5 +1,6 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { expect, test } from 'vitest';
+import { getTestStorage } from '../test-utils/leased-storage.js';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { compactActive } from './util.js';
 
@@ -32,7 +33,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+    const bucketStorage = await getTestStorage(factory, r.persisted_sync_rules!);
 
     const abortController = new AbortController();
     context.onTestFinished(() => abortController.abort());
@@ -81,7 +82,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+    const bucketStorage = await getTestStorage(factory, r.persisted_sync_rules!);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
@@ -150,7 +151,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+    const bucketStorage = await getTestStorage(factory, r.persisted_sync_rules!);
 
     const first = await createManagedWriteCheckpointResult(bucketStorage, {
       user_id: 'user1',
@@ -216,7 +217,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+    const bucketStorage = await getTestStorage(factory, r.persisted_sync_rules!);
     bucketStorage.setWriteCheckpointMode({
       mode: storage.WriteCheckpointMode.CUSTOM
     });
@@ -267,7 +268,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+    const bucketStorage = await getTestStorage(factory, r.persisted_sync_rules!);
     bucketStorage.setWriteCheckpointMode({
       mode: storage.WriteCheckpointMode.CUSTOM
     });
@@ -321,7 +322,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+    const bucketStorage = await getTestStorage(factory, r.persisted_sync_rules!);
     bucketStorage.setWriteCheckpointMode({
       mode: storage.WriteCheckpointMode.CUSTOM
     });
@@ -407,7 +408,7 @@ bucket_definitions:
           }
         )
       );
-      const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
+      const bucketStorage = await getTestStorage(factory, r.persisted_sync_rules!);
       bucketStorage.setWriteCheckpointMode({
         mode: storage.WriteCheckpointMode.CUSTOM
       });

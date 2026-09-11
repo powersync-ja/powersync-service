@@ -1,5 +1,6 @@
 import { addChecksums, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { expect, test } from 'vitest';
+import { getTestStorage } from '../test-utils/leased-storage.js';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest } from '../test-utils/test-utils-index.js';
 import { bucketRequestMap, bucketRequests, compactActive } from './util.js';
@@ -16,7 +17,7 @@ bucket_definitions:
     data: [select * from test]
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -128,7 +129,7 @@ bucket_definitions:
     data: [select * from test]
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -249,7 +250,7 @@ bucket_definitions:
     data: [select * from test]
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -340,7 +341,7 @@ bucket_definitions:
             data:
               - select * from test where b = bucket.b`)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -471,7 +472,7 @@ bucket_definitions:
     data: [select * from test]
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -550,7 +551,7 @@ bucket_definitions:
     data: [select * from test]
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -625,7 +626,7 @@ bucket_definitions:
     data: [select * from test]
       `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);

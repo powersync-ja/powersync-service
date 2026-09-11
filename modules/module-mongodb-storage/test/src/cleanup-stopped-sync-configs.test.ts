@@ -2,7 +2,7 @@ import { MongoSyncBucketStorageV3 } from '@module/storage/implementation/v3/Mong
 import { ObjectStorageLifecycle } from '@module/storage/implementation/v3/object-storage/ObjectStorageLifecycle.js';
 import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { test_utils } from '@powersync/service-core-tests';
+import { getTestStorage, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
@@ -78,7 +78,7 @@ streams:
         { storageVersion: 3 }
       )
     );
-    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorageV3;
+    const firstStorage = (await getTestStorage(factory, first)) as MongoSyncBucketStorageV3;
     const db = firstStorage.db as VersionedPowerSyncMongoV3;
     await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
 
@@ -155,7 +155,7 @@ streams:
     );
     expect(second.replicationStreamId).toBe(first.replicationStreamId);
     const replicatingStreams = await factory.getReplicatingReplicationStreams();
-    const secondStorage = factory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorageV3;
+    const secondStorage = (await getTestStorage(factory, replicatingStreams[0])) as MongoSyncBucketStorageV3;
     await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
     await secondWriter.markAllSnapshotDone('2/1');
     await secondWriter.commit('2/1');
@@ -218,7 +218,7 @@ streams:
         { storageVersion: 3 }
       )
     );
-    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorageV3;
+    const firstStorage = (await getTestStorage(factory, first)) as MongoSyncBucketStorageV3;
     const db = firstStorage.db as VersionedPowerSyncMongoV3;
     await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
     const resolved = await firstWriter.resolveTables({
@@ -266,7 +266,7 @@ streams:
     expect(secondDefinitionId).toBe(projectDefinitionId);
 
     const replicatingStreams = await factory.getReplicatingReplicationStreams();
-    const secondStorage = factory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorageV3;
+    const secondStorage = (await getTestStorage(factory, replicatingStreams[0])) as MongoSyncBucketStorageV3;
     await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
     await secondWriter.markAllSnapshotDone('2/1');
     await secondWriter.commit('2/1');
@@ -289,7 +289,10 @@ streams:
     expect(await collectionExists(db, ownerBucketDataCollection)).toBe(false);
     expect(await collectionExists(db, sourceRecordsCollection)).toBe(true);
 
-    const activeStorage = (await factory.getActiveSyncConfig())!.storage as MongoSyncBucketStorageV3;
+    const activeStorage = (await getTestStorage(
+      factory,
+      (await factory.getActiveSyncConfig())!.replicationStream
+    )) as MongoSyncBucketStorageV3;
     await using activeWriter = await activeStorage.createWriter(test_utils.BATCH_OPTIONS);
     const activeTable = (
       await activeWriter.resolveTables({
@@ -343,7 +346,7 @@ event_definitions:
         { storageVersion: 3 }
       )
     );
-    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorageV3;
+    const firstStorage = (await getTestStorage(factory, first)) as MongoSyncBucketStorageV3;
     const db = firstStorage.db as VersionedPowerSyncMongoV3;
     await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
     const resolved = await firstWriter.resolveTables({
@@ -402,7 +405,7 @@ event_definitions:
     expect(second.replicationStreamId).toBe(first.replicationStreamId);
 
     const replicatingStreams = await factory.getReplicatingReplicationStreams();
-    const secondStorage = factory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorageV3;
+    const secondStorage = (await getTestStorage(factory, replicatingStreams[0])) as MongoSyncBucketStorageV3;
     await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
     await secondWriter.markAllSnapshotDone('2/1');
     await secondWriter.commit('2/1');
@@ -466,7 +469,7 @@ event_definitions:
         { storageVersion: 3 }
       )
     );
-    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorageV3;
+    const firstStorage = (await getTestStorage(factory, first)) as MongoSyncBucketStorageV3;
     const db = firstStorage.db as VersionedPowerSyncMongoV3;
     await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
 
@@ -538,7 +541,7 @@ streams:
     expect(second.replicationStreamId).toBe(first.replicationStreamId);
 
     const replicatingStreams = await factory.getReplicatingReplicationStreams();
-    const secondStorage = factory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorageV3;
+    const secondStorage = (await getTestStorage(factory, replicatingStreams[0])) as MongoSyncBucketStorageV3;
     await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
     await secondWriter.markAllSnapshotDone('2/1');
     await secondWriter.commit('2/1');
@@ -599,7 +602,7 @@ streams:
         { storageVersion: 3 }
       )
     );
-    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorageV3;
+    const firstStorage = (await getTestStorage(factory, first)) as MongoSyncBucketStorageV3;
     const db = firstStorage.db as VersionedPowerSyncMongoV3;
     await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
     const resolved = await firstWriter.resolveTables({
@@ -652,7 +655,7 @@ streams:
     expect(secondIndexId).toBe(roleIndexId);
 
     const replicatingStreams = await factory.getReplicatingReplicationStreams();
-    const secondStorage = factory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorageV3;
+    const secondStorage = (await getTestStorage(factory, replicatingStreams[0])) as MongoSyncBucketStorageV3;
     await using secondWriter = await secondStorage.createWriter(test_utils.BATCH_OPTIONS);
     await secondWriter.markAllSnapshotDone('2/1');
     await secondWriter.commit('2/1');
@@ -664,7 +667,10 @@ streams:
     expect(await collectionExists(db, orgParameterIndexCollection)).toBe(false);
     expect(await collectionExists(db, sourceRecordsCollection)).toBe(true);
 
-    const activeStorage = (await factory.getActiveSyncConfig())!.storage as MongoSyncBucketStorageV3;
+    const activeStorage = (await getTestStorage(
+      factory,
+      (await factory.getActiveSyncConfig())!.replicationStream
+    )) as MongoSyncBucketStorageV3;
     await using activeWriter = await activeStorage.createWriter(test_utils.BATCH_OPTIONS);
     const activeTable = (
       await activeWriter.resolveTables({

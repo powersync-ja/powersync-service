@@ -46,7 +46,7 @@ import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 import { createObjectStorageUsageWriterId } from './v3/object-storage/ObjectStorageUsage.js';
 
 export interface MongoBucketBatchOptions {
-  replicationLock: MongoSyncRulesLock | null;
+  replicationLock: MongoSyncRulesLock;
   opIdAllocator: MongoOpIdAllocator;
   db: VersionedPowerSyncMongo;
   /**
@@ -144,16 +144,13 @@ export abstract class MongoBucketBatch
   constructor(options: MongoBucketBatchOptions) {
     super();
     this.logger = options.logger;
-    this.options =
-      options.replicationLock == null
-        ? options
-        : {
-            ...options,
-            signal:
-              options.signal == null
-                ? options.replicationLock.signal
-                : AbortSignal.any([options.signal, options.replicationLock.signal])
-          };
+    this.options = {
+      ...options,
+      signal:
+        options.signal == null
+          ? options.replicationLock.signal
+          : AbortSignal.any([options.signal, options.replicationLock.signal])
+    };
     this.client = options.db.client;
     this.db = options.db;
     this.replicationStreamId = options.replicationStreamId;
@@ -717,7 +714,7 @@ export abstract class MongoBucketBatch
         const stream = await acquireFence();
         try {
           const result = await cb(stream);
-          this.options.replicationLock?.signal.throwIfAborted();
+          this.options.replicationLock.signal.throwIfAborted();
           return result;
         } catch (e: unknown) {
           if (e instanceof OpIdRangeExhausted) {
@@ -765,7 +762,7 @@ export abstract class MongoBucketBatch
     let lastOp = 0n;
     // Refill outside the publication transaction, before evaluating any rows.
     // Exhaustion remains a fallback for large batches or a newer stream head.
-    this.options.replicationLock?.signal.throwIfAborted();
+    this.options.replicationLock.signal.throwIfAborted();
     await allocator.ensureCapacity();
     for (;;) {
       try {
@@ -803,7 +800,7 @@ export abstract class MongoBucketBatch
         // withTransaction has aborted every write. Reserve outside that transaction,
         // then replay evaluation from the same committed stream head. Existing
         // ranges can be reused on retry because no operation from this attempt committed.
-        this.options.replicationLock?.signal.throwIfAborted();
+        this.options.replicationLock.signal.throwIfAborted();
         await allocator.reserve();
       }
     }

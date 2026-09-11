@@ -13,7 +13,13 @@ import {
   unsettledPromise,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { bucketRequest, METRICS_HELPER, StorageDataHelpers, test_utils } from '@powersync/service-core-tests';
+import {
+  bucketRequest,
+  getTestStorage,
+  METRICS_HELPER,
+  StorageDataHelpers,
+  test_utils
+} from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 
@@ -93,7 +99,7 @@ export class WalStreamTestContext implements AsyncDisposable {
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
     );
     this.syncRulesContent = replicationStream.syncConfigContent[0];
-    this.storage = this.factory.getInstance(replicationStream);
+    this.storage = await getTestStorage(this.factory, replicationStream);
     return this.storage!;
   }
 
@@ -104,7 +110,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     }
 
     this.syncRulesContent = syncConfig.content;
-    this.storage = syncConfig.storage;
+    this.storage = await getTestStorage(this.factory, syncConfig.replicationStream);
     return this.storage!;
   }
 
@@ -115,7 +121,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     }
 
     this.syncRulesContent = syncConfig.content;
-    this.storage = syncConfig.storage;
+    this.storage = await getTestStorage(this.factory, syncConfig.replicationStream);
     return this.storage!;
   }
 
