@@ -31,7 +31,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
 
   async onInitialized(context: system.ServiceContextContainer): Promise<void> {
     // Record replicated bytes using global jpgwire metrics. Only registered if this module is replicating
-    if (context.replicationEngine) {
+    if (context.replicationEngine && context.serviceMode !== system.ServiceContextMode.TEST_CONNECTION) {
       jpgwire.setMetricsRecorder({
         addBytesRead(bytes) {
           context.metricsEngine.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES).add(bytes);
