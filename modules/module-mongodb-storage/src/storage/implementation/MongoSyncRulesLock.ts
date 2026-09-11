@@ -102,8 +102,12 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
     }
   }
 
+  throwIfAborted(): void {
+    this.signal.throwIfAborted();
+  }
+
   static ownerFilter(streamId: number, lock: MongoSyncRulesLock) {
-    lock.signal.throwIfAborted();
+    lock.throwIfAborted();
     return { _id: streamId, 'lock.id': lock.lock_id };
   }
 

@@ -299,7 +299,7 @@ export abstract class MongoSyncBucketStorage
     if (this.replicationLock == null) {
       throw new ServiceAssertionError('A replication lease is required to create a writer');
     }
-    this.replicationLock.signal.throwIfAborted();
+    this.replicationLock.throwIfAborted();
     return this.replicationLock;
   }
 

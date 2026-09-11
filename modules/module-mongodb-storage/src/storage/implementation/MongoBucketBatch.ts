@@ -714,7 +714,7 @@ export abstract class MongoBucketBatch
         const stream = await acquireFence();
         try {
           const result = await cb(stream);
-          this.options.replicationLock.signal.throwIfAborted();
+          this.options.replicationLock.throwIfAborted();
           return result;
         } catch (e: unknown) {
           if (e instanceof OpIdRangeExhausted) {
@@ -762,7 +762,7 @@ export abstract class MongoBucketBatch
     let lastOp = 0n;
     // Refill outside the publication transaction, before evaluating any rows.
     // Exhaustion remains a fallback for large batches or a newer stream head.
-    this.options.replicationLock.signal.throwIfAborted();
+    this.options.replicationLock.throwIfAborted();
     await allocator.ensureCapacity();
     for (;;) {
       try {
@@ -800,7 +800,7 @@ export abstract class MongoBucketBatch
         // withTransaction has aborted every write. Reserve outside that transaction,
         // then replay evaluation from the same committed stream head. Existing
         // ranges can be reused on retry because no operation from this attempt committed.
-        this.options.replicationLock.signal.throwIfAborted();
+        this.options.replicationLock.throwIfAborted();
         await allocator.reserve();
       }
     }

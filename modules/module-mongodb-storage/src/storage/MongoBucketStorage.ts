@@ -79,7 +79,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   }
 
   getOpIdAllocator(stream: MongoPersistedReplicationStream, lock: MongoSyncRulesLock): MongoOpIdAllocator {
-    lock.signal.throwIfAborted();
+    lock.throwIfAborted();
     const previous = this.opIdAllocators.get(stream.replicationStreamId);
     if (previous?.lock === lock) {
       return previous.allocator;
