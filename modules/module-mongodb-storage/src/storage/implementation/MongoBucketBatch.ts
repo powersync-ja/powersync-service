@@ -222,11 +222,7 @@ export abstract class MongoBucketBatch
   protected async prepareCustomWriteCheckpoints(): Promise<void> {}
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
-    await this.enqueuePipelineBatch();
-    const beforePublish = await this.prepareCheckpointPublication();
-    await this.pipeline!.seal({ flushOptions: options, beforePublish }, beforePublish != null);
-    await this.pipeline!.drain();
-    this.write_checkpoint_batch = [];
+    await this.publishBoundary({ flushOptions: options });
     return this.last_flushed_op == null ? null : { flushed_op: this.last_flushed_op };
   }
 
@@ -236,22 +232,22 @@ export abstract class MongoBucketBatch
     commitWithoutFlush: () => Promise<T>,
     options?: storage.BatchBucketFlushOptions
   ): Promise<T> {
+    const result = await this.publishBoundary({ checkpoint, flushOptions: options });
+    return result.published ? result.value : commitWithoutFlush();
+  }
+
+  /** Shared durable boundary for rows, custom checkpoints and a final client checkpoint. */
+  private async publishBoundary<T = void>(
+    options: PublicationOptions<T>
+  ): Promise<{ published: false } | { published: true; value: T }> {
     await this.enqueuePipelineBatch();
     const beforePublish = await this.prepareCheckpointPublication();
-    let result!: T;
-    const receipt = await this.pipeline!.seal(
-      {
-        flushOptions: options,
-        beforePublish,
-        checkpoint: async (stream, lastOp) => {
-          result = await checkpoint(stream, lastOp);
-        }
-      },
-      beforePublish != null
-    );
-    await this.pipeline!.drain();
+    const receipt = await this.publicationWriter().seal({ ...options, beforePublish }, beforePublish != null);
+    const result = receipt.published
+      ? { published: true as const, value: await receipt.persisted }
+      : await receipt.persisted.then(() => ({ published: false as const }));
     this.write_checkpoint_batch = [];
-    return receipt == null ? commitWithoutFlush() : result;
+    return result;
   }
 
   async queueResumeLsn(lsn: string, options?: storage.BatchBucketFlushOptions): Promise<storage.BatchProgressReceipt> {
@@ -261,7 +257,7 @@ export abstract class MongoBucketBatch
       return { persisted: Promise.resolve() };
     }
     await this.enqueuePipelineBatch();
-    return (await this.pipeline!.seal({ resumeLsn: lsn, flushOptions: options }, true))!;
+    return this.publicationWriter().seal({ resumeLsn: lsn, flushOptions: options }, true);
   }
 
   /** Custom checkpoint writes use the same immutable publication boundary as rows. */
@@ -272,22 +268,20 @@ export abstract class MongoBucketBatch
     // Collection/index creation must happen outside publication transactions.
     await this.prepareCustomWriteCheckpoints();
     let opId = 0n;
-    await this.pipeline!.prepare(async (context) => {
-      await this.application!.applyRow(context, (_row, sequence) => {
-        opId = sequence.next();
-      });
+    await this.publicationWriter().prepare(async (application) => {
+      opId = await application.applyRow((_row, sequence) => sequence.next());
     });
     return (session) => this.batchCreateCustomWriteCheckpoints(session, opId);
   }
 
-  private async publish(
+  private async publish<T>(
     publication: PreparedPublication,
     expectedHead: bigint,
     lastOp: bigint,
-    options?: PublicationOptions
-  ): Promise<void> {
+    options?: PublicationOptions<T>
+  ): Promise<T | undefined> {
     let flushedAny = false;
-    await this.runFencedTransaction(
+    const result = await this.runFencedTransaction(
       () => this.fence(this.session, { sync_configs: 1, last_persisted_op: 1, last_checkpoint: 1, keepalive_op: 1 }),
       async (stream) => {
         this.pipeline!.check();
@@ -301,8 +295,9 @@ export abstract class MongoBucketBatch
           await this.clearError(this.session);
         }
         await options?.beforePublish?.(this.session);
+        let result: T | undefined;
         if (options?.checkpoint != null) {
-          await options.checkpoint(stream, lastOp);
+          result = await options.checkpoint(stream, lastOp);
         } else {
           const writes = this.db.createWriteBatch(this.session, { ordered: false });
           this.onReplicationTransactionFlush(writes, lastOp);
@@ -316,18 +311,22 @@ export abstract class MongoBucketBatch
           await writes.execute();
         }
         this.pipeline!.check();
+        return result;
       }
     );
     this.clearedError ||= flushedAny;
     this.recordPersistedOp(lastOp);
     this.last_flushed_op = lastOp;
     await this.hooks?.afterBatchFlush?.(this);
+    return result;
   }
 
-  private async enqueuePipelineBatch(): Promise<void> {
+  /** Registration does not read or apply source input. */
+  private publicationWriter(): MongoPublicationWriter {
     if (this.pipeline == null) {
       this.pipeline = this.options.opIdAllocator.publicationPipeline(this.options.replicationLock.signal).register({
         sourceSignal: this.options.signal,
+        allocator: this.options.opIdAllocator,
         session: this.session,
         readHead: async (session) => {
           const stream = await this.db.sync_rules.findOne(
@@ -342,16 +341,18 @@ export abstract class MongoBucketBatch
       });
       this.application = new MongoReplicationApplication(
         this.pipeline,
-        this.options.opIdAllocator,
         this.sourceRecordStore,
-        (writtenSize) => this.createPersistedBatch(writtenSize),
         (batch, operation, before, sequence) => this.saveOperation(batch, operation, before, sequence),
         this.storeCurrentData,
         this.skipExistingRows,
         this.eagerPublication
       );
     }
-    this.pipeline.check();
+    return this.pipeline;
+  }
+
+  private async enqueuePipelineBatch(): Promise<void> {
+    this.publicationWriter().check();
     const input = this.batch;
     this.batch = null;
     if (input == null || !input.hasData()) {
@@ -839,15 +840,14 @@ export abstract class MongoBucketBatch
     let lastOp = this.last_flushed_op ?? 0n;
     for (;;) {
       let count = 0;
-      await this.pipeline!.prepare(async (context) => {
+      await this.publicationWriter().scan(async (application) => {
         // A table scan cannot discover rows that exist only in another writer's
-        // pending group. Publish the prefix while holding application admission.
-        await this.pipeline!.drainPrefix();
-        const records = await this.sourceRecordStore.loadTruncateBatch(context.session, sourceTableId, limit);
+        // pending group. The scan scope publishes that prefix before reading.
+        const records = await this.sourceRecordStore.loadTruncateBatch(application.session, sourceTableId, limit);
         count = records.length;
-        lastOp = context.lastOp;
+        lastOp = application.lastOp;
         for (const record of records) {
-          await this.application!.applyRow(context, (row, sequence) => {
+          await application.applyRow((row, sequence) => {
             row.saveBucketData({
               op_seq: sequence,
               before_buckets: record.buckets,
@@ -865,19 +865,14 @@ export abstract class MongoBucketBatch
             // Truncation is outside streaming replication, so hard deletes are safe.
             row.hardDeleteCurrentData(sourceTableId, record.replicaId);
           });
-          lastOp = context.lastOp;
-          context.state.set(record.cacheKey, null);
-          context.group!.changes.set(record.cacheKey, null);
-          if (context.group!.batch.shouldPublish()) {
-            const group = context.group!;
-            context.group = undefined;
-            await this.pipeline!.submit(group);
-          }
+          lastOp = application.lastOp;
+          application.recordMembership(record.cacheKey, null);
+          await application.publishIfFull();
         }
       });
-      await this.pipeline!.seal();
+      const receipt = await this.publicationWriter().seal();
       // The next page must observe the hard deletes from this page.
-      await this.pipeline!.drain();
+      await receipt.persisted;
       if (count < limit) {
         return lastOp;
       }

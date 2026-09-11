@@ -6,17 +6,20 @@ import { PersistedBatch } from './common/PersistedBatch.js';
 import { PreparedPublication } from './common/PreparedPublication.js';
 import { LoadedSourceRecord } from './common/SourceRecordStore.js';
 import { SyncRuleDocumentBase } from './models.js';
+import { MongoIdSequence, OpIdRangeExhausted } from './MongoIdSequence.js';
+import type { MongoOpIdAllocator } from './MongoOpIdAllocator.js';
 
 const MAX_PENDING_GROUPS = 3;
 const MAX_PENDING_BYTES = 64 * 1024 * 1024;
 
 type Membership = LoadedSourceRecord | null;
-export interface PublicationGroup {
+interface PublicationGroup {
+  writer: MongoPublicationWriter;
   batch: PersistedBatch;
   changes: Map<string, Membership>;
 }
 
-export interface PipelineContext {
+interface PipelineContext {
   session: mongo.ClientSession;
   state: Map<string, Membership>;
   published: Map<string, Membership>;
@@ -25,23 +28,39 @@ export interface PipelineContext {
   group?: PublicationGroup;
 }
 
-export interface PublicationOptions {
+/** Valid only during the admitted callback. Mutable stream state stays in the pipeline. */
+export interface PublicationApplication {
+  readonly session: mongo.ClientSession;
+  readonly lastOp: bigint;
+  lookup(key: string, loaded: LoadedSourceRecord | undefined): Membership;
+  overlaySizes(sizes: Map<string, number>): void;
+  applyRow<T>(apply: (row: PersistedBatch, sequence: MongoIdSequence) => T): Promise<T>;
+  recordMembership(key: string, value: Membership): void;
+  publishIfFull(eager?: boolean): Promise<void>;
+}
+
+export type PublicationReceipt<T = void> =
+  | { published: false; persisted: Promise<void> }
+  | { published: true; persisted: Promise<T> };
+
+export interface PublicationOptions<T = void> {
   resumeLsn?: string;
   flushOptions?: storage.BatchBucketFlushOptions;
-  checkpoint?: (stream: SyncRuleDocumentBase, lastOp: bigint) => Promise<void>;
+  checkpoint?: (stream: SyncRuleDocumentBase, lastOp: bigint) => Promise<T>;
   beforePublish?: (session: mongo.ClientSession) => Promise<void>;
 }
 
 export interface PublicationWriterOptions {
   sourceSignal?: AbortSignal;
+  allocator: MongoOpIdAllocator;
   readHead(session: mongo.ClientSession): Promise<bigint>;
   createBatch(): PersistedBatch;
-  publish(
+  publish<T>(
     publication: PreparedPublication,
     expectedHead: bigint,
     lastOp: bigint,
-    options?: PublicationOptions
-  ): Promise<void>;
+    options?: PublicationOptions<T>
+  ): Promise<T | undefined>;
   session: mongo.ClientSession;
 }
 
@@ -51,8 +70,8 @@ interface QueueEntry {
   expectedHead: bigint;
   lastOp: bigint;
   changes: Map<string, Membership>;
-  options?: PublicationOptions;
-  completion: ReturnType<typeof Promise.withResolvers<void>>;
+  options?: PublicationOptions<unknown>;
+  completion: ReturnType<typeof Promise.withResolvers<unknown>>;
 }
 
 /**
@@ -67,7 +86,6 @@ export class MongoReplicationPipeline {
   private readonly abort = new AbortController();
   private session?: mongo.ClientSession;
   private context?: PipelineContext;
-  private groupWriter?: MongoPublicationWriter;
   private applying?: MongoPublicationWriter;
   private pumping?: Promise<void>;
   private bytes = 0;
@@ -109,18 +127,20 @@ export class MongoReplicationPipeline {
     return this.context;
   }
 
-  async prepare(writer: MongoPublicationWriter, callback: (context: PipelineContext) => Promise<void>): Promise<void> {
-    await this.admission.runExclusive(async () => {
+  private async admit<T>(
+    writer: MongoPublicationWriter,
+    callback: (context: PipelineContext) => Promise<T>
+  ): Promise<T> {
+    return this.admission.runExclusive(async () => {
       writer.check();
       this.applying = writer;
       try {
         const context = await this.initialize(writer);
-        if (this.groupWriter !== writer) {
+        if (context.group != null && context.group.writer !== writer) {
           // A writer switch seals the old group, but does not wait for its upload.
           await this.sealCurrent();
-          this.groupWriter = writer;
         }
-        await callback(context);
+        return await callback(context);
       } catch (error) {
         this.fail(error);
         throw error;
@@ -132,12 +152,98 @@ export class MongoReplicationPipeline {
     });
   }
 
-  /** Called from the serialized application stage, after IDs have been consumed. */
-  async submit(
+  async prepare(
     writer: MongoPublicationWriter,
+    callback: (application: PublicationApplication) => Promise<void>
+  ): Promise<void> {
+    return this.admit(writer, (context) => callback(this.application(writer, context)));
+  }
+
+  /** A table scan must include rows that exist only in preceding pending groups. */
+  async scan(
+    writer: MongoPublicationWriter,
+    callback: (application: PublicationApplication) => Promise<void>
+  ): Promise<void> {
+    return this.admit(writer, async (context) => {
+      await this.drainPrefix();
+      await callback(this.application(writer, context));
+    });
+  }
+
+  private group(writer: MongoPublicationWriter, context: PipelineContext): PublicationGroup {
+    return (context.group ??= { writer, batch: writer.options.createBatch(), changes: new Map() });
+  }
+
+  private application(writer: MongoPublicationWriter, context: PipelineContext): PublicationApplication {
+    return {
+      session: context.session,
+      get lastOp() {
+        return context.lastOp;
+      },
+      lookup: (key, loaded) => (context.state.has(key) ? context.state.get(key)! : (loaded ?? null)),
+      overlaySizes: (sizes) => {
+        for (const [key, value] of context.state) {
+          sizes.set(key, value?.data?.length() ?? 0);
+        }
+      },
+      applyRow: (apply) => this.applyRow(writer, context, apply),
+      recordMembership: (key, value) => {
+        context.state.set(key, value);
+        this.group(writer, context).changes.set(key, value);
+      },
+      publishIfFull: async (eager = false) => {
+        if (context.group?.batch.shouldPublish()) {
+          const receipt = await this.sealCurrent();
+          if (eager) {
+            await receipt?.persisted;
+          }
+        }
+      }
+    };
+  }
+
+  private async applyRow<T>(
+    writer: MongoPublicationWriter,
+    context: PipelineContext,
+    apply: (row: PersistedBatch, sequence: MongoIdSequence) => T
+  ): Promise<T> {
+    const allocator = writer.options.allocator;
+    await allocator.ensureCapacity();
+    for (;;) {
+      writer.check();
+      const sequence = allocator.sequence(context.lastOp);
+      const row = writer.options.createBatch();
+      let result: T;
+      try {
+        result = apply(row, sequence);
+        if (row.currentSize > 0 && sequence.last() === context.lastOp) {
+          // Membership-only changes must also advance the prepared prefix.
+          sequence.next();
+        }
+      } catch (error) {
+        if (!(error instanceof OpIdRangeExhausted)) {
+          throw error;
+        }
+        // This row has not touched the group or overlay. Reuse its reserved IDs
+        // after extending the range; earlier rows and uploads remain immutable.
+        await allocator.reserve();
+        continue;
+      }
+      context.lastOp = sequence.last();
+      // Consume now, before yielding: other writers sharing this allocator must
+      // never use IDs assigned to unpublished operations.
+      allocator.consume(context.lastOp);
+      this.group(writer, context).batch.append(row);
+      return result;
+    }
+  }
+
+  /** Called from the serialized application stage, after IDs have been consumed. */
+  private async submit(
     group: PublicationGroup,
-    options?: PublicationOptions
-  ): Promise<storage.BatchProgressReceipt> {
+    options?: PublicationOptions<unknown>
+  ): Promise<PublicationReceipt<unknown>> {
+    const writer = group.writer;
     const size = group.batch.currentSize;
     // One additional group can be retained by preparation. An indivisible row
     // may exceed the byte limit, but must wait until the window is empty.
@@ -150,7 +256,7 @@ export class MongoReplicationPipeline {
     }
     writer.check();
     const context = this.context!;
-    const completion = Promise.withResolvers<void>();
+    const completion = Promise.withResolvers<unknown>();
     void completion.promise.catch(() => {});
     const publication = group.batch.seal((error) => this.fail(error));
     void publication.ready.catch((error) => this.fail(error));
@@ -167,9 +273,7 @@ export class MongoReplicationPipeline {
     this.bytes += size;
     this.queue.push(entry);
     this.startPump();
-    const receipt = { persisted: completion.promise };
-    writer.receipt = receipt;
-    return receipt;
+    return { published: true, persisted: completion.promise };
   }
 
   private startPump(): void {
@@ -188,10 +292,11 @@ export class MongoReplicationPipeline {
   private async publishQueued(): Promise<void> {
     while (this.queue.length > 0) {
       const entry = this.queue[0];
+      let result: unknown;
       try {
         await entry.publication.ready;
         this.check();
-        await entry.writer.options.publish(entry.publication, entry.expectedHead, entry.lastOp, entry.options);
+        result = await entry.writer.options.publish(entry.publication, entry.expectedHead, entry.lastOp, entry.options);
         // Reads begun after publication must include it before we reclaim overlay entries.
         const operationTime = entry.writer.options.session.operationTime;
         if (operationTime != null) {
@@ -213,37 +318,44 @@ export class MongoReplicationPipeline {
       if (this.failure != null) {
         entry.completion.reject(this.failure.error);
       } else {
-        entry.completion.resolve();
+        entry.completion.resolve(result);
       }
     }
   }
 
-  private async sealCurrent(options?: PublicationOptions): Promise<storage.BatchProgressReceipt | undefined> {
+  private async sealCurrent(options?: PublicationOptions<unknown>): Promise<PublicationReceipt<unknown> | undefined> {
     const group = this.context?.group;
     if (group == null) {
       return undefined;
     }
     this.context!.group = undefined;
-    return this.submit(this.groupWriter!, group, options);
+    return this.submit(group, options);
   }
 
-  async seal(
+  async seal<T = void>(
     writer: MongoPublicationWriter,
-    options?: PublicationOptions,
+    options?: PublicationOptions<T>,
     allowEmpty = false
-  ): Promise<storage.BatchProgressReceipt | undefined> {
-    let own: storage.BatchProgressReceipt | undefined;
-    await this.prepare(writer, async (context) => {
-      if (context.group == null && allowEmpty) {
-        context.group = { batch: writer.options.createBatch(), changes: new Map() };
+  ): Promise<PublicationReceipt<T>> {
+    return this.admit(writer, async (context) => {
+      if (allowEmpty) {
+        this.group(writer, context);
       }
-      own = await this.sealCurrent(options);
+      const own = await this.sealCurrent(options);
       // An empty flush still waits for the prefix preceding its admission, never
-      // for work admitted later by another writer.
-      const preceding = this.queue.at(-1);
-      writer.receipt = own ?? (preceding == null ? writer.receipt : { persisted: preceding.completion.promise });
+      // for work admitted later by another writer. Ignore that prefix's result.
+      const persisted = (own?.persisted ?? this.queue.at(-1)?.completion.promise ?? Promise.resolve()).then((value) => {
+        writer.check();
+        return own == null ? undefined : value;
+      });
+      // Receipts may be awaited later, after other source pages are admitted.
+      void persisted.catch(() => {});
+      if (own == null) {
+        return { published: false, persisted: persisted as Promise<void> };
+      }
+      // The queue contains heterogeneous results; this entry was submitted with options<T>.
+      return { published: true, persisted: persisted as Promise<T> };
     });
-    return own;
   }
 
   /** Metadata barriers seal the prefix and prevent application against changing metadata. */
@@ -255,7 +367,6 @@ export class MongoReplicationPipeline {
         await this.drainPrefix();
         const result = await callback();
         this.context = undefined;
-        this.groupWriter = undefined;
         return result;
       } finally {
         this.applying = undefined;
@@ -265,7 +376,7 @@ export class MongoReplicationPipeline {
   }
 
   /** Called under admission when a database scan must include all preceding writes. */
-  async drainPrefix(): Promise<void> {
+  private async drainPrefix(): Promise<void> {
     await this.sealCurrent();
     await this.queue.at(-1)?.completion.promise;
     this.check();
@@ -297,14 +408,13 @@ export class MongoReplicationPipeline {
   private resetIfIdle(): void {
     if (this.applying == null && this.queue.length === 0 && this.context?.group == null) {
       this.context = undefined;
-      this.groupWriter = undefined;
     }
   }
 
   async detach(writer: MongoPublicationWriter): Promise<void> {
     if (
       this.applying === writer ||
-      (this.groupWriter === writer && this.context?.group != null) ||
+      this.context?.group?.writer === writer ||
       this.queue.some((entry) => entry.writer === writer)
     ) {
       // Later work may depend on this writer's unpublished membership. Cancelling
@@ -324,7 +434,6 @@ export class MongoReplicationPipeline {
         await this.session?.endSession();
         this.session = undefined;
         this.context = undefined;
-        this.groupWriter = undefined;
         // The allocator can be reused by a fresh writer under the same lease.
         // Its owner replaces a failed pipeline before registering that writer.
       }
@@ -340,7 +449,6 @@ export class MongoReplicationPipeline {
 export class MongoPublicationWriter implements AsyncDisposable {
   private readonly abort = new AbortController();
   private readonly admissions = new Set<Promise<void>>();
-  receipt?: storage.BatchProgressReceipt;
   readonly signal: AbortSignal;
   readonly uploadSignal: AbortSignal;
 
@@ -358,14 +466,23 @@ export class MongoPublicationWriter implements AsyncDisposable {
     this.signal.throwIfAborted();
   }
 
-  async prepare(callback: (context: PipelineContext) => Promise<void>, before?: () => Promise<void>): Promise<void> {
+  async prepare(
+    callback: (application: PublicationApplication) => Promise<void>,
+    before?: () => Promise<void>
+  ): Promise<void> {
+    return this.track(async () => {
+      // Hooks may wait for another writer and therefore run before admission.
+      await before?.();
+      await this.pipeline.prepare(this, callback);
+    });
+  }
+
+  private async track(callback: () => Promise<void>): Promise<void> {
     const done = Promise.withResolvers<void>();
     this.admissions.add(done.promise);
     try {
       this.check();
-      // Hooks may wait for another writer and therefore run before admission.
-      await before?.();
-      await this.pipeline.prepare(this, callback);
+      await callback();
     } catch (error) {
       if (!this.signal.aborted) {
         this.pipeline.fail(error);
@@ -377,22 +494,12 @@ export class MongoPublicationWriter implements AsyncDisposable {
     }
   }
 
-  submit(group: PublicationGroup, options?: PublicationOptions) {
-    return this.pipeline.submit(this, group, options);
-  }
-
-  seal(options?: PublicationOptions, allowEmpty = false) {
+  seal<T = void>(options?: PublicationOptions<T>, allowEmpty = false) {
     return this.pipeline.seal(this, options, allowEmpty);
   }
 
-  async drain(): Promise<void> {
-    await this.receipt?.persisted;
-    this.check();
-  }
-
-  /** Only call inside prepare: keep new application out until the scan finishes. */
-  drainPrefix(): Promise<void> {
-    return this.pipeline.drainPrefix();
+  scan(callback: (application: PublicationApplication) => Promise<void>): Promise<void> {
+    return this.track(() => this.pipeline.scan(this, callback));
   }
 
   exclusive<T>(callback: () => Promise<T>): Promise<T> {

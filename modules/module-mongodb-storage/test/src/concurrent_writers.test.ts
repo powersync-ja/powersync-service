@@ -160,7 +160,7 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     });
     try {
       await insert(writer, a.table, 'retried');
-      await writer.commit('1/3');
+      expect(await writer.commit('1/3')).toMatchObject({ checkpointCreated: true, checkpointBlocked: false });
       expect(attempts).toBe(2);
       expect(writer.last_flushed_op).toBe(2n);
       expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(2n);
