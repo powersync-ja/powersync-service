@@ -736,13 +736,17 @@ export abstract class MongoBucketBatch
   }
 
   /** Single-document updates enforce ownership atomically, without a separate transaction. */
-  protected async updateStreamMetadata(set: mongo.Document, filter: mongo.Document = {}): Promise<void> {
+  protected async updateStreamMetadata(
+    set: mongo.Document,
+    filter: mongo.Document = {},
+    writeConcern: mongo.WriteConcernSettings = { w: 'majority' }
+  ): Promise<void> {
     const result = await this.db.sync_rules.updateOne(
       { ...filter, ...MongoSyncRulesLock.ownerFilter(this.replicationStreamId, this.options.replicationLock) },
       [{ $set: { ...set, ...MongoSyncRulesLock.heartbeatUpdate() } }],
       {
         session: this.session,
-        ...(this.session.inTransaction() ? {} : { writeConcern: { w: 'majority' as const } })
+        ...(this.session.inTransaction() ? {} : { writeConcern })
       }
     );
     if (result.matchedCount === 0) {

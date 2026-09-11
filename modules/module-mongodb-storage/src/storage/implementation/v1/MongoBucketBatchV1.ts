@@ -412,8 +412,8 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   async setResumeLsn(lsn: string): Promise<void> {
     using _ = this.tracer.span('storage', 'set_resume_lsn');
     // Losing occasional resume LSN would only reprocess source changes.
-    // The conditional update retains majority durability without a transaction.
-    await this.updateStreamMetadata({ snapshot_lsn: { $literal: lsn } });
+    // Keep the lease check atomic, but do not wait for majority replication of this resume hint.
+    await this.updateStreamMetadata({ snapshot_lsn: { $literal: lsn } }, {}, { w: 1 });
   }
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
