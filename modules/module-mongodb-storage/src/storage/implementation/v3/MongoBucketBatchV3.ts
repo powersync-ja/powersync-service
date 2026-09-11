@@ -48,12 +48,16 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     this.store = new SourceRecordStoreV3(this.db, this.replicationStreamId, this.mapping);
   }
 
+  protected override get usePipeline(): boolean {
+    return true;
+  }
+
   protected createPersistedBatch(writtenSize: number): PersistedBatch {
     return new PersistedBatchV3(this.db, this.replicationStreamId, this.mapping, writtenSize, {
       logger: this.logger,
       objectStorage: this.options.objectStorage,
       inlineThresholdBytes: this.options.inlineThresholdBytes,
-      signal: this.options.signal,
+      signal: this.uploadSignal,
       objectStorageUsageWriterId: this.objectStorageUsageWriterId
     });
   }
@@ -152,6 +156,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
+    await this.flush();
     // The test-only override is a whole parsed set, so the sync rules and the mapping
     // used below always come from the same parse.
     const parsedOverride = options.parsedSyncConfig as MongoParsedSyncConfigSet | undefined;
@@ -176,83 +181,86 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const session = this.db.client.startSession();
     await using _ = { [Symbol.asyncDispose]: () => session.endSession() };
 
-    await session.withTransaction(async () => {
-      await this.fence(session);
-      const col = this.db.sourceTables(this.replicationStreamId);
+    await this.withWriterAccess(() =>
+      session.withTransaction(async () => {
+        await this.fence(session);
+        const col = this.db.sourceTables(this.replicationStreamId);
 
-      // Find records that overlap by name or relation id.
-      const candidateDocs = await col
-        .find(overlappingSourceTableFilter(connection_id, identity), { session })
-        .toArray();
+        // Find records that overlap by name or relation id.
+        const candidateDocs = await col
+          .find(overlappingSourceTableFilter(connection_id, identity), { session })
+          .toArray();
 
-      const candidateTables = candidateDocs.map((doc) =>
-        sourceTableFromDocument(doc, source.connectionTag, syncConfig, mapping, eventById)
-      );
-      const candidates = candidateTables.map((table) => table.clone());
-      const resolution = await reconcile({ source, candidates });
-      storage.validateSourceTableCandidateResolution(candidates, resolution);
-
-      // Persist metadata from the reconciler without mutating the queried documents.
-      for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
-        await col.updateOne({ _id: mongoTableId(id) }, { $set: { source_metadata: sourceMetadata } }, { session });
-      }
-
-      const context: SourceTableReconciliationContext = {
-        connectionId: connection_id,
-        connectionTag: source.connectionTag,
-        identity,
-        storeCurrentData: source.sendsCompleteRows !== true,
-        syncConfig,
-        mapping,
-        desired: sourceTableDesiredResolution(syncConfig, source, mapping, eventById),
-        sourceCompatibleTables: resolution.compatibleTables,
-        newTableSourceMetadata: resolution.newTableValues.sourceMetadata
-      };
-
-      // Plan record reuse, membership changes, creation, and removal.
-      const plan = planSourceTableReconciliation(candidateDocs, context);
-
-      // Persist narrowing for incomplete snapshots only. Snapshot-complete docs keep stale
-      // coverage ids so compatible future configs can reuse already-snapshotted data.
-      // Narrowing occurs after removing a sync config, meaning we don't process those
-      // definitions anymore.
-      for (const update of plan.narrowingUpdates) {
-        await col.updateOne(
-          { _id: update.id },
-          {
-            $set: {
-              bucket_data_source_ids: update.memberships.bucketDataSourceIds,
-              parameter_lookup_source_ids: update.memberships.parameterLookupSourceIds,
-              event_definition_ids: update.memberships.eventDefinitionIds
-            }
-          },
-          { session }
+        const candidateTables = candidateDocs.map((doc) =>
+          sourceTableFromDocument(doc, source.connectionTag, syncConfig, mapping, eventById)
         );
-      }
+        const candidates = candidateTables.map((table) => table.clone());
+        const resolution = await reconcile({ source, candidates });
+        storage.validateSourceTableCandidateResolution(candidates, resolution);
 
-      // Any desired membership not covered by an existing doc gets a new source table.
-      // That table snapshots only the uncovered memberships.
-      if (plan.newTableMemberships != null) {
-        const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
-        const { doc, table } = createNewSourceTable(id, plan.newTableMemberships, context);
+        // Persist metadata from the reconciler without mutating the queried documents.
+        for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
+          await col.updateOne({ _id: mongoTableId(id) }, { $set: { source_metadata: sourceMetadata } }, { session });
+        }
 
-        await col.insertOne(doc, { session });
-        await this.db.initializeSourceRecordsCollection(this.replicationStreamId, doc._id, session);
-        plan.tables.push(table);
-      }
+        const context: SourceTableReconciliationContext = {
+          connectionId: connection_id,
+          connectionTag: source.connectionTag,
+          identity,
+          storeCurrentData: source.sendsCompleteRows !== true,
+          syncConfig,
+          mapping,
+          desired: sourceTableDesiredResolution(syncConfig, source, mapping, eventById),
+          sourceCompatibleTables: resolution.compatibleTables,
+          newTableSourceMetadata: resolution.newTableValues.sourceMetadata
+        };
 
-      result = {
-        tables: plan.tables,
-        dropTables: plan.dropDocs.map((doc) =>
-          sourceTableFromDocument(doc, context.connectionTag, syncConfig, mapping, eventById)
-        )
-      };
-    });
+        // Plan record reuse, membership changes, creation, and removal.
+        const plan = planSourceTableReconciliation(candidateDocs, context);
+
+        // Persist narrowing for incomplete snapshots only. Snapshot-complete docs keep stale
+        // coverage ids so compatible future configs can reuse already-snapshotted data.
+        // Narrowing occurs after removing a sync config, meaning we don't process those
+        // definitions anymore.
+        for (const update of plan.narrowingUpdates) {
+          await col.updateOne(
+            { _id: update.id },
+            {
+              $set: {
+                bucket_data_source_ids: update.memberships.bucketDataSourceIds,
+                parameter_lookup_source_ids: update.memberships.parameterLookupSourceIds,
+                event_definition_ids: update.memberships.eventDefinitionIds
+              }
+            },
+            { session }
+          );
+        }
+
+        // Any desired membership not covered by an existing doc gets a new source table.
+        // That table snapshots only the uncovered memberships.
+        if (plan.newTableMemberships != null) {
+          const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
+          const { doc, table } = createNewSourceTable(id, plan.newTableMemberships, context);
+
+          await col.insertOne(doc, { session });
+          await this.db.initializeSourceRecordsCollection(this.replicationStreamId, doc._id, session);
+          plan.tables.push(table);
+        }
+
+        result = {
+          tables: plan.tables,
+          dropTables: plan.dropDocs.map((doc) =>
+            sourceTableFromDocument(doc, context.connectionTag, syncConfig, mapping, eventById)
+          )
+        };
+      })
+    );
 
     return result!;
   }
 
   async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
+    await this.flush();
     const doc = (await this.db
       .sourceTables(this.replicationStreamId)
       .findOne({ _id: mongoTableId(table.id) }, { session: this.session })) as SourceTableDocumentV3 | null;
@@ -452,96 +460,98 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const session = this.session;
     let activated = false;
     let needsFutureActivationCheck = true;
-    await session.withTransaction(async () => {
-      await this.fence(session);
-      // Reset on transaction retries.
-      needsFutureActivationCheck = true;
-      activated = false;
+    await this.withWriterAccess(() =>
+      session.withTransaction(async () => {
+        await this.fence(session);
+        // Reset on transaction retries.
+        needsFutureActivationCheck = true;
+        activated = false;
 
-      const doc = await this.db.sync_rules.findOne(
-        {
-          _id: this.replicationStreamId,
-          'sync_configs._id': { $in: this.syncConfigIds }
-        },
-        {
-          session,
-          projection: {
-            state: 1,
-            sync_configs: 1
-          }
-        }
-      );
-      const states =
-        (doc as ReplicationStreamDocumentV3)?.sync_configs?.filter((config) =>
-          this.syncConfigIds.some((id) => id.equals(config._id))
-        ) ?? [];
-      if (doc == null || states.length == 0) {
-        return;
-      }
-
-      const processingStates = states.filter((state) => state.state == storage.SyncRuleState.PROCESSING);
-      if (
-        doc.state == storage.SyncRuleState.PROCESSING &&
-        processingStates.length == states.length &&
-        states.every((state) => state.snapshot_done && state.last_checkpoint != null)
-      ) {
-        await this.db.sync_rules.updateOne(
+        const doc = await this.db.sync_rules.findOne(
           {
             _id: this.replicationStreamId,
             'sync_configs._id': { $in: this.syncConfigIds }
           },
           {
-            $set: {
-              state: storage.SyncRuleState.ACTIVE,
-              'sync_configs.$[config].state': storage.SyncRuleState.ACTIVE
-            }
-          },
-          {
             session,
-            arrayFilters: [{ 'config._id': { $in: this.syncConfigIds } }]
+            projection: {
+              state: 1,
+              sync_configs: 1
+            }
           }
         );
+        const states =
+          (doc as ReplicationStreamDocumentV3)?.sync_configs?.filter((config) =>
+            this.syncConfigIds.some((id) => id.equals(config._id))
+          ) ?? [];
+        if (doc == null || states.length == 0) {
+          return;
+        }
 
-        await this.db.sync_rules.updateMany(
-          {
-            _id: { $ne: this.replicationStreamId },
-            state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
-          },
-          stopReplicationStreamPipeline(),
-          { session }
-        );
-        activated = true;
-      } else if (
-        doc.state == storage.SyncRuleState.ACTIVE &&
-        processingStates.length > 0 &&
-        processingStates.every((state) => state.snapshot_done && state.last_checkpoint != null)
-      ) {
-        await this.db.sync_rules.updateOne(
-          {
-            _id: this.replicationStreamId,
-            'sync_configs._id': { $in: processingStates.map((state) => state._id) }
-          },
-          {
-            $set: {
-              'sync_configs.$[activeConfig].state': storage.SyncRuleState.STOP,
-              'sync_configs.$[processingConfig].state': storage.SyncRuleState.ACTIVE
+        const processingStates = states.filter((state) => state.state == storage.SyncRuleState.PROCESSING);
+        if (
+          doc.state == storage.SyncRuleState.PROCESSING &&
+          processingStates.length == states.length &&
+          states.every((state) => state.snapshot_done && state.last_checkpoint != null)
+        ) {
+          await this.db.sync_rules.updateOne(
+            {
+              _id: this.replicationStreamId,
+              'sync_configs._id': { $in: this.syncConfigIds }
+            },
+            {
+              $set: {
+                state: storage.SyncRuleState.ACTIVE,
+                'sync_configs.$[config].state': storage.SyncRuleState.ACTIVE
+              }
+            },
+            {
+              session,
+              arrayFilters: [{ 'config._id': { $in: this.syncConfigIds } }]
             }
-          },
-          {
-            session,
-            arrayFilters: [
-              { 'activeConfig.state': storage.SyncRuleState.ACTIVE },
-              { 'processingConfig._id': { $in: processingStates.map((state) => state._id) } }
-            ]
-          }
-        );
-        activated = true;
-      } else if (doc.state != storage.SyncRuleState.PROCESSING && doc.state != storage.SyncRuleState.ACTIVE) {
-        needsFutureActivationCheck = false;
-      } else if (doc.state == storage.SyncRuleState.ACTIVE && processingStates.length == 0) {
-        needsFutureActivationCheck = false;
-      }
-    });
+          );
+
+          await this.db.sync_rules.updateMany(
+            {
+              _id: { $ne: this.replicationStreamId },
+              state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
+            },
+            stopReplicationStreamPipeline(),
+            { session }
+          );
+          activated = true;
+        } else if (
+          doc.state == storage.SyncRuleState.ACTIVE &&
+          processingStates.length > 0 &&
+          processingStates.every((state) => state.snapshot_done && state.last_checkpoint != null)
+        ) {
+          await this.db.sync_rules.updateOne(
+            {
+              _id: this.replicationStreamId,
+              'sync_configs._id': { $in: processingStates.map((state) => state._id) }
+            },
+            {
+              $set: {
+                'sync_configs.$[activeConfig].state': storage.SyncRuleState.STOP,
+                'sync_configs.$[processingConfig].state': storage.SyncRuleState.ACTIVE
+              }
+            },
+            {
+              session,
+              arrayFilters: [
+                { 'activeConfig.state': storage.SyncRuleState.ACTIVE },
+                { 'processingConfig._id': { $in: processingStates.map((state) => state._id) } }
+              ]
+            }
+          );
+          activated = true;
+        } else if (doc.state != storage.SyncRuleState.PROCESSING && doc.state != storage.SyncRuleState.ACTIVE) {
+          needsFutureActivationCheck = false;
+        } else if (doc.state == storage.SyncRuleState.ACTIVE && processingStates.length == 0) {
+          needsFutureActivationCheck = false;
+        }
+      })
+    );
     if (activated) {
       this.logger.info(`Activated new replication stream at ${lsn}`);
       await this.db.notifyCheckpoint();

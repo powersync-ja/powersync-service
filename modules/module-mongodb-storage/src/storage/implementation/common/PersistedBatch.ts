@@ -74,10 +74,10 @@ export interface PersistedBatchOptions {
 }
 
 /**
- * Keeps track of bulkwrite operations within a transaction.
+ * Collects the bulk writes for one publication.
  *
- * There may be multiple of these batches per transaction, but it may not span
- * multiple transactions.
+ * Legacy transactions may use multiple batches. V3/v4 can prepare a batch outside
+ * the transaction and retain it across retries, but publish it in a single commit.
  */
 export abstract class PersistedBatch {
   logger: Logger;
@@ -154,7 +154,7 @@ export abstract class PersistedBatch {
       }
 
       remaining_buckets.delete(key);
-      const byteEstimate = recordData.length + 200;
+      const byteEstimate = Buffer.byteLength(recordData) + 200;
       this.currentSize += byteEstimate;
 
       const op_id = options.op_seq.next();
@@ -346,7 +346,15 @@ export abstract class PersistedBatch {
     );
   }
 
-  async flush(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
+  /** Publication groups may span multiple input preparation blocks. */
+  shouldPublish() {
+    return this.shouldFlushTransaction();
+  }
+
+  /** Prepare external payloads once, before opening a publication transaction. */
+  async prepare(): Promise<void> {}
+
+  async flush(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions, reset = true) {
     const startAt = performance.now();
     let flushedSomething = false;
     const writes = this.db.createWriteBatch(session, { ordered: false });
@@ -415,12 +423,15 @@ export abstract class PersistedBatch {
       flushedAny: flushedSomething
     };
 
-    this.bucketData = [];
-    this.bucketParameters = [];
-    this.resetCurrentData();
-    this.bucketStates.clear();
-    this.currentSize = 0;
-    this.debugLastOpId = null;
+    // Retain the immutable plan until publication commits; transaction retries reuse it.
+    if (reset) {
+      this.bucketData = [];
+      this.bucketParameters = [];
+      this.resetCurrentData();
+      this.bucketStates.clear();
+      this.currentSize = 0;
+      this.debugLastOpId = null;
+    }
 
     return stats;
   }

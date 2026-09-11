@@ -8,6 +8,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { PersistedBatch } from '../../src/storage/implementation/common/PersistedBatch.js';
 import { MongoOpIdAllocator } from '../../src/storage/implementation/MongoOpIdAllocator.js';
 import { MongoPersistedReplicationStream } from '../../src/storage/implementation/MongoPersistedReplicationStream.js';
+import { PersistedBatchV3 } from '../../src/storage/implementation/v3/PersistedBatchV3.js';
 import { mongoTestStorageFactoryGenerator } from '../../src/utils/test-utils.js';
 import { env } from './env.js';
 
@@ -98,7 +99,10 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     await insert(writer, a.table, 'warmup');
     await writer.commit('1/2');
     // Force a split after each row without needing a transaction-sized fixture.
-    const split = vi.spyOn(PersistedBatch.prototype, 'shouldFlushTransaction').mockReturnValue(true);
+    const split =
+      version < 3
+        ? vi.spyOn(PersistedBatch.prototype, 'shouldFlushTransaction').mockReturnValue(true)
+        : vi.spyOn(PersistedBatchV3.prototype, 'shouldPublish').mockReturnValue(true);
     const flush = PersistedBatch.prototype.flush;
     const observed: bigint[] = [];
     const inspect = vi.spyOn(PersistedBatch.prototype, 'flush').mockImplementation(async function (
@@ -447,7 +451,7 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
       bucketStorage.replicationStream.current_lock!
     );
     await allocator.reserve();
-    allocator.committed(65_535n);
+    allocator.consume(65_535n);
     // Simulate capacity becoming insufficient after the pre-transaction check.
     // The fallback must still abort and retry safely in that case.
     const capacity = vi.spyOn(allocator, 'ensureCapacity');
@@ -461,7 +465,8 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
       await writer.commit('1/2');
       expect(writer.last_flushed_op).toBe(65_537n);
       expect((await bucketStorage.getCheckpoint()).checkpoint).toBe(65_537n);
-      expect(sequences).toHaveBeenCalledTimes(fallback ? 2 : 1);
+      // The pipeline allocates per row; legacy writers retry the whole transaction.
+      expect(sequences).toHaveBeenCalledTimes(version >= 3 ? 2 : fallback ? 2 : 1);
     } finally {
       capacity.mockRestore();
       sequences.mockRestore();
@@ -500,13 +505,13 @@ describe('operation ID reservations', () => {
       a.bucketStorage.replicationStream.current_lock!
     );
     await allocator.ensureCapacity();
-    allocator.committed(49_152n);
+    allocator.consume(49_152n);
     await allocator.ensureCapacity();
     expect((await db.op_id_sequence.findOne({ _id: 'main' }))!.op_id).toBe(65_536n);
 
     // Another stream's reservation creates a gap that must not count as capacity.
     await new MongoOpIdAllocator(db).reserve();
-    allocator.committed(49_153n);
+    allocator.consume(49_153n);
     await Promise.all([allocator.ensureCapacity(), allocator.ensureCapacity()]);
     expect((await db.op_id_sequence.findOne({ _id: 'main' }))!.op_id).toBe(196_608n);
     expect(allocator.sequence(49_153n).next()).toBe(49_154n);

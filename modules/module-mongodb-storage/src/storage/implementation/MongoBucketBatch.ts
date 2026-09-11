@@ -39,11 +39,13 @@ import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 import { MongoIdSequence, OpIdRangeExhausted } from './MongoIdSequence.js';
 import { MongoOpIdAllocator } from './MongoOpIdAllocator.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
+import { MongoReplicationPipeline, PipelineContext } from './MongoReplicationPipeline.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { MongoWriteBatch } from './MongoWriteBatch.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 import { createObjectStorageUsageWriterId } from './v3/object-storage/ObjectStorageUsage.js';
+import { PersistedBatchV3 } from './v3/PersistedBatchV3.js';
 
 export interface MongoBucketBatchOptions {
   replicationLock: MongoSyncRulesLock;
@@ -117,6 +119,16 @@ export abstract class MongoBucketBatch
   protected readonly objectStorageUsageWriterId = createObjectStorageUsageWriterId();
 
   private batch: OperationBatch | null = null;
+  private pipeline?: MongoReplicationPipeline;
+
+  protected get usePipeline(): boolean {
+    return false;
+  }
+
+  protected get uploadSignal(): AbortSignal | undefined {
+    return this.pipeline?.uploadSignal ?? this.options.signal;
+  }
+
   protected write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private hooks: storage.StorageHooks | undefined;
@@ -208,6 +220,14 @@ export abstract class MongoBucketBatch
   protected async prepareCustomWriteCheckpoints(): Promise<void> {}
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
+    if (this.usePipeline) {
+      await this.enqueuePipelineBatch();
+      await this.pipeline!.seal({ flushOptions: options });
+      await this.pipeline!.drain();
+      if (this.write_checkpoint_batch.length === 0) {
+        return this.last_flushed_op == null ? null : { flushed_op: this.last_flushed_op };
+      }
+    }
     let result: storage.FlushedResult | null = null;
     // One flush may be split over multiple transactions.
     // Each flushInner() is one transaction.
@@ -227,6 +247,26 @@ export abstract class MongoBucketBatch
     options?: storage.BatchBucketFlushOptions,
     projection?: mongo.Document
   ): Promise<T> {
+    if (this.usePipeline) {
+      await this.enqueuePipelineBatch();
+      let result!: T;
+      // Custom checkpoints retain their existing transactional path after draining
+      // preceding publications. Normal commits attach to the final prepared group.
+      const receipt = await this.pipeline!.seal({
+        flushOptions: options,
+        checkpoint:
+          this.write_checkpoint_batch.length === 0
+            ? async (stream, lastOp) => {
+                // The publication transaction has already acquired the stream fence.
+                result = await checkpoint(stream, lastOp);
+              }
+            : undefined
+      });
+      await this.pipeline!.drain();
+      if (this.write_checkpoint_batch.length === 0) {
+        return receipt == null ? commitWithoutFlush() : result;
+      }
+    }
     if (this.batch == null && this.write_checkpoint_batch.length === 0) {
       return commitWithoutFlush();
     }
@@ -241,6 +281,189 @@ export abstract class MongoBucketBatch
       );
     }
     return result;
+  }
+
+  async queueResumeLsn(lsn: string, options?: storage.BatchBucketFlushOptions): Promise<storage.BatchProgressReceipt> {
+    if (!this.usePipeline || this.write_checkpoint_batch.length > 0) {
+      await this.flush(options);
+      await this.setResumeLsn(lsn);
+      return { persisted: Promise.resolve() };
+    }
+    await this.enqueuePipelineBatch();
+    return (await this.pipeline!.seal({ resumeLsn: lsn, flushOptions: options }, true))!;
+  }
+
+  private async enqueuePipelineBatch(): Promise<void> {
+    if (this.pipeline == null) {
+      const readSession = this.client.startSession();
+      this.pipeline = new MongoReplicationPipeline(
+        readSession,
+        this.options.opIdAllocator.coordinator,
+        this.options.replicationLock.signal,
+        this.options.signal,
+        async () => {
+          const stream = await this.db.sync_rules.findOne(
+            MongoSyncRulesLock.ownerFilter(this.replicationStreamId, this.options.replicationLock),
+            { session: readSession, readConcern: { level: 'majority' } }
+          );
+          if (stream == null) {
+            throw new ReplicationAbortedError('Replication writer no longer owns the stream');
+          }
+          return this.persistedOpHead(stream);
+        },
+        () => this.createPersistedBatch(0) as PersistedBatchV3,
+        async (batch, expectedHead, lastOp, options) => {
+          await this.withFencedTransaction(
+            () => this.fence(this.session, { sync_configs: 1, last_persisted_op: 1 }),
+            async (stream) => {
+              this.pipeline!.check();
+              if (this.persistedOpHead(stream) !== expectedHead) {
+                // Prepared membership is based on this exact prefix. Even another
+                // writer using the same lease must not publish past that prefix.
+                throw new ReplicationAbortedError('Replication stream advanced during publication preparation');
+              }
+              const stats = await batch.flush(this.session, options?.flushOptions, false);
+              if (stats.flushedAny && !this.clearedError) {
+                await this.clearError(this.session);
+              }
+              if (options?.checkpoint != null) {
+                await options.checkpoint(stream, lastOp);
+              } else {
+                const writes = this.db.createWriteBatch(this.session, { ordered: false });
+                this.onReplicationTransactionFlush(writes, lastOp);
+                if (options?.resumeLsn != null) {
+                  writes.updateOne(
+                    this.db.sync_rules,
+                    { _id: this.replicationStreamId },
+                    {
+                      $max: { resume_lsn: options.resumeLsn }
+                    }
+                  );
+                }
+                await writes.execute();
+              }
+              this.pipeline!.check();
+            },
+            false
+          );
+          // Future majority reads must include this publication before its overlay
+          // entries can be reclaimed. Preparation has its own session.
+          if (this.session.operationTime != null) {
+            readSession.advanceOperationTime(this.session.operationTime);
+          }
+          if (batch.currentSize > 0) {
+            this.clearedError = true;
+          }
+          this.recordPersistedOp(lastOp);
+          this.last_flushed_op = lastOp;
+          await this.hooks?.afterBatchFlush?.(this);
+        }
+      );
+    }
+    this.pipeline.check();
+    const input = this.batch;
+    this.batch = null;
+    if (input == null || !input.hasData()) {
+      return;
+    }
+    await this.pipeline.prepare(
+      async (context) => {
+        const { session, state } = context;
+        let sizes: Map<string, number> | undefined;
+        if (this.storeCurrentData && !this.skipExistingRows) {
+          const lookups = input.batch
+            .filter((op) => op.record.sourceTable.storeCurrentData)
+            .map((op) => ({ sourceTableId: mongoTableId(op.record.sourceTable.id), replicaId: op.beforeId }));
+          if (lookups.length > 0) {
+            sizes = await this.sourceRecordStore.loadSizes(session, lookups);
+            for (const [key, value] of state) {
+              sizes.set(key, value.data?.length() ?? 0);
+            }
+          }
+        }
+        for (const records of input.batched(sizes)) {
+          const loaded = await this.sourceRecordStore.loadDocuments(
+            session,
+            records.map((op) => ({
+              sourceTableId: mongoTableId(op.record.sourceTable.id),
+              replicaId: op.beforeId
+            })),
+            this.skipExistingRows
+          );
+          for (const op of records) {
+            this.pipeline!.check();
+            const before = state.get(op.internalBeforeKey) ?? loaded.get(op.internalBeforeKey) ?? null;
+            const after = await this.applyPipelineRow(context, (row, sequence) =>
+              this.saveOperation(row, op, before, sequence)
+            );
+            const group = context.group!;
+            if (after != null) {
+              state.set(op.internalAfterKey!, after);
+              group.changes.set(op.internalAfterKey!, after);
+              loaded.set(op.internalAfterKey!, after);
+              sizes?.set(op.internalAfterKey!, after.data?.length() ?? 0);
+            }
+            if (op.afterId == null || !storage.replicaIdEquals(op.beforeId, op.afterId)) {
+              // A tombstone still counts as existing during a resumed snapshot.
+              const deleted: LoadedSourceRecord = {
+                sourceTableId: mongoTableId(op.record.sourceTable.id),
+                replicaId: op.beforeId,
+                cacheKey: op.internalBeforeKey,
+                data: null,
+                buckets: [],
+                lookups: []
+              };
+              state.set(op.internalBeforeKey, deleted);
+              group.changes.set(op.internalBeforeKey, deleted);
+              loaded.set(op.internalBeforeKey, deleted);
+            }
+            if (group.batch.shouldPublish()) {
+              context.group = undefined;
+              await this.pipeline!.submit(group);
+            }
+          }
+        }
+      },
+      async () => {
+        await this.hooks?.beforeBatchFlush?.(this);
+      }
+    );
+  }
+
+  private async applyPipelineRow<T>(
+    context: PipelineContext,
+    apply: (row: PersistedBatchV3, sequence: MongoIdSequence) => T
+  ): Promise<T> {
+    const allocator = this.options.opIdAllocator;
+    await allocator.ensureCapacity();
+    for (;;) {
+      this.pipeline!.check();
+      const sequence = allocator.sequence(context.lastOp);
+      const row = this.createPersistedBatch(0) as PersistedBatchV3;
+      let result: T;
+      try {
+        result = apply(row, sequence);
+        if (row.currentSize > 0 && sequence.last() === context.lastOp) {
+          // Membership-only changes must also advance the prepared prefix.
+          sequence.next();
+        }
+      } catch (error) {
+        if (!(error instanceof OpIdRangeExhausted)) {
+          throw error;
+        }
+        // This row has not touched the group or overlay. Reuse its reserved IDs
+        // after extending the range; earlier rows and uploads remain immutable.
+        await allocator.reserve();
+        continue;
+      }
+      context.lastOp = sequence.last();
+      // Consume now, before yielding: other writers sharing this allocator must
+      // never use IDs assigned to unpublished operations.
+      allocator.consume(context.lastOp);
+      const group = (context.group ??= { batch: this.createPersistedBatch(0) as PersistedBatchV3, changes: new Map() });
+      group.batch.append(row);
+      return result;
+    }
   }
 
   private async flushInner(
@@ -701,14 +924,21 @@ export abstract class MongoBucketBatch
   }
 
   protected async withTransaction<T>(cb: (stream: SyncRuleDocumentBase) => Promise<T>): Promise<T> {
+    if (this.usePipeline) {
+      await this.flush();
+    }
     return this.withFencedTransaction(() => this.fence(), cb);
   }
 
   /** The first operation must modify the stream document conditional on lease ownership. */
   protected async withFencedTransaction<S, T>(
     acquireFence: () => Promise<S>,
-    cb: (stream: S) => Promise<T>
+    cb: (stream: S) => Promise<T>,
+    acquireAccess = true
   ): Promise<T> {
+    if (acquireAccess) {
+      return this.withWriterAccess(() => this.withFencedTransaction(acquireFence, cb, false));
+    }
     return this.session.withTransaction(
       async () => {
         const stream = await acquireFence();
@@ -735,12 +965,30 @@ export abstract class MongoBucketBatch
     );
   }
 
+  /** Serialize writers of this stream only; a pending pipeline yields its prefix. */
+  protected async withWriterAccess<T>(callback: () => Promise<T>): Promise<T> {
+    const release = await this.options.opIdAllocator.coordinator.acquire();
+    try {
+      this.options.replicationLock.throwIfAborted();
+      return await callback();
+    } finally {
+      release();
+    }
+  }
+
   /** Single-document updates enforce ownership atomically, without a separate transaction. */
   protected async updateStreamMetadata(
     set: mongo.Document,
     filter: mongo.Document = {},
-    writeConcern: mongo.WriteConcernSettings = { w: 'majority' }
+    writeConcern: mongo.WriteConcernSettings = { w: 'majority' },
+    acquireAccess = true
   ): Promise<void> {
+    if (acquireAccess && !this.session.inTransaction()) {
+      if (this.usePipeline) {
+        await this.flush();
+      }
+      return this.withWriterAccess(() => this.updateStreamMetadata(set, filter, writeConcern, false));
+    }
     const result = await this.db.sync_rules.updateOne(
       { ...filter, ...MongoSyncRulesLock.ownerFilter(this.replicationStreamId, this.options.replicationLock) },
       [{ $set: { ...set, ...MongoSyncRulesLock.heartbeatUpdate() } }],
@@ -795,7 +1043,7 @@ export abstract class MongoBucketBatch
             // Notifications and cleanup must wait until the transaction commits.
           }
         );
-        allocator.committed(lastOp);
+        allocator.consume(lastOp);
         return;
       } catch (error) {
         if (!(error instanceof OpIdRangeExhausted)) {
@@ -838,6 +1086,7 @@ export abstract class MongoBucketBatch
       // 2. SuppressedError is messy to deal with.
       this.logger.warn('Disposing writer with unflushed changes');
     }
+    await this.pipeline?.[Symbol.asyncDispose]();
     await this.session.endSession();
     super.clearListeners();
   }
@@ -847,6 +1096,8 @@ export abstract class MongoBucketBatch
   }
 
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
+    this.pipeline?.check();
+    this.options.replicationLock.throwIfAborted();
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
     // V3 source tables own disjoint event-definition ids for each physical table. Multiple
@@ -884,6 +1135,10 @@ export abstract class MongoBucketBatch
     this.batch.push(new RecordOperation(record));
 
     if (this.batch.shouldFlush()) {
+      if (this.usePipeline && this.write_checkpoint_batch.length === 0) {
+        await this.enqueuePipelineBatch();
+        return null;
+      }
       const r = await this.flush();
       // HACK: Give other streams a  chance to also flush
       await timers.setTimeout(5);
@@ -930,6 +1185,9 @@ export abstract class MongoBucketBatch
   }
 
   async truncateSingle(sourceTable: storage.SourceTable): Promise<InternalOpId> {
+    if (this.usePipeline) {
+      return this.truncatePipeline(sourceTable);
+    }
     let last_op: InternalOpId | null = null;
 
     // To avoid too large transactions, we limit the amount of data we delete per transaction.
@@ -974,6 +1232,53 @@ export abstract class MongoBucketBatch
     }
 
     return last_op!;
+  }
+
+  private async truncatePipeline(sourceTable: storage.SourceTable): Promise<InternalOpId> {
+    await this.flush();
+    const sourceTableId = mongoTableId(sourceTable.id);
+    const limit = 2000;
+    let lastOp = this.last_flushed_op ?? 0n;
+    for (;;) {
+      let count = 0;
+      await this.pipeline!.prepare(async (context) => {
+        const records = await this.sourceRecordStore.loadTruncateBatch(context.session, sourceTableId, limit);
+        count = records.length;
+        lastOp = context.lastOp;
+        for (const record of records) {
+          await this.applyPipelineRow(context, (row, sequence) => {
+            row.saveBucketData({
+              op_seq: sequence,
+              before_buckets: record.buckets,
+              evaluated: [],
+              table: sourceTable,
+              sourceKey: record.replicaId
+            });
+            row.saveParameterData({
+              op_seq: sequence,
+              existing_lookups: record.lookups,
+              evaluated: [],
+              sourceTable,
+              sourceKey: record.replicaId
+            });
+            // Truncation is outside streaming replication, so hard deletes are safe.
+            row.hardDeleteCurrentData(sourceTableId, record.replicaId);
+          });
+          lastOp = context.lastOp;
+          if (context.group!.batch.shouldPublish()) {
+            const group = context.group!;
+            context.group = undefined;
+            await this.pipeline!.submit(group);
+          }
+        }
+      });
+      await this.pipeline!.seal();
+      // The next page must observe the hard deletes from this page.
+      await this.pipeline!.drain();
+      if (count < limit) {
+        return lastOp;
+      }
+    }
   }
 
   async updateTableProgress(

@@ -78,7 +78,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
               }
             }
           ],
-          { session }
+          { session, ...(session.inTransaction() ? {} : { readConcern: { level: 'majority' as const } }) }
         );
       for await (const doc of sizeCursor.stream()) {
         sizes.set(cacheKey(sourceTableId, doc._id), doc.size);
@@ -98,9 +98,11 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
       const filter = {
         _id: { $in: replicaIds as any[] }
       } as unknown as mongo.Filter<CurrentDataDocumentV3>;
-      const cursor = this.db
-        .sourceRecords(this.replicationStreamId, sourceTableId)
-        .find(filter, { session, projection });
+      const cursor = this.db.sourceRecords(this.replicationStreamId, sourceTableId).find(filter, {
+        session,
+        projection,
+        ...(session.inTransaction() ? {} : { readConcern: { level: 'majority' as const } })
+      });
       for await (const doc of cursor.stream()) {
         const loaded = this.createLoadedDocument(
           sourceTableId,
@@ -131,6 +133,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
           lookups: 1
         },
         limit,
+        ...(session.inTransaction() ? {} : { readConcern: { level: 'majority' as const } }),
         session
       }
     );
