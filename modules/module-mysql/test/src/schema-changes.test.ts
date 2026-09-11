@@ -319,10 +319,11 @@ function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
 
     await context.replicateSnapshot();
-    await context.startStreaming();
 
     await connectionManager.query(`ALTER TABLE test_data ADD COLUMN new_column TEXT`);
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
+    // Replay the DDL after the insert commits so the replacement snapshot includes it.
+    await context.startStreaming();
 
     const data = await context.getBucketData('global[]');
 
@@ -349,43 +350,54 @@ function defineTests(config: storage.TestStorageConfig) {
     ]);
   });
 
-  test('Change Replication Identity from full to index by adding a unique constraint', async () => {
-    await using context = await BinlogStreamTestContext.open(factory);
-    // Change replica id full by adding a unique index that can serve as the replication id
+  test.each([true, false])(
+    'Change Replication Identity from full to index by adding a unique constraint (insert in snapshot: %s)',
+    async (insertInSnapshot) => {
+      await using context = await BinlogStreamTestContext.open(factory);
+      // Change replica id full by adding a unique index that can serve as the replication id
 
-    await context.updateSyncRules(BASIC_SYNC_RULES);
+      await context.updateSyncRules(BASIC_SYNC_RULES);
 
-    const { connectionManager } = context;
-    // No primary key, no unique column, so full replication identity will be used
-    await connectionManager.query(`CREATE TABLE test_data (id CHAR(36), description TEXT)`);
-    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
+      const { connectionManager } = context;
+      // No primary key, no unique column, so full replication identity will be used
+      await connectionManager.query(`CREATE TABLE test_data (id CHAR(36), description TEXT)`);
+      await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
 
-    await context.replicateSnapshot();
-    await context.startStreaming();
+      await context.replicateSnapshot();
 
-    await connectionManager.query(`ALTER TABLE test_data ADD UNIQUE (id)`);
-    await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
+      await connectionManager.query(`ALTER TABLE test_data ADD UNIQUE (id)`);
+      if (!insertInSnapshot) {
+        await context.startStreaming();
+        // Wait for the replacement snapshot before inserting the new row.
+        await context.getCheckpoint();
+      }
+      await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
+      if (insertInSnapshot) {
+        // Commit the insert before replaying the DDL so the snapshot must include it.
+        await context.startStreaming();
+      }
 
-    const data = await context.getBucketData('global[]');
-    const reduced = test_utils.reduceBucket(data).slice(1);
-    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
+      const data = await context.getBucketData('global[]');
+      const reduced = test_utils.reduceBucket(data).slice(1);
+      expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
-    expect(data.slice(0, 2)).toMatchObject([
-      // Initial inserts
-      PUT_T1,
-      // Truncate
-      REMOVE_T1
-    ]);
+      expect(data.slice(0, 2)).toMatchObject([
+        // Initial inserts
+        PUT_T1,
+        // Truncate
+        REMOVE_T1
+      ]);
 
-    // Snapshot - order doesn't matter
-    expect(data.slice(2)).toMatchObject([
-      // Snapshot inserts
-      PUT_T1,
-      PUT_T2,
-      // Replicated insert
-      PUT_T2
-    ]);
-  });
+      // Snapshot - order doesn't matter
+      expect(data.slice(2)).toMatchObject([
+        // Snapshot inserts
+        PUT_T1,
+        ...(insertInSnapshot ? [PUT_T2] : []),
+        // Replicated insert
+        PUT_T2
+      ]);
+    }
+  );
 
   test('Change Replication Identity from full to index by adding a unique index', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
@@ -398,10 +410,11 @@ function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
 
     await context.replicateSnapshot();
-    await context.startStreaming();
 
     await connectionManager.query(`CREATE UNIQUE INDEX id_idx ON test_data (id)`);
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
+    // Replay the DDL after the insert commits so the replacement snapshot includes it.
+    await context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     const reduced = test_utils.reduceBucket(data).slice(1);
@@ -436,10 +449,11 @@ function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
 
     await context.replicateSnapshot();
-    await context.startStreaming();
 
     await connectionManager.query(`ALTER TABLE test_data DROP INDEX id`);
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
+    // Replay the DDL after the insert commits so the replacement snapshot includes it.
+    await context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     const reduced = test_utils.reduceBucket(data).slice(1);
@@ -471,10 +485,11 @@ function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
 
     await context.replicateSnapshot();
-    await context.startStreaming();
 
     await connectionManager.query(`ALTER TABLE test_data MODIFY COLUMN id VARCHAR(36)`);
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
+    // Replay the DDL after the insert commits so the replacement snapshot includes it.
+    await context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     const reduced = test_utils.reduceBucket(data).slice(1);
@@ -513,8 +528,11 @@ function defineTests(config: storage.TestStorageConfig) {
     await context.startStreaming();
 
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
+    await context.getCheckpoint();
 
     await connectionManager.query(`ALTER TABLE test_data MODIFY COLUMN id VARCHAR(36)`);
+    // Finish the replacement snapshot before inserting t3, which is streamed once.
+    await context.getCheckpoint();
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t3','test3')`);
 
     const data = await context.getBucketData('global[]');
@@ -535,9 +553,9 @@ function defineTests(config: storage.TestStorageConfig) {
     ]);
 
     // Snapshot - order doesn't matter
-    expect(data.slice(4, 7).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
+    expect(data.slice(4, 6).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
-    expect(data.slice(7).sort(compareIds)).toMatchObject([
+    expect(data.slice(6).sort(compareIds)).toMatchObject([
       // Replicated insert
       PUT_T3
     ]);
