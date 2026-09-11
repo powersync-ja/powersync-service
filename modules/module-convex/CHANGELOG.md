@@ -1,5 +1,15 @@
 # @powersync/service-module-convex
 
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [f842b4e]
+- Updated dependencies [5ae6f75]
+  - @powersync/service-core@1.26.1
+  - @powersync/service-sync-rules@0.42.0
+  - @powersync/lib-services-framework@0.10.2
+
 ## 0.4.0
 
 ### Minor Changes
