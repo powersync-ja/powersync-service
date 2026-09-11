@@ -6,6 +6,7 @@ import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { calculateCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
+import { MongoSyncRulesLock } from '../MongoSyncRulesLock.js';
 import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
@@ -247,23 +248,8 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
     using _ = this.tracer.span('storage', 'commit');
 
-    const { checkpointState, preUpdateDocument } = await this.withTransaction(async () => {
+    const updateCheckpoint = async () => {
       const now = new Date();
-
-      await this.db.write_checkpoints.updateMany(
-        {
-          processed_at_lsn: null,
-          'lsns.1': { $lte: lsn }
-        },
-        {
-          $set: {
-            processed_at_lsn: lsn
-          }
-        },
-        {
-          session: this.session
-        }
-      );
 
       const can_checkpoint = {
         $and: [
@@ -300,7 +286,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       };
 
       const preUpdateDocument = (await this.db.sync_rules.findOneAndUpdate(
-        { _id: this.replicationStreamId },
+        MongoSyncRulesLock.ownerFilter(this.replicationStreamId, this.options.replicationLock),
         [
           {
             $set: {
@@ -318,6 +304,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           },
           {
             $set: {
+              ...MongoSyncRulesLock.heartbeatUpdate(),
               last_checkpoint_lsn: {
                 $cond: [{ $and: ['$_can_checkpoint', '$_not_empty'] }, { $literal: lsn }, '$last_checkpoint_lsn']
               },
@@ -351,24 +338,41 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         }
       )) as SyncRuleDocumentV1;
 
-      if (preUpdateDocument == null) {
-        throw new ReplicationAssertionError(
-          'Failed to update checkpoint - no matching sync_rules document for _id: ' + this.replicationStreamId
-        );
-      }
+      return MongoSyncRulesLock.assertOwned(preUpdateDocument);
+    };
 
-      const checkpointState = calculateCheckpointState({
-        lsn,
-        snapshotDone: preUpdateDocument.snapshot_done === true,
-        lastCheckpointLsn: preUpdateDocument.last_checkpoint_lsn,
-        noCheckpointBefore: preUpdateDocument.no_checkpoint_before,
-        keepaliveOp: preUpdateDocument.keepalive_op == null ? null : BigInt(preUpdateDocument.keepalive_op),
-        lastCheckpoint: preUpdateDocument.last_checkpoint,
-        persistedOp: this.persistedOpHead(preUpdateDocument),
-        createEmptyCheckpoints
-      });
-      return { checkpointState, preUpdateDocument };
-    });
+    // The checkpoint update itself fences the transaction, including empty commits.
+    const { checkpointState, preUpdateDocument } = await this.withFencedTransaction(
+      updateCheckpoint,
+      async (preUpdateDocument) => {
+        await this.db.write_checkpoints.updateMany(
+          {
+            processed_at_lsn: null,
+            'lsns.1': { $lte: lsn }
+          },
+          {
+            $set: {
+              processed_at_lsn: lsn
+            }
+          },
+          {
+            session: this.session
+          }
+        );
+
+        const checkpointState = calculateCheckpointState({
+          lsn,
+          snapshotDone: preUpdateDocument.snapshot_done === true,
+          lastCheckpointLsn: preUpdateDocument.last_checkpoint_lsn,
+          noCheckpointBefore: preUpdateDocument.no_checkpoint_before,
+          keepaliveOp: preUpdateDocument.keepalive_op == null ? null : BigInt(preUpdateDocument.keepalive_op),
+          lastCheckpoint: preUpdateDocument.last_checkpoint,
+          persistedOp: this.persistedOpHead(preUpdateDocument),
+          createEmptyCheckpoints
+        });
+        return { checkpointState, preUpdateDocument };
+      }
+    );
     if (checkpointState.checkpointBlocked) {
       if (Date.now() - this.lastWaitingLogThrottled > 5_000) {
         this.logger.info(
@@ -405,45 +409,17 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   }
 
   async setResumeLsn(lsn: string): Promise<void> {
-    if (!this.session.inTransaction()) {
-      return this.withTransaction(() => this.setResumeLsn(lsn));
-    }
     using _ = this.tracer.span('storage', 'set_resume_lsn');
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.replicationStreamId
-      },
-      {
-        $set: {
-          snapshot_lsn: lsn
-        }
-      },
-      {
-        session: this.session
-        // Losing occasional resume LSN would only reprocess source changes.
-        // This update now participates in the fenced writer transaction.
-      }
-    );
+    // Losing occasional resume LSN would only reprocess source changes.
+    // The conditional update retains majority durability without a transaction.
+    await this.updateStreamMetadata({ snapshot_lsn: { $literal: lsn } });
   }
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
-    if (!this.session.inTransaction()) {
-      return this.withTransaction(() => this.markAllSnapshotDone(no_checkpoint_before_lsn));
-    }
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.replicationStreamId
-      },
-      {
-        $set: {
-          snapshot_done: true
-        },
-        $max: {
-          no_checkpoint_before: no_checkpoint_before_lsn
-        }
-      },
-      { session: this.session }
-    );
+    await this.updateStreamMetadata({
+      snapshot_done: true,
+      no_checkpoint_before: { $max: ['$no_checkpoint_before', { $literal: no_checkpoint_before_lsn }] }
+    });
   }
 
   async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
@@ -478,20 +454,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   }
 
   async markTableSnapshotRequired(_table: storage.SourceTable): Promise<void> {
-    if (!this.session.inTransaction()) {
-      return this.withTransaction(() => this.markTableSnapshotRequired(_table));
-    }
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.replicationStreamId
-      },
-      {
-        $set: {
-          snapshot_done: false
-        }
-      },
-      { session: this.session }
-    );
+    await this.updateStreamMetadata({ snapshot_done: false });
   }
 
   async markTableSnapshotDone(

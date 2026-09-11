@@ -102,6 +102,28 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
     }
   }
 
+  static ownerFilter(streamId: number, lock: MongoSyncRulesLock | null) {
+    lock?.signal.throwIfAborted();
+    return { _id: streamId, ...(lock == null ? { lock: null } : { 'lock.id': lock.lock_id }) };
+  }
+
+  static heartbeatUpdate() {
+    // Always change the existing heartbeat, even for writes in the same
+    // millisecond. A no-op update is not sufficient for a transactional fence.
+    return {
+      last_keepalive_ts: {
+        $max: ['$$NOW', { $add: [{ $ifNull: ['$last_keepalive_ts', new Date(0)] }, 1] }]
+      }
+    };
+  }
+
+  static assertOwned<T>(document: T | null): T {
+    if (document == null) {
+      throw new ReplicationAbortedError('Replication writer no longer owns the stream');
+    }
+    return document;
+  }
+
   /**
    * A write, not just an ownership read: takeover conflicts with every transaction
    * that publishes under this owner. Unleased utility writers may only run while
@@ -111,28 +133,15 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
     db: VersionedPowerSyncMongo,
     streamId: number,
     lock: MongoSyncRulesLock | null,
-    session: mongo.ClientSession
+    session: mongo.ClientSession,
+    projection: mongo.Document = { last_persisted_op: 1, last_checkpoint: 1, keepalive_op: 1 }
   ) {
-    lock?.signal.throwIfAborted();
     const doc = await db.sync_rules.findOneAndUpdate(
-      { _id: streamId, ...(lock == null ? { lock: null } : { 'lock.id': lock.lock_id }) },
-      [
-        {
-          $set: {
-            // Always change the existing heartbeat, even for writes in the same
-            // millisecond. A no-op update is not sufficient for the lease fence.
-            last_keepalive_ts: {
-              $max: ['$$NOW', { $add: [{ $ifNull: ['$last_keepalive_ts', new Date(0)] }, 1] }]
-            }
-          }
-        }
-      ],
-      { session, returnDocument: 'after', projection: { last_persisted_op: 1, last_checkpoint: 1, keepalive_op: 1 } }
+      this.ownerFilter(streamId, lock),
+      [{ $set: this.heartbeatUpdate() }],
+      { session, returnDocument: 'after', projection }
     );
-    if (doc == null) {
-      throw new ReplicationAbortedError('Replication writer no longer owns the stream');
-    }
-    return doc;
+    return this.assertOwned(doc);
   }
 
   private async refresh(): Promise<void> {

@@ -14,6 +14,7 @@ import {
   ErrorCode,
   errors,
   Logger,
+  ReplicationAbortedError,
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
@@ -650,17 +651,31 @@ export abstract class MongoBucketBatch
     return result;
   }
 
-  protected async fence(session = this.session) {
+  protected async fence(session = this.session, projection?: mongo.Document) {
     // Graceful cancellation belongs to the source connector's page/batch boundary.
     // It must still be able to persist progress for rows already flushed. Lease
     // loss is different: the fence rejects every subsequent writer transaction.
-    return MongoSyncRulesLock.fence(this.db, this.replicationStreamId, this.options.replicationLock, session);
+    return MongoSyncRulesLock.fence(
+      this.db,
+      this.replicationStreamId,
+      this.options.replicationLock,
+      session,
+      projection
+    );
   }
 
   protected async withTransaction<T>(cb: (stream: SyncRuleDocumentBase) => Promise<T>): Promise<T> {
+    return this.withFencedTransaction(() => this.fence(), cb);
+  }
+
+  /** The first operation must modify the stream document conditional on lease ownership. */
+  protected async withFencedTransaction<S, T>(
+    acquireFence: () => Promise<S>,
+    cb: (stream: S) => Promise<T>
+  ): Promise<T> {
     return this.session.withTransaction(
       async () => {
-        const stream = await this.fence();
+        const stream = await acquireFence();
         try {
           const result = await cb(stream);
           this.options.replicationLock?.signal.throwIfAborted();
@@ -682,6 +697,21 @@ export abstract class MongoBucketBatch
       },
       { maxCommitTimeMS: 10000, writeConcern: { w: 'majority' } }
     );
+  }
+
+  /** Single-document updates enforce ownership atomically, without a separate transaction. */
+  protected async updateStreamMetadata(set: mongo.Document, filter: mongo.Document = {}): Promise<void> {
+    const result = await this.db.sync_rules.updateOne(
+      { ...filter, ...MongoSyncRulesLock.ownerFilter(this.replicationStreamId, this.options.replicationLock) },
+      [{ $set: { ...set, ...MongoSyncRulesLock.heartbeatUpdate() } }],
+      {
+        session: this.session,
+        ...(this.session.inTransaction() ? {} : { writeConcern: { w: 'majority' as const } })
+      }
+    );
+    if (result.matchedCount === 0) {
+      throw new ReplicationAbortedError('Replication writer no longer owns the stream');
+    }
   }
 
   private async withReplicationTransaction(

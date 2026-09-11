@@ -260,6 +260,7 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     const first = await stream.lock();
     await using firstLifetime = { [Symbol.asyncDispose]: () => first.release() };
     await using oldWriter = await factory.getInstance(stream).createWriter(test_utils.BATCH_OPTIONS);
+    await using oldCheckpointWriter = await factory.getInstance(stream).createWriter(test_utils.BATCH_OPTIONS);
     const oldTable = await test_utils.resolveTestTable(oldWriter, 'items', ['id'], factoryGen, 1);
     await insert(oldWriter, oldTable, 'old');
     await oldWriter.flush();
@@ -283,6 +284,8 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     await expect(oldWriter.markAllSnapshotDone('9/9')).rejects.toThrow('no longer owns');
     await expect(oldWriter.markTableSnapshotRequired(oldTable)).rejects.toThrow('no longer owns');
     await expect(oldWriter.commit('9/9')).rejects.toThrow('no longer owns');
+    // No pending rows: this exercises the checkpoint fence, not the flush fence.
+    await expect(oldCheckpointWriter.commit('9/9')).rejects.toThrow('no longer owns');
     await first.release();
     expect((await factory.db.sync_rules.findOne({ _id: stream.replicationStreamId }))!.lock?.id).toBe(
       (next as typeof first).lock_id

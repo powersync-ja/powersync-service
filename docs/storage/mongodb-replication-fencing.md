@@ -11,7 +11,9 @@ Changing the stream document makes lease takeover conflict with the transaction.
 - Takeover happens first: the old writer's fence fails, so its transaction cannot publish.
 - The old writer fences first: takeover must wait for that transaction to commit or abort.
 
-The fence runs on **every flush**, not only on `writer.commit()`, which publishes a checkpoint. Checkpoint and writer metadata transactions also use it, including snapshot progress, resume positions, table resolution, and activation.
+The fence runs on **every flush**, not only on `writer.commit()`, which publishes a checkpoint. Checkpoint transactions also check ownership. Legacy storage combines the fence with its checkpoint update; v3/v4 reuse the state returned by the fence and batch the remaining writes on MongoDB 8.
+
+Snapshot progress, table resolution, and activation keep their fenced transactions. Updates confined to the stream document, such as resume positions and stream snapshot state, check the lease and update the heartbeat in the same atomic command. They need no separate fence or transaction.
 
 Different streams use different documents, so the fence does not introduce a global lock.
 
