@@ -2,6 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { VersionedPowerSyncMongo } from './db.js';
 import { MongoIdSequence, OpIdRange } from './MongoIdSequence.js';
+import { MongoReplicationPipeline } from './MongoReplicationPipeline.js';
 
 const RESERVATION_SIZE = 65_536n;
 const LOW_WATER_MARK = 16_384n;
@@ -13,6 +14,14 @@ const MAX_OP_ID = (1n << 63n) - 1n;
  * abandons its unused ranges; the global sequence is an allocation watermark.
  */
 export class MongoOpIdAllocator {
+  private pipeline?: MongoReplicationPipeline;
+
+  publicationPipeline(leaseSignal: AbortSignal): MongoReplicationPipeline {
+    if (this.pipeline == null || !this.pipeline.reusable) {
+      this.pipeline = new MongoReplicationPipeline(this.db.client, leaseSignal);
+    }
+    return this.pipeline;
+  }
   private ranges: OpIdRange[] = [];
   private reserving?: Promise<void>;
 
@@ -29,7 +38,11 @@ export class MongoOpIdAllocator {
     return new MongoIdSequence(persistedOp, this.ranges.slice());
   }
 
-  committed(lastOp: bigint) {
+  /**
+   * Remove IDs assigned to immutable prepared work, or committed by a transactional
+   * writer. Prepared IDs stay consumed even if their publication is abandoned.
+   */
+  consume(lastOp: bigint) {
     this.ranges = this.ranges
       .filter((range) => range.end > lastOp)
       .map((range) => ({ start: range.start > lastOp ? range.start : lastOp + 1n, end: range.end }));

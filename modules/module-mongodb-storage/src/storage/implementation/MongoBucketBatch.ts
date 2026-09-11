@@ -32,13 +32,16 @@ import {
 import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../utils/util.js';
 import { PersistedBatch } from './common/PersistedBatch.js';
+import { PreparedPublication } from './common/PreparedPublication.js';
 import { LoadedSourceRecord, SourceRecordStore } from './common/SourceRecordStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { SyncRuleDocumentBase } from './models.js';
 import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
-import { MongoIdSequence, OpIdRangeExhausted } from './MongoIdSequence.js';
+import { MongoIdSequence } from './MongoIdSequence.js';
 import { MongoOpIdAllocator } from './MongoOpIdAllocator.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
+import { MongoReplicationApplication } from './MongoReplicationApplication.js';
+import { MongoPublicationWriter, PublicationOptions } from './MongoReplicationPipeline.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { MongoWriteBatch } from './MongoWriteBatch.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
@@ -117,6 +120,17 @@ export abstract class MongoBucketBatch
   protected readonly objectStorageUsageWriterId = createObjectStorageUsageWriterId();
 
   private batch: OperationBatch | null = null;
+  private pipeline?: MongoPublicationWriter;
+  private application?: MongoReplicationApplication;
+
+  protected get eagerPublication(): boolean {
+    return true;
+  }
+
+  protected get uploadSignal(): AbortSignal | undefined {
+    return this.pipeline?.uploadSignal ?? this.options.signal;
+  }
+
   protected write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private hooks: storage.StorageHooks | undefined;
@@ -208,228 +222,145 @@ export abstract class MongoBucketBatch
   protected async prepareCustomWriteCheckpoints(): Promise<void> {}
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
-    let result: storage.FlushedResult | null = null;
-    // One flush may be split over multiple transactions.
-    // Each flushInner() is one transaction.
-    while (this.batch != null || this.write_checkpoint_batch.length > 0) {
-      let r = await this.flushInner(options);
-      if (r) {
-        result = r;
-      }
-    }
-    return result;
+    await this.publishBoundary({ flushOptions: options });
+    return this.last_flushed_op == null ? null : { flushed_op: this.last_flushed_op };
   }
 
-  /** Publish the checkpoint in the final flush transaction, or use the empty-commit path. */
+  /** Publish the checkpoint in the final group, or use the version-specific empty commit. */
   protected async flushAndCommit<T>(
     checkpoint: (stream: SyncRuleDocumentBase, lastOp: InternalOpId) => Promise<T>,
     commitWithoutFlush: () => Promise<T>,
-    options?: storage.BatchBucketFlushOptions,
-    projection?: mongo.Document
+    options?: storage.BatchBucketFlushOptions
   ): Promise<T> {
-    if (this.batch == null && this.write_checkpoint_batch.length === 0) {
-      return commitWithoutFlush();
-    }
-    let result!: T;
-    while (this.batch != null || this.write_checkpoint_batch.length > 0) {
-      await this.flushInner(
-        options,
-        async (stream, lastOp) => {
-          result = await checkpoint(stream, lastOp);
-        },
-        projection
-      );
-    }
+    const result = await this.publishBoundary({ checkpoint, flushOptions: options });
+    return result.published ? result.value : commitWithoutFlush();
+  }
+
+  /** Shared durable boundary for rows, custom checkpoints and a final client checkpoint. */
+  private async publishBoundary<T = void>(
+    options: PublicationOptions<T>
+  ): Promise<{ published: false } | { published: true; value: T }> {
+    await this.enqueuePipelineBatch();
+    const beforePublish = await this.prepareCheckpointPublication();
+    const receipt = await this.publicationWriter().seal({ ...options, beforePublish }, beforePublish != null);
+    const result = receipt.published
+      ? { published: true as const, value: await receipt.persisted }
+      : await receipt.persisted.then(() => ({ published: false as const }));
+    this.write_checkpoint_batch = [];
     return result;
   }
 
-  private async flushInner(
-    options?: storage.BatchBucketFlushOptions,
-    checkpoint?: (stream: SyncRuleDocumentBase, lastOp: InternalOpId) => Promise<void>,
-    projection?: mongo.Document
-  ): Promise<storage.FlushedResult | null> {
-    const batch = this.batch;
-    let last_op: InternalOpId | null = null;
-    let resumeBatch: OperationBatch | null = null;
-    let clearedError = false;
-
-    using _ = this.tracer.span('storage', 'flush');
-
-    await this.hooks?.beforeBatchFlush?.(this);
-    if (this.write_checkpoint_batch.length > 0) {
-      // Collection/index creation cannot run inside the replication transaction.
-      await this.prepareCustomWriteCheckpoints();
+  async queueResumeLsn(lsn: string, options?: storage.BatchBucketFlushOptions): Promise<storage.BatchProgressReceipt> {
+    if (this.eagerPublication || this.write_checkpoint_batch.length > 0) {
+      await this.flush(options);
+      await this.setResumeLsn(lsn);
+      return { persisted: Promise.resolve() };
     }
-
-    await this.withReplicationTransaction(
-      `Flushing ${batch?.length ?? 0} ops`,
-      async (session, opSeq) => {
-        clearedError = false;
-        if (batch != null) {
-          const result = await this.replicateBatch(session, batch, opSeq, options);
-          resumeBatch = result.resumeBatch;
-          clearedError ||= result.clearedError;
-        }
-
-        if (this.write_checkpoint_batch.length > 0) {
-          this.logger.info(`Writing ${this.write_checkpoint_batch.length} custom write checkpoints`);
-          await this.batchCreateCustomWriteCheckpoints(session, opSeq.next());
-        }
-
-        last_op = opSeq.last();
-      },
-      async (stream, lastOp) => {
-        if (checkpoint != null && resumeBatch == null) {
-          // The checkpoint must also persist the head, including when visibility is blocked.
-          await checkpoint(stream, lastOp);
-          return true;
-        }
-        return false;
-      },
-      projection
-    );
-
-    // Keep checkpoints available if the transaction retries after writing them.
-    this.write_checkpoint_batch = [];
-
-    if (clearedError) {
-      this.clearedError = true;
-    }
-
-    // null if done, set if we need another flush
-    this.batch = resumeBatch;
-
-    if (last_op == null) {
-      throw new ReplicationAssertionError('Unexpected last_op == null');
-    }
-
-    this.recordPersistedOp(last_op);
-    this.last_flushed_op = last_op;
-    await this.hooks?.afterBatchFlush?.(this);
-    return { flushed_op: last_op };
+    await this.enqueuePipelineBatch();
+    return this.publicationWriter().seal({ resumeLsn: lsn, flushOptions: options }, true);
   }
 
-  private async replicateBatch(
-    session: mongo.ClientSession,
-    batch: OperationBatch,
-    op_seq: MongoIdSequence,
-    options?: storage.BucketBatchCommitOptions
-  ): Promise<{ resumeBatch: OperationBatch | null; clearedError: boolean }> {
-    let sizes: Map<string, number> | undefined = undefined;
-    using _ = this.tracer.span('storage', 'replicate_batch');
-    // Only look up current_data sizes if the batch stores current_data and at least one
-    // table in it does too (per-table can disable it, e.g. Postgres REPLICA IDENTITY FULL).
-    const anyTableStoresCurrentData =
-      this.storeCurrentData && batch.batch.some((r) => r.record.sourceTable.storeCurrentData);
-    if (anyTableStoresCurrentData && !this.skipExistingRows) {
-      // We skip this step if no tables store current_data, since the sizes will
-      // always be small in that case.
-
-      // With skipExistingRows, we don't load the full documents into memory,
-      // so we can also skip the size lookup step.
-
-      // Find sizes of current_data documents, to assist in intelligent batching without
-      // exceeding memory limits.
-      //
-      // A previous attempt tried to do batching by the results of the current_data query
-      // (automatically limited to 48MB(?) per batch by MongoDB). The issue is that it changes
-      // the order of processing, which then becomes really tricky to manage.
-      // This now takes 2+ queries, but doesn't have any issues with order of operations.
-      // Within this branch this.storeCurrentData is true, so the per-table flag is the
-      // effective value - only look up sizes for tables that actually store current_data.
-      const sizeLookups = batch.batch
-        .filter((r) => r.record.sourceTable.storeCurrentData)
-        .map((r) => ({
-          sourceTableId: mongoTableId(r.record.sourceTable.id),
-          replicaId: r.beforeId
-        }));
-
-      sizes = await this.sourceRecordStore.loadSizes(session, sizeLookups);
+  /** Custom checkpoint writes use the same immutable publication boundary as rows. */
+  private async prepareCheckpointPublication(): Promise<PublicationOptions['beforePublish']> {
+    if (this.write_checkpoint_batch.length === 0) {
+      return undefined;
     }
+    // Collection/index creation must happen outside publication transactions.
+    await this.prepareCustomWriteCheckpoints();
+    let opId = 0n;
+    await this.publicationWriter().prepare(async (application) => {
+      opId = await application.applyRow((_row, sequence) => sequence.next());
+    });
+    return (session) => this.batchCreateCustomWriteCheckpoints(session, opId);
+  }
 
-    // If set, we need to start a new transaction with this batch.
-    let resumeBatch: OperationBatch | null = null;
-    let transactionSize = 0;
-
-    let didFlush = false;
-
-    // Now batch according to the sizes
-    // This is a single batch if storeCurrentData == false
-    for await (let b of batch.batched(sizes)) {
-      if (resumeBatch) {
-        for (let op of b) {
-          resumeBatch.push(op);
+  private async publish<T>(
+    publication: PreparedPublication,
+    expectedHead: bigint,
+    lastOp: bigint,
+    options?: PublicationOptions<T>
+  ): Promise<T | undefined> {
+    let flushedAny = false;
+    const result = await this.runFencedTransaction(
+      () => this.fence(this.session, { sync_configs: 1, last_persisted_op: 1, last_checkpoint: 1, keepalive_op: 1 }),
+      async (stream) => {
+        this.pipeline!.check();
+        if (this.persistedOpHead(stream) !== expectedHead) {
+          // Another process using this lease must not invalidate prepared membership.
+          throw new ReplicationAbortedError('Replication stream advanced during publication preparation');
         }
-        continue;
+        const stats = await publication.publish(this.session, options?.flushOptions);
+        flushedAny = stats.flushedAny;
+        if (flushedAny && !this.clearedError) {
+          await this.clearError(this.session);
+        }
+        await options?.beforePublish?.(this.session);
+        let result: T | undefined;
+        if (options?.checkpoint != null) {
+          result = await options.checkpoint(stream, lastOp);
+        } else {
+          const writes = this.db.createWriteBatch(this.session, { ordered: false });
+          this.onReplicationTransactionFlush(writes, lastOp);
+          if (options?.resumeLsn != null) {
+            writes.updateOne(
+              this.db.sync_rules,
+              { _id: this.replicationStreamId },
+              { $max: { resume_lsn: options.resumeLsn } }
+            );
+          }
+          await writes.execute();
+        }
+        this.pipeline!.check();
+        return result;
       }
-      using lookupSpan = this.tracer.span('storage', 'lookup');
-      const lookups = b.map((r) => ({
-        sourceTableId: mongoTableId(r.record.sourceTable.id),
-        replicaId: r.beforeId
-      }));
-      let sourceRecordLookup = await this.sourceRecordStore.loadDocuments(session, lookups, this.skipExistingRows);
-      lookupSpan.end();
+    );
+    this.clearedError ||= flushedAny;
+    this.recordPersistedOp(lastOp);
+    this.last_flushed_op = lastOp;
+    await this.hooks?.afterBatchFlush?.(this);
+    return result;
+  }
 
-      let persistedBatch: PersistedBatch | null = this.createPersistedBatch(transactionSize);
-
-      // The current code structure makes it tricky to cleanly split this span from the one
-      // where fluhsing. So we manually end and re-create this span whenever we flush.
-      let evalSpan = this.tracer.span('evaluate');
-      for (let op of b) {
-        if (resumeBatch) {
-          resumeBatch.push(op);
-          continue;
-        }
-        const sourceRecord = sourceRecordLookup.get(op.internalBeforeKey) ?? null;
-        if (sourceRecord != null) {
-          // If it will be used again later, it will be set again using nextData below
-          sourceRecordLookup.delete(op.internalBeforeKey);
-        }
-        const nextData = this.saveOperation(persistedBatch!, op, sourceRecord, op_seq);
-        if (nextData != null) {
-          // Update our current_data and size cache
-          sourceRecordLookup.set(op.internalAfterKey!, nextData);
-          sizes?.set(op.internalAfterKey!, nextData.data?.length() ?? 0);
-        }
-
-        if (persistedBatch!.shouldFlushTransaction()) {
-          evalSpan.end();
-          // Transaction is getting big.
-          // Flush, and resume in a new transaction.
-          using persistSpan = this.tracer.span('storage', 'persist_flush');
-          const { flushedAny } = await persistedBatch!.flush(this.session, options);
-
-          didFlush ||= flushedAny;
-          persistedBatch = null;
-          // Computing our current progress is a little tricky here, since
-          // we're stopping in the middle of a batch.
-          // We create a new batch, and push any remaining operations to it.
-          resumeBatch = new OperationBatch();
-          persistSpan.end();
-          evalSpan = this.tracer.span('evaluate');
-        }
-      }
-      evalSpan.end();
-
-      if (persistedBatch) {
-        transactionSize = persistedBatch.currentSize;
-        using _ = this.tracer.span('storage', 'persist_flush');
-        const { flushedAny } = await persistedBatch.flush(this.session, options);
-        didFlush ||= flushedAny;
-      }
+  /** Registration does not read or apply source input. */
+  private publicationWriter(): MongoPublicationWriter {
+    if (this.pipeline == null) {
+      this.pipeline = this.options.opIdAllocator.publicationPipeline(this.options.replicationLock.signal).register({
+        sourceSignal: this.options.signal,
+        allocator: this.options.opIdAllocator,
+        session: this.session,
+        readHead: async (session) => {
+          const stream = await this.db.sync_rules.findOne(
+            MongoSyncRulesLock.ownerFilter(this.replicationStreamId, this.options.replicationLock),
+            { session, readConcern: { level: 'majority' } }
+          );
+          return this.persistedOpHead(MongoSyncRulesLock.assertOwned(stream));
+        },
+        createBatch: () => this.createPersistedBatch(0),
+        publish: (publication, expectedHead, lastOp, options) =>
+          this.publish(publication, expectedHead, lastOp, options)
+      });
+      this.application = new MongoReplicationApplication(
+        this.pipeline,
+        this.sourceRecordStore,
+        (batch, operation, before, sequence) => this.saveOperation(batch, operation, before, sequence),
+        this.storeCurrentData,
+        this.skipExistingRows,
+        this.eagerPublication
+      );
     }
+    return this.pipeline;
+  }
 
-    const clearedError = didFlush && !this.clearedError;
-    if (clearedError) {
-      // No need to clear an error more than once per batch, since an error would always result in restarting the batch.
-      using _ = this.tracer.span('storage', 'clear_error');
-      await this.clearError(this.session);
+  private async enqueuePipelineBatch(): Promise<void> {
+    this.publicationWriter().check();
+    const input = this.batch;
+    this.batch = null;
+    if (input == null || !input.hasData()) {
+      return;
     }
-
-    return {
-      resumeBatch: resumeBatch?.hasData() ? resumeBatch : null,
-      clearedError
-    };
+    await this.application!.apply(input, async () => {
+      await this.hooks?.beforeBatchFlush?.(this);
+    });
   }
 
   private saveOperation(
@@ -701,6 +632,7 @@ export abstract class MongoBucketBatch
   }
 
   protected async withTransaction<T>(cb: (stream: SyncRuleDocumentBase) => Promise<T>): Promise<T> {
+    await this.flush();
     return this.withFencedTransaction(() => this.fence(), cb);
   }
 
@@ -709,6 +641,11 @@ export abstract class MongoBucketBatch
     acquireFence: () => Promise<S>,
     cb: (stream: S) => Promise<T>
   ): Promise<T> {
+    return this.withWriterAccess(() => this.runFencedTransaction(acquireFence, cb));
+  }
+
+  /** Publications already occupy their place in the FIFO and need no metadata barrier. */
+  private async runFencedTransaction<S, T>(acquireFence: () => Promise<S>, cb: (stream: S) => Promise<T>): Promise<T> {
     return this.session.withTransaction(
       async () => {
         const stream = await acquireFence();
@@ -717,9 +654,6 @@ export abstract class MongoBucketBatch
           this.options.replicationLock.throwIfAborted();
           return result;
         } catch (e: unknown) {
-          if (e instanceof OpIdRangeExhausted) {
-            throw e;
-          }
           if (e instanceof mongo.MongoError && e.hasErrorLabel('TransientTransactionError')) {
             // Likely write conflict caused by concurrent writes to this replication stream.
           } else {
@@ -735,11 +669,31 @@ export abstract class MongoBucketBatch
     );
   }
 
+  /** Seal and publish the shared prefix before changing stream metadata. */
+  protected async withWriterAccess<T>(callback: () => Promise<T>): Promise<T> {
+    // Register lazily, including metadata-only writers. Their barriers share the
+    // same ordered prefix as snapshot and streaming publications.
+    await this.enqueuePipelineBatch();
+    return this.pipeline!.exclusive(callback);
+  }
+
   /** Single-document updates enforce ownership atomically, without a separate transaction. */
   protected async updateStreamMetadata(
     set: mongo.Document,
     filter: mongo.Document = {},
     writeConcern: mongo.WriteConcernSettings = { w: 'majority' }
+  ): Promise<void> {
+    if (this.session.inTransaction()) {
+      return this.writeStreamMetadata(set, filter, writeConcern);
+    }
+    await this.flush();
+    return this.withWriterAccess(() => this.writeStreamMetadata(set, filter, writeConcern));
+  }
+
+  private async writeStreamMetadata(
+    set: mongo.Document,
+    filter: mongo.Document,
+    writeConcern: mongo.WriteConcernSettings
   ): Promise<void> {
     const result = await this.db.sync_rules.updateOne(
       { ...filter, ...MongoSyncRulesLock.ownerFilter(this.replicationStreamId, this.options.replicationLock) },
@@ -751,62 +705,6 @@ export abstract class MongoBucketBatch
     );
     if (result.matchedCount === 0) {
       throw new ReplicationAbortedError('Replication writer no longer owns the stream');
-    }
-  }
-
-  private async withReplicationTransaction(
-    description: string,
-    callback: (session: mongo.ClientSession, opSeq: MongoIdSequence) => Promise<void>,
-    finish?: (stream: SyncRuleDocumentBase, lastOp: InternalOpId) => Promise<boolean>,
-    projection?: mongo.Document
-  ): Promise<void> {
-    let flushTry = 0;
-    const lastTry = Date.now() + 90000;
-    const allocator = this.options.opIdAllocator;
-    let lastOp = 0n;
-    // Refill outside the publication transaction, before evaluating any rows.
-    // Exhaustion remains a fallback for large batches or a newer stream head.
-    this.options.replicationLock.throwIfAborted();
-    await allocator.ensureCapacity();
-    for (;;) {
-      try {
-        await this.withFencedTransaction(
-          () => this.fence(this.session, projection),
-          async (stream) => {
-            flushTry += 1;
-            if (flushTry % 10 == 0) {
-              this.logger.info(`${description} - try ${flushTry}`);
-            }
-            if (flushTry > 20 && Date.now() > lastTry) {
-              throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
-            }
-            // The fence already holds this stream document for the transaction.
-            // A different writer may have used higher IDs since our last flush.
-            const opSeq = allocator.sequence(this.persistedOpHead(stream));
-            await callback(this.session, opSeq);
-            lastOp = opSeq.last();
-
-            if (!(await finish?.(stream, lastOp))) {
-              const writes = this.db.createWriteBatch(this.session, { ordered: false });
-              // Allow subclasses to persist additional flush-time state in the same transaction.
-              this.onReplicationTransactionFlush(writes, lastOp);
-              await writes.execute();
-            }
-            // Notifications and cleanup must wait until the transaction commits.
-          }
-        );
-        allocator.committed(lastOp);
-        return;
-      } catch (error) {
-        if (!(error instanceof OpIdRangeExhausted)) {
-          throw error;
-        }
-        // withTransaction has aborted every write. Reserve outside that transaction,
-        // then replay evaluation from the same committed stream head. Existing
-        // ranges can be reused on retry because no operation from this attempt committed.
-        this.options.replicationLock.throwIfAborted();
-        await allocator.reserve();
-      }
     }
   }
 
@@ -824,8 +722,7 @@ export abstract class MongoBucketBatch
    * {@link onReplicationTransactionFlush} or the combined checkpoint update within the same
    * transaction, and empty commits read it from the document.
    *
-   * Keep calls to this adjacent to {@link withReplicationTransaction} usage - both must observe
-   * every path that persists ops.
+   * Called by the shared publisher after commit, including truncation and custom checkpoints.
    */
   protected recordPersistedOp(_lastOp: InternalOpId): void {
     // No-op by default.
@@ -838,6 +735,7 @@ export abstract class MongoBucketBatch
       // 2. SuppressedError is messy to deal with.
       this.logger.warn('Disposing writer with unflushed changes');
     }
+    await this.pipeline?.[Symbol.asyncDispose]();
     await this.session.endSession();
     super.clearListeners();
   }
@@ -847,6 +745,8 @@ export abstract class MongoBucketBatch
   }
 
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
+    this.pipeline?.check();
+    this.options.replicationLock.throwIfAborted();
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
     // V3 source tables own disjoint event-definition ids for each physical table. Multiple
@@ -884,6 +784,10 @@ export abstract class MongoBucketBatch
     this.batch.push(new RecordOperation(record));
 
     if (this.batch.shouldFlush()) {
+      if (!this.eagerPublication && this.write_checkpoint_batch.length === 0) {
+        await this.enqueuePipelineBatch();
+        return null;
+      }
       const r = await this.flush();
       // HACK: Give other streams a  chance to also flush
       await timers.setTimeout(5);
@@ -930,50 +834,49 @@ export abstract class MongoBucketBatch
   }
 
   async truncateSingle(sourceTable: storage.SourceTable): Promise<InternalOpId> {
-    let last_op: InternalOpId | null = null;
-
-    // To avoid too large transactions, we limit the amount of data we delete per transaction.
-    // Since we don't use the record data here, we don't have explicit size limits per batch.
-    const BATCH_LIMIT = 2000;
-
-    let lastBatchCount = BATCH_LIMIT;
-    while (lastBatchCount == BATCH_LIMIT) {
-      await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
-        using evalSpan = this.tracer.span('evaluate');
-        const sourceTableId = mongoTableId(sourceTable.id);
-        const batch = await this.sourceRecordStore.loadTruncateBatch(session, sourceTableId, BATCH_LIMIT);
-        const persistedBatch = this.createPersistedBatch(0);
-
-        for (let value of batch) {
-          persistedBatch.saveBucketData({
-            op_seq: opSeq,
-            before_buckets: value.buckets,
-            evaluated: [],
-            table: sourceTable,
-            sourceKey: value.replicaId
+    await this.flush();
+    const sourceTableId = mongoTableId(sourceTable.id);
+    const limit = 2000;
+    let lastOp = this.last_flushed_op ?? 0n;
+    for (;;) {
+      let count = 0;
+      await this.publicationWriter().scan(async (application) => {
+        // A table scan cannot discover rows that exist only in another writer's
+        // pending group. The scan scope publishes that prefix before reading.
+        const records = await this.sourceRecordStore.loadTruncateBatch(application.session, sourceTableId, limit);
+        count = records.length;
+        lastOp = application.lastOp;
+        for (const record of records) {
+          await application.applyRow((row, sequence) => {
+            row.saveBucketData({
+              op_seq: sequence,
+              before_buckets: record.buckets,
+              evaluated: [],
+              table: sourceTable,
+              sourceKey: record.replicaId
+            });
+            row.saveParameterData({
+              op_seq: sequence,
+              existing_lookups: record.lookups,
+              evaluated: [],
+              sourceTable,
+              sourceKey: record.replicaId
+            });
+            // Truncation is outside streaming replication, so hard deletes are safe.
+            row.hardDeleteCurrentData(sourceTableId, record.replicaId);
           });
-          persistedBatch.saveParameterData({
-            op_seq: opSeq,
-            existing_lookups: value.lookups,
-            evaluated: [],
-            sourceTable: sourceTable,
-            sourceKey: value.replicaId
-          });
-
-          // Since this is not from streaming replication, we can do a hard delete
-          persistedBatch.hardDeleteCurrentData(sourceTableId, value.replicaId);
+          lastOp = application.lastOp;
+          application.recordMembership(record.cacheKey, null);
+          await application.publishIfFull();
         }
-        evalSpan.end();
-
-        using _ = this.tracer.span('storage', 'persist_flush');
-        await persistedBatch.flush(session);
-        lastBatchCount = batch.length;
-
-        last_op = opSeq.last();
       });
+      const receipt = await this.publicationWriter().seal();
+      // The next page must observe the hard deletes from this page.
+      await receipt.persisted;
+      if (count < limit) {
+        return lastOp;
+      }
     }
-
-    return last_op!;
   }
 
   async updateTableProgress(
