@@ -1,5 +1,22 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.22.0
+
+### Minor Changes
+
+- 8b711ea: Use MongoDB client-level bulkWrite where available.
+
+### Patch Changes
+
+- f842b4e: Concurrent storage version 4 chunk-merge compaction across buckets during. Configure the shared worker limit with `storage.chunk_compaction_concurrency` (default: 4 with object storage, otherwise 2). Full compactions remain sequential within each job.
+- dfabd21: Increase default concurrent S3 uploads to 64 and tweak http connection pools.
+- Updated dependencies [f842b4e]
+- Updated dependencies [5ae6f75]
+  - @powersync/service-core@1.26.1
+  - @powersync/service-sync-rules@0.42.0
+  - @powersync/lib-services-framework@0.10.2
+  - @powersync/lib-service-mongodb@0.6.32
+
 ## 0.21.0
 
 ### Minor Changes
