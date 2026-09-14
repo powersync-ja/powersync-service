@@ -1,0 +1,4 @@
+/native/target/
+/dist/
+/benchmark-results.json
+/coverage/

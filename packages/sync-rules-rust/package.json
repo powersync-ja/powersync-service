@@ -1,0 +1,30 @@
+{
+  "name": "@powersync/service-sync-rules-rust",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "FSL-1.1-ALv2",
+  "exports": "./dist/index.js",
+  "scripts": {
+    "build": "pnpm build:native && pnpm build:tsc",
+    "build:native": "node scripts/build-native.mjs",
+    "build:tsc": "tsc -b",
+    "test": "vitest run",
+    "test:rust": "cargo test --manifest-path native/Cargo.toml",
+    "test:coverage": "vitest run --coverage",
+    "test:coverage:native": "node scripts/coverage-native.mjs",
+    "build:tests": "tsc -b test/tsconfig.json",
+    "benchmark": "node bench/run.mjs",
+    "format:rust": "cargo fmt --manifest-path native/Cargo.toml"
+  },
+  "dependencies": {
+    "@powersync/service-sync-rules": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^22.16.2",
+    "@powersync/service-jsonbig": "workspace:^",
+    "vitest": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "typescript": "catalog:"
+  }
+}

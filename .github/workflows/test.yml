@@ -76,6 +76,13 @@ jobs:
       - name: Setup Node and build
         uses: ./.github/actions/setup-node-build
 
+      - name: Build and test native source-row evaluator
+        run: |
+          pnpm --filter='./packages/sync-rules-rust' build:native
+          pnpm --filter='./packages/sync-rules-rust' test:rust
+          pnpm --filter='./packages/sync-rules-rust' exec cargo fmt --manifest-path native/Cargo.toml --check
+          pnpm --filter='./packages/sync-rules-rust' exec cargo clippy --manifest-path native/Cargo.toml --all-targets -- -D warnings
+
       - name: Test
         run: pnpm test:core
 
