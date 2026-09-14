@@ -186,7 +186,7 @@ export class RequestParameterEvaluators {
               for (const [value] of new Set(outputs)) {
                 for (const intersection of intersections) {
                   const fixed = intersection.fixedValue;
-                  if (fixed != null && value != fixed) continue;
+                  if (fixed != null && value !== fixed) continue;
 
                   const matchedSources = (intersection.rows.get(value) ?? 0) + 1;
 
