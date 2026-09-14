@@ -119,19 +119,102 @@ export class RequestParameterEvaluators {
    */
   partiallyInstantiate(input: PartialInstantiationInput): SqliteParameterValue[][] | undefined {
     try {
-      this.resultSet.addIntersectionConstraints(
-        this.intersectionConstraints.map((c) => this.#createIntersectionResult(c, input))
-      );
+      const mappedIntersectionConstraints = new Set<IntersectionConstraint>();
+
+      // Optimization: For request-parameter based lookups with a single column (the most common kind), use a set to
+      // immediately filter out rows that don't intersect with another request parameter. ResultSet.multiply does the
+      // same thing, but that requires going through the combination of all rows whereas the de-duplication here is
+      // linear.
+      interface RequestParameterIntersection {
+        constraint: IntersectionConstraint;
+        // If the intersection consists entirely of request parameters, and all mentioned request parameters are in
+        // exactly one intersection, we don't need to register the constraint on the result set as it's covered by the
+        // optimization.
+        replacesConstraint: boolean;
+        amountOfRequestParameters: number;
+        // Count in how many parameters a value was seen, we filter out values not present in all parameters.
+        rows: Map<SqliteParameterValue, number>;
+        materializedRows: SqliteParameterValue[][];
+      }
+
+      const parameterToIntersection = new Map<TableValuedExpandingLookup, RequestParameterIntersection[]>();
+
+      for (const constraint of this.intersectionConstraints) {
+        const mapped = this.#createIntersectionResult(constraint, input);
+        mappedIntersectionConstraints.add(mapped);
+
+        const parameterIntersection: RequestParameterIntersection = {
+          constraint: mapped,
+          replacesConstraint: true,
+          amountOfRequestParameters: 0,
+          rows: new Map(),
+          materializedRows: []
+        };
+
+        for (const column of constraint.inputs) {
+          if (
+            column instanceof LookupParameterValue &&
+            column.lookup instanceof TableValuedExpandingLookup &&
+            column.lookup.columnCount == 1
+          ) {
+            parameterIntersection.amountOfRequestParameters++;
+
+            const existing = parameterToIntersection.get(column.lookup);
+
+            if (existing != null) {
+              existing.push(parameterIntersection);
+
+              // This parameter is part of multiple intersections.
+              for (const intersection of existing) {
+                intersection.replacesConstraint = false;
+              }
+            } else {
+              parameterToIntersection.set(column.lookup, [parameterIntersection]);
+            }
+          }
+        }
+
+        if (parameterIntersection.amountOfRequestParameters < constraint.inputs.length) {
+          // This intersection doesn't entirely consist of request parameters.
+          parameterIntersection.replacesConstraint = false;
+        }
+      }
+
+      for (const intersections of parameterToIntersection.values()) {
+        for (const intersection of intersections) {
+          if (intersection.replacesConstraint) {
+            mappedIntersectionConstraints.delete(intersection.constraint);
+          }
+        }
+      }
+
+      this.resultSet.addIntersectionConstraints(mappedIntersectionConstraints);
 
       // At this point, we can resolve table-valued lookups and parameter values based only on request data.
       for (const stage of this.lookupStages) {
         for (const element of stage.lookups) {
           if (element instanceof TableValuedExpandingLookup) {
             const outputs = element.read(input.request);
-            element.wasResolved = true;
-            this.resultSet.multiply(element.resultSetIndex, outputs);
+            const intersections = parameterToIntersection.get(element);
+            if (intersections == null || intersections.length == 0) {
+              this.resultSet.multiply(element.resultSetIndex, outputs);
+              this.#checkInstantiable();
+            } else {
+              // For this parameter to be part of the intersection optimization, it must return exactly one column.
+              for (const [value] of outputs) {
+                for (const intersection of intersections) {
+                  const fixed = intersection.constraint.fixedValue;
+                  if (fixed != null && value != fixed) continue;
 
-            this.#checkInstantiable();
+                  const matchedSources = (intersection.rows.get(value) ?? 0) + 1;
+
+                  intersection.rows.set(value, matchedSources);
+                  if (matchedSources == intersection.amountOfRequestParameters) {
+                    intersection.materializedRows.push([value]);
+                  }
+                }
+              }
+            }
           }
         }
 
@@ -140,6 +223,16 @@ export class RequestParameterEvaluators {
             instantiation.resolveWith(input);
           }
         }
+      }
+
+      for (const [parameter, intersections] of parameterToIntersection.entries()) {
+        // Find the smallest intersection constraining this parameter, then instantiate the parameter to that.
+        const smallestIntersection = intersections.reduce((acc, intersection) =>
+          intersection.materializedRows.length < acc.materializedRows.length ? intersection : acc
+        );
+
+        this.resultSet.multiply(parameter.resultSetIndex, smallestIntersection.materializedRows);
+        this.#checkInstantiable();
       }
 
       for (const parameter of this.parameterValues) {
@@ -188,7 +281,7 @@ export class RequestParameterEvaluators {
   #readParameters(): SqliteParameterValue[][] | undefined {
     for (const { lookups } of this.lookupStages) {
       for (const element of lookups) {
-        if (!element.wasResolved) return undefined;
+        if (element instanceof ParameterIndexExpandingLookup && !element.wasResolved) return undefined;
       }
     }
 
@@ -365,7 +458,7 @@ export class RequestParameterEvaluators {
             filters: lookup.filters.map((e) => visitExpr(mapOutputs, e, null))
           });
 
-          resolved = new TableValuedExpandingLookup(amountOfLookups++, (request) => [
+          resolved = new TableValuedExpandingLookup(amountOfLookups++, lookup.outputs.length, (request) => [
             ...filterParameterRows(prepared.evaluate(parametersForRequest(request, mapInputs.instantiation)))
           ]);
         }
@@ -394,8 +487,6 @@ export type PreparedExpandingLookup = TableValuedExpandingLookup | ParameterInde
 type CloneParameter = (original: PreparedParameterValue) => PreparedParameterValue;
 
 abstract class BasePreparedExpandingLookup implements ResultSetElement {
-  wasResolved = false;
-
   constructor(readonly resultSetIndex: number) {}
 
   abstract clone(parameters: CloneParameter): BasePreparedExpandingLookup;
@@ -404,19 +495,21 @@ abstract class BasePreparedExpandingLookup implements ResultSetElement {
 class TableValuedExpandingLookup extends BasePreparedExpandingLookup {
   constructor(
     resultSetIndex: number,
+    readonly columnCount: number,
     readonly read: (request: RequestParameters) => SqliteParameterValue[][]
   ) {
     super(resultSetIndex);
   }
 
   override clone(): TableValuedExpandingLookup {
-    const lookup = new TableValuedExpandingLookup(this.resultSetIndex, this.read);
-    lookup.wasResolved = this.wasResolved;
-    return lookup;
+    // Immutable instance
+    return this;
   }
 }
 
 class ParameterIndexExpandingLookup extends BasePreparedExpandingLookup {
+  wasResolved: boolean = false;
+
   constructor(
     resultSetIndex: number,
     readonly lookup: ParameterIndexLookupCreator,

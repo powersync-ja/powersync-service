@@ -21,6 +21,7 @@ interface SyncTest {
     params?: HydrateSyncConfigParams,
     options?: PrepareStreamsOptions
   ): HydratedSyncConfig;
+  hydrateConfig(config: SyncConfig, params?: HydrateSyncConfigParams): HydratedSyncConfig;
 }
 
 export const syncTest = test.extend<{ sync: SyncTest }>({
@@ -34,10 +35,11 @@ export const syncTest = test.extend<{ sync: SyncTest }>({
 
         return config;
       },
+      hydrateConfig(config, params?: HydrateSyncConfigParams) {
+        return config.hydrate(params ?? { hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) });
+      },
       prepareSyncStreams(inputs, params?: HydrateSyncConfigParams, options?: PrepareStreamsOptions) {
-        return this.prepareWithoutHydration(inputs, options).hydrate(
-          params ?? { hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) }
-        );
+        return this.hydrateConfig(this.prepareWithoutHydration(inputs, options), params);
       }
     });
   }
