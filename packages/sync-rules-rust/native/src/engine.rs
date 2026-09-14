@@ -101,17 +101,17 @@ impl Engine {
     }
 
     pub fn evaluate(&self, rows: &[Fields]) -> Vec<RowResult> {
-        rows.iter()
-            .map(|row| {
-                let mut result = RowResult::default();
-                for processor in &self.processors {
-                    if let Err(error) = self.apply(processor, row, &mut result) {
-                        result.errors.push((processor.kind, error));
-                    }
-                }
-                result
-            })
-            .collect()
+        rows.iter().map(|row| self.evaluate_row(row)).collect()
+    }
+
+    pub fn evaluate_row(&self, row: &Fields) -> RowResult {
+        let mut result = RowResult::default();
+        for processor in &self.processors {
+            if let Err(error) = self.apply(processor, row, &mut result) {
+                result.errors.push((processor.kind, error));
+            }
+        }
+        result
     }
 
     fn apply(&self, p: &Processor, input: &Fields, result: &mut RowResult) -> Result<(), String> {

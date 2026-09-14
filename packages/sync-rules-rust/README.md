@@ -4,7 +4,7 @@ Experimental, private workspace package for evaluating compiled Sync Streams sou
 
 The TypeScript compiler generates SQL and execution metadata once per source table. Rust owns the in-memory SQLite connection, cached statements, input binding, filters, table-valued expansion, projections, row IDs, data-payload JSON serialization, bucket-name serialization and parameter-index grouping. All nine PowerSync SQLite overrides are implemented in Rust: `upper`, `lower`, `unixepoch`, `datetime`, `st_asgeojson`, `st_astext`, `st_x`, `st_y`, and `ps_json_contains`. There are no JavaScript callbacks from native execution.
 
-This package accepts already-converted `SqliteRow` values. It does not implement BSON/source conversion, query-time evaluation, sync events, storage writes or checksums. Parsing, SQL generation and hydration identity assignment remain in the existing TypeScript package. Data results return `SerializedEvaluatedRow` with a JSON string in `data`; parameter results retain the existing TypeScript representation and number normalization. Storage accepts these payload strings directly, without parsing or reserializing them.
+This package accepts already-converted `SqliteRow` values or raw MongoDB BSON documents. It does not implement query-time evaluation, sync events or storage writes. Its MongoDB preparation API also computes replica identities, subkeys and checksums. Parsing, SQL generation and hydration identity assignment remain in the existing TypeScript package. Data results return `SerializedEvaluatedRow` with a JSON string in `data`; parameter results retain the existing TypeScript representation and number normalization. Storage accepts these payload strings directly, without parsing or reserializing them.
 
 ## Usage
 
@@ -41,6 +41,40 @@ const results = await evaluator.evaluateAsync([{ id: '1', title: 'Hello' }]);
 ```
 
 `evaluate(rows)` runs synchronously and can be used inside an existing JS worker. `evaluateAsync(rows)` submits the batch to libuv's native thread pool. Both use the same Rust engine. Each evaluator serializes access to its connection; different evaluators can execute independently. Input strings and binary values are owned by the task before dispatch, so subsequent mutation of JS buffers cannot race native reads. Results stay in input-row order. Callers should bound outstanding batches; this package does not implement the replication publication pipeline or its admission limits.
+
+### Combined MongoDB BSON path
+
+```ts
+// Raw BSON buffers from the MongoDB source driver, without a JS document decode.
+const results = await evaluator.evaluateBsonAsync(documents);
+// results[i].data.results[j].data is ready-to-store JSON.
+```
+
+`evaluateBsonAsync(Uint8Array[])` copies the input buffers into Rust-owned memory before dispatch. BSON parsing, conversion to SQLite values, data/parameter evaluation and data-payload serialization then run in one native background task. Conversion processes one document at a time; no JS source row or per-field N-API input objects are created. `evaluateBson` exposes the same path synchronously for comparisons. MongoDB date rendering is derived from the evaluator's config, including legacy timestamps and second precision.
+
+The converter adapts `packages/mongo-after-record-rs/src/converter.rs` from **`rust-sync-plans` at `5773fd47b`**. It uses the `bson` crate's raw-document API for parsing and `serde_json` for string escaping, replacing the earlier Rust code's custom string escaper. It updates UUID, regex, timestamp, code/scope, symbol and date conversion to the current JS converter's behavior. Ordinary types are tested against `modules/module-mongodb/src/replication/bufferToSqlite.ts` through complete evaluation and exact payload comparisons.
+
+Malformed BSON or conversion errors reject the whole batch; callers receive no partial results. SQL evaluation errors remain per-row/per-query results. Each call owns its buffers, so concurrent caller mutation cannot race background parsing. Concurrent calls on one evaluator serialize on its connection; separate evaluators are needed for parallel evaluation. Callers still need bounded admission and ordered publication.
+
+For preparation with replica identity and checksums:
+
+```ts
+const prepared = await evaluator.prepareBsonAsync(documents, sourceTable.id.toHexString());
+// Each row adds replicaIdBson, subkey and deleteChecksum.
+// Every data result adds checksum alongside its serialized data.
+```
+
+`prepareBsonAsync` runs conversion, evaluation, serialization, replica identity extraction, subkey generation and checksums inside the same native task. The table ID must be the MongoDB storage source table's ObjectId as 24 hex characters. The original `_id` BSON bytes are preserved in `replicaIdBson`. Subkeys reproduce the existing UUID-v5 hash of BSON `{ table, id }`, including JS numeric/object-key normalization, and the historical UUID-ID special case. SHA-256 data/delete checksums use the first four digest bytes as an unsigned little-endian integer. Hashing uses `sha2` and `uuid` crates. The main thread copies input and reconstructs returned JS objects; no JS hashing or replica-ID parsing is needed.
+
+Missing `_id`, invalid table IDs or unsupported replica IDs reject preparation of the whole batch. Undefined, regex, JavaScript code/scope and DBPointer replica IDs, and embedded `__proto__` keys, are explicitly rejected, including when nested in an ID. Unusual duplicate-key and deprecated-type normalization still need auditing. This API currently targets ObjectId table identifiers used by MongoDB storage, not string table identifiers from other storage implementations.
+
+This is a standalone preparation API. Production replication is not switched to it. Event processing, current-row retention and storage coordination remain outside the API. The basic BSON benchmarks exclude identity/checksum operations equally for all implementations; the worker comparison also measures the broader preparation scope. Documents are fully converted even when only a few columns are referenced; selective conversion is a possible later optimization.
+
+BSON compatibility gaps retained for this experiment:
+
+- Deprecated DBPointer values reject the batch. Invalid UTF-8 is rejected by the BSON library, while the JS direct converter attempts replacement-character recovery.
+- Top-level integral doubles and unsigned timestamps outside signed 64-bit range reject instead of retaining an unbounded JS bigint. Nested timestamps retain their full unsigned value in JSON text.
+- Dates beyond chrono's supported range reject. Duplicate BSON field names and prototype-sensitive JS keys have not been made compatible.
 
 No native build is run during install or the general service build. Core CI explicitly builds the addon before package tests, so the experimental package does not add a Rust dependency to service container builds.
 
@@ -88,3 +122,9 @@ BENCHMARK_ROWS=10000 BENCHMARK_ITERATIONS=7 BENCHMARK_BATCH_SIZE=1000 pnpm bench
 The benchmark compares plain JS, JS + SQLite, Rust synchronous and Rust asynchronous evaluation. Workloads cover passthrough, projection/filtering, JSON, custom functions, bucket fanout, multiple queries, parameter indexes and expanded parameter outputs. Each implementation evaluates the same inputs and returns the same result shape. Every input is checked for result equality before timing. Two warmup passes precede rotated execution order across measured iterations.
 
 Reported throughput includes input/output conversion across the native boundary, result reconstruction, data-payload serialization and result consumption. Both JavaScript implementations serialize payloads with JSONBig; Rust serializes during native evaluation (on the background thread for evaluateAsync). Config compilation, source conversion, checksums and storage are excluded. Native-only execution measurements are reported separately as a diagnostic, **not** as a comparable end-to-end speedup. `benchmark-results.json` records all timing samples, versions, machine details and settings. See [BENCHMARKS-SERIALIZED.md](BENCHMARKS-SERIALIZED.md) for the current run and [BENCHMARKS.md](BENCHMARKS.md) for the historical object-output baseline.
+
+For the complete raw-BSON comparison, run `pnpm benchmark:bson` after `pnpm build`. It builds the MongoDB module for the JS reference converter and compares JS plain, JS SQLite, JS conversion plus Rust field input, and combined Rust BSON sync/async paths. See [BENCHMARKS-BSON.md](BENCHMARKS-BSON.md) for results and scope.
+
+For bounded parallel native batches, run `pnpm benchmark:bson:parallel`. This sets `UV_THREADPOOL_SIZE=8` before Node starts and tests 1, 2, 4 and 8 independent evaluators, with 40,000 documents by default. Each evaluator owns its SQLite connection and has at most one outstanding task. Results are consumed in input order through a bounded window; the benchmark includes any waiting behind earlier batches. Input-buffer copies and JS result construction remain included. See [BENCHMARKS-BSON-PARALLEL.md](BENCHMARKS-BSON-PARALLEL.md).
+
+For four native threads versus four JS workers, run `pnpm benchmark:bson:workers`. This sets `UV_THREADPOOL_SIZE=4` and includes bounded ordered scheduling, message cloning or native input copying, and result reconstruction. It measures conversion/evaluation alone and preparation with replica identities, subkeys and checksums. Both implementations perform that preparation on background threads. See [BENCHMARKS-WORKERS.md](BENCHMARKS-WORKERS.md).

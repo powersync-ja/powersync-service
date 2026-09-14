@@ -70,7 +70,11 @@ const profiles = readdirSync(output)
   .map((name) => path.join(output, name));
 const merged = path.join(output, 'merged.profdata');
 await run(profdata, ['merge', '-sparse', ...profiles, '-o', merged]);
-const sourceFiles = ['engine.rs', 'functions.rs', 'lib.rs'].map((name) => path.join(root, 'native/src', name));
+// Include new native modules automatically so coverage cannot silently omit them.
+const sourceFiles = readdirSync(path.join(root, 'native/src'), { recursive: true })
+  .filter((name) => name.endsWith('.rs'))
+  .sort()
+  .map((name) => path.join(root, 'native/src', name));
 const reportArgs = [
   library,
   ...binaries.flatMap((binary) => ['-object', binary]),

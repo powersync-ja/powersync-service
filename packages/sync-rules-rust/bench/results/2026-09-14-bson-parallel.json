@@ -1,0 +1,467 @@
+{
+  "generatedAt": "2026-09-14T13:23:37.598Z",
+  "node": "v24.18.1",
+  "nodeSqlite": "3.53.1",
+  "rustSqlite": "3.51.3",
+  "cpu": "AMD Ryzen 9 7900X 12-Core Processor",
+  "cpuCount": 24,
+  "platform": "linux",
+  "arch": "x64",
+  "rowCount": 40000,
+  "iterations": 7,
+  "batchSize": 1000,
+  "uvThreadpoolSize": 8,
+  "concurrencyLevels": [1, 2, 4, 8],
+  "scope": "Raw BSON conversion, evaluation and serialization with bounded parallel native tasks on independent evaluators, consumed in source order. Includes buffer copies and output reconstruction; excludes source fetching, replica IDs, checksums, storage and config/fixture generation.",
+  "results": [
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "rust-parallel-1",
+      "inputBytes": 6544890,
+      "medianMs": 183.78613099999984,
+      "rowsPerSecond": 217644,
+      "inputMiBPerSecond": 33.9617220447614,
+      "inputMBPerSecond": 35.61144665480773,
+      "samplesMs": [
+        182.61368700000003, 183.78613099999984, 190.025212, 184.7162870000002, 180.94050799999968, 187.41572700000052,
+        181.21544500000073
+      ],
+      "concurrency": 1
+    },
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "rust-parallel-2",
+      "inputBytes": 6544890,
+      "medianMs": 99.31153300000005,
+      "rowsPerSecond": 402773,
+      "inputMiBPerSecond": 62.849633956451946,
+      "inputMBPerSecond": 65.90261777552055,
+      "samplesMs": [
+        93.611942, 96.6644540000002, 99.67506700000013, 103.18598199999997, 99.31153300000005, 100.43208500000037,
+        95.75463099999979
+      ],
+      "concurrency": 2
+    },
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "rust-parallel-4",
+      "inputBytes": 6544890,
+      "medianMs": 75.58780100000058,
+      "rowsPerSecond": 529186,
+      "inputMiBPerSecond": 82.5754078585254,
+      "inputMBPerSecond": 86.58659087066113,
+      "samplesMs": [
+        67.82310200000029, 72.86645299999964, 76.90746900000022, 77.78239500000018, 74.23672199999965,
+        79.19733300000007, 75.58780100000058
+      ],
+      "concurrency": 4
+    },
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "rust-parallel-8",
+      "inputBytes": 6544890,
+      "medianMs": 72.62362600000006,
+      "rowsPerSecond": 550785,
+      "inputMiBPerSecond": 85.94577054998736,
+      "inputMBPerSecond": 90.12067230022355,
+      "samplesMs": [
+        72.28021099999978, 67.68171500000017, 72.62362600000006, 81.77031100000022, 80.02616000000035,
+        72.67379600000004, 66.79494999999952
+      ],
+      "concurrency": 8
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "rust-parallel-1",
+      "inputBytes": 37952390,
+      "medianMs": 453.75918400000046,
+      "rowsPerSecond": 88152,
+      "inputMiBPerSecond": 79.76526066133212,
+      "inputMBPerSecond": 83.639937963217,
+      "samplesMs": [
+        453.75918400000046, 445.370535, 450.7441409999992, 464.11941300000035, 449.4644990000015, 462.2441639999997,
+        456.1179540000012
+      ],
+      "concurrency": 1
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "rust-parallel-2",
+      "inputBytes": 37952390,
+      "medianMs": 234.12028099999952,
+      "rowsPerSecond": 170852,
+      "inputMiBPerSecond": 154.5966860907427,
+      "inputMBPerSecond": 162.10637471428663,
+      "samplesMs": [
+        228.43256499999916, 245.02098300000034, 245.67649700000038, 234.12028099999952, 239.70831399999952,
+        231.0215129999997, 227.69610900000043
+      ],
+      "concurrency": 2
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "rust-parallel-4",
+      "inputBytes": 37952390,
+      "medianMs": 136.99990199999957,
+      "rowsPerSecond": 291971,
+      "inputMiBPerSecond": 264.1915728467712,
+      "inputMBPerSecond": 277.02494268937596,
+      "samplesMs": [
+        129.43142699999953, 133.8380870000001, 144.2482340000006, 141.34906300000148, 133.6941349999979,
+        136.99990199999957, 143.85940699999992
+      ],
+      "concurrency": 4
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "rust-parallel-8",
+      "inputBytes": 37952390,
+      "medianMs": 104.85021499999857,
+      "rowsPerSecond": 381497,
+      "inputMiBPerSecond": 345.1992882344962,
+      "inputMBPerSecond": 361.9676888597751,
+      "samplesMs": [
+        109.54919999999947, 104.85021499999857, 110.84145199999875, 97.44494399999894, 97.4138860000021,
+        107.72770400000081, 100.03495499999917
+      ],
+      "concurrency": 8
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "rust-parallel-1",
+      "inputBytes": 37952390,
+      "medianMs": 279.1887999999999,
+      "rowsPerSecond": 143272,
+      "inputMiBPerSecond": 129.64065746632176,
+      "inputMBPerSecond": 135.9380820434058,
+      "samplesMs": [
+        279.1887999999999, 278.72344800000064, 278.80815900000016, 287.10314899999867, 282.6964799999987,
+        277.79511099999945, 284.65947400000005
+      ],
+      "concurrency": 1
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "rust-parallel-2",
+      "inputBytes": 37952390,
+      "medianMs": 142.36567900000227,
+      "rowsPerSecond": 280967,
+      "inputMiBPerSecond": 254.2341654496153,
+      "inputMBPerSecond": 266.5838442704958,
+      "samplesMs": [
+        140.1818310000017, 145.2169219999996, 141.9299949999986, 151.01882299999852, 146.58400400000028,
+        142.36567900000227, 142.33007200000065
+      ],
+      "concurrency": 2
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "rust-parallel-4",
+      "inputBytes": 37952390,
+      "medianMs": 77.3589269999975,
+      "rowsPerSecond": 517070,
+      "inputMiBPerSecond": 467.87385752176436,
+      "inputMBPerSecond": 490.6012980247416,
+      "samplesMs": [
+        79.64169100000072, 77.3589269999975, 76.2175950000019, 77.00534400000106, 77.59062400000039, 76.11786800000118,
+        85.24321500000224
+      ],
+      "concurrency": 4
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "rust-parallel-8",
+      "inputBytes": 37952390,
+      "medianMs": 61.42686700000195,
+      "rowsPerSecond": 651181,
+      "inputMiBPerSecond": 589.2245747977388,
+      "inputMBPerSecond": 617.8467477431137,
+      "samplesMs": [
+        60.33390299999883, 62.09886600000027, 59.07802399999855, 72.03200099999958, 60.28494599999976,
+        61.42686700000195, 67.0911500000002
+      ],
+      "concurrency": 8
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "rust-parallel-1",
+      "inputBytes": 127384890,
+      "medianMs": 930.0248900000006,
+      "rowsPerSecond": 43010,
+      "inputMiBPerSecond": 130.62413618976936,
+      "inputMBPerSecond": 136.9693342293236,
+      "samplesMs": [
+        930.5585960000026, 930.0004689999987, 930.0248900000006, 936.8889570000028, 928.4918520000065,
+        939.9427480000013, 928.8669799999989
+      ],
+      "concurrency": 1
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "rust-parallel-2",
+      "inputBytes": 127384890,
+      "medianMs": 482.4612500000003,
+      "rowsPerSecond": 82908,
+      "inputMiBPerSecond": 251.79990702099968,
+      "inputMBPerSecond": 264.03133930445176,
+      "samplesMs": [
+        466.2351520000011, 499.87900400000217, 487.69095599999855, 479.4439319999947, 485.6782710000043,
+        475.16289900000265, 482.4612500000003
+      ],
+      "concurrency": 2
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "rust-parallel-4",
+      "inputBytes": 127384890,
+      "medianMs": 259.60441600000195,
+      "rowsPerSecond": 154081,
+      "inputMiBPerSecond": 467.9569776318229,
+      "inputMBPerSecond": 490.6884557772663,
+      "samplesMs": [
+        265.72945400000026, 269.91687300000194, 259.60441600000195, 261.85924000000523, 251.8762080000015,
+        251.76585099999647, 255.21344099999988
+      ],
+      "concurrency": 4
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "rust-parallel-8",
+      "inputBytes": 127384890,
+      "medianMs": 159.94477000000188,
+      "rowsPerSecond": 250086,
+      "inputMiBPerSecond": 759.5352939094784,
+      "inputMBPerSecond": 796.4304803464252,
+      "samplesMs": [
+        168.6657220000052, 159.09305100000347, 153.9250649999958, 165.3977090000044, 154.29833599999984,
+        159.94477000000188, 169.32109800000035
+      ],
+      "concurrency": 8
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "rust-parallel-1",
+      "inputBytes": 37952390,
+      "medianMs": 322.69830300000467,
+      "rowsPerSecond": 123955,
+      "inputMiBPerSecond": 112.16117113957328,
+      "inputMBPerSecond": 117.6095121888492,
+      "samplesMs": [
+        324.3282829999953, 317.8172859999977, 322.69830300000467, 320.80433300000004, 322.34982200000377,
+        323.4704679999995, 336.96699100000114
+      ],
+      "concurrency": 1
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "rust-parallel-2",
+      "inputBytes": 37952390,
+      "medianMs": 163.20653400000447,
+      "rowsPerSecond": 245088,
+      "inputMiBPerSecond": 221.7694273761883,
+      "inputMBPerSecond": 232.54209908041403,
+      "samplesMs": [
+        160.59657000000152, 172.95605200000136, 163.20653400000447, 168.33435499999905, 160.42745700000523,
+        159.59762000000046, 179.57055599999876
+      ],
+      "concurrency": 2
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "rust-parallel-4",
+      "inputBytes": 37952390,
+      "medianMs": 91.57704399999784,
+      "rowsPerSecond": 436791,
+      "inputMiBPerSecond": 395.2324513688633,
+      "inputMBPerSecond": 414.43126292655717,
+      "samplesMs": [
+        90.27536300000065, 88.28344300000026, 96.8687510000018, 91.57704399999784, 92.64719800000603, 89.86331100000098,
+        94.37347199999931
+      ],
+      "concurrency": 4
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "rust-parallel-8",
+      "inputBytes": 37952390,
+      "medianMs": 76.78411999999662,
+      "rowsPerSecond": 520941,
+      "inputMiBPerSecond": 471.376367785878,
+      "inputMBPerSecond": 494.2739462274448,
+      "samplesMs": [
+        80.66653000000224, 71.4323019999938, 88.11939600000187, 76.78411999999662, 74.12121200000547, 71.5609420000037,
+        86.15832799999771
+      ],
+      "concurrency": 8
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "rust-parallel-1",
+      "inputBytes": 37952390,
+      "medianMs": 1081.164982000002,
+      "rowsPerSecond": 36997,
+      "inputMiBPerSecond": 33.477055021037785,
+      "inputMBPerSecond": 35.10323644573972,
+      "samplesMs": [
+        1073.3739839999907, 1072.979971000008, 1084.3632150000049, 1081.164982000002, 1089.5870540000033,
+        1080.2903850000002, 1085.8484069999977
+      ],
+      "concurrency": 1
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "rust-parallel-2",
+      "inputBytes": 37952390,
+      "medianMs": 555.1018280000135,
+      "rowsPerSecond": 72059,
+      "inputMiBPerSecond": 65.20284705175304,
+      "inputMBPerSecond": 68.370140550139,
+      "samplesMs": [
+        558.7474510000029, 558.1075450000062, 544.4980510000023, 554.5856780000031, 555.1018280000135,
+        558.7320099999924, 547.5798360000044
+      ],
+      "concurrency": 2
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "rust-parallel-4",
+      "inputBytes": 37952390,
+      "medianMs": 314.84233400000085,
+      "rowsPerSecond": 127048,
+      "inputMiBPerSecond": 114.95982490471977,
+      "inputMBPerSecond": 120.54411335929143,
+      "samplesMs": [
+        312.008290999991, 316.37713000000804, 327.1834700000036, 324.4649630000058, 314.84233400000085,
+        311.8764620000002, 303.4196529999899
+      ],
+      "concurrency": 4
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "rust-parallel-8",
+      "inputBytes": 37952390,
+      "medianMs": 335.86559300000954,
+      "rowsPerSecond": 119095,
+      "inputMiBPerSecond": 107.76399947949527,
+      "inputMBPerSecond": 112.99874351821123,
+      "samplesMs": [
+        335.86559300000954, 360.6037309999956, 342.7395070000057, 318.8930529999925, 349.21623700000055,
+        318.98682499999995, 328.24844199999643
+      ],
+      "concurrency": 8
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "rust-parallel-1",
+      "inputBytes": 37952390,
+      "medianMs": 616.2950399999972,
+      "rowsPerSecond": 64904,
+      "inputMiBPerSecond": 58.72872121319289,
+      "inputMBPerSecond": 61.58152757484495,
+      "samplesMs": [
+        622.5677149999974, 616.2950399999972, 618.3260149999987, 614.6110469999985, 612.9975269999995,
+        609.7407559999992, 617.7316629999987
+      ],
+      "concurrency": 1
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "rust-parallel-2",
+      "inputBytes": 37952390,
+      "medianMs": 331.8170680000039,
+      "rowsPerSecond": 120548,
+      "inputMiBPerSecond": 109.07883614122277,
+      "inputMBPerSecond": 114.3774496856188,
+      "samplesMs": [
+        319.9875939999911, 331.8170680000039, 340.96916999999667, 330.0377359999984, 354.5698620000039,
+        325.5705480000033, 344.40040299999237
+      ],
+      "concurrency": 2
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "rust-parallel-4",
+      "inputBytes": 37952390,
+      "medianMs": 201.95730799999728,
+      "rowsPerSecond": 198062,
+      "inputMiBPerSecond": 179.21718182752707,
+      "inputMBPerSecond": 187.92283565198102,
+      "samplesMs": [
+        198.0325989999983, 212.30694700000458, 206.0297520000022, 198.2929909999948, 201.95730799999728,
+        199.42499700000917, 218.51356499998656
+      ],
+      "concurrency": 4
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "rust-parallel-8",
+      "inputBytes": 37952390,
+      "medianMs": 210.69481099999393,
+      "rowsPerSecond": 189848,
+      "inputMiBPerSecond": 171.78505449398295,
+      "inputMBPerSecond": 180.12968530108267,
+      "samplesMs": [
+        217.17280300000857, 210.69481099999393, 206.90191899999627, 206.3549689999927, 213.47394799999893,
+        208.90081700000155, 224.6310530000046
+      ],
+      "concurrency": 8
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "rust-parallel-1",
+      "inputBytes": 37952390,
+      "medianMs": 293.5727640000114,
+      "rowsPerSecond": 136252,
+      "inputMiBPerSecond": 123.2887516405711,
+      "inputMBPerSecond": 129.2776260402635,
+      "samplesMs": [
+        291.51050200000464, 293.5727640000114, 298.50126000000455, 294.43669200000295, 284.70177699999476,
+        295.7314960000076, 289.577999000001
+      ],
+      "concurrency": 1
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "rust-parallel-2",
+      "inputBytes": 37952390,
+      "medianMs": 156.4235869999975,
+      "rowsPerSecond": 255716,
+      "inputMiBPerSecond": 231.38594558142933,
+      "inputMBPerSecond": 242.62574927399282,
+      "samplesMs": [
+        156.4235869999975, 152.42389700000058, 158.08044400000654, 157.49840399999812, 155.70608200000424,
+        151.4302849999949, 162.65082000000984
+      ],
+      "concurrency": 2
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "rust-parallel-4",
+      "inputBytes": 37952390,
+      "medianMs": 98.06642600000487,
+      "rowsPerSecond": 407887,
+      "inputMiBPerSecond": 369.07860381525074,
+      "inputMBPerSecond": 387.00696607418035,
+      "samplesMs": [
+        99.10485899999912, 94.62883500001044, 99.26344699999026, 95.93735700000252, 98.06642600000487,
+        93.54635299999791, 104.02212799999688
+      ],
+      "concurrency": 4
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "rust-parallel-8",
+      "inputBytes": 37952390,
+      "medianMs": 93.60395000000426,
+      "rowsPerSecond": 427332,
+      "inputMiBPerSecond": 386.6740622509173,
+      "inputMBPerSecond": 405.45714149881786,
+      "samplesMs": [
+        98.90339199999289, 93.60395000000426, 98.79919400000654, 98.55246900000202, 91.40183500001149,
+        89.00111099999049, 89.59399300000223
+      ],
+      "concurrency": 8
+    }
+  ],
+  "sink": 8429426280
+}

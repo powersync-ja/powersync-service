@@ -1,4 +1,7 @@
 /native/target/
 /dist/
 /benchmark-results.json
+/benchmark-bson-results.json
 /coverage/
+/benchmark-bson-parallel-results.json
+/benchmark-worker-comparison-results.json

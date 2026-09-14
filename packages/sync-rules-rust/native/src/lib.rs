@@ -1,6 +1,8 @@
 //! Rust/SQLite source-row evaluator. JS values are copied before background work starts.
+mod bson_converter;
 mod engine;
 mod functions;
+mod preparation;
 
 use engine::{Engine, Fields, Processor};
 use napi::bindgen_prelude::*;
@@ -44,6 +46,15 @@ pub struct RowResult {
 pub struct ExecutionMeasurement {
     pub execution_ms: f64,
     pub result_count: u32,
+}
+
+#[napi(object)]
+pub struct PreparedRowResult {
+    pub evaluation: RowResult,
+    pub replica_id_bson: Uint8Array,
+    pub subkey: String,
+    pub delete_checksum: u32,
+    pub checksums: Vec<u32>,
 }
 
 fn encode(value: JsValue) -> Result<Value> {
@@ -98,43 +109,44 @@ fn decode_fields(fields: Fields) -> Vec<Field> {
         .collect()
 }
 fn decode_rows(rows: Vec<engine::RowResult>) -> Vec<RowResult> {
-    rows.into_iter()
-        .map(|r| RowResult {
-            data: r
-                .data
-                .into_iter()
-                .map(|d| DataResult {
-                    source: d.source,
-                    bucket: d.bucket,
-                    id: d.id,
-                    table: d.table,
-                    data: d.data,
-                })
-                .collect(),
-            parameters: r
-                .parameters
-                .into_iter()
-                .map(|p| ParameterResult {
-                    source: p.source,
-                    values: p.values.into_iter().map(decode).collect(),
-                    rows: p.rows.into_iter().map(decode_fields).collect(),
-                })
-                .collect(),
-            errors: r
-                .errors
-                .into_iter()
-                .map(|(kind, error)| EvaluationError {
-                    kind: if kind == engine::Kind::Data {
-                        "data"
-                    } else {
-                        "parameters"
-                    }
-                    .into(),
-                    error,
-                })
-                .collect(),
-        })
-        .collect()
+    rows.into_iter().map(decode_row).collect()
+}
+fn decode_row(r: engine::RowResult) -> RowResult {
+    RowResult {
+        data: r
+            .data
+            .into_iter()
+            .map(|d| DataResult {
+                source: d.source,
+                bucket: d.bucket,
+                id: d.id,
+                table: d.table,
+                data: d.data,
+            })
+            .collect(),
+        parameters: r
+            .parameters
+            .into_iter()
+            .map(|p| ParameterResult {
+                source: p.source,
+                values: p.values.into_iter().map(decode).collect(),
+                rows: p.rows.into_iter().map(decode_fields).collect(),
+            })
+            .collect(),
+        errors: r
+            .errors
+            .into_iter()
+            .map(|(kind, error)| EvaluationError {
+                kind: if kind == engine::Kind::Data {
+                    "data"
+                } else {
+                    "parameters"
+                }
+                .into(),
+                error,
+            })
+            .collect(),
+    }
 }
 
 #[napi]
@@ -167,6 +179,68 @@ impl NativeEvaluator {
         Ok(AsyncTask::new(EvaluationTask {
             engine: self.engine.clone(),
             rows: encode_rows(rows)?,
+        }))
+    }
+    /// Decode raw MongoDB BSON and evaluate without materializing any JavaScript source fields.
+    #[napi]
+    pub fn evaluate_bson(
+        &self,
+        documents: Vec<Uint8Array>,
+        date_mode: u32,
+    ) -> Result<Vec<RowResult>> {
+        let mode =
+            bson_converter::DateRenderMode::try_from(date_mode).map_err(Error::from_reason)?;
+        let engine = self
+            .engine
+            .lock()
+            .map_err(|_| Error::from_reason("Evaluator lock poisoned"))?;
+        let mut output = Vec::with_capacity(documents.len());
+        for document in documents {
+            let row = bson_converter::construct_after_record_entries(&document, mode)
+                .map_err(|error| Error::from_reason(error.to_string()))?;
+            output.push(engine.evaluate_row(&row));
+        }
+        Ok(decode_rows(output))
+    }
+    /// Only buffer copying happens on the calling thread. BSON parsing, SQLite and JSON run in compute().
+    #[napi]
+    pub fn evaluate_bson_async(
+        &self,
+        documents: Vec<Uint8Array>,
+        date_mode: u32,
+    ) -> Result<AsyncTask<BsonEvaluationTask>> {
+        let mode =
+            bson_converter::DateRenderMode::try_from(date_mode).map_err(Error::from_reason)?;
+        Ok(AsyncTask::new(BsonEvaluationTask {
+            engine: self.engine.clone(),
+            // Own a snapshot: the caller may mutate or reuse its buffers after dispatch.
+            documents: documents
+                .into_iter()
+                .map(|document| document.to_vec())
+                .collect(),
+            mode,
+        }))
+    }
+    /// Complete MongoDB row preparation on one background task, including identity and hashes.
+    #[napi]
+    pub fn prepare_bson_async(
+        &self,
+        documents: Vec<Uint8Array>,
+        date_mode: u32,
+        table_id: String,
+    ) -> Result<AsyncTask<BsonPreparationTask>> {
+        let mode =
+            bson_converter::DateRenderMode::try_from(date_mode).map_err(Error::from_reason)?;
+        let table = bson::oid::ObjectId::parse_str(table_id)
+            .map_err(|e| Error::from_reason(format!("Invalid MongoDB table ID: {e}")))?;
+        Ok(AsyncTask::new(BsonPreparationTask {
+            engine: self.engine.clone(),
+            documents: documents
+                .into_iter()
+                .map(|document| document.to_vec())
+                .collect(),
+            mode,
+            table,
         }))
     }
     /// Diagnostic benchmark only: excludes input conversion and output reconstruction.
@@ -203,9 +277,91 @@ impl NativeEvaluator {
     }
 }
 
+pub struct BsonEvaluationTask {
+    engine: Arc<Mutex<Engine>>,
+    documents: Vec<Vec<u8>>,
+    mode: bson_converter::DateRenderMode,
+}
+impl Task for BsonEvaluationTask {
+    type Output = Vec<engine::RowResult>;
+    type JsValue = Vec<RowResult>;
+    fn compute(&mut self) -> Result<Self::Output> {
+        let engine = self
+            .engine
+            .lock()
+            .map_err(|_| Error::from_reason("Evaluator lock poisoned"))?;
+        // Convert/evaluate one document at a time, retaining only serialized outputs.
+        self.documents
+            .iter()
+            .map(|document| {
+                let row = bson_converter::construct_after_record_entries(document, self.mode)
+                    .map_err(|error| Error::from_reason(error.to_string()))?;
+                Ok(engine.evaluate_row(&row))
+            })
+            .collect()
+    }
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(decode_rows(output))
+    }
+}
+
 pub struct EvaluationTask {
     engine: Arc<Mutex<Engine>>,
     rows: Vec<Fields>,
+}
+
+pub struct BsonPreparationTask {
+    engine: Arc<Mutex<Engine>>,
+    documents: Vec<Vec<u8>>,
+    mode: bson_converter::DateRenderMode,
+    table: bson::oid::ObjectId,
+}
+pub struct PreparedRow {
+    evaluation: engine::RowResult,
+    identity: preparation::Identity,
+    checksums: Vec<u32>,
+}
+impl Task for BsonPreparationTask {
+    type Output = Vec<PreparedRow>;
+    type JsValue = Vec<PreparedRowResult>;
+    fn compute(&mut self) -> Result<Self::Output> {
+        let engine = self
+            .engine
+            .lock()
+            .map_err(|_| Error::from_reason("Evaluator lock poisoned"))?;
+        self.documents
+            .iter()
+            .map(|document| {
+                let row = bson_converter::construct_after_record_entries(document, self.mode)
+                    .map_err(|e| Error::from_reason(e.to_string()))?;
+                let identity =
+                    preparation::identity(document, self.table).map_err(Error::from_reason)?;
+                let evaluation = engine.evaluate_row(&row);
+                let checksums = evaluation
+                    .data
+                    .iter()
+                    .map(|data| preparation::hash_data(&data.table, &data.id, &data.data))
+                    .collect();
+                Ok(PreparedRow {
+                    evaluation,
+                    identity,
+                    checksums,
+                })
+            })
+            .collect()
+    }
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output
+            .into_iter()
+            .map(|row| PreparedRowResult {
+                evaluation: decode_row(row.evaluation),
+                replica_id_bson: row.identity.bson.into(),
+                subkey: row.identity.subkey,
+                delete_checksum: row.identity.delete_checksum,
+                checksums: row.checksums,
+            })
+            .collect())
+    }
 }
 impl Task for EvaluationTask {
     type Output = Vec<engine::RowResult>;

@@ -15,12 +15,19 @@
     "test:coverage:native": "node scripts/coverage-native.mjs",
     "build:tests": "tsc -b test/tsconfig.json",
     "benchmark": "node bench/run.mjs",
+    "benchmark:bson:workers": "pnpm --filter @powersync/service-module-mongodb build && pnpm --filter @powersync/service-module-mongodb-storage build && UV_THREADPOOL_SIZE=4 BENCHMARK_WORKERS=true node bench/bson.mjs",
+    "benchmark:bson:parallel": "pnpm --filter @powersync/service-module-mongodb build && UV_THREADPOOL_SIZE=8 BENCHMARK_PARALLEL=true node bench/bson.mjs",
+    "benchmark:bson": "pnpm --filter @powersync/service-module-mongodb build && node bench/bson.mjs",
     "format:rust": "cargo fmt --manifest-path native/Cargo.toml"
   },
   "dependencies": {
     "@powersync/service-sync-rules": "workspace:^"
   },
   "devDependencies": {
+    "@powersync/service-core": "workspace:^",
+    "@powersync/service-module-mongodb": "workspace:^",
+    "@powersync/service-module-mongodb-storage": "workspace:^",
+    "bson": "^6.10.4",
     "@types/node": "^22.16.2",
     "@powersync/service-jsonbig": "workspace:^",
     "vitest": "catalog:",
