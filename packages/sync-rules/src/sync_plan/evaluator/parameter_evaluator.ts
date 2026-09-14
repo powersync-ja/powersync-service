@@ -119,18 +119,14 @@ export class RequestParameterEvaluators {
    */
   partiallyInstantiate(input: PartialInstantiationInput): SqliteParameterValue[][] | undefined {
     try {
-      const mappedIntersectionConstraints = new Set<IntersectionConstraint>();
+      const mappedIntersectionConstraints: IntersectionConstraint[] = [];
 
       // Optimization: For request-parameter based lookups with a single column (the most common kind), use a set to
       // immediately filter out rows that don't intersect with another request parameter. ResultSet.multiply does the
       // same thing, but that requires going through the combination of all rows whereas the de-duplication here is
       // linear.
       interface RequestParameterIntersection {
-        constraint: IntersectionConstraint;
-        // If the intersection consists entirely of request parameters, and all mentioned request parameters are in
-        // exactly one intersection, we don't need to register the constraint on the result set as it's covered by the
-        // optimization.
-        replacesConstraint: boolean;
+        fixedValue: SqliteParameterValue | undefined;
         amountOfRequestParameters: number;
         // Count in how many parameters a value was seen, we filter out values not present in all parameters.
         rows: Map<SqliteParameterValue, number>;
@@ -141,11 +137,9 @@ export class RequestParameterEvaluators {
 
       for (const constraint of this.intersectionConstraints) {
         const mapped = this.#createIntersectionResult(constraint, input);
-        mappedIntersectionConstraints.add(mapped);
 
         const parameterIntersection: RequestParameterIntersection = {
-          constraint: mapped,
-          replacesConstraint: true,
+          fixedValue: mapped.fixedValue,
           amountOfRequestParameters: 0,
           rows: new Map(),
           materializedRows: []
@@ -163,11 +157,6 @@ export class RequestParameterEvaluators {
 
             if (existing != null) {
               existing.push(parameterIntersection);
-
-              // This parameter is part of multiple intersections.
-              for (const intersection of existing) {
-                intersection.replacesConstraint = false;
-              }
             } else {
               parameterToIntersection.set(column.lookup, [parameterIntersection]);
             }
@@ -175,16 +164,9 @@ export class RequestParameterEvaluators {
         }
 
         if (parameterIntersection.amountOfRequestParameters < constraint.inputs.length) {
-          // This intersection doesn't entirely consist of request parameters.
-          parameterIntersection.replacesConstraint = false;
-        }
-      }
-
-      for (const intersections of parameterToIntersection.values()) {
-        for (const intersection of intersections) {
-          if (intersection.replacesConstraint) {
-            mappedIntersectionConstraints.delete(intersection.constraint);
-          }
+          // If the intersection consists entirely of parameter lookups, it's fully covered by the optimization and
+          // doesn't need to be tracked in the result set.
+          mappedIntersectionConstraints.push(mapped);
         }
       }
 
@@ -201,15 +183,15 @@ export class RequestParameterEvaluators {
               this.#checkInstantiable();
             } else {
               // For this parameter to be part of the intersection optimization, it must return exactly one column.
-              for (const [value] of outputs) {
+              for (const [value] of new Set(outputs)) {
                 for (const intersection of intersections) {
-                  const fixed = intersection.constraint.fixedValue;
+                  const fixed = intersection.fixedValue;
                   if (fixed != null && value != fixed) continue;
 
                   const matchedSources = (intersection.rows.get(value) ?? 0) + 1;
 
                   intersection.rows.set(value, matchedSources);
-                  if (matchedSources == intersection.amountOfRequestParameters) {
+                  if (matchedSources === intersection.amountOfRequestParameters) {
                     intersection.materializedRows.push([value]);
                   }
                 }
@@ -226,12 +208,24 @@ export class RequestParameterEvaluators {
       }
 
       for (const [parameter, intersections] of parameterToIntersection.entries()) {
-        // Find the smallest intersection constraining this parameter, then instantiate the parameter to that.
-        const smallestIntersection = intersections.reduce((acc, intersection) =>
-          intersection.materializedRows.length < acc.materializedRows.length ? intersection : acc
-        );
+        if (intersections.length == 1) {
+          this.resultSet.multiply(parameter.resultSetIndex, intersections[0].materializedRows);
+        } else {
+          const rows = intersections.reduce((acc, intersection) =>
+            intersection.materializedRows.length < acc.materializedRows.length ? intersection : acc
+          ).materializedRows;
 
-        this.resultSet.multiply(parameter.resultSetIndex, smallestIntersection.materializedRows);
+          this.resultSet.multiply(
+            parameter.resultSetIndex,
+            rows.filter(([value]) => {
+              return intersections.every((intersection) => {
+                const matchingCount = intersection.rows.get(value);
+                return matchingCount === intersection.amountOfRequestParameters;
+              });
+            })
+          );
+        }
+
         this.#checkInstantiable();
       }
 

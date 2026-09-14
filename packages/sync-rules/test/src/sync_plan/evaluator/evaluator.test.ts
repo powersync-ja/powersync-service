@@ -573,7 +573,7 @@ streams:
       return querier.staticBuckets.map((e) => e.bucket);
     }
 
-    expect(queryWith('p1', ['p2'])).toStrictEqual([]);
+    expect(queryWith('p1', ['p2', 'p2'])).toStrictEqual([]);
     expect(queryWith('p1', ['p1', 'p2'])).toStrictEqual(['stream|0["p1"]']);
   });
 
