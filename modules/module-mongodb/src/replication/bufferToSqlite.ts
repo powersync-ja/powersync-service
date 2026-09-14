@@ -584,11 +584,11 @@ function serializeNestedElementValue(
         const str = value ? 'true' : 'false';
 
         writer.writeAscii(str);
-        return { nextOffset: offset + str.length, defined: true };
       } else {
         writer.writeByte(value ? BYTE_ONE : BYTE_ZERO);
-        return { nextOffset: offset + 1, defined: true };
       }
+
+      return { nextOffset: offset + 1, defined: true };
     }
     case BSON_TYPE_UTC_DATETIME: // UTC datetime
       return serializeNestedDateTimeElement(bytes, offset, writer, options.dateRenderMode);
