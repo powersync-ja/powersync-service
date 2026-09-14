@@ -172,8 +172,8 @@ describe('ResultSet', () => {
       expect(rs.length).toStrictEqual(4);
       expect([...rs.projectUnique([col0, col1])]).toStrictEqual([
         ['a', 10],
-        ['c', 30],
-        ['c', 31]
+        ['c', 31],
+        ['c', 30]
       ]);
     });
 

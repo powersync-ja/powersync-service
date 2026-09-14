@@ -192,21 +192,18 @@ export class ResultSet {
       filter,
       [Symbol.dispose]: () => {
         if (deletedRows.length > 0) {
-          // Indices to delete are sorted, so we can do a single pass to the array to remove them. We fill deleted slots
-          // by moving following rows into the hole.
-          let deletedRowsIndex = 0;
-          let writeIndex = deletedRows[0];
-
-          for (let scanIndex = deletedRows[0]; scanIndex < this.#rows.length; scanIndex++) {
-            if (deletedRowsIndex < deletedRows.length && scanIndex === deletedRows[deletedRowsIndex]) {
-              // Skip this row to delete it, the next row will be copied to this position.
-              deletedRowsIndex++;
-              continue;
+          // This is a set, so the order of rows doesn't matter. Delete indices by moving them to the end, then
+          // truncating. Note that deletedRows are sorted, this processes them from the end.
+          let end = this.#rows.length;
+          for (let i = deletedRows.length - 1; i >= 0; i--) {
+            const deleted = deletedRows[i];
+            end--;
+            if (deleted !== end) {
+              this.#rows[deleted] = this.#rows[end];
             }
-            this.#rows[writeIndex++] = this.#rows[scanIndex];
           }
 
-          this.#rows.length = writeIndex;
+          this.#rows.length = end;
         }
 
         this.#containsLookup[addedResultSetIndex] = true;
