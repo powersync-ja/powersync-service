@@ -4,7 +4,7 @@ import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { randomUUID } from 'node:crypto';
 import { MemoryObjectStorage } from './MemoryObjectStorage.js';
 
-const minioStorages: S3ObjectStorage[] = [];
+const rustfsStorages: S3ObjectStorage[] = [];
 
 export interface S3TestFactoryOptions {
   url: string;
@@ -26,24 +26,24 @@ function createTestStorageSuite(options: S3TestFactoryOptions, objectStorage: Ob
 
 /**
  * Creates an ObjectStorage instance for S3 tests.
- * Set MINIO_ENDPOINT to switch all S3 tests from MemoryObjectStorage
- * to a real MinIO/S3 endpoint.
- *   MINIO_ENDPOINT=http://localhost:9000
+ * Set RUSTFS_ENDPOINT to switch all S3 tests from MemoryObjectStorage
+ * to a real RustFS/S3 endpoint.
+ *   RUSTFS_ENDPOINT=http://localhost:9000
  */
 export function createS3TestStorageSuite(options: S3TestFactoryOptions) {
-  const minioEndpoint = process.env.MINIO_ENDPOINT;
+  const rustfsEndpoint = process.env.RUSTFS_ENDPOINT;
   let objectStorage: ObjectStorage;
-  if (minioEndpoint) {
+  if (rustfsEndpoint) {
     const s3 = new S3ObjectStorage({
       bucket: 'powersync-s3-test',
       region: 'us-east-1',
       prefix: `test-${process.pid}-${randomUUID()}`,
-      endpoint: minioEndpoint,
+      endpoint: rustfsEndpoint,
       forcePathStyle: true,
-      accessKeyId: process.env.MINIO_ACCESS_KEY ?? 'minioadmin',
-      secretAccessKey: process.env.MINIO_SECRET_KEY ?? 'minioadmin'
+      accessKeyId: process.env.RUSTFS_ACCESS_KEY ?? 'rustfsadmin',
+      secretAccessKey: process.env.RUSTFS_SECRET_KEY ?? 'rustfsadmin'
     });
-    minioStorages.push(s3);
+    rustfsStorages.push(s3);
     objectStorage = s3;
   } else {
     objectStorage = new MemoryObjectStorage();
@@ -52,9 +52,9 @@ export function createS3TestStorageSuite(options: S3TestFactoryOptions) {
   return createTestStorageSuite(options, objectStorage);
 }
 
-/** Remove all objects created by MinIO-backed suites in the current test. */
+/** Remove all objects created by RustFS-backed suites in the current test. */
 export async function cleanupS3TestStorage(): Promise<void> {
-  for (const storage of minioStorages.splice(0)) {
+  for (const storage of rustfsStorages.splice(0)) {
     await storage.deletePrefix('bucket-data/');
   }
 }
