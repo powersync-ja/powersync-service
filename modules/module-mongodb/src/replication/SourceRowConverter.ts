@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { applyRowContext, CompatibilityContext, SqliteRow } from '@powersync/service-sync-rules';
+import { applyRowContext, CompatibilityContext, CompatibilityOption, SqliteRow } from '@powersync/service-sync-rules';
 import { bufferToSqlite, DateRenderMode, getDateRenderMode, parseDocumentId } from './bufferToSqlite.js';
 import { constructAfterRecord } from './MongoRelation.js';
 
@@ -46,13 +46,15 @@ export class LegacySourceRowConverter implements SourceRowConverter {
 
 export class DirectSourceRowConverter implements SourceRowConverter {
   private readonly dateRenderMode: DateRenderMode;
+  private readonly fixedBooleansInJson: boolean;
 
   constructor(compatibilityContext: CompatibilityContext) {
     this.dateRenderMode = getDateRenderMode(compatibilityContext);
+    this.fixedBooleansInJson = compatibilityContext.isEnabled(CompatibilityOption.fixedBooleanInJson);
   }
 
   rawToSqliteRow(source: Buffer): { row: SqliteRow; replicaId: any } {
-    const row = bufferToSqlite(source, this.dateRenderMode);
+    const row = bufferToSqlite(source, this.dateRenderMode, this.fixedBooleansInJson);
     const replicaId = parseDocumentId(source).id;
     return { row, replicaId };
   }

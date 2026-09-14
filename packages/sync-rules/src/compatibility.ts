@@ -66,12 +66,19 @@ export class CompatibilityOption {
     null
   );
 
+  static fixedBooleanInJson = new CompatibilityOption(
+    'fixed_booleans_in_json',
+    'Consistently sync boolean values of a JSON object or array in source data as booleans (instead of integers 0/1).',
+    null
+  );
+
   static byName: Record<string, CompatibilityOption> = Object.freeze({
     timestamps_iso8601: this.timestampsIso8601,
     versioned_bucket_ids: this.versionedBucketIds,
     fixed_json_extract: this.fixedJsonExtract,
     custom_postgres_types: this.customTypes,
-    unstable_sqlite_expression_engine: this.sqliteExpressionEngine
+    unstable_sqlite_expression_engine: this.sqliteExpressionEngine,
+    fixed_booleans_in_json: this.fixedBooleanInJson
   });
 }
 
