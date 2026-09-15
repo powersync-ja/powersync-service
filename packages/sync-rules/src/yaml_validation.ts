@@ -43,6 +43,8 @@ export interface YamlMapState extends YamlState {
    * Extracts all items from this map, asserting that the keys are strings.
    */
   stringKeyedItems(): Iterable<YamlMapEntry>;
+  /** Delegate additional-key validation to another validator, such as an extension-composed JSON Schema. */
+  allowAdditionalKeys(): void;
   get(item: string): YamlState | undefined;
 
   /**
@@ -123,6 +125,9 @@ export function documentState(doc: Document, report: (error: YamlError) => void)
             yield { key, keyScalar, value };
           }
         }
+      },
+      allowAdditionalKeys() {
+        matchedKeys = null;
       },
       get(item) {
         const resolved = node.get(item, true);

@@ -1,3 +1,4 @@
+import { ConnectionConfigMap, normalizeConnectionConfig } from '../ConnectionConfig.js';
 import { ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { SqlExpression } from './expression.js';
@@ -226,6 +227,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
   }
 
   const events = plan.events.map(tableProcessorSerializer.serializeEventDefinition);
+  const connectionConfig = normalizeConnectionConfig(plan.connectionConfig);
   const serialized: SerializedSyncPlan = {
     dataSources: serializeDataSources(),
     buckets: plan.buckets.map((bkt, index) => {
@@ -241,7 +243,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
       stream: s.stream,
       queriers: s.queriers.map(serializeStreamQuerier)
     })),
-    version: tableProcessorSerializer.usesRowMetadataSqlValue ? 2 : 1
+    version: Object.keys(connectionConfig).length != 0 ? 4 : tableProcessorSerializer.usesRowMetadataSqlValue ? 2 : 1
   };
 
   // Compiled events are intentionally additive to plan versions 1 and 2. The service also persists their raw SQL in
@@ -250,18 +252,19 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
     serialized.events = events;
   }
 
+  if (Object.keys(connectionConfig).length != 0) serialized.connectionConfig = connectionConfig;
   return serialized;
 }
 
 export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   const { version } = serialized as SerializedSyncPlan;
-  if (version < 1) {
-    throw new Error('Unknown sync plan version passed to deserializeSyncPlan()');
-  }
   if (version > maxSupportedSyncPlanVersion) {
     throw new Error(
       `Encountered a sync plan with version ${version}, the maximum supported version is ${maxSupportedSyncPlanVersion}. This can happen when the PowerSync service version is downgraded after deploying Sync Streams, consider upgrading or re-deploying.`
     );
+  }
+  if (version !== 1 && version !== 2 && version !== 4) {
+    throw new Error('Unknown sync plan version passed to deserializeSyncPlan()');
   }
 
   function deserializeTablePattern(pattern: SerializedTablePattern): ImplicitSchemaTablePattern {
@@ -298,6 +301,10 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   }
 
   const plan = serialized as SerializedSyncPlan;
+  const connectionConfig = normalizeConnectionConfig(plan.connectionConfig);
+  if (Object.keys(connectionConfig).length != 0 && plan.version != 4) {
+    throw new Error('Connection configuration requires sync plan version 4.');
+  }
   const dataSources = plan.dataSources.map((source): StreamDataSource => {
     const functions = (tableValuedFunctionsInScope = source.tableValuedFunctions);
 
@@ -437,7 +444,8 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
     buckets,
     parameterIndexes,
     streams,
-    events
+    events,
+    ...(Object.keys(connectionConfig).length != 0 && { connectionConfig })
   };
 }
 
@@ -450,6 +458,11 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
  * plan for the legacy evaluator. Older readers ignore `events` and use that legacy mirror. Removing the mirror or
  * relying on compiled-only event semantics will require a version bump.
  *
+ * ### Version 4
+ *
+ * - First-class connection configuration. Older services must reject plans whose source options they cannot interpret.
+ * - Version 3 was used by the exploratory extension-envelope prototype and is not supported by this implementation.
+ *
  * ### Version 2
  *
  * - Add {@link RowMetadataSqlValue} to data for row and parameter evaluators, exposing the exact table and schema name
@@ -460,11 +473,13 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
  *
  * - Initial version
  */
-export type SerializedSyncPlanVersion = 1 | 2;
+export type SerializedSyncPlanVersion = 1 | 2 | 4;
 
-export const maxSupportedSyncPlanVersion: SerializedSyncPlanVersion = 2;
+export const maxSupportedSyncPlanVersion: SerializedSyncPlanVersion = 4;
 
 export interface SerializedSyncPlan {
+  /** Present only for configured connections; requires plan version 4. */
+  connectionConfig?: ConnectionConfigMap;
   version: SerializedSyncPlanVersion;
   dataSources: SerializedDataSource[];
   buckets: SerializedBucketDataSource[];

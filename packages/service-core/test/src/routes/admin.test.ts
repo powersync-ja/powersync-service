@@ -87,6 +87,28 @@ bucket_definitions:
   }
 
   describe('validate', () => {
+    it('uses the service parser and includes its diagnostics', async () => {
+      const context = makeContext();
+      context.service_context.syncConfigParser.registerParser({
+        id: 'example.validation',
+        parse({ context }) {
+          expect(context.defaultSchema).toBe('public');
+          context.reportDiagnostic({ level: 'fatal', message: 'Rejected by module validation.' });
+        }
+      });
+      const response = await validate.handler({
+        context,
+        request,
+        params: { sync_rules: 'config: { edition: 3 }\nstreams: {}\n' }
+      });
+      expect(response.errors).toContainEqual(
+        expect.objectContaining({
+          level: 'fatal',
+          message: 'Rejected by module validation.'
+        })
+      );
+    });
+
     it('reports errors with source location', async () => {
       const context = makeContext();
 

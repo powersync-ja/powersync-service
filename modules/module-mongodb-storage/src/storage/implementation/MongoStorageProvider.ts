@@ -74,7 +74,7 @@ export class MongoStorageProvider implements storage.StorageProvider {
             // 90 is the minimum value.
             maxStalenessSeconds: decodedConfig.bulk_read_preference == 'primary' ? undefined : 90
           });
-    const syncStorageFactory = new MongoBucketStorage(database, {
+    const syncStorageFactory = new MongoBucketStorage(database, options.syncConfigParser, {
       chunkCompactionConcurrency,
       replicationStreamNamePrefix: resolvedConfig.slot_name_prefix,
       readPreference,

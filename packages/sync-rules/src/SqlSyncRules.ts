@@ -1,10 +1,15 @@
 import { BucketPriority } from './BucketDescription.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
+import type { AdditionalSyncConfigParser } from './SyncConfigParserHooks.js';
 import { SyncRulesErrors, YamlError } from './errors.js';
 import { SyncConfigFromYaml } from './from_yaml.js';
+import type { JsonObject } from './json.js';
 import { RequestParameters, SourceSchema, SqliteJsonRow } from './types.js';
 
 export interface SyncRulesOptions {
+  parsers?: readonly AdditionalSyncConfigParser[];
+  /** Precomposed schema supplied by the service parser. */
+  jsonSchema?: JsonObject;
   schema?: SourceSchema;
   /**
    * The default schema to use when only a table name is specified.
@@ -78,7 +83,9 @@ export class SqlSyncRules extends SyncConfig {
       {
         throwOnError: options.throwOnError ?? true,
         schema: options.schema,
-        defaultSchema: options.defaultSchema
+        defaultSchema: options.defaultSchema,
+        parsers: options.parsers ?? [],
+        jsonSchema: options.jsonSchema
       },
       yaml
     );

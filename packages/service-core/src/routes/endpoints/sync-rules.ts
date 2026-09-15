@@ -1,14 +1,11 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 
 import { RouteAPI } from '../../api/RouteAPI.js';
-import {
-  logSyncConfigErrors,
-  updateSyncRulesFromConfig,
-  updateSyncRulesFromYaml
-} from '../../storage/BucketStorageFactory.js';
+import { logSyncConfigErrors, updateSyncRulesFromConfig } from '../../storage/BucketStorageFactory.js';
+import { SyncConfigParser } from '../../storage/SyncConfigParser.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -60,7 +57,7 @@ export const deploySyncRules = routeDefinition({
 
     try {
       const apiHandler = service_context.routerEngine.getAPI();
-      syncConfig = SqlSyncRules.fromYaml(content, {
+      syncConfig = service_context.syncConfigParser.parseYaml(content, {
         ...apiHandler.getParseSyncRulesOptions(),
         // We don't do any schema-level validation at this point
         schema: undefined
@@ -99,7 +96,7 @@ export const validateSyncRules = routeDefinition({
     const { service_context } = payload.context;
     const apiHandler = service_context.routerEngine.getAPI();
 
-    const info = await debugSyncRules(apiHandler, content);
+    const info = await debugSyncRules(apiHandler, content, service_context.syncConfigParser);
 
     return replyPrettyJson(info);
   }
@@ -126,10 +123,12 @@ export const currentSyncRules = routeDefinition({
 
     const sync_rules = active.content;
     const apiHandler = service_context.routerEngine.getAPI();
-    const info = await debugSyncRules(apiHandler, sync_rules.sync_rules_content);
+    const info = await debugSyncRules(apiHandler, sync_rules.sync_rules_content, service_context.syncConfigParser);
     const next = await activeBucketStorage.getDeployingSyncConfig();
 
-    const next_info = next ? await debugSyncRules(apiHandler, next.content.sync_rules_content) : null;
+    const next_info = next
+      ? await debugSyncRules(apiHandler, next.content.sync_rules_content, service_context.syncConfigParser)
+      : null;
 
     const response = {
       current: {
@@ -181,15 +180,20 @@ export const reprocessSyncRules = routeDefinition({
     }
 
     const sync_rules = active.content;
-    const updateOptions = updateSyncRulesFromYaml(sync_rules.sync_rules_content, {
+    const parsed = payload.context.service_context.syncConfigParser.parseYaml(sync_rules.sync_rules_content, {
+      ...payload.context.service_context.routerEngine.getAPI().getParseSyncRulesOptions(),
+      schema: undefined,
       // This sync config already passed validation. But if the rules are not valid anymore due
       // to a service change, we do want to report the error here.
-      validate: true,
-      version_label: sync_rules.version_label,
-      forceNewReplicationStream: true
+      throwOnError: true
     });
-    logSyncConfigErrors(updateOptions.config.parsed);
-    const new_rules = await activeBucketStorage.updateSyncRules(updateOptions);
+    logSyncConfigErrors(parsed);
+    const new_rules = await activeBucketStorage.updateSyncRules(
+      updateSyncRulesFromConfig(parsed, {
+        version_label: sync_rules.version_label,
+        forceNewReplicationStream: true
+      })
+    );
     return {
       slot_name: new_rules.replicationStreamName
     };
@@ -206,9 +210,9 @@ function replyPrettyJson(payload: any) {
   });
 }
 
-async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
+async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string, syncConfigParser: SyncConfigParser) {
   try {
-    const rules = SqlSyncRules.fromYaml(sync_rules, {
+    const rules = syncConfigParser.parseYaml(sync_rules, {
       ...apiHandler.getParseSyncRulesOptions(),
       // No schema-based validation at this point
       schema: undefined
