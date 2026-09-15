@@ -3,11 +3,14 @@ import { storage } from '@powersync/service-core';
 import { JsonContainer } from '@powersync/service-jsonbig';
 import {
   CompatibilityContext,
+  CompatibilityOption,
   CustomArray,
   CustomObject,
   CustomSqliteValue,
   DateTimeSourceOptions,
   DateTimeValue,
+  SQLITE_FALSE,
+  SQLITE_TRUE,
   SqliteInputRow,
   SqliteInputValue,
   TimeValuePrecision
@@ -127,7 +130,11 @@ function filterJsonData(data: any, context: CompatibilityContext, depth = 0): an
       return data;
     }
   } else if (typeof data == 'boolean') {
-    return data ? 1n : 0n;
+    if (context.isEnabled(CompatibilityOption.fixedBooleanInJson)) {
+      return data;
+    }
+
+    return data ? SQLITE_TRUE : SQLITE_FALSE;
   } else if (typeof data == 'bigint') {
     return data;
   } else if (data instanceof Date) {
