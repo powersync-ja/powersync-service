@@ -15,7 +15,7 @@ export type SaveBucketDataOptions = {
   source_key: storage.ReplicaId;
   table: storage.SourceTable;
   before_buckets: models.CurrentBucket[];
-  evaluated: sync_rules.EvaluatedRow[];
+  evaluated: (sync_rules.EvaluatedRow | sync_rules.SerializedEvaluatedRow)[];
 };
 
 export type SaveParameterDataOptions = {
@@ -107,7 +107,7 @@ export class PostgresPersistedBatch {
       const key = currentBucketKey(k);
       remaining_buckets.delete(key);
 
-      const data = JSONBig.stringify(k.data);
+      const data = typeof k.data === 'string' ? k.data : JSONBig.stringify(k.data);
       const checksum = utils.hashData(k.table, k.id, data);
 
       this.bucketDataInserts.push({
