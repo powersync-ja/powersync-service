@@ -79,6 +79,20 @@ jobs:
       - name: Test
         run: pnpm test:core
 
+  run-core-tests-windows:
+    name: Core Test (Windows)
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
+
+      - name: Test
+        run: pnpm test:core
+
   run-postgres-replication-tests:
     name: Postgres Replication Test
     runs-on: ubuntu-latest
