@@ -6,6 +6,20 @@ import base_schema from '../fixtures/schema.js';
 const base_validator = framework_schema.createSchemaValidator(base_schema);
 
 describe('json-schema-validation', () => {
+  test('accepts editor pattern messages while retaining pattern validation and strict schema keywords', () => {
+    const validator = framework_schema.createSchemaValidator({
+      type: 'object',
+      properties: {
+        field: { type: 'string', pattern: '^example:', patternErrorMessage: 'Use an example: reference.' }
+      }
+    });
+    expect(validator.validate({ field: 'example:name' }).valid).toBe(true);
+    expect(validator.validate({ field: 'name' }).valid).toBe(false);
+    expect(() => framework_schema.createSchemaValidator({ type: 'string', unknownKeyword: true })).toThrow(
+      'unknown keyword'
+    );
+  });
+
   test('passes validation for json-schema', () => {
     const result = base_validator.validate({
       name: {

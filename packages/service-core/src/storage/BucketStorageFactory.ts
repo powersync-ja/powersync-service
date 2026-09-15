@@ -4,7 +4,6 @@ import {
   SerializedSyncPlan as RawSerializedSyncPlan,
   SerializedCompatibilityContext,
   serializeSyncPlan,
-  SqlSyncRules,
   SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
 import { ReplicationError } from '@powersync/service-types';
@@ -14,6 +13,7 @@ import { PersistedSyncConfigContent } from './PersistedSyncConfigContent.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { ReportStorage } from './ReportStorage.js';
+import { SqlSyncConfigParser, SyncConfigParser } from './SyncConfigParser.js';
 import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
 
 /**
@@ -28,6 +28,13 @@ export abstract class BucketStorageFactory
   extends BaseObserver<BucketStorageFactoryListener>
   implements AsyncDisposable
 {
+  /**
+   * Creates a storage factory using the service-wide parser assembled before storage startup.
+   */
+  constructor(readonly syncConfigParser: SyncConfigParser) {
+    super();
+  }
+
   /**
    * Update sync config from configuration, if changed.
    */
@@ -223,14 +230,15 @@ export function updateSyncRulesFromYaml(
   content: string,
   options?: Omit<UpdateSyncRulesOptions, 'config'> & { validate?: boolean }
 ): UpdateSyncRulesOptions {
-  const config = SqlSyncRules.fromYaml(content, {
+  const { validate, ...updateOptions } = options ?? {};
+  const config = new SqlSyncConfigParser().parseYaml(content, {
     // No schema-based validation at this point
     schema: undefined,
     defaultSchema: options?.defaultSchema ?? 'not_applicable', // Not needed for validation
-    throwOnError: options?.validate ?? false
+    throwOnError: validate ?? false
   });
 
-  return updateSyncRulesFromConfig(config, options);
+  return updateSyncRulesFromConfig(config, updateOptions);
 }
 
 export function updateSyncRulesFromConfig(
