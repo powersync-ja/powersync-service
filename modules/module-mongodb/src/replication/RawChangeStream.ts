@@ -364,7 +364,7 @@ type MapRawDocument<T> = T extends unknown ? { [K in keyof T]: Rawify<T[K]> } : 
 export type ProjectedChangeStreamDocument =
   | Omit<mongo.ChangeStreamDropDocument, 'wallTime' | 'collectionUUID'>
   | Omit<mongo.ChangeStreamRenameDocument, 'wallTime'>
-  | Omit<mongo.ChangeStreamDeleteDocument<Buffer>, 'wallTime'>
+  | Omit<mongo.ChangeStreamDeleteDocument<Buffer>, 'wallTime' | 'collectionUUID'>
   | Omit<mongo.ChangeStreamInsertDocument<Buffer>, 'wallTime'>
   | Omit<mongo.ChangeStreamUpdateDocument<Buffer>, 'wallTime' | 'updateDescription'>
   | Omit<mongo.ChangeStreamReplaceDocument<Buffer>, 'wallTime'>;
