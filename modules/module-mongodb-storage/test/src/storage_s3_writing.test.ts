@@ -1,5 +1,5 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { test_utils } from '@powersync/service-core-tests';
+import { getTestStorage, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
@@ -28,7 +28,7 @@ describe('S3 object storage writes', () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
@@ -95,7 +95,7 @@ describe('S3 object storage writes', () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 4);

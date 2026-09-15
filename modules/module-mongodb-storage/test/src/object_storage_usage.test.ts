@@ -8,6 +8,7 @@ import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/Ver
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { updateSyncRulesFromYaml } from '@powersync/service-core';
+import { getTestStorage } from '@powersync/service-core-tests';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
@@ -33,7 +34,7 @@ type UsageEntry = {
 async function withUsageContext<T>(callback: (context: UsageContext) => Promise<T>): Promise<T> {
   await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
   const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-  const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+  const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
   const db = bucketStorage.db as VersionedPowerSyncMongoV3;
   const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
   return callback({ db, bucketStorage, definitionId });

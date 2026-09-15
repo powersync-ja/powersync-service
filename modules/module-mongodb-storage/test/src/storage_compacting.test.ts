@@ -17,7 +17,7 @@ import {
   SyncRulesBucketStorage,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { bucketRequest, compactActive, register, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, compactActive, getTestStorage, register, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
 import { describe, expect, test, vi } from 'vitest';
 import { env } from './env.js';
@@ -106,7 +106,7 @@ bucket_definitions:
           { storageVersion }
         )
       );
-      const bucketStorage = factory.getInstance(syncRules);
+      const bucketStorage = await getTestStorage(factory, syncRules);
       const syncRulesContent = syncRules.syncConfigContent[0];
       const { checkpoint } = await populate(bucketStorage, 1);
 
@@ -164,7 +164,7 @@ bucket_definitions:
           { storageVersion }
         )
       );
-      const bucketStorage = factory.getInstance(syncRules);
+      const bucketStorage = await getTestStorage(factory, syncRules);
       const syncRulesContent = syncRules.syncConfigContent[0];
 
       await populate(bucketStorage, 2);
@@ -348,7 +348,7 @@ bucket_definitions:
         { storageVersion: 3 }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const mapping = syncRules.syncConfigContent[0].mapping;
     const definitionId = mapping.allBucketDefinitionIds()[0];
@@ -896,7 +896,7 @@ bucket_definitions:
         { storageVersion: 3 }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const mapping = syncRules.syncConfigContent[0].mapping;
     const definitionId = mapping.allBucketDefinitionIds()[0];
@@ -1073,7 +1073,7 @@ bucket_definitions:
         { storageVersion: 3 }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const mapping = syncRules.syncConfigContent[0].mapping;
     const definitionId = mapping.allBucketDefinitionIds()[0];
@@ -1466,7 +1466,7 @@ bucket_definitions:
         { storageVersion: 3 }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const mapping = syncRules.syncConfigContent[0].mapping;
     const definitionId = mapping.allBucketDefinitionIds()[0];
@@ -1655,7 +1655,7 @@ bucket_definitions:
         { storageVersion: 3 }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.storageIds.bucketDefinitionIds[0];
     const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
