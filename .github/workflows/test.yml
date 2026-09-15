@@ -211,7 +211,11 @@ jobs:
           Start-Service -Name $service.Name
           & "$env:PGBIN\createdb" -E UTF8 -T template0 powersync_test
           & "$env:PGBIN\createdb" -E UTF8 -T template0 powersync_storage_test
-          & "$env:PGBIN\psql" -c "ALTER SYSTEM SET wal_level = logical" -c "ALTER USER postgres WITH PASSWORD 'postgres'"
+          # Test databases do not need crash safety, and the disk on Windows runners is slow.
+          & "$env:PGBIN\psql" `
+            -c "ALTER SYSTEM SET wal_level = logical" `
+            -c "ALTER SYSTEM SET fsync = off" `
+            -c "ALTER USER postgres WITH PASSWORD 'postgres'"
           Restart-Service -Name $service.Name
 
       - name: Setup Node and build
