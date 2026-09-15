@@ -13,6 +13,7 @@ import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketStateDocumentBase, LEGACY_BUCKET_DATA_DEFINITION_ID } from '../models.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
+import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { cacheKey } from '../OperationBatch.js';
 import { BucketDataDocumentV1, BucketStateDocumentV1 } from './models.js';
 import type { MongoSyncBucketStorageV1 } from './MongoSyncBucketStorageV1.js';
@@ -296,11 +297,10 @@ export class MongoCompactorV1 extends MongoCompactor {
   }
 
   private async flushBucketStateUpdates() {
-    if (this.bucketStateUpdates.length > 0) {
-      this.logger.info(`Updating ${this.bucketStateUpdates.length} bucket states`);
-      await this.writeBucketStateUpdates();
-      this.bucketStateUpdates = [];
-    }
+    const writes = this.db.createWriteBatch(undefined, { ordered: false });
+    this.writeBucketStateUpdates(writes);
+    await writes.execute();
+    this.bucketStateUpdates = [];
   }
 
   private async updateChecksumsBatch(buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]) {
@@ -340,10 +340,12 @@ export class MongoCompactorV1 extends MongoCompactor {
     await this.flushBucketStateUpdates();
   }
 
-  protected async writeBucketStateUpdates(): Promise<void> {
-    await this.db.bucketStateV1.bulkWrite(
-      this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV1>[],
-      { ordered: false }
+  protected writeBucketStateUpdates(writes: MongoWriteBatch): void {
+    if (this.bucketStateUpdates.length === 0) return;
+    this.logger.info(`Updating ${this.bucketStateUpdates.length} bucket states`);
+    writes.bulkWriteUnordered(
+      this.db.bucketStateV1,
+      this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV1>[]
     );
   }
 
@@ -541,17 +543,19 @@ export class MongoCompactorV1 extends MongoCompactor {
   }
 
   private async flush(bucketContext: SingleBucketStoreV1) {
+    // Persist data changes before advertising the resulting bucket state.
+    const writes = this.db.createWriteBatch(undefined, { ordered: true });
     if (this.updates.length > 0) {
       this.logger.info(`Compacting ${this.updates.length} ops`);
-      await bucketContext.collection.bulkWrite(this.updates, {
-        // Order is not important. Since checksums are not affected, these operations can happen in any order,
-        // and it's fine if the operations are partially applied. Each individual operation is atomic.
-        ordered: false
-      });
-      this.updates = [];
+      // Order is not important. Since checksums are not affected, these operations can happen in any order,
+      // and it's fine if the operations are partially applied. Each individual operation is atomic.
+      writes.bulkWriteUnordered(bucketContext.collection, this.updates);
     }
 
-    await this.flushBucketStateUpdates();
+    this.writeBucketStateUpdates(writes);
+    await writes.execute();
+    this.updates = [];
+    this.bucketStateUpdates = [];
   }
 
   /**
@@ -622,15 +626,13 @@ export class MongoCompactorV1 extends MongoCompactor {
             }
 
             this.logger.info(`Flushing CLEAR for ${numberOfOpsToClear} ops at ${lastOp?.o}`);
-            await bucketContext.collection.deleteMany(
-              {
-                _id: {
-                  $gte: bucketContext.minId,
-                  $lte: bucketContext.docId(lastOp!.o)
-                }
-              },
-              { session }
-            );
+            const writes = this.db.createWriteBatch(session, { ordered: true });
+            writes.deleteMany(bucketContext.collection, {
+              _id: {
+                $gte: bucketContext.minId,
+                $lte: bucketContext.docId(lastOp!.o)
+              }
+            });
 
             const op = bucketContext.toPersistedDocument({
               o: lastOp!.o,
@@ -639,7 +641,8 @@ export class MongoCompactorV1 extends MongoCompactor {
               data: null,
               target_op: targetOp
             });
-            await bucketContext.collection.insertOne(op, { session });
+            writes.insertOne(bucketContext.collection, op);
+            await writes.execute();
 
             opCountDiff = -numberOfOpsToClear + 1;
           },

@@ -15,6 +15,25 @@ describe('isAbortError', () => {
 });
 
 describe('acquireSemaphoreAbortable', () => {
+  test('waits for an available slot without a signal', async () => {
+    const semaphore = new Semaphore(1);
+    const [, release] = await semaphore.acquire();
+    const resolved = vi.fn();
+    const waiting = acquireSemaphoreAbortable(semaphore).then((result) => {
+      resolved();
+      return result;
+    });
+    await Promise.resolve();
+    expect(resolved).not.toHaveBeenCalled();
+
+    release();
+    const acquired = await waiting;
+    expect(acquired).not.toBe('aborted');
+    expect(semaphore.getValue()).toBe(0);
+    (acquired as [number, SemaphoreInterface.Releaser])[1]();
+    expect(semaphore.getValue()).toBe(1);
+  });
+
   test('can acquire', async () => {
     const semaphore = new Semaphore(1);
     const controller = new AbortController();

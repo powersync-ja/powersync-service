@@ -95,7 +95,8 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
             },
             upsert: true
           }
-        }))
+        })),
+        { ordered: false }
       );
 
       const userIds = generatedCheckpoints.map((checkpoint) => checkpoint.user_id);
@@ -180,7 +181,8 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
             upsert: true
           }
         };
-      })
+      }),
+      { ordered: false }
     );
 
     // Fetch the final ids separately so stale requests can still return the

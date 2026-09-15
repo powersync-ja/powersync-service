@@ -13,6 +13,7 @@ import {
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
 import { SourceRecordLookupState } from '../common/SourceRecordStore.js';
+import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { serializeBucketData } from './bucket-format.js';
 import { chunkBucketData } from './chunking.js';
 import { DEFAULT_MIN_COMPACT_CHUNK_INTERVAL_MS } from './compaction-constants.js';
@@ -28,8 +29,15 @@ import { ObjectStorageLifecycle } from './object-storage/ObjectStorageLifecycle.
 import { ObjectStorageUsage } from './object-storage/ObjectStorageUsage.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
+interface SourceRecordWrite {
+  sourceTableId: bson.ObjectId;
+  operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3>;
+}
+
 export class PersistedBatchV3 extends PersistedBatch {
-  currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
+  // Upserts and soft deletes supply the complete source-record state, including
+  // pending_delete. Keep the final state per key, without removing any history.
+  currentData = new Map<string, SourceRecordWrite>();
   sourceTablePendingDeletes = new Map<string, InternalOpId>();
   protected readonly objectStorageLifecycle?: ObjectStorageLifecycle;
   protected readonly objectStorageUsage?: ObjectStorageUsage;
@@ -131,7 +139,7 @@ export class PersistedBatchV3 extends PersistedBatch {
   }
 
   hardDeleteCurrentData(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId) {
-    this.currentData.push({
+    this.currentData.set(this.currentDataKey(sourceTableId, replicaId), {
       sourceTableId,
       operation: {
         deleteOne: {
@@ -147,7 +155,7 @@ export class PersistedBatchV3 extends PersistedBatch {
     replicaId: storage.ReplicaId,
     checkpointGreaterThan: InternalOpId
   ) {
-    this.currentData.push({
+    this.currentData.set(this.currentDataKey(sourceTableId, replicaId), {
       sourceTableId,
       operation: {
         updateOne: {
@@ -195,7 +203,7 @@ export class PersistedBatchV3 extends PersistedBatch {
       };
     });
 
-    this.currentData.push({
+    this.currentData.set(this.currentDataKey(values.sourceTableId, values.replicaId), {
       sourceTableId: values.sourceTableId,
       operation: {
         updateOne: {
@@ -216,12 +224,12 @@ export class PersistedBatchV3 extends PersistedBatch {
   }
 
   protected get currentDataCount() {
-    return this.currentData.length;
+    return this.currentData.size;
   }
 
   // Flush methods
 
-  protected async flushBucketData(session: mongo.ClientSession) {
+  protected async queueBucketData(writes: MongoWriteBatch) {
     const operationsByDefinition = new Map<BucketDefinitionId, BucketDataDoc[]>();
     for (const document of this.bucketData) {
       const existing = operationsByDefinition.get(document.bucketKey.definitionId) ?? [];
@@ -284,10 +292,10 @@ export class PersistedBatchV3 extends PersistedBatch {
     // S3ObjectStorage applies one shared concurrency limit across all callers,
     // so replication can schedule its uploads together without creating a
     // separate limiter here.
-    const writes = await createAllInserts();
+    const bucketWrites = await createAllInserts();
 
     const usageDeltas = this.objectStorageUsage == null ? undefined : new Map<BucketDefinitionId, bigint>();
-    for (const { definitionId, inserts } of writes) {
+    for (const { definitionId, inserts } of bucketWrites) {
       if (usageDeltas != null) {
         const delta = inserts.reduce(
           (sum, operation) => sum + ObjectStorageUsage.bytes(operation.insertOne.document),
@@ -298,18 +306,15 @@ export class PersistedBatchV3 extends PersistedBatch {
         }
       }
       if (inserts.length > 0) {
-        await this.db.bucketData(this.group_id, definitionId).bulkWrite(inserts, {
-          session,
-          ordered: false
-        });
+        writes.bulkWriteUnordered(this.db.bucketData(this.group_id, definitionId), inserts);
       }
     }
     if (usageDeltas != null) {
-      await this.objectStorageUsage!.applyDeltas(usageDeltas, session);
+      this.objectStorageUsage!.applyDeltas(usageDeltas, writes);
     }
   }
 
-  protected async flushBucketParameters(session: mongo.ClientSession) {
+  protected queueBucketParameters(writes: MongoWriteBatch): void {
     const operationsByIndex = new Map<string, typeof this.bucketParameters>();
     for (const document of this.bucketParameters) {
       const existing = operationsByIndex.get(document.index) ?? [];
@@ -318,23 +323,20 @@ export class PersistedBatchV3 extends PersistedBatch {
     }
 
     for (const [indexId, documents] of operationsByIndex.entries()) {
-      await this.db.parameterIndex(this.group_id, indexId).bulkWrite(
+      writes.bulkWriteUnordered(
+        this.db.parameterIndex(this.group_id, indexId),
         documents.map((document) => ({
           insertOne: {
             document: taggedBucketParameterDocumentToTagged(document)
           }
-        })),
-        {
-          session,
-          ordered: false
-        }
+        }))
       );
     }
   }
 
-  protected async flushCurrentData(session: mongo.ClientSession) {
-    const operationsBySourceTable = new Map<string, typeof this.currentData>();
-    for (const operation of this.currentData) {
+  protected queueCurrentData(writes: MongoWriteBatch): void {
+    const operationsBySourceTable = new Map<string, SourceRecordWrite[]>();
+    for (const operation of this.currentData.values()) {
       const sourceTableId = operation.sourceTableId.toHexString();
       const existing = operationsBySourceTable.get(sourceTableId) ?? [];
       existing.push(operation);
@@ -357,31 +359,29 @@ export class PersistedBatchV3 extends PersistedBatch {
     });
 
     if (sourceTableUpdates.length > 0) {
-      await this.db.sourceTables(this.group_id).bulkWrite(sourceTableUpdates, { session, ordered: false });
+      writes.bulkWriteUnordered(this.db.sourceTables(this.group_id), sourceTableUpdates);
     }
 
     for (const operations of operationsBySourceTable.values()) {
       const sourceTableId = operations[0]!.sourceTableId;
-      await this.db.sourceRecords(this.group_id, sourceTableId).bulkWrite(
-        operations.map((entry) => entry.operation),
-        {
-          session,
-          ordered: true
-        }
+      writes.bulkWriteUnordered(
+        this.db.sourceRecords(this.group_id, sourceTableId),
+        operations.map((entry) => entry.operation)
       );
     }
   }
 
-  protected async flushBucketStates(session: mongo.ClientSession) {
-    await this.db.bucketState(this.group_id).bulkWrite(this.getBucketStateUpdates(), {
-      session,
-      ordered: false
-    });
+  protected queueBucketStates(writes: MongoWriteBatch): void {
+    writes.bulkWriteUnordered(this.db.bucketState(this.group_id), this.getBucketStateUpdates());
   }
 
   protected resetCurrentData() {
-    this.currentData = [];
+    this.currentData.clear();
     this.sourceTablePendingDeletes.clear();
+  }
+
+  private currentDataKey(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): string {
+    return Buffer.from(bson.serialize({ t: sourceTableId, k: replicaId })).toString('base64');
   }
 
   private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[] {

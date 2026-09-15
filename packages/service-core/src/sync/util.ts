@@ -144,8 +144,11 @@ export async function* transformToBytesTracked(
 
 export function acquireSemaphoreAbortable(
   semaphone: SemaphoreInterface,
-  abort: AbortSignal
+  abort?: AbortSignal
 ): Promise<[number, SemaphoreInterface.Releaser] | 'aborted'> {
+  if (abort == null) {
+    return semaphone.acquire();
+  }
   return new Promise((resolve, reject) => {
     // An already-aborted signal never fires its listener, and we would wait for the semaphore
     // indefinitely.

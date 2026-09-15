@@ -22,7 +22,7 @@
     "clean:modules": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
     "clean": "pnpm run -r clean",
     "release": "pnpm build:production && pnpm changeset publish",
-    "test:core": "pnpm run -r --filter '!./modules/*' test",
+    "test:core": "pnpm run -r --filter \"!./modules/*\" test",
     "configure-hooks": "husky"
   },
   "devDependencies": {

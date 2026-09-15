@@ -1,7 +1,11 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
-import { MongoStorageConfig, normalizeClearBatchThrottleRate } from '../../types/types.js';
+import {
+  MongoStorageConfig,
+  normalizeChunkCompactionConcurrency,
+  normalizeClearBatchThrottleRate
+} from '../../types/types.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { MongoReportStorage } from '../MongoReportStorage.js';
 import { PowerSyncMongo } from './db.js';
@@ -24,6 +28,10 @@ export class MongoStorageProvider implements storage.StorageProvider {
     }
 
     const decodedConfig = MongoStorageConfig.decode(storage as any);
+    const chunkCompactionConcurrency = normalizeChunkCompactionConcurrency(
+      decodedConfig.chunk_compaction_concurrency,
+      decodedConfig.object_storage != null
+    );
 
     let objectStorage: ObjectStorage | undefined;
     if (decodedConfig.object_storage?.type === 's3') {
@@ -47,6 +55,8 @@ export class MongoStorageProvider implements storage.StorageProvider {
       maxPoolSize: resolvedConfig.storage.max_pool_size ?? 8
     });
 
+    const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
+
     let shuttingDown = false;
 
     // Explicitly connect on startup.
@@ -56,7 +66,6 @@ export class MongoStorageProvider implements storage.StorageProvider {
     // Errors here will cause the process to exit.
     await client.connect();
 
-    const database = new PowerSyncMongo(client, { database: resolvedConfig.storage.database });
     const readPreference =
       decodedConfig.bulk_read_preference == null
         ? undefined
@@ -66,6 +75,7 @@ export class MongoStorageProvider implements storage.StorageProvider {
             maxStalenessSeconds: decodedConfig.bulk_read_preference == 'primary' ? undefined : 90
           });
     const syncStorageFactory = new MongoBucketStorage(database, {
+      chunkCompactionConcurrency,
       replicationStreamNamePrefix: resolvedConfig.slot_name_prefix,
       readPreference,
       clearBatchThrottleRate: normalizeClearBatchThrottleRate(decodedConfig.clear_batch_throttle_rate),

@@ -55,8 +55,15 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     session: mongo.ClientSession,
     opId: InternalOpId
   ): Promise<void> {
+    // Only the final checkpoint per user/stream is visible after this transaction.
+    const checkpoints = new Map(
+      this.write_checkpoint_batch.map((checkpoint) => [
+        JSON.stringify([checkpoint.sync_rules_id, checkpoint.user_id]),
+        checkpoint
+      ])
+    );
     await this.db.custom_write_checkpoints.bulkWrite(
-      this.write_checkpoint_batch.map((checkpointOptions) => {
+      [...checkpoints.values()].map((checkpointOptions) => {
         const set: Record<string, unknown> = {
           checkpoint: checkpointOptions.checkpoint,
           sync_rules_id: checkpointOptions.sync_rules_id,
@@ -77,7 +84,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           }
         };
       }),
-      { session }
+      { session, ordered: false }
     );
   }
 
@@ -462,7 +469,9 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     const ids = tables.map((table) => mongoTableId(table.id));
 
     await this.withTransaction(async () => {
-      await this.db.sourceTablesV1(this.replicationStreamId).updateMany(
+      const writes = this.db.createWriteBatch(session, { ordered: false });
+      writes.updateMany(
+        this.db.sourceTablesV1(this.replicationStreamId),
         { _id: { $in: ids } },
         {
           $set: {
@@ -471,12 +480,12 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           $unset: {
             snapshot_status: 1
           }
-        },
-        { session }
+        }
       );
 
       if (no_checkpoint_before_lsn != null) {
-        await this.db.sync_rules.updateOne(
+        writes.updateOne(
+          this.db.sync_rules,
           {
             _id: this.replicationStreamId
           },
@@ -487,10 +496,10 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
             $max: {
               no_checkpoint_before: no_checkpoint_before_lsn
             }
-          },
-          { session: this.session }
+          }
         );
       }
+      await writes.execute();
     });
     return tables.map((table) => {
       const copy = table.clone();

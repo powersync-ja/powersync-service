@@ -3,6 +3,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { randomUUID } from 'node:crypto';
+import { MongoWriteBatch } from '../../MongoWriteBatch.js';
 import { BucketDataDocumentV3, ObjectStorageUsageDocument } from '../models.js';
 import { VersionedPowerSyncMongoV3 } from '../VersionedPowerSyncMongoV3.js';
 
@@ -93,11 +94,11 @@ export class ObjectStorageUsage {
     });
   }
 
-  async applyDelta(definitionId: BucketDefinitionId, delta: bigint, session: mongo.ClientSession): Promise<void> {
-    await this.applyDeltas(new Map([[definitionId, delta]]), session);
+  applyDelta(definitionId: BucketDefinitionId, delta: bigint, writes: MongoWriteBatch): void {
+    this.applyDeltas(new Map([[definitionId, delta]]), writes);
   }
 
-  async applyDeltas(deltas: ReadonlyMap<BucketDefinitionId, bigint>, session: mongo.ClientSession): Promise<void> {
+  applyDeltas(deltas: ReadonlyMap<BucketDefinitionId, bigint>, writes: MongoWriteBatch): void {
     if (this.writerId == null) {
       throw new ReplicationAssertionError('A writer id is required to apply object-storage usage');
     }
@@ -113,13 +114,11 @@ export class ObjectStorageUsage {
       return;
     }
 
-    await this.db.objectStorageUsage.updateOne(
+    writes.updateOne(
+      this.db.objectStorageUsage,
       { _id: this.documentId() },
-      {
-        $inc: increments,
-        $currentDate: { updated_at: true }
-      },
-      { upsert: true, session }
+      { $inc: increments, $currentDate: { updated_at: true } },
+      { upsert: true }
     );
   }
 

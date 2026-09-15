@@ -36,6 +36,7 @@ import type { VersionedPowerSyncMongo } from './db.js';
 import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
+import { MongoWriteBatch } from './MongoWriteBatch.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 import { createObjectStorageUsageWriterId } from './v3/object-storage/ObjectStorageUsage.js';
@@ -239,11 +240,13 @@ export abstract class MongoBucketBatch
       if (this.write_checkpoint_batch.length > 0) {
         this.logger.info(`Writing ${this.write_checkpoint_batch.length} custom write checkpoints`);
         await this.batchCreateCustomWriteCheckpoints(session, opSeq.next());
-        this.write_checkpoint_batch = [];
       }
 
       last_op = opSeq.last();
     });
+
+    // Keep checkpoints available if the transaction retries after writing them.
+    this.write_checkpoint_batch = [];
 
     if (clearedError) {
       this.clearedError = true;
@@ -706,7 +709,9 @@ export abstract class MongoBucketBatch
 
       await callback(session, opSeq);
 
-      await this.db.op_id_sequence.updateOne(
+      const writes = this.db.createWriteBatch(session, { ordered: false });
+      writes.updateOne(
+        this.db.op_id_sequence,
         {
           _id: 'main'
         },
@@ -714,13 +719,11 @@ export abstract class MongoBucketBatch
           $set: {
             op_id: opSeq.last()
           }
-        },
-        {
-          session
         }
       );
 
-      await this.db.sync_rules.updateOne(
+      writes.updateOne(
+        this.db.sync_rules,
         {
           _id: this.replicationStreamId
         },
@@ -728,13 +731,13 @@ export abstract class MongoBucketBatch
           $set: {
             last_keepalive_ts: new Date()
           }
-        },
-        { session }
+        }
       );
 
       // Allow subclasses to persist additional flush-time state in the same transaction
       // (e.g. v3 advances the stream-level last_persisted_op).
-      await this.onReplicationTransactionFlush(session, opSeq.last());
+      this.onReplicationTransactionFlush(writes, opSeq.last());
+      await writes.execute();
       // We don't notify checkpoint here - we don't make any checkpoint updates directly
     });
   }
@@ -745,7 +748,7 @@ export abstract class MongoBucketBatch
    * The base implementation does nothing; v3 storage overrides this to `$max` the stream-level
    * `last_persisted_op` durably within the same transaction.
    */
-  protected async onReplicationTransactionFlush(_session: mongo.ClientSession, _lastOp: InternalOpId): Promise<void> {
+  protected onReplicationTransactionFlush(_writes: MongoWriteBatch, _lastOp: InternalOpId): void {
     // No-op by default (v1 behaviour unchanged).
   }
 

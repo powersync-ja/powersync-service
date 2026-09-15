@@ -1,7 +1,7 @@
-import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger } from '@powersync/lib-services-framework';
 import * as bson from 'bson';
 import { createHash, randomUUID } from 'node:crypto';
+import { MongoWriteBatch } from '../../MongoWriteBatch.js';
 import { ObjectStorageDeletionMarker } from '../models.js';
 import { VersionedPowerSyncMongoV3 } from '../VersionedPowerSyncMongoV3.js';
 import { BucketDataObjectStorage } from './BucketDataObjectStorage.js';
@@ -93,7 +93,7 @@ export class ObjectStorageLifecycle {
    *
    * Call this in the same transaction as the one creating the references.
    */
-  async publishUploads(uploads: PreparedObjectStorageUpload[], session: mongo.ClientSession): Promise<void> {
+  publishUploads(uploads: PreparedObjectStorageUpload[], writes: MongoWriteBatch): void {
     for (const upload of uploads) {
       if (!this.canPublish(upload)) {
         throw new Error(`Object storage publication lease expired for ${upload.path}`);
@@ -103,12 +103,13 @@ export class ObjectStorageLifecycle {
       return;
     }
 
-    const result = await this.db
-      .pendingObjectStorageDeletes(this.replicationStreamId)
-      .deleteMany({ _id: { $in: uploads.map((upload) => upload.markerId) } }, { session });
-    if (result.deletedCount !== uploads.length) {
-      throw new Error(`Missing object storage publication markers`);
-    }
+    writes.deleteMany(
+      this.db.pendingObjectStorageDeletes(this.replicationStreamId),
+      { _id: { $in: uploads.map((upload) => upload.markerId) } },
+      (deletedCount) => {
+        if (deletedCount !== uploads.length) throw new Error('Missing object storage publication markers');
+      }
+    );
   }
 
   /**
@@ -122,14 +123,14 @@ export class ObjectStorageLifecycle {
    *
    * Call this in the same transaction as the one removing the references to these files.
    */
-  async retire(paths: Iterable<string>, session: mongo.ClientSession, now = new Date()): Promise<void> {
+  retire(paths: Iterable<string>, writes: MongoWriteBatch, now = new Date()): void {
     const markers: ObjectStorageDeletionMarker[] = Array.from(paths, (path) => ({
       _id: new bson.ObjectId(),
       path,
       delete_after: new Date(now.getTime() + OBJECT_STORAGE_REFERENCE_GRACE_MS)
     }));
     if (markers.length) {
-      await this.db.pendingObjectStorageDeletes(this.replicationStreamId).insertMany(markers, { session });
+      writes.insertMany(this.db.pendingObjectStorageDeletes(this.replicationStreamId), markers);
     }
   }
 

@@ -65,6 +65,9 @@ export const MongoStorageConfig = service_types.configFile.BaseStorageConfig.and
      */
     clear_batch_throttle_rate: t.number.optional(),
 
+    /** Maximum concurrent buckets across V3 chunk-compaction jobs. Range: 1–64. Default: 4 with object storage, otherwise 2. */
+    chunk_compaction_concurrency: t.number.optional(),
+
     object_storage: S3ObjectStorageConfig.optional()
   })
 );
@@ -73,6 +76,21 @@ export type MongoStorageConfig = t.Encoded<typeof MongoStorageConfig>;
 export type MongoStorageConfigDecoded = t.Decoded<typeof MongoStorageConfig>;
 
 export const DEFAULT_CLEAR_BATCH_THROTTLE_RATE = 0.2;
+export const DEFAULT_CHUNK_COMPACTION_CONCURRENCY = 2;
+export const DEFAULT_OBJECT_STORAGE_CHUNK_COMPACTION_CONCURRENCY = 4;
+
+export function normalizeChunkCompactionConcurrency(value: number | undefined, hasObjectStorage = false): number {
+  const concurrency =
+    value ??
+    (hasObjectStorage ? DEFAULT_OBJECT_STORAGE_CHUNK_COMPACTION_CONCURRENCY : DEFAULT_CHUNK_COMPACTION_CONCURRENCY);
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 64) {
+    throw new ServiceError(
+      ErrorCode.PSYNC_S3201,
+      'storage.chunk_compaction_concurrency must be an integer between 1 and 64'
+    );
+  }
+  return concurrency;
+}
 
 export function normalizeClearBatchThrottleRate(value: number | undefined): number {
   const rate = value ?? DEFAULT_CLEAR_BATCH_THROTTLE_RATE;

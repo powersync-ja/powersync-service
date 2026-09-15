@@ -2,7 +2,7 @@ import { JSONBig, JsonContainer, Replacer, stringifyRaw } from '@powersync/servi
 import { SelectFromStatement, Statement } from 'pgsql-ast-parser';
 import { BucketDescription, BucketInclusionReason, BucketPriority, ResolvedBucket } from './BucketDescription.js';
 import { BucketDataSource } from './BucketSource.js';
-import { CompatibilityContext } from './compatibility.js';
+import { CompatibilityContext, CompatibilityOption } from './compatibility.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
 import { SQLITE_FALSE, SQLITE_TRUE } from './sqliteBool.js';
@@ -176,7 +176,7 @@ export function isValidParameterValue(value: SqliteValue): value is SqliteParame
   return value != null && isJsonValue(value);
 }
 
-function filterJsonData(data: any, context: CompatibilityContext, depth = 0): any {
+export function filterJsonData(data: any, context: CompatibilityContext, depth = 0): any {
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
     // TODO: Proper error class
@@ -191,6 +191,10 @@ function filterJsonData(data: any, context: CompatibilityContext, depth = 0): an
   } else if (typeof data == 'string' || typeof data == 'number') {
     return data;
   } else if (typeof data == 'boolean') {
+    if (context.isEnabled(CompatibilityOption.fixedBooleanInJson)) {
+      return data;
+    }
+
     return data ? SQLITE_TRUE : SQLITE_FALSE;
   } else if (typeof data == 'bigint') {
     return data;

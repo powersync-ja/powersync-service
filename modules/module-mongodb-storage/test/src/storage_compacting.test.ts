@@ -7,6 +7,7 @@ import { CompactionLease } from '@module/storage/implementation/v3/CompactionLea
 import { BucketDataDocumentV3 } from '@module/storage/implementation/v3/models.js';
 import { ObjectStorageError } from '@module/storage/implementation/v3/object-storage/ObjectStorage.js';
 import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
+import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { replicaIdToSubkey } from '@module/utils/util.js';
 import { logger as defaultLogger } from '@powersync/lib-services-framework';
 import {
@@ -19,6 +20,8 @@ import {
 import { bucketRequest, compactActive, register, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
 import { describe, expect, test, vi } from 'vitest';
+import { env } from './env.js';
+import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
 function makeOp(
@@ -167,9 +170,10 @@ bucket_definitions:
       await populate(bucketStorage, 2);
       const { checkpoint } = await bucketStorage.getCheckpoint();
 
-      // V3's initial lite pass processes every bucket with no prior compact state.
+      // Force V3's initial lite pass to process these small buckets for cache verification.
       // Earlier storage versions use the default minimum-change threshold.
       const result0 = await bucketStorage.compactInitialReplication({
+        forceChunkCompaction: true,
         maxOpId: checkpoint
       });
       expect(result0.buckets).toEqual(storageVersion >= storage.STORAGE_VERSION_3 ? 2 : 0);
@@ -177,6 +181,7 @@ bucket_definitions:
       // For V1/V2, lower the threshold to populate the checksum cache. V3 has
       // already updated its compacted state, so another initial pass is a no-op.
       const result1 = await bucketStorage.compactInitialReplication({
+        forceChunkCompaction: true,
         maxOpId: checkpoint,
         minBucketChanges: 1
       });
@@ -184,6 +189,7 @@ bucket_definitions:
 
       // Repeating it stays a no-op.
       const result2 = await bucketStorage.compactInitialReplication({
+        forceChunkCompaction: true,
         maxOpId: checkpoint,
         minBucketChanges: 1
       });
@@ -211,6 +217,7 @@ bucket_definitions:
         .createMongoCompactor({
           maxOpId: checkpoint,
           compactChunksOnly: true,
+          forceChunkCompaction: true,
           minCompactChunkIntervalMs: 1
         })
         .compact();
@@ -220,7 +227,10 @@ bucket_definitions:
 
     test('v3 repeated initial chunk compaction reschedules overdue full work beyond the current run', async () => {
       const { bucketStorage, checkpoint } = await setup(storage.STORAGE_VERSION_3);
-      const firstResult = await bucketStorage.compactInitialReplication({ maxOpId: checkpoint });
+      const firstResult = await bucketStorage.compactInitialReplication({
+        forceChunkCompaction: true,
+        maxOpId: checkpoint
+      });
       expect(firstResult.buckets).toBe(2);
 
       const bucketStateCollection = (bucketStorage.db as VersionedPowerSyncMongoV3).bucketState(
@@ -240,6 +250,7 @@ bucket_definitions:
         .aggregate<{ now: Date }>([{ $documents: [{}] }, { $project: { _id: 0, now: '$$NOW' } }])
         .toArray();
       const result = await bucketStorage.compactInitialReplication({
+        forceChunkCompaction: true,
         maxOpId: checkpoint,
         signal: AbortSignal.timeout(2_000)
       });
@@ -385,6 +396,91 @@ bucket_definitions:
     });
   }
 
+  test.each([1, 7])(
+    'initial compaction bulk-reschedules buckets with %s chunks without reading data',
+    async (chunks) => {
+      const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId, db } = await setupV3Storage();
+      const documents = Array.from({ length: chunks }, (_, index) =>
+        serializeBucketData(BUCKET, [makeOp(index + 1, String(index), 'data', ctx, sourceTableId)])
+      );
+      await insertDocs(collection, documents);
+      await bucketStateCollection.insertOne({
+        _id: { d: ctx.definitionId, b: BUCKET },
+        last_op: BigInt(chunks),
+        next_compact_check: new Date(0),
+        // Even overdue full compaction must not force a small initial chunk merge.
+        first_uncompacted_write: new Date(0),
+        bucket_stats: { count: chunks, bytes: BigInt(documents.reduce((sum, doc) => sum + doc.size, 0)), chunks }
+      });
+      const claim = vi.spyOn(CompactionLease, 'claim');
+      const data = vi.spyOn(db, 'bucketData');
+      try {
+        expect(await bucketStorage.compactInitialReplication({ maxOpId: BigInt(chunks) })).toEqual({ buckets: 0 });
+        expect(claim).not.toHaveBeenCalled();
+        expect(data).not.toHaveBeenCalled();
+        const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+        expect(state?.compacted_state).toBeUndefined();
+        expect(state?.compact_lease).toBeUndefined();
+        expect(state?.last_full_compact).toBeUndefined();
+        expect(state!.next_compact_check!.getTime()).toBeGreaterThan(Date.now());
+        expect(await collection.find().toArray()).toEqual(documents);
+      } finally {
+        claim.mockRestore();
+        data.mockRestore();
+      }
+    }
+  );
+
+  test('initial compaction rechecks the chunk threshold after claiming', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId, db } = await setupV3Storage();
+    const documents = Array.from({ length: 8 }, (_, index) =>
+      serializeBucketData(BUCKET, [makeOp(index + 1, String(index), 'data', ctx, sourceTableId)])
+    );
+    await insertDocs(collection, documents);
+    const bytes = BigInt(documents.reduce((sum, doc) => sum + doc.size, 0));
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 8n,
+      next_compact_check: new Date(0),
+      first_uncompacted_write: new Date(),
+      bucket_stats: { count: 8, bytes, chunks: 8 }
+    });
+    const originalClaim = CompactionLease.claim.bind(CompactionLease);
+    const claim = vi.spyOn(CompactionLease, 'claim').mockImplementationOnce(async (...args) => {
+      // Another compactor finishes before we acquire the lease, leaving one
+      // new chunk beyond its cached prefix instead of the eight we selected.
+      await bucketStateCollection.updateOne(
+        { _id: { d: ctx.definitionId, b: BUCKET } },
+        {
+          $set: {
+            compacted_state: {
+              op_id: 7n,
+              checksum: 196n,
+              count: 7,
+              bytes: bytes - BigInt(documents[7].size),
+              chunks: 7,
+              at: new Date()
+            }
+          }
+        }
+      );
+      return originalClaim(...args);
+    });
+    const data = vi.spyOn(db, 'bucketData');
+    try {
+      expect(await bucketStorage.compactInitialReplication({ maxOpId: 8n })).toEqual({ buckets: 0 });
+      expect(claim).toHaveBeenCalledTimes(1);
+      expect(data).not.toHaveBeenCalled();
+      const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+      expect(state?.compacted_state?.op_id).toBe(7n);
+      expect(state?.compact_lease).toBeUndefined();
+      expect(state!.next_compact_check!.getTime()).toBeGreaterThan(Date.now());
+    } finally {
+      claim.mockRestore();
+      data.mockRestore();
+    }
+  });
+
   test('a successful lease renewal clears a transient renewal error', async () => {
     const { bucketStateCollection, ctx } = await setupV3Storage();
     await insertBucketState(bucketStateCollection, ctx.definitionId, 1n);
@@ -446,7 +542,7 @@ bucket_definitions:
     );
 
     await (bucketStorage as MongoSyncBucketStorage)
-      .createMongoCompactor({ maxOpId: 2n, compactChunksOnly: true })
+      .createMongoCompactor({ maxOpId: 2n, compactChunksOnly: true, forceChunkCompaction: true })
       .compact();
 
     const [badState, goodState] = await Promise.all([
@@ -460,7 +556,7 @@ bucket_definitions:
 
   test('aborting scheduled compaction does not reschedule the remaining batch', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
-    const buckets = ['first[]', 'second[]', 'third[]'];
+    const buckets = Array.from({ length: 8 }, (_, index) => `bucket${index}[]`);
     const documents = buckets.map((bucket) =>
       serializeBucketData(bucket, [makeOp(2, bucket, bucket, { ...ctx, bucket }, sourceTableId)])
     );
@@ -490,6 +586,7 @@ bucket_definitions:
         .createMongoCompactor({
           maxOpId: 2n,
           compactChunksOnly: true,
+          forceChunkCompaction: true,
           signal: abortController.signal,
           logger: testLogger
         })
@@ -499,8 +596,11 @@ bucket_definitions:
     const states = await bucketStateCollection.find({ '_id.b': { $in: buckets } }).toArray();
     const completed = states.filter((state) => state.compacted_state != null);
     const remaining = states.filter((state) => state.compacted_state == null);
-    expect(completed).toHaveLength(1);
-    expect(remaining).toHaveLength(2);
+    // Already-started buckets may finish after abort, but the queued remainder
+    // must not be claimed or rescheduled.
+    expect(completed.length).toBeGreaterThanOrEqual(1);
+    expect(completed.length).toBeLessThanOrEqual(2);
+    expect(remaining.length).toBeGreaterThanOrEqual(6);
     for (const state of remaining) {
       expect(state.next_compact_check).toEqual(new Date(0));
       expect(state.compact_lease).toBeUndefined();
@@ -1637,8 +1737,8 @@ bucket_definitions:
 describe('Streaming compactor', () => {
   const BUCKET = 'global[]';
 
-  async function setupV3() {
-    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+  async function setupV3(factoryGenerator = INITIALIZED_MONGO_STORAGE_FACTORY) {
+    await using factory = await factoryGenerator.factory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
         `
@@ -1746,6 +1846,29 @@ bucket_definitions:
     expect(state?.bucket_stats).toEqual({ count: 4, bytes, chunks: documents.length });
   }
 
+  test('initial compaction merges eight chunks immediately without full compaction', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const inputs = Array.from({ length: 8 }, (_, index) =>
+      serializeBucketData(BUCKET, [makeOp(index + 1, 'A', 'data', ctx, sourceTableId)])
+    );
+    await insertDocs(collection, inputs);
+    await bucketStateCollection.insertOne({
+      _id: { d: ctx.definitionId, b: BUCKET },
+      last_op: 8n,
+      next_compact_check: new Date(),
+      first_uncompacted_write: new Date(0),
+      bucket_stats: { count: 8, bytes: BigInt(inputs.reduce((sum, doc) => sum + doc.size, 0)), chunks: 8 }
+    });
+
+    expect(await bucketStorage.compactInitialReplication({ maxOpId: 8n })).toEqual({ buckets: 1 });
+    const documents = await collection.find({ '_id.b': BUCKET }).toArray();
+    expect(documents).toHaveLength(1);
+    expect(documents[0].ops!.map((op) => op.o)).toEqual([1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n]);
+    const state = await bucketStateCollection.findOne({ _id: { d: ctx.definitionId, b: BUCKET } });
+    expect(state?.compacted_state).toMatchObject({ op_id: 8n, count: 8, checksum: 252n });
+    expect(state?.last_full_compact).toBeUndefined();
+  });
+
   test('initial compaction merges small chunks and refreshes bucket metadata', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
     await insertDocs(collection, [
@@ -1754,7 +1877,7 @@ bucket_definitions:
     ]);
     await insertBucketState(bucketStateCollection, ctx.definitionId, 4n);
 
-    const result = await bucketStorage.compactInitialReplication({ maxOpId: 4n });
+    const result = await bucketStorage.compactInitialReplication({ forceChunkCompaction: true, maxOpId: 4n });
 
     expect(result).toEqual({ buckets: 1 });
     const documents = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
@@ -1767,6 +1890,254 @@ bucket_definitions:
       count: 4,
       checksum: 70n
     });
+  });
+
+  test.each([
+    { payloadSize: 100, workers: undefined, abort: false },
+    { payloadSize: 450_000, workers: undefined, abort: false },
+    { payloadSize: 450_000, workers: 4, abort: false },
+    { payloadSize: 100, workers: 1, abort: false },
+    { payloadSize: 450_000, workers: 4, abort: true }
+  ])('chunk compaction shares configured workers across runs: %o', async ({ payloadSize, workers, abort }) => {
+    const concurrency = workers ?? 4;
+    const objectStorage = new MemoryObjectStorage();
+    const generator = mongoTestStorageFactoryGenerator({
+      url: env.MONGO_TEST_URL,
+      isCI: env.CI,
+      objectStorage,
+      chunkCompactionConcurrency: workers,
+      inlineThresholdBytes: 0
+    });
+    const { bucketStorage, syncRules, collection, bucketStateCollection, ctx, sourceTableId, db } =
+      await setupV3(generator);
+    const bucketCount = 12;
+    for (let i = 0; i < bucketCount; i++) {
+      const bucket = `global[${i}]`;
+      const documents = [1, 2].map((id) =>
+        serializeBucketData(bucket, [makeOp(id, String(id), 'x'.repeat(payloadSize), ctx, sourceTableId)])
+      );
+      await collection.insertMany(documents);
+      await bucketStateCollection.insertOne({
+        _id: { d: ctx.definitionId, b: bucket },
+        last_op: 2n,
+        next_compact_check: new Date(0),
+        first_uncompacted_write: new Date(0),
+        bucket_stats: {
+          count: 2,
+          bytes: BigInt(documents.reduce((sum, doc) => sum + doc.size, 0)),
+          chunks: 2
+        }
+      });
+    }
+
+    const gate = Promise.withResolvers<void>();
+    const originalPut = objectStorage.put.bind(objectStorage);
+    let uploads = 0;
+    const put = vi.spyOn(objectStorage, 'put').mockImplementation(async (...args) => {
+      uploads++;
+      await gate.promise;
+      await originalPut(...args);
+    });
+    const controller = new AbortController();
+    let settled = false;
+    const runs = Promise.allSettled(
+      Array.from({ length: 2 }, () =>
+        bucketStorage.factory
+          .getInstance(syncRules)
+          .compactInitialReplication({ forceChunkCompaction: true, maxOpId: 2n, signal: controller.signal })
+      )
+    ).finally(() => {
+      settled = true;
+    });
+    try {
+      await vi.waitFor(() => expect(uploads).toBe(concurrency));
+      // Let other ready workers reach admission; the held uploads must prevent
+      // any additional payloads from reaching S3, across both compactor instances.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(uploads).toBe(concurrency);
+      expect(await bucketStateCollection.countDocuments({ compact_lease: { $exists: true } })).toBeLessThanOrEqual(
+        concurrency
+      );
+      expect(await collection.countDocuments()).toBe(bucketCount * 2);
+      if (abort) {
+        controller.abort();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(settled).toBe(false);
+      }
+    } finally {
+      gate.resolve();
+      await runs;
+      put.mockRestore();
+    }
+
+    const results = await runs;
+    if (abort) {
+      expect(results.every((result) => result.status === 'rejected')).toBe(true);
+      expect(await bucketStateCollection.countDocuments({ compact_lease: { $exists: true } })).toBe(0);
+      // Cancellation must return all worker slots.
+      expect(await bucketStorage.compactInitialReplication({ forceChunkCompaction: true, maxOpId: 2n })).toEqual({
+        buckets: bucketCount
+      });
+    } else {
+      expect(results.every((result) => result.status === 'fulfilled')).toBe(true);
+      expect(results.reduce((sum, result) => sum + (result.status === 'fulfilled' ? result.value.buckets : 0), 0)).toBe(
+        bucketCount
+      );
+    }
+
+    const documents = await collection.find().toArray();
+    expect(documents).toHaveLength(bucketCount);
+    expect(documents.every((doc) => doc.count === 2 && doc.checksum === 21n && doc.storage_ref != null)).toBe(true);
+    expect(
+      await bucketStateCollection.countDocuments({ 'compacted_state.op_id': 2n, compact_lease: { $exists: false } })
+    ).toBe(bucketCount);
+    const usage = await db.objectStorageUsage.find({ '_id.g': ctx.replicationStreamId }).toArray();
+    const activeBytes = usage.reduce((sum, doc) => sum + BigInt(doc.definitions[ctx.definitionId] ?? 0), 0n);
+    expect(activeBytes).toBe(documents.reduce((sum, doc) => sum + BigInt(doc.storage_ref!.file_size), 0n));
+  });
+
+  test.each([2, 3])('failed chunk worker stops queued work and drains siblings (%s workers)', async (workerCount) => {
+    const { bucketStorage } = await setupV3();
+    const compactor = bucketStorage.createMongoCompactor({}) as any;
+    const failure = new Error('worker failed');
+    const failing = Promise.withResolvers<void>();
+    const draining = Promise.withResolvers<void>();
+    const started: number[] = [];
+    let settled = false;
+    // The factory has two slots. With three workers, one also waits for a slot
+    // when its sibling fails; it must release that slot without starting work.
+    const run = compactor
+      .runChunkCompactionWorkers(
+        [0, 1, 2, 3, 4],
+        Array.from({ length: workerCount }, () => compactor.objectStorageUsage),
+        async (bucket: number) => {
+          started.push(bucket);
+          if (bucket === 0) await failing.promise;
+          if (bucket === 1) await draining.promise;
+        }
+      )
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      )
+      .finally(() => {
+        settled = true;
+      });
+    try {
+      await vi.waitFor(() => expect(started).toEqual([0, 1]));
+      failing.reject(failure);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(started).toEqual([0, 1]);
+      expect(settled).toBe(false);
+    } finally {
+      failing.resolve();
+      draining.resolve();
+      await run;
+    }
+    expect(await run).toBe(failure);
+    expect(started).toEqual([0, 1]);
+    expect(bucketStorage.factory.chunkCompactionSlots.getValue()).toBe(2);
+  });
+
+  test('unforced chunk workers drain before full compaction and reclassify aged buckets on the next scan', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const buckets = ['chunk1[]', 'chunk2[]', 'promoted[]', 'full1[]', 'full2[]'];
+    for (const bucket of buckets) {
+      const documents = Array.from({ length: 8 }, (_, index) =>
+        serializeBucketData(bucket, [makeOp(index + 1, String(index), 'data', { ...ctx, bucket }, sourceTableId)])
+      );
+      await collection.insertMany(documents);
+      await bucketStateCollection.insertOne({
+        _id: { d: ctx.definitionId, b: bucket },
+        last_op: 8n,
+        next_compact_check: new Date(0),
+        first_uncompacted_write: bucket.startsWith('full') ? new Date(0) : new Date(),
+        bucket_stats: { count: 8, bytes: BigInt(documents.reduce((sum, doc) => sum + doc.size, 0)), chunks: 8 }
+      });
+    }
+
+    const originalClaim = CompactionLease.claim.bind(CompactionLease);
+    const jobStartedAt = new Date();
+    let serverTime = jobStartedAt;
+    let promoted = false;
+    const claim = vi.spyOn(CompactionLease, 'claim').mockImplementation(async (...args) => {
+      if (!promoted && (args[1]._id as { b: string })?.b === 'promoted[]') {
+        promoted = true;
+        // Advance the server clock past the full-compaction interval without
+        // changing bucket state. A fixed scan timestamp would retry forever.
+        serverTime = new Date(jobStartedAt.getTime() + 3 * 60 * 60 * 1000);
+      }
+      const lease = await originalClaim(...args);
+      if (lease != null) {
+        Object.defineProperty(lease, 'startedAt', { value: serverTime });
+      }
+      return lease;
+    });
+
+    const compactor = bucketStorage.createMongoCompactor({ maxOpId: 8n });
+    const internal = compactor as any;
+    let timeReads = 0;
+    const clock = vi.spyOn(internal, 'readCompactionTime').mockImplementation(async () => {
+      if (++timeReads > 5) {
+        throw new Error('Compaction did not advance after the bucket aged');
+      }
+      return serverTime;
+    });
+    const scan = vi.spyOn(internal, 'findScheduledBucketBatch');
+    const originalChunks = internal.compactSingleBucketChunks.bind(compactor);
+    const originalFull = internal.compactSingleBucketFully.bind(compactor);
+    const gate = Promise.withResolvers<void>();
+    let activeChunks = 0;
+    let activeFull = 0;
+    let maxActiveFull = 0;
+    const fullBuckets: string[] = [];
+    const chunks = vi.spyOn(internal, 'compactSingleBucketChunks').mockImplementation(async (...args) => {
+      activeChunks++;
+      try {
+        await gate.promise;
+        return await originalChunks(...args);
+      } finally {
+        activeChunks--;
+      }
+    });
+    const full = vi.spyOn(internal, 'compactSingleBucketFully').mockImplementation(async (...args) => {
+      expect(activeChunks).toBe(0);
+      activeFull++;
+      maxActiveFull = Math.max(maxActiveFull, activeFull);
+      fullBuckets.push((args[0] as any).state._id.b);
+      try {
+        return await originalFull(...args);
+      } finally {
+        activeFull--;
+      }
+    });
+    const run = compactor.compact();
+    try {
+      await vi.waitFor(() => expect(activeChunks).toBe(2));
+      expect(full).not.toHaveBeenCalled();
+    } finally {
+      gate.resolve();
+      try {
+        await run;
+        expect(timeReads).toBe(3); // Job start, first batch, and promoted bucket's batch.
+        expect(scan).toHaveBeenCalledTimes(3); // Includes the final empty scan.
+        for (const [cutoff] of scan.mock.calls) {
+          expect(cutoff).toEqual(jobStartedAt);
+        }
+      } finally {
+        clock.mockRestore();
+        scan.mockRestore();
+        claim.mockRestore();
+        chunks.mockRestore();
+        full.mockRestore();
+      }
+    }
+    expect(await run).toBe(5);
+    expect(promoted).toBe(true);
+    expect(maxActiveFull).toBe(1);
+    expect(fullBuckets.sort()).toEqual(['full1[]', 'full2[]', 'promoted[]']);
+    expect(await bucketStateCollection.countDocuments({ compact_lease: { $exists: true } })).toBe(0);
+    expect(await collection.countDocuments()).toBe(5);
   });
 
   test('capped chunk compaction repairs stale bucket stats after a committed first merge', async () => {
@@ -1796,7 +2167,7 @@ bucket_definitions:
       }
     });
 
-    const result = await bucketStorage.compactInitialReplication({ maxOpId: 4n });
+    const result = await bucketStorage.compactInitialReplication({ forceChunkCompaction: true, maxOpId: 4n });
 
     expect(result).toEqual({ buckets: 1 });
     const expectedStats = {
@@ -1915,9 +2286,9 @@ bucket_definitions:
       bucket_stats: { count: 4, bytes: 200n, chunks: 4 }
     });
 
-    await expect(bucketStorage.createMongoCompactor({ maxOpId: 4n, compactChunksOnly: true }).compact()).resolves.toBe(
-      1
-    );
+    await expect(
+      bucketStorage.createMongoCompactor({ maxOpId: 4n, compactChunksOnly: true, forceChunkCompaction: true }).compact()
+    ).resolves.toBe(1);
 
     const currentDocuments = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
     expect(currentDocuments.flatMap((document) => document.ops!.map((op) => op.o))).toEqual([1n, 3n, 4n]);
@@ -1937,7 +2308,8 @@ bucket_definitions:
     const { bucketStorage, collection, bucketStateCollection, ctx } = await setupCompactedTail();
     const failedCompactor = bucketStorage.createMongoCompactor({
       maxOpId: 4n,
-      compactChunksOnly: true
+      compactChunksOnly: true,
+      forceChunkCompaction: true
     });
     const originalFlush = (failedCompactor as any).flushCompactionGroup.bind(failedCompactor);
     const flushSpy = vi
@@ -1958,7 +2330,9 @@ bucket_definitions:
       { $set: { next_compact_check: new Date(0) } }
     );
 
-    const result = await bucketStorage.createMongoCompactor({ maxOpId: 4n, compactChunksOnly: true }).compact();
+    const result = await bucketStorage
+      .createMongoCompactor({ maxOpId: 4n, compactChunksOnly: true, forceChunkCompaction: true })
+      .compact();
 
     expect(result).toBe(1);
     await expectRecoveredCompactedTail(collection, bucketStateCollection, ctx.definitionId);

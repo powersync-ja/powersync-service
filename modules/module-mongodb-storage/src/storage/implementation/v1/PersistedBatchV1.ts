@@ -6,6 +6,7 @@ import * as bson from 'bson';
 import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import { mongoTableId } from '../../../utils/util.js';
 import { EMPTY_DATA } from '../MongoBucketBatchShared.js';
+import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import {
   BucketStateUpdate,
   PersistedBatch,
@@ -25,7 +26,9 @@ import {
 export class PersistedBatchV1 extends PersistedBatch {
   declare protected readonly db: VersionedPowerSyncMongoV1;
 
-  currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
+  // Each upsert supplies the complete source-record state. Only its final
+  // state matters within a flush; bucket and parameter history is kept separately.
+  currentData = new Map<string, mongo.AnyBulkWriteOperation<CurrentDataDocument>>();
 
   protected checkDefinitionId(_definitionId: BucketDefinitionId | null): BucketDefinitionId {
     // V1 storage doesn't persist the id, and we don't use it.
@@ -94,7 +97,7 @@ export class PersistedBatchV1 extends PersistedBatch {
   }
 
   hardDeleteCurrentData(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId) {
-    this.currentData.push({
+    this.currentData.set(this.currentDataKey(sourceTableId, replicaId), {
       deleteOne: {
         filter: { _id: this.currentDataId(sourceTableId, replicaId) }
       }
@@ -124,7 +127,7 @@ export class PersistedBatchV1 extends PersistedBatch {
       return lookup.lookup;
     });
 
-    this.currentData.push({
+    this.currentData.set(this.currentDataKey(values.sourceTableId, values.replicaId), {
       updateOne: {
         filter: { _id: this.currentDataId(values.sourceTableId, values.replicaId) },
         update: {
@@ -141,57 +144,45 @@ export class PersistedBatchV1 extends PersistedBatch {
   }
 
   protected get currentDataCount() {
-    return this.currentData.length;
+    return this.currentData.size;
   }
 
-  protected async flushBucketData(session: mongo.ClientSession) {
-    await this.db.bucketDataV1.bulkWrite(
+  protected async queueBucketData(writes: MongoWriteBatch) {
+    writes.bulkWriteUnordered(
+      this.db.bucketDataV1,
       this.bucketData.map((document) => ({
         insertOne: {
           document: serializeBucketDataV1(document)
         }
-      })),
-      {
-        session,
-        ordered: false
-      }
+      }))
     );
   }
 
-  protected async flushBucketParameters(session: mongo.ClientSession) {
-    await this.db.parameterIndexV1.bulkWrite(
+  protected queueBucketParameters(writes: MongoWriteBatch): void {
+    writes.bulkWriteUnordered(
+      this.db.parameterIndexV1,
       this.bucketParameters.map((document) => ({
         insertOne: {
           document: taggedBucketParameterDocumentToV1(document)
         }
-      })),
-      {
-        session,
-        ordered: false
-      }
+      }))
     );
   }
 
-  protected async flushCurrentData(session: mongo.ClientSession) {
-    if (this.currentData.length == 0) {
+  protected queueCurrentData(writes: MongoWriteBatch): void {
+    if (this.currentData.size == 0) {
       return;
     }
 
-    await this.db.sourceRecordsV1.bulkWrite(this.currentData, {
-      session,
-      ordered: true
-    });
+    writes.bulkWriteUnordered(this.db.sourceRecordsV1, [...this.currentData.values()]);
   }
 
-  protected async flushBucketStates(session: mongo.ClientSession) {
-    await this.db.bucketStateV1.bulkWrite(this.getBucketStateUpdates(), {
-      session,
-      ordered: false
-    });
+  protected queueBucketStates(writes: MongoWriteBatch): void {
+    writes.bulkWriteUnordered(this.db.bucketStateV1, this.getBucketStateUpdates());
   }
 
   protected resetCurrentData() {
-    this.currentData = [];
+    this.currentData.clear();
   }
 
   private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<BucketStateDocumentV1>[] {
@@ -217,6 +208,10 @@ export class PersistedBatchV1 extends PersistedBatch {
         }
       } satisfies mongo.AnyBulkWriteOperation<BucketStateDocumentV1>;
     });
+  }
+
+  private currentDataKey(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): string {
+    return Buffer.from(bson.serialize({ t: sourceTableId, k: replicaId })).toString('base64');
   }
 
   private currentDataId(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): SourceKey {

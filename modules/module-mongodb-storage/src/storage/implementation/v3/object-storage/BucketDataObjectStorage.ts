@@ -54,9 +54,16 @@ export async function hydrateBucketDataDocuments(
     return;
   }
   using _ = options?.tracer?.span('s3', 'read');
-  await Promise.all(
+  const results = await Promise.allSettled(
     storedDocuments.map(async (document) => {
       document.ops = await store.retrieve(document.storage_ref!.path, { signal: options.signal });
     })
   );
+  // Drain every download before propagating failure so callers can release their
+  // worker slot and payloads without a sibling download hydrating a document later.
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      throw result.reason;
+    }
+  }
 }
