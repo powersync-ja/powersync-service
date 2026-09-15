@@ -31,6 +31,7 @@ export interface LoadedSourceRecord {
 }
 
 export interface SourceRecordStore {
+  readonly retainsDeletes: boolean;
   mapEvaluatedBuckets(evaluated: EvaluatedRow[]): SourceRecordBucketState[];
   mapParameterLookups(paramEvaluated: EvaluatedParameters[]): SourceRecordLookupState[];
   loadSizes(session: mongo.ClientSession, entries: SourceRecordLookupEntry[]): Promise<Map<string, number>>;

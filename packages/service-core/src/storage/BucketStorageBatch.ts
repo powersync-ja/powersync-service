@@ -74,6 +74,16 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
   flush(options?: BatchBucketFlushOptions): Promise<FlushedResult | null>;
 
   /**
+   * Seal preceding changes and queue a restart position in publication order.
+   * Admission applies backpressure but need not wait for durability. The receipt
+   * resolves once both changes and resume position persist. Flush/commit also
+   * await this work and surface failures; receipt rejections are observed internally.
+   * Only use at a source boundary safe to resume from, never inside a split event.
+   * This does not create a client checkpoint. If unsupported, flush then setResumeLsn.
+   */
+  queueResumeLsn?(lsn: string, options?: BatchBucketFlushOptions): Promise<BatchProgressReceipt>;
+
+  /**
    * Flush saved ops and advance the committed source checkpoint position.
    *
    * Only call this at a source transaction, page, snapshot, or other boundary
@@ -295,3 +305,7 @@ export interface BucketBatchCommitOptions extends BatchBucketFlushOptions {
 }
 
 export type ResolvedBucketBatchCommitOptions = Required<BucketBatchCommitOptions>;
+
+export interface BatchProgressReceipt {
+  persisted: Promise<void>;
+}
