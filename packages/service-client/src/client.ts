@@ -174,4 +174,39 @@ export class InstanceClient<C extends sdk.NetworkClient = sdk.NetworkClient> ext
   reprocess = this.createEndpoint<internal_routes.ReprocessRequest, internal_routes.ReprocessResponse>({
     path: '/api/admin/v1/reprocess'
   });
+
+  /**
+   * Per-bucket storage report for the active sync config: exact operation counts, with rows and
+   * fragmentation derived from each bucket's last full compact (null until a bucket has been fully
+   * compacted, and on storage versions without compact statistics).
+   *
+   * Example:
+   * ```typescript
+   * const report = await client.bucketReport({ limit: 50 });
+   * // {
+   * //   buckets: [
+   * //     {
+   * //       bucket: 'by_user["u1"]',
+   * //       operations: 502,
+   * //       operation_bytes: 54149,
+   * //       uncompacted_operations: 0,
+   * //       rows: 3,
+   * //       fragmentation: 167.3,
+   * //       last_full_compact_at: '2026-08-21T11:26:19.689Z',
+   * //       next_compact_at: null,
+   * //       suggested_action: 'defragment'
+   * //     }
+   * //   ],
+   * //   definitions: [
+   * //     { definition: 'by_user', bucket_count: 4, operations: 72, ... }
+   * //   ],
+   * //   totals: { bucket_count: 10, operations: 50, operation_bytes: 15031, estimated: false },
+   * //   buckets_truncated: false,
+   * //   definitions_truncated: false
+   * // }
+   * ```
+   */
+  bucketReport = this.createEndpoint<internal_routes.BucketReportRequest, internal_routes.BucketReportResponse>({
+    path: '/api/admin/v1/bucket-report'
+  });
 }

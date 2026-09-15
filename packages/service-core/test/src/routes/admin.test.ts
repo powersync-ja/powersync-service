@@ -2,7 +2,7 @@ import { BasicRouterRequest, Context, JwtPayload, ParsedSyncConfigSet, storage }
 import { logger } from '@powersync/lib-services-framework';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
-import { diagnostics, reprocess, validate } from '../../../src/routes/endpoints/admin.js';
+import { bucketReport, diagnostics, reprocess, validate } from '../../../src/routes/endpoints/admin.js';
 import { mockServiceContext } from './mocks.js';
 
 describe('admin routes', () => {
@@ -213,6 +213,130 @@ bucket_definitions:
       });
       expect(activeBucketStorage.getActiveSyncConfig).not.toHaveBeenCalled();
       expect(activeBucketStorage.updateSyncRules).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('bucket-report', () => {
+    const report = {
+      buckets: [
+        {
+          bucket: '1#by_user["u1"]',
+          operations: 4750,
+          operationBytes: 1216000,
+          uncompactedOperations: 250,
+          rows: 95,
+          fragmentation: 50,
+          lastFullCompactAt: new Date('2026-08-01T00:00:00.000Z'),
+          nextCompactAt: new Date('2026-08-21T12:00:00.000Z'),
+          suggestedAction: 'compact'
+        },
+        {
+          bucket: '1#global[]',
+          operations: 1000,
+          operationBytes: 3145728,
+          uncompactedOperations: 1000,
+          rows: null,
+          fragmentation: null,
+          lastFullCompactAt: null,
+          nextCompactAt: null,
+          suggestedAction: 'unknown'
+        }
+      ],
+      definitions: [
+        {
+          definition: '1#by_user',
+          bucketCount: 1,
+          operations: 4750,
+          operationBytes: 1216000,
+          uncompactedOperations: 250,
+          rows: 95,
+          fragmentation: 50,
+          suggestedAction: 'compact'
+        }
+      ],
+      totals: { bucketCount: 2, operations: 5750, operationBytes: 4361728, estimated: false },
+      bucketsTruncated: false,
+      definitionsTruncated: true
+    };
+
+    it('returns the report, forwards the limit, and maps fields to snake_case', async () => {
+      const getBucketReport = vi.fn(async () => report);
+      const activeBucketStorage = {
+        getActiveSyncConfig: vi.fn(async () => ({
+          content: makeSyncConfigContent({}),
+          replicationStream: {},
+          storage: { getBucketReport }
+        }))
+      };
+
+      const response = await bucketReport.handler({
+        context: makeContext(activeBucketStorage),
+        params: { limit: 20 },
+        request
+      });
+
+      expect(getBucketReport).toHaveBeenCalledWith({ limit: 20 });
+      expect(response.buckets[0]).toEqual({
+        bucket: '1#by_user["u1"]',
+        operations: 4750,
+        operation_bytes: 1216000,
+        uncompacted_operations: 250,
+        rows: 95,
+        fragmentation: 50,
+        last_full_compact_at: '2026-08-01T00:00:00.000Z',
+        next_compact_at: '2026-08-21T12:00:00.000Z',
+        suggested_action: 'compact'
+      });
+      // Dates and row stats are null for buckets without full-compact statistics.
+      expect(response.buckets[1]).toMatchObject({
+        rows: null,
+        fragmentation: null,
+        last_full_compact_at: null,
+        next_compact_at: null,
+        suggested_action: 'unknown'
+      });
+      expect(response.definitions).toEqual([
+        {
+          definition: '1#by_user',
+          bucket_count: 1,
+          operations: 4750,
+          operation_bytes: 1216000,
+          uncompacted_operations: 250,
+          rows: 95,
+          fragmentation: 50,
+          suggested_action: 'compact'
+        }
+      ]);
+      expect(response.totals).toEqual({
+        bucket_count: 2,
+        operations: 5750,
+        operation_bytes: 4361728,
+        estimated: false
+      });
+      expect(response.buckets_truncated).toBe(false);
+      expect(response.definitions_truncated).toBe(true);
+    });
+
+    it('rejects when there is no active sync config', async () => {
+      const activeBucketStorage = { getActiveSyncConfig: vi.fn(async () => null) };
+
+      await expect(
+        bucketReport.handler({ context: makeContext(activeBucketStorage), params: {}, request })
+      ).rejects.toMatchObject({ errorData: { status: 422, code: 'PSYNC_S4104' } });
+    });
+
+    it('rejects when the storage provider does not support bucket reporting', async () => {
+      const activeBucketStorage = {
+        getActiveSyncConfig: vi.fn(async () => ({
+          content: makeSyncConfigContent({}),
+          replicationStream: {},
+          storage: {}
+        }))
+      };
+
+      await expect(
+        bucketReport.handler({ context: makeContext(activeBucketStorage), params: {}, request })
+      ).rejects.toMatchObject({ errorData: { status: 422, code: 'PSYNC_S2001' } });
     });
   });
 });
