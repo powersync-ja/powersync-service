@@ -1,4 +1,4 @@
-import { ErrorCode, errors, schema } from '@powersync/lib-services-framework';
+import { errors, schema } from '@powersync/lib-services-framework';
 
 import * as sync from '../../sync/sync-index.js';
 import * as util from '../../util/util-index.js';
@@ -6,7 +6,14 @@ import { SocketRouteGenerator } from '../router-socket.js';
 import { SyncRoutes } from './sync-stream.js';
 
 import { APIMetric, event_types } from '@powersync/service-types';
+import {
+  recordSyncConnection,
+  SyncCloseReason,
+  syncConnectionCloseReasonLogText,
+  SyncTransport
+} from '../../metrics/connection-metrics.js';
 import { limitParamsForLogging } from '../../util/param-logging.js';
+import { resolveSyncConnectionSetup } from '../sync-connection.js';
 
 export const syncStreamReactive: SocketRouteGenerator = (router) =>
   router.reactiveStream<util.StreamingSyncRequest, any>(SyncRoutes.STREAM, {
@@ -32,18 +39,22 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         connected_at: new Date(streamStart)
       };
 
+      const { bucketStorage, syncRules } = await resolveSyncConnectionSetup(service_context, SyncTransport.RSocket);
+
       // Best effort guess on why the stream was closed.
       // We use the `??=` operator everywhere, so that we catch the first relevant
       // event, which is usually the most specific.
-      let closeReason: string | undefined = undefined;
+      let closeReason: SyncCloseReason | undefined = undefined;
+      let connectionError: unknown;
 
       // Create our own controller that we can abort directly
       const controller = new AbortController();
       upstreamSignal.addEventListener('abort', () => {
-        closeReason ??= 'client closing stream';
+        closeReason ??= SyncCloseReason.ClientClosed;
         controller.abort();
       });
       if (upstreamSignal.aborted) {
+        closeReason ??= SyncCloseReason.ClientClosed;
         controller.abort();
       }
       const signal = controller.signal;
@@ -55,39 +66,8 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         }
       });
 
-      if (routerEngine.closed) {
-        responder.onError(
-          new errors.ServiceError({
-            status: 503,
-            code: ErrorCode.PSYNC_S2003,
-            description: 'Service temporarily unavailable'
-          })
-        );
-        responder.onComplete();
-        return;
-      }
-
-      const {
-        storageEngine: { activeBucketStorage }
-      } = service_context;
-
-      const bucketStorage = (await activeBucketStorage.getActiveSyncConfig())?.storage;
-      if (bucketStorage == null) {
-        responder.onError(
-          new errors.ServiceError({
-            status: 500,
-            code: ErrorCode.PSYNC_S2302,
-            description: 'No sync config available'
-          })
-        );
-        responder.onComplete();
-        return;
-      }
-
-      const syncRules = bucketStorage.getParsedSyncRules(routerEngine.getAPI().getParseSyncRulesOptions());
-
       const removeStopHandler = routerEngine.addStopHandler(() => {
-        closeReason ??= 'process shutdown';
+        closeReason ??= SyncCloseReason.ProcessShutdown;
         controller.abort();
       });
 
@@ -159,14 +139,17 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
             });
           }
         }
-        closeReason ??= 'service closing stream';
+        closeReason ??= SyncCloseReason.ServiceClosed;
       } catch (ex) {
         // Convert to our standard form before responding.
         // This ensures the error can be serialized.
         // However, use the original error for the logs, so that we have the stack trace.
         const error = new errors.InternalServerError(ex);
         logger.error('Sync stream error', ex);
-        closeReason ??= 'stream error';
+        if (closeReason == null) {
+          closeReason = SyncCloseReason.StreamError;
+          connectionError = ex;
+        }
         responder.onError(error);
       } finally {
         responder.onComplete();
@@ -187,9 +170,14 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           ...tracker.getLogMeta(),
           app_metadata: formattedAppMetadata,
           stream_ms: Date.now() - streamStart,
-          close_reason: closeReason ?? 'unknown'
+          close_reason: syncConnectionCloseReasonLogText(closeReason)
         });
         metricsEngine.getUpDownCounter(APIMetric.CONCURRENT_CONNECTIONS).add(-1);
+        recordSyncConnection(metricsEngine, {
+          transport: SyncTransport.RSocket,
+          closeReason: closeReason ?? SyncCloseReason.Unknown,
+          error: connectionError
+        });
         service_context.eventsEngine.emit(event_types.EventsEngineEventType.SDK_DISCONNECT_EVENT, {
           ...sdkData,
           disconnected_at: new Date()

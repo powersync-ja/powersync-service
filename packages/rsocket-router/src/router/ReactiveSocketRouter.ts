@@ -94,16 +94,17 @@ export class ReactiveSocketRouter<C extends SocketBaseContext> {
         accept: async (payload, rsocket) => {
           const connection = (rsocket as any).connection as WebsocketDuplexConnection;
 
-          const { max_concurrent_connections } = this.options ?? {};
+          const { max_concurrent_connections, on_concurrency_limit_rejected } = this.options ?? {};
           logger.info(`Currently have ${wss.clients.size} active WebSocket connection(s)`);
           // wss.clients.size includes this connection, so we check for greater than
           // TODO: Share connection limit between this and http stream connections
           if (max_concurrent_connections && wss.clients.size > max_concurrent_connections) {
             const err = new errors.ServiceError({
               status: 429,
-              code: errors.ErrorCode.PSYNC_S2304,
+              code: ErrorCode.PSYNC_S2304,
               description: `Maximum active concurrent connections limit has been reached`
             });
+            on_concurrency_limit_rejected?.(err);
             logger.warn(err);
             throw err;
           }
