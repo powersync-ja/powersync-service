@@ -1,7 +1,13 @@
 export * from './ChangeStream.js';
 export * from './ChangeStreamReplicationJob.js';
 export * from './ChangeStreamReplicator.js';
+export * from './ConnectionManagerFactory.js';
 export * from './internal-mongodb-utils.js';
+export * from './MongoErrorRateLimiter.js';
 export * from './MongoRelation.js';
+export * from './MongoReplicationQueryProvider.js';
+export * from './MongoReplicationStream.js';
+export * from './MongoSnapshotter.js';
 export * from './RawChangeStream.js';
+export { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 export * from './SourceRowConverter.js';
