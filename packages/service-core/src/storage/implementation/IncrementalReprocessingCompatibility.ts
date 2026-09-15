@@ -1,4 +1,4 @@
-import { CompatibilityContext } from '@powersync/service-sync-rules';
+import { CompatibilityContext, connectionConfigsEqual } from '@powersync/service-sync-rules';
 import { Logger } from 'winston';
 import { SerializedSyncPlan, UpdateSyncRulesOptions } from '../BucketStorageFactory.js';
 
@@ -37,5 +37,14 @@ export function isCompatible(
     return false;
   }
 
+  if (
+    existingPlans.some(
+      (existing) =>
+        !connectionConfigsEqual(existing!.plan.connectionConfig ?? {}, updateConfig.plan!.plan.connectionConfig ?? {})
+    )
+  ) {
+    logger.info('Connection configuration changed - incremental reprocessing not supported');
+    return false;
+  }
   return true;
 }

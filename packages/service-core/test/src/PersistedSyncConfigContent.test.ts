@@ -11,6 +11,7 @@ import { describe, expect, test } from 'vitest';
 import {
   parsePersistedSyncConfigContent,
   SerializedSyncPlan,
+  SqlSyncConfigParser,
   updateSyncRulesFromConfig
 } from '../../src/storage/storage-index.js';
 
@@ -147,6 +148,7 @@ function restore(compiledPlan: SerializedSyncPlan) {
     content: yamlWithEvents,
     compiledPlan,
     storageVersion: 1,
-    parseOptions: { defaultSchema: 'test_schema' }
+    parseOptions: { defaultSchema: 'test_schema' },
+    syncConfigParser: new SqlSyncConfigParser()
   });
 }
