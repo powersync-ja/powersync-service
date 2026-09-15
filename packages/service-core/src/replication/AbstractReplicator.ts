@@ -165,10 +165,14 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         // versions before that check was added, so we keep the lock for now - for where te service version and sync config is updated at
         // the same time.
 
+        const parsed = this.options.storageEngine.activeBucketStorage.syncConfigParser.parseYaml(loadedSyncConfig, {
+          schema: undefined,
+          defaultSchema: 'not_applicable',
+          throwOnError: this.syncRuleProvider.exitOnError
+        });
         const { lock } = await this.storage.configureSyncRules(
-          storage.updateSyncRulesFromYaml(loadedSyncConfig, {
+          storage.updateSyncRulesFromConfig(parsed, {
             lock: true,
-            validate: this.syncRuleProvider.exitOnError,
             version_label: versionLabel
           })
         );
