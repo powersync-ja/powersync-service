@@ -36,6 +36,17 @@ See the [documentation](https://docs.powersync.com/self-hosting/installation) fo
 
 See the [Docker Compose Demo](https://github.com/powersync-ja/self-host-demo) for a Docker Compose quick start.
 
+# How to use the npm package
+
+The same service is published as an npm package, for environments where running the image is not an option, such as Windows Server. It requires Node.js 24 or later.
+
+```bash
+npm install @powersync/service-image
+npx powersync-service start -c config.yaml
+```
+
+The configuration is the same as for the image.
+
 # Telemetry
 
 PowerSync may collect telemetry data about your usage. Telemetry data allows us to shape our roadmap to better serve you and other customers. Collection of telemetry data is anonymized and optional. If you do not want telemetry data collected, you may opt-out. See https://docs.powersync.com/self-hosting/telemetry for further info.
