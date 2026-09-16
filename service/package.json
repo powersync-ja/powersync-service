@@ -1,9 +1,15 @@
 {
   "name": "@powersync/service-image",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "publishConfig": {
+    "access": "public"
+  },
   "version": "1.26.1",
-  "private": true,
   "license": "FSL-1.1-ALv2",
   "type": "module",
+  "files": [
+    "lib/**/*"
+  ],
   "scripts": {
     "build": "tsc -b",
     "watch": "nodemon -w ../ -e ts -e js --delay 1 -x node --loader ts-node/esm src/entry.ts start",
