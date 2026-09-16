@@ -1,5 +1,18 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.22.1
+
+### Patch Changes
+
+- 424bbc0: Skip chunk-merge compact for small buckets after initial replication.
+- Updated dependencies [424bbc0]
+- Updated dependencies [18f0c95]
+- Updated dependencies [a8c3f15]
+  - @powersync/service-core@1.26.2
+  - @powersync/service-sync-rules@0.43.0
+  - @powersync/lib-services-framework@0.10.3
+  - @powersync/lib-service-mongodb@0.6.33
+
 ## 0.22.0
 
 ### Minor Changes

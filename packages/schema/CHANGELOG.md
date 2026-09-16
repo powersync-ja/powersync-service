@@ -1,5 +1,7 @@
 # @powersync/service-schema
 
+## 1.26.2
+
 ## 1.26.1
 
 ## 1.26.0

@@ -1,5 +1,16 @@
 # @powersync/service-core
 
+## 1.26.2
+
+### Patch Changes
+
+- 424bbc0: Skip chunk-merge compact for small buckets after initial replication.
+- a8c3f15: Fix loading storage migrations on Windows: migration scripts are now imported via file URLs, since the Node.js ESM loader rejects absolute Windows paths such as `C:\...`.
+- Updated dependencies [18f0c95]
+  - @powersync/service-sync-rules@0.43.0
+  - @powersync/lib-services-framework@0.10.3
+  - @powersync/service-rsocket-router@0.2.28
+
 ## 1.26.1
 
 ### Patch Changes
