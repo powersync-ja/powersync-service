@@ -21,6 +21,13 @@ export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.
   url: env.PG_STORAGE_TEST_URL
 });
 
+/**
+ * For tests that need a storage factory, but do not depend on the storage implementation.
+ */
+export const INITIALIZED_STORAGE_FACTORY = env.TEST_MONGO_STORAGE
+  ? INITIALIZED_MONGO_STORAGE_FACTORY
+  : INITIALIZED_POSTGRES_STORAGE_FACTORY;
+
 export interface StorageVersionTestContext {
   factory: TestStorageFactory;
   storageVersion: number;
