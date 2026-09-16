@@ -1,5 +1,17 @@
 # @powersync/service-module-mysql
 
+## 0.16.3
+
+### Patch Changes
+
+- 18380b6: Fix MySQL queue drain when exceeding queue capacity.
+- Updated dependencies [424bbc0]
+- Updated dependencies [18f0c95]
+- Updated dependencies [a8c3f15]
+  - @powersync/service-core@1.26.2
+  - @powersync/service-sync-rules@0.43.0
+  - @powersync/lib-services-framework@0.10.3
+
 ## 0.16.2
 
 ### Patch Changes
