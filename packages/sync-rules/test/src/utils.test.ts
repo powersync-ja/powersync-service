@@ -3,6 +3,8 @@ import {
   applyValueContext,
   BucketDataSource,
   CompatibilityContext,
+  CompatibilityEdition,
+  CompatibilityOption,
   DateTimeSourceOptions,
   DateTimeValue,
   mergeBuckets,
@@ -42,6 +44,22 @@ describe('toSyncRulesValue', () => {
 
     expect(TimeValue.parse('12:13:14.15', sourceOptions)?.toSqliteValue(syncStreams)).toStrictEqual('12:13:14.150');
     expect(TimeValue.parse('12:13:14.15', sourceOptions)?.toSqliteValue(legacy)).toStrictEqual('12:13:14.15');
+  });
+
+  test('booleans in json', () => {
+    expect(
+      applyValueContext(toSyncRulesValue([1n, true]), CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)
+    ).toStrictEqual('[1,1]');
+
+    expect(
+      applyValueContext(
+        toSyncRulesValue([1n, true]),
+        new CompatibilityContext({
+          edition: CompatibilityEdition.COMPILED_STREAMS,
+          overrides: new Map([[CompatibilityOption.fixedBooleanInJson, true]])
+        })
+      )
+    ).toStrictEqual('[1,true]');
   });
 });
 

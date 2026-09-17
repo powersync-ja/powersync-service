@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.42.0
+
+### Minor Changes
+
+- 5ae6f75: Add a schema generator for the Rust SDK.
+
 ## 0.41.0
 
 ### Minor Changes

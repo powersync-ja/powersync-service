@@ -4,10 +4,16 @@ import { delayEach } from 'ix/asynciterable/operators/delayeach.js';
 import { take } from 'ix/asynciterable/operators/take.js';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import { toArray } from 'ix/asynciterable/toarray.js';
-import * as timers from 'timers/promises';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// The global setTimeout, not the one from timers/promises: vi.useFakeTimers() only replaces the global timers
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('BroadcastIterable', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('should iterate', async () => {
     const range = AsyncIterableX.from([1, 2, 3]);
     const broadcast = new BroadcastIterable(() => range);
@@ -47,6 +53,7 @@ describe('BroadcastIterable', () => {
   });
 
   it('should handle indefinite sources', async () => {
+    vi.useFakeTimers();
     const source: IterableSource<number> = (signal) => {
       return wrapWithAbort(interval(1), signal);
     };
@@ -55,7 +62,9 @@ describe('BroadcastIterable', () => {
 
     const delayed = delayEach(10)(broadcast);
     expect(broadcast.active).toBe(false);
-    const results = await toArray(take(5)(delayed));
+    const resultsPromise = toArray(take(5)(delayed));
+    await vi.advanceTimersByTimeAsync(100);
+    const results = await resultsPromise;
 
     expect(results.length).toEqual(5);
     expect(results[0]).toEqual(0);
@@ -66,6 +75,7 @@ describe('BroadcastIterable', () => {
   });
 
   it('should handle multiple subscribers', async () => {
+    vi.useFakeTimers();
     let sourceIndex = 0;
     const source = async function* (signal: AbortSignal) {
       // Test value out by 1000 means it may have used the wrong iteration of the source
@@ -75,7 +85,7 @@ describe('BroadcastIterable', () => {
       });
       for (let i = 0; !signal.aborted; i++) {
         yield base + i;
-        await Promise.race([abortedPromise, timers.setTimeout(1)]);
+        await Promise.race([abortedPromise, sleep(1)]);
       }
       // Test value out by 100 means this wasn't reached
       sourceIndex += 100;
@@ -88,6 +98,7 @@ describe('BroadcastIterable', () => {
     expect(broadcast.active).toBe(false);
     const results1Promise = toArray(take(5)(delayed1));
     const results2Promise = toArray(take(5)(delayed2));
+    await vi.advanceTimersByTimeAsync(100);
     const [results1, results2] = [await results1Promise, await results2Promise];
 
     expect(broadcast.active).toBe(false);
@@ -104,7 +115,9 @@ describe('BroadcastIterable', () => {
 
     // This starts a new source
     const delayed3 = delayEach(10)(broadcast);
-    const results3 = await toArray(take(5)(delayed3));
+    const results3Promise = toArray(take(5)(delayed3));
+    await vi.advanceTimersByTimeAsync(100);
+    const results3 = await results3Promise;
     expect(results3.length).toEqual(5);
     expect(results3[0]).toEqual(2100);
     expect(results3[4]).toBeGreaterThan(2110);
@@ -112,6 +125,7 @@ describe('BroadcastIterable', () => {
   });
 
   it('should handle errors on multiple subscribers', async () => {
+    vi.useFakeTimers();
     let sourceIndex = 0;
     const source = async function* (signal: AbortSignal) {
       // Test value out by 1000 means it may have used the wrong iteration of the source
@@ -124,7 +138,7 @@ describe('BroadcastIterable', () => {
           throw new Error('simulated failure');
         }
         yield base + i;
-        await Promise.race([abortedPromise, timers.setTimeout(1)]);
+        await Promise.race([abortedPromise, sleep(1)]);
       }
       // Test value out by 100 means this wasn't reached
       sourceIndex += 100;
@@ -138,7 +152,9 @@ describe('BroadcastIterable', () => {
     const results1Promise = toArray(take(5)(delayed1)) as Promise<number[]>;
     const results2Promise = toArray(take(5)(delayed2)) as Promise<number[]>;
 
-    const [r1, r2] = await Promise.allSettled([results1Promise, results2Promise]);
+    const settled = Promise.allSettled([results1Promise, results2Promise]);
+    await vi.advanceTimersByTimeAsync(100);
+    const [r1, r2] = await settled;
 
     expect(r1).toEqual({ status: 'rejected', reason: new Error('simulated failure') });
     expect(r2).toEqual({ status: 'rejected', reason: new Error('simulated failure') });
@@ -147,7 +163,9 @@ describe('BroadcastIterable', () => {
 
     // This starts a new source
     const delayed3 = delayEach(10)(broadcast);
-    const results3 = await toArray(take(5)(delayed3));
+    const results3Promise = toArray(take(5)(delayed3));
+    await vi.advanceTimersByTimeAsync(100);
+    const results3 = await results3Promise;
     expect(results3.length).toEqual(5);
     expect(results3[0]).toEqual(2000);
     expect(results3[4]).toBeGreaterThan(2010);

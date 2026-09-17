@@ -3,7 +3,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 
-import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_CONNECTION_OPTIONS } from './util.js';
+import { INITIALIZED_STORAGE_FACTORY, TEST_CONNECTION_OPTIONS } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 function parseRules(syncRuleContent: string) {
@@ -86,7 +86,7 @@ function errorMessages(table: { errors: { message: string }[] }) {
 }
 
 test('validate tables covers exact, missing, wildcard and parameter-query sources', async () => {
-  await using context = await WalStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY.factory);
+  await using context = await WalStreamTestContext.open(INITIALIZED_STORAGE_FACTORY.factory);
   const { pool } = context;
 
   await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
@@ -165,7 +165,7 @@ bucket_definitions:
 });
 
 test('validate tables covers replica identity modes and publication membership', async () => {
-  await using context = await WalStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY.factory);
+  await using context = await WalStreamTestContext.open(INITIALIZED_STORAGE_FACTORY.factory);
   const { pool } = context;
 
   await pool.query(`CREATE TABLE test_default_pk(id text primary key, description text)`);
@@ -262,7 +262,7 @@ bucket_definitions:
 });
 
 test('validate tables covers rls warnings and select permission failures', async () => {
-  await using context = await WalStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY.factory);
+  await using context = await WalStreamTestContext.open(INITIALIZED_STORAGE_FACTORY.factory);
   const { pool } = context;
   const roleName = `validate_reader_${Date.now().toString(36)}`;
   const password = 'validate_reader_password';
@@ -324,7 +324,7 @@ bucket_definitions:
 });
 
 test('validate tables respects non-public schema names for exact, wildcard and publication checks', async () => {
-  await using context = await WalStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY.factory);
+  await using context = await WalStreamTestContext.open(INITIALIZED_STORAGE_FACTORY.factory);
   const { pool } = context;
   const schemaName = `validation_schema_${Date.now().toString(36)}`;
 

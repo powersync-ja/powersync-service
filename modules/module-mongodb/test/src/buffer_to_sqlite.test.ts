@@ -121,6 +121,15 @@ const testCases: ConverterCase[] = [
   serializableCase('array', [1, 'two', false, null, { deep: 3 }], jsonTextPlacements('[1,"two",0,null,{"deep":3}]')),
   serializableCase('objectId', objectId, jsonStringPlacements('66e834cc91d805df11fa0ecb')),
   serializableCase('bool', true, placements(1n, '[1]', '{"nested":1}')),
+  {
+    name: 'bool (fixed json)',
+    buildBuffer: (placement) => serializeCaseDocument(`bool (fixed json):${placement}`, placement, false),
+    expected: placements(0n, '[false]', '{"nested":false}'),
+    context: new CompatibilityContext({
+      edition: CompatibilityEdition.COMPILED_STREAMS,
+      overrides: new Map([[CompatibilityOption.fixedBooleanInJson, true]])
+    })
+  } satisfies ConverterCase,
   serializableCase('date', normalDate, jsonStringPlacements('2023-03-06 13:47:00.000Z')),
   serializableCase('date:+010000', positiveExtendedDate, jsonStringPlacements('+010000-01-01 00:00:00.000Z')),
   serializableCase('date:-000001', negativeExtendedDate, jsonStringPlacements('-000001-12-31 23:59:59.999Z')),

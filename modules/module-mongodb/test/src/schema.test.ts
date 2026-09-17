@@ -154,27 +154,70 @@ describe('collection schema inference', { timeout: testTimeout(20_000) }, () => 
     expect(executionLimits).toEqual([30_000]);
   });
 
-  test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('fails schema inference on a query timeout', async (ctx) => {
-    await db.collection('timeout').insertOne({ value: 'text' });
-    await using adapter = new MongoRouteAPIAdapter({
-      type: 'mongodb',
-      ...TEST_CONNECTION_OPTIONS,
-      database: db.databaseName
-    });
-    await using failCommand = await requireFailCommand(client, ctx);
-    await failCommand.configure({
-      mode: { times: 1 },
-      data: {
-        failCommands: ['aggregate'],
-        errorCode: 50 // MaxTimeMSExpired
-      }
+  // A collection we cannot sample should cost us that collection's fields, not the whole schema.
+  // Exercises the real server/driver error path without waiting for the limits to be reached.
+  describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('when a collection cannot be sampled', () => {
+    // 146 is ExceededMemoryLimit, 292 is QueryExceededMemoryLimitNoDiskUseAllowed, which is what
+    // a small collection of multi-megabyte documents produces when $sample has to sort them.
+    // The namespace filter below needs a server recent enough to honor it (CI runs 6.0+);
+    // older servers ignore it and fail an arbitrary collection's aggregation.
+    test.for([146, 292])('reports it without columns on error %i', async (errorCode, ctx) => {
+      await db.collection('readable').insertOne({ value: 'text' });
+      await db.collection('unreadable').insertOne({ value: 'text' });
+      await using adapter = new MongoRouteAPIAdapter({
+        type: 'mongodb',
+        ...TEST_CONNECTION_OPTIONS,
+        database: db.databaseName
+      });
+      await using failCommand = await requireFailCommand(client, ctx);
+      await failCommand.configure({
+        mode: { times: 1 },
+        data: {
+          failCommands: ['aggregate'],
+          namespace: `${db.databaseName}.unreadable`,
+          errorCode
+        }
+      });
+
+      const schema = await adapter.getConnectionSchema();
+      const tables = schema.find((s) => s.name == db.databaseName)?.tables;
+
+      expect(tables).toEqual(
+        expect.arrayContaining([
+          { name: 'unreadable', columns: [] },
+          expect.objectContaining({
+            name: 'readable',
+            columns: expect.arrayContaining([expect.objectContaining({ name: 'value' })])
+          })
+        ])
+      );
     });
 
-    // Exercise the real server/driver error path without waiting for the full timeout.
-    await expect(adapter.getConnectionSchema()).rejects.toMatchObject({
-      name: 'MongoServerError',
-      code: 50,
-      codeName: 'MaxTimeMSExpired'
+    // 2 is BadValue, standing in for any unexpected error. 50 is MaxTimeMSExpired: timeouts
+    // usually mean the source is overloaded rather than one problem collection, so they keep
+    // failing the request instead of silently degrading every collection.
+    // Neither is retryable, so the driver surfaces them without re-running the aggregation.
+    test.for([2, 50])('still fails the request on error %i', async (errorCode, ctx) => {
+      await db.collection('broken').insertOne({ value: 'text' });
+      await using adapter = new MongoRouteAPIAdapter({
+        type: 'mongodb',
+        ...TEST_CONNECTION_OPTIONS,
+        database: db.databaseName
+      });
+      await using failCommand = await requireFailCommand(client, ctx);
+      await failCommand.configure({
+        mode: { times: 1 },
+        data: {
+          failCommands: ['aggregate'],
+          namespace: `${db.databaseName}.broken`,
+          errorCode
+        }
+      });
+
+      await expect(adapter.getConnectionSchema()).rejects.toMatchObject({
+        name: 'MongoServerError',
+        code: errorCode
+      });
     });
   });
 });

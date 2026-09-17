@@ -402,6 +402,8 @@ export interface CompactOptions {
 }
 
 export interface CompactInitialReplicationOptions {
+  /** Internal/testing use: bypass the new-chunk threshold in MongoDB V3/V4 storage. */
+  forceChunkCompaction?: boolean;
   /**
    * Compact data up to this op id.
    *
