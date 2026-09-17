@@ -178,6 +178,70 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     expect(writer.last_flushed_op).toBe(1n);
   });
 
+  test('same-stream writers queue FIFO before starting transactions', async () => {
+    await using factory = await factoryGen.factory();
+    const a = await openStream(factory, version);
+    await using first = a.writer;
+    await insert(first, a.table, 'warmup');
+    await first.commit('1/2');
+    // Separate storage instances must still share the lease's queue.
+    const otherStorage = factory.getInstance(a.stream);
+    await using checkpointWriter = await otherStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await using last = await otherStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const lastTable = await test_utils.resolveTestTable(
+      last,
+      'items',
+      ['id'],
+      factoryGen,
+      a.stream.replicationStreamId
+    );
+    await insert(first, a.table, 'first');
+    await insert(last, lastTable, 'last');
+
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const queued = Promise.withResolvers<void>();
+    const mutex = (a.stream as MongoPersistedReplicationStream).current_lock!.writerMutex;
+    const exclusiveLock = mutex.exclusiveLock;
+    let admissions = 0;
+    const admission = vi.spyOn(mutex, 'exclusiveLock').mockImplementation(function (callback) {
+      const result = exclusiveLock.call(mutex, callback);
+      if (++admissions === 3) queued.resolve();
+      return result;
+    });
+    const transactions = vi.spyOn(mongo.ClientSession.prototype, 'withTransaction');
+    const flush = PersistedBatch.prototype.flush;
+    const stalled = vi.spyOn(PersistedBatch.prototype, 'flush').mockImplementationOnce(async function (
+      this: PersistedBatch,
+      ...args
+    ) {
+      entered.resolve();
+      await release.promise;
+      return flush.apply(this, args);
+    });
+    const pending: Promise<unknown>[] = [];
+    try {
+      pending.push(first.flush());
+      await entered.promise;
+      // The empty checkpoint must run before the later flush.
+      pending.push(checkpointWriter.commit('1/3'));
+      pending.push(last.flush());
+      await queued.promise;
+      expect(transactions).toHaveBeenCalledTimes(1);
+      release.resolve();
+      await Promise.all(pending);
+      expect(first.last_flushed_op).toBe(2n);
+      expect(last.last_flushed_op).toBe(3n);
+      expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(2n);
+    } finally {
+      release.resolve();
+      await Promise.allSettled(pending);
+      stalled.mockRestore();
+      transactions.mockRestore();
+      admission.mockRestore();
+    }
+  });
+
   test('another stream publishes while a transaction is stalled, without touching its reserved IDs', async () => {
     await using factory = await factoryGen.factory();
     const a = await openStream(factory, version);

@@ -417,10 +417,14 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   }
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
-    await this.updateStreamMetadata({
+    await this.updateStreamMetadata(this.snapshotDoneUpdate(no_checkpoint_before_lsn));
+  }
+
+  private snapshotDoneUpdate(no_checkpoint_before_lsn: string) {
+    return {
       snapshot_done: true,
       no_checkpoint_before: { $max: ['$no_checkpoint_before', { $literal: no_checkpoint_before_lsn }] }
-    });
+    };
   }
 
   async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
@@ -450,7 +454,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         }
       }
 
-      await this.markAllSnapshotDone(no_checkpoint_before_lsn);
+      await this.updateStreamMetadataInTransaction(this.snapshotDoneUpdate(no_checkpoint_before_lsn));
     });
   }
 
@@ -510,8 +514,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     const session = this.session;
     let activated = false;
     let needsFutureActivationCheck = true;
-    await session.withTransaction(async () => {
-      await this.fence(session);
+    await this.withTransaction(async () => {
       // Reset on transaction retries.
       activated = false;
       needsFutureActivationCheck = true;
@@ -549,7 +552,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       } else if (doc?.state != storage.SyncRuleState.PROCESSING) {
         needsFutureActivationCheck = false;
       }
-    });
+    }, session);
     if (activated) {
       this.logger.info(`Activated new replication stream at ${lsn}`);
       await this.db.notifyCheckpoint();

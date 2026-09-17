@@ -176,8 +176,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const session = this.db.client.startSession();
     await using _ = { [Symbol.asyncDispose]: () => session.endSession() };
 
-    await session.withTransaction(async () => {
-      await this.fence(session);
+    await this.withTransaction(async () => {
       const col = this.db.sourceTables(this.replicationStreamId);
 
       // Find records that overlap by name or relation id.
@@ -247,7 +246,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           sourceTableFromDocument(doc, context.connectionTag, syncConfig, mapping, eventById)
         )
       };
-    });
+    }, session);
 
     return result!;
   }
@@ -452,8 +451,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const session = this.session;
     let activated = false;
     let needsFutureActivationCheck = true;
-    await session.withTransaction(async () => {
-      await this.fence(session);
+    await this.withTransaction(async () => {
       // Reset on transaction retries.
       needsFutureActivationCheck = true;
       activated = false;
@@ -541,7 +539,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       } else if (doc.state == storage.SyncRuleState.ACTIVE && processingStates.length == 0) {
         needsFutureActivationCheck = false;
       }
-    });
+    }, session);
     if (activated) {
       this.logger.info(`Activated new replication stream at ${lsn}`);
       await this.db.notifyCheckpoint();
@@ -551,31 +549,34 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     }
   }
 
-  private async updateSyncConfigMetadata(syncConfigIds: bson.ObjectId[], set: lib_mongo.mongo.Document): Promise<void> {
-    await this.updateStreamMetadata(
-      {
-        sync_configs: {
-          $map: {
-            input: '$sync_configs',
-            as: 'config',
-            in: {
-              $cond: [
-                { $in: ['$$config._id', { $literal: syncConfigIds }] },
-                { $mergeObjects: ['$$config', set] },
-                '$$config'
-              ]
-            }
+  private syncConfigMetadataUpdate(syncConfigIds: bson.ObjectId[], set: lib_mongo.mongo.Document) {
+    return {
+      sync_configs: {
+        $map: {
+          input: '$sync_configs',
+          as: 'config',
+          in: {
+            $cond: [
+              { $in: ['$$config._id', { $literal: syncConfigIds }] },
+              { $mergeObjects: ['$$config', set] },
+              '$$config'
+            ]
           }
         }
-      },
-      { 'sync_configs._id': { $in: syncConfigIds } }
-    );
+      }
+    };
+  }
+
+  private snapshotDoneUpdate(no_checkpoint_before_lsn: string) {
+    return this.syncConfigMetadataUpdate(this.syncConfigIds, {
+      snapshot_done: true,
+      no_checkpoint_before: { $max: ['$$config.no_checkpoint_before', { $literal: no_checkpoint_before_lsn }] }
+    });
   }
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
-    await this.updateSyncConfigMetadata(this.syncConfigIds, {
-      snapshot_done: true,
-      no_checkpoint_before: { $max: ['$$config.no_checkpoint_before', { $literal: no_checkpoint_before_lsn }] }
+    await this.updateStreamMetadata(this.snapshotDoneUpdate(no_checkpoint_before_lsn), {
+      'sync_configs._id': { $in: this.syncConfigIds }
     });
   }
 
@@ -600,7 +601,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         }
       }
 
-      await this.markAllSnapshotDone(no_checkpoint_before_lsn);
+      await this.updateStreamMetadataInTransaction(this.snapshotDoneUpdate(no_checkpoint_before_lsn), {
+        'sync_configs._id': { $in: this.syncConfigIds }
+      });
     });
   }
 
@@ -609,7 +612,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     if (syncConfigIds.length == 0) {
       return;
     }
-    await this.updateSyncConfigMetadata(syncConfigIds, { snapshot_done: false });
+    await this.updateStreamMetadata(this.syncConfigMetadataUpdate(syncConfigIds, { snapshot_done: false }), {
+      'sync_configs._id': { $in: syncConfigIds }
+    });
   }
 
   async markTableSnapshotDone(

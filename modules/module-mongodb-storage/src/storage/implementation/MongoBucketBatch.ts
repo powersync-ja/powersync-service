@@ -700,39 +700,54 @@ export abstract class MongoBucketBatch
     );
   }
 
-  protected async withTransaction<T>(cb: (stream: SyncRuleDocumentBase) => Promise<T>): Promise<T> {
-    return this.withFencedTransaction(() => this.fence(), cb);
+  protected async withTransaction<T>(
+    cb: (stream: SyncRuleDocumentBase) => Promise<T>,
+    session = this.session
+  ): Promise<T> {
+    return this.withFencedTransaction(() => this.fence(session), cb, session);
   }
 
   /** The first operation must modify the stream document conditional on lease ownership. */
   protected async withFencedTransaction<S, T>(
     acquireFence: () => Promise<S>,
-    cb: (stream: S) => Promise<T>
+    cb: (stream: S) => Promise<T>,
+    session = this.session
   ): Promise<T> {
-    return this.session.withTransaction(
-      async () => {
-        const stream = await acquireFence();
-        try {
-          const result = await cb(stream);
-          this.options.replicationLock.throwIfAborted();
-          return result;
-        } catch (e: unknown) {
-          if (e instanceof OpIdRangeExhausted) {
+    return this.withWriterLock(() =>
+      session.withTransaction(
+        async () => {
+          const stream = await acquireFence();
+          try {
+            const result = await cb(stream);
+            this.options.replicationLock.throwIfAborted();
+            return result;
+          } catch (e: unknown) {
+            if (e instanceof OpIdRangeExhausted) {
+              throw e;
+            }
+            if (e instanceof mongo.MongoError && e.hasErrorLabel('TransientTransactionError')) {
+              // Likely write conflict caused by concurrent writes to this replication stream.
+            } else {
+              this.logger.warn('Transaction error', e as Error);
+            }
+            const delay = Math.random() * 50;
+            using _ = this.tracer.span('storage', 'retry_delay');
+            await timers.setTimeout(delay);
             throw e;
           }
-          if (e instanceof mongo.MongoError && e.hasErrorLabel('TransientTransactionError')) {
-            // Likely write conflict caused by concurrent writes to this replication stream.
-          } else {
-            this.logger.warn('Transaction error', e as Error);
-          }
-          const delay = Math.random() * 50;
-          using _ = this.tracer.span('storage', 'retry_delay');
-          await timers.setTimeout(delay);
-          throw e;
-        }
-      },
-      { maxCommitTimeMS: 10000, writeConcern: { w: 'majority' } }
+        },
+        { maxCommitTimeMS: 10000, writeConcern: { w: 'majority' } }
+      )
     );
+  }
+
+  private async withWriterLock<T>(callback: () => Promise<T>): Promise<T> {
+    using lockSpan = this.tracer.span('storage', 'internal_lock');
+    return this.options.replicationLock.writerMutex.exclusiveLock(async () => {
+      lockSpan.end();
+      this.options.replicationLock.throwIfAborted();
+      return callback();
+    });
   }
 
   /** Single-document updates enforce ownership atomically, without a separate transaction. */
@@ -741,13 +756,23 @@ export abstract class MongoBucketBatch
     filter: mongo.Document = {},
     writeConcern: mongo.WriteConcernSettings = { w: 'majority' }
   ): Promise<void> {
+    await this.withWriterLock(() => this.writeStreamMetadata(set, filter, writeConcern));
+  }
+
+  /** Caller must already be inside a fenced transaction holding the writer mutex. */
+  protected async updateStreamMetadataInTransaction(set: mongo.Document, filter: mongo.Document = {}): Promise<void> {
+    await this.writeStreamMetadata(set, filter);
+  }
+
+  private async writeStreamMetadata(
+    set: mongo.Document,
+    filter: mongo.Document,
+    writeConcern?: mongo.WriteConcernSettings
+  ): Promise<void> {
     const result = await this.db.sync_rules.updateOne(
       { ...filter, ...MongoSyncRulesLock.ownerFilter(this.replicationStreamId, this.options.replicationLock) },
       [{ $set: { ...set, ...MongoSyncRulesLock.heartbeatUpdate() } }],
-      {
-        session: this.session,
-        ...(this.session.inTransaction() ? {} : { writeConcern })
-      }
+      { session: this.session, ...(writeConcern == null ? {} : { writeConcern }) }
     );
     if (result.matchedCount === 0) {
       throw new ReplicationAbortedError('Replication writer no longer owns the stream');

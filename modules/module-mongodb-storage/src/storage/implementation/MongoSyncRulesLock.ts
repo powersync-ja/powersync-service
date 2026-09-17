@@ -2,7 +2,7 @@ import crypto from 'crypto';
 
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ErrorCode, Logger, ReplicationAbortedError, ServiceError } from '@powersync/lib-services-framework';
-import { storage } from '@powersync/service-core';
+import { storage, utils } from '@powersync/service-core';
 import { VersionedPowerSyncMongo } from './db.js';
 
 const LOCK_DURATION_MS = 60 * 1000;
@@ -12,6 +12,9 @@ const LOCK_DURATION_MS = 60 * 1000;
  * processes that replication stream at a time.
  */
 export class MongoSyncRulesLock implements storage.ReplicationLock {
+  /** FIFO admission shared by this lease's writers; database fencing still enforces ownership. */
+  readonly writerMutex = new utils.Mutex();
+
   private readonly abort = new AbortController();
   readonly signal = this.abort.signal;
 

@@ -15,7 +15,9 @@ The fence runs on **every flush**, not only on `writer.commit()`, which publishe
 
 Snapshot progress, table resolution, and activation also use fenced transactions. Updates confined to the stream document, such as resume positions and stream snapshot state, check the lease and update the heartbeat atomically.
 
-Different streams use different documents, so the fence does not introduce a global lock.
+Writers sharing a stream lease also share an in-process FIFO mutex. It covers fenced transactions through commit and retries, plus standalone metadata updates, so snapshot and streaming writers queue instead of conflicting locally. ID reservations happen outside the mutex.
+
+Different streams use different mutexes and documents, so neither admission nor fencing introduces a global lock. Database fencing remains necessary for writers in other processes.
 
 ## Reserved operation IDs
 
