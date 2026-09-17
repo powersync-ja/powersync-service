@@ -11,7 +11,7 @@ import { MongoManager } from '../replication/MongoManager.js';
 import { CHECKPOINTS_COLLECTION, detectDocumentDb } from '../replication/replication-utils.js';
 import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
-import { inferCollectionSchema } from './infer-collection-schema.js';
+import { inferCollectionSchema, isSchemaInferenceFailure } from './infer-collection-schema.js';
 
 const SCHEMA_INFERENCE_CONCURRENCY = 4;
 
@@ -291,6 +291,16 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
           } catch (e) {
             if (lib_mongo.isMongoServerError(e) && e.codeName == 'Unauthorized') {
               // Ignore collections we're not authorized to query
+              continue;
+            }
+            if (isSchemaInferenceFailure(e)) {
+              // We know the collection is there, we just could not read its fields. Report it
+              // without columns rather than failing: one collection we cannot sample should not
+              // block validation and deployment for every sync config on the instance. Queries
+              // naming its columns warn about unknown columns; the result is indistinguishable
+              // from an empty collection, so a `SELECT *` query still validates cleanly.
+              logger.warn(`Could not infer the schema of ${db.name}.${collection.name}`, e);
+              tables[index] = { name: collection.name, columns: [] };
               continue;
             }
             // Fail the whole request on unexpected errors: the response cannot indicate
