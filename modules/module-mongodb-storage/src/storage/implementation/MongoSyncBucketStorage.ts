@@ -4,9 +4,11 @@ import {
   BaseObserver,
   logger as defaultLogger,
   DO_NOT_LOG,
+  ErrorCode,
   Logger,
   ReplicationAbortedError,
-  ServiceAssertionError
+  ServiceAssertionError,
+  ServiceError
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
@@ -81,6 +83,59 @@ interface InternalCheckpointChanges extends CheckpointChanges {
  * These will be filtered out for existing clients, so should not create significant overhead.
  */
 const CHECKPOINT_TIMEOUT_MS = 60_000;
+
+/**
+ * Above this many buckets (a collection-wide estimate), the report ranks a bounded sample of bucket_state
+ * rather than every bucket, so the request cannot exhaust memory or run unbounded. Below it, the ranking is
+ * exact.
+ */
+const BUCKET_SELECTION_SAMPLE_THRESHOLD = 50_000;
+
+/**
+ * Approximate number of buckets sampled when over {@link BUCKET_SELECTION_SAMPLE_THRESHOLD}. The sample is
+ * drawn with `$sampleRate`, so the achieved count varies slightly around this.
+ */
+const BUCKET_SELECTION_SAMPLE_SIZE = 10_000;
+
+/**
+ * Most bucket_state index entries one report query may scan. Even when sampling fetches few documents, the
+ * covered index scan and the matched-bucket count still touch every matched index entry once, so past this
+ * the report fails fast instead of scaling without bound.
+ */
+const BUCKET_SELECTION_SCAN_MAX = 1_000_000;
+
+export interface TopBucketSelection {
+  buckets: storage.RankedBucketInput[];
+  definitions: storage.RankedDefinitionInput[];
+  /** True if more definitions exist than `definitions` holds ({@link storage.BUCKET_REPORT_DEFINITION_LIMIT}). */
+  definitionsTruncated: boolean;
+  totals: storage.BucketReportTotals;
+}
+
+/**
+ * Version-specific aggregation expressions over a bucket_state document, feeding
+ * {@link MongoSyncBucketStorage.aggregateTopBuckets}.
+ */
+export interface BucketStateReportExpressions {
+  /** The bucket's current total operation count. */
+  operations: mongo.Document;
+  /** The bucket's current operation-history bytes, as a numeric expression. */
+  operationBytes: mongo.Document;
+  /**
+   * Statistics captured by the bucket's last full compact. Omitted for storage versions that do not record
+   * them (v1/v2), which limits the report to operation counts.
+   */
+  fullCompact?: {
+    /** Operation count of the compacted prefix, e.g. `'$last_full_compact.count'`. */
+    operations: unknown;
+    /** PUT count of the compacted prefix (the row count as of the compact). */
+    puts: unknown;
+    /** When the full compact ran. */
+    at: unknown;
+    /** When the scheduled compactor next considers the bucket. */
+    nextCompactAt: unknown;
+  };
+}
 
 export abstract class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -430,6 +485,225 @@ export abstract class MongoSyncBucketStorage
   abstract compactInitialReplication(
     options: CompactInitialReplicationOptions
   ): Promise<CompactInitialReplicationResults>;
+
+  async getBucketReport(options?: storage.GetBucketReportOptions): Promise<storage.BucketReport> {
+    const limit = storage.resolveBucketReportLimit(options?.limit);
+    try {
+      // Everything comes from the pre-aggregated bucket state (one document per bucket, ranked and limited
+      // in the database): exact operation counts plus the last full compact's statistics, from which the
+      // row-level fields are derived. The operation history itself is never read.
+      const { buckets, definitions, definitionsTruncated, totals } = await this.collectTopBuckets(limit);
+      return storage.assembleBucketReport(buckets, definitions, totals, definitionsTruncated);
+    } catch (e) {
+      // Translate a storage query timeout (maxTimeMS) into a specific, retryable error code rather than a
+      // generic internal error.
+      throw lib_mongo.mapQueryError(e, 'while building the bucket report');
+    }
+  }
+
+  /**
+   * Select the worst-offender buckets (by operation count), the per-definition rollup, and instance-wide
+   * operation totals from the pre-aggregated bucket state. Ranking and limiting happen in the database, so
+   * memory stays bounded. Implementations supply their version-specific bucket state collection,
+   * active-config filter, and stat expressions.
+   */
+  protected abstract collectTopBuckets(limit: number): Promise<TopBucketSelection>;
+
+  /**
+   * Rank buckets by operation count in the database and compute instance-wide operation totals, reading the
+   * pre-aggregated bucket state. One document per bucket, no scan of bucket data.
+   *
+   * For very large bucket sets the candidates are drawn from a bounded sample of the matched `_id` index
+   * range rather than the whole collection (so the request cannot run unbounded or exhaust memory), and the
+   * totals are scaled from the sample and flagged estimated. `allowDiskUse: false` makes an over-threshold
+   * exact attempt fail fast rather than spill to disk and degrade the live instance.
+   *
+   * Note: for v1/v2 storage, bucket_state is not backfilled (see models.ts: "only populated by new updates"),
+   * so buckets that predate bucket_state tracking and have not been updated or compacted since are missing
+   * here and under-counted. v3 always has bucket_state.
+   */
+  protected async aggregateTopBuckets<T extends { _id: { b: string } }>(
+    collection: mongo.Collection<T>,
+    match: mongo.Filter<T>,
+    limit: number,
+    exprs: BucketStateReportExpressions
+  ): Promise<TopBucketSelection> {
+    const { operations, operationBytes, fullCompact } = exprs;
+    // Bucket names are `<definition>[<serialized parameters>]`, so everything before the first `[` groups a
+    // bucket into its definition.
+    const definitionKey = { $arrayElemAt: [{ $split: ['$_id.b', '['] }, 0] };
+
+    // Reports are bulk reads: keep them off the primary by using the configured bulk read preference,
+    // falling back to secondaryPreferred. Staleness does not matter for a report.
+    const readPreference =
+      this.readPreference ??
+      new mongo.ReadPreference('secondaryPreferred', undefined, {
+        // 90 is the minimum value.
+        maxStalenessSeconds: 90
+      });
+
+    // estimatedDocumentCount is O(1) but ignores the match filter, so this is an upper bound on the active
+    // bucket count. That is fine for the sampling decision: over-estimating only switches to sampling sooner.
+    const estimatedTotalBuckets = await collection.estimatedDocumentCount({ readPreference });
+
+    let matchedBuckets: number | null = null;
+    if (estimatedTotalBuckets > BUCKET_SELECTION_SAMPLE_THRESHOLD) {
+      // The exact matched-bucket count. `match` is an `_id` range, so this is an index-only scan; it sets
+      // the sample rate, scales the sampled sums back up, and doubles as the exact totals.bucketCount.
+      // `limit` caps how many index entries the count may touch: hitting the cap means the instance is past
+      // what this report is designed to scan, so fail fast rather than read the index without bound.
+      matchedBuckets = await collection.countDocuments(match, {
+        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS,
+        readPreference,
+        limit: BUCKET_SELECTION_SCAN_MAX + 1
+      });
+      if (matchedBuckets > BUCKET_SELECTION_SCAN_MAX) {
+        throw new ServiceError({
+          status: 422,
+          code: ErrorCode.PSYNC_S2001,
+          description: `Bucket report is not supported on this instance: more than ${BUCKET_SELECTION_SCAN_MAX} buckets match the active sync configuration`
+        });
+      }
+    }
+    const sampleRate = matchedBuckets == null ? 1 : BUCKET_SELECTION_SAMPLE_SIZE / Math.max(matchedBuckets, 1);
+    const sampled = sampleRate < 1;
+
+    const pipeline: mongo.Document[] = [{ $match: match }];
+    if (sampled) {
+      // Sample on the index alone, then fetch only the sampled documents: the range $match plus the _id
+      // projection is a covered index scan (explain shows docsExamined: 0), $sampleRate keeps roughly
+      // SAMPLE_SIZE ids, and the self-$lookup fetches just those. Sampling after a plain $match would fetch
+      // every matched document only to discard most of them.
+      pipeline.push(
+        { $project: { _id: 1 } },
+        { $match: { $sampleRate: sampleRate } },
+        { $lookup: { from: collection.collectionName, localField: '_id', foreignField: '_id', as: 'doc' } },
+        { $unwind: '$doc' },
+        { $replaceRoot: { newRoot: '$doc' } }
+      );
+    }
+    // BSON comparison order places every concrete value above null/missing, so this is true exactly when
+    // the bucket has full-compact statistics.
+    const hasFullCompact = fullCompact == null ? false : { $gt: [fullCompact.operations, null] };
+    pipeline.push({
+      $facet: {
+        totals: [
+          {
+            $group: {
+              _id: null,
+              operations: { $sum: operations },
+              operationBytes: { $sum: operationBytes },
+              bucketCount: { $sum: 1 }
+            }
+          }
+        ],
+        top: [
+          {
+            $project: {
+              _id: 0,
+              bucket: '$_id.b',
+              operations,
+              operationBytes,
+              ...(fullCompact && {
+                compactedOperations: { $ifNull: [fullCompact.operations, null] },
+                compactedPuts: { $ifNull: [fullCompact.puts, null] },
+                lastFullCompactAt: { $ifNull: [fullCompact.at, null] },
+                nextCompactAt: { $ifNull: [fullCompact.nextCompactAt, null] }
+              })
+            }
+          },
+          { $sort: { operations: -1 } },
+          { $limit: limit }
+        ],
+        definitions: [
+          {
+            $group: {
+              _id: definitionKey,
+              operations: { $sum: operations },
+              operationBytes: { $sum: operationBytes },
+              bucketCount: { $sum: 1 },
+              ...(fullCompact && {
+                compactedBucketCount: { $sum: { $cond: [hasFullCompact, 1, 0] } },
+                compactedOperations: { $sum: { $ifNull: [fullCompact.operations, 0] } },
+                compactedPuts: { $sum: { $ifNull: [fullCompact.puts, 0] } }
+              })
+            }
+          },
+          { $sort: { operations: -1 } },
+          // One past the cap: an extra result only signals that the rollup was truncated.
+          { $limit: storage.BUCKET_REPORT_DEFINITION_LIMIT + 1 }
+        ]
+      }
+    });
+
+    type FacetResult = {
+      totals: { operations: number; operationBytes: number; bucketCount: number }[];
+      top: storage.RankedBucketInput[];
+      definitions: {
+        _id: string;
+        operations: number;
+        operationBytes: number;
+        bucketCount: number;
+        compactedBucketCount?: number;
+        compactedOperations?: number;
+        compactedPuts?: number;
+      }[];
+    };
+    const [result] = await collection
+      .aggregate<FacetResult>(pipeline, {
+        allowDiskUse: false,
+        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS,
+        readPreference
+      })
+      .toArray();
+
+    const rawTotals = result?.totals[0] ?? { operations: 0, operationBytes: 0, bucketCount: 0 };
+    const buckets = result?.top ?? [];
+    const rawDefinitions = result?.definitions ?? [];
+    const definitionsTruncated = rawDefinitions.length > storage.BUCKET_REPORT_DEFINITION_LIMIT;
+    const mapDefinitions = (scale: number): storage.RankedDefinitionInput[] =>
+      rawDefinitions.slice(0, storage.BUCKET_REPORT_DEFINITION_LIMIT).map((d) => ({
+        definition: d._id,
+        bucketCount: Math.round(d.bucketCount * scale),
+        operations: Math.round(d.operations * scale),
+        operationBytes: Math.round(d.operationBytes * scale),
+        ...(fullCompact && {
+          compactedBucketCount: Math.round((d.compactedBucketCount ?? 0) * scale),
+          compactedOperations: Math.round((d.compactedOperations ?? 0) * scale),
+          compactedPuts: Math.round((d.compactedPuts ?? 0) * scale)
+        })
+      }));
+
+    if (!sampled) {
+      return {
+        buckets,
+        definitions: mapDefinitions(1),
+        definitionsTruncated,
+        totals: {
+          bucketCount: rawTotals.bucketCount,
+          operations: rawTotals.operations,
+          operationBytes: rawTotals.operationBytes,
+          estimated: false
+        }
+      };
+    }
+
+    // Scale the sampled sums up to the full matched set, using the exact matched count from above. The
+    // sample is uniform across buckets, so the per-definition sums scale by the same factor; a definition
+    // small enough to be missed by the sample entirely is absent. bucketCount itself is exact.
+    const scale = matchedBuckets! / Math.max(rawTotals.bucketCount, 1);
+    return {
+      buckets,
+      definitions: mapDefinitions(scale),
+      definitionsTruncated,
+      totals: {
+        bucketCount: matchedBuckets!,
+        operations: Math.round(rawTotals.operations * scale),
+        operationBytes: Math.round(rawTotals.operationBytes * scale),
+        estimated: true
+      }
+    };
+  }
 
   /**
    * The highest op id persisted for this stream, whether or not covered by a checkpoint.
