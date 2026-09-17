@@ -928,21 +928,29 @@ export class ChangeStream {
           }
 
           if (splitDocument == null) {
-            // We flush and mark progress on every batch of data we receive.
+            // We seal changes and queue progress on every batch of data we receive.
             // Batches are generally large (64MB or 6000 events, whichever comes first),
             // so this is a good natural point to flush and mark progress.
             // We avoid this when splitDocument is set, since we cannot resume in the middle of a split event.
             const { lsn, timestamp } = this.checkpointImplementation.lsnFromResumeToken(resumeToken);
-            await batch.flush({ oldestUncommittedChange: this.replicationLag.oldestUncommittedChange });
-            // TODO: We should consider making this standard behavior of flush().
-            await batch.setResumeLsn(lsn);
-
-            if (timestamp != null) {
-              // Note that this timestamp provided by MongoDB is not exact - it can be around 10s behind.
-              this.lastPersistedResumeTimestamp = timestamp.getTime();
+            const flushOptions = { oldestUncommittedChange: this.replicationLag.oldestUncommittedChange };
+            // Only advance the timestamp after the page is durable. Receipt
+            // rejection is surfaced by the next admission or durability barrier.
+            // Note that this timestamp provided by MongoDB is not exact - it can be around 10s behind.
+            // DocumentDB: No timestamp associated with the resumeToken. Just use the current time.
+            const persistedTimestamp = timestamp?.getTime() ?? Date.now();
+            if (batch.queueResumeLsn) {
+              const receipt = await batch.queueResumeLsn(lsn, flushOptions);
+              void receipt.persisted.then(
+                () => {
+                  this.lastPersistedResumeTimestamp = persistedTimestamp;
+                },
+                () => {}
+              );
             } else {
-              // DocumentDB: No timestamp associated with the resumeToken. Just use the current time.
-              this.lastPersistedResumeTimestamp = Date.now();
+              await batch.flush(flushOptions);
+              await batch.setResumeLsn(lsn);
+              this.lastPersistedResumeTimestamp = persistedTimestamp;
             }
           }
 

@@ -78,7 +78,8 @@ export class ObjectStorageLifecycle {
           _id: upload.markerId,
           path: upload.path,
           delete_after: upload.deleteAfter
-        }))
+        })),
+        { writeConcern: { w: 'majority' } }
       );
     }
     return uploads;
@@ -107,7 +108,9 @@ export class ObjectStorageLifecycle {
       this.db.pendingObjectStorageDeletes(this.replicationStreamId),
       { _id: { $in: uploads.map((upload) => upload.markerId) } },
       (deletedCount) => {
-        if (deletedCount !== uploads.length) throw new Error('Missing object storage publication markers');
+        if (deletedCount !== uploads.length) {
+          throw new Error('Missing object storage publication markers');
+        }
       }
     );
   }

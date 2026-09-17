@@ -510,46 +510,48 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     const session = this.session;
     let activated = false;
     let needsFutureActivationCheck = true;
-    await session.withTransaction(async () => {
-      await this.fence(session);
-      // Reset on transaction retries.
-      activated = false;
-      needsFutureActivationCheck = true;
+    await this.withWriterAccess(() =>
+      session.withTransaction(async () => {
+        await this.fence(session);
+        // Reset on transaction retries.
+        activated = false;
+        needsFutureActivationCheck = true;
 
-      const doc = (await this.db.sync_rules.findOne(
-        { _id: this.replicationStreamId },
-        { session }
-      )) as SyncRuleDocumentV1;
-      if (doc && doc.state == storage.SyncRuleState.PROCESSING && doc.snapshot_done && doc.last_checkpoint != null) {
-        await this.db.sync_rules.updateOne(
-          {
-            _id: this.replicationStreamId
-          },
-          {
-            $set: {
-              state: storage.SyncRuleState.ACTIVE
-            }
-          },
+        const doc = (await this.db.sync_rules.findOne(
+          { _id: this.replicationStreamId },
           { session }
-        );
+        )) as SyncRuleDocumentV1;
+        if (doc && doc.state == storage.SyncRuleState.PROCESSING && doc.snapshot_done && doc.last_checkpoint != null) {
+          await this.db.sync_rules.updateOne(
+            {
+              _id: this.replicationStreamId
+            },
+            {
+              $set: {
+                state: storage.SyncRuleState.ACTIVE
+              }
+            },
+            { session }
+          );
 
-        await this.db.sync_rules.updateMany(
-          {
-            _id: { $ne: this.replicationStreamId },
-            state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
-          },
-          {
-            $set: {
-              state: storage.SyncRuleState.STOP
-            }
-          },
-          { session }
-        );
-        activated = true;
-      } else if (doc?.state != storage.SyncRuleState.PROCESSING) {
-        needsFutureActivationCheck = false;
-      }
-    });
+          await this.db.sync_rules.updateMany(
+            {
+              _id: { $ne: this.replicationStreamId },
+              state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
+            },
+            {
+              $set: {
+                state: storage.SyncRuleState.STOP
+              }
+            },
+            { session }
+          );
+          activated = true;
+        } else if (doc?.state != storage.SyncRuleState.PROCESSING) {
+          needsFutureActivationCheck = false;
+        }
+      })
+    );
     if (activated) {
       this.logger.info(`Activated new replication stream at ${lsn}`);
       await this.db.notifyCheckpoint();
