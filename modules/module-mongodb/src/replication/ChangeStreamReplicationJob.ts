@@ -3,18 +3,22 @@ import { replication } from '@powersync/service-core';
 
 import { ChangeStream, ChangeStreamInvalidatedError } from './ChangeStream.js';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
+import { MongoReplicationQueryProviderFactory } from './MongoReplicationQueryProvider.js';
 
 export interface ChangeStreamReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: ConnectionManagerFactory;
+  createReplicationQueryProvider?: MongoReplicationQueryProviderFactory;
 }
 
 export class ChangeStreamReplicationJob extends replication.AbstractReplicationJob {
-  private connectionFactory: ConnectionManagerFactory;
+  private readonly connectionFactory: ConnectionManagerFactory;
+  private readonly createReplicationQueryProvider: MongoReplicationQueryProviderFactory | undefined;
   private lastStream: ChangeStream | null = null;
 
   constructor(options: ChangeStreamReplicationJobOptions) {
     super(options);
     this.connectionFactory = options.connectionFactory;
+    this.createReplicationQueryProvider = options.createReplicationQueryProvider;
     // We use a custom formatter to process the prefix
     this.logger = options.storage.logger;
   }
@@ -72,7 +76,8 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
         metrics: this.options.metrics,
         connections: connectionManager,
         keepaliveIntervalMs: connectionManager.options.heartbeat_interval_seconds * 1_000,
-        logger: this.logger
+        logger: this.logger,
+        createReplicationQueryProvider: this.createReplicationQueryProvider
       });
       this.lastStream = stream;
       await stream.replicate();
