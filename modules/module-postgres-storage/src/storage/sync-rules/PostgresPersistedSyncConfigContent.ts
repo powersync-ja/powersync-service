@@ -6,17 +6,21 @@ import { models } from '../../types/types.js';
 export class PostgresPersistedSyncConfigContent extends storage.PersistedSyncConfigContent {
   constructor(
     private db: lib_postgres.DatabaseClient,
-    row: models.SyncRulesDecoded
+    row: models.SyncRulesDecoded,
+    syncConfigParser: storage.SyncConfigParser
   ) {
-    super({
-      replicationStreamId: Number(row.id),
-      sync_rules_content: row.content,
-      compiled_plan: row.sync_plan,
-      replicationStreamName: row.slot_name,
-      storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION,
-      syncConfigState: row.state as storage.SyncRuleState,
-      version_label: row.version_label ?? undefined
-    });
+    super(
+      {
+        replicationStreamId: Number(row.id),
+        sync_rules_content: row.content,
+        compiled_plan: row.sync_plan,
+        replicationStreamName: row.slot_name,
+        storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION,
+        syncConfigState: row.state as storage.SyncRuleState,
+        version_label: row.version_label ?? undefined
+      },
+      syncConfigParser
+    );
   }
 
   async getSyncConfigStatus(): Promise<storage.PersistedSyncConfigStatus | null> {
@@ -54,7 +58,8 @@ export class PostgresPersistedReplicationStream extends storage.PersistedReplica
 
   constructor(
     private db: lib_postgres.DatabaseClient,
-    private readonly row: models.SyncRulesDecoded
+    private readonly row: models.SyncRulesDecoded,
+    private readonly syncConfigParser: storage.SyncConfigParser
   ) {
     super({
       replicationStreamId: Number(row.id),
@@ -68,7 +73,7 @@ export class PostgresPersistedReplicationStream extends storage.PersistedReplica
         `Unsupported storage version ${this.storageVersion} for PostgreSQL storage`
       );
     }
-    this.syncConfigContent = [new PostgresPersistedSyncConfigContent(this.db, this.row)];
+    this.syncConfigContent = [new PostgresPersistedSyncConfigContent(this.db, this.row, this.syncConfigParser)];
   }
 
   parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
