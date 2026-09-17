@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { InternalOpId, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { test_utils } from '@powersync/service-core-tests';
+import { getTestStorage, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import type { VersionedPowerSyncMongo } from '../../src/storage/implementation/db.js';
 import type { SyncRuleDocumentBase } from '../../src/storage/implementation/models.js';
@@ -83,7 +83,7 @@ describe('parameter compaction invalidation fence', () => {
        */
       async function replicateParameterHistory(factory: storage.BucketStorageFactory) {
         const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(PARAMETER_RULES, { storageVersion }));
-        const processingStorage = factory.getInstance(syncRules);
+        const processingStorage = await getTestStorage(factory, syncRules);
         const writer = await processingStorage.createWriter(test_utils.BATCH_OPTIONS);
         const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
 
@@ -196,7 +196,7 @@ describe('parameter compaction invalidation fence', () => {
         // which is the only record of t2's lookup.
         //
         // A separate storage instance is used to get a cold checkpoint-changes cache.
-        const coldStorage = (factory as MongoBucketStorage).getInstance(replicationStream);
+        const coldStorage = await getTestStorage(factory as MongoBucketStorage, replicationStream);
         const atSnapshot = await coldStorage.getCheckpointChanges({
           lastCheckpoint: checkpoint1,
           nextCheckpoint: checkpoint3

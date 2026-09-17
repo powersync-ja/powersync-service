@@ -290,7 +290,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         } else {
           lock = await replicationStream.lock();
         }
-        const syncRuleStorage = this.storage.getInstance(replicationStream);
+        const syncRuleStorage = this.storage.getInstance(replicationStream, { replicationLock: lock });
         const newJob = this.createJob({
           lock: lock,
           storage: syncRuleStorage

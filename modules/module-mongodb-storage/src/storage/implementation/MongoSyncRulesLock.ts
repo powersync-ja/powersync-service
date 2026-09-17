@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 
 import { mongo } from '@powersync/lib-service-mongodb';
-import { ErrorCode, Logger, ServiceError } from '@powersync/lib-services-framework';
+import { ErrorCode, Logger, ReplicationAbortedError, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { VersionedPowerSyncMongo } from './db.js';
 
@@ -12,6 +12,9 @@ const LOCK_DURATION_MS = 60 * 1000;
  * processes that replication stream at a time.
  */
 export class MongoSyncRulesLock implements storage.ReplicationLock {
+  private readonly abort = new AbortController();
+  readonly signal = this.abort.signal;
+
   private readonly refreshInterval: NodeJS.Timeout;
 
   /**
@@ -67,13 +70,14 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
   constructor(
     private db: VersionedPowerSyncMongo,
     public sync_rules_id: number,
-    private lock_id: string,
+    public readonly lock_id: string,
     private logger: Logger
   ) {
     this.refreshInterval = setInterval(async () => {
       try {
         await this.refresh();
       } catch (e) {
+        this.abort.abort(e);
         this.logger.error('Failed to refresh lock', e);
         clearInterval(this.refreshInterval);
       }
@@ -81,6 +85,7 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
   }
 
   async release(): Promise<void> {
+    this.abort.abort(new Error('Replication lock released'));
     clearInterval(this.refreshInterval);
     const result = await this.db.sync_rules.updateOne(
       {
@@ -95,6 +100,51 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
       // Log and ignore
       this.logger.warn(`Lock already released: ${this.sync_rules_id}/${this.lock_id}`);
     }
+  }
+
+  throwIfAborted(): void {
+    this.signal.throwIfAborted();
+  }
+
+  static ownerFilter(streamId: number, lock: MongoSyncRulesLock) {
+    lock.throwIfAborted();
+    return { _id: streamId, 'lock.id': lock.lock_id };
+  }
+
+  static heartbeatUpdate() {
+    // Always change the existing heartbeat, even for writes in the same
+    // millisecond. A no-op update is not sufficient for a transactional fence.
+    return {
+      last_keepalive_ts: {
+        $max: ['$$NOW', { $add: [{ $ifNull: ['$last_keepalive_ts', new Date(0)] }, 1] }]
+      }
+    };
+  }
+
+  static assertOwned<T>(document: T | null): T {
+    if (document == null) {
+      throw new ReplicationAbortedError('Replication writer no longer owns the stream');
+    }
+    return document;
+  }
+
+  /**
+   * A write, not just an ownership read: takeover conflicts with every transaction
+   * that publishes under this owner. Every writer must hold a stream lease.
+   */
+  static async fence(
+    db: VersionedPowerSyncMongo,
+    streamId: number,
+    lock: MongoSyncRulesLock,
+    session: mongo.ClientSession,
+    projection: mongo.Document = { last_persisted_op: 1, last_checkpoint: 1, keepalive_op: 1 }
+  ) {
+    const doc = await db.sync_rules.findOneAndUpdate(
+      this.ownerFilter(streamId, lock),
+      [{ $set: this.heartbeatUpdate() }],
+      { session, returnDocument: 'after', projection }
+    );
+    return this.assertOwned(doc);
   }
 
   private async refresh(): Promise<void> {

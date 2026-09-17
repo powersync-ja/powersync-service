@@ -8,6 +8,7 @@ import {
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
+import { getTestStorage } from '../test-utils/leased-storage.js';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest } from '../test-utils/test-utils-index.js';
 
@@ -36,6 +37,21 @@ export function registerDataStorageDataTests(config: storage.TestStorageConfig) 
   const generateStorageFactory = config.factory;
   const storageVersion = config.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
 
+  test('releases test replication leases when leaving an await using scope', async () => {
+    {
+      await using factory = await generateStorageFactory();
+      const stream = await factory.updateSyncRules(
+        updateSyncRulesFromYaml('bucket_definitions: {}', { storageVersion })
+      );
+      await getTestStorage(factory, stream);
+    }
+
+    await using replacement = await generateStorageFactory({ doNotClear: true });
+    const deploying = await replacement.getDeployingSyncConfig();
+    expect(deploying).not.toBeNull();
+    await getTestStorage(replacement, deploying!.replicationStream);
+  });
+
   test('removing row', async () => {
     await using factory = await generateStorageFactory();
     const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
@@ -50,7 +66,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
@@ -116,7 +132,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -181,7 +197,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -251,7 +267,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -314,7 +330,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     {
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -393,7 +409,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -465,7 +481,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -540,7 +556,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -671,7 +687,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
@@ -835,7 +851,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id', 'description'], config);
@@ -949,7 +965,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id', 'description'], config);
@@ -1053,7 +1069,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -1167,7 +1183,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -1267,7 +1283,7 @@ bucket_definitions:
           { storageVersion }
         )
       );
-      const bucketStorage = factory.getInstance(replicationStream);
+      const bucketStorage = await getTestStorage(factory, replicationStream);
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
       await writer.markAllSnapshotDone('1/1');
@@ -1466,7 +1482,7 @@ bucket_definitions:
     });
 
     const r = await f.configureSyncRules(updateSyncRulesFromYaml('bucket_definitions: {}'));
-    const storage = f.getInstance(r.persisted_sync_rules!);
+    const storage = await getTestStorage(f, r.persisted_sync_rules!);
     await using writer = await storage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/0');
     await writer.keepalive('1/0');
@@ -1495,7 +1511,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config, 1);
@@ -1547,7 +1563,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -1589,7 +1605,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
     await writer.commit('1/1');
@@ -1628,7 +1644,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer1 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer2, 'test', ['id'], config);
@@ -1679,7 +1695,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const result1 = await writer.commit('1/1', { createEmptyCheckpoints: false });
@@ -1732,7 +1748,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using snapshotWriter = await bucketStorage.createWriter({
       ...test_utils.BATCH_OPTIONS,
       skipExistingRows: true
@@ -1803,7 +1819,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');

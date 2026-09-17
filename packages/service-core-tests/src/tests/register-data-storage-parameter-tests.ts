@@ -7,6 +7,7 @@ import {
   UnscopedParameterLookup
 } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
+import { getTestStorage } from '../test-utils/leased-storage.js';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest } from '../test-utils/test-utils-index.js';
 
@@ -41,7 +42,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -108,7 +109,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -180,7 +181,7 @@ bucket_definitions:
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -268,7 +269,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -337,7 +338,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -407,7 +408,7 @@ bucket_definitions:
       )
     );
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', ['id'], config);
@@ -466,7 +467,7 @@ bucket_definitions:
       )
     );
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', undefined, config);
@@ -561,7 +562,7 @@ bucket_definitions:
       )
     );
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', undefined, config);
@@ -662,7 +663,7 @@ bucket_definitions:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -716,7 +717,7 @@ bucket_definitions:
         }
       )
     );
-    const syncBucketStorage = bucketStorageFactory.getInstance(syncRules);
+    const syncBucketStorage = await getTestStorage(bucketStorageFactory, syncRules);
 
     const parsedSchema1 = syncBucketStorage.getParsedSyncRules({
       defaultSchema: 'public'
@@ -754,7 +755,7 @@ streams:
       WHERE data.foo = param.bar AND param.baz = auth.user_id()
     `)
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -826,7 +827,7 @@ streams:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -876,7 +877,7 @@ streams:
       WHERE a.x = x.value AND y.value = auth.user_id()
     `)
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -1005,7 +1006,7 @@ streams:
     query: SELECT * FROM b WHERE p IN (SELECT id FROM param_b WHERE u = auth.user_id())
     `)
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     const parsedSyncRules = syncRules.parsed(test_utils.PARSE_OPTIONS);
     const hydrationState = parsedSyncRules.hydrationState;
     const [parsedSyncConfig] = parsedSyncRules.syncConfigs;
@@ -1106,7 +1107,7 @@ streams:
         }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);

@@ -18,7 +18,7 @@ import {
   updateSyncRulesFromYaml,
   utils
 } from '@powersync/service-core';
-import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, getTestStorage, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
 import { SentinelLSN } from '@module/common/SentinelLSN.js';
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
@@ -119,7 +119,7 @@ export class ChangeStreamTestContext {
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
     );
     this.syncRulesContent = replicationStream.syncConfigContent[0];
-    this.storage = this.factory.getInstance(replicationStream);
+    this.storage = await getTestStorage(this.factory, replicationStream);
     return this.storage!;
   }
 
@@ -130,7 +130,7 @@ export class ChangeStreamTestContext {
     }
 
     this.syncRulesContent = syncConfig.content;
-    this.storage = syncConfig.storage;
+    this.storage = await getTestStorage(this.factory, syncConfig.replicationStream);
     return this.storage!;
   }
 
@@ -141,7 +141,7 @@ export class ChangeStreamTestContext {
     }
 
     this.syncRulesContent = syncConfig.content;
-    this.storage = syncConfig.storage;
+    this.storage = await getTestStorage(this.factory, syncConfig.replicationStream);
     return this.storage!;
   }
 
