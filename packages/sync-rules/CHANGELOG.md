@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.43.0
+
+### Minor Changes
+
+- 18f0c95: Add `fixed_booleans_in_json` to sync booleans in JSON columns as booleans instead of as 0/1 integer.
+
 ## 0.42.0
 
 ### Minor Changes
