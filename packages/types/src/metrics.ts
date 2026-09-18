@@ -6,7 +6,9 @@ export enum APIMetric {
   // Number of operations synced
   OPERATIONS_SYNCED = 'powersync_operations_synced_total',
   // Number of concurrent sync connections
-  CONCURRENT_CONNECTIONS = 'powersync_concurrent_connections'
+  CONCURRENT_CONNECTIONS = 'powersync_concurrent_connections',
+  // Sync connections counted once at close, labelled by outcome/close_reason/error_code/transport
+  SYNC_CONNECTIONS = 'powersync_sync_connections_total'
 }
 
 export enum ReplicationMetric {
