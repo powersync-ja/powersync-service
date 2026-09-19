@@ -26,6 +26,9 @@
       "path": "./packages/sync-rules"
     },
     {
+      "path": "./packages/sync-rules-rust"
+    },
+    {
       "path": "./modules/module-core"
     },
     {
@@ -87,6 +90,9 @@
     },
     {
       "path": "./packages/sync-rules/test"
+    },
+    {
+      "path": "./packages/sync-rules-rust/test"
     },
     {
       "path": "./modules/module-core/test"
