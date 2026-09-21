@@ -43,7 +43,7 @@ and identified by unique IDs, independently of connection types:
 - `parse({ config, context })` receives decoded sync config. The context provides the candidate parsed config, SQL-selected
   source tables, default schema, source-location lookup, and diagnostic reporting. Store additional options on the appropriate
   config fields, such as `connectionConfig`. Modules own conversion of their input into parsed state; core does not copy
-  connection options from the decoded input. Add the parser ID to `parsedConfig.additionalModuleIds` when used. A fatal diagnostic rejects the candidate, including in diagnostic-only parsing mode.
+  connection options from the decoded input. For a `PrecompiledSyncConfig` (edition 3), write the parser ID directly into `parsedConfig.plan.moduleData` with a `null` value when required. A fatal diagnostic rejects the candidate, including in diagnostic-only parsing mode.
 - `validatePersisted({ config, context })` validates saved config fields without reparsing SQL or relying on config
   source locations. Modules with semantic restrictions beyond their JSON schema must repeat those checks here.
 
@@ -61,14 +61,16 @@ from that context; resolve relative connection table names when the source conne
 Nonempty connection options or required module IDs use sync-plan format 3 so an older service rejects options it cannot interpret. Plans without either
 retain formats 1 and 2.
 
-Loading a saved plan checks its persisted `additionalModuleIds` against registered parser IDs before running the required
+Required parser IDs are stored as keys of `moduleData`, with `null` values reserved for future module-owned data.
+No payload API or payload comparison is implemented yet.
+
+Loading a saved plan checks the keys of its persisted `moduleData` map against registered parser IDs before running the required
 modules' persisted validators and hydrating it. If a required module is absent, loading fails. The authoring JSON schema
-is not applied to the persisted representation. Plans without module IDs have no declared module dependencies. A failed saved plan is never replaced by
+is not applied to the persisted representation. Plans without module data have no declared module dependencies. A failed saved plan is never replaced by
 silently re-parsing the original config source.
 
 Connection maps must match before configs share incremental processing. The service checks persisted configs when
 assembling an incremental replication stream and throws a `ReplicationAssertionError` on a mismatch, before hydration.
-Equality normalizes
-connection-tag order but preserves table and expression order. Adding, changing, or removing connection options requires
+Equality normalizes connection-tag order but preserves table and expression order. Adding, changing, or removing connection options requires
 replacement processing when a new sync config is deployed; the active config can keep serving while that replacement
 is prepared. This comparison is deliberately conservative and has no fingerprints or module compatibility callbacks.

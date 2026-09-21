@@ -37,7 +37,8 @@ const ADDITIONAL_PARSER: AdditionalSyncConfigParser = {
   parse({ config, context }) {
     for (const [tag, options] of Object.entries((config as any).config?.connections ?? {})) {
       if ((options as any).type != 'example') continue;
-      context.parsedConfig.additionalModuleIds.add('example.tables');
+      const { plan } = context.parsedConfig as PrecompiledSyncConfig;
+      plan.moduleData = { ...plan.moduleData, ['example.tables']: null };
       const connection: ConnectionConfig<TableOptions> = ExtendedConnection.decode(options as never);
       context.parsedConfig.connectionConfig = { ...context.parsedConfig.connectionConfig, [tag]: connection };
       for (const [table, options] of Object.entries(connection.tables ?? {})) {
@@ -153,7 +154,7 @@ describe('connection configuration', () => {
     const result = parse(yaml, [ADDITIONAL_PARSER]);
     const plan = serializeSyncPlan((result.config as PrecompiledSyncConfig).plan);
     expect(plan.version).toBe(3);
-    expect(result.config.additionalModuleIds).toEqual(new Set(['example.tables']));
+    expect(plan.moduleData).toEqual({ 'example.tables': null });
     expect(plan.connectionConfig).toEqual(result.config.connectionConfig);
     expect(deserializeSyncPlan(plan).connectionConfig).toEqual(result.config.connectionConfig);
     expect(Object.keys(plan.connectionConfig!.default!.tables!)).toEqual(['orders%', 'orders']);
