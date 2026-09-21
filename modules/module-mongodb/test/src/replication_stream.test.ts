@@ -3,7 +3,12 @@ import { openMongoReplicationStream, readMongoReplicationStream } from '@module/
 import { ChangeStreamBatch } from '@module/replication/RawChangeStream.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { describe, expect, test, vi } from 'vitest';
+import { env } from './env.js';
 
+/**
+ * Exercise cursor construction and stream decoding without contacting MongoDB. Cursor tests intercept
+ * the driver's command method; reader tests supply BSON batches with explicit events and resume tokens.
+ */
 describe('MongoDB replication stream reader', () => {
   test.each([
     { isDocumentDb: false, multipleDatabases: false, usePostImages: false },
@@ -11,7 +16,7 @@ describe('MongoDB replication stream reader', () => {
     { isDocumentDb: false, multipleDatabases: true, usePostImages: true },
     { isDocumentDb: true, multipleDatabases: false, usePostImages: true }
   ])('preserves the base cursor options for %j', async ({ isDocumentDb, multipleDatabases, usePostImages }) => {
-    const client = new mongo.MongoClient('mongodb://127.0.0.1:27017');
+    const client = new mongo.MongoClient(env.MONGO_TEST_DATA_URL);
     await using clientDisposer = { [Symbol.asyncDispose]: () => client.close() };
     const db = client.db('app');
     const resumeAfter = { _data: 'exact-position' };
@@ -60,7 +65,9 @@ describe('MongoDB replication stream reader', () => {
   });
 
   test('opens adapter stages after namespace selection, with pre-images and the shared resume settings', async () => {
-    const client = new mongo.MongoClient('mongodb://127.0.0.1:27017');
+    // A provider requests pre-images and adds a stage. The shared opener must still supply the source
+    // position and post-image settings, and run the provider stage before large events are split.
+    const client = new mongo.MongoClient(env.MONGO_TEST_DATA_URL);
     await using clientDisposer = { [Symbol.asyncDispose]: () => client.close() };
     const command = vi.spyOn(mongo.Db.prototype, 'command').mockRejectedValue(new Error('observed command'));
     const timestamp = new mongo.Timestamp({ t: 10, i: 1 });
@@ -104,6 +111,8 @@ describe('MongoDB replication stream reader', () => {
   });
 
   test('keeps raw rows, buffered checkpoint information and idle progress', async () => {
+    // Two changes arrive together, followed by an empty response. Preserve raw BSON document bodies
+    // and indicate whether another change is buffered, while exposing a resume boundary for each batch.
     const onBatch = vi.fn();
     const batches = [batch([event('first'), event('second')], 'data'), batch([], 'idle')];
     const items = await collect(
@@ -128,6 +137,8 @@ describe('MongoDB replication stream reader', () => {
   });
 
   test('withholds progress across split batches, including an idle response between fragments', async () => {
+    // A large event spans two nonempty batches with an idle response between them. Saving either
+    // intermediate token would lose the in-memory first fragment if replication restarted there.
     const original = event('large');
     const first = { ...original, fullDocument: undefined, splitEvent: { fragment: 1, of: 2 } };
     const last = {
@@ -159,14 +170,20 @@ describe('MongoDB replication stream reader', () => {
   });
 
   test.each([
+    // The first fragment is missing.
     [{ ...event('broken'), splitEvent: { fragment: 2, of: 2 } }],
+    // A fragment in the middle is missing.
     [
       { ...event('broken'), splitEvent: { fragment: 1, of: 3 } },
       { _id: { _data: 'bad' }, splitEvent: { fragment: 3, of: 3 } }
     ],
+    // An ordinary event interrupts reassembly.
     [{ ...event('broken'), splitEvent: { fragment: 1, of: 2 } }, event('unrelated')],
+    // The source iterator ends before the final fragment arrives.
     [{ ...event('broken'), splitEvent: { fragment: 1, of: 2 } }]
   ])('fails closed on incomplete or out-of-order fragments %#', async (...events) => {
+    // Invalid fragment sequences must reject consumption and close the upstream iterator so a caller
+    // cannot mistake a partial document for a complete change or continue from its batch token.
     const closed = vi.fn();
     const stream = readMongoReplicationStream({
       batches: from([batch(events, 'unsafe')], closed),
@@ -180,6 +197,8 @@ describe('MongoDB replication stream reader', () => {
   test.each(['return', 'abort'] as const)(
     'closes the upstream iterator on %s without acknowledging unread work',
     async (end) => {
+      // Stop after the first change while another remains in the same batch. Both consumer return
+      // and signal cancellation must run upstream cleanup before the batch's progress is yielded.
       const closed = vi.fn();
       const controller = new AbortController();
       const stream = readMongoReplicationStream({
@@ -199,6 +218,8 @@ describe('MongoDB replication stream reader', () => {
   );
 
   test('normalizes Atlas Flex namespaces and deduplicates legacy positions before adapter evaluation', async () => {
+    // Legacy positions contain only a timestamp, so an event at that timestamp is already covered.
+    // The remaining event uses an Atlas Flex database prefix that must be removed before delivery.
     const timestamp = new mongo.Timestamp({ t: 10, i: 1 });
     const items = await collect(
       readMongoReplicationStream({
@@ -224,6 +245,9 @@ describe('MongoDB replication stream reader', () => {
   });
 });
 
+/**
+ * Minimal insert event for the app.documents fixture namespace; callers override fields for each scenario.
+ */
 function event(id: string): mongo.Document {
   return {
     _id: { _data: id },
@@ -234,6 +258,10 @@ function event(id: string): mongo.Document {
   };
 }
 
+/**
+ * Encode events as raw BSON, matching the reader's transport input. Tokens are opaque test labels;
+ * the fixed byte count supports batch accounting assertions without depending on BSON payload size.
+ */
 function batch(events: mongo.Document[], token: string): ChangeStreamBatch {
   return {
     events: events.map((event) => Buffer.from(mongo.BSON.serialize(event))),
@@ -242,6 +270,9 @@ function batch(events: mongo.Document[], token: string): ChangeStreamBatch {
   };
 }
 
+/**
+ * Supply deterministic source batches and expose iterator cleanup to cancellation and failure tests.
+ */
 async function* from<T>(values: T[], closed?: () => void) {
   try {
     yield* values;
