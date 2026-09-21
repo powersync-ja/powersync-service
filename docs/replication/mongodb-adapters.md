@@ -24,6 +24,9 @@ The snapshot query combines that predicate with its `_id` continuation using `$a
 replace an existing `$expr` or `_id` condition. Filtered snapshots use simple collation; unfiltered snapshots
 retain the existing collection-default behavior.
 
+Filtered snapshots report an unknown total and a running replicated count, such as `3/?`. The service does not
+run a separate filtered count query. Unfiltered snapshots retain the collection's estimated document count.
+
 The provider can implement `validateSource({ connectionManager, isDocumentDb })` to reject unsupported source
 capabilities before queries open. Both replication and the snapshotter call it, so implementations should permit
 repeated validation. The default provider adds no capability requirements.
