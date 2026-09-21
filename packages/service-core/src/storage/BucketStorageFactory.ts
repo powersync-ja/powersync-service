@@ -16,6 +16,13 @@ import { ReportStorage } from './ReportStorage.js';
 import { SqlSyncConfigParser, SyncConfigParser } from './SyncConfigParser.js';
 import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
 
+export interface BucketStorageFactoryOptions {
+  /**
+   * Service-wide parser assembled before storage startup.
+   */
+  syncConfigParser: SyncConfigParser;
+}
+
 /**
  * Represents a configured storage provider.
  *
@@ -28,11 +35,14 @@ export abstract class BucketStorageFactory
   extends BaseObserver<BucketStorageFactoryListener>
   implements AsyncDisposable
 {
+  readonly syncConfigParser: SyncConfigParser;
+
   /**
    * Creates a storage factory using the service-wide parser assembled before storage startup.
    */
-  constructor(readonly syncConfigParser: SyncConfigParser) {
+  constructor(options: BucketStorageFactoryOptions) {
     super();
+    this.syncConfigParser = options.syncConfigParser;
   }
 
   /**
