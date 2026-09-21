@@ -23,6 +23,7 @@ import { SqlExpression } from './expression.js';
  * but we must never alter the semantics for existing serialized plans.
  */
 export interface SyncPlan {
+  additionalModuleIds?: string[];
   connectionConfig?: ConnectionConfigMap;
   dataSources: StreamDataSource[];
   buckets: StreamBucketDataSource[];

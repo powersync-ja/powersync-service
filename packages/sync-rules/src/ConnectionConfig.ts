@@ -1,11 +1,15 @@
 import * as t from 'ts-codec';
 import type { JsonObject } from './json.js';
 
-/** Options for one source table, such as `config.connections.default.tables.orders`. This repo has no table options yet. */
+/**
+ * Options for one source table, such as `config.connections.default.tables.orders`. This repo has no table options yet.
+ */
 export const SourceTableConfig = t.object({});
 export type SourceTableConfig = t.Decoded<typeof SourceTableConfig>;
 
-/** Shared connection structure. A source module specializes the table codec to describe its additional options. */
+/**
+ * Shared connection structure. A source module specializes the table codec to describe its additional options.
+ */
 export function connectionConfigCodec<T extends t.AnyCodec>(tableConfig: T) {
   return t.object({ type: t.string, tables: t.record(tableConfig).optional() });
 }
@@ -16,10 +20,14 @@ export type ConnectionConfig<TTableConfig extends SourceTableConfig = SourceTabl
   readonly tables?: Readonly<Partial<Record<string, TTableConfig>>>;
 };
 
-/** Connection tags are map keys; table names and patterns remain relative to their connection's default schema. */
+/**
+ * Connection tags are map keys; table names and patterns remain relative to their connection's default schema.
+ */
 export type ConnectionConfigMap = Readonly<Partial<Record<string, ConnectionConfig>>>;
 
-/** Generate the common shape while making the empty base table option explicit, regardless of generator defaults. */
+/**
+ * Generate the common shape while making the empty base table option explicit, regardless of generator defaults.
+ */
 export function createConnectionConfigSchema(): JsonObject {
   const connection = t.generateJSONSchema(ConnectionConfig, { allowAdditional: false }) as JsonObject;
   const properties = connection.properties as JsonObject;
@@ -45,7 +53,7 @@ export function createConnectionConfigSchema(): JsonObject {
 }
 
 /**
- * Copy schema-validated connection options without dropping module-owned fields through the empty base table codec.
+ * Validate and copy portable connection options, preserving module-owned fields.
  * Sort connection tags only: table declaration order can determine wildcard precedence, and literal object order matters.
  */
 export function normalizeConnectionConfig(value: unknown): ConnectionConfigMap {
@@ -70,7 +78,9 @@ export function normalizeConnectionConfig(value: unknown): ConnectionConfigMap {
   );
 }
 
-/** Conservative equality: an expression rewrite may require a new snapshot even if MongoDB evaluates it identically. */
+/**
+ * Conservative equality: an expression rewrite may require a new snapshot even if MongoDB evaluates it identically.
+ */
 export function connectionConfigsEqual(left: ConnectionConfigMap, right: ConnectionConfigMap): boolean {
   return JSON.stringify(normalizeConnectionConfig(left)) == JSON.stringify(normalizeConnectionConfig(right));
 }

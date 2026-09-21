@@ -19,12 +19,21 @@ import { applyRowContext } from './utils.js';
  * resolve buckets for connections).
  */
 export abstract class SyncConfig {
-  /** Source options keyed by connection tag; module-specific table fields stay opaque to core. */
+  /**
+   * IDs of additional parsers/modules used to construct this SyncConfig.
+   * We track the IDs in order to invalidate a persisted config if a module is no longer loaded and present.
+   */
+  additionalModuleIds: Set<string> = new Set();
+  /**
+   * Source options keyed by connection tag; module-specific table fields stay opaque to core. \
+   */
   connectionConfig: ConnectionConfigMap = {};
   bucketDataSources: BucketDataSource[] = [];
   bucketParameterLookupSources: ParameterIndexLookupCreator[] = [];
   bucketSources: BucketSource[] = [];
-  /** Prepared event definitions. Executable event descriptors only exist on {@link HydratedSyncConfig}. */
+  /**
+   * Prepared event definitions. Executable event descriptors only exist on {@link HydratedSyncConfig}.
+   */
   eventDefinitions: EventDefinition[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
   /**

@@ -57,7 +57,7 @@ export const deploySyncRules = routeDefinition({
 
     try {
       const apiHandler = service_context.routerEngine.getAPI();
-      syncConfig = service_context.syncConfigParser.parseYaml(content, {
+      syncConfig = service_context.syncConfigParser.parseContent(content, {
         ...apiHandler.getParseSyncRulesOptions(),
         // We don't do any schema-level validation at this point
         schema: undefined
@@ -179,7 +179,7 @@ export const reprocessSyncRules = routeDefinition({
     }
 
     const sync_rules = active.content;
-    const parsed = payload.context.service_context.syncConfigParser.parseYaml(sync_rules.sync_rules_content, {
+    const parsed = payload.context.service_context.syncConfigParser.parseContent(sync_rules.sync_rules_content, {
       ...payload.context.service_context.routerEngine.getAPI().getParseSyncRulesOptions(),
       schema: undefined,
       // This sync config already passed validation. But if the rules are not valid anymore due
@@ -210,7 +210,7 @@ function replyPrettyJson(payload: any) {
 
 async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string, syncConfigParser: SyncConfigParser) {
   try {
-    const rules = syncConfigParser.parseYaml(sync_rules, {
+    const rules = syncConfigParser.parseContent(sync_rules, {
       ...apiHandler.getParseSyncRulesOptions(),
       // No schema-based validation at this point
       schema: undefined

@@ -243,7 +243,12 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
       stream: s.stream,
       queriers: s.queriers.map(serializeStreamQuerier)
     })),
-    version: Object.keys(connectionConfig).length != 0 ? 4 : tableProcessorSerializer.usesRowMetadataSqlValue ? 2 : 1
+    version:
+      Object.keys(connectionConfig).length != 0 || plan.additionalModuleIds?.length
+        ? 3
+        : tableProcessorSerializer.usesRowMetadataSqlValue
+          ? 2
+          : 1
   };
 
   // Compiled events are intentionally additive to plan versions 1 and 2. The service also persists their raw SQL in
@@ -253,6 +258,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
   }
 
   if (Object.keys(connectionConfig).length != 0) serialized.connectionConfig = connectionConfig;
+  if (plan.additionalModuleIds?.length) serialized.additionalModuleIds = [...plan.additionalModuleIds];
   return serialized;
 }
 
@@ -263,7 +269,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
       `Encountered a sync plan with version ${version}, the maximum supported version is ${maxSupportedSyncPlanVersion}. This can happen when the PowerSync service version is downgraded after deploying Sync Streams, consider upgrading or re-deploying.`
     );
   }
-  if (version !== 1 && version !== 2 && version !== 4) {
+  if (version !== 1 && version !== 2 && version !== 3) {
     throw new Error('Unknown sync plan version passed to deserializeSyncPlan()');
   }
 
@@ -301,9 +307,18 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   }
 
   const plan = serialized as SerializedSyncPlan;
+  if (
+    plan.additionalModuleIds != null &&
+    (!Array.isArray(plan.additionalModuleIds) || plan.additionalModuleIds.some((id) => typeof id != 'string' || !id))
+  ) {
+    throw new Error('Invalid persisted sync config module IDs.');
+  }
+  if (plan.additionalModuleIds?.length && plan.version != 3) {
+    throw new Error('Sync config module dependencies require sync plan version 3.');
+  }
   const connectionConfig = normalizeConnectionConfig(plan.connectionConfig);
-  if (Object.keys(connectionConfig).length != 0 && plan.version != 4) {
-    throw new Error('Connection configuration requires sync plan version 4.');
+  if (Object.keys(connectionConfig).length != 0 && plan.version != 3) {
+    throw new Error('Connection configuration requires sync plan version 3.');
   }
   const dataSources = plan.dataSources.map((source): StreamDataSource => {
     const functions = (tableValuedFunctionsInScope = source.tableValuedFunctions);
@@ -445,6 +460,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
     parameterIndexes,
     streams,
     events,
+    ...(plan.additionalModuleIds?.length && { additionalModuleIds: [...plan.additionalModuleIds] }),
     ...(Object.keys(connectionConfig).length != 0 && { connectionConfig })
   };
 }
@@ -458,10 +474,9 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
  * plan for the legacy evaluator. Older readers ignore `events` and use that legacy mirror. Removing the mirror or
  * relying on compiled-only event semantics will require a version bump.
  *
- * ### Version 4
+ * ### Version 3
  *
  * - First-class connection configuration. Older services must reject plans whose source options they cannot interpret.
- * - Version 3 was used by the exploratory extension-envelope prototype and is not supported by this implementation.
  *
  * ### Version 2
  *
@@ -473,12 +488,14 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
  *
  * - Initial version
  */
-export type SerializedSyncPlanVersion = 1 | 2 | 4;
+export type SerializedSyncPlanVersion = 1 | 2 | 3;
 
-export const maxSupportedSyncPlanVersion: SerializedSyncPlanVersion = 4;
+export const maxSupportedSyncPlanVersion: SerializedSyncPlanVersion = 3;
 
 export interface SerializedSyncPlan {
-  /** Present only for configured connections; requires plan version 4. */
+  /** IDs of modules required to interpret this plan; requires plan version 3. */
+  additionalModuleIds?: string[];
+  /** Present only for configured connections; requires plan version 3. */
   connectionConfig?: ConnectionConfigMap;
   version: SerializedSyncPlanVersion;
   dataSources: SerializedDataSource[];

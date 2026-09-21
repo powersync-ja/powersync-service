@@ -3,7 +3,6 @@ import {
   compileSyncRulesSchemaValidator,
   createSyncRulesSchema,
   JsonObject,
-  normalizeConnectionConfig,
   SqlSyncRules,
   SyncConfig,
   SyncConfigDiagnostic,
@@ -14,12 +13,29 @@ import {
   YamlError
 } from '@powersync/service-sync-rules';
 
-export type ParseSyncConfigYamlOptions = Omit<SyncRulesOptions, 'parsers' | 'jsonSchema'>;
+export type ParseSyncConfigOptions = Omit<SyncRulesOptions, 'parsers' | 'jsonSchema'>;
 
-/** Shared by service routes, deployment, replication and persisted storage; only initialization can register hooks. */
+/**
+ * Shared by service routes, deployment, replication and persisted storage; only initialization can register hooks.
+ */
 export interface SyncConfigParser {
+  /**
+   * A JSON schema which can be used to validate the format of a supplied sync config.
+   */
   readonly jsonSchema: JsonObject;
-  parseYaml(content: string, options: ParseSyncConfigYamlOptions): SyncConfigWithErrors;
+
+  /**
+   * Parses string content.
+   *
+   * @returns The parsed {@link SyncConfigWithErrors}
+   */
+  parseContent(content: string, options: ParseSyncConfigOptions): SyncConfigWithErrors;
+
+  /**
+   * Validates a persisted/parsed sync config.
+   *
+   * @returns Any errors detected.
+   */
   validatePersisted(options: { config: SyncConfig; context: { defaultSchema: string } }): YamlError[];
 }
 
@@ -39,7 +55,9 @@ export class SqlSyncConfigParser implements SyncConfigParser {
     return structuredClone(this.#jsonSchema);
   }
 
-  /** Validate the candidate composition before mutating the registry, so a failed registration is atomic. */
+  /**
+   * Validate the candidate composition before mutating the registry.
+   */
   registerParser(parser: AdditionalSyncConfigParser): void {
     const parsers = [...this.#parsers, parser];
     validateAdditionalSyncConfigParsers(parsers);
@@ -49,44 +67,41 @@ export class SqlSyncConfigParser implements SyncConfigParser {
     this.#jsonSchema = schema;
   }
 
-  parseYaml(content: string, options: ParseSyncConfigYamlOptions): SyncConfigWithErrors {
+  parseContent(content: string, options: ParseSyncConfigOptions): SyncConfigWithErrors {
     return SqlSyncRules.fromYaml(content, { ...options, parsers: this.#parsers, jsonSchema: this.#jsonSchema });
   }
 
   validatePersisted({ config, context }: { config: SyncConfig; context: { defaultSchema: string } }): YamlError[] {
-    // Validate the saved field with the same composed definitions as authoring. Removing a module removes acceptance
-    // of its table options, even though no module hook remains available to notice them.
-    const configSchema = (this.#jsonSchema.properties as JsonObject).config as JsonObject;
-    const validate = compileSyncRulesSchemaValidator({
-      type: 'object',
-      definitions: this.#jsonSchema.definitions,
-      $defs: this.#jsonSchema.$defs,
-      required: ['config'],
-      properties: {
-        config: {
-          type: 'object',
-          required: ['connections'],
-          properties: {
-            connections: (configSchema.properties as JsonObject).connections
-          },
-          additionalProperties: false
-        }
-      },
-      additionalProperties: false
-    });
+    /**
+     * Ensure that all modules which created a persisted SyncConfig
+     * are currently loaded.
+     * This prevents a case for a SyncConfig with missing external modules to be loaded.
+     */
+    const registeredIds = new Set(this.#parsers.map((parser) => parser.id));
+    const missingIds = [...config.additionalModuleIds].filter((id) => !registeredIds.has(id));
+    if (missingIds.length != 0) {
+      throw new Error(`Missing required sync config parsers: ${missingIds.join(', ')}`);
+    }
+
     const errors: YamlError[] = [];
     const reportDiagnostic = (diagnostic: SyncConfigDiagnostic) => {
-      const error = new YamlError(new Error(diagnostic.message));
+      const location = diagnostic.location;
+      const error = new YamlError(
+        new Error(diagnostic.message),
+        location && {
+          start: location.start_offset,
+          end: location.end_offset
+        }
+      );
       error.type = diagnostic.level;
       errors.push(error);
     };
-    if (!validate({ config: { connections: config.connectionConfig } })) {
-      throw new Error(
-        `Unsupported persisted connection configuration: ${validate.errors!.map((e: any) => e.message).join(', ')}`
-      );
-    }
-    config.connectionConfig = normalizeConnectionConfig(config.connectionConfig);
+
     for (const parser of this.#parsers) {
+      if (!config.additionalModuleIds.has(parser.id)) continue;
+      /**
+       * This allows additional validation of module specific semantics
+       */
       parser.validatePersisted?.({ config, context: { ...context, reportDiagnostic } });
     }
     if (errors.some((error) => error.type == 'fatal')) throw new SyncRulesErrors(errors);
