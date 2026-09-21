@@ -21,7 +21,7 @@ import { SerializedSyncPlan, UpdateSyncRulesOptions } from './BucketStorageFacto
 import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { PersistedSyncConfigStatus } from './PersistedSyncConfigStatus.js';
 import { STORAGE_VERSION_CONFIG, StorageVersionConfig } from './StorageVersionConfig.js';
-import { SyncConfigParser } from './SyncConfigParser.js';
+import { ParseSyncConfigOptions, SyncConfigParser } from './SyncConfigParser.js';
 
 export interface ParsePersistedSyncConfigContentOptions {
   content: string;
@@ -36,7 +36,7 @@ export function parsePersistedSyncConfigContent(options: ParsePersistedSyncConfi
 
   if (compiledPlan == null) {
     // Fallback: Only parse from YAML if no compiled plan is available.
-    return syncConfigParser.parseYaml(content, parseOptions);
+    return syncConfigParser.parseContent(content, parseOptions);
   }
 
   const plan = deserializeSyncPlan(compiledPlan.plan);
@@ -213,6 +213,3 @@ export interface PersistedSyncConfigContentData {
   readonly version_label?: string;
 }
 export type PersistedSyncConfigId = string;
-export interface ParseSyncConfigOptions {
-  defaultSchema: string;
-}

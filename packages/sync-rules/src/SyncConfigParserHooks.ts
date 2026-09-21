@@ -2,17 +2,23 @@ import type { JsonObject } from './json.js';
 import type { SyncConfig } from './SyncConfig.js';
 import type { TablePattern } from './TablePattern.js';
 
-/** A decoded YAML path, for example `['config', 'connections', 'default', 'tables', 'orders', 'filter']`. */
+/**
+ * A decoded config path, for example `['config', 'connections', 'default', 'tables', 'orders', 'filter']`.
+ */
 export type SyncConfigSourcePath = readonly (string | number)[];
 export type SyncConfigSourceLocationTarget = 'key' | 'value';
 
-/** Offsets into the authored YAML, compatible with locations returned by service diagnostics. */
+/**
+ * Offsets into the authored config, compatible with locations returned by service diagnostics.
+ */
 export interface SyncConfigSourceSpan {
   start_offset: number;
   end_offset: number;
 }
 
-/** A parser warning or failure, optionally pointing to the relevant YAML key or value. */
+/**
+ * A parser warning or failure, optionally pointing to the relevant config key or value.
+ */
 export interface SyncConfigDiagnostic {
   level: 'warning' | 'fatal';
   message: string;
@@ -20,22 +26,48 @@ export interface SyncConfigDiagnostic {
 }
 
 export interface SyncConfigSourceLocationResolver {
-  /** Resolve a field to its YAML span, falling back to its nearest existing ancestor. */
+  /**
+   * Resolve a field to its source span, falling back to its nearest existing ancestor.
+   */
   getLocation(path: SyncConfigSourcePath, target?: SyncConfigSourceLocationTarget): SyncConfigSourceSpan | undefined;
 }
 
+/**
+ * Context for parsing input sync config.
+ */
 export interface SyncConfigParserContext {
-  /** Candidate being assembled. It is not published if any parser fails. Store options on the appropriate config fields. */
+  readonly defaultSchema: string;
+  /**
+   * Candidate being assembled. It is not published if any parser fails. Store options on the appropriate config fields.
+   */
   parsedConfig: SyncConfig;
-  /** Sources selected by SQL. Additional parsers may inspect these, but cannot add replication sources. */
+  /**
+   * Sources selected by SQL. Additional parsers may inspect these, but cannot add replication sources.
+   */
   sourceTables: readonly TablePattern[];
-  defaultSchema: string;
+  /**
+   * Utility helpers for determining source locations.
+   */
   sourceLocations: SyncConfigSourceLocationResolver;
+  /**
+   * Report a diagnostic found while parsing.
+   */
   reportDiagnostic(diagnostic: SyncConfigDiagnostic): void;
 }
 
+/**
+ * Context for validating persisted sync config.
+ */
 export interface PersistedSyncConfigParserContext {
-  defaultSchema: string;
+  /**
+   * Default schema used to resolve unqualified table names during validation.
+   * Some callers supply a placeholder; do not persist names qualified using this value.
+   */
+  readonly defaultSchema: string;
+  /**
+   * Report a warning or fatal error found while validating the persisted config.
+   * Include a config source location when available. Fatal errors prevent the config from loading.
+   */
   reportDiagnostic(diagnostic: SyncConfigDiagnostic): void;
 }
 
@@ -44,12 +76,28 @@ export interface PersistedSyncConfigParserContext {
  * A hook identifies its own fields and leaves unrelated input alone. Source I/O belongs in source validation.
  */
 export interface AdditionalSyncConfigParser {
+  /**
+   * A unique ID for the parser. Persisted sync configs store these IDs to validate
+   * if modules which created the persisted config are present.
+   */
   readonly id: string;
-  /** Mutates an isolated schema before parsing; this hook is not restricted to connection configuration. */
+
+  /**
+   * Mutates an isolated schema before parsing.
+   */
   extendJsonSchema?(options: { schema: JsonObject }): void;
-  /** `config` is decoded YAML. Everything else needed to parse it is supplied through `context`. */
+
+  /**
+   * `config` is decoded sync config. Everything else needed to parse it is supplied through `context`.
+   * Parse module-owned input into context.parsedConfig, including connectionConfig entries for this module.
+   * Core does not copy connection options from the input or normalize the parser's output here.
+   * Add this parser's ID to context.parsedConfig.additionalModuleIds when the config requires this module.
+   */
   parse(options: { config: unknown; context: SyncConfigParserContext }): void;
-  /** Validate saved config fields without reparsing their original YAML or requiring YAML source locations. */
+
+  /**
+   * Validate saved config fields without reparsing their original config or requiring config source locations.
+   */
   validatePersisted?(options: { config: SyncConfig; context: PersistedSyncConfigParserContext }): void;
 }
 

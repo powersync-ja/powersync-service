@@ -1,6 +1,6 @@
 import * as sqlite from 'node:sqlite';
 
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   BucketDefinitionMapping,
   MultiSyncConfigBucketDefinitionMapping,
@@ -11,6 +11,7 @@ import {
 } from '@powersync/service-core';
 import {
   CompatibilityOption,
+  connectionConfigsEqual,
   DEFAULT_HYDRATION_STATE,
   EventDefinitionId,
   HydratedEventDescriptor,
@@ -55,6 +56,16 @@ export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
     }
 
     if (storageConfig.incrementalReprocessing) {
+      // Active and processing configs share one source reader and must use the same connection options.
+      if (
+        this.syncConfigs.some(
+          ({ config }) => !connectionConfigsEqual(firstConfig.config.connectionConfig, config.connectionConfig)
+        )
+      ) {
+        throw new ReplicationAssertionError(
+          `Sync configs in replication stream ${this.replicationStreamId} have different connection configuration.`
+        );
+      }
       if (syncConfigs.some((c) => c.mapping == null)) {
         throw new ServiceAssertionError(`mapping is required for v3 storage`);
       }
