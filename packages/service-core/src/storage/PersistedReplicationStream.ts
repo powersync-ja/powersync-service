@@ -2,9 +2,10 @@ import { logger as defaultLogger, ErrorCode, ServiceError } from '@powersync/lib
 import { Logger } from 'winston';
 import { SyncRuleState } from './BucketStorage.js';
 import type { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
-import type { ParseSyncConfigOptions, PersistedSyncConfigContent } from './PersistedSyncConfigContent.js';
+import type { PersistedSyncConfigContent } from './PersistedSyncConfigContent.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { STORAGE_VERSION_CONFIG, StorageVersionConfig } from './StorageVersionConfig.js';
+import type { ParseSyncConfigOptions } from './SyncConfigParser.js';
 
 export abstract class PersistedReplicationStream implements PersistedReplicationStreamData {
   readonly replicationStreamId: number;
