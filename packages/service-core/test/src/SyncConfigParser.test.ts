@@ -8,6 +8,7 @@ import {
   HydratedSyncConfig,
   nodeSqlite,
   normalizeConnectionConfig,
+  PrecompiledSyncConfig,
   SyncConfig
 } from '@powersync/service-sync-rules';
 import * as sqlite from 'node:sqlite';
@@ -71,7 +72,8 @@ function additionalParser(): AdditionalSyncConfigParser {
       for (const [tag, connection] of Object.entries(connections)) {
         if (connection?.type != 'example') continue;
         context.parsedConfig.connectionConfig = { ...context.parsedConfig.connectionConfig, [tag]: connection };
-        context.parsedConfig.additionalModuleIds.add('example.tables');
+        const { plan } = context.parsedConfig as PrecompiledSyncConfig;
+        plan.moduleData = { ...plan.moduleData, ['example.tables']: null };
       }
       check(context.parsedConfig);
     },
@@ -185,7 +187,7 @@ describe('service sync config parser', () => {
     const { config } = parser.parseContent(streams, { defaultSchema: 'app' });
     expect(parser.validatePersisted({ config, context: { defaultSchema: 'app' } })).toEqual([]);
     expect(validatePersisted).not.toHaveBeenCalled();
-    config.additionalModuleIds = new Set(['installed', 'missing', 'also-missing']);
+    (config as PrecompiledSyncConfig).plan.moduleData = { installed: null, missing: null, 'also-missing': null };
     expect(() => parser.validatePersisted({ config, context: { defaultSchema: 'app' } })).toThrow(
       'Missing required sync config parsers: missing, also-missing'
     );
@@ -197,7 +199,8 @@ describe('service sync config parser', () => {
       {
         id: 'transformed',
         parse({ context }) {
-          context.parsedConfig.additionalModuleIds.add('transformed');
+          const { plan } = context.parsedConfig as PrecompiledSyncConfig;
+          plan.moduleData = { ...plan.moduleData, ['transformed']: null };
           context.parsedConfig.connectionConfig = {
             default: { type: 'transformed', tables: { orders: { compiled: true } } }
           };
@@ -213,23 +216,24 @@ describe('service sync config parser', () => {
         parseOptions: { defaultSchema: 'app' },
         syncConfigParser
       });
-    expect(restore(parser).config.additionalModuleIds).toEqual(new Set(['transformed']));
+    expect((restore(parser).config as PrecompiledSyncConfig).plan.moduleData).toEqual({ transformed: null });
     expect(restore(parser).config.connectionConfig).toEqual(compiled.config.parsed.config.connectionConfig);
     expect(() => restore(new SqlSyncConfigParser())).toThrow('Missing required sync config parsers: transformed');
   });
 
-  test('persists module dependencies without connection options and accepts legacy plans without IDs', () => {
+  test('persists module dependencies without connection options and accepts legacy plans without module data', () => {
     const parser = new SqlSyncConfigParser([
       {
         id: 'required',
         parse({ context }) {
-          context.parsedConfig.additionalModuleIds.add('required');
+          const { plan } = context.parsedConfig as PrecompiledSyncConfig;
+          plan.moduleData = { ...plan.moduleData, ['required']: null };
         }
       }
     ]);
     const compiled = deployOptions(streams, parser);
     expect(compiled.config.plan!.plan.version).toBe(3);
-    expect(compiled.config.plan!.plan.additionalModuleIds).toEqual(['required']);
+    expect(compiled.config.plan!.plan.moduleData).toEqual({ required: null });
     const restore = (compiledPlan = compiled.config.plan) =>
       parsePersistedSyncConfigContent({
         content: streams,
@@ -240,25 +244,27 @@ describe('service sync config parser', () => {
       });
     expect(() => restore()).toThrow('Missing required sync config parsers: required');
     const malformed = structuredClone(compiled.config.plan!);
-    (malformed.plan as any).additionalModuleIds = 'required';
-    expect(() => restore(malformed)).toThrow('Invalid persisted sync config module IDs');
+    (malformed.plan as any).moduleData = 'required';
+    expect(() => restore(malformed)).toThrow('Invalid sync config module data');
     const legacy = deployOptions(streams, new SqlSyncConfigParser());
-    expect(restore(legacy.config.plan).config.additionalModuleIds).toEqual(new Set());
+    expect((restore(legacy.config.plan).config as PrecompiledSyncConfig).plan.moduleData).toBeUndefined();
   });
 
   test('runs generic persisted validators with context and retains their warnings', () => {
     const hook: AdditionalSyncConfigParser = {
       id: 'core-check',
-      parse() {},
+      parse({ context }) {
+        const { plan } = context.parsedConfig as PrecompiledSyncConfig;
+        plan.moduleData = { ...plan.moduleData, ['core-check']: null };
+      },
       validatePersisted({ config, context }) {
         expect(config.getSourceTables()[0].name).toBe('orders');
         expect(context.defaultSchema).toBe('app');
         context.reportDiagnostic({ level: 'warning', message: 'Review this configuration.' });
       }
     };
-    const parsed = new SqlSyncConfigParser().parseContent(streams, { defaultSchema: 'app' });
     const parser = new SqlSyncConfigParser([hook]);
-    parsed.config.additionalModuleIds.add(hook.id);
+    const parsed = parser.parseContent(streams, { defaultSchema: 'app' });
     expect(parser.validatePersisted({ config: parsed.config, context: { defaultSchema: 'app' } })).toEqual([
       expect.objectContaining({ type: 'warning', message: 'Review this configuration.' })
     ]);

@@ -20,11 +20,6 @@ import { applyRowContext } from './utils.js';
  */
 export abstract class SyncConfig {
   /**
-   * IDs of additional parsers/modules used to construct this SyncConfig.
-   * We track the IDs in order to invalidate a persisted config if a module is no longer loaded and present.
-   */
-  additionalModuleIds: Set<string> = new Set();
-  /**
    * Source options keyed by connection tag; module-specific table fields stay opaque to core. \
    */
   connectionConfig: ConnectionConfigMap = {};
