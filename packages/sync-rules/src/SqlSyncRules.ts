@@ -3,7 +3,7 @@ import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import type { AdditionalSyncConfigParser } from './SyncConfigParserHooks.js';
 import { SyncRulesErrors, YamlError } from './errors.js';
 import { SyncConfigFromYaml } from './from_yaml.js';
-import type { JsonObject } from './json.js';
+import type { SyncRulesSchemaValidator } from './json_schema.js';
 import { RequestParameters, SourceSchema, SqliteJsonRow } from './types.js';
 
 export interface SyncRulesOptions {
@@ -13,10 +13,10 @@ export interface SyncRulesOptions {
    */
   parsers?: readonly AdditionalSyncConfigParser[];
   /**
-   * Composed validation schema supplied by the service parser. Must match the supplied parsers.
+   * Compiled schema validator supplied by the service parser. Must match the supplied parsers.
    * Standalone callers, including tests, normally omit this to compose the schema from parsers.
    */
-  jsonSchema?: JsonObject;
+  schemaValidator?: SyncRulesSchemaValidator;
 
   /**
    * Source database schema.
@@ -97,7 +97,7 @@ export class SqlSyncRules extends SyncConfig {
         schema: options.schema,
         defaultSchema: options.defaultSchema,
         parsers: options.parsers ?? [],
-        jsonSchema: options.jsonSchema
+        schemaValidator: options.schemaValidator
       },
       yaml
     );

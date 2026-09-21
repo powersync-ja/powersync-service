@@ -4,8 +4,8 @@ import type { JsonObject } from './json.js';
 /**
  * Options for one source table, such as `config.connections.default.tables.orders`. This repo has no table options yet.
  */
-export const SourceTableConfig = t.object({});
-export type SourceTableConfig = t.Decoded<typeof SourceTableConfig>;
+export const SOURCE_TABLE_CONFIG = t.object({});
+export type SourceTableConfig = t.Decoded<typeof SOURCE_TABLE_CONFIG>;
 
 /**
  * Shared connection structure. A source module specializes the table codec to describe its additional options.
@@ -14,7 +14,7 @@ export function connectionConfigCodec<T extends t.AnyCodec>(tableConfig: T) {
   return t.object({ type: t.string, tables: t.record(tableConfig).optional() });
 }
 
-export const ConnectionConfig = connectionConfigCodec(SourceTableConfig);
+export const CONNECTION_CONFIG = connectionConfigCodec(SOURCE_TABLE_CONFIG);
 export type ConnectionConfig<TTableConfig extends SourceTableConfig = SourceTableConfig> = {
   readonly type: string;
   readonly tables?: Readonly<Partial<Record<string, TTableConfig>>>;
@@ -29,7 +29,7 @@ export type ConnectionConfigMap = Readonly<Partial<Record<string, ConnectionConf
  * Generate the common shape while making the empty base table option explicit, regardless of generator defaults.
  */
 export function createConnectionConfigSchema(): JsonObject {
-  const connection = t.generateJSONSchema(ConnectionConfig, { allowAdditional: false }) as JsonObject;
+  const connection = t.generateJSONSchema(CONNECTION_CONFIG, { allowAdditional: false }) as JsonObject;
   const properties = connection.properties as JsonObject;
   properties.type = { type: 'string', minLength: 1 };
   properties.tables = {

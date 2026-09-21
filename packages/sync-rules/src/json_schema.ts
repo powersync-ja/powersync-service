@@ -176,6 +176,8 @@ export const syncRulesSchema: ajvModule.Schema = {
 
 export const validateSyncRulesSchema: any = compileSyncRulesSchemaValidator(syncRulesSchema);
 
+export type SyncRulesSchemaValidator = ajvModule.ValidateFunction;
+
 /**
  * An isolated composition shared by editor tooling, YAML validation and persisted connection options.
  */
@@ -188,7 +190,7 @@ export function createSyncRulesSchema(parsers: readonly AdditionalSyncConfigPars
 /**
  * Permit the editor annotation without weakening AJV's checks for unknown validation keywords.
  */
-export function compileSyncRulesSchemaValidator(schema: ajvModule.Schema) {
+export function compileSyncRulesSchemaValidator(schema: ajvModule.Schema): SyncRulesSchemaValidator {
   return new Ajv({
     allErrors: true,
     verbose: true,

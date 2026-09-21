@@ -10,29 +10,29 @@ import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
 import { TEST_STORAGE_VERSIONS } from './util.js';
 
-const streams = `
-config:
-  edition: 3
-streams:
-  orders:
-    query: SELECT * FROM orders
+const STREAMS = /* yaml */ `
+  config:
+    edition: 3
+  streams:
+    orders:
+      query: SELECT * FROM orders
 `;
-const configured = `
-config:
-  edition: 3
-  connections:
-    default:
-      type: example
-      tables:
-        orders:
-          sample: 10
-streams:
-  orders:
-    query: SELECT * FROM orders
+const CONFIGURED = /* yaml */ `
+  config:
+    edition: 3
+    connections:
+      default:
+        type: example
+        tables:
+          orders:
+            sample: 10
+  streams:
+    orders:
+      query: SELECT * FROM orders
 `;
 
 // A small module-owned option exercises persistence without introducing MongoDB filter syntax into core.
-const tableOptions: AdditionalSyncConfigParser = {
+const TABLE_OPTIONS: AdditionalSyncConfigParser = {
   id: 'example.tables',
   extendJsonSchema({ schema }) {
     const map = (schema.properties as any).config.properties.connections;
@@ -71,7 +71,7 @@ const tableOptions: AdditionalSyncConfigParser = {
 };
 
 function storageFactory(withModule: boolean) {
-  const syncConfigParser = new SqlSyncConfigParser(withModule ? [tableOptions] : []);
+  const syncConfigParser = new SqlSyncConfigParser(withModule ? [TABLE_OPTIONS] : []);
   return mongoTestStorageFactoryGenerator({
     url: env.MONGO_TEST_URL,
     isCI: env.CI,
@@ -85,7 +85,7 @@ describe.for(TEST_STORAGE_VERSIONS)('connection config with storage v%i', (stora
     let expected;
     {
       await using factory = await storageFactory(true).factory();
-      const parsed = factory.syncConfigParser.parseContent(configured, test_utils.PARSE_OPTIONS);
+      const parsed = factory.syncConfigParser.parseContent(CONFIGURED, test_utils.PARSE_OPTIONS);
       expected = parsed.config.connectionConfig;
       await factory.updateSyncRules(updateSyncRulesFromConfig(parsed, { storageVersion }));
     }
@@ -103,7 +103,7 @@ describe.for(TEST_STORAGE_VERSIONS)('connection config with storage v%i', (stora
     {
       await using factory = await storageFactory(true).factory();
       await factory.updateSyncRules(
-        updateSyncRulesFromConfig(factory.syncConfigParser.parseContent(configured, test_utils.PARSE_OPTIONS), {
+        updateSyncRulesFromConfig(factory.syncConfigParser.parseContent(CONFIGURED, test_utils.PARSE_OPTIONS), {
           storageVersion
         })
       );
@@ -118,7 +118,7 @@ describe.for(TEST_STORAGE_VERSIONS)('connection config with storage v%i', (stora
   test('continues loading unfiltered plans without an additional parser', async () => {
     await using factory = await storageFactory(false).factory();
     await factory.updateSyncRules(
-      updateSyncRulesFromConfig(factory.syncConfigParser.parseContent(streams, test_utils.PARSE_OPTIONS), {
+      updateSyncRulesFromConfig(factory.syncConfigParser.parseContent(STREAMS, test_utils.PARSE_OPTIONS), {
         storageVersion
       })
     );
@@ -135,22 +135,24 @@ describe.for(TEST_STORAGE_VERSIONS)('connection config with storage v%i', (stora
           storageVersion
         })
       );
-    const first = await deploy(configured);
+    const first = await deploy(CONFIGURED);
     {
       // Activate the first config so compatibility is checked against data already being served.
-      await using writer = await factory.getInstance(first).createWriter(test_utils.BATCH_OPTIONS);
+      const storage = await test_utils.getTestStorage(factory, first);
+      await using writer = await storage.createWriter(test_utils.BATCH_OPTIONS);
       await writer.markAllSnapshotDone('1/1');
       await writer.commit('1/1');
     }
     if (storageVersion >= 3) {
       // SQL-only edits can share source data when the connection options are identical.
-      const sameOptions = await deploy(configured.replace('SELECT * FROM orders', 'SELECT id FROM orders'));
+      const sameOptions = await deploy(CONFIGURED.replace('SELECT * FROM orders', 'SELECT id FROM orders'));
       expect(sameOptions.replicationStreamId).toBe(first.replicationStreamId);
-      await using writer = await factory.getInstance(sameOptions).createWriter(test_utils.BATCH_OPTIONS);
+      const storage = await test_utils.getTestStorage(factory, sameOptions);
+      await using writer = await storage.createWriter(test_utils.BATCH_OPTIONS);
       await writer.markAllSnapshotDone('2/1');
       await writer.commit('2/1');
     }
-    const changed = await deploy(configured.replace('sample: 10', 'sample: 20'));
+    const changed = await deploy(CONFIGURED.replace('sample: 10', 'sample: 20'));
     expect(changed.replicationStreamId).not.toBe(first.replicationStreamId);
     expect((await factory.getActiveSyncConfig())?.content.replicationStreamId).toBe(first.replicationStreamId);
   });

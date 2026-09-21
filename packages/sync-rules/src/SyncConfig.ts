@@ -20,7 +20,7 @@ import { applyRowContext } from './utils.js';
  */
 export abstract class SyncConfig {
   /**
-   * Source options keyed by connection tag; module-specific table fields stay opaque to core. \
+   * Source options keyed by connection tag; module-specific table fields stay opaque to core.
    */
   connectionConfig: ConnectionConfigMap = {};
   bucketDataSources: BucketDataSource[] = [];

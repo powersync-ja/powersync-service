@@ -10,8 +10,12 @@ import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.j
 import { CommonTableExpression } from './compiler/sqlite.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { PreparedEventDefinition } from './events/CompiledEventSourceQuery.js';
-import type { JsonObject } from './json.js';
-import { compileSyncRulesSchemaValidator, createSyncRulesSchema } from './json_schema.js';
+import {
+  compileSyncRulesSchemaValidator,
+  createSyncRulesSchema,
+  SyncRulesSchemaValidator,
+  validateSyncRulesSchema
+} from './json_schema.js';
 import { QueryParseResult, SqlBucketDescriptor } from './legacy/SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './legacy/streams/from_sql.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
@@ -82,8 +86,11 @@ export class SyncConfigFromYaml {
       );
     }
     // The composed schema owns additional fields. Retain the YAML tree so errors highlight the actual key/value.
-    const jsonSchema = this.options.jsonSchema ?? createSyncRulesSchema(this.options.parsers);
-    const validate = compileSyncRulesSchemaValidator(jsonSchema);
+    const validate =
+      this.options.schemaValidator ??
+      (this.options.parsers.length == 0
+        ? validateSyncRulesSchema
+        : compileSyncRulesSchemaValidator(createSyncRulesSchema(this.options.parsers)));
     if (!this.#hasFatalError && !validate(encoded)) {
       this.#errors.push(...mapAjvErrorsToYamlErrors(sourceLocations, validate.errors!));
     }
@@ -651,11 +658,11 @@ export interface SyncConfigFromYamlOptions {
    */
   readonly parsers: readonly AdditionalSyncConfigParser[];
   /**
-   * Composed schema supplied by the service parser, matching its registered hooks.
+   * Compiled schema validator supplied by the service parser, matching its registered hooks.
    * Standalone callers, including tests, normally omit this so the schema is composed from parsers.
-   * Supplying a schema skips composition but still runs the parsing hooks.
+   * Supplying a validator skips schema composition and compilation but still runs the parsing hooks.
    */
-  readonly jsonSchema?: JsonObject;
+  readonly schemaValidator?: SyncRulesSchemaValidator;
   readonly throwOnError: boolean;
   readonly schema?: SourceSchema;
   /**
