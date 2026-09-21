@@ -62,7 +62,9 @@ export interface ChangeStreamOptions extends replication.AbstractReplicationStre
 
   storageHooks?: storage.StorageHooks;
   snapshotHooks?: MongoSnapshotterHooks;
-  /** Create one adapter per replication attempt, shared with its snapshotter and source probes. */
+  /**
+   * Create one adapter per replication attempt, shared with its snapshotter and source probes.
+   */
   createReplicationQueryProvider?: MongoReplicationQueryProviderFactory;
 
   logger?: Logger;
@@ -205,7 +207,9 @@ export class ChangeStream extends replication.AbstractReplicationStream {
     return this.connections.options.postImages == PostImagesOption.AUTO_CONFIGURE;
   }
 
-  /** The active checkpoint strategy. Only valid after ensureDetected(). */
+  /**
+   * The active checkpoint strategy. Only valid after ensureDetected().
+   */
   private get checkpointImplementation(): CheckpointImplementation {
     if (this._checkpointImplementation == null) {
       throw new ReplicationAssertionError('Checkpoint implementation not initialized - call ensureDetected() first');

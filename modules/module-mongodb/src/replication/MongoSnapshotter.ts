@@ -124,7 +124,9 @@ export class MongoSnapshotter {
     return this.storage.storageConfig.softDeleteCurrentData;
   }
 
-  /** The active checkpoint strategy. Only valid after ensureDetected(). */
+  /**
+   * The active checkpoint strategy. Only valid after ensureDetected().
+   */
   private get checkpointImplementation(): CheckpointImplementation {
     if (this._checkpointImplementation == null) {
       throw new ServiceError(

@@ -5,9 +5,15 @@ import { openChangeStreamTestContext } from './change_stream_test_setup.js';
 import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
 import { describeWithStorage } from './util.js';
 
+/**
+ * Use real source changes and bucket storage to distinguish saved recovery positions from published
+ * checkpoints. Reopening with doNotClear preserves both databases so recovery exercises persisted state.
+ */
 describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapter progress', () => {
   describeWithStorage({ timeout: 30_000 }, ({ factory, storageVersion }) => {
     test('does not acknowledge retained rows when flushing a later filtered boundary fails', async () => {
+      // Finish an empty snapshot and stop replication before inserting data. The next attempt must
+      // read these inserts from the change stream, starting at the recorded durable resume position.
       let originalLsn: string;
       {
         await using context = await openChangeStreamTestContext(factory, { storageVersion });
@@ -25,6 +31,8 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
           .insertMany(Array.from({ length: 20 }, (_, i) => ({ _id: i + 1 })));
       }
 
+      // Keep document 1 and discard the remaining documents in the provider. This leaves a real row
+      // write pending when the provider forwards progress covering both retained and excluded changes.
       let failFlush = false;
       const provider = {
         ...DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER,
@@ -40,8 +48,13 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
                 }
                 retained = true;
               } else if (item.type == 'progress') {
-                // Carry the first retained row into the next boundary, after an excluded suffix.
-                // This exercises flush-before-resume with actual pending writes, not an empty writer.
+                // open({}) uses the shared reader, which emits progress with the batch's resume token
+                // after consuming a MongoDB batch, provided no split event is incomplete. This is a
+                // reader-generated boundary, not a MongoDB change event or a result of filtering.
+                // If a boundary arrives after retaining document 1 but before excluding any later
+                // documents, suppress it until a boundary also covers excluded changes. Forwarding
+                // that boundary triggers the injected flush failure with document 1 still pending,
+                // verifying that its write must be durable before the resume token can be saved.
                 if (retained && filtered == 0) continue;
                 yield { ...item, filteredCount: filtered };
                 retained = false;
@@ -73,6 +86,7 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
           batchStarted: (batch) => {
             const originalSave = batch.save.bind(batch);
             vi.spyOn(batch, 'save').mockImplementation((...args) => {
+              // Arm the failure only once a retained row reaches storage; setup flushes may succeed.
               save();
               failFlush = true;
               return originalSave(...args);
@@ -87,6 +101,7 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
         const result = await context.startStreaming();
         expect(result).toMatchObject({ status: 'rejected', reason: expect.any(Error) });
         if (result.status == 'rejected') expect(String(result.reason)).toContain('retained-row flush failure');
+        // Saving the later token despite the failed flush would skip document 1 on restart.
         expect(save).toHaveBeenCalledOnce();
         expect(setResumeLsn).not.toHaveBeenCalled();
         expect((await context.storage!.getStatus()).resumeLsn).toBe(originalLsn);
@@ -105,6 +120,8 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
     });
 
     test('resumes ordinary changes from a token inside a transaction', async () => {
+      // Insert one transaction after stopping replication. Its 50 events share a clusterTime but span
+      // multiple small cursor batches, allowing recovery to stop partway through the transaction.
       {
         await using context = await openChangeStreamTestContext(factory, { storageVersion });
         await context.updateSyncRules(
@@ -136,6 +153,8 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
             const setResumeLsn = batch.setResumeLsn.bind(batch);
             vi.spyOn(batch, 'setResumeLsn').mockImplementation(async (lsn) => {
               await setResumeLsn(lsn);
+              // Abort only after the third position is persisted, so reopening uses an exact token
+              // inside the transaction rather than the position recorded before any of its inserts.
               if (++progressCount == 3) context.abort(new Error('stop inside transaction'));
             });
           }
@@ -143,6 +162,8 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
         await context.startStreaming();
         expect(progressCount).toBe(3);
       }
+      // Resume with the ordinary provider. Already flushed rows and the replayed suffix must together
+      // produce all 50 inserts; resuming must not discard later events with the same timestamp.
       await using context = await openChangeStreamTestContext(factory, { storageVersion, doNotClear: true });
       await context.loadActiveSyncRules();
       context.startStreaming();
@@ -161,6 +182,9 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
     test.each(['progress', 'flush failure', 'adapter failure'] as const)(
       '%s before the pending checkpoint arrives',
       async (scenario) => {
+        // Exclude every document change and stop before the startup checkpoint marker is consumed.
+        // Successful boundaries should advance recovery without publishing a checkpoint; failures
+        // either before yielding progress or while flushing it must preserve the previous position.
         let originalLsn: string;
         {
           await using context = await openChangeStreamTestContext(factory, { storageVersion });
@@ -190,6 +214,8 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
           doNotClear: true,
           streamOptions: {
             snapshotChunkLength: 5,
+            // Keep the test inside the idle keepalive interval: filtered activity must still save
+            // progress while the checkpoint barrier is pending, rather than being treated as idle.
             keepaliveIntervalMs: 60_000,
             storageHooks: {
               beforeBatchFlush: async () => {
@@ -202,6 +228,8 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
                 return (async function* (): AsyncGenerator<MongoReplicationStreamItem> {
                   let count = 0;
                   for await (const item of open({})) {
+                    // Drop data events but keep the shared reader's batch boundaries and any control
+                    // events. Report how many complete changes each forwarded boundary excludes.
                     if (item.type == 'change' && 'ns' in item.event && item.event.ns.coll == 'documents') {
                       count++;
                       continue;
@@ -209,6 +237,8 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
                     if (item.type == 'progress' && count > 0) {
                       filtered += count;
                       beforeFailure = (await context.storage!.getStatus()).resumeLsn!;
+                      // The adapter error prevents delivery of the boundary. The flush error allows
+                      // delivery but fails storage processing before its resume token can be saved.
                       if (scenario == 'adapter failure') throw new Error('injected adapter failure');
                       failFlush = scenario == 'flush failure';
                       yield { ...item, filteredCount: count };
@@ -216,6 +246,8 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
                       // next() is requested only after this module has handled the progress item. Inspect actual
                       // persisted state here, without sleeps or waiting for a later checkpoint event.
                       savedPositions.push((await context.storage!.getStatus()).resumeLsn!);
+                      // End the successful case deliberately while the later checkpoint marker is
+                      // still pending, so assertions observe progress independently of a commit.
                       if (savedPositions.length == 3) throw new Error('stopped after three safe boundaries');
                     } else {
                       yield item;
@@ -255,15 +287,19 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
           scenario == 'progress' ? 'three safe boundaries' : `injected ${scenario}`
         );
         expect(filtered).toBeGreaterThan(0);
+        // Excluded changes must bypass relation lookup and row writes. No checkpoint marker should
+        // have been committed before this attempt stops, even in the successful-progress scenario.
         expect(save).not.toHaveBeenCalled();
         expect(resolve).not.toHaveBeenCalled();
         expect(commit).not.toHaveBeenCalled();
         const status = await context.storage!.getStatus();
         if (scenario == 'progress') {
+          // Each handled boundary has its own durable position, despite producing no bucket rows.
           expect(new Set(savedPositions).size).toBe(3);
           expect(savedPositions.every((lsn) => lsn > originalLsn)).toBe(true);
           expect(status.resumeLsn).toBe(savedPositions.at(-1));
         } else {
+          // Neither failure path may acknowledge the boundary that failed to finish processing.
           expect(status.resumeLsn).toBe(beforeFailure);
         }
         // Persisting source progress is not permission to expose a checkpoint past the pending barrier.
