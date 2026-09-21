@@ -631,7 +631,7 @@ export class ChangeStream {
         // no data to replicate.
         let waitForCheckpointLsn: string | null = await this.createBatchCheckpoint();
 
-        let lastEmptyResume = performance.now();
+        let lastKeepalive = performance.now();
         let lastTxnKey: string | null = null;
 
         for await (const item of stream) {
@@ -639,35 +639,33 @@ export class ChangeStream {
           this.touch();
           if (item.type == 'progress') {
             const { resumeToken, filteredCount } = item;
-            // Excluded rows are source activity too. Flush preceding writes and save the resume token
-            // even while a checkpoint barrier is pending; this does not commit or publish a checkpoint.
-            // Only truly idle responses use the keepalive throttle below.
-            if (changesSinceProgress == 0 && filteredCount == 0) {
-              // No changes in this batch, but we still want to persist progress.
-              // We do this by persisting a keepalive checkpoint.
-              // If we don't update it on empty events, we do keep consistency, but resuming the stream
-              // with old tokens may cause connection timeouts.
-              const hadRecentKeepalive = performance.now() - lastEmptyResume < this.keepaliveIntervalMs;
+            if (changesSinceProgress == 0) {
+              // No retained changes since the previous progress item: this is either idle or filtered-only traffic.
+              // Case 1: No pending barrier and the keepalive interval has elapsed. Advance checkpoints as below,
+              // then flush and save the resume token.
+              // Case 2: Idle traffic with a recent keepalive. Skip this resume update, whether or not a barrier
+              // is pending, to preserve the idle throttle.
+              // Case 3: All other combinations. Flush and save the resume token without requesting a checkpoint.
+              // A pending barrier will provide the checkpoint boundary once replication reaches it. Filtered
+              // progress still saves its token even during the keepalive interval, so excluded work is resumable.
+              const hadRecentKeepalive = performance.now() - lastKeepalive < this.keepaliveIntervalMs;
               if (waitForCheckpointLsn == null && !hadRecentKeepalive) {
-                // Case 1: We have no changes, and we are not waiting for a checkpoint to be created,
-                // and we have not recently persisted a keepalive. Persist one now, and call setResumeLsn() below.
-                // This is the normal case for an idle stream.
-                // The implementation persists a keepalive (timestamp) or bumps the
-                // sentinel so a later event commits (sentinel). Logging is handled
-                // inside the implementation.
-                await this.checkpointImplementation.keepalive(batch, resumeToken);
+                if (filteredCount > 0) {
+                  // Case 1a: Filtered-only traffic may be a transaction prefix with retained changes still unread.
+                  // Request a source barrier instead of publishing a checkpoint at this progress token.
+                  using _ = tracer.span('source_checkpoint');
+                  waitForCheckpointLsn = await this.createBatchCheckpoint();
+                } else {
+                  // Case 1b: Idle traffic. The timestamp implementation persists a keepalive directly;
+                  // the sentinel implementation writes a source marker whose event will commit later.
+                  await this.checkpointImplementation.keepalive(batch, resumeToken);
+                  this.replicationLag.markStarted();
+                }
                 this.touch();
-                lastEmptyResume = performance.now();
-                this.replicationLag.markStarted();
-              } else if (hadRecentKeepalive) {
-                // Case 2: We have no changes, and may or may not be waiting for a checkpoint to be created.
-                // We have recently persisted a keepalive.
-                // Continue waiting.
+                lastKeepalive = performance.now();
+              } else if (filteredCount == 0 && hadRecentKeepalive) {
+                // Case 2: Only idle progress skips resume persistence. Cases 1 and 3 fall through below.
                 continue;
-              } else {
-                // Case 3: Waiting for a checkpoint; have not had a recent keepalive.
-                // We cannot call checkpointImplementation.keepalive() here, but we do call
-                // setResumeLsn() below.
               }
             }
 
