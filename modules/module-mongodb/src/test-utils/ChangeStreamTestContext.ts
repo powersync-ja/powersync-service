@@ -32,18 +32,24 @@ import {
 import { detectDocumentDb } from '../replication/replication-utils.js';
 import { NormalizedMongoConnectionConfig } from '../types/types.js';
 
-/** Stream settings callers may override while the context owns connections, storage, metrics and cancellation. */
+/**
+ * Stream settings callers may override while the context owns connections, storage, metrics and cancellation.
+ */
 export type TestChangeStreamOptions = Omit<ChangeStreamOptions, 'connections' | 'storage' | 'metrics' | 'abort_signal'>;
 
 export interface ChangeStreamTestContextOptions {
   factory: TestStorageFactory;
   connectionOptions: NormalizedMongoConnectionConfig;
   metrics: ChangeStreamOptions['metrics'];
-  /** Preserve both source data and bucket storage when reopening an interrupted replication attempt. */
+  /**
+   * Preserve both source data and bucket storage when reopening an interrupted replication attempt.
+   */
   doNotClear?: boolean;
   storageVersion?: number;
   streamOptions?: TestChangeStreamOptions;
-  /** Defaults to detecting DocumentDB from the source's hello response. */
+  /**
+   * Defaults to detecting DocumentDB from the source's hello response.
+   */
   documentDbMode?: boolean;
 }
 
@@ -56,7 +62,9 @@ export interface ChangeStreamTestContextResources {
   documentDbMode?: boolean;
 }
 
-/** Owns source/storage connections and real replication. Callers supply their environment and storage implementation. */
+/**
+ * Owns source/storage connections and real replication. Callers supply their environment and storage implementation.
+ */
 export class ChangeStreamTestContext implements AsyncDisposable {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
@@ -65,12 +73,16 @@ export class ChangeStreamTestContext implements AsyncDisposable {
   private readonly replicationLeases = new Map<number, Promise<storage.ReplicationLock>>();
   public storage?: SyncRulesBucketStorage;
 
-  /** Open a fresh fixture by default; use doNotClear to resume its persisted source and storage state. */
+  /**
+   * Open a fresh fixture by default; use doNotClear to resume its persisted source and storage state.
+   */
   static async open(options: ChangeStreamTestContextOptions): Promise<ChangeStreamTestContext> {
     return this.openWith({ options, createContext: (resources) => new ChangeStreamTestContext(resources) });
   }
 
-  /** Share resource setup and failure cleanup with subclasses that supply their own context and defaults. */
+  /**
+   * Share resource setup and failure cleanup with subclasses that supply their own context and defaults.
+   */
   protected static async openWith<T extends ChangeStreamTestContext>({
     options,
     createContext
@@ -105,7 +117,9 @@ export class ChangeStreamTestContext implements AsyncDisposable {
   protected readonly storageVersion: number;
   private readonly documentDbMode: boolean;
 
-  /** Takes ownership of an already configured storage factory and source connection. */
+  /**
+   * Takes ownership of an already configured storage factory and source connection.
+   */
   constructor({
     factory,
     connectionManager,
@@ -143,7 +157,9 @@ export class ChangeStreamTestContext implements AsyncDisposable {
     this.abortController.abort(cause);
   }
 
-  /** Drain replication before inspecting its final persisted state or closing connections. */
+  /**
+   * Drain replication before inspecting its final persisted state or closing connections.
+   */
   async stop(cause?: Error) {
     this.abort(cause);
     await this.settledReplicationPromise;
@@ -311,7 +327,9 @@ export class ChangeStreamTestContext implements AsyncDisposable {
     return this.settledReplicationPromise;
   }
 
-  /** Wait for this stream to publish a real source marker; stop polling if replication exits first. */
+  /**
+   * Wait for this stream to publish a real source marker; stop polling if replication exits first.
+   */
   async getCheckpoint(options?: { timeout?: number }): Promise<ReplicationCheckpoint> {
     if (this.settledReplicationPromise == null) {
       throw new Error('Start replication before requesting a checkpoint.');
@@ -401,7 +419,9 @@ export class ChangeStreamTestContext implements AsyncDisposable {
     return data;
   }
 
-  /** Resolve a readable test bucket such as global[] to its persisted, versioned bucket name. */
+  /**
+   * Resolve a readable test bucket such as global[] to its persisted, versioned bucket name.
+   */
   private bucketRequest(bucket: string, start: InternalOpId): BucketDataRequest {
     const parsed = this.getSyncConfigContent().parsed({ defaultSchema: this.db.databaseName });
     const parameterStart = bucket.indexOf('[');
@@ -451,7 +471,9 @@ export async function getClientCheckpoint({
   storageFactory: BucketStorageFactory;
   timeout?: number;
   documentDbMode?: boolean;
-  /** Ignore checkpoints from another active stream while this one is still deploying. */
+  /**
+   * Ignore checkpoints from another active stream while this one is still deploying.
+   */
   storage?: SyncRulesBucketStorage;
   signal?: AbortSignal;
 }): Promise<ReplicationCheckpoint> {

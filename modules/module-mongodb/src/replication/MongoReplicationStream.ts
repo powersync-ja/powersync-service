@@ -9,26 +9,38 @@ import {
   RawChangeStreamOptions
 } from './RawChangeStream.js';
 
-/** Ordered adapter output. Progress advances source recovery, not the client-visible checkpoint. */
+/**
+ * Ordered adapter output. Progress advances source recovery, not the client-visible checkpoint.
+ */
 export type MongoReplicationStreamItem =
   | {
       type: 'change';
       event: ProjectedChangeStreamDocument;
-      /** More envelopes remain in the received batch, including ones an adapter may exclude. */
+      /**
+       * More envelopes remain in the received batch, including ones an adapter may exclude.
+       */
       hasBufferedChanges: boolean;
     }
   | {
       type: 'progress';
-      /** Covers only complete events already delivered or intentionally excluded by the adapter. */
+      /**
+       * Covers only complete events already delivered or intentionally excluded by the adapter.
+       */
       resumeToken: mongo.ResumeToken;
-      /** Excluded complete events since the previous progress item; reset after every boundary. */
+      /**
+       * Excluded complete events since the previous progress item; reset after every boundary.
+       */
       filteredCount: number;
     };
 
 export interface MongoReplicationStreamOptions {
-  /** Inserted after namespace selection and before the final large-event split stage. */
+  /**
+   * Inserted after namespace selection and before the final large-event split stage.
+   */
   pipelineStages?: mongo.Document[];
-  /** Request pre-images without overriding the reader's post-image, resume or scope options. */
+  /**
+   * Request pre-images without overriding the reader's post-image, resume or scope options.
+   */
   imageOptions?: Pick<mongo.ChangeStreamOptions, 'fullDocumentBeforeChange'>;
 }
 
@@ -45,7 +57,9 @@ export interface MongoReplicationStreamContext {
   open(options: MongoReplicationStreamOptions): AsyncIterableIterator<MongoReplicationStreamItem>;
 }
 
-/** Shared opening path for ongoing replication, snapshot barriers and resume validation. */
+/**
+ * Shared opening path for ongoing replication, snapshot barriers and resume validation.
+ */
 export function openMongoReplicationStream({
   db,
   queryProvider,
@@ -63,7 +77,9 @@ export function openMongoReplicationStream({
   isDocumentDb: boolean;
   usePostImages: boolean;
   position: { resumeAfter?: mongo.ResumeToken | null; startAfter?: mongo.Timestamp | null } | null;
-  /** Legacy streaming positions exclude the initial timestamp; snapshot barrier probes must include it. */
+  /**
+   * Legacy streaming positions exclude the initial timestamp; snapshot barrier probes must include it.
+   */
   skipInitialTimestamp?: boolean;
   options: RawChangeStreamOptions;
   onBatch?: (batch: ChangeStreamBatch) => Disposable | void;
@@ -104,7 +120,9 @@ export function openMongoReplicationStream({
   return queryProvider.openChangeStream({ open });
 }
 
-/** Parse envelopes once, retaining raw BSON row bodies and withholding progress during split reassembly. */
+/**
+ * Parse envelopes once, retaining raw BSON row bodies and withholding progress during split reassembly.
+ */
 export async function* readMongoReplicationStream({
   batches,
   defaultSchema,
@@ -120,7 +138,9 @@ export async function* readMongoReplicationStream({
   startAfter?: mongo.Timestamp | null;
   signal?: AbortSignal;
   logger?: Logger;
-  /** Transport accounting happens before parsing/filtering, including partial fragments and empty batches. */
+  /**
+   * Transport accounting happens before parsing/filtering, including partial fragments and empty batches.
+   */
   onBatch?: (batch: ChangeStreamBatch) => Disposable | void;
 }): AsyncGenerator<MongoReplicationStreamItem> {
   let splitDocument: ProjectedChangeStreamDocument | null = null;

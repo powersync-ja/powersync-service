@@ -36,8 +36,9 @@ selection, post-image requirements, timeouts and cancellation are already bound.
 and before MongoDB's final large-event split stage.
 
 The callback returns parsed, reassembled changes and safe progress boundaries. A provider can wrap this iterator
-to discard marked events or translate exits from a filtered set into delete events. This requires access to the
-returned stream: pipeline stages alone cannot discard an event in the service while preserving its source progress.
+to discard marked events or translate exits from a filtered set into delete events. The adapter needs to read
+change-stream events so it can skip a document change while still passing its resume token to the replication loop.
+Filtering the event out in the MongoDB pipeline removes it before the adapter can record that progress.
 
 The returned items have two forms:
 
@@ -54,8 +55,19 @@ it when forwarding an event so checkpoint batching still accounts for that work.
 
 ## Durable progress and recovery
 
-The reader withholds progress while a split event is incomplete. After reassembly, its final token can safely
-cover the complete event. Transport metrics count all received batches and bytes before provider filtering.
+The default reader emits a progress item at each safe batch boundary, including empty batches. An empty batch
+can carry a newer MongoDB resume token without any document changes. Forwarding that token lets the replication
+loop advance its recovery position and run idle keepalives, subject to the existing throttle.
+
+Split events do not require a separate progress notification for each fragment. The reader assembles all
+fragments before yielding the complete change; normal checkpoint handling still controls its visibility to
+clients. While reassembly is incomplete, the reader suppresses batch progress, including progress from empty
+batches between fragments. Otherwise, the loop could save a resume token past fragments held only in memory,
+and a restart would lose those fragments. Once reassembly is complete, normal batch progress can resume.
+
+`bytesReplicatedMetric` counts all received bytes, including events the provider later
+filters out. `chunksReplicatedMetric` counts all received batches, including batches where the provider filters out
+every event. Both metrics are recorded before provider filtering.
 
 The replication loop flushes preceding retained writes before saving a progress token. Excluded events count as
 source activity, so filtered-only progress can be saved even while a checkpoint barrier is pending. A flush or
