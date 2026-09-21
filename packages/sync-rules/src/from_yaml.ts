@@ -114,12 +114,8 @@ export class SyncConfigFromYaml {
           });
           if (this.#hasFatalError) break;
         }
-        // Edition 3 parsing has already compiled the SQL into a PrecompiledSyncConfig before the hooks run.
-        // Hooks populate the config, but persistence serializes its plan. Copy module metadata into the plan
-        // so required parser IDs and connection options survive a reload. Omit empty fields for legacy plan formats.
-        if (config instanceof PrecompiledSyncConfig && config.additionalModuleIds.size != 0) {
-          config.plan.additionalModuleIds = [...config.additionalModuleIds];
-        }
+        // Hooks populate connection options on the config, but persistence serializes its compiled plan.
+        // Keep the plan's connection options in sync so they survive a reload.
         if (config instanceof PrecompiledSyncConfig && Object.keys(config.connectionConfig).length != 0) {
           config.plan.connectionConfig = config.connectionConfig;
         }

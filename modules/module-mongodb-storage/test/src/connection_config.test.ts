@@ -1,7 +1,11 @@
 import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { SqlSyncConfigParser, updateSyncRulesFromConfig } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
-import { AdditionalSyncConfigParser, normalizeConnectionConfig } from '@powersync/service-sync-rules';
+import {
+  AdditionalSyncConfigParser,
+  normalizeConnectionConfig,
+  PrecompiledSyncConfig
+} from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
 import { TEST_STORAGE_VERSIONS } from './util.js';
@@ -60,7 +64,8 @@ const tableOptions: AdditionalSyncConfigParser = {
     for (const [tag, connection] of Object.entries(connections)) {
       if (connection?.type != 'example') continue;
       context.parsedConfig.connectionConfig = { ...context.parsedConfig.connectionConfig, [tag]: connection };
-      context.parsedConfig.additionalModuleIds.add('example.tables');
+      const { plan } = context.parsedConfig as PrecompiledSyncConfig;
+      plan.moduleData = { ...plan.moduleData, ['example.tables']: null };
     }
   }
 };
