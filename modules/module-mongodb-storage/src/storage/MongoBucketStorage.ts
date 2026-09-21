@@ -101,7 +101,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     syncConfigParser: storage.SyncConfigParser,
     private options: MongoBucketStorageOptions
   ) {
-    super(syncConfigParser);
+    super({ syncConfigParser });
     this.chunkCompactionConcurrency = normalizeChunkCompactionConcurrency(
       options.chunkCompactionConcurrency,
       options.objectStorage != null

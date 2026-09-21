@@ -29,7 +29,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     protected options: PostgresBucketStorageOptions,
     syncConfigParser: storage.SyncConfigParser
   ) {
-    super(syncConfigParser);
+    super({ syncConfigParser });
     this.db = new lib_postgres.DatabaseClient({
       config: options.config,
       schema: STORAGE_SCHEMA_NAME,
