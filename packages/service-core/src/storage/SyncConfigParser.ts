@@ -3,6 +3,7 @@ import {
   compileSyncRulesSchemaValidator,
   createSyncRulesSchema,
   JsonObject,
+  PrecompiledSyncConfig,
   SqlSyncRules,
   SyncConfig,
   SyncConfigDiagnostic,
@@ -77,8 +78,11 @@ export class SqlSyncConfigParser implements SyncConfigParser {
      * are currently loaded.
      * This prevents a case for a SyncConfig with missing external modules to be loaded.
      */
+    const requiredIds = new Set(
+      config instanceof PrecompiledSyncConfig ? Object.keys(config.plan.moduleData ?? {}) : []
+    );
     const registeredIds = new Set(this.#parsers.map((parser) => parser.id));
-    const missingIds = [...config.additionalModuleIds].filter((id) => !registeredIds.has(id));
+    const missingIds = [...requiredIds].filter((id) => !registeredIds.has(id));
     if (missingIds.length != 0) {
       throw new Error(`Missing required sync config parsers: ${missingIds.join(', ')}`);
     }
@@ -98,7 +102,7 @@ export class SqlSyncConfigParser implements SyncConfigParser {
     };
 
     for (const parser of this.#parsers) {
-      if (!config.additionalModuleIds.has(parser.id)) continue;
+      if (!requiredIds.has(parser.id)) continue;
       /**
        * This allows additional validation of module specific semantics
        */

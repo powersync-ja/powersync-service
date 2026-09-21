@@ -91,7 +91,8 @@ export interface AdditionalSyncConfigParser {
    * `config` is decoded sync config. Everything else needed to parse it is supplied through `context`.
    * Parse module-owned input into context.parsedConfig, including connectionConfig entries for this module.
    * Core does not copy connection options from the input or normalize the parser's output here.
-   * Add this parser's ID to context.parsedConfig.additionalModuleIds when the config requires this module.
+   * For a PrecompiledSyncConfig, add this parser's ID to parsedConfig.plan.moduleData with a null value
+   * when the config requires this module. The plan's keys determine which parsers must be present on reload.
    */
   parse(options: { config: unknown; context: SyncConfigParserContext }): void;
 

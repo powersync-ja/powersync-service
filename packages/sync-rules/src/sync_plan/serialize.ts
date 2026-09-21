@@ -227,6 +227,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
   }
 
   const events = plan.events.map(tableProcessorSerializer.serializeEventDefinition);
+  const moduleData = plan.moduleData ?? {};
   const connectionConfig = normalizeConnectionConfig(plan.connectionConfig);
   const serialized: SerializedSyncPlan = {
     dataSources: serializeDataSources(),
@@ -244,7 +245,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
       queriers: s.queriers.map(serializeStreamQuerier)
     })),
     version:
-      Object.keys(connectionConfig).length != 0 || plan.additionalModuleIds?.length
+      Object.keys(connectionConfig).length != 0 || Object.keys(moduleData).length
         ? 3
         : tableProcessorSerializer.usesRowMetadataSqlValue
           ? 2
@@ -258,7 +259,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
   }
 
   if (Object.keys(connectionConfig).length != 0) serialized.connectionConfig = connectionConfig;
-  if (plan.additionalModuleIds?.length) serialized.additionalModuleIds = [...plan.additionalModuleIds];
+  if (Object.keys(moduleData).length) serialized.moduleData = moduleData;
   return serialized;
 }
 
@@ -308,12 +309,16 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
 
   const plan = serialized as SerializedSyncPlan;
   if (
-    plan.additionalModuleIds != null &&
-    (!Array.isArray(plan.additionalModuleIds) || plan.additionalModuleIds.some((id) => typeof id != 'string' || !id))
+    plan.moduleData !== undefined &&
+    (plan.moduleData === null ||
+      typeof plan.moduleData != 'object' ||
+      Array.isArray(plan.moduleData) ||
+      Object.entries(plan.moduleData).some(([id, data]) => !id || data !== null))
   ) {
-    throw new Error('Invalid persisted sync config module IDs.');
+    throw new Error('Invalid sync config module data: expected parser IDs mapped to null.');
   }
-  if (plan.additionalModuleIds?.length && plan.version != 3) {
+  const moduleData = plan.moduleData ?? {};
+  if (Object.keys(moduleData).length && plan.version != 3) {
     throw new Error('Sync config module dependencies require sync plan version 3.');
   }
   const connectionConfig = normalizeConnectionConfig(plan.connectionConfig);
@@ -460,7 +465,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
     parameterIndexes,
     streams,
     events,
-    ...(plan.additionalModuleIds?.length && { additionalModuleIds: [...plan.additionalModuleIds] }),
+    ...(Object.keys(moduleData).length && { moduleData }),
     ...(Object.keys(connectionConfig).length != 0 && { connectionConfig })
   };
 }
@@ -493,8 +498,11 @@ export type SerializedSyncPlanVersion = 1 | 2 | 3;
 export const maxSupportedSyncPlanVersion: SerializedSyncPlanVersion = 3;
 
 export interface SerializedSyncPlan {
-  /** IDs of modules required to interpret this plan; requires plan version 3. */
-  additionalModuleIds?: string[];
+  /**
+   * Required parser IDs stored as map keys; requires plan version 3.
+   * Values are currently null, reserving space for future module-owned data.
+   */
+  moduleData?: Record<string, null>;
   /** Present only for configured connections; requires plan version 3. */
   connectionConfig?: ConnectionConfigMap;
   version: SerializedSyncPlanVersion;
