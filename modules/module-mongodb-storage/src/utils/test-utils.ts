@@ -8,12 +8,13 @@ export type MongoTestStorageOptions = {
   url: string;
   isCI: boolean;
   syncConfigParser?: SyncConfigParser;
+  monitorCommands?: boolean;
 } & Omit<MongoBucketStorageOptions, 'replicationStreamNamePrefix'>;
 
 export function mongoTestStorageFactoryGenerator(factoryOptions: MongoTestStorageOptions) {
   return {
     factory: async (options?: TestStorageOptions) => {
-      const db = connectMongoForTests(factoryOptions.url, factoryOptions.isCI);
+      const db = connectMongoForTests(factoryOptions.url, factoryOptions.isCI, factoryOptions.monitorCommands);
 
       // None of the tests insert data into this collection, so it was never created
       if (!(await db.db.listCollections({ name: db.bucket_parameters.collectionName }).hasNext())) {
@@ -42,7 +43,7 @@ export function mongoTestStorageFactoryGenerator(factoryOptions: MongoTestStorag
 
 export function mongoTestReportStorageFactoryGenerator(factoryOptions: MongoTestStorageOptions) {
   return async (options?: TestStorageOptions) => {
-    const db = connectMongoForTests(factoryOptions.url, factoryOptions.isCI);
+    const db = connectMongoForTests(factoryOptions.url, factoryOptions.isCI, factoryOptions.monitorCommands);
 
     await db.createConnectionReportingCollection();
 
@@ -54,10 +55,11 @@ export function mongoTestReportStorageFactoryGenerator(factoryOptions: MongoTest
   };
 }
 
-export const connectMongoForTests = (url: string, isCI: boolean) => {
+export const connectMongoForTests = (url: string, isCI: boolean, monitorCommands = false) => {
   // Short timeout for tests, to fail fast when the server is not available.
   // Slightly longer timeouts for CI, to avoid arbitrary test failures
   const client = new mongo.MongoClient(url, {
+    monitorCommands,
     connectTimeoutMS: isCI ? 15_000 : 5_000,
     socketTimeoutMS: isCI ? 15_000 : 5_000,
     serverSelectionTimeoutMS: isCI ? 15_000 : 2_500

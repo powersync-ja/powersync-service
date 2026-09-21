@@ -80,12 +80,16 @@ const SHARED_WRITER = new JsonBufferWriter();
  *
  * @param bytes the source BSON bytes
  * @param dateRenderMode derive using getDateRenderMode(compatibilityContext)
+ * @param fixedBooleansInJson whether to serialize booleans in nested JSON as booleans, derived from compatibility
+ * context.
  *
  * @returns a SqliteRow
  */
-export function bufferToSqlite(bytes: Buffer, dateRenderMode: DateRenderMode): SqliteRow {
+export function bufferToSqlite(bytes: Buffer, dateRenderMode: DateRenderMode, fixedBooleansInJson: boolean): SqliteRow {
   const row: SqliteRow = {};
   const jsonWriter = SHARED_WRITER;
+  const options: SerializeToJsonOptions = { dateRenderMode, fixedBooleans: fixedBooleansInJson };
+
   // BSON documents are length-prefixed and null-terminated. We parse directly
   // from raw bytes, so structural validation happens here rather than in the
   // upstream BSON decoder.
@@ -112,14 +116,14 @@ export function bufferToSqlite(bytes: Buffer, dateRenderMode: DateRenderMode): S
       }
       case BSON_TYPE_ARRAY: {
         jsonWriter.reset();
-        const result = serializeNestedArrayToJson(bytes, offset, 0, jsonWriter, dateRenderMode);
+        const result = serializeNestedArrayToJson(bytes, offset, 0, jsonWriter, options);
         row[key] = jsonWriter.toString();
         offset = result.nextOffset;
         break;
       }
       case BSON_TYPE_DOCUMENT: {
         jsonWriter.reset();
-        const result = serializeNestedObjectToJson(bytes, offset, 0, jsonWriter, dateRenderMode);
+        const result = serializeNestedObjectToJson(bytes, offset, 0, jsonWriter, options);
         row[key] = jsonWriter.toString();
         offset = result.nextOffset;
         break;
@@ -195,7 +199,7 @@ export function bufferToSqlite(bytes: Buffer, dateRenderMode: DateRenderMode): S
       }
       case BSON_TYPE_CODE_WITH_SCOPE: {
         jsonWriter.reset();
-        const nextOffset = writeCodeWithScopeJson(bytes, offset, 0, jsonWriter, dateRenderMode);
+        const nextOffset = writeCodeWithScopeJson(bytes, offset, 0, jsonWriter, options);
         row[key] = jsonWriter.toString();
         offset = nextOffset;
         break;
@@ -437,12 +441,17 @@ function skipBsonValue(bytes: Buffer, offset: number, type: number) {
   }
 }
 
+interface SerializeToJsonOptions {
+  dateRenderMode: DateRenderMode;
+  fixedBooleans: boolean;
+}
+
 function serializeNestedObjectToJson(
   bytes: Buffer,
   offset: number,
   depth: number,
   writer: JsonBufferWriter,
-  dateRenderMode: DateRenderMode
+  options: SerializeToJsonOptions
 ): { nextOffset: number } {
   if (depth > NESTED_DEPTH_LIMIT) {
     throw new Error(`json nested object depth exceeds the limit of ${NESTED_DEPTH_LIMIT}`);
@@ -475,7 +484,7 @@ function serializeNestedObjectToJson(
       type,
       depth,
       writer,
-      dateRenderMode
+      options
     );
     cursor = afterValue;
     // Malformed BSON must fail fast instead of getting the parser stuck on the
@@ -499,7 +508,7 @@ function serializeNestedArrayToJson(
   offset: number,
   depth: number,
   writer: JsonBufferWriter,
-  dateRenderMode: DateRenderMode
+  options: SerializeToJsonOptions
 ): { nextOffset: number } {
   if (depth > NESTED_DEPTH_LIMIT) {
     throw new Error(`json nested object depth exceeds the limit of ${NESTED_DEPTH_LIMIT}`);
@@ -527,7 +536,7 @@ function serializeNestedArrayToJson(
       type,
       depth,
       writer,
-      dateRenderMode
+      options
     );
     cursor = afterValue;
     assertAdvanced(previousCursor, cursor);
@@ -547,7 +556,7 @@ function serializeNestedElementValue(
   type: number,
   depth: number,
   writer: JsonBufferWriter,
-  dateRenderMode: DateRenderMode
+  options: SerializeToJsonOptions
 ): { nextOffset: number; defined: boolean } {
   switch (type) {
     case BSON_TYPE_DOUBLE: // Double
@@ -555,9 +564,9 @@ function serializeNestedElementValue(
     case BSON_TYPE_STRING: // String
       return serializeNestedStringElement(bytes, offset, writer);
     case BSON_TYPE_DOCUMENT: // Embedded document
-      return serializeNestedObjectElement(bytes, offset, depth, writer, dateRenderMode);
+      return serializeNestedObjectElement(bytes, offset, depth, writer, options);
     case BSON_TYPE_ARRAY: // Array
-      return serializeNestedArrayElement(bytes, offset, depth, writer, dateRenderMode);
+      return serializeNestedArrayElement(bytes, offset, depth, writer, options);
     case BSON_TYPE_BINARY: // Binary
       return serializeNestedBinaryElement(bytes, offset, writer);
     case BSON_TYPE_UNDEFINED: // Undefined
@@ -567,11 +576,22 @@ function serializeNestedElementValue(
       writer.writeQuotedHexLower(bytes, offset, 12);
       return { nextOffset: offset + 12, defined: true };
     }
-    case BSON_TYPE_BOOLEAN: // Boolean
-      writer.writeByte(bytes[offset] ? BYTE_ONE : BYTE_ZERO);
+    case BSON_TYPE_BOOLEAN: {
+      // Boolean
+      const value = !!bytes[offset];
+
+      if (options.fixedBooleans) {
+        const str = value ? 'true' : 'false';
+
+        writer.writeAscii(str);
+      } else {
+        writer.writeByte(value ? BYTE_ONE : BYTE_ZERO);
+      }
+
       return { nextOffset: offset + 1, defined: true };
+    }
     case BSON_TYPE_UTC_DATETIME: // UTC datetime
-      return serializeNestedDateTimeElement(bytes, offset, writer, dateRenderMode);
+      return serializeNestedDateTimeElement(bytes, offset, writer, options.dateRenderMode);
     case BSON_TYPE_NULL: // Null
     case BSON_TYPE_MIN_KEY: // MinKey
     case BSON_TYPE_MAX_KEY: // MaxKey
@@ -586,7 +606,7 @@ function serializeNestedElementValue(
     case BSON_TYPE_SYMBOL: // Symbol
       return serializeNestedSymbolElement(bytes, offset, writer);
     case BSON_TYPE_CODE_WITH_SCOPE: // JavaScript code with scope
-      return serializeNestedCodeWithScopeElement(bytes, offset, depth, writer, dateRenderMode);
+      return serializeNestedCodeWithScopeElement(bytes, offset, depth, writer, options);
     case BSON_TYPE_INT32: {
       // Int32
       writer.writeAscii(String(readInt32LE(bytes, offset)));
@@ -641,9 +661,9 @@ function serializeNestedObjectElement(
   offset: number,
   depth: number,
   writer: JsonBufferWriter,
-  dateRenderMode: DateRenderMode
+  options: SerializeToJsonOptions
 ): { nextOffset: number; defined: boolean } {
-  const result = serializeNestedObjectToJson(bytes, offset, depth + 1, writer, dateRenderMode);
+  const result = serializeNestedObjectToJson(bytes, offset, depth + 1, writer, options);
   return { nextOffset: result.nextOffset, defined: true };
 }
 
@@ -652,9 +672,9 @@ function serializeNestedArrayElement(
   offset: number,
   depth: number,
   writer: JsonBufferWriter,
-  dateRenderMode: DateRenderMode
+  options: SerializeToJsonOptions
 ): { nextOffset: number; defined: boolean } {
-  const result = serializeNestedArrayToJson(bytes, offset, depth + 1, writer, dateRenderMode);
+  const result = serializeNestedArrayToJson(bytes, offset, depth + 1, writer, options);
   return { nextOffset: result.nextOffset, defined: true };
 }
 
@@ -791,14 +811,14 @@ function writeCodeWithScopeJson(
   offset: number,
   depth: number,
   writer: JsonBufferWriter,
-  dateRenderMode: DateRenderMode
+  options: SerializeToJsonOptions
 ) {
   const totalLength = readInt32LE(bytes, offset);
   const { value: code, nextOffset: afterCode } = readBsonString(bytes, offset + 4);
   writer.writeAscii('{"code":');
   writer.writeQuotedJsonString(code);
   writer.writeAscii(',"scope":');
-  serializeNestedObjectToJson(bytes, afterCode, depth + 1, writer, dateRenderMode);
+  serializeNestedObjectToJson(bytes, afterCode, depth + 1, writer, options);
   writer.writeByte(BYTE_RBRACE);
   // code_w_scope carries its own total byte length, so we trust that wrapper
   // rather than reconstructing the end position from the nested scope.
@@ -885,10 +905,10 @@ function serializeNestedCodeWithScopeElement(
   offset: number,
   depth: number,
   writer: JsonBufferWriter,
-  dateRenderMode: DateRenderMode
+  options: SerializeToJsonOptions
 ): { nextOffset: number; defined: boolean } {
   return {
-    nextOffset: writeCodeWithScopeJson(bytes, offset, depth, writer, dateRenderMode),
+    nextOffset: writeCodeWithScopeJson(bytes, offset, depth, writer, options),
     defined: true
   };
 }

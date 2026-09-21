@@ -1,6 +1,32 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ExpressionType } from '@powersync/service-sync-rules';
 import { TableSchema } from '@powersync/service-types';
+
+/**
+ * Server errors that mean this one collection could not be inspected, rather than the
+ * connection being unusable.
+ *
+ * These come from the memory ceiling {@link inferCollectionSchema} imposes on itself by
+ * refusing to spill to disk, and are deterministic per collection. Timeouts are
+ * deliberately excluded: they usually indicate an overloaded source, where degrading
+ * would silently empty the schema of every collection at once.
+ */
+const SCHEMA_INFERENCE_FAILURE_CODES = new Set([
+  // ExceededMemoryLimit - a blocking stage ran out of memory with disk spill disabled.
+  146,
+  // QueryExceededMemoryLimitNoDiskUseAllowed - as above, reported by the sort $sample
+  // uses on collections too small for its random cursor.
+  292
+]);
+
+/**
+ * Whether the error means we could not determine this collection's fields, as opposed to
+ * something that makes the rest of the schema unreliable too.
+ */
+export function isSchemaInferenceFailure(e: unknown): boolean {
+  return lib_mongo.isMongoServerError(e) && SCHEMA_INFERENCE_FAILURE_CODES.has(e.code as number);
+}
 
 // Match the types exposed after BSON deserialization and conversion to sync rules values.
 const BSON_TYPES: Record<string, { name: string; sqliteType: ExpressionType }> = {

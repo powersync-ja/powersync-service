@@ -4,6 +4,8 @@ import {
   applyValueContext,
   CompatibilityContext,
   CompatibilityEdition,
+  CompatibilityOption,
+  SqliteInputValue,
   toSyncRulesValue
 } from '@powersync/service-sync-rules';
 import { beforeEach, describe, expect, test } from 'vitest';
@@ -15,7 +17,7 @@ describe('custom type registry', () => {
     registry = new CustomTypeRegistry();
   });
 
-  function checkResult(raw: string, type: number, old: any, fixed: any) {
+  function checkResult(raw: string, type: number, old: any, fixed: any): SqliteInputValue {
     const input = registry.decodeDatabaseValue(raw, type);
     const syncRulesValue = toSyncRulesValue(input);
 
@@ -23,6 +25,7 @@ describe('custom type registry', () => {
     expect(
       applyValueContext(syncRulesValue, new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS }))
     ).toStrictEqual(fixed);
+    return syncRulesValue;
   }
 
   test('domain types', () => {
@@ -61,7 +64,13 @@ describe('custom type registry', () => {
     });
 
     // SELECT (TRUE, 123, ARRAY['foo', 'bar'])::c1;
-    checkResult('(t,123,"{foo,bar}")', 1337, '(t,123,"{foo,bar}")', '{"a":1,"b":123,"c":["foo","bar"]}');
+    const value = checkResult('(t,123,"{foo,bar}")', 1337, '(t,123,"{foo,bar}")', '{"a":1,"b":123,"c":["foo","bar"]}');
+
+    const fixedBools = new CompatibilityContext({
+      edition: CompatibilityEdition.COMPILED_STREAMS,
+      overrides: new Map([[CompatibilityOption.fixedBooleanInJson, true]])
+    });
+    expect(applyValueContext(value, fixedBools)).toStrictEqual('{"a":true,"b":123,"c":["foo","bar"]}');
   });
 
   test('array of structure', () => {
