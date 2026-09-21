@@ -217,11 +217,6 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
             // Keep the test inside the idle keepalive interval: filtered activity must still save
             // progress while the checkpoint barrier is pending, rather than being treated as idle.
             keepaliveIntervalMs: 60_000,
-            storageHooks: {
-              beforeBatchFlush: async () => {
-                if (failFlush) throw new Error('injected flush failure');
-              }
-            },
             createReplicationQueryProvider: () => ({
               ...DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER,
               openChangeStream({ open }) {
@@ -262,6 +257,13 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
         const checkpointBefore = await context.storage!.getCheckpoint();
         context.storage!.registerListener({
           batchStarted: (batch) => {
+            // All rows are filtered out, so storage may skip beforeBatchFlush for an empty batch.
+            // Inject at the public flush boundary to test flush-before-resume ordering on every backend.
+            const originalFlush = batch.flush.bind(batch);
+            vi.spyOn(batch, 'flush').mockImplementation(async (...args) => {
+              if (failFlush) throw new Error('injected flush failure');
+              return originalFlush(...args);
+            });
             const originalSave = batch.save.bind(batch);
             vi.spyOn(batch, 'save').mockImplementation((...args) => {
               save();
