@@ -6,7 +6,9 @@ import { TEST_CONNECTION_OPTIONS } from './util.js';
 
 export const ChangeStreamTestContext = test_utils.ChangeStreamTestContext;
 
-/** Supply this suite's environment and metrics to the exported context. */
+/**
+ * Supply this suite's environment and metrics to the exported context.
+ */
 export function openChangeStreamTestContext(
   factory: TestStorageFactory,
   options?: Omit<test_utils.ChangeStreamTestContextOptions, 'factory' | 'connectionOptions' | 'metrics'> & {
