@@ -255,9 +255,7 @@ export class MongoSnapshotter {
         totalEstimatedCount: count
       });
       this.queueTable(updated);
-      this.logger.info(
-        `To replicate: ${updated.qualifiedName}: ${updated.snapshotStatus?.replicatedCount}/~${updated.snapshotStatus?.totalEstimatedCount}`
-      );
+      this.logger.info(`To replicate: ${updated.qualifiedName} ${updated.formatSnapshotProgress()}`);
     }
   }
 
@@ -476,14 +474,15 @@ export class MongoSnapshotter {
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
-    const totalEstimatedCount = await this.estimatedCountNumber(table);
+    const filter = this.queryProvider.getSnapshotFilter(table);
+    const totalEstimatedCount = await this.estimatedCountNumber(table, filter);
     let at = table.snapshotStatus?.replicatedCount ?? 0;
     const collection = this.client.db(table.schema).collection(table.name);
     await using query = new ChunkedSnapshotQuery({
       collection,
       key: table.snapshotStatus?.lastKey,
       batchSize: this.snapshotChunkLength,
-      filter: this.queryProvider.getSnapshotFilter(table)
+      filter
     });
     if (query.lastKey != null) {
       this.logger.info(
@@ -577,7 +576,15 @@ export class MongoSnapshotter {
     return result.tables;
   }
 
-  private async estimatedCountNumber(table: storage.SourceTable): Promise<number> {
+  private async estimatedCountNumber(
+    table: storage.SourceTable,
+    filter = this.queryProvider.getSnapshotFilter(table)
+  ): Promise<number> {
+    // Collection metadata cannot estimate a filtered result. An exact count could require another
+    // expensive scan, so use the shared unknown-total sentinel and report only the replicated count.
+    if (filter != null) {
+      return -1;
+    }
     return await this.client.db(table.schema).collection(table.name).estimatedDocumentCount();
   }
 
