@@ -8,7 +8,6 @@ import {
 } from './compatibility.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.js';
 import { CommonTableExpression } from './compiler/sqlite.js';
-import { normalizeConnectionConfig } from './ConnectionConfig.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { PreparedEventDefinition } from './events/CompiledEventSourceQuery.js';
 import type { JsonObject } from './json.js';
@@ -31,7 +30,7 @@ import { documentState, YamlMapState, YamlScalarState, YamlState } from './yaml_
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
 /**
- * Reads `sync_rules.yaml` files containing a sync configuration.
+ * Reads `sync_rules.yaml` files containing a sync config.
  *
  * @internal Only exposed through `SqlSyncRules.fromYaml`.
  */
@@ -102,8 +101,6 @@ export class SyncConfigFromYaml {
         this.#errors.push(error);
       };
       try {
-        // Schema approval precedes this copy: decoding with the empty base table codec would drop module fields.
-        config.connectionConfig = normalizeConnectionConfig(encoded.config?.connections);
         for (const parser of this.options.parsers) {
           parser.parse({
             config: encoded,
@@ -117,7 +114,12 @@ export class SyncConfigFromYaml {
           });
           if (this.#hasFatalError) break;
         }
-        config.connectionConfig = normalizeConnectionConfig(config.connectionConfig);
+        // Edition 3 parsing has already compiled the SQL into a PrecompiledSyncConfig before the hooks run.
+        // Hooks populate the config, but persistence serializes its plan. Copy module metadata into the plan
+        // so required parser IDs and connection options survive a reload. Omit empty fields for legacy plan formats.
+        if (config instanceof PrecompiledSyncConfig && config.additionalModuleIds.size != 0) {
+          config.plan.additionalModuleIds = [...config.additionalModuleIds];
+        }
         if (config instanceof PrecompiledSyncConfig && Object.keys(config.connectionConfig).length != 0) {
           config.plan.connectionConfig = config.connectionConfig;
         }
@@ -135,7 +137,7 @@ export class SyncConfigFromYaml {
   }
 
   #parseConfig(parsed: Document): SyncConfig {
-    const root = documentState(parsed, (e) => this.#errors.push(e)).requireMap('Sync Config must be a YAML map.');
+    const root = documentState(parsed, (e) => this.#errors.push(e)).requireMap('Sync config must be a YAML map.');
 
     if (parsed.errors.length > 0 || root == null) {
       this.#errors.push(...parsed.errors.map((e) => new YamlError(e)));
@@ -147,7 +149,6 @@ export class SyncConfigFromYaml {
     }
 
     using rootState = root;
-    if (this.options.parsers.length != 0) rootState.allowAdditionalKeys();
 
     using declaredOptions = rootState.get('config')?.requireMap();
     // The composed schema validates connection options and preserves module-owned table fields.
@@ -212,7 +213,7 @@ export class SyncConfigFromYaml {
   }
 
   /**
-   * Parses the `config` block of a sync configuration.
+   * Parses the `config` block of a sync config.
    *
    * @see https://docs.powersync.com/sync/advanced/compatibility
    */
@@ -648,7 +649,16 @@ export class SyncConfigFromYaml {
 }
 
 export interface SyncConfigFromYamlOptions {
+  /**
+   * Additional parsing hooks registered by the service. Standalone callers, including extension tests,
+   * can supply hooks through SqlSyncRules.fromYaml; omitted hooks are normalized to an empty array.
+   */
   readonly parsers: readonly AdditionalSyncConfigParser[];
+  /**
+   * Composed schema supplied by the service parser, matching its registered hooks.
+   * Standalone callers, including tests, normally omit this so the schema is composed from parsers.
+   * Supplying a schema skips composition but still runs the parsing hooks.
+   */
   readonly jsonSchema?: JsonObject;
   readonly throwOnError: boolean;
   readonly schema?: SourceSchema;

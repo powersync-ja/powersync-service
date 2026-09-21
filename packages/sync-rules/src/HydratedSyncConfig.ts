@@ -1,5 +1,5 @@
 import { BucketDataSource, HydratedBucketSource } from './BucketSource.js';
-import { ConnectionConfigMap, connectionConfigsEqual } from './ConnectionConfig.js';
+import { ConnectionConfigMap } from './ConnectionConfig.js';
 import {
   BucketParameterQuerier,
   BucketSource,
@@ -106,11 +106,8 @@ export class HydratedSyncConfig {
       throw new Error('HydratedSyncRules requires at least one SyncConfig definition');
     }
 
-    // Active and processing definitions share one source reader. Conflicting options cannot safely be merged.
+    // The service validates that definitions sharing a source reader have compatible connection options.
     this.connectionConfig = definitions[0].connectionConfig;
-    if (definitions.some((definition) => !connectionConfigsEqual(this.connectionConfig, definition.connectionConfig))) {
-      throw new Error('Cannot combine sync configs with different connection configuration.');
-    }
     this.sourceDefinitions = [...definitions];
     this.compatibility = assertSharedCompatibility(this.sourceDefinitions);
     this.hydrationInput = {

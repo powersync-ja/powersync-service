@@ -235,7 +235,7 @@ export function updateSyncRulesFromYaml(
   options?: Omit<UpdateSyncRulesOptions, 'config'> & { validate?: boolean }
 ): UpdateSyncRulesOptions {
   const { validate, ...updateOptions } = options ?? {};
-  const config = new SqlSyncConfigParser().parseYaml(content, {
+  const config = new SqlSyncConfigParser().parseContent(content, {
     // No schema-based validation at this point
     schema: undefined,
     defaultSchema: options?.defaultSchema ?? 'not_applicable', // Not needed for validation

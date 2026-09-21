@@ -26,6 +26,7 @@ export class PrecompiledSyncConfig extends SyncConfig {
     context: StreamEvaluationContext
   ) {
     super(context.sourceText);
+    this.additionalModuleIds = new Set(plan.additionalModuleIds);
     this.connectionConfig = plan.connectionConfig ?? {};
     this.compatibility = compatibility;
     this.defaultSchema = context.defaultSchema;

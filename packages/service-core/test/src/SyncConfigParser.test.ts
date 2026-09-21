@@ -7,6 +7,7 @@ import {
   DEFAULT_HYDRATION_STATE,
   HydratedSyncConfig,
   nodeSqlite,
+  normalizeConnectionConfig,
   SyncConfig
 } from '@powersync/service-sync-rules';
 import * as sqlite from 'node:sqlite';
@@ -32,6 +33,7 @@ function additionalParser(): AdditionalSyncConfigParser {
     for (const connection of Object.values(config.connectionConfig)) {
       if (connection?.type != 'example') continue;
       for (const table of Object.values(connection.tables ?? {})) {
+        if (typeof (table as { sample?: number })?.sample != 'number') throw new Error('Invalid persisted sample.');
         if ((table as { sample?: number })?.sample === 13) throw new Error('Sample 13 is unsupported.');
       }
     }
@@ -62,7 +64,15 @@ function additionalParser(): AdditionalSyncConfigParser {
         else: map.additionalProperties
       };
     },
-    parse({ context }) {
+    parse({ config, context }) {
+      const connections = normalizeConnectionConfig(
+        (config as { config?: { connections?: unknown } }).config?.connections
+      );
+      for (const [tag, connection] of Object.entries(connections)) {
+        if (connection?.type != 'example') continue;
+        context.parsedConfig.connectionConfig = { ...context.parsedConfig.connectionConfig, [tag]: connection };
+        context.parsedConfig.additionalModuleIds.add('example.tables');
+      }
       check(context.parsedConfig);
     },
     validatePersisted({ config }) {
@@ -72,20 +82,20 @@ function additionalParser(): AdditionalSyncConfigParser {
 }
 
 function deployOptions(yaml = configured, parser = new SqlSyncConfigParser([additionalParser()])) {
-  return updateSyncRulesFromConfig(parser.parseYaml(yaml, { defaultSchema: 'app' }));
+  return updateSyncRulesFromConfig(parser.parseContent(yaml, { defaultSchema: 'app' }));
 }
 
 describe('service sync config parser', () => {
   test('composes generic registrations atomically and keeps returned schema copies isolated', () => {
     const parser = new SqlSyncConfigParser();
     const baseSchema = parser.jsonSchema;
-    expect(() => parser.parseYaml(configured, { defaultSchema: 'app' })).toThrow();
+    expect(() => parser.parseContent(configured, { defaultSchema: 'app' })).toThrow();
     parser.registerParser(additionalParser());
-    expect(parser.parseYaml(configured, { defaultSchema: 'app' }).errors).toEqual([]);
+    expect(parser.parseContent(configured, { defaultSchema: 'app' }).errors).toEqual([]);
     expect(baseSchema).toEqual(new SqlSyncConfigParser().jsonSchema);
     const composed = parser.jsonSchema;
     delete (composed.properties as any).config.properties.connections;
-    expect(parser.parseYaml(configured, { defaultSchema: 'app' }).errors).toEqual([]);
+    expect(parser.parseContent(configured, { defaultSchema: 'app' }).errors).toEqual([]);
 
     expect(() => parser.registerParser(additionalParser())).toThrow('already registered');
     expect(() => parser.registerParser({ id: '', parse() {} })).toThrow('must not be empty');
@@ -100,7 +110,7 @@ describe('service sync config parser', () => {
     ).toThrow();
     // The failed schema is not retained and its ID can be used by a corrected registration.
     parser.registerParser({ id: 'bad-schema', parse() {} });
-    expect(parser.parseYaml(configured, { defaultSchema: 'app' }).errors).toEqual([]);
+    expect(parser.parseContent(configured, { defaultSchema: 'app' }).errors).toEqual([]);
   });
 
   test('supplies one parser to storage and closes registration before asynchronous startup completes', async () => {
@@ -142,7 +152,7 @@ describe('service sync config parser', () => {
     }
   });
 
-  test('requires the module schema and semantic validation when restoring a saved plan', () => {
+  test('requires recorded modules and semantic validation when restoring a saved plan', () => {
     const parser = new SqlSyncConfigParser([additionalParser()]);
     const compiled = deployOptions();
     const restore = (syncConfigParser = parser, compiledPlan = compiled.config.plan) =>
@@ -158,7 +168,7 @@ describe('service sync config parser', () => {
     expect(
       restored.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) }).connectionConfig
     ).toEqual(restored.config.connectionConfig);
-    expect(() => restore(new SqlSyncConfigParser())).toThrow('Unsupported persisted connection configuration');
+    expect(() => restore(new SqlSyncConfigParser())).toThrow('Missing required sync config parsers: example.tables');
     const malformed = structuredClone(compiled.config.plan!);
     (malformed.plan.connectionConfig!.default!.tables!.orders as any).sample = 'wrong';
     expect(() => restore(parser, malformed)).toThrow();
@@ -167,6 +177,73 @@ describe('service sync config parser', () => {
     // A compiled plan is authoritative; its failure must not be hidden by reparsing valid source YAML.
     expect(() => restore(new SqlSyncConfigParser(), null)).toThrow();
     expect(restore(parser, null).config.connectionConfig).toEqual(restored.config.connectionConfig);
+  });
+
+  test('checks all dependencies before hooks and ignores unused registered parsers', () => {
+    const validatePersisted = vi.fn();
+    const parser = new SqlSyncConfigParser([{ id: 'installed', parse() {}, validatePersisted }]);
+    const { config } = parser.parseContent(streams, { defaultSchema: 'app' });
+    expect(parser.validatePersisted({ config, context: { defaultSchema: 'app' } })).toEqual([]);
+    expect(validatePersisted).not.toHaveBeenCalled();
+    config.additionalModuleIds = new Set(['installed', 'missing', 'also-missing']);
+    expect(() => parser.validatePersisted({ config, context: { defaultSchema: 'app' } })).toThrow(
+      'Missing required sync config parsers: missing, also-missing'
+    );
+    expect(validatePersisted).not.toHaveBeenCalled();
+  });
+
+  test('restores transformed module state without applying the authoring schema', () => {
+    const parser = new SqlSyncConfigParser([
+      {
+        id: 'transformed',
+        parse({ context }) {
+          context.parsedConfig.additionalModuleIds.add('transformed');
+          context.parsedConfig.connectionConfig = {
+            default: { type: 'transformed', tables: { orders: { compiled: true } } }
+          };
+        }
+      }
+    ]);
+    const compiled = deployOptions(streams, parser);
+    const restore = (syncConfigParser: SqlSyncConfigParser) =>
+      parsePersistedSyncConfigContent({
+        content: streams,
+        compiledPlan: compiled.config.plan,
+        storageVersion: 2,
+        parseOptions: { defaultSchema: 'app' },
+        syncConfigParser
+      });
+    expect(restore(parser).config.additionalModuleIds).toEqual(new Set(['transformed']));
+    expect(restore(parser).config.connectionConfig).toEqual(compiled.config.parsed.config.connectionConfig);
+    expect(() => restore(new SqlSyncConfigParser())).toThrow('Missing required sync config parsers: transformed');
+  });
+
+  test('persists module dependencies without connection options and accepts legacy plans without IDs', () => {
+    const parser = new SqlSyncConfigParser([
+      {
+        id: 'required',
+        parse({ context }) {
+          context.parsedConfig.additionalModuleIds.add('required');
+        }
+      }
+    ]);
+    const compiled = deployOptions(streams, parser);
+    expect(compiled.config.plan!.plan.version).toBe(3);
+    expect(compiled.config.plan!.plan.additionalModuleIds).toEqual(['required']);
+    const restore = (compiledPlan = compiled.config.plan) =>
+      parsePersistedSyncConfigContent({
+        content: streams,
+        compiledPlan,
+        storageVersion: 2,
+        parseOptions: { defaultSchema: 'app' },
+        syncConfigParser: new SqlSyncConfigParser()
+      });
+    expect(() => restore()).toThrow('Missing required sync config parsers: required');
+    const malformed = structuredClone(compiled.config.plan!);
+    (malformed.plan as any).additionalModuleIds = 'required';
+    expect(() => restore(malformed)).toThrow('Invalid persisted sync config module IDs');
+    const legacy = deployOptions(streams, new SqlSyncConfigParser());
+    expect(restore(legacy.config.plan).config.additionalModuleIds).toEqual(new Set());
   });
 
   test('runs generic persisted validators with context and retains their warnings', () => {
@@ -179,8 +256,9 @@ describe('service sync config parser', () => {
         context.reportDiagnostic({ level: 'warning', message: 'Review this configuration.' });
       }
     };
-    const parsed = new SqlSyncConfigParser().parseYaml(streams, { defaultSchema: 'app' });
+    const parsed = new SqlSyncConfigParser().parseContent(streams, { defaultSchema: 'app' });
     const parser = new SqlSyncConfigParser([hook]);
+    parsed.config.additionalModuleIds.add(hook.id);
     expect(parser.validatePersisted({ config: parsed.config, context: { defaultSchema: 'app' } })).toEqual([
       expect.objectContaining({ type: 'warning', message: 'Review this configuration.' })
     ]);
@@ -201,20 +279,15 @@ describe('service sync config parser', () => {
     expect(isCompatible([absent.config.plan], first.config, logger)).toBe(false);
   });
 
-  test('merges equal connection config once and rejects conflicting active/processing definitions', () => {
+  test('merges equal connection config once', () => {
     const first = deployOptions().config.parsed.config;
     const same = deployOptions(configured.replace('SELECT * FROM orders', 'SELECT id FROM orders')).config.parsed
       .config;
-    const other = deployOptions(configured.replace('sample: 10', 'sample: 20')).config.parsed.config;
     const hydrate = (definitions: SyncConfig[]) =>
       new HydratedSyncConfig({
         definitions,
         createParams: { hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) }
       });
     expect(hydrate([first, same]).connectionConfig).toEqual(first.connectionConfig);
-    expect(() => hydrate([first, other])).toThrow('different connection configuration');
-    expect(() => hydrate([first, deployOptions(streams).config.parsed.config])).toThrow(
-      'different connection configuration'
-    );
   });
 });

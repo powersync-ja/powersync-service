@@ -7,7 +7,7 @@ import type { AdditionalSyncConfigParser } from './SyncConfigParserHooks.js';
 // Hack to make this work both in NodeJS and a browser
 const Ajv = ajvModule.default ?? ajvModule;
 
-export const syncRulesSchema: JsonObject = {
+export const syncRulesSchema: ajvModule.Schema = {
   type: 'object',
   properties: {
     bucket_definitions: {
@@ -176,15 +176,19 @@ export const syncRulesSchema: JsonObject = {
 
 export const validateSyncRulesSchema: any = compileSyncRulesSchemaValidator(syncRulesSchema);
 
-/** An isolated composition shared by editor tooling, YAML validation and persisted connection options. */
+/**
+ * An isolated composition shared by editor tooling, YAML validation and persisted connection options.
+ */
 export function createSyncRulesSchema(parsers: readonly AdditionalSyncConfigParser[] = []): JsonObject {
-  const schema = structuredClone(syncRulesSchema);
+  const schema = structuredClone(syncRulesSchema) as JsonObject;
   for (const parser of parsers) parser.extendJsonSchema?.({ schema });
   return schema;
 }
 
-/** Permit the editor annotation without weakening AJV's checks for unknown validation keywords. */
-export function compileSyncRulesSchemaValidator(schema: JsonObject) {
+/**
+ * Permit the editor annotation without weakening AJV's checks for unknown validation keywords.
+ */
+export function compileSyncRulesSchemaValidator(schema: ajvModule.Schema) {
   return new Ajv({
     allErrors: true,
     verbose: true,

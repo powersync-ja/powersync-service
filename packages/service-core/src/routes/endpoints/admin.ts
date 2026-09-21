@@ -155,7 +155,7 @@ export const reprocess = routeDefinition({
     // 1. This always re-parses the source YAML. If there are changes to the sync stream compiler, that can affect the sync plan.
     // 2. If the source does not set the storage version, this will update it do the current version.
     // We can consider tweaking this behavior in the future.
-    const parsed = service_context.syncConfigParser.parseYaml(active.content.sync_rules_content, {
+    const parsed = service_context.syncConfigParser.parseContent(active.content.sync_rules_content, {
       ...apiHandler.getParseSyncRulesOptions(),
       schema: undefined,
       // This sync config already passed validation. But if the config is not valid anymore due
@@ -194,7 +194,7 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncConfigConte
   }
 
   parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
-    const syncConfig = this.validationParser.parseYaml(this.sync_rules_content, {
+    const syncConfig = this.validationParser.parseContent(this.sync_rules_content, {
       ...options,
       schema: this.schema
     });

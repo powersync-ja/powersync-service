@@ -1,7 +1,7 @@
 import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { SqlSyncConfigParser, updateSyncRulesFromConfig } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
-import { AdditionalSyncConfigParser } from '@powersync/service-sync-rules';
+import { AdditionalSyncConfigParser, normalizeConnectionConfig } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
 import { TEST_STORAGE_VERSIONS } from './util.js';
@@ -53,7 +53,16 @@ const tableOptions: AdditionalSyncConfigParser = {
       else: map.additionalProperties
     };
   },
-  parse() {}
+  parse({ config, context }) {
+    const connections = normalizeConnectionConfig(
+      (config as { config?: { connections?: unknown } }).config?.connections
+    );
+    for (const [tag, connection] of Object.entries(connections)) {
+      if (connection?.type != 'example') continue;
+      context.parsedConfig.connectionConfig = { ...context.parsedConfig.connectionConfig, [tag]: connection };
+      context.parsedConfig.additionalModuleIds.add('example.tables');
+    }
+  }
 };
 
 function storageFactory(withModule: boolean) {
@@ -71,7 +80,7 @@ describe.for(TEST_STORAGE_VERSIONS)('connection config with storage v%i', (stora
     let expected;
     {
       await using factory = await storageFactory(true).factory();
-      const parsed = factory.syncConfigParser.parseYaml(configured, test_utils.PARSE_OPTIONS);
+      const parsed = factory.syncConfigParser.parseContent(configured, test_utils.PARSE_OPTIONS);
       expected = parsed.config.connectionConfig;
       await factory.updateSyncRules(updateSyncRulesFromConfig(parsed, { storageVersion }));
     }
@@ -79,7 +88,7 @@ describe.for(TEST_STORAGE_VERSIONS)('connection config with storage v%i', (stora
     // Reopen the same database without clearing it, as a service restart would.
     await using reopened = await storageFactory(true).factory({ doNotClear: true });
     const deploying = (await reopened.getDeployingSyncConfig())!;
-    expect(deploying.content.compiled_plan?.plan.version).toBe(4);
+    expect(deploying.content.compiled_plan?.plan.version).toBe(3);
     const parsed = deploying.content.parsed(test_utils.PARSE_OPTIONS);
     expect(parsed.syncConfigs[0].config.connectionConfig).toEqual(expected);
     expect(parsed.hydratedSyncConfig.connectionConfig).toEqual(expected);
@@ -89,7 +98,7 @@ describe.for(TEST_STORAGE_VERSIONS)('connection config with storage v%i', (stora
     {
       await using factory = await storageFactory(true).factory();
       await factory.updateSyncRules(
-        updateSyncRulesFromConfig(factory.syncConfigParser.parseYaml(configured, test_utils.PARSE_OPTIONS), {
+        updateSyncRulesFromConfig(factory.syncConfigParser.parseContent(configured, test_utils.PARSE_OPTIONS), {
           storageVersion
         })
       );
@@ -97,14 +106,14 @@ describe.for(TEST_STORAGE_VERSIONS)('connection config with storage v%i', (stora
     await using reopened = await storageFactory(false).factory({ doNotClear: true });
     const deploying = (await reopened.getDeployingSyncConfig())!;
     expect(() => deploying.content.parsed(test_utils.PARSE_OPTIONS)).toThrow(
-      'Unsupported persisted connection configuration'
+      'Missing required sync config parsers: example.tables'
     );
   });
 
   test('continues loading unfiltered plans without an additional parser', async () => {
     await using factory = await storageFactory(false).factory();
     await factory.updateSyncRules(
-      updateSyncRulesFromConfig(factory.syncConfigParser.parseYaml(streams, test_utils.PARSE_OPTIONS), {
+      updateSyncRulesFromConfig(factory.syncConfigParser.parseContent(streams, test_utils.PARSE_OPTIONS), {
         storageVersion
       })
     );
@@ -117,7 +126,7 @@ describe.for(TEST_STORAGE_VERSIONS)('connection config with storage v%i', (stora
     await using factory = await storageFactory(true).factory();
     const deploy = (yaml: string) =>
       factory.updateSyncRules(
-        updateSyncRulesFromConfig(factory.syncConfigParser.parseYaml(yaml, test_utils.PARSE_OPTIONS), {
+        updateSyncRulesFromConfig(factory.syncConfigParser.parseContent(yaml, test_utils.PARSE_OPTIONS), {
           storageVersion
         })
       );
