@@ -639,8 +639,9 @@ export class ChangeStream {
           this.touch();
           if (item.type == 'progress') {
             const { resumeToken, filteredCount } = item;
-            // Excluded rows are source activity too. Persist their safe position even while a barrier
-            // is pending; only truly idle responses use the keepalive throttle below.
+            // Excluded rows are source activity too. Flush preceding writes and save the resume token
+            // even while a checkpoint barrier is pending; this does not commit or publish a checkpoint.
+            // Only truly idle responses use the keepalive throttle below.
             if (changesSinceProgress == 0 && filteredCount == 0) {
               // No changes in this batch, but we still want to persist progress.
               // We do this by persisting a keepalive checkpoint.
