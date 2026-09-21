@@ -1,5 +1,4 @@
 ---
-'@powersync/service-types': minor
 '@powersync/service-sync-rules': minor
 '@powersync/service-core': minor
 '@powersync/service-module-mongodb-storage': patch
@@ -7,13 +6,21 @@
 '@powersync/lib-services-framework': patch
 ---
 
-- Add `config.connections` to edition 3 sync configs. Empty connection config falls back to a Sync Plan version 3 - specifying connection config uses a new Sync Plan version 4. This is a generic connection and table structure for now. External/additional modules may declare module specific attributes/config in the future. The generic structure does not allow any specific configuration at this stage, specifying config without an additional module being loaded will result in a validation error.
+Add `config.connections` to edition 3 sync configs. The common structure allows a connection type and empty table options; module-specific options require a registered parser that declares and parses them.
 
 ```yaml
 config:
-  connections: # connections is added to the existing config entry
-    tables:
-      my_table: {} # no config is allowed here, unless an external module has registered it
+  edition: 3
+  connections:
+    default:
+      type: mongodb
+      tables:
+        my_table: {}
+streams:
+  my_table:
+    query: SELECT * FROM my_table
 ```
 
-- And a shared service context Sync Config parser with generic module validation hooks. This allows external modules to register additional configuration and validation. The shared parser is now used for all Sync Config parsing.
+Plans with parsed connection options or required module IDs use sync-plan format 3. Plans without either retain formats 1 and 2. Changed connection options require replacement processing when a new sync config is deployed.
+
+Add a shared service-context parser with module registration hooks for schema extension, parsing, and persisted validation. Validation routes, deployments, replication, and saved-config loading use this parser. Saved plans fail to load when a required module is unavailable.

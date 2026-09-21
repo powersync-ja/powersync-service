@@ -10,11 +10,12 @@ import {
   SyncConfigWithErrors,
   SyncRulesErrors,
   SyncRulesOptions,
+  SyncRulesSchemaValidator,
   validateAdditionalSyncConfigParsers,
   YamlError
 } from '@powersync/service-sync-rules';
 
-export type ParseSyncConfigOptions = Omit<SyncRulesOptions, 'parsers' | 'jsonSchema'>;
+export type ParseSyncConfigOptions = Omit<SyncRulesOptions, 'parsers' | 'schemaValidator'>;
 
 /**
  * Shared by service routes, deployment, replication and persisted storage; only initialization can register hooks.
@@ -43,12 +44,13 @@ export interface SyncConfigParser {
 export class SqlSyncConfigParser implements SyncConfigParser {
   readonly #parsers: AdditionalSyncConfigParser[];
   #jsonSchema: JsonObject;
+  #schemaValidator: SyncRulesSchemaValidator;
 
   constructor(parsers: readonly AdditionalSyncConfigParser[] = []) {
     validateAdditionalSyncConfigParsers(parsers);
     this.#parsers = [...parsers];
     this.#jsonSchema = createSyncRulesSchema(parsers);
-    compileSyncRulesSchemaValidator(this.#jsonSchema);
+    this.#schemaValidator = compileSyncRulesSchemaValidator(this.#jsonSchema);
   }
 
   get jsonSchema(): JsonObject {
@@ -63,13 +65,18 @@ export class SqlSyncConfigParser implements SyncConfigParser {
     const parsers = [...this.#parsers, parser];
     validateAdditionalSyncConfigParsers(parsers);
     const schema = createSyncRulesSchema(parsers);
-    compileSyncRulesSchemaValidator(schema);
+    const validator = compileSyncRulesSchemaValidator(schema);
     this.#parsers.push(parser);
     this.#jsonSchema = schema;
+    this.#schemaValidator = validator;
   }
 
   parseContent(content: string, options: ParseSyncConfigOptions): SyncConfigWithErrors {
-    return SqlSyncRules.fromYaml(content, { ...options, parsers: this.#parsers, jsonSchema: this.#jsonSchema });
+    return SqlSyncRules.fromYaml(content, {
+      ...options,
+      parsers: this.#parsers,
+      schemaValidator: this.#schemaValidator
+    });
   }
 
   validatePersisted({ config, context }: { config: SyncConfig; context: { defaultSchema: string } }): YamlError[] {

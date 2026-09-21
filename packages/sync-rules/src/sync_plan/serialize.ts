@@ -503,7 +503,9 @@ export interface SerializedSyncPlan {
    * Values are currently null, reserving space for future module-owned data.
    */
   moduleData?: Record<string, null>;
-  /** Present only for configured connections; requires plan version 3. */
+  /**
+   * Present only for configured connections; requires plan version 3.
+   */
   connectionConfig?: ConnectionConfigMap;
   version: SerializedSyncPlanVersion;
   dataSources: SerializedDataSource[];
@@ -561,7 +563,9 @@ export interface SerializedEventDescriptor {
 }
 
 export interface SerializedEventSourceQuery {
-  /** Raw SQL retained for the legacy compatibility mirror. */
+  /**
+   * Raw SQL retained for the legacy compatibility mirror.
+   */
   sql: string;
   table: SerializedTablePattern;
   variants: SerializedEventRowEvaluator[];

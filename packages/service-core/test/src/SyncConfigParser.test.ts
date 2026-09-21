@@ -2,6 +2,7 @@ import { SqlSyncConfigParser } from '@/storage/SyncConfigParser.js';
 import { isCompatible, parsePersistedSyncConfigContent, updateSyncRulesFromConfig } from '@/storage/storage-index.js';
 import { ServiceContextContainer, ServiceContextMode } from '@/system/ServiceContext.js';
 import { logger } from '@powersync/lib-services-framework';
+import * as syncRules from '@powersync/service-sync-rules';
 import {
   AdditionalSyncConfigParser,
   DEFAULT_HYDRATION_STATE,
@@ -14,18 +15,23 @@ import {
 import * as sqlite from 'node:sqlite';
 import { describe, expect, test, vi } from 'vitest';
 
-const streams = 'config: { edition: 3 }\nstreams:\n  orders:\n    query: SELECT * FROM orders\n';
-const configured = `
-config:
-  edition: 3
-  connections:
-    default:
-      type: example
-      tables:
-        orders: { sample: 10 }
-streams:
-  orders:
-    query: SELECT * FROM orders
+const STREAMS = /* yaml */ `
+  config: { edition: 3 }
+  streams:
+    orders:
+      query: SELECT * FROM orders
+`;
+const CONFIGURED = /* yaml */ `
+  config:
+    edition: 3
+    connections:
+      default:
+        type: example
+        tables:
+          orders: { sample: 10 }
+  streams:
+    orders:
+      query: SELECT * FROM orders
 `;
 
 // This fixture represents an external module. Core only knows the connection/table maps; sample is module-owned.
@@ -83,21 +89,46 @@ function additionalParser(): AdditionalSyncConfigParser {
   };
 }
 
-function deployOptions(yaml = configured, parser = new SqlSyncConfigParser([additionalParser()])) {
+function deployOptions(yaml = CONFIGURED, parser = new SqlSyncConfigParser([additionalParser()])) {
   return updateSyncRulesFromConfig(parser.parseContent(yaml, { defaultSchema: 'app' }));
 }
 
 describe('service sync config parser', () => {
+  test('reuses compiled validation until a parser is registered', () => {
+    const compile = vi.spyOn(syncRules, 'compileSyncRulesSchemaValidator');
+    try {
+      const parser = new SqlSyncConfigParser();
+      expect(compile).toHaveBeenCalledTimes(1);
+      for (let i = 0; i < 2; i++) {
+        expect(parser.parseContent(STREAMS, { defaultSchema: 'app' }).errors).toEqual([]);
+        expect(() => parser.parseContent(CONFIGURED, { defaultSchema: 'app' })).toThrow();
+      }
+      expect(compile).toHaveBeenCalledTimes(1);
+
+      parser.registerParser(additionalParser());
+      expect(compile).toHaveBeenCalledTimes(2);
+      for (let i = 0; i < 2; i++) {
+        expect(parser.parseContent(CONFIGURED, { defaultSchema: 'app' }).errors).toEqual([]);
+        expect(() =>
+          parser.parseContent(CONFIGURED.replace('sample: 10', 'sample: wrong'), { defaultSchema: 'app' })
+        ).toThrow();
+      }
+      expect(compile).toHaveBeenCalledTimes(2);
+    } finally {
+      compile.mockRestore();
+    }
+  });
+
   test('composes generic registrations atomically and keeps returned schema copies isolated', () => {
     const parser = new SqlSyncConfigParser();
     const baseSchema = parser.jsonSchema;
-    expect(() => parser.parseContent(configured, { defaultSchema: 'app' })).toThrow();
+    expect(() => parser.parseContent(CONFIGURED, { defaultSchema: 'app' })).toThrow();
     parser.registerParser(additionalParser());
-    expect(parser.parseContent(configured, { defaultSchema: 'app' }).errors).toEqual([]);
+    expect(parser.parseContent(CONFIGURED, { defaultSchema: 'app' }).errors).toEqual([]);
     expect(baseSchema).toEqual(new SqlSyncConfigParser().jsonSchema);
     const composed = parser.jsonSchema;
     delete (composed.properties as any).config.properties.connections;
-    expect(parser.parseContent(configured, { defaultSchema: 'app' }).errors).toEqual([]);
+    expect(parser.parseContent(CONFIGURED, { defaultSchema: 'app' }).errors).toEqual([]);
 
     expect(() => parser.registerParser(additionalParser())).toThrow('already registered');
     expect(() => parser.registerParser({ id: '', parse() {} })).toThrow('must not be empty');
@@ -112,7 +143,7 @@ describe('service sync config parser', () => {
     ).toThrow();
     // The failed schema is not retained and its ID can be used by a corrected registration.
     parser.registerParser({ id: 'bad-schema', parse() {} });
-    expect(parser.parseContent(configured, { defaultSchema: 'app' }).errors).toEqual([]);
+    expect(parser.parseContent(CONFIGURED, { defaultSchema: 'app' }).errors).toEqual([]);
   });
 
   test('supplies one parser to storage and closes registration before asynchronous startup completes', async () => {
@@ -159,7 +190,7 @@ describe('service sync config parser', () => {
     const compiled = deployOptions();
     const restore = (syncConfigParser = parser, compiledPlan = compiled.config.plan) =>
       parsePersistedSyncConfigContent({
-        content: configured,
+        content: CONFIGURED,
         compiledPlan,
         storageVersion: 2,
         parseOptions: { defaultSchema: 'app' },
@@ -184,7 +215,7 @@ describe('service sync config parser', () => {
   test('checks all dependencies before hooks and ignores unused registered parsers', () => {
     const validatePersisted = vi.fn();
     const parser = new SqlSyncConfigParser([{ id: 'installed', parse() {}, validatePersisted }]);
-    const { config } = parser.parseContent(streams, { defaultSchema: 'app' });
+    const { config } = parser.parseContent(STREAMS, { defaultSchema: 'app' });
     expect(parser.validatePersisted({ config, context: { defaultSchema: 'app' } })).toEqual([]);
     expect(validatePersisted).not.toHaveBeenCalled();
     (config as PrecompiledSyncConfig).plan.moduleData = { installed: null, missing: null, 'also-missing': null };
@@ -207,10 +238,10 @@ describe('service sync config parser', () => {
         }
       }
     ]);
-    const compiled = deployOptions(streams, parser);
+    const compiled = deployOptions(STREAMS, parser);
     const restore = (syncConfigParser: SqlSyncConfigParser) =>
       parsePersistedSyncConfigContent({
-        content: streams,
+        content: STREAMS,
         compiledPlan: compiled.config.plan,
         storageVersion: 2,
         parseOptions: { defaultSchema: 'app' },
@@ -231,12 +262,12 @@ describe('service sync config parser', () => {
         }
       }
     ]);
-    const compiled = deployOptions(streams, parser);
+    const compiled = deployOptions(STREAMS, parser);
     expect(compiled.config.plan!.plan.version).toBe(3);
     expect(compiled.config.plan!.plan.moduleData).toEqual({ required: null });
     const restore = (compiledPlan = compiled.config.plan) =>
       parsePersistedSyncConfigContent({
-        content: streams,
+        content: STREAMS,
         compiledPlan,
         storageVersion: 2,
         parseOptions: { defaultSchema: 'app' },
@@ -246,7 +277,7 @@ describe('service sync config parser', () => {
     const malformed = structuredClone(compiled.config.plan!);
     (malformed.plan as any).moduleData = 'required';
     expect(() => restore(malformed)).toThrow('Invalid sync config module data');
-    const legacy = deployOptions(streams, new SqlSyncConfigParser());
+    const legacy = deployOptions(STREAMS, new SqlSyncConfigParser());
     expect((restore(legacy.config.plan).config as PrecompiledSyncConfig).plan.moduleData).toBeUndefined();
   });
 
@@ -264,7 +295,7 @@ describe('service sync config parser', () => {
       }
     };
     const parser = new SqlSyncConfigParser([hook]);
-    const parsed = parser.parseContent(streams, { defaultSchema: 'app' });
+    const parsed = parser.parseContent(STREAMS, { defaultSchema: 'app' });
     expect(parser.validatePersisted({ config: parsed.config, context: { defaultSchema: 'app' } })).toEqual([
       expect.objectContaining({ type: 'warning', message: 'Review this configuration.' })
     ]);
@@ -276,9 +307,9 @@ describe('service sync config parser', () => {
 
   test('reuses equal connection options but requires replacement for additions, changes and removals', () => {
     const first = deployOptions();
-    const same = deployOptions(configured.replace('SELECT * FROM orders', 'SELECT id FROM orders'));
-    const changed = deployOptions(configured.replace('sample: 10', 'sample: 20'));
-    const absent = deployOptions(streams);
+    const same = deployOptions(CONFIGURED.replace('SELECT * FROM orders', 'SELECT id FROM orders'));
+    const changed = deployOptions(CONFIGURED.replace('sample: 10', 'sample: 20'));
+    const absent = deployOptions(STREAMS);
     expect(isCompatible([first.config.plan], same.config, logger)).toBe(true);
     expect(isCompatible([first.config.plan], changed.config, logger)).toBe(false);
     expect(isCompatible([first.config.plan], absent.config, logger)).toBe(false);
@@ -287,7 +318,7 @@ describe('service sync config parser', () => {
 
   test('merges equal connection config once', () => {
     const first = deployOptions().config.parsed.config;
-    const same = deployOptions(configured.replace('SELECT * FROM orders', 'SELECT id FROM orders')).config.parsed
+    const same = deployOptions(CONFIGURED.replace('SELECT * FROM orders', 'SELECT id FROM orders')).config.parsed
       .config;
     const hydrate = (definitions: SyncConfig[]) =>
       new HydratedSyncConfig({
