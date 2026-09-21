@@ -9,7 +9,7 @@ import {
   normalizeConnectionConfig,
   PrecompiledSyncConfig,
   serializeSyncPlan,
-  SourceTableConfig,
+  SOURCE_TABLE_CONFIG,
   SqlSyncRules,
   SyncRulesErrors
 } from '../../src/index.js';
@@ -20,9 +20,9 @@ const STREAMS = /* yaml */ ` streams:
       query: SELECT * FROM orders `;
 
 // A fixture module extends the shared table structure. No source-specific syntax is built into the base codec.
-const TableOptions = t.object({ sample: t.number.optional() });
-type TableOptions = t.Decoded<typeof TableOptions>;
-const ExtendedConnection = connectionConfigCodec(TableOptions);
+const TABLE_OPTIONS = t.object({ sample: t.number.optional() });
+type TableOptions = t.Decoded<typeof TABLE_OPTIONS>;
+const EXTENDED_CONNECTION = connectionConfigCodec(TABLE_OPTIONS);
 
 const ADDITIONAL_PARSER: AdditionalSyncConfigParser = {
   id: 'example.tables',
@@ -30,7 +30,7 @@ const ADDITIONAL_PARSER: AdditionalSyncConfigParser = {
     const map = (schema.properties as any).config.properties.connections;
     map.additionalProperties = {
       if: { type: 'object', required: ['type'], properties: { type: { const: 'example' } } },
-      then: t.generateJSONSchema(ExtendedConnection, { allowAdditional: false }),
+      then: t.generateJSONSchema(EXTENDED_CONNECTION, { allowAdditional: false }),
       else: map.additionalProperties
     };
   },
@@ -39,7 +39,7 @@ const ADDITIONAL_PARSER: AdditionalSyncConfigParser = {
       if ((options as any).type != 'example') continue;
       const { plan } = context.parsedConfig as PrecompiledSyncConfig;
       plan.moduleData = { ...plan.moduleData, ['example.tables']: null };
-      const connection: ConnectionConfig<TableOptions> = ExtendedConnection.decode(options as never);
+      const connection: ConnectionConfig<TableOptions> = EXTENDED_CONNECTION.decode(options as never);
       context.parsedConfig.connectionConfig = { ...context.parsedConfig.connectionConfig, [tag]: connection };
       for (const [table, options] of Object.entries(connection.tables ?? {})) {
         if ((options?.sample ?? 0) < 0)
@@ -139,7 +139,7 @@ describe('connection configuration', () => {
     expect(validate(config)).toBe(true);
     (config.config.connections.default.tables.orders as any).filter = {};
     expect(validate(config)).toBe(false);
-    expect(t.generateJSONSchema(SourceTableConfig)).toHaveProperty('type', 'object');
+    expect(t.generateJSONSchema(SOURCE_TABLE_CONFIG)).toHaveProperty('type', 'object');
   });
 
   test('specializes tables only for the module type and preserves values through a saved-plan round trip', () => {
