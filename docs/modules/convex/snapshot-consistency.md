@@ -74,14 +74,14 @@ replica from `S` onward.
 
 ## Table filtering
 
-PowerSync can still filter which tables it stores and applies to sync rules.
+PowerSync can still filter which tables it stores and applies to the sync config.
 The key distinction is where filtering happens.
 
 The safe shape is:
 
 1. read the global Convex delta stream,
 2. observe every Convex cursor in order,
-3. ignore rows for tables not selected by sync rules,
+3. ignore rows for tables not selected by the sync config,
 4. commit or keepalive based on the cursor that was observed.
 
 This is the current model: Convex `document_deltas` is not filtered per table at

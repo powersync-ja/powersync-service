@@ -14,6 +14,9 @@ import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { DetectRequestParameters } from './validators.js';
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export interface StaticSqlParameterQueryOptions {
   sql: string;
   parameterExtractors: Record<string, ParameterValueClause>;
@@ -31,6 +34,7 @@ export interface StaticSqlParameterQueryOptions {
  *
  *    SELECT token_parameters.user_id
  *    SELECT token_parameters.user_id as user_id WHERE token_parameters.is_admin
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export class StaticSqlParameterQuery {
   static fromSql(

@@ -181,7 +181,7 @@ export interface UpdateSyncRulesOptions {
   config: {
     yaml: string;
     /**
-     * The serialized sync plan for the sync configuration, or `null` for configurations not using the sync stream
+     * The serialized sync plan for the sync configuration, or `null` for configurations not using the Sync Streams
      * compiler.
      */
     plan: SerializedSyncPlan | null;

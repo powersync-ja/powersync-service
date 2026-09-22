@@ -23,7 +23,7 @@ import {
 } from './plan.js';
 
 /**
- * Infers the output schema of sync streams by resolving references against a statically-known source schema.
+ * Infers the output schema of Sync Streams by resolving references against a statically-known source schema.
  */
 export class SyncPlanSchemaAnalyzer {
   constructor(

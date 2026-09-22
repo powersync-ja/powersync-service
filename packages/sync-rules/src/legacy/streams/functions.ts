@@ -6,6 +6,9 @@ import {
 } from '../../request_functions.js';
 import { ParameterValueSet } from '../../types.js';
 
+/**
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export const STREAM_FUNCTIONS: Record<string, Record<string, SqlParameterFunction>> = {
   subscription: {
     ...parameterFunctions({

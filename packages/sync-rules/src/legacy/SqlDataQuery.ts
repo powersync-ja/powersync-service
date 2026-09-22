@@ -13,10 +13,16 @@ import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export interface SqlDataQueryOptions extends BaseSqlDataQueryOptions {
   filter: ParameterMatchClause;
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export class SqlDataQuery extends BaseSqlDataQuery {
   static fromSql(
     bucketParameters: string[],

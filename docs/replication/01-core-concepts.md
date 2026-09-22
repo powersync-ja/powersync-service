@@ -16,7 +16,7 @@ A stream has:
 
 The public sync API reads from the active sync config of the active replication stream. Replicators may also process a separate deploying stream while an older stream remains active for clients. In incremental storage, a processing sync config can instead be embedded in the active stream; it stays invisible to clients until storage activates it.
 
-"Sync config" is the current term for the replication configuration. Some legacy code, APIs, and config files still use "sync rules" for the same concept, including `SyncRulesBucketStorage`, `configureSyncRules()`, `terminateSyncRules()`, and `sync-rules.yaml`. Treat the two terms as equivalent when reading the code.
+"Sync config" is the current term for the replication configuration. It covers both engines: Sync Streams (`streams:`) and legacy Sync Rules (`bucket_definitions:`, deprecated). Some identifiers, APIs, and config files still use "sync rules" for the whole sync config, including `SyncRulesBucketStorage`, `configureSyncRules()`, `terminateSyncRules()`, and `sync-rules.yaml`; these are being renamed. Treat the two terms as equivalent when reading the code. In prose, capitalize "Sync Streams" and "Sync Rules"; "sync config" stays lowercase.
 
 Incremental reprocessing currently requires storage and source support. MongoDB source replication with MongoDB storage v3 can append a compatible sync config to the active stream. Incompatible updates, storage-version changes, or sources that only support a single sync config per stream still use a separate processing stream.
 

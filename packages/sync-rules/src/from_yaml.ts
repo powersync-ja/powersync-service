@@ -34,7 +34,7 @@ export class SyncConfigFromYaml {
   readonly #errors: YamlError[] = [];
   readonly #lineCounter = new LineCounter();
 
-  // Names of bucket definitions and sync streams, to prevent duplicates.
+  // Names of bucket definitions and Sync Streams, to prevent duplicates.
   readonly #definitionNames = new Set<string>();
 
   readonly #definedCtes: CommonTableExpressionWithName[] = [];
@@ -397,10 +397,8 @@ export class SyncConfigFromYaml {
       if (map == null) continue;
 
       // We don't support with or multiple queries in streams, those are only supported by the new compiler.
-      map
-        .get('with')
-        ?.reportError('Common table expressions are not supported without the `sync_config_compiler` option.');
-      map.get('queries')?.reportError('Multiple queries not supported without the `sync_config_compiler` option.');
+      map.get('with')?.reportError('Common table expressions require edition 3.');
+      map.get('queries')?.reportError('Multiple queries require edition 3.');
 
       const accept_potentially_dangerous_queries =
         map.get('accept_potentially_dangerous_queries')?.requireScalar()?.requireBoolean() == true;
@@ -532,7 +530,7 @@ export class SyncConfigFromYaml {
   }
 
   /**
-   * Reads string contents from a YAML scalar and returns an error listener for the sync stream compiler.
+   * Reads string contents from a YAML scalar and returns an error listener for the Sync Streams compiler.
    */
   #scalarErrorListener(scalar: Scalar): [string, ParsingErrorListener] {
     const value = scalar.toString();

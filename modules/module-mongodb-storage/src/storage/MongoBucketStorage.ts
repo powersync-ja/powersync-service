@@ -359,6 +359,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
       {
+        // Persisted name, do not rename. See AGENTS.md backwards-compatibility.
         _id: 'sync_rules'
       },
       {
@@ -378,9 +379,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     const mapping =
       options.config.plan == null
-        ? // For legacy sync rules and streams, use the parsed config directly to create a mapping
+        ? // No serialized plan (legacy Sync Rules, or Sync Streams parsed in-process): use the parsed config directly to create a mapping
           SingleSyncConfigBucketDefinitionMapping.fromParsedSyncConfig(options.config.parsed)
-        : // For new sync streams, always use the serialized version
+        : // For compiled Sync Streams, always use the serialized version
           SingleSyncConfigBucketDefinitionMapping.constructIncrementalMappingFromSerializedPlans(
             [],
             options.config.plan.plan,
@@ -590,6 +591,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
       {
+        // Persisted name, do not rename. See AGENTS.md backwards-compatibility.
         _id: 'sync_rules'
       },
       {

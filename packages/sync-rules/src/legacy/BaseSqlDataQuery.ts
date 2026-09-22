@@ -17,17 +17,26 @@ import {
 import { filterJsonRow } from '../utils.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export interface RowValueExtractor {
   extract(tables: QueryParameters, into: SqliteRow): void;
   getTypes(schema: QuerySchema, into: Record<string, ColumnDefinition>): void;
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export interface EvaluateRowOptions {
   table: SourceTableRef;
   row: SqliteRow;
   serializedBucketParameters: (params: QueryParameters) => string[];
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export interface BaseSqlDataQueryOptions {
   sourceTable: TablePattern;
   table: AvailableTable;
@@ -39,6 +48,9 @@ export interface BaseSqlDataQueryOptions {
   errors?: SqlRuleError[];
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export class BaseSqlDataQuery {
   /**
    * Source table or table pattern.

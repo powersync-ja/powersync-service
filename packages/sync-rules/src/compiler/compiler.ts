@@ -47,7 +47,7 @@ export interface ParseStreamOptions extends StreamOptions {
 }
 
 /**
- * State for compiling sync streams and replication events into a sync plan.
+ * State for compiling Sync Streams and replication events into a sync plan.
  *
  * The compiler stores a mutable intermediate representation that is essentially a copy of the resulting
  * {@link SyncPlan}. Stream compilation uses JavaScript classes with behavioral equality, while events use plain
@@ -94,7 +94,7 @@ export class SyncStreamsCompiler {
   }
 
   /**
-   * Utility for compiling a sync stream.
+   * Utility for compiling a Sync Stream.
    *
    * @param options Name, priority and `auto_subscribe` state for the stream.
    */
@@ -281,7 +281,7 @@ function tryParse(sql: string, errors: ParsingErrorListener): Statement | null {
 }
 
 /**
- * Utility for compiling a single sync stream.
+ * Utility for compiling a single Sync Stream.
  */
 export interface IndividualSyncStreamCompiler {
   /**
@@ -314,7 +314,7 @@ export interface IndividualEventCompiler {
 /**
  * Something reporting errors.
  *
- * While sync streams can be made up of multiple SQL statements from different YAML strings, we want to be able to
+ * While Sync Streams can be made up of multiple SQL statements from different YAML strings, we want to be able to
  * accurately describe the source of an error in YAML when we report it.
  *
  * So, every transformation that might need to report errors receives an instance of this interface which implicitly

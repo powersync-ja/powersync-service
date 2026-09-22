@@ -1183,7 +1183,7 @@ streams:
       ).rejects.toThrow('Too many buckets: 60 (limit of 50');
 
       // Verify error log includes breakdown
-      expect(errorMessages[0]).toContain('(limit of 50)\nBuckets by sync stream:');
+      expect(errorMessages[0]).toContain('(limit of 50)\nBuckets by Sync Stream:');
       expect(errorMessages[0]).toContain('projects: 30');
       expect(errorMessages[0]).toContain('tasks: 20');
       expect(errorMessages[0]).toContain('comments: 10');
@@ -1242,8 +1242,8 @@ bucket_definitions:
       expect(errorMessages[0]).toContain('projects: 60');
     });
 
-    test('limits bucket breakdown to top 100 sync streams', async () => {
-      // Create 105 sync streams with dynamic parameters.
+    test('limits bucket breakdown to top 100 Sync Streams', async () => {
+      // Create 105 Sync Streams with dynamic parameters.
       let yamlDefinitions = `
 config:
   edition: 3
@@ -1301,10 +1301,10 @@ streams:
 
       // Verify only the first 100 are shown.
       const errorMessage = errorMessages[0];
-      expect(errorMessage).toContain('Buckets by sync stream:');
-      expect(errorMessage).toContain('... and 5 more buckets from 5 sync streams');
+      expect(errorMessage).toContain('Buckets by Sync Stream:');
+      expect(errorMessage).toContain('... and 5 more buckets from 5 Sync Streams');
 
-      // Count how many sync streams are listed (should be exactly 100).
+      // Count how many Sync Streams are listed (should be exactly 100).
       const defMatches = errorMessage.match(/def\d+:/g);
       expect(defMatches?.length).toBe(100);
     });

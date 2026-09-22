@@ -81,6 +81,7 @@ export class PowerSyncMongo {
     this.bucket_data = db.collection('bucket_data');
     this.bucket_parameters = db.collection('bucket_parameters');
     this.op_id_sequence = db.collection('op_id_sequence');
+    // Persisted name, do not rename. See AGENTS.md backwards-compatibility.
     this.sync_rules = db.collection('sync_rules');
     this.source_tables = db.collection('source_tables');
     this.custom_write_checkpoints = db.collection('custom_write_checkpoints');

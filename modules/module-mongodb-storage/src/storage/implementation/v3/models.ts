@@ -95,7 +95,7 @@ export interface SyncConfigDefinition {
   created_at: Date;
   storage_version: number;
   /**
-   * The related SyncRuleDocumentV3.
+   * The related ReplicationStreamDocumentV3.
    *
    * Note that a specific sync config definition never moves between replication streams. Instead, we can create a new copy for the new replication stream.
    *

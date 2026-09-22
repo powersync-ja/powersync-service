@@ -50,7 +50,7 @@ export class StreamBucketSource implements BucketSource {
   }
 
   debugRepresentation() {
-    // TODO: Implement debugRepresentation for compiled sync streams
+    // TODO: Implement debugRepresentation for compiled Sync Streams
     return `stream ${this.stream.stream.name}`;
   }
 

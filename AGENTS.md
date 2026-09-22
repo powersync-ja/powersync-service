@@ -35,6 +35,17 @@ Use this section when working on source replication modules, replication streams
 - When the internal effect is useful context, explain it separately: a sync config deployment starts replacement processing, and the active sync config can keep serving clients while the replacement snapshots and catches up. Depending on storage support, that work may use a separate replication stream or a processing config in the existing stream.
 - For rolling source schema changes, state that the old table or capture instance must remain available until the new sync config becomes active. Call out expected downtime separately when the change requires disabling CDC or otherwise removes the active binding first.
 
+### Sync Rules Deprecation
+
+Sync Rules (`bucket_definitions:` with `parameters:` and `data:` queries) are deprecated in favour of Sync Streams (`streams:`).
+
+- **Sync config** is the whole deployed YAML, regardless of engine. Use `SyncConfig` in identifiers and lowercase "sync config" in comments and messages.
+- **Sync Streams** is the current engine. Every new or example sync config, including tests, fixtures, and templates, uses `streams:` with `config: edition: 3`. Do not add new `bucket_definitions:` examples or fixtures.
+- **Legacy Sync Rules** is the deprecated engine. Its implementation lives in `packages/sync-rules/src/legacy/` and is marked `@deprecated`. Do not add features there.
+- Capitalize "Sync Streams", "Sync Stream", "Sync Rules", and "legacy Sync Rules" in comments, JSDoc, messages, test names, and docs. Identifiers keep code casing (`SyncStreamsCompiler`, `streams:`, `sync_rules`).
+- Lowercase "sync stream" means the client's streaming sync connection (`routes/endpoints/sync-stream.ts`, "Sync stream started"), a different concept. Reword ambiguous sentences to "the client's sync connection" or "the stream definition".
+- Never rename these public or persisted names: `/api/sync-rules/v1/*` route paths; JSON fields `sync_rules_content`, `active_sync_rules`, `deploying_sync_rules`, `sync_rules`, `bucket_definitions`, `data_queries`, `parameter_queries`; the MongoDB `sync_rules` collection, `custom_write_checkpoints.sync_rules_id`, index `user_sync_rule_unique`, `op_id_sequence` key `sync_rules`, and `rule_mapping`; the Postgres `sync_rules` table, `sync_rules_id_sequence`, `custom_write_checkpoints.sync_rules_id`, constraint `unique_user_sync`, and lock name prefix `sync_rules_`; `SyncRuleState` string values; migration scripts and changelogs; the npm package `@powersync/service-sync-rules`, `packages/sync-rules`, and `schema/sync_rules.json`; the `sync-rules.yaml` filename convention; error codes `PSYNC_R0001` and `PSYNC_R2201`; the MySQL server-id format.
+
 ### Load Spec Context Selectively
 
 Do not load every replication spec page by default. Start with the entry point, then load only the pages that match the task.

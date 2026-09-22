@@ -184,6 +184,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
           state = ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }}
       `.execute();
 
+      // sync_rules_id_sequence is a persisted name, do not rename. See AGENTS.md backwards-compatibility.
       const newSyncRulesRow = await db.sql`
         WITH
           next_id AS (

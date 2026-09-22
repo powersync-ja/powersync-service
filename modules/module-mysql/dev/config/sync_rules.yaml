@@ -1,10 +1,15 @@
-# See Documentation for more information:
-# https://docs.powersync.com/usage/sync-rules
+# See the Sync Streams documentation for more information:
+# https://docs.powersync.com/sync/streams/overview
 # Note that changes to this file are not watched.
 # The service needs to be restarted for changes to take effect.
 
-bucket_definitions:
-  global:
-    data:
-      - SELECT * FROM lists
-      - SELECT * FROM todos
+config:
+  edition: 3
+
+streams:
+  lists:
+    auto_subscribe: true
+    query: SELECT * FROM lists
+  todos:
+    auto_subscribe: true
+    query: SELECT * FROM todos
