@@ -728,6 +728,7 @@ config:
         // through her membership in her own group. Both branches resolve to the same bucket.
         const state = checksumState(
           /* yaml */ `
+            # Select the same profile through static and dynamic parameters.
             config:
               edition: 3
             streams:
@@ -833,19 +834,20 @@ config:
     test('preserves static subscription metadata when a dynamic match overlaps', async () => {
       const state = checksumState(
         /* yaml */ `
-config:
-  edition: 3
-streams:
-  profiles:
-    auto_subscribe: true
-    query: |
-      SELECT id, name FROM profiles
-      WHERE id = auth.user_id()
-         OR id IN (
-           SELECT member_id FROM memberships
-           WHERE owner_id = ifnull(subscription.parameter('owner_id'), auth.user_id())
-         )
-`,
+          # The explicit subscription contributes priority through its static match.
+          config:
+            edition: 3
+          streams:
+            profiles:
+              auto_subscribe: true
+              query: |
+                SELECT id, name FROM profiles
+                WHERE id = auth.user_id()
+                   OR id IN (
+                     SELECT member_id FROM memberships
+                     WHERE owner_id = ifnull(subscription.parameter('owner_id'), auth.user_id())
+                   )
+        `,
         {
           tokenPayload: new JwtPayload({ sub: 'alice' }),
           syncRequest: {
