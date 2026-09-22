@@ -719,6 +719,95 @@ config:
       storage.updateTestChecksum({ bucket: '1#stream|0["b"]', checksum: 1, count: 1 });
     });
 
+    // Auto-subscription includes profiles in both cases. The explicit subscription adds another
+    // inclusion reason and overrides priority 3 with priority 1; it does not enable the stream.
+    test.each([false, true])(
+      'fetches overlapping static and dynamic buckets only once (custom subscription: %s)',
+      async (subscribe) => {
+        // Alice's profile is selected directly through auth.user_id() and also
+        // through her membership in her own group. Both branches resolve to the same bucket.
+        const state = checksumState(
+          /* yaml */ `
+            config:
+              edition: 3
+            streams:
+              profiles:
+                auto_subscribe: true
+                query: |
+                  SELECT id, name FROM profiles
+                  WHERE id = auth.user_id()
+                     OR id IN (SELECT member_id FROM memberships WHERE owner_id = auth.user_id())
+          `,
+          {
+            tokenPayload: new JwtPayload({ sub: 'alice' }),
+            syncRequest: {
+              streams: {
+                subscriptions: subscribe ? [{ stream: 'profiles', parameters: null, override_priority: 1 }] : []
+              }
+            }
+          }
+        );
+        const bucket = '1#profiles|0["alice"]';
+        storage.updateTestChecksum({ bucket, checksum: 1, count: 1 });
+
+        const line = (await state.buildNextCheckpointLine({
+          // Supply the membership lookup result without a database. '0' is the generated
+          // output column for member_id in the compiled parameter query.
+          base: storage.makeCheckpoint(1n, (lookups) => [{ lookup: lookups[0], rows: [{ '0': 'alice' }] }]),
+          writeCheckpoint: null,
+          update: CHECKPOINT_INVALIDATE_ALL
+        }))!;
+        line.advance();
+
+        // Check the request arrays directly: converting them to a Map would hide duplicates.
+        // Postgres fetches operations once per request, so duplicates here duplicate the data.
+        expect(line.bucketsToFetch.map((description) => description.bucket)).toEqual([bucket]);
+        expect(line.getFilteredBucketPositions().map((request) => request.bucket)).toEqual([bucket]);
+        // Merging must retain the default and any explicit subscription, using the lowest
+        // numeric priority (the highest sync priority) among them.
+        expect(line.checkpointLine).toMatchObject({
+          checkpoint: {
+            buckets: [
+              {
+                bucket,
+                checksum: 1,
+                count: 1,
+                priority: subscribe ? 1 : 3,
+                subscriptions: expect.arrayContaining(subscribe ? [{ default: 0 }, { sub: 0 }] : [{ default: 0 }])
+              }
+            ]
+          }
+        });
+
+        // Only bucket data changes at this checkpoint, so reuse the cached membership result.
+        // The first download is still pending; its next fetch must also contain only one request.
+        storage.updateTestChecksum({ bucket, checksum: 2, count: 2 });
+        const cachedLine = (await state.buildNextCheckpointLine({
+          base: storage.makeCheckpoint(2n),
+          writeCheckpoint: null,
+          update: {
+            invalidateDataBuckets: false,
+            invalidateParameterBuckets: false,
+            updatedDataBuckets: new Set([bucket]),
+            updatedParameterLookups: new Set()
+          }
+        }))!;
+        cachedLine.advance();
+        expect(cachedLine.getFilteredBucketPositions().map((request) => request.bucket)).toEqual([bucket]);
+
+        // Simulate Alice leaving the group by returning no membership rows. The direct auth
+        // match must keep her bucket. Change its checksum so a new checkpoint line is emitted.
+        storage.updateTestChecksum({ bucket, checksum: 3, count: 3 });
+        const staticLine = (await state.buildNextCheckpointLine({
+          base: storage.makeCheckpoint(3n, (lookups) => lookups.map((lookup) => ({ lookup, rows: [] }))),
+          writeCheckpoint: null,
+          update: CHECKPOINT_INVALIDATE_ALL
+        }))!;
+        staticLine.advance();
+        expect(staticLine.getFilteredBucketPositions().map((request) => request.bucket)).toEqual([bucket]);
+      }
+    );
+
     test('includes defaults', async () => {
       const state = checksumState(true);
       const line = await state.buildNextCheckpointLine({
