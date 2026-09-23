@@ -416,6 +416,10 @@ class LinkedHashMapEntry<K, V> {
 export class ParameterMap<V> {
   #inner = new Map<SqliteParameterValue, V>();
 
+  keys() {
+    return this.#inner.keys();
+  }
+
   get(key: SqliteParameterValue): V | undefined {
     return this.#inner.get(ParameterMap.#normalizeParameterKey(key));
   }

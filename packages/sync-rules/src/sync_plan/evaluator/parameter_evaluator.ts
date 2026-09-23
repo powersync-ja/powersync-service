@@ -184,7 +184,10 @@ export class RequestParameterEvaluators {
               this.#checkInstantiable();
             } else {
               // For this parameter to be part of the intersection optimization, it must return exactly one column.
-              for (const [value] of new Set(outputs)) {
+              const deduplicatedOutputs = new ParameterMap<null>();
+              outputs.forEach(([value]) => deduplicatedOutputs.set(value, null));
+
+              for (const value of deduplicatedOutputs.keys()) {
                 for (const intersection of intersections) {
                   const fixed = intersection.fixedValue;
                   if (fixed != null && !StableHasher.parameterValueEquality.equals(value, fixed)) continue;
