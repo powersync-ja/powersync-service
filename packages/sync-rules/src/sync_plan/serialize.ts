@@ -1,3 +1,4 @@
+import { ConnectionConfigMap, normalizeConnectionConfig } from '../ConnectionConfig.js';
 import { ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { SqlExpression } from './expression.js';
@@ -226,6 +227,8 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
   }
 
   const events = plan.events.map(tableProcessorSerializer.serializeEventDefinition);
+  const moduleData = plan.moduleData ?? {};
+  const connectionConfig = normalizeConnectionConfig(plan.connectionConfig);
   const serialized: SerializedSyncPlan = {
     dataSources: serializeDataSources(),
     buckets: plan.buckets.map((bkt, index) => {
@@ -241,7 +244,12 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
       stream: s.stream,
       queriers: s.queriers.map(serializeStreamQuerier)
     })),
-    version: tableProcessorSerializer.usesRowMetadataSqlValue ? 2 : 1
+    version:
+      Object.keys(connectionConfig).length != 0 || Object.keys(moduleData).length
+        ? 3
+        : tableProcessorSerializer.usesRowMetadataSqlValue
+          ? 2
+          : 1
   };
 
   // Compiled events are intentionally additive to plan versions 1 and 2. The service also persists their raw SQL in
@@ -250,18 +258,20 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
     serialized.events = events;
   }
 
+  if (Object.keys(connectionConfig).length != 0) serialized.connectionConfig = connectionConfig;
+  if (Object.keys(moduleData).length) serialized.moduleData = moduleData;
   return serialized;
 }
 
 export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   const { version } = serialized as SerializedSyncPlan;
-  if (version < 1) {
-    throw new Error('Unknown sync plan version passed to deserializeSyncPlan()');
-  }
   if (version > maxSupportedSyncPlanVersion) {
     throw new Error(
       `Encountered a sync plan with version ${version}, the maximum supported version is ${maxSupportedSyncPlanVersion}. This can happen when the PowerSync service version is downgraded after deploying Sync Streams, consider upgrading or re-deploying.`
     );
+  }
+  if (version !== 1 && version !== 2 && version !== 3) {
+    throw new Error('Unknown sync plan version passed to deserializeSyncPlan()');
   }
 
   function deserializeTablePattern(pattern: SerializedTablePattern): ImplicitSchemaTablePattern {
@@ -298,6 +308,23 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   }
 
   const plan = serialized as SerializedSyncPlan;
+  if (
+    plan.moduleData !== undefined &&
+    (plan.moduleData === null ||
+      typeof plan.moduleData != 'object' ||
+      Array.isArray(plan.moduleData) ||
+      Object.entries(plan.moduleData).some(([id, data]) => !id || data !== null))
+  ) {
+    throw new Error('Invalid sync config module data: expected parser IDs mapped to null.');
+  }
+  const moduleData = plan.moduleData ?? {};
+  if (Object.keys(moduleData).length && plan.version != 3) {
+    throw new Error('Sync config module dependencies require sync plan version 3.');
+  }
+  const connectionConfig = normalizeConnectionConfig(plan.connectionConfig);
+  if (Object.keys(connectionConfig).length != 0 && plan.version != 3) {
+    throw new Error('Connection configuration requires sync plan version 3.');
+  }
   const dataSources = plan.dataSources.map((source): StreamDataSource => {
     const functions = (tableValuedFunctionsInScope = source.tableValuedFunctions);
 
@@ -437,7 +464,9 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
     buckets,
     parameterIndexes,
     streams,
-    events
+    events,
+    ...(Object.keys(moduleData).length && { moduleData }),
+    ...(Object.keys(connectionConfig).length != 0 && { connectionConfig })
   };
 }
 
@@ -450,6 +479,10 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
  * plan for the legacy evaluator. Older readers ignore `events` and use that legacy mirror. Removing the mirror or
  * relying on compiled-only event semantics will require a version bump.
  *
+ * ### Version 3
+ *
+ * - First-class connection configuration. Older services must reject plans whose source options they cannot interpret.
+ *
  * ### Version 2
  *
  * - Add {@link RowMetadataSqlValue} to data for row and parameter evaluators, exposing the exact table and schema name
@@ -460,11 +493,20 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
  *
  * - Initial version
  */
-export type SerializedSyncPlanVersion = 1 | 2;
+export type SerializedSyncPlanVersion = 1 | 2 | 3;
 
-export const maxSupportedSyncPlanVersion: SerializedSyncPlanVersion = 2;
+export const maxSupportedSyncPlanVersion: SerializedSyncPlanVersion = 3;
 
 export interface SerializedSyncPlan {
+  /**
+   * Required parser IDs stored as map keys; requires plan version 3.
+   * Values are currently null, reserving space for future module-owned data.
+   */
+  moduleData?: Record<string, null>;
+  /**
+   * Present only for configured connections; requires plan version 3.
+   */
+  connectionConfig?: ConnectionConfigMap;
   version: SerializedSyncPlanVersion;
   dataSources: SerializedDataSource[];
   buckets: SerializedBucketDataSource[];
@@ -521,7 +563,9 @@ export interface SerializedEventDescriptor {
 }
 
 export interface SerializedEventSourceQuery {
-  /** Raw SQL retained for the legacy compatibility mirror. */
+  /**
+   * Raw SQL retained for the legacy compatibility mirror.
+   */
   sql: string;
   table: SerializedTablePattern;
   variants: SerializedEventRowEvaluator[];

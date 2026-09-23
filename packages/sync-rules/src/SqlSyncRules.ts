@@ -1,11 +1,28 @@
 import { BucketPriority } from './BucketDescription.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
+import type { AdditionalSyncConfigParser } from './SyncConfigParserHooks.js';
 import { SyncRulesErrors, YamlError } from './errors.js';
 import { SyncConfigFromYaml } from './from_yaml.js';
+import type { SyncRulesSchemaValidator } from './json_schema.js';
 import { RequestParameters, SourceSchema, SqliteJsonRow } from './types.js';
 
 export interface SyncRulesOptions {
+  /**
+   * Additional parsing hooks. The service supplies its registered hooks; standalone callers and extension tests
+   * can supply hooks directly. Defaults to no additional hooks.
+   */
+  parsers?: readonly AdditionalSyncConfigParser[];
+  /**
+   * Compiled schema validator supplied by the service parser. Must match the supplied parsers.
+   * Standalone callers, including tests, normally omit this to compose the schema from parsers.
+   */
+  schemaValidator?: SyncRulesSchemaValidator;
+
+  /**
+   * Source database schema.
+   */
   schema?: SourceSchema;
+
   /**
    * The default schema to use when only a table name is specified.
    *
@@ -78,7 +95,9 @@ export class SqlSyncRules extends SyncConfig {
       {
         throwOnError: options.throwOnError ?? true,
         schema: options.schema,
-        defaultSchema: options.defaultSchema
+        defaultSchema: options.defaultSchema,
+        parsers: options.parsers ?? [],
+        schemaValidator: options.schemaValidator
       },
       yaml
     );

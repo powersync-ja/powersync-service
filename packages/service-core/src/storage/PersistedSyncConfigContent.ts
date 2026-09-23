@@ -10,7 +10,6 @@ import {
   HydrationState,
   nodeSqlite,
   PrecompiledSyncConfig,
-  SqlSyncRules,
   SyncConfigWithErrors,
   versionedHydrationState,
   YamlError
@@ -22,20 +21,22 @@ import { SerializedSyncPlan, UpdateSyncRulesOptions } from './BucketStorageFacto
 import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { PersistedSyncConfigStatus } from './PersistedSyncConfigStatus.js';
 import { STORAGE_VERSION_CONFIG, StorageVersionConfig } from './StorageVersionConfig.js';
+import { ParseSyncConfigOptions, SyncConfigParser } from './SyncConfigParser.js';
 
 export interface ParsePersistedSyncConfigContentOptions {
   content: string;
   compiledPlan: SerializedSyncPlan | null;
   storageVersion: number;
   parseOptions: ParseSyncConfigOptions;
+  syncConfigParser: SyncConfigParser;
 }
 
 export function parsePersistedSyncConfigContent(options: ParsePersistedSyncConfigContentOptions): SyncConfigWithErrors {
-  const { content, compiledPlan, storageVersion, parseOptions } = options;
+  const { content, compiledPlan, storageVersion, parseOptions, syncConfigParser } = options;
 
   if (compiledPlan == null) {
     // Fallback: Only parse from YAML if no compiled plan is available.
-    return SqlSyncRules.fromYaml(content, parseOptions);
+    return syncConfigParser.parseContent(content, parseOptions);
   }
 
   const plan = deserializeSyncPlan(compiledPlan.plan);
@@ -69,6 +70,12 @@ export function parsePersistedSyncConfigContent(options: ParsePersistedSyncConfi
   // Note: If the original content did not define a storage version, this will still set the storage version.
   // This means asUpdateOptions will not change the storage version, even if the default changes.
   precompiled.storageVersion = storageVersion;
+  errors.push(
+    ...syncConfigParser.validatePersisted({
+      config: precompiled,
+      context: { defaultSchema: parseOptions.defaultSchema }
+    })
+  );
 
   if (compiledPlan.errors) {
     for (const error of compiledPlan.errors) {
@@ -105,7 +112,10 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
   readonly syncConfigState: SyncRuleState;
   readonly version_label: string | undefined;
 
-  constructor(data: PersistedSyncConfigContentData) {
+  constructor(
+    data: PersistedSyncConfigContentData,
+    private readonly syncConfigParser: SyncConfigParser
+  ) {
     this.replicationStreamId = data.replicationStreamId;
     this.sync_rules_content = data.sync_rules_content;
     this.compiled_plan = data.compiled_plan;
@@ -144,7 +154,8 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
       content: this.sync_rules_content,
       compiledPlan: this.compiled_plan,
       storageVersion: this.storageVersion,
-      parseOptions: options
+      parseOptions: options,
+      syncConfigParser: this.syncConfigParser
     });
   }
 
@@ -202,6 +213,3 @@ export interface PersistedSyncConfigContentData {
   readonly version_label?: string;
 }
 export type PersistedSyncConfigId = string;
-export interface ParseSyncConfigOptions {
-  defaultSchema: string;
-}

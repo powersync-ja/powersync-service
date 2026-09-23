@@ -11,11 +11,11 @@ import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
 import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
-import { ParseSyncConfigOptions } from './PersistedSyncConfigContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
 import { SourceTableCandidateReconciler } from './SourceTableReconciler.js';
 import { StorageVersionConfig } from './StorageVersionConfig.js';
+import { ParseSyncConfigOptions } from './SyncConfigParser.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
 /**
