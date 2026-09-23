@@ -9,7 +9,7 @@ import { SentinelLSN } from '@module/common/SentinelLSN.js';
 import { createSentinelCheckpointLsn, SENTINEL_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '@module/replication/replication-utils.js';
 import { mongo } from '@powersync/lib-service-mongodb';
-import { ChangeStreamTestContext } from './change_stream_utils.js';
+import { openChangeStreamTestContext } from './change_stream_test_setup.js';
 import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
 import { env } from './env.js';
 import { testTimeout } from './test-timeouts.js';
@@ -584,8 +584,8 @@ describe.skipIf(DATABASE_TYPE != DatabaseType.DOCUMENTDB)('documentDbMode', () =
 });
 
 function defineDocumentDBDbModeTests({ factory, storageVersion }: StorageVersionTestContext) {
-  const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
-    return ChangeStreamTestContext.open(factory, {
+  const openContext = (options?: Parameters<typeof openChangeStreamTestContext>[1]) => {
+    return openChangeStreamTestContext(factory, {
       ...options,
       storageVersion,
       streamOptions: {

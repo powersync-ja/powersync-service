@@ -49,7 +49,7 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
   /**
    * Combines base config with normalized connection settings
    */
-  private resolveConfig(config: types.MongoConnectionConfig): types.ResolvedConnectionConfig {
+  protected resolveConfig(config: types.MongoConnectionConfig): types.ResolvedConnectionConfig {
     return {
       ...config,
       ...types.normalizeConnectionConfig(config)

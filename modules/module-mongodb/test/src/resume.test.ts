@@ -1,8 +1,9 @@
 import { ChangeStreamInvalidatedError } from '@module/replication/ChangeStream.js';
 import { MongoManager } from '@module/replication/MongoManager.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
+import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
-import { ChangeStreamTestContext } from './change_stream_utils.js';
+import { ChangeStreamTestContext, openChangeStreamTestContext } from './change_stream_test_setup.js';
 import { env } from './env.js';
 import { describeWithStorage, StorageVersionTestContext } from './util.js';
 
@@ -11,8 +12,8 @@ describe('mongodb resuming replication', () => {
 });
 
 function defineResumeTest({ factory: factoryGenerator, storageVersion }: StorageVersionTestContext) {
-  const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
-    return ChangeStreamTestContext.open(factoryGenerator, { ...options, storageVersion });
+  const openContext = (options?: Parameters<typeof openChangeStreamTestContext>[1]) => {
+    return openChangeStreamTestContext(factoryGenerator, { ...options, storageVersion });
   };
 
   test.skip('resuming with a different source database', async () => {
@@ -66,7 +67,12 @@ function defineResumeTest({ factory: factoryGenerator, storageVersion }: Storage
     const factory = await factoryGenerator({ doNotClear: true });
 
     // Create a new context without updating the sync config
-    await using context2 = new ChangeStreamTestContext(factory, connectionManager, {}, storageVersion);
+    await using context2 = new ChangeStreamTestContext({
+      factory,
+      connectionManager,
+      storageVersion,
+      metrics: METRICS_HELPER.metricsEngine
+    });
     const active = await factory.getActiveSyncConfig();
     context2.storage = active!.storage;
 
