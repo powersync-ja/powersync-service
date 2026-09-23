@@ -379,9 +379,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     const mapping =
       options.config.plan == null
-        ? // No serialized plan (legacy Sync Rules, or Sync Streams parsed in-process): use the parsed config directly to create a mapping
+        ? // For legacy Sync Rules and Streams, use the parsed config directly to create a mapping
           SingleSyncConfigBucketDefinitionMapping.fromParsedSyncConfig(options.config.parsed)
-        : // For compiled Sync Streams, always use the serialized version
+        : // For new Sync Streams, always use the serialized version
           SingleSyncConfigBucketDefinitionMapping.constructIncrementalMappingFromSerializedPlans(
             [],
             options.config.plan.plan,
