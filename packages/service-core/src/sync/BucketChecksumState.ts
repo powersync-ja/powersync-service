@@ -747,7 +747,8 @@ export class BucketParameterState {
         }
       }
     }
-    const allBuckets = [...staticBuckets, ...mergeBuckets(dynamicBuckets)];
+    // A stream can reach the same bucket through both static and dynamic parameters.
+    const allBuckets = mergeBuckets([...staticBuckets, ...dynamicBuckets]);
 
     if (invalidateDataBuckets) {
       return {

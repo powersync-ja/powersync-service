@@ -90,4 +90,31 @@ describe('mergeBuckets', () => {
       }
     ]);
   });
+
+  test('deduplicates matching inclusion reasons', () => {
+    const fakeSource: BucketDataSource = null as any;
+    const a: ResolvedBucket = {
+      definition: 'a',
+      inclusion_reasons: ['default', { subscription: 1 }],
+      priority: 3,
+      bucket: 'bkt',
+      source: fakeSource
+    };
+    const b: ResolvedBucket = {
+      definition: 'a',
+      inclusion_reasons: [{ subscription: 1 }, { subscription: 2 }],
+      priority: 2,
+      bucket: 'bkt',
+      source: fakeSource
+    };
+
+    expect(mergeBuckets([a, b])).toStrictEqual([
+      {
+        definition: 'a',
+        inclusion_reasons: ['default', { subscription: 1 }, { subscription: 2 }],
+        priority: 2,
+        bucket: 'bkt'
+      }
+    ]);
+  });
 });
