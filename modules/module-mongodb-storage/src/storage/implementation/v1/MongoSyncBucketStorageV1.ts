@@ -40,7 +40,8 @@ import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStr
 import {
   MongoCheckpointState,
   MongoSyncBucketStorage,
-  MongoSyncBucketStorageOptions
+  MongoSyncBucketStorageOptions,
+  TopBucketSelection
 } from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV1,
@@ -227,6 +228,30 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     const duration = Date.now() - start;
     this.logger.info(`Compacted after initial replication in ${(duration / 1000).toFixed(1)}s`);
     return result;
+  }
+
+  // For storage v1/v2, bucket state and bucket data are shared collections scoped by group (replication stream).
+  // v1/v2 bucket_state does not capture full-compact statistics, so the report is limited to operation
+  // counts: rows, fragmentation and the suggested action are not available.
+  protected async collectTopBuckets(limit: number): Promise<TopBucketSelection> {
+    // Range-match on the whole `_id` (g, b) so the {_id} index bounds the scan; a dotted `{'_id.g': ...}`
+    // match cannot use the compound-object index and would scan the whole collection.
+    return await this.aggregateTopBuckets(
+      this.db.bucketStateV1,
+      { _id: idPrefixFilter<{ g: number; b: string }>({ g: this.replicationStreamId }, ['b']) },
+      limit,
+      {
+        operations: {
+          $add: [{ $ifNull: ['$compacted_state.count', 0] }, { $ifNull: ['$estimate_since_compact.count', 0] }]
+        },
+        operationBytes: {
+          $add: [
+            { $toDouble: { $ifNull: ['$compacted_state.bytes', 0] } },
+            { $toDouble: { $ifNull: ['$estimate_since_compact.bytes', 0] } }
+          ]
+        }
+      }
+    );
   }
 
   protected createMongoParameterCompactor(

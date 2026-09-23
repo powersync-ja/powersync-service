@@ -270,4 +270,78 @@ export const validate = routeDefinition({
   }
 });
 
-export const ADMIN_ROUTES = [executeSql, diagnostics, getSchema, reprocess, validate];
+/**
+ * Per-bucket report of total operations vs live rows in storage, for the active sync config.
+ *
+ * Answers the recurring "why is my Data Synced so high" question. A high `operations / rows` ratio
+ * indicates fragmented buckets that a compact or defragment can reclaim. Row counts derive from each
+ * bucket's last full compact (bucket_state only, no operation-history scan), so they are null for buckets
+ * that have never been fully compacted and on storage versions without compact statistics (v1/v2).
+ */
+export const bucketReport = routeDefinition({
+  path: '/api/admin/v1/bucket-report',
+  method: router.HTTPMethod.POST,
+  authorize: authApi,
+  validator: schema.createTsCodecValidator(internal_routes.BucketReportRequest, { allowAdditional: true }),
+  handler: async (payload) => {
+    const {
+      context: { service_context }
+    } = payload;
+    const {
+      storageEngine: { activeBucketStorage }
+    } = service_context;
+
+    const active = await activeBucketStorage.getActiveSyncConfig();
+    if (active == null) {
+      throw new errors.ServiceError({
+        status: 422,
+        code: ErrorCode.PSYNC_S4104,
+        description: 'No active sync config'
+      });
+    }
+
+    if (active.storage.getBucketReport == null) {
+      throw new errors.ServiceError({
+        status: 422,
+        code: ErrorCode.PSYNC_S2001,
+        description: 'The configured storage provider does not support bucket reporting'
+      });
+    }
+
+    const report = await active.storage.getBucketReport({ limit: payload.params.limit });
+
+    return internal_routes.BucketReportResponse.encode({
+      buckets: report.buckets.map((bucket) => ({
+        bucket: bucket.bucket,
+        operations: bucket.operations,
+        operation_bytes: bucket.operationBytes,
+        uncompacted_operations: bucket.uncompactedOperations,
+        rows: bucket.rows,
+        fragmentation: bucket.fragmentation,
+        last_full_compact_at: bucket.lastFullCompactAt?.toISOString() ?? null,
+        next_compact_at: bucket.nextCompactAt?.toISOString() ?? null,
+        suggested_action: bucket.suggestedAction
+      })),
+      definitions: report.definitions.map((definition) => ({
+        definition: definition.definition,
+        bucket_count: definition.bucketCount,
+        operations: definition.operations,
+        operation_bytes: definition.operationBytes,
+        uncompacted_operations: definition.uncompactedOperations,
+        rows: definition.rows,
+        fragmentation: definition.fragmentation,
+        suggested_action: definition.suggestedAction
+      })),
+      totals: {
+        bucket_count: report.totals.bucketCount,
+        operations: report.totals.operations,
+        operation_bytes: report.totals.operationBytes,
+        estimated: report.totals.estimated
+      },
+      buckets_truncated: report.bucketsTruncated,
+      definitions_truncated: report.definitionsTruncated
+    });
+  }
+});
+
+export const ADMIN_ROUTES = [executeSql, diagnostics, getSchema, reprocess, validate, bucketReport];
