@@ -187,12 +187,15 @@ export function createSyncRulesSchema(parsers: readonly AdditionalSyncConfigPars
 }
 
 /**
- * Permit the editor annotation without weakening AJV's checks for unknown validation keywords.
+ * Permit editor annotations without weakening AJV's checks for unknown validation keywords.
  */
 export function compileSyncRulesSchemaValidator(schema: ajvModule.Schema): SyncRulesSchemaValidator {
   return new Ajv({
     allErrors: true,
     verbose: true,
-    keywords: [{ keyword: 'patternErrorMessage', schemaType: 'string' }]
+    keywords: [
+      { keyword: 'patternErrorMessage', schemaType: 'string' },
+      { keyword: 'defaultSnippets', schemaType: 'array' }
+    ]
   }).compile(schema);
 }

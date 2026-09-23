@@ -30,10 +30,15 @@ export function mapAjvErrorsToYamlErrors(
   return errors.map((error) => {
     const { path, target } = getAjvErrorSourcePath(error);
     const location = sourceLocations.getLocation(path, target);
-    return new YamlError(
-      new Error(error.message ?? 'The sync config does not match its JSON Schema.'),
-      location && { start: location.start_offset, end: location.end_offset }
-    );
+    // Honor editor guidance such as "Use $$doc.name" instead of showing the reference regex.
+    // Only pattern failures use this annotation; other failures retain their own AJV messages.
+    const guidance =
+      error.keyword === 'pattern' && typeof error.parentSchema === 'object' && error.parentSchema !== null
+        ? error.parentSchema.patternErrorMessage
+        : undefined;
+    const message =
+      typeof guidance === 'string' ? guidance : (error.message ?? 'The sync config does not match its JSON Schema.');
+    return new YamlError(new Error(message), location && { start: location.start_offset, end: location.end_offset });
   });
 }
 
