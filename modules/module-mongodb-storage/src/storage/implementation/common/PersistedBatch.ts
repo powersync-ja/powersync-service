@@ -1,5 +1,11 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { BucketDataSource, BucketDefinitionId, EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
+import {
+  BucketDataSource,
+  BucketDefinitionId,
+  EvaluatedParameters,
+  EvaluatedRow,
+  SerializedEvaluatedRow
+} from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import { logger as defaultLogger, Logger } from '@powersync/lib-services-framework';
@@ -42,7 +48,7 @@ export interface SaveBucketDataOptions {
   op_seq: MongoIdSequence;
   sourceKey: storage.ReplicaId;
   table: storage.SourceTable;
-  evaluated: EvaluatedRow[];
+  evaluated: (EvaluatedRow | SerializedEvaluatedRow)[];
   before_buckets: SourceRecordBucketState[];
 }
 
@@ -146,7 +152,7 @@ export abstract class PersistedBatch {
         id: evaluated.id
       });
 
-      const recordData = JSONBig.stringify(evaluated.data);
+      const recordData = typeof evaluated.data === 'string' ? evaluated.data : JSONBig.stringify(evaluated.data);
       const checksum = utils.hashData(evaluated.table, evaluated.id, recordData);
       if (recordData.length > MAX_ROW_SIZE) {
         this.logger.error(`Row ${key} too large: ${recordData.length} bytes. Removing.`);
