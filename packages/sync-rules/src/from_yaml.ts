@@ -85,15 +85,8 @@ export class SyncConfigFromYaml {
         )
       );
     }
-    // The composed schema owns additional fields. Retain the YAML tree so errors highlight the actual key/value.
-    const validate =
-      this.options.schemaValidator ??
-      (this.options.parsers.length == 0
-        ? validateSyncRulesSchema
-        : compileSyncRulesSchemaValidator(createSyncRulesSchema(this.options.parsers)));
-    if (!this.#hasFatalError && !validate(encoded)) {
-      this.#errors.push(...mapAjvErrorsToYamlErrors(sourceLocations, validate.errors!));
-    }
+    // Parser hooks run before the JSON Schema check, so they can report specific diagnostics for the options they
+    // own. Hooks must therefore tolerate structurally invalid input.
     if (!this.#hasFatalError) {
       const reportDiagnostic = (diagnostic: SyncConfigDiagnostic) => {
         const location = diagnostic.location;
@@ -128,6 +121,19 @@ export class SyncConfigFromYaml {
         }
       } catch (error) {
         this.#errors.push(new YamlError(error instanceof Error ? error : new Error(String(error))));
+      }
+    }
+    // The composed schema catches remaining structural issues, such as additional fields or connection options no
+    // parser reported on. Run it last: its union-branch errors are less specific than the parser diagnostics above.
+    // Retain the YAML tree so errors highlight the actual key/value.
+    if (!this.#hasFatalError) {
+      const validate =
+        this.options.schemaValidator ??
+        (this.options.parsers.length == 0
+          ? validateSyncRulesSchema
+          : compileSyncRulesSchemaValidator(createSyncRulesSchema(this.options.parsers)));
+      if (!validate(encoded)) {
+        this.#errors.push(...mapAjvErrorsToYamlErrors(sourceLocations, validate.errors!));
       }
     }
     // Never return an executable partial config after rejecting additional options, even in diagnostic mode.

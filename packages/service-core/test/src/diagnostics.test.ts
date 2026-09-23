@@ -205,4 +205,27 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
     expect(result!.version_label).toBe('v6');
     expect(result!.errors).toEqual([expect.objectContaining({ level: 'fatal', message: 'Invalid sync config' })]);
   });
+
+  test('reports each sync config error with its source location when parsing fails', async () => {
+    const yaml = `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id FROM test_table
+    unknown_key: true
+`;
+    const content = makeSyncRulesContent();
+    content.parsed = (options?: any) => {
+      SqlSyncRules.fromYaml(yaml, { ...options, defaultSchema: 'public', throwOnError: true });
+      throw new Error('Expected parsing to fail');
+    };
+
+    const result = await getSyncRulesStatus(makeRouteAPI(), content, OPTIONS, makeSystemStorage());
+
+    expect(result!.errors).toHaveLength(1);
+    const [error] = result!.errors;
+    expect(error.level).toBe('fatal');
+    expect(error.message).not.toContain('Expected parsing to fail');
+    expect(yaml.slice(error.location!.start_offset, error.location!.end_offset)).toBe('unknown_key');
+  });
 });
