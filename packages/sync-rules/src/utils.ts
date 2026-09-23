@@ -65,7 +65,17 @@ export function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
     const existing = byBucketId[bucket.bucket];
 
     if (existing != null) {
-      existing.inclusion_reasons.push(...bucket.inclusion_reasons);
+      // A stream can reach the same bucket through more than one branch (e.g. overlapping
+      // subscriptions, or both a static and a dynamic parameter query) with the same inclusion
+      // reason each time, so de-duplicate as we merge.
+      const seenReasons = new Set(existing.inclusion_reasons.map((reason) => JSON.stringify(reason)));
+      for (const reason of bucket.inclusion_reasons) {
+        const key = JSON.stringify(reason);
+        if (!seenReasons.has(key)) {
+          seenReasons.add(key);
+          existing.inclusion_reasons.push(reason);
+        }
+      }
       existing.priority = Math.min(existing.priority, bucket.priority) as BucketPriority;
     } else {
       // Clone so that we can modify the merged value without affecting the input value
