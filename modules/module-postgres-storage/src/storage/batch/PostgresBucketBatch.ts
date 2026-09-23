@@ -1060,9 +1060,9 @@ export class PostgresBucketBatch
         // Not an error if we re-apply a transaction
         existingBuckets = [];
         existingLookups = [];
-        // Log to help with debugging if there was a consistency issue
-
-        if (storeCurrentData) {
+        // A complete row is evaluated and stored in current_data below, so a resnapshot is only
+        // needed when TOAST values are missing.
+        if (!utils.isCompleteRow(storeCurrentData, after!)) {
           if (this.markRecordUnavailable != null) {
             // This will trigger a "resnapshot" of the record.
             // This is not relevant if storeCurrentData is false, since we'll get the full row
