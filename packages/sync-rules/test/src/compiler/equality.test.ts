@@ -45,7 +45,10 @@ describe('parameterValueEquality', () => {
     expectEqual(StableHasher.parameterValueEquality, -0, 0);
 
     expectEqual(StableHasher.parameterValueEquality, 42n, 42n);
-    expectNotEqual(StableHasher.parameterValueEquality, 10, 10n);
+    expectEqual(StableHasher.parameterValueEquality, 10, 10n);
+    expectEqual(StableHasher.parameterValueEquality, -0, 0n);
+    expectNotEqual(StableHasher.parameterValueEquality, 10.5, 10n);
+    expectNotEqual(StableHasher.parameterValueEquality, 10, 11n);
   });
 });
 
