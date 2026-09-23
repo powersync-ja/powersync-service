@@ -59,31 +59,63 @@ export function resolvedBucket(
  * bucket.
  */
 export function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
-  const byBucketId: Record<string, ResolvedBucket> = {};
+  interface PendingResolvedBucket {
+    resolved: ResolvedBucket;
+    coveredByDefaultSubscription: boolean;
+    explicitSubscriptionReasons: number[];
+  }
+
+  const pending = new Map<string, PendingResolvedBucket>();
+  const allBuckets: ResolvedBucket[] = [];
 
   for (const bucket of buckets) {
-    const existing = byBucketId[bucket.bucket];
+    const existing = pending.get(bucket.bucket);
+    let resolved: PendingResolvedBucket;
 
     if (existing != null) {
-      // A stream can reach the same bucket through more than one branch (e.g. overlapping
-      // subscriptions, or both a static and a dynamic parameter query) with the same inclusion
-      // reason each time, so de-duplicate as we merge.
-      const seenReasons = new Set(existing.inclusion_reasons.map((reason) => JSON.stringify(reason)));
-      for (const reason of bucket.inclusion_reasons) {
-        const key = JSON.stringify(reason);
-        if (!seenReasons.has(key)) {
-          seenReasons.add(key);
-          existing.inclusion_reasons.push(reason);
-        }
-      }
-      existing.priority = Math.min(existing.priority, bucket.priority) as BucketPriority;
+      resolved = existing;
+      existing.resolved.priority = Math.min(existing.resolved.priority, bucket.priority) as BucketPriority;
     } else {
       // Clone so that we can modify the merged value without affecting the input value
-      byBucketId[bucket.bucket] = cloneResolvedBucket(bucket);
+      const clone: ResolvedBucket = withBucketSource(
+        {
+          definition: bucket.definition,
+          bucket: bucket.bucket,
+          priority: bucket.priority,
+          inclusion_reasons: [] // Set while iterating over all sources
+        },
+        bucket.source
+      );
+      resolved = {
+        resolved: clone,
+        coveredByDefaultSubscription: false,
+        explicitSubscriptionReasons: []
+      };
+
+      allBuckets.push(clone);
+      pending.set(bucket.bucket, resolved);
+    }
+
+    // A stream can reach the same bucket through more than one branch (e.g. overlapping
+    // subscriptions, or both a static and a dynamic parameter query) with the same inclusion
+    // reason each time, so de-duplicate as we merge.
+    for (const reason of bucket.inclusion_reasons) {
+      if (reason === 'default') {
+        if (!resolved.coveredByDefaultSubscription) {
+          resolved.coveredByDefaultSubscription = true;
+          resolved.resolved.inclusion_reasons.push(reason);
+        }
+      } else {
+        // explicitSubscriptionReasons is a small array in practice, use a linear scan instead of a set
+        if (!resolved.explicitSubscriptionReasons.includes(reason.subscription)) {
+          resolved.explicitSubscriptionReasons.push(reason.subscription);
+          resolved.resolved.inclusion_reasons.push(reason);
+        }
+      }
     }
   }
 
-  return Object.values(byBucketId);
+  return allBuckets;
 }
 
 export function uniqueBy<T>(values: T[], key: (value: T) => string | undefined): T[] {
@@ -101,12 +133,6 @@ export function uniqueBy<T>(values: T[], key: (value: T) => string | undefined):
   }
 
   return result;
-}
-
-function cloneResolvedBucket(bucket: ResolvedBucket) {
-  let clone = structuredClone(bucket);
-  // The structured clone does not include the non-enumerable source - set it directly.
-  return withBucketSource(clone, bucket.source);
 }
 
 export function withBucketSource<T extends object>(
