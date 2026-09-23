@@ -4,9 +4,8 @@ config:
   edition: 3
 
 streams:
-  lists:
+  global:
     auto_subscribe: true
-    query: SELECT * FROM lists
-  todos:
-    auto_subscribe: true
-    query: SELECT * FROM todos
+    queries:
+      - SELECT * FROM lists
+      - SELECT * FROM todos
