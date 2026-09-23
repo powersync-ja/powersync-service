@@ -197,6 +197,42 @@ describe('connection configuration', () => {
     }
   });
 
+  test('reports hook diagnostics instead of less specific schema errors for the options a hook owns', () => {
+    // The hook runs before the schema check and validates its own options, including their structure.
+    const parser: AdditionalSyncConfigParser = {
+      ...ADDITIONAL_PARSER,
+      parse({ config, context }) {
+        const options = (config as any).config.connections.default.tables.orders;
+        if (typeof options.sample != 'number') {
+          context.reportDiagnostic({
+            level: 'fatal',
+            message: 'Sample must be a number.',
+            location: context.sourceLocations.getLocation([
+              'config',
+              'connections',
+              'default',
+              'tables',
+              'orders',
+              'sample'
+            ])
+          });
+        }
+      }
+    };
+    const body = /* yaml */ ` config:
+        edition: 3
+        connections:
+          default:
+            type: example
+            tables:
+              orders: { sample: wrong } `;
+    const errors = SqlSyncRules.validate(withStreams(body), { defaultSchema: 'app', parsers: [parser] });
+    expect(errors.map((error) => error.message)).toEqual(['Sample must be a number.']);
+    expect(withStreams(body).slice(errors[0].location.start, errors[0].location.end).trim()).toBe('wrong');
+    // Without a hook diagnostic, the schema check still rejects the same options.
+    expect(() => parse(body, [{ ...parser, parse: vi.fn() }])).toThrow('must be number');
+  });
+
   test('runs generic hooks in order with context even when connection configuration is absent', () => {
     const seen: string[] = [];
     const first: AdditionalSyncConfigParser = {
