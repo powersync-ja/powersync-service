@@ -1,5 +1,15 @@
 # @powersync/service-sync-rules
 
+## 0.43.0
+
+### Minor Changes
+
+- 18f0c95: Add `fixed_booleans_in_json` to sync booleans in JSON columns as booleans instead of as 0/1 integer.
+
+### Patch Changes
+
+- 0483d4e: Deduplicate inclusion reasons when merging buckets reached through more than one branch (e.g. overlapping subscriptions, or both a static and a dynamic parameter query), avoiding duplicate `subscriptions` entries on the wire.
+
 ## 0.42.0
 
 ### Minor Changes
