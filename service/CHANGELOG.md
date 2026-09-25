@@ -1,5 +1,29 @@
 # @powersync/service-image
 
+## 1.26.2
+
+### Patch Changes
+
+- 7fb83be: Publish the service as an npm package, in addition to the Docker image.
+- Updated dependencies [0483d4e]
+- Updated dependencies [155febf]
+- Updated dependencies [18380b6]
+- Updated dependencies [424bbc0]
+- Updated dependencies [b70f467]
+- Updated dependencies [18f0c95]
+- Updated dependencies [a8c3f15]
+  - @powersync/service-core@1.26.2
+  - @powersync/service-module-mongodb@0.21.2
+  - @powersync/service-module-mysql@0.16.3
+  - @powersync/service-module-mongodb-storage@0.22.1
+  - @powersync/service-module-convex@0.4.2
+  - @powersync/service-module-core@0.2.36
+  - @powersync/service-module-mssql@0.10.3
+  - @powersync/service-module-postgres@0.23.2
+  - @powersync/service-module-postgres-storage@0.19.2
+  - @powersync/lib-services-framework@0.10.3
+  - @powersync/service-rsocket-router@0.2.28
+
 ## 1.26.1
 
 ### Patch Changes
