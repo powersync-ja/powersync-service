@@ -77,10 +77,31 @@ export class StableHasher {
   static readonly parameterValueEquality: Equality<SqliteParameterValue> = (() => {
     const buf = new DataView(new ArrayBuffer(8));
 
+    const hashInteger = (hasher: StableHasher, value: bigint) => {
+      // Most bigints we're dealing with fit in 64 bits. Truncating is fine, we're building hashes anyway.
+      buf.setBigInt64(0, value, true);
+      hasher.addHash(buf.getUint32(0, true));
+      hasher.addHash(buf.getUint32(4, true));
+    };
+
     return {
       equals: function (a: SqliteParameterValue, b: SqliteParameterValue): boolean {
-        // Allowed values are numbers, string, and bigint. All of them compare correctly with ===
-        return a === b;
+        // Allowed values are numbers, strings, and bigints. Same-typed values compare correctly with ===.
+        if (typeof a === typeof b) {
+          return a === b;
+        }
+
+        // Numbers and bigints should compare as equal when they represent the same integer value, e.g. 5 === 5n.
+        // A double can only equal a bigint when it's a whole number; converting it to a bigint is then exact, even
+        // for magnitudes beyond Number.MAX_SAFE_INTEGER (doubles only represent integers at those magnitudes).
+        if (typeof a === 'number' && typeof b === 'bigint') {
+          return Number.isInteger(a) && BigInt(a) === b;
+        }
+        if (typeof a === 'bigint' && typeof b === 'number') {
+          return Number.isInteger(b) && a === BigInt(b);
+        }
+
+        return false;
       },
       hash: function (hasher: StableHasher, value: SqliteParameterValue): void {
         switch (typeof value) {
@@ -88,16 +109,17 @@ export class StableHasher {
             hasher.addString(value);
             break;
           case 'number':
-            const normalized = value || 0; // Ensure 0 and -0 have the same hash code.
-            buf.setFloat64(0, normalized, true);
-            hasher.addHash(buf.getUint32(0, true));
-            hasher.addHash(buf.getUint32(4, true));
+            if (Number.isInteger(value)) {
+              // Hash the same way as an equal bigint would be hashed (BigInt(-0) === 0n, so -0 is covered too).
+              hashInteger(hasher, BigInt(value));
+            } else {
+              buf.setFloat64(0, value, true);
+              hasher.addHash(buf.getUint32(0, true));
+              hasher.addHash(buf.getUint32(4, true));
+            }
             break;
           case 'bigint':
-            // Most bigints we're dealing with fit in 64 bits. Truncating is fine, we're building hashes anyway.
-            buf.setBigInt64(0, value, true);
-            hasher.addHash(buf.getUint32(0, true));
-            hasher.addHash(buf.getUint32(4, true));
+            hashInteger(hasher, value);
             break;
           case 'boolean':
             hasher.addHash(value ? 0 : 1);
@@ -382,5 +404,39 @@ class LinkedHashMapEntry<K, V> {
     value: V
   ) {
     this.value = value;
+  }
+}
+
+/**
+ * A hash map optimized for {@link SqliteParameterValue} keys.
+ *
+ * This behaves like a {@link HashMap} with {@link StableHasher.parameterValueEquality}, but uses native maps for
+ * efficiency.
+ */
+export class ParameterMap<V> {
+  #inner = new Map<SqliteParameterValue, V>();
+
+  keys() {
+    return this.#inner.keys();
+  }
+
+  get(key: SqliteParameterValue): V | undefined {
+    return this.#inner.get(ParameterMap.#normalizeParameterKey(key));
+  }
+
+  set(key: SqliteParameterValue, value: V): void {
+    this.#inner.set(ParameterMap.#normalizeParameterKey(key), value);
+  }
+
+  /**
+   * Normalizes a {@link SqliteParameterValue} so that integer-valued numbers and bigints representing the same value
+   * become identical keys under a plain {@link Map}, which otherwise treats e.g. `5` and `5n` as distinct.
+   */
+  static #normalizeParameterKey(value: SqliteParameterValue): SqliteParameterValue {
+    if (typeof value === 'number' && Number.isInteger(value)) {
+      return BigInt(value); // Also normalizes -0 to 0n.
+    }
+
+    return value;
   }
 }

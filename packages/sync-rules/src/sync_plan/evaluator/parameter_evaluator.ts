@@ -1,5 +1,6 @@
 import { ParameterLookupSource, ScopedParameterLookup, UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
 import { ParameterIndexLookupCreator } from '../../BucketSource.js';
+import { ParameterMap, StableHasher } from '../../compiler/equality.js';
 import { HydrationState } from '../../HydrationState.js';
 import { RequestParameters, SqliteParameterValue, SqliteValue } from '../../types.js';
 import { isValidParameterValue } from '../../utils.js';
@@ -129,7 +130,7 @@ export class RequestParameterEvaluators {
         fixedValue: SqliteParameterValue | undefined;
         amountOfRequestParameters: number;
         // Count in how many parameters a value was seen, we filter out values not present in all parameters.
-        rows: Map<SqliteParameterValue, number>;
+        rows: ParameterMap<number>;
         materializedRows: SqliteParameterValue[][];
       }
 
@@ -141,7 +142,7 @@ export class RequestParameterEvaluators {
         const parameterIntersection: RequestParameterIntersection = {
           fixedValue: mapped.fixedValue,
           amountOfRequestParameters: 0,
-          rows: new Map(),
+          rows: new ParameterMap(),
           materializedRows: []
         };
 
@@ -183,10 +184,13 @@ export class RequestParameterEvaluators {
               this.#checkInstantiable();
             } else {
               // For this parameter to be part of the intersection optimization, it must return exactly one column.
-              for (const [value] of new Set(outputs)) {
+              const deduplicatedOutputs = new ParameterMap<null>();
+              outputs.forEach(([value]) => deduplicatedOutputs.set(value, null));
+
+              for (const value of deduplicatedOutputs.keys()) {
                 for (const intersection of intersections) {
                   const fixed = intersection.fixedValue;
-                  if (fixed != null && value !== fixed) continue;
+                  if (fixed != null && !StableHasher.parameterValueEquality.equals(value, fixed)) continue;
 
                   const matchedSources = (intersection.rows.get(value) ?? 0) + 1;
 
@@ -315,7 +319,7 @@ export class RequestParameterEvaluators {
     for (const value of constraint.inputs) {
       if (value instanceof RequestParameterValue) {
         const evaluated = value.resolveWith(input);
-        if (fixedValue !== undefined && evaluated !== fixedValue) {
+        if (fixedValue !== undefined && !StableHasher.parameterValueEquality.equals(evaluated, fixedValue)) {
           throw uninstantiableException;
         }
 
