@@ -1,7 +1,11 @@
-# See Documentation for more information:
-# https://docs.powersync.com/usage/sync-rules
-bucket_definitions:
+# See the Sync Streams documentation for more information:
+# https://docs.powersync.com/sync/streams/overview
+config:
+  edition: 3
+
+streams:
   global:
-    data:
+    auto_subscribe: true
+    queries:
       - SELECT * FROM lists
       - SELECT * FROM todos

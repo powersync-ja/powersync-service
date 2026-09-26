@@ -45,7 +45,7 @@ export class InstanceClient<C extends sdk.NetworkClient = sdk.NetworkClient> ext
    * //     }
    * //   ],
    * //   active_sync_rules: {
-   * //     content: 'bucket "default" { ... }',
+   * //     content: 'streams: ...',
    * //     connections: [
    * //       {
    * //         id: 'default',
@@ -117,16 +117,15 @@ export class InstanceClient<C extends sdk.NetworkClient = sdk.NetworkClient> ext
    * Example:
    * ```typescript
    * const validation = await client.validate({
-   *   sync_rules: `bucket_definitions:
+   *   sync_rules: `config:
+   *   edition: 3
+   * streams:
    *   documents:
-   *     priority: 0
-   *     parameters: SELECT (request.parameters() ->> 'document_id') as document_id
-   *     data:
-   *       - SELECT * FROM documents WHERE id = bucket.document_id
+   *     query: SELECT * FROM documents WHERE id = subscription.parameter('document_id')
    * `
    * });
    * // {
-   * //   content: 'bucket_definitions: ...',
+   * //   content: 'streams: ...',
    * //   connections: [
    * //     {
    * //       id: 'default',

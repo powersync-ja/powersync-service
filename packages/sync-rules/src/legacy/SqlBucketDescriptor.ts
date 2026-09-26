@@ -20,6 +20,9 @@ import { SqlParameterQuery } from './SqlParameterQuery.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export interface QueryParseResult {
   /**
    * True if parsed in some form, even if there are errors.
@@ -29,6 +32,9 @@ export interface QueryParseResult {
   errors: SqlRuleError[];
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export class SqlBucketDescriptor implements BucketSource {
   name: string;
   private bucketParametersInternal: string[] | null = null;
@@ -165,6 +171,9 @@ export class SqlBucketDescriptor implements BucketSource {
   }
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export class BucketDefinitionDataSource implements BucketDataSource, BucketDataEvaluator {
   constructor(private descriptor: SqlBucketDescriptor) {}
 

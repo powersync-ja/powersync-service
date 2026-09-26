@@ -1165,7 +1165,7 @@ streams:
       }
     );
     expect(errors[0].message).toContain('Common table expressions require edition 3.');
-    expect(errors[2].message).toContain('Common table expressions are not supported');
+    expect(errors[2].message).toContain('Common table expressions require edition 3.');
   });
 
   test('applies subscription priorities', () => {

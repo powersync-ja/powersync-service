@@ -12,6 +12,7 @@ import { ParameterValueSet, RequestParameters, SqliteJsonValue, SqliteValue, Tab
  *
  *   1. Values in the row to sync are compared against request parameters: {@link CompareRowValueWithStreamParameter}.
  *   2. Values in the row to sync are compared against a subquery: {@link InOperator}.
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export interface BucketParameter {
   lookup: StaticLookup | EqualsRowInSubqueryLookup | OverlapsSubqueryLookup;
@@ -28,6 +29,9 @@ export interface BucketParameter {
   filterRow(row: TableRow): SqliteJsonValue[];
 }
 
+/**
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export interface SubqueryEvaluator {
   parameterTable: TablePattern;
 
@@ -40,6 +44,9 @@ export interface SubqueryEvaluator {
   hydrateLookupsForRequest(hydrationState: HydrationState): (params: RequestParameters) => ScopedParameterLookup[];
 }
 
+/**
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export interface SubqueryLookups {
   lookups: UnscopedParameterLookup[];
   /**
@@ -50,6 +57,7 @@ export interface SubqueryLookups {
 
 /**
  * An association of rows to subscription parameters that does not depend on a subquery.
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export interface StaticLookup {
   type: 'static';
@@ -65,6 +73,7 @@ export interface StaticLookup {
 
 /**
  * An association of rows that is matched if a value in the source row is contained in the results of a subquery.
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export interface EqualsRowInSubqueryLookup {
   type: 'in';
@@ -74,6 +83,7 @@ export interface EqualsRowInSubqueryLookup {
 /**
  * An association of rows that is matched if a source-row value (interpreted as a JSON array) overlaps with rows
  * contained in the results of a subqery.
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export interface OverlapsSubqueryLookup {
   type: 'overlap';

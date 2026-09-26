@@ -244,7 +244,7 @@ export class StreamQueryParser {
 
   /**
    * Process the AST of a statement, returning whether it's close enough to a valid select statement to be supported for
-   * sync streams (allowing us to process an invalid statement further to perhaps collect more errors).
+   * Sync Streams (allowing us to process an invalid statement further to perhaps collect more errors).
    */
   private processAst(node: Statement, options: { forSubquery: boolean }): boolean {
     if (node.type != 'select') {
@@ -557,7 +557,7 @@ export class StreamQueryParser {
     if (name == null) {
       // For unqualified references, there must be a single table in scope. We don't allow unqualified references if
       // there are multiple tables because we don't know which column is available in which table with certainty (and
-      // don't want to re-compile sync streams on schema changes). So, we just refuse to resolve those ambigious
+      // don't want to re-compile Sync Streams on schema changes). So, we just refuse to resolve those ambigious
       // references.
       const defaultResultSet = this.statementScope.defaultResultSet;
       if (defaultResultSet) {

@@ -41,7 +41,7 @@ export interface HydrationInput extends CreateSourceParams {
 }
 
 /**
- * A BucketSource is a _logical_ bucket or sync stream definition. It is primarily used to group together
+ * A BucketSource is a _logical_ bucket or Sync Stream definition. It is primarily used to group together
  * related BucketDataSource, BucketParameterLookupSource and BucketParameterQuerierSource definitions,
  * for the purpose of subscribing to specific streams. It does not directly define the implementation
  * or replication process.
@@ -99,7 +99,7 @@ export type ScopedEvaluateParameterRow = (sourceTable: SourceTableRef, row: Sqli
  * Encodes a static definition of a bucket source, as parsed from sync rules or stream definitions.
  *
  * This does not require any "hydration" itself: All results are independent of bucket names.
- * The higher-level HydratedSyncRules will use a HydrationState to generate bucket names.
+ * The higher-level HydratedSyncConfig will use a HydrationState to generate bucket names.
  */
 export interface BucketDataSource {
   /**

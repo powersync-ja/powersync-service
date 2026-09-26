@@ -17,7 +17,7 @@ When the service lifecycle starts, `ReplicationEngine.start()` starts every regi
 
 An `AbstractReplicator` is responsible for source-level orchestration. It does not apply individual source rows itself. Instead, it:
 
-1. Loads sync config from the configured sync rules provider.
+1. Reads the sync config YAML from wherever the service configuration points to.
 2. Persists changed sync config through `BucketStorageFactory.configureSyncRules()`.
 3. Repeatedly refreshes the set of replication streams that should be running.
 4. Acquires a replication lock for new streams.

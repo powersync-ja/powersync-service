@@ -16,6 +16,9 @@ import { EvaluateRowOptions, SourceSchema, TableRow, UnscopedEvaluationResult } 
 import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { StreamVariant } from './variant.js';
 
+/**
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export class SyncStream implements BucketSource {
   name: string;
   subscribedToByDefault: boolean;
@@ -79,6 +82,9 @@ export class SyncStream implements BucketSource {
   }
 }
 
+/**
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export class SyncStreamDataSource implements BucketDataSource, BucketDataEvaluator {
   constructor(
     private stream: SyncStream,
@@ -87,7 +93,7 @@ export class SyncStreamDataSource implements BucketDataSource, BucketDataEvaluat
   ) {}
 
   /**
-   * Not relevant for sync streams.
+   * Not relevant for Sync Streams.
    */
   get bucketParameters() {
     return [];
