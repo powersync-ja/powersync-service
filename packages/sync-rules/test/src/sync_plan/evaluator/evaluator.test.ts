@@ -1,6 +1,7 @@
 import * as sqlite from 'node:sqlite';
 import { describe, expect, test } from 'vitest';
 import {
+  CompatibilityContext,
   DEFAULT_HYDRATION_STATE,
   DEFAULT_TAG,
   deserializeSyncPlan,
@@ -550,6 +551,147 @@ streams:
     expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual(['stream|0["user"]']);
   });
 
+  syncTest('intersection of scalar and expanded request data', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT * FROM issues WHERE a = auth.parameter('x') AND a IN auth.parameter('y')
+`);
+
+    function queryWith(x: string, y: string[]) {
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user', x, y }),
+        hasDefaultStreams: true,
+        streams: {}
+      });
+      expect(errors).toStrictEqual([]);
+      expect(querier.hasDynamicBuckets).toStrictEqual(false);
+      return querier.staticBuckets.map((e) => e.bucket);
+    }
+
+    expect(queryWith('p1', ['p2', 'p2'])).toStrictEqual([]);
+    expect(queryWith('p1', ['p1', 'p2'])).toStrictEqual(['stream|0["p1"]']);
+  });
+
+  syncTest(
+    'intersection of large expanded request data',
+    ({ sync }) => {
+      // Regression test for https://github.com/powersync-ja/powersync-service/pull/782#pullrequestreview-5140431191:
+      // For intersections between request parameters, ensure we use an efficient filter. This test relies on a 1s
+      // timeout, which catches quadratic behavior.
+      const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT * FROM issues WHERE a IN auth.parameter('x') AND a IN auth.parameter('y') AND a IN auth.parameter('z')
+`);
+
+      const x: number[] = [];
+      const y: number[] = [];
+      const z: number[] = [1, 2, 3, 4, 5];
+
+      for (let i = 0; i < 50_000; i++) {
+        x.push(i);
+        y.push(i);
+      }
+
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user', x, y, z }),
+        hasDefaultStreams: true,
+        streams: {}
+      });
+      expect(errors).toStrictEqual([]);
+      expect(querier.hasDynamicBuckets).toStrictEqual(false);
+      expect(querier.staticBuckets.map((b) => b.bucket)).toStrictEqual(z.map((param) => `stream|0[${param}]`));
+    },
+    1000
+  );
+
+  syncTest('partially overlapping intersections', ({ sync }) => {
+    // This query has two intersections: (x, y) and (x, z). Currently, the compiler emits distinct parameters for the
+    // same lookup. But this plan otherwise corresponds to the query SELECT * FROM issues WHERE
+    //     a IN auth.parameter('x') AND a IN auth.parameter('y') AND
+    //     b IN auth.parameter('x') AND b IN auth.parameter('z')
+
+    function parameter(key: string) {
+      return {
+        type: 'table_valued',
+        functionName: 'json_each',
+        functionInputs: [
+          {
+            type: 'function',
+            function: '->>',
+            parameters: [
+              { type: 'data', source: { request: 'auth' } },
+              { type: 'lit_string', value: key }
+            ]
+          }
+        ],
+        outputs: [{ type: 'data', source: { column: 'value' } }],
+        filters: []
+      };
+    }
+    const plan = deserializeSyncPlan({
+      dataSources: [],
+      buckets: [{ hash: 5373205, uniqueName: 'stream|0', sources: [] }],
+      parameterIndexes: [],
+      streams: [
+        {
+          stream: { name: 'stream', priority: 3, isSubscribedByDefault: true },
+          queriers: [
+            {
+              requestFilters: [],
+              lookupStages: [[parameter('x'), parameter('y'), parameter('z')]],
+              bucket: 0,
+              sourceInstantiation: [
+                {
+                  type: 'intersection',
+                  values: [
+                    { type: 'lookup', lookup: { stageId: 0, idInStage: 0 }, resultIndex: 0 },
+                    { type: 'lookup', lookup: { stageId: 0, idInStage: 1 }, resultIndex: 0 }
+                  ]
+                },
+                {
+                  type: 'intersection',
+                  values: [
+                    { type: 'lookup', lookup: { stageId: 0, idInStage: 0 }, resultIndex: 0 },
+                    { type: 'lookup', lookup: { stageId: 0, idInStage: 2 }, resultIndex: 0 }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      version: 1
+    });
+    const desc = sync.hydrateConfig(
+      new PrecompiledSyncConfig(plan, new CompatibilityContext({ edition: 3 }), {
+        defaultSchema: 'ignored',
+        sourceText: 'ignored'
+      })
+    );
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user', x: [1, 2, 3, 4, 5, 6], y: [2, 4, 6], z: [1, 3, 5] }),
+      hasDefaultStreams: true,
+      streams: {}
+    });
+
+    expect(errors).toStrictEqual([]);
+    expect(querier.hasDynamicBuckets).toStrictEqual(false);
+
+    // There are no rows where x both intersects with y and z, so this should result in no buckets.
+    expect(querier.staticBuckets.map((b) => b.bucket)).toStrictEqual([]);
+  });
+
   syncTest('parameter lookups', async ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
@@ -846,11 +988,7 @@ streams:
 
     // Duplicates do not need to be removed here, but they must not make lookup
     // columns independent and create impossible pairs like [2, "A"].
-    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual([
-      'stream|0[1,"A"]',
-      'stream|0[1,"A"]',
-      'stream|0[2,"B"]'
-    ]);
+    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual(['stream|0[1,"A"]', 'stream|0[2,"B"]']);
   });
 
   syncTest('preserves correlation across bigint lookup output columns', async ({ sync }) => {
@@ -1103,8 +1241,8 @@ streams:
 
     expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual([
       'stream|0["a1","b1"]',
-      'stream|0["a1","b2"]',
       'stream|0["a2","b1"]',
+      'stream|0["a1","b2"]',
       'stream|0["a2","b2"]'
     ]);
   });
