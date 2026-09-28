@@ -1169,9 +1169,7 @@ bucket_definitions:
     expect(errors).toHaveLength(1);
     expect(errors[0].type).toEqual('warning');
     expect(errors[0].message).toContain('Sync Rules (`bucket_definitions`) are deprecated');
-    expect(errors[0].message).toContain(
-      'https://docs.powersync.com/sync/rules/migrate-to-sync-streams'
-    );
+    expect(errors[0].message).toContain('https://docs.powersync.com/sync/rules/migrate-to-sync-streams');
   });
 
   test('does not warn about bucket_definitions for a streams config', () => {
