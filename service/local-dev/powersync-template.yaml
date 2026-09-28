@@ -19,7 +19,7 @@ port: 8080
 
 sync_rules:
   # This path is relative to the `powersync.yaml` file
-  path: sync-rules.yaml
+  path: sync-config.yaml
 
 # Client (application end user) authentication settings
 client_auth:
