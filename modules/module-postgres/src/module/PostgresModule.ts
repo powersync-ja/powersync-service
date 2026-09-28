@@ -7,8 +7,6 @@ import {
   replication,
   system
 } from '@powersync/service-core';
-import * as jpgwire from '@powersync/service-jpgwire';
-import { ReplicationMetric } from '@powersync/service-types';
 import { PostgresRouteAPIAdapter } from '../api/PostgresRouteAPIAdapter.js';
 import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
 import { PgManager } from '../replication/PgManager.js';
@@ -29,17 +27,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     });
   }
 
-  async onInitialized(context: system.ServiceContextContainer): Promise<void> {
-    // Record replicated bytes using global jpgwire metrics. Only registered if this module is replicating
-    if (context.replicationEngine) {
-      jpgwire.setMetricsRecorder({
-        addBytesRead(bytes) {
-          context.metricsEngine.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES).add(bytes);
-        }
-      });
-      this.logger.info('Successfully set up connection metrics recorder for PostgresModule.');
-    }
-  }
+  async onInitialized(): Promise<void> {}
 
   protected createRouteAPIAdapter(): api.RouteAPI {
     return PostgresRouteAPIAdapter.withConfig(this.resolveConfig(this.decodedConfig!));
