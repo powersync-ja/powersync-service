@@ -18,7 +18,7 @@ npm-error.log
 .local-dev
 .probes
 powersync.yaml
-sync-rules.yaml
+sync-config.yaml
 
 
 packages/*/manifest.json

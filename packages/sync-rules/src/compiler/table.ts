@@ -78,7 +78,7 @@ export class PhysicalSourceResultSet extends BaseSourceResultSet {
      * streams.
      *
      * This information must only be used to generate analysis warnings, e.g. for column references that don't exist in
-     * resolved tables. It must not affect how sync streams are compiled, as that is always schema-independent.
+     * resolved tables. It must not affect how Sync Streams are compiled, as that is always schema-independent.
      */
     readonly schemaTablesForWarnings: SourceSchemaTable[]
   ) {

@@ -89,7 +89,7 @@ export class BucketChecksumState {
    * subscribed to, we keep an index of the stream names to their index in that array.
    *
    * This is used to compress the representation of buckets in `checkpoint` and `checkpoint_diff` lines: For buckets
-   * that are part of sync rules or default streams, we need to include the name of the defining sync rule or definition
+   * that are part of legacy Sync Rules or default streams, we need to include the name of the defining bucket definition or stream
    * yielding that bucket (so that clients can track progress for default streams).
    * But instead of sending the name for each bucket, we use the fact that it's part of the streams array and only send
    * their index, reducing the size of those messages.
@@ -817,7 +817,7 @@ function logCheckpoint(
 }
 
 /**
- * Format a breakdown of dynamic buckets by sync stream or legacy bucket definition.
+ * Format a breakdown of dynamic buckets by Sync Stream or legacy bucket definition.
  *
  * Sorts definitions by count (descending), includes the top 100, and returns both the
  * formatted message string and the counts record suitable for structured log data.
@@ -835,7 +835,7 @@ function formatBucketDefinitionBreakdown(
   const allSorted = Array.from(bucketsByDefinition.entries()).sort((a, b) => b[1] - a[1]);
   const sortedDefinitions = allSorted.slice(0, maxLoggedDefinitions);
 
-  const sourceLabel = bucketSourceType == BucketSourceType.SYNC_STREAM ? 'sync stream' : 'bucket definition';
+  const sourceLabel = bucketSourceType == BucketSourceType.SYNC_STREAM ? 'Sync Stream' : 'bucket definition';
   let message = `\nBuckets by ${sourceLabel}:`;
   const countsByDefinition: Record<string, number> = {};
   for (const [definition, count] of sortedDefinitions) {

@@ -101,7 +101,7 @@ export class HydratedSyncConfig {
     const hydrationState = params.createParams.hydrationState;
     const definitions = params.definitions;
     if (definitions.length == 0) {
-      throw new Error('HydratedSyncRules requires at least one SyncConfig definition');
+      throw new Error('HydratedSyncConfig requires at least one SyncConfig definition');
     }
 
     this.sourceDefinitions = [...definitions];
@@ -288,7 +288,7 @@ export class HydratedSyncConfig {
   private assertSingleSourceDefinition(debugName: string) {
     // We may split the types in the future to enforce this on a type level instead of runtime level
     if (this.sourceDefinitions.length != 1) {
-      throw new Error(`${debugName} is not supported for HydratedSyncRules with multiple SyncConfigs`);
+      throw new Error(`${debugName} is not supported for HydratedSyncConfig with multiple SyncConfigs`);
     }
   }
 }
@@ -301,7 +301,7 @@ function assertSharedCompatibility(definitions: SyncConfig[]): CompatibilityCont
 
   for (const definition of definitions) {
     if (!definition.compatibility.equals(compatibility)) {
-      throw new Error('All SyncConfigs in a HydratedSyncRules instance must use the same CompatibilityContext');
+      throw new Error('All SyncConfigs in a HydratedSyncConfig instance must use the same CompatibilityContext');
     }
   }
 

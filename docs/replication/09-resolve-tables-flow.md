@@ -73,7 +73,7 @@ There are two entry paths:
 
 These both produce a `SourceEntityDescriptor`, describing the table to replicate.
 
-### 2. Match sync-rule patterns
+### 2. Match sync config table patterns
 
 For each discovered table, the system finds all matching `TablePattern`s.
 
