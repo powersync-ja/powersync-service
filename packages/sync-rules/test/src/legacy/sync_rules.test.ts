@@ -1141,7 +1141,7 @@ streams:
     );
 
     expect(errors).toHaveLength(1);
-    expect(errors[0].message).toContain('This is using an alpha version of Sync Streams. We recommend upgrading');
+    expect(errors[0].message).toContain('This is using the deprecated alpha version of Sync Streams');
   });
 
   test('does not support CTEs', () => {

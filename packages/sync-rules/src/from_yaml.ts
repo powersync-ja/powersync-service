@@ -331,7 +331,7 @@ export class SyncConfigFromYaml {
     // This is with config.edition <= 2, we want to encourage users with streams to migrate to version 3 to use
     // compiled sync plans.
     streamMap?.reportError(
-      'This is using an alpha version of Sync Streams. We recommend upgrading `config.edition` to version 3 to support the latest features.',
+      'This is using the deprecated alpha version of Sync Streams. It will be removed in the next major version. Upgrade `config.edition` to version 3.',
       'warning'
     );
 
