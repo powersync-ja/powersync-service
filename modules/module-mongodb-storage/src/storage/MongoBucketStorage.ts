@@ -359,7 +359,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
       {
-        // Persisted name, do not rename. See AGENTS.md backwards-compatibility.
+        // Uses the legacy id "sync_rules" for backwards-compatibility. See AGENTS.md.
         _id: 'sync_rules'
       },
       {
@@ -591,7 +591,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
       {
-        // Persisted name, do not rename. See AGENTS.md backwards-compatibility.
+        // Uses the legacy id "sync_rules" for backwards-compatibility. See AGENTS.md.
         _id: 'sync_rules'
       },
       {

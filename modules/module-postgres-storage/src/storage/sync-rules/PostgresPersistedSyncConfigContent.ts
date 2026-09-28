@@ -78,7 +78,7 @@ export class PostgresPersistedReplicationStream extends storage.PersistedReplica
   async lock(): Promise<storage.ReplicationLock> {
     const manager = new lib_postgres.PostgresLockManager({
       db: this.db,
-      // Persisted lock name, do not rename. See AGENTS.md backwards-compatibility.
+      // Uses the legacy "sync_rules_" lock name prefix for backwards-compatibility. See AGENTS.md.
       name: `sync_rules_${this.replicationStreamId}_${this.replicationStreamName}`
     });
     const lockHandle = await manager.acquire();
