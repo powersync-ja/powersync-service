@@ -27,8 +27,6 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     });
   }
 
-  async onInitialized(): Promise<void> {}
-
   protected createRouteAPIAdapter(): api.RouteAPI {
     return PostgresRouteAPIAdapter.withConfig(this.resolveConfig(this.decodedConfig!));
   }

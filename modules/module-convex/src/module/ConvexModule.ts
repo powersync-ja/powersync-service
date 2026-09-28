@@ -23,8 +23,6 @@ export class ConvexModule extends replication.ReplicationModule<types.ConvexConn
     });
   }
 
-  async onInitialized(context: system.ServiceContextContainer): Promise<void> {}
-
   protected createRouteAPIAdapter(): api.RouteAPI {
     return new ConvexRouteAPIAdapter(this.resolveConfig(this.decodedConfig!));
   }

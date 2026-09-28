@@ -23,8 +23,6 @@ export class MSSQLModule extends replication.ReplicationModule<types.MSSQLConnec
     });
   }
 
-  async onInitialized(context: system.ServiceContextContainer): Promise<void> {}
-
   protected createRouteAPIAdapter(): api.RouteAPI {
     return new MSSQLRouteAPIAdapter(this.resolveConfig(this.decodedConfig!));
   }
