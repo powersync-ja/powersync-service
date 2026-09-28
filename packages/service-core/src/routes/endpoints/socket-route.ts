@@ -16,6 +16,10 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
       const { routerEngine, metricsEngine, syncContext } = service_context;
       const streamStart = Date.now();
 
+      // Format client-controlled values before registering connection resources.
+      const formattedAppMetadata = params.app_metadata ? limitParamsForLogging(params.app_metadata) : undefined;
+      const formattedClientParams = params.parameters ? limitParamsForLogging(params.parameters) : undefined;
+
       logger.defaultMeta = {
         ...logger.defaultMeta,
         user_id: context.token_payload!.userIdJson,
@@ -99,13 +103,12 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         tracker.setCompressed(connection.tracker.encoding);
       }
 
-      const formattedAppMetadata = params.app_metadata ? limitParamsForLogging(params.app_metadata) : undefined;
-      logger.info('Sync stream started', {
-        app_metadata: formattedAppMetadata,
-        client_params: params.parameters ? limitParamsForLogging(params.parameters) : undefined
-      });
-
       try {
+        logger.info('Sync stream started', {
+          app_metadata: formattedAppMetadata,
+          client_params: formattedClientParams
+        });
+
         for await (const data of sync.streamResponse({
           syncContext: syncContext,
           bucketStorage: bucketStorage,
