@@ -17,7 +17,7 @@ storage:
 
 port: 8080
 
-sync_rules:
+sync_config:
   # This path is relative to the `powersync.yaml` file
   path: sync-config.yaml
 
