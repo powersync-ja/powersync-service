@@ -27,6 +27,9 @@ import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { DetectRequestParameters } from './validators.js';
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export interface TableValuedFunctionSqlParameterQueryOptions {
   sql: string;
   parameterExtractors: Record<string, ParameterValueClause>;
@@ -52,6 +55,7 @@ export interface TableValuedFunctionSqlParameterQueryOptions {
  *    SELECT json_each.value as v FROM json_each(request.parameters() -> 'array')
  *
  * This can currently not be combined with parameter table queries or multiple table-valued functions.
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export class TableValuedFunctionSqlParameterQuery {
   static fromSql(

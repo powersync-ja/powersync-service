@@ -150,7 +150,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
           };
           let errors: service_types.ReplicationError[] = [];
           if (collection.type == 'view') {
-            errors.push({ level: 'warning', message: `Collection ${schema}.${tablePattern.name} is a view` });
+            errors.push({ level: 'warning', message: `Collection ${schema}.${collection.name} is a view` });
           } else {
             errors.push(...validatePostImages(schema, collection));
           }

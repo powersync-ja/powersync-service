@@ -182,7 +182,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         throw e;
       }
     } else {
-      this.logger.info('No sync streams or rules configured - configure via API');
+      this.logger.info('No sync config configured - configure via API');
     }
     let useFastRefresh = true;
     const fastRefreshDeadline = Date.now() + FAST_REFRESH_TIMEOUT_MS;

@@ -27,7 +27,7 @@ export class TimeValuePrecision {
  * A historical issue of the PowerSync service that can only be changed in a backwards-incompatible manner.
  *
  * To avoid breaking existing users, fixes to those quirks are opt-in: Users either have to use `fixed_quirks` list when
- * defining sync rules or use a new feature such as sync streams where these issues are fixed by default.
+ * defining legacy Sync Rules or use a new feature such as Sync Streams where these issues are fixed by default.
  */
 export class CompatibilityOption {
   private constructor(

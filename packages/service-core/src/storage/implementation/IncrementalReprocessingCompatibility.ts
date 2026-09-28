@@ -11,8 +11,8 @@ export function isCompatible(
   logger: Logger
 ): boolean {
   if (updateConfig.plan == null) {
-    // Only support sync streams with serialized plans
-    logger.info(`Not using current sync streams - incremental reprocessing not supported`);
+    // Only support Sync Streams with serialized plans
+    logger.info(`Not using current Sync Streams - incremental reprocessing not supported`);
     return false;
   }
 
@@ -23,8 +23,8 @@ export function isCompatible(
   }
 
   if (existingPlans.some((plan) => plan == null)) {
-    // Only support sync streams with serialized plans
-    logger.info(`Existing replication stream not using current sync streams - incremental reprocessing not supported`);
+    // Only support Sync Streams with serialized plans
+    logger.info(`Existing replication stream not using current Sync Streams - incremental reprocessing not supported`);
     return false;
   }
 

@@ -18,7 +18,7 @@ import { PreparedParameterIndexLookupCreator } from './parameter_index_lookup_cr
 /**
  * Finds bucket parameters for a given request or subscription.
  *
- * In sync streams, queriers are represented as a DAG structure describing how to get from connection data to bucket
+ * In Sync Streams, queriers are represented as a DAG structure describing how to get from connection data to bucket
  * parameters.
  *
  * As an example, consider the following stream:

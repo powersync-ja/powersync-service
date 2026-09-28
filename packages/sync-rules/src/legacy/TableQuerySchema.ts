@@ -5,6 +5,7 @@ import { AvailableTable } from './sql_filters.js';
 /**
  * Exposes a list of {@link SourceSchemaTable}s as a {@link QuerySchema} by only exposing the subset of the schema
  * referenced in a `FROM` clause.
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export class TableQuerySchema implements QuerySchema {
   constructor(
