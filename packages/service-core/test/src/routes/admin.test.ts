@@ -103,13 +103,59 @@ bucket_definitions:
         request
       });
 
-      expect(response.errors).toEqual([
+      expect(response.errors).toContainEqual(
         expect.objectContaining({
           level: 'warning',
           location: { start_offset: 70, end_offset: 83 },
           message: 'Table public.missing_table not found'
         })
-      ]);
+      );
+    });
+
+    it('warns that bucket_definitions are deprecated', async () => {
+      const context = makeContext();
+
+      const response = await validate.handler({
+        context,
+        params: {
+          sync_rules: `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT * FROM missing_table
+`
+        },
+        request
+      });
+
+      expect(response.errors).toContainEqual(
+        expect.objectContaining({
+          level: 'warning',
+          message: expect.stringContaining('Sync Rules (`bucket_definitions`) are deprecated')
+        })
+      );
+    });
+
+    it('does not report the deprecation warning for a streams config', async () => {
+      const context = makeContext();
+
+      const response = await validate.handler({
+        context,
+        params: {
+          sync_rules: `
+config:
+  edition: 3
+streams:
+  mystream:
+    query: SELECT * FROM missing_table
+`
+        },
+        request
+      });
+
+      expect(response.errors).not.toContainEqual(
+        expect.objectContaining({ message: expect.stringContaining('are deprecated') })
+      );
     });
   });
 

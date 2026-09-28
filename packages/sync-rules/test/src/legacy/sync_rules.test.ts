@@ -20,6 +20,7 @@ import { StaticSqlParameterQuery } from '../../../src/legacy/StaticSqlParameterQ
 import {
   ASSETS,
   BASIC_SCHEMA,
+  fatalErrors,
   findQuerierLookups,
   lookupScope,
   normalizeQuerierOptions,
@@ -354,38 +355,44 @@ bucket_definitions:
 
   test('reject unsupported queries', () => {
     expect(
-      SqlSyncRules.validate(
-        `
+      fatalErrors(
+        SqlSyncRules.validate(
+          `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.user_id LIMIT 1
     data: []
     `,
-        PARSE_OPTIONS
+          PARSE_OPTIONS
+        )
       )
     ).toMatchObject([{ message: 'LIMIT is not supported' }]);
 
     expect(
-      SqlSyncRules.validate(
-        `
+      fatalErrors(
+        SqlSyncRules.validate(
+          `
 bucket_definitions:
   mybucket:
     data:
       - SELECT DISTINCT id, description FROM assets
     `,
-        PARSE_OPTIONS
+          PARSE_OPTIONS
+        )
       )
     ).toMatchObject([{ message: 'DISTINCT is not supported' }]);
 
     expect(
-      SqlSyncRules.validate(
-        `
+      fatalErrors(
+        SqlSyncRules.validate(
+          `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.user_id OFFSET 10
     data: []
     `,
-        PARSE_OPTIONS
+          PARSE_OPTIONS
+        )
       )
     ).toMatchObject([{ message: 'LIMIT is not supported' }]);
 
@@ -730,7 +737,7 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    expect(errors).toEqual([]);
+    expect(fatalErrors(errors)).toEqual([]);
     const hydrated = rules.hydrate(hydrationParams);
     expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'test' })).querier).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket["TEST"]', priority: 3 }],
@@ -906,12 +913,12 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(rules.errors).toMatchObject([
-      {
+    expect(rules.errors).toContainEqual(
+      expect.objectContaining({
         message: 'Column not found: other_id',
         type: 'warning'
-      }
-    ]);
+      })
+    );
   });
 
   test('null bucket definition', () => {
@@ -923,7 +930,7 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS, throwOnError: false }
     );
 
-    expect(rules.errors).toMatchObject([
+    expect(fatalErrors(rules.errors)).toMatchObject([
       {
         message: "'mybucket' bucket definition must be an object",
         type: 'fatal'
@@ -942,13 +949,13 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(errors).toMatchObject([
-      {
+    expect(errors).toContainEqual(
+      expect.objectContaining({
         message:
           "Potentially dangerous query based on parameters set by the client. The client can send any value for these parameters so it's not a good place to do authorization.",
         type: 'warning'
-      }
-    ]);
+      })
+    );
   });
 
   test('dangerous query errors - ignored', () => {
@@ -963,7 +970,7 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(errors).toEqual([]);
+    expect(fatalErrors(errors)).toEqual([]);
   });
 
   test('priorities on queries', () => {
@@ -981,7 +988,7 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(errors).toEqual([]);
+    expect(fatalErrors(errors)).toEqual([]);
 
     const hydrated = rules.hydrate(hydrationParams);
     expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
@@ -1007,7 +1014,7 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(errors).toEqual([]);
+    expect(fatalErrors(errors)).toEqual([]);
 
     const hydrated = rules.hydrate(hydrationParams);
     expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
@@ -1107,7 +1114,7 @@ event_definitions:
     `,
       PARSE_OPTIONS
     );
-    expect(errors).toStrictEqual([]);
+    expect(fatalErrors(errors)).toStrictEqual([]);
     expect(rules).not.toHaveProperty('eventDescriptors');
     expect(rules.eventDefinitions).toHaveLength(1);
 
@@ -1142,6 +1149,48 @@ streams:
 
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toContain('This is using the deprecated alpha version of Sync Streams');
+  });
+
+  test('warns that bucket_definitions are deprecated', () => {
+    const { errors } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT * FROM assets
+    `,
+      {
+        ...PARSE_OPTIONS,
+        // Should not throw, this is a warning.
+        throwOnError: true
+      }
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].type).toEqual('warning');
+    expect(errors[0].message).toContain('Sync Rules (`bucket_definitions`) are deprecated');
+    expect(errors[0].message).toContain(
+      'https://docs.powersync.com/sync/rules/migrate-to-sync-streams'
+    );
+  });
+
+  test('does not warn about bucket_definitions for a streams config', () => {
+    const { errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+
+streams:
+  a:
+    query: SELECT * FROM users
+    `,
+      {
+        ...PARSE_OPTIONS,
+        throwOnError: true
+      }
+    );
+
+    expect(errors).toEqual([]);
   });
 
   test('does not support CTEs', () => {
