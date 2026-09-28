@@ -1,0 +1,18 @@
+# Used by the MSSQL connection CLI check in .github/workflows/test.yml.
+replication:
+  connections:
+    - type: mssql
+      hostname: localhost
+      port: 1433
+      database: powersync
+      username: sa
+      password: !env PS_MSSQL_PASSWORD
+      additionalConfig:
+        trustServerCertificate: true
+
+storage:
+  type: mongodb
+  uri: mongodb://localhost:27017/powersync_test_connection
+
+telemetry:
+  disable_telemetry_sharing: true

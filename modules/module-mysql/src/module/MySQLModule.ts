@@ -25,8 +25,6 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
     });
   }
 
-  async onInitialized(context: system.ServiceContextContainer): Promise<void> {}
-
   protected createRouteAPIAdapter(): api.RouteAPI {
     return new MySQLRouteAPIAdapter(this.resolveConfig(this.decodedConfig!));
   }
