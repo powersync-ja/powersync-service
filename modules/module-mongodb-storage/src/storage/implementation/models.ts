@@ -308,6 +308,7 @@ export interface CustomWriteCheckpointDocument {
   _id: bson.ObjectId;
   user_id: string;
   checkpoint: bigint;
+  // Uses the legacy field name "sync_rules_id" for backwards-compatibility. See AGENTS.md.
   sync_rules_id: number;
   /**
    * Unlike managed write checkpoints, custom write checkpoints are flushed together with

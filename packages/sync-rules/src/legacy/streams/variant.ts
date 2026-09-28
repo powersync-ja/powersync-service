@@ -36,6 +36,7 @@ import { SyncStream } from './stream.js';
  * Multiple variants may cause the same row to get synced via different buckets. Depending on the request, users may
  * also receive multiple buckets with the same data. This is not an issue! Clients deduplicate rows received across
  * buckets, so we don't have to filter for this case in the sync service.
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export class StreamVariant {
   id: number;
@@ -388,6 +389,7 @@ export class StreamVariant {
 }
 /**
  * A stateless filter condition that only depends on the request itself, e.g. `WHERE token_parameters.is_admin`.
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export interface StaticRequestFilter {
   type: 'static';
@@ -397,6 +399,7 @@ export interface StaticRequestFilter {
 /**
  * A filter condition that depends on parameters and an evaluated subquery, e.g.
  * `WHERE request.user_id() IN (SELECT id FROM users WHERE ...)`.
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export interface SubqueryRequestFilter {
   type: 'dynamic';
@@ -409,6 +412,9 @@ export interface SubqueryRequestFilter {
    */
   matches(params: RequestParameters, results: SqliteJsonValue[]): boolean;
 }
+/**
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export type RequestFilter = StaticRequestFilter | SubqueryRequestFilter;
 
 type HydratedSubqueries = Map<SubqueryEvaluator, (params: RequestParameters) => ScopedParameterLookup[]>;

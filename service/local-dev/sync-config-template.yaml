@@ -1,8 +1,5 @@
 # See the Sync Streams documentation for more information:
 # https://docs.powersync.com/sync/streams/overview
-# Note that changes to this file are not watched.
-# The service needs to be restarted for changes to take effect.
-
 config:
   edition: 3
 

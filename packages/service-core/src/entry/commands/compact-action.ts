@@ -46,7 +46,7 @@ export function registerCompactAction(program: Command) {
       if (invalid.length > 0) {
         logger.error(
           `Invalid bucket names: ${invalid.join(', ')}. ` +
-            `Pass full bucket names (e.g., "global[]"), not bucket definition names (e.g., "global").`
+            `Pass full bucket names (e.g., "global[]"), not bucket definition or Sync Stream names (e.g., "global").`
         );
         process.exit(1);
       }

@@ -48,7 +48,13 @@ import {
   toBooleanParameterSetClause
 } from './sql_support.js';
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];
 
 Object.freeze(MATCH_CONST_TRUE);
@@ -59,6 +65,7 @@ Object.freeze(MATCH_CONST_FALSE);
  *
  * This is used to lookup references inside queries only, which is why this doesn't reference the schema name (that's
  * covered by {@link TablePattern}).
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export class AvailableTable {
   /**
@@ -108,6 +115,9 @@ export class AvailableTable {
   }
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export interface SqlToolsOptions {
   /**
    * Default table name, if any. I.e. SELECT FROM <table>.
@@ -165,6 +175,9 @@ export interface SqlToolsOptions {
   compatibilityContext: CompatibilityContext;
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export class SqlTools {
   readonly defaultTable?: AvailableTable;
   readonly valueTables: AvailableTable[];

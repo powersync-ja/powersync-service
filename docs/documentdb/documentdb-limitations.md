@@ -38,7 +38,7 @@ Dropping or renaming a replicated collection on the source is **not** propagated
 - After a collection is dropped, its already-synced rows remain in PowerSync storage instead of being removed.
 - After a collection is renamed, its rows remain under the old name and the new name is not picked up automatically.
 
-These DDL events are delivered differently (or not at all) through DocumentDB's cluster-level change stream. To recover, redeploy sync rules / trigger a resync. Regular document inserts, updates, and deletes are unaffected.
+These DDL events are delivered differently (or not at all) through DocumentDB's cluster-level change stream. To recover, redeploy the sync config or trigger a resync. Regular document inserts, updates, and deletes are unaffected.
 
 ## Large initial snapshots may not complete on legacy storage
 
