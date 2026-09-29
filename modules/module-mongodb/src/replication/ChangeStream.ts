@@ -526,7 +526,7 @@ export class ChangeStream extends replication.AbstractReplicationStream {
       if (
         e instanceof mongo.MongoServerError &&
         e.codeName == 'NoMatchingDocument' &&
-        e.errmsg?.includes('post-image was not found')
+        (e.errmsg?.includes('post-image was not found') || e.errmsg?.includes('pre-image was not found'))
       ) {
         throw new ChangeStreamInvalidatedError(e.errmsg, e);
       }
@@ -649,8 +649,11 @@ export class ChangeStream extends replication.AbstractReplicationStream {
               const hadRecentKeepalive = performance.now() - lastKeepalive < this.keepaliveIntervalMs;
               if (waitForCheckpointLsn == null && !hadRecentKeepalive) {
                 if (filteredCount > 0) {
-                  // Case 1a: Filtered-only traffic may be a transaction prefix with retained changes still unread.
-                  // Request a source barrier instead of publishing a checkpoint at this progress token.
+                  // Case 1a: A transaction can span batches: this batch may contain only filtered changes,
+                  // while retained changes from the same transaction are still unread. They share a timestamp,
+                  // so publishing a checkpoint here could acknowledge the transaction before its data is saved.
+                  // Request a source barrier; reaching it ensures those retained changes have been processed.
+                  // The progress token can still be saved below for recovery without publishing a checkpoint.
                   using _ = tracer.span('source_checkpoint');
                   waitForCheckpointLsn = await this.createBatchCheckpoint();
                 } else {
