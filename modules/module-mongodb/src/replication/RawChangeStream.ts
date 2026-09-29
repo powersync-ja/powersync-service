@@ -432,7 +432,7 @@ export function mapChangeStreamError(e: unknown) {
   } else if (
     isMongoServerError(e) &&
     e.codeName == 'NoMatchingDocument' &&
-    e.errmsg?.includes('post-image was not found')
+    (e.errmsg?.includes('post-image was not found') || e.errmsg?.includes('pre-image was not found'))
   ) {
     throw new ChangeStreamInvalidatedError(e.errmsg, e);
   } else if (isMongoServerError(e) && e.hasErrorLabel('NonResumableChangeStreamError')) {
