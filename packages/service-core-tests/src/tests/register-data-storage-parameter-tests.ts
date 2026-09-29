@@ -1,4 +1,4 @@
-import { CURRENT_STORAGE_VERSION, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
+import { JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import {
   ParameterIndexLookupCreator,
   RequestParameters,
@@ -16,14 +16,14 @@ import { bucketRequest } from '../test-utils/test-utils-index.js';
  * ```TypeScript
  *
  * describe('store - mongodb', function () {
- *  registerDataStorageTests(MONGO_STORAGE_FACTORY);
+ *  registerDataStorageParameterTests({ ...MONGO_STORAGE_FACTORY, storageVersion: storage.STORAGE_VERSION_4 });
  * });
  *
  * ```
  */
-export function registerDataStorageParameterTests(config: storage.TestStorageConfig) {
+export function registerDataStorageParameterTests(config: storage.TestStorageConfig & { storageVersion: number }) {
   const generateStorageFactory = config.factory;
-  const storageVersion = config.storageVersion ?? CURRENT_STORAGE_VERSION;
+  const storageVersion = config.storageVersion;
 
   test('save and load parameters', async () => {
     await using factory = await generateStorageFactory();

@@ -249,8 +249,7 @@ export const BaseStorageConfig = t
       .optional(),
     default_storage_version: t.number
       .meta({
-        description:
-          'Storage version to use when deploying a sync config that does not specify storage_version. Defaults to 2.'
+        description: 'Storage version to use when deploying a sync config that does not specify storage_version.'
       })
       .optional()
   })
