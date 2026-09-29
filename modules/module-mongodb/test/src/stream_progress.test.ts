@@ -17,10 +17,13 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
       let originalLsn: string;
       {
         await using context = await openChangeStreamTestContext(factory, { storageVersion });
-        await context.updateSyncRules(/* yaml */ ` bucket_definitions:
+        await context.updateSyncRules(/* yaml */ `
+          config:
+            edition: 3
+          streams:
             global:
-              data:
-                - SELECT _id AS id FROM documents WHERE _id = 1 `);
+              query: SELECT _id AS id FROM documents WHERE _id = 1
+        `);
         await context.db.createCollection('documents');
         await context.replicateSnapshot();
         await context.getCheckpoint();
@@ -115,7 +118,7 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
       await context.loadActiveSyncRules();
       context.startStreaming();
       expect(
-        (await context.getBucketData('global[]')).filter((op) => op.op == 'PUT').map((op) => op.object_id)
+        (await context.getBucketData('global|0[]')).filter((op) => op.op == 'PUT').map((op) => op.object_id)
       ).toEqual(['1']);
     });
 
@@ -125,7 +128,7 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
       {
         await using context = await openChangeStreamTestContext(factory, { storageVersion });
         await context.updateSyncRules(
-          'bucket_definitions:\n  global:\n    data:\n      - SELECT _id AS id FROM documents'
+          'config:\n  edition: 3\nstreams:\n  global:\n    query: SELECT _id AS id FROM documents'
         );
         await context.db.createCollection('documents');
         await context.replicateSnapshot();
@@ -168,7 +171,7 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
       await context.loadActiveSyncRules();
       context.startStreaming();
       await context.getCheckpoint();
-      const operations = await context.getBucketData('global[]');
+      const operations = await context.getBucketData('global|0[]');
       // Every insert in this transaction shares a clusterTime, but each has its own resume token.
       // A timestamp dedupe guard here would lose the unprocessed suffix after the third batch.
       expect(
@@ -189,7 +192,7 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
         {
           await using context = await openChangeStreamTestContext(factory, { storageVersion });
           await context.updateSyncRules(
-            'bucket_definitions:\n  global:\n    data:\n      - SELECT _id AS id FROM documents'
+            'config:\n  edition: 3\nstreams:\n  global:\n    query: SELECT _id AS id FROM documents'
           );
           await context.db.createCollection('documents');
           await context.replicateSnapshot();
