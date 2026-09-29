@@ -1,6 +1,6 @@
 import ajvModule from 'ajv';
 import { CompatibilityEdition, CompatibilityOption, TimeValuePrecision } from './compatibility.js';
-import { DEFAULT_STORAGE_VERSION, STORAGE_VERSIONS } from './StorageVersion.js';
+import { STORAGE_VERSIONS } from './StorageVersion.js';
 // Hack to make this work both in NodeJS and a browser
 const Ajv = ajvModule.default ?? ajvModule;
 const ajv = new Ajv({ allErrors: true, verbose: true });
@@ -144,8 +144,7 @@ export const syncRulesSchema: ajvModule.Schema = {
         },
         storage_version: {
           type: 'integer',
-          description: 'Storage version used by the storage database. By default, version 2 is used.',
-          default: DEFAULT_STORAGE_VERSION.version,
+          description: 'Storage version used by the storage database.',
           enum: [...STORAGE_VERSIONS.keys()]
         },
         timestamp_max_precision: {

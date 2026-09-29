@@ -491,26 +491,20 @@ bucket_definitions:
 
 describe('Sync Bucket Validation', register.registerBucketValidationTests);
 
-describe('Mongo Sync Bucket Storage - split operations', () =>
-  register.registerDataStorageDataTests(
-    mongoTestStorageFactoryGenerator({
-      url: env.MONGO_TEST_URL,
-      isCI: env.CI,
-      checksumOptions: {
-        bucketBatchLimit: 100,
-        operationBatchLimit: 1
-      }
-    })
-  ));
-
-describe('Mongo Sync Bucket Storage - split buckets', () =>
-  register.registerDataStorageDataTests(
-    mongoTestStorageFactoryGenerator({
-      url: env.MONGO_TEST_URL,
-      isCI: env.CI,
-      checksumOptions: {
-        bucketBatchLimit: 1,
-        operationBatchLimit: 100
-      }
-    })
-  ));
+for (const storageVersion of TEST_STORAGE_VERSIONS) {
+  for (const [name, checksumOptions] of [
+    ['split operations', { bucketBatchLimit: 100, operationBatchLimit: 1 }],
+    ['split buckets', { bucketBatchLimit: 1, operationBatchLimit: 100 }]
+  ] as const) {
+    describe(`Mongo Sync Bucket Storage - ${name} - v${storageVersion}`, () =>
+      register.registerDataStorageDataTests({
+        ...mongoTestStorageFactoryGenerator({
+          url: env.MONGO_TEST_URL,
+          isCI: env.CI,
+          checksumOptions
+        }),
+        storageVersion,
+        compressedBucketStorage: storageVersion >= 3
+      }));
+  }
+}

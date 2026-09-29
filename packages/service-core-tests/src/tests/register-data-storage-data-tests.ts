@@ -1,6 +1,5 @@
 import {
   BucketDataBatchOptions,
-  CURRENT_STORAGE_VERSION,
   getUuidReplicaIdentityBson,
   OplogEntry,
   reduceBucket,
@@ -28,14 +27,14 @@ const normalizeOplogData = (data: OplogEntry['data']) => {
  * ```TypeScript
  *
  * describe('store - mongodb', function () {
- *  registerDataStorageDataTests(MONGO_STORAGE_FACTORY);
+ *  registerDataStorageDataTests({ ...MONGO_STORAGE_FACTORY, storageVersion: storage.STORAGE_VERSION_4 });
  * });
  *
  * ```
  */
-export function registerDataStorageDataTests(config: storage.TestStorageConfig) {
+export function registerDataStorageDataTests(config: storage.TestStorageConfig & { storageVersion: number }) {
   const generateStorageFactory = config.factory;
-  const storageVersion = config.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
+  const storageVersion = config.storageVersion;
 
   test('releases test replication leases when leaving an await using scope', async () => {
     {
@@ -1800,8 +1799,8 @@ bucket_definitions:
  *
  * Exposed as a separate test so we can test with more storage parameters.
  */
-export function testChecksumBatching(config: storage.TestStorageConfig) {
-  const storageVersion = config.storageVersion ?? CURRENT_STORAGE_VERSION;
+export function testChecksumBatching(config: storage.TestStorageConfig & { storageVersion: number }) {
+  const storageVersion = config.storageVersion;
   test('checksums for multiple buckets', async () => {
     await using factory = await config.factory();
     const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(

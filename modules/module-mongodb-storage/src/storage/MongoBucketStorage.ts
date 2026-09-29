@@ -302,7 +302,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       options.storageVersion ??
       options.config.parsed.config.storageVersion ??
       this.options.defaultStorageVersion ??
-      storage.CURRENT_STORAGE_VERSION;
+      storage.STORAGE_VERSION_4;
     const storageConfig = getMongoStorageConfig(storageVersion);
     if (storageConfig.incrementalReprocessing) {
       return this.updateSyncConfigV3InTransaction(options, storageVersion, storageConfig, session);
