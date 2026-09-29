@@ -348,6 +348,32 @@ streams:
     ]);
   });
 
+  syncTest.skip('merges duplicate partition values represented as numbers and bigints', ({ sync }) => {
+    // Currently, parameter lookups treat number and bigints as non-equal. This is arguably incorrect, but fixing this
+    // requires compatibility options.
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+streams:
+  chat:
+    query: |
+      SELECT messages.*
+      FROM messages
+      JOIN conversations ON conversations.id = messages.conversation
+      JOIN json_each(conversations.members) AS members
+      WHERE auth.user_id() = CASE WHEN members.key = 0 THEN members.value ELSE CAST(members.value AS integer) END
+`);
+
+    // The first member is emitted as a plain number, the second (equal) member is forced to a bigint via CAST.
+    const conversations = new TestSourceTable('conversations');
+    expect(desc.evaluateParameterRow(conversations, { id: 'c', members: JSON.stringify([5, 5]) })).toStrictEqual([
+      {
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), [5]),
+        bucketParameters: [{ '0': 'c' }, { '0': 'c' }]
+      }
+    ]);
+  });
+
   syncTest('multiple inputs and outputs for parameter row', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
@@ -575,6 +601,35 @@ streams:
 
     expect(queryWith('p1', ['p2', 'p2'])).toStrictEqual([]);
     expect(queryWith('p1', ['p1', 'p2'])).toStrictEqual(['stream|0["p1"]']);
+  });
+
+  syncTest('intersection of scalar and expanded request data matches equal numbers and bigints', ({ sync }) => {
+    // Regression test: `x` is cast to an integer (represented as a bigint), while `y`'s elements are plain numbers
+    // parsed from the request JSON (via `json_each`). Both can represent the same integer, and the intersection
+    // optimization must recognize them as equal instead of comparing with strict `===`.
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT * FROM issues WHERE a = CAST(auth.parameter('x') AS integer) AND a IN auth.parameter('y')
+`);
+
+    function queryWith(x: number, y: number[]) {
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user', x, y }),
+        hasDefaultStreams: true,
+        streams: {}
+      });
+      expect(errors).toStrictEqual([]);
+      expect(querier.hasDynamicBuckets).toStrictEqual(false);
+      return querier.staticBuckets.map((e) => e.bucket);
+    }
+
+    expect(queryWith(5, [6, 7])).toStrictEqual([]);
+    expect(queryWith(5, [5, 6])).toStrictEqual(['stream|0[5]']);
   });
 
   syncTest(

@@ -64,6 +64,9 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
         function parametersEqual(a: SqliteParameterValue[], b: SqliteParameterValue[]) {
           if (a.length != b.length) return false;
 
+          // TODO: Can this use StableHasher.parameterValueEquality.equals instead of strict equality? Number and bigint
+          // bucket parameters should be equal, but ScopedParameterLookup.serializedRepresentation preserves number
+          // types and that cannot easily be fixed.
           return a.every((val, idx) => val === b[idx]);
         }
 

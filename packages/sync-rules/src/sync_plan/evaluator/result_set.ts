@@ -1,4 +1,4 @@
-import { HashMap, listEquality, StableHasher } from '../../compiler/equality.js';
+import { HashMap, listEquality, ParameterMap, StableHasher } from '../../compiler/equality.js';
 import { SqliteParameterValue } from '../../types.js';
 
 /**
@@ -139,12 +139,13 @@ export class ResultSet {
       ({ lookup }) => lookup.resultSetIndex === addedResultSetIndex
     );
 
-    if (intersection.fixedValue !== undefined) {
+    const fixedValue = intersection.fixedValue;
+    if (fixedValue !== undefined) {
       // All rows already in the result set satisfy the intersection and must match the fixed value in relevant columns.
       // So when checking a new row, we just need to check columns there.
       return function (_existingRow: ResultSetRow, added: SqliteParameterValue[]): boolean {
         for (const { outputIndex } of affectedColumnsInAddedResultSet) {
-          if (added[outputIndex] !== intersection.fixedValue) return false;
+          if (!StableHasher.parameterValueEquality.equals(added[outputIndex], fixedValue)) return false;
         }
 
         return true;
@@ -162,7 +163,10 @@ export class ResultSet {
         for (const { outputIndex } of affectedColumnsInAddedResultSet) {
           const value = added[outputIndex];
 
-          if (referenceValue !== undefined && value !== referenceValue) return false;
+          if (referenceValue !== undefined && !StableHasher.parameterValueEquality.equals(value, referenceValue)) {
+            return false;
+          }
+
           referenceValue = value;
         }
 
@@ -252,7 +256,7 @@ export class ResultSet {
     if (columns.length === 1) {
       // Fast path, we can use native sets.
       const [column] = columns;
-      const foundValues = new Map<SqliteParameterValue, T>();
+      const foundValues = new ParameterMap<T>();
 
       for (let i = 0; i < originalLength; i++) {
         const row = this.#rows[i];
