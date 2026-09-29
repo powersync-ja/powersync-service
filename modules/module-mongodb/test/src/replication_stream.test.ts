@@ -1,7 +1,9 @@
+import { ChangeStreamInvalidatedError } from '@module/replication/ChangeStream.js';
 import { DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER } from '@module/replication/MongoReplicationQueryProvider.js';
 import { openMongoReplicationStream, readMongoReplicationStream } from '@module/replication/MongoReplicationStream.js';
-import { ChangeStreamBatch } from '@module/replication/RawChangeStream.js';
+import { ChangeStreamBatch, mapChangeStreamError } from '@module/replication/RawChangeStream.js';
 import { mongo } from '@powersync/lib-service-mongodb';
+import { DatabaseConnectionError } from '@powersync/lib-services-framework';
 import { describe, expect, test, vi } from 'vitest';
 import { env } from './env.js';
 
@@ -10,6 +12,27 @@ import { env } from './env.js';
  * the driver's command method; reader tests supply BSON batches with explicit events and resume tokens.
  */
 describe('MongoDB replication stream reader', () => {
+  test.each(['pre', 'post'])('invalidates replication when a required %s-image is missing', (image) => {
+    const error = new mongo.MongoServerError({
+      code: 47,
+      codeName: 'NoMatchingDocument',
+      errmsg: `Change stream was configured to require a ${image}-image, but the ${image}-image was not found for event: example`
+    });
+
+    // Invalidated streams trigger a fresh snapshot instead of retrying an unrecoverable position.
+    expect(() => mapChangeStreamError(error)).toThrow(ChangeStreamInvalidatedError);
+  });
+
+  test('does not invalidate replication for unrelated NoMatchingDocument errors', () => {
+    const error = new mongo.MongoServerError({
+      code: 47,
+      codeName: 'NoMatchingDocument',
+      errmsg: 'No matching document found'
+    });
+
+    expect(() => mapChangeStreamError(error)).toThrow(DatabaseConnectionError);
+  });
+
   test.each([
     { isDocumentDb: false, multipleDatabases: false, usePostImages: false },
     { isDocumentDb: false, multipleDatabases: false, usePostImages: true },
