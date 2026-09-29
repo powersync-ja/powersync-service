@@ -208,10 +208,11 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
 
   test('reports each sync config error with its source location when parsing fails', async () => {
     const yaml = `
-bucket_definitions:
+config:
+  edition: 3
+streams:
   global:
-    data:
-      - SELECT id FROM test_table
+    query: SELECT id FROM test_table
     unknown_key: true
 `;
     const content = makeSyncRulesContent();
