@@ -82,7 +82,9 @@ bucket_definitions:
     ]);
     expect(batchBefore.targetOp).toEqual(null);
 
+    // Select buckets explicitly to exercise compaction regardless of backend scheduling thresholds.
     await compactActive(factory, {
+      compactBuckets: ['global[]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
@@ -204,6 +206,7 @@ bucket_definitions:
     ]);
 
     await compactActive(factory, {
+      compactBuckets: ['global[]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
@@ -303,6 +306,7 @@ bucket_definitions:
     const checkpoint2 = writer2.last_flushed_op!;
 
     await compactActive(factory, {
+      compactBuckets: ['global[]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
@@ -418,6 +422,7 @@ bucket_definitions:
     const checkpoint = writer.last_flushed_op!;
 
     await compactActive(factory, {
+      compactBuckets: ['grouped["b1"]', 'grouped["b2"]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       clearBatchLimit: 100,
       moveBatchLimit: 100,
       moveBatchQueryLimit: 100, // Larger limit for a larger window of operations
@@ -509,6 +514,7 @@ bucket_definitions:
     await writer.flush();
 
     await compactActive(factory, {
+      compactBuckets: ['global[]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
@@ -597,6 +603,7 @@ bucket_definitions:
     await writer2.flush();
 
     await compactActive(factory, {
+      compactBuckets: ['global[]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       clearBatchLimit: 20,
       moveBatchLimit: 10,
       moveBatchQueryLimit: 10,
@@ -660,6 +667,7 @@ bucket_definitions:
 
     // With default options, Postgres compaction should use the active checkpoint.
     await compactActive(factory, {
+      compactBuckets: ['global[]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
       minBucketChanges: 1,
