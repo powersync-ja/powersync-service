@@ -5,18 +5,28 @@ import { getTestStorage } from '../test-utils/leased-storage.js';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { compactActive } from './util.js';
 
-export function registerParameterCompactTests(config: storage.TestStorageConfig) {
+export function registerParameterCompactTests(config: storage.TestStorageConfig & { storageVersion: number }) {
   const generateStorageFactory = config.factory;
+
+  function parameterLookup(content: storage.PersistedSyncConfigContent, value: string) {
+    const parsed = content.parsed(test_utils.PARSE_OPTIONS);
+    const sources = [...parsed.syncConfigs[0].config.bucketParameterLookupSources];
+    expect(sources).toHaveLength(1);
+    return ScopedParameterLookup.direct(parsed.hydrationState.getParameterIndexLookupScope(sources[0]), [value]);
+  }
 
   test('compacting parameters', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules(
-      updateSyncRulesFromYaml(`
+      updateSyncRulesFromYaml(
+        `
 bucket_definitions:
   test:
     parameters: select id from test where id = request.user_id()
     data: []
-    `)
+    `,
+        { storageVersion: config.storageVersion }
+      )
     );
     const bucketStorage = await getTestStorage(factory, syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -43,7 +53,7 @@ bucket_definitions:
 
     await writer.commit('1/1');
 
-    const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['t1']);
+    const lookup = parameterLookup(syncRules.syncConfigContent[0], 't1');
 
     const checkpoint1 = await bucketStorage.getCheckpoint();
     const parameters1 = await checkpoint1.getParameterSets([lookup], 1000);
@@ -93,12 +103,15 @@ bucket_definitions:
     test(`compacting deleted parameters with cache size ${cacheLimit}`, async () => {
       await using factory = await generateStorageFactory();
       const syncRules = await factory.updateSyncRules(
-        updateSyncRulesFromYaml(`
+        updateSyncRulesFromYaml(
+          `
 bucket_definitions:
   test:
     parameters: select id from test where uid = request.user_id()
     data: []
-    `)
+    `,
+          { storageVersion: config.storageVersion }
+        )
       );
       const bucketStorage = await getTestStorage(factory, syncRules);
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -149,7 +162,7 @@ bucket_definitions:
       });
       await writer.commit('3/1');
 
-      const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['u1']);
+      const lookup = parameterLookup(syncRules.syncConfigContent[0], 'u1');
 
       const checkpoint1 = await bucketStorage.getCheckpoint();
       const parameters1 = await checkpoint1.getParameterSets([lookup], 1000);
