@@ -37,10 +37,13 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB snapshot quer
           }
         }
       });
-      await context.updateSyncRules(/* yaml */ ` bucket_definitions:
+      await context.updateSyncRules(/* yaml */ `
+        config:
+          edition: 3
+        streams:
           global:
-            data:
-              - SELECT _id AS id, label FROM documents `);
+            query: SELECT _id AS id, label FROM documents
+      `);
       // The collection treats 'LIVE' and 'live' as equal by default. Provider filters use simple
       // collation, so id 6 must be excluded for its 'LIVE' label even though it passes the id conditions.
       const collection = await context.db.createCollection<{ _id: number; label: string }>('documents', {
@@ -50,7 +53,7 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB snapshot quer
         Array.from({ length: 14 }, (_, i) => ({ _id: i + 1, label: (i + 1) % 3 == 0 ? 'LIVE' : 'live' }))
       );
       await context.replicateSnapshot();
-      const rows = (await context.getBucketData('global[]')).filter((op) => op.op == 'PUT');
+      const rows = (await context.getBucketData('global|0[]')).filter((op) => op.op == 'PUT');
       // Matching ids 4, 8 and 10 require two pages at a page size of two. After the first page ends
       // at id 8, pagination adds its own $expr requiring _id > 8. It must combine that condition
       // with the provider's $expr: id 10 is included, while ids 9 and 11 through 14 remain excluded.
@@ -78,10 +81,13 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB snapshot quer
           createReplicationQueryProvider: () => ({ validateSource, openChangeStream, getSnapshotFilter })
         }
       });
-      await context.updateSyncRules(/* yaml */ ` bucket_definitions:
+      await context.updateSyncRules(/* yaml */ `
+        config:
+          edition: 3
+        streams:
           global:
-            data:
-              - SELECT _id AS id FROM documents `);
+            query: SELECT _id AS id FROM documents
+      `);
       await expect(context.replicateSnapshot()).rejects.toThrow('unsupported test source');
       expect(validateSource).toHaveBeenCalledWith({
         connectionManager: context.connectionManager,
