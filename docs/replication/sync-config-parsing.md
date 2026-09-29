@@ -43,7 +43,7 @@ and identified by unique IDs, independently of connection types:
 - `parse({ config, context })` receives decoded sync config. The context provides the candidate parsed config, SQL-selected
   source tables, default schema, source-location lookup, and diagnostic reporting. Store additional options on the appropriate
   config fields, such as `connectionConfig`. Modules own conversion of their input into parsed state; core does not copy
-  connection options from the decoded input. For a `PrecompiledSyncConfig` (edition 3), write the parser ID directly into `parsedConfig.plan.moduleData` with a `null` value when required. A fatal diagnostic rejects the candidate, including in diagnostic-only parsing mode.
+  connection options from the decoded input. For a `PrecompiledSyncConfig` (edition 3), write the parser ID directly into `parsedConfig.plan.moduleData` with a `null` value when required. Fatal diagnostics throw by default; with `throwOnError: false`, parsing returns them alongside the partial config, matching core parser behavior.
 - `validatePersisted({ config, context })` validates saved config fields without reparsing SQL or relying on config
   source locations. Modules with semantic restrictions beyond their JSON schema must repeat those checks here.
 

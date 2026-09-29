@@ -38,7 +38,8 @@ export interface SyncConfigSourceLocationResolver {
 export interface SyncConfigParserContext {
   readonly defaultSchema: string;
   /**
-   * Candidate being assembled. It is not published if any parser fails. Store options on the appropriate config fields.
+   * Candidate being assembled. With throwOnError: false, a partial config may be returned with fatal diagnostics.
+   * Store options on the appropriate config fields.
    */
   parsedConfig: SyncConfig;
   /**
