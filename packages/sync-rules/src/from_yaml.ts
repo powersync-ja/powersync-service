@@ -72,9 +72,18 @@ export class SyncConfigFromYaml {
     });
 
     validateAdditionalSyncConfigParsers(this.options.parsers);
-    const encoded = parsed.errors.length == 0 ? parsed.toJSON() : null;
     const sourceLocations = createYamlSourceLocationResolver(parsed);
     const config = this.#parseConfig(parsed);
+    let encoded: ReturnType<Document['toJSON']> = null;
+    // Validate the YAML nodes first so structural errors retain their source locations. Conversion can still fail
+    // for unresolved aliases inside module-owned options, which must follow the same diagnostic handling.
+    if (!this.#hasFatalError) {
+      try {
+        encoded = parsed.toJSON();
+      } catch (error) {
+        this.#errors.push(new YamlError(error instanceof Error ? error : new Error(String(error))));
+      }
+    }
     const hasConnectionConfig = encoded?.config != null && Object.hasOwn(encoded.config, 'connections');
     if (hasConnectionConfig && config.compatibility.edition < CompatibilityEdition.COMPILED_STREAMS) {
       const location = sourceLocations.getLocation(['config', 'connections'], 'key');
@@ -136,11 +145,6 @@ export class SyncConfigFromYaml {
         this.#errors.push(...mapAjvErrorsToYamlErrors(sourceLocations, validate.errors!));
       }
     }
-    // Never return an executable partial config after rejecting additional options, even in diagnostic mode.
-    if ((hasConnectionConfig || this.options.parsers.length != 0) && this.#hasFatalError) {
-      throw new SyncRulesErrors(this.#errors);
-    }
-
     this.#throwOnErrorIfRequested();
     return config;
   }

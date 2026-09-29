@@ -276,22 +276,56 @@ describe('connection configuration', () => {
     );
   });
 
-  test.each(['schema', 'hook'])('never exposes a partial config on %s failure in diagnostic mode', (kind) => {
+  test.each(['schema', 'hook'])('respects throwOnError for %s failures', (kind) => {
     const parser = { ...ADDITIONAL_PARSER };
     if (kind == 'hook')
       parser.parse = ({ context }) => context.reportDiagnostic({ level: 'fatal', message: 'Rejected.' });
-    expect(() =>
-      SqlSyncRules.fromYaml(
-        withStreams(
-          `config: { edition: 3, connections: { default: { type: example, tables: { orders: { sample: ${kind == 'schema' ? 'wrong' : '1'} } } } } }`
-        ),
+    const yaml = withStreams(/* yaml */ `
+      config:
         {
-          defaultSchema: 'app',
-          throwOnError: false,
-          parsers: [parser]
+          edition: 3,
+          connections:
+            { default: { type: example, tables: { orders: { sample: ${kind == 'schema' ? 'wrong' : '1'} } } } }
         }
-      )
-    ).toThrow(kind == 'schema' ? 'must be number' : 'Rejected.');
+    `);
+    const message = kind == 'schema' ? 'must be number' : 'Rejected.';
+    const result = SqlSyncRules.fromYaml(yaml, {
+      defaultSchema: 'app',
+      throwOnError: false,
+      parsers: [parser]
+    });
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: 'fatal', message: expect.stringContaining(message) })])
+    );
+    expect(() => SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app', throwOnError: true, parsers: [parser] })).toThrow(
+      message
+    );
+  });
+
+  test('preserves SQL diagnostics when an unrelated parser is registered', () => {
+    const yaml = /* yaml */ `{ config: { edition: 3 }, streams: { orders: { query: 'SELECT * FROM' } } }`;
+    const options = { defaultSchema: 'app', throwOnError: false };
+    const withoutParser = SqlSyncRules.fromYaml(yaml, options);
+    const withParser = SqlSyncRules.fromYaml(yaml, {
+      ...options,
+      parsers: [{ id: 'unrelated', parse() {} }]
+    });
+    expect(withoutParser.errors).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'fatal' })]));
+    expect(withParser.errors).toEqual(withoutParser.errors);
+  });
+
+  test.each([
+    ['{ config: { edition: 3 }, streams: { orders: { query: *missing } } }', 'Expected a scalar here.'],
+    ['{ config: { edition: 3, connections: { default: *missing } }, streams: {} }', 'Unresolved alias']
+  ])('reports unresolved aliases as diagnostics: %s', (yaml, message) => {
+    const parseHook = vi.fn();
+    const options = { defaultSchema: 'app', parsers: [{ id: 'unrelated', parse: parseHook }] };
+    const result = SqlSyncRules.fromYaml(yaml, { ...options, throwOnError: false });
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: 'fatal', message: expect.stringContaining(message) })])
+    );
+    expect(parseHook).not.toHaveBeenCalled();
+    expect(() => SqlSyncRules.fromYaml(yaml, { ...options, throwOnError: true })).toThrow(SyncRulesErrors);
   });
 
   test('preserves legacy plan formats and rejects unknown or incorrectly labelled configured plans', () => {
