@@ -1,5 +1,18 @@
 # @powersync/service-sync-rules
 
+## 0.43.0
+
+### Minor Changes
+
+- 18f0c95: Add `fixed_booleans_in_json` to sync booleans in JSON columns as booleans instead of as 0/1 integer.
+
+### Patch Changes
+
+- 5078032: Change the default MongoDB storage version from 2 to 4.
+- e87703a: Export generated `schema/sync_config.json` file.
+- c60db6e: Mark legacy Sync Rules and the alpha Sync Streams implementation as `@deprecated`, and update the sync-rules README, templates, and examples to document Sync Streams first. Capitalize "Sync Streams" in log and error messages.
+- 0483d4e: Deduplicate inclusion reasons when merging buckets reached through more than one branch (e.g. overlapping subscriptions, or both a static and a dynamic parameter query), avoiding duplicate `subscriptions` entries on the wire.
+
 ## 0.42.0
 
 ### Minor Changes
