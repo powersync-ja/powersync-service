@@ -1,6 +1,6 @@
 import ajvModule from 'ajv';
 import { CompatibilityEdition, CompatibilityOption, TimeValuePrecision } from './compatibility.js';
-import { createConnectionConfigSchema } from './ConnectionConfig.js';
+import { createSourceTableConfigSchema } from './SourceTableConfig.js';
 import type { JsonObject } from './json.js';
 import { STORAGE_VERSIONS } from './StorageVersion.js';
 import type { AdditionalSyncConfigParser } from './SyncConfigParserHooks.js';
@@ -136,9 +136,9 @@ export const syncRulesSchema: ajvModule.Schema = {
     },
     config: {
       type: 'object',
-      description: 'Compatibility, storage, and source connection settings for these definitions.',
+      description: 'Compatibility, storage, and source-table settings for these definitions.',
       properties: {
-        connections: createConnectionConfigSchema(),
+        source_tables: createSourceTableConfigSchema(),
         edition: {
           type: 'integer',
           default: CompatibilityEdition.LEGACY,
