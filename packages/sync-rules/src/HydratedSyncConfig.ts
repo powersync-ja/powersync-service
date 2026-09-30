@@ -1,5 +1,5 @@
 import { BucketDataSource, HydratedBucketSource } from './BucketSource.js';
-import { ConnectionConfigMap } from './ConnectionConfig.js';
+import { SourceTableConfigMap } from './SourceTableConfig.js';
 import {
   BucketParameterQuerier,
   BucketSource,
@@ -48,7 +48,7 @@ export interface MatchingSources {
  * The persisted state specifically affects bucket names, as well as V3+ storage structure.
  */
 export class HydratedSyncConfig {
-  readonly connectionConfig: ConnectionConfigMap;
+  readonly sourceTableConfig: SourceTableConfigMap;
   /**
    * These are used by queriers, and do not support merging across multiple SyncConfigs.
    */
@@ -106,8 +106,8 @@ export class HydratedSyncConfig {
       throw new Error('HydratedSyncConfig requires at least one SyncConfig definition');
     }
 
-    // The service validates that definitions sharing a source reader have compatible connection options.
-    this.connectionConfig = definitions[0].connectionConfig;
+    // The service validates that definitions sharing a source reader have compatible source-table options.
+    this.sourceTableConfig = definitions[0].sourceTableConfig;
     this.sourceDefinitions = [...definitions];
     this.compatibility = assertSharedCompatibility(this.sourceDefinitions);
     this.hydrationInput = {
