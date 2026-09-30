@@ -84,12 +84,12 @@ export class SyncConfigFromYaml {
         this.#errors.push(new YamlError(error instanceof Error ? error : new Error(String(error))));
       }
     }
-    const hasConnectionConfig = encoded?.config != null && Object.hasOwn(encoded.config, 'connections');
-    if (hasConnectionConfig && config.compatibility.edition < CompatibilityEdition.COMPILED_STREAMS) {
-      const location = sourceLocations.getLocation(['config', 'connections'], 'key');
+    const hasSourceTableConfig = encoded?.config != null && Object.hasOwn(encoded.config, 'source_tables');
+    if (hasSourceTableConfig && config.compatibility.edition < CompatibilityEdition.COMPILED_STREAMS) {
+      const location = sourceLocations.getLocation(['config', 'source_tables'], 'key');
       this.#errors.push(
         new YamlError(
-          new Error("The 'config.connections' section requires edition 3."),
+          new Error("The 'config.source_tables' section requires edition 3."),
           location && { start: location.start_offset, end: location.end_offset }
         )
       );
@@ -123,16 +123,16 @@ export class SyncConfigFromYaml {
           });
           if (this.#hasFatalError) break;
         }
-        // Hooks populate connection options on the config, but persistence serializes its compiled plan.
-        // Keep the plan's connection options in sync so they survive a reload.
-        if (config instanceof PrecompiledSyncConfig && Object.keys(config.connectionConfig).length != 0) {
-          config.plan.connectionConfig = config.connectionConfig;
+        // Hooks populate source-table options on the config, but persistence serializes its compiled plan.
+        // Keep the plan's source-table options in sync so they survive a reload.
+        if (config instanceof PrecompiledSyncConfig && Object.keys(config.sourceTableConfig).length != 0) {
+          config.plan.sourceTableConfig = config.sourceTableConfig;
         }
       } catch (error) {
         this.#errors.push(new YamlError(error instanceof Error ? error : new Error(String(error))));
       }
     }
-    // The composed schema catches remaining structural issues, such as additional fields or connection options no
+    // The composed schema catches remaining structural issues, such as additional fields or source-table options no
     // parser reported on. Run it last: its union-branch errors are less specific than the parser diagnostics above.
     // Retain the YAML tree so errors highlight the actual key/value.
     if (!this.#hasFatalError) {
@@ -164,8 +164,8 @@ export class SyncConfigFromYaml {
     using rootState = root;
 
     using declaredOptions = rootState.get('config')?.requireMap();
-    // The composed schema validates connection options and preserves module-owned table fields.
-    declaredOptions?.get('connections');
+    // The composed schema validates source-table options and preserves module-owned fields.
+    declaredOptions?.get('source_tables');
     let compatibility: CompatibilityContext;
     let storageVersion: number | undefined;
     if (declaredOptions) {

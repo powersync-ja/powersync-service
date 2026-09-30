@@ -1,4 +1,4 @@
-import { ConnectionConfigMap, normalizeConnectionConfig } from '../ConnectionConfig.js';
+import { normalizeSourceTableConfig, SourceTableConfigMap } from '../SourceTableConfig.js';
 import { ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { SqlExpression } from './expression.js';
@@ -228,7 +228,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
 
   const events = plan.events.map(tableProcessorSerializer.serializeEventDefinition);
   const moduleData = plan.moduleData ?? {};
-  const connectionConfig = normalizeConnectionConfig(plan.connectionConfig);
+  const sourceTableConfig = normalizeSourceTableConfig(plan.sourceTableConfig);
   const serialized: SerializedSyncPlan = {
     dataSources: serializeDataSources(),
     buckets: plan.buckets.map((bkt, index) => {
@@ -245,7 +245,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
       queriers: s.queriers.map(serializeStreamQuerier)
     })),
     version:
-      Object.keys(connectionConfig).length != 0 || Object.keys(moduleData).length
+      Object.keys(sourceTableConfig).length != 0 || Object.keys(moduleData).length
         ? 3
         : tableProcessorSerializer.usesRowMetadataSqlValue
           ? 2
@@ -258,7 +258,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlan {
     serialized.events = events;
   }
 
-  if (Object.keys(connectionConfig).length != 0) serialized.connectionConfig = connectionConfig;
+  if (Object.keys(sourceTableConfig).length != 0) serialized.sourceTableConfig = sourceTableConfig;
   if (Object.keys(moduleData).length) serialized.moduleData = moduleData;
   return serialized;
 }
@@ -321,9 +321,9 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   if (Object.keys(moduleData).length && plan.version != 3) {
     throw new Error('Sync config module dependencies require sync plan version 3.');
   }
-  const connectionConfig = normalizeConnectionConfig(plan.connectionConfig);
-  if (Object.keys(connectionConfig).length != 0 && plan.version != 3) {
-    throw new Error('Connection configuration requires sync plan version 3.');
+  const sourceTableConfig = normalizeSourceTableConfig(plan.sourceTableConfig);
+  if (Object.keys(sourceTableConfig).length != 0 && plan.version != 3) {
+    throw new Error('Source table configuration requires sync plan version 3.');
   }
   const dataSources = plan.dataSources.map((source): StreamDataSource => {
     const functions = (tableValuedFunctionsInScope = source.tableValuedFunctions);
@@ -466,7 +466,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
     streams,
     events,
     ...(Object.keys(moduleData).length && { moduleData }),
-    ...(Object.keys(connectionConfig).length != 0 && { connectionConfig })
+    ...(Object.keys(sourceTableConfig).length != 0 && { sourceTableConfig })
   };
 }
 
@@ -481,7 +481,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
  *
  * ### Version 3
  *
- * - First-class connection configuration. Older services must reject plans whose source options they cannot interpret.
+ * - First-class source-table configuration. Older services must reject plans whose source options they cannot interpret.
  *
  * ### Version 2
  *
@@ -504,9 +504,9 @@ export interface SerializedSyncPlan {
    */
   moduleData?: Record<string, null>;
   /**
-   * Present only for configured connections; requires plan version 3.
+   * Present only for configured source tables; requires plan version 3.
    */
-  connectionConfig?: ConnectionConfigMap;
+  sourceTableConfig?: SourceTableConfigMap;
   version: SerializedSyncPlanVersion;
   dataSources: SerializedDataSource[];
   buckets: SerializedBucketDataSource[];

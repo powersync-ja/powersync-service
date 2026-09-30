@@ -1,5 +1,5 @@
 import { BucketPriority } from '../BucketDescription.js';
-import type { ConnectionConfigMap } from '../ConnectionConfig.js';
+import type { SourceTableConfigMap } from '../SourceTableConfig.js';
 import { ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
@@ -27,7 +27,7 @@ export interface SyncPlan {
    * Required parser IDs stored as keys. Module-owned payloads are not supported yet.
    */
   moduleData?: Record<string, null>;
-  connectionConfig?: ConnectionConfigMap;
+  sourceTableConfig?: SourceTableConfigMap;
   dataSources: StreamDataSource[];
   buckets: StreamBucketDataSource[];
   parameterIndexes: StreamParameterIndexLookupCreator[];

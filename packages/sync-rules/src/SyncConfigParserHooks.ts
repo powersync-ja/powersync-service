@@ -3,7 +3,7 @@ import type { SyncConfig } from './SyncConfig.js';
 import type { TablePattern } from './TablePattern.js';
 
 /**
- * A decoded config path, for example `['config', 'connections', 'default', 'tables', 'orders', 'filter']`.
+ * A decoded config path, for example `['config', 'source_tables', 'orders', 'filter']`.
  */
 export type SyncConfigSourcePath = readonly (string | number)[];
 export type SyncConfigSourceLocationTarget = 'key' | 'value';
@@ -73,7 +73,7 @@ export interface PersistedSyncConfigParserContext {
 }
 
 /**
- * Additional deterministic parsing/validation, registered per service rather than globally or by connection type.
+ * Additional deterministic parsing/validation, registered per service rather than globally or by source type.
  * A hook identifies its own fields and leaves unrelated input alone. Source I/O belongs in source validation.
  */
 export interface AdditionalSyncConfigParser {
@@ -90,8 +90,8 @@ export interface AdditionalSyncConfigParser {
 
   /**
    * `config` is decoded sync config. Everything else needed to parse it is supplied through `context`.
-   * Parse module-owned input into context.parsedConfig, including connectionConfig entries for this module.
-   * Core does not copy connection options from the input or normalize the parser's output here.
+   * Parse module-owned input into context.parsedConfig, including sourceTableConfig entries for this module.
+   * Core does not copy source-table options from the input or normalize the parser's output here.
    * For a PrecompiledSyncConfig, add this parser's ID to parsedConfig.plan.moduleData with a null value
    * when the config requires this module. The plan's keys determine which parsers must be present on reload.
    */
