@@ -1,5 +1,13 @@
 # @powersync/service-client
 
+## 0.0.11
+
+### Patch Changes
+
+- c60db6e: Mark legacy Sync Rules and the alpha Sync Streams implementation as `@deprecated`, and update the sync-rules README, templates, and examples to document Sync Streams first. Capitalize "Sync Streams" in log and error messages.
+- Updated dependencies [5078032]
+  - @powersync/service-types@0.19.0
+
 ## 0.0.10
 
 ### Patch Changes

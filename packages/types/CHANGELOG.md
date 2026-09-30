@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.19.0
+
+### Minor Changes
+
+- 5078032: Change the default MongoDB storage version from 2 to 4.
+
 ## 0.18.0
 
 ### Minor Changes
