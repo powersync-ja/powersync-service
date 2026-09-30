@@ -50,11 +50,6 @@ export const STORAGE_VERSION_4 = 4;
 export const LEGACY_STORAGE_VERSION = STORAGE_VERSION_1;
 
 /**
- * Default storage version for newly persisted replication streams.
- */
-export const CURRENT_STORAGE_VERSION = STORAGE_VERSION_2;
-
-/**
  * All versions that can be loaded.
  *
  * This includes unstable versions.

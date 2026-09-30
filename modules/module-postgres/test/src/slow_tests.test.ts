@@ -19,7 +19,6 @@ import { PgManager } from '@module/replication/PgManager.js';
 import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
   createCoreReplicationMetrics,
-  CURRENT_STORAGE_VERSION,
   initializeCoreReplicationMetrics,
   reduceBucket,
   updateSyncRulesFromYaml
@@ -35,7 +34,7 @@ describe.skipIf(!(env.CI || env.SLOW_TESTS))('slow tests', function () {
     {
       timeout: 120_000,
       // These tests are slow, so only test the current storage version
-      storageVersions: [CURRENT_STORAGE_VERSION]
+      storageVersions: 'current'
     },
     function ({ factory, storageVersion }) {
       defineSlowTests({ factory, storageVersion });

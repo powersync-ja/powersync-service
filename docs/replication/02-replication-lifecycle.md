@@ -9,9 +9,8 @@ The stream worker creates a `ReplicationEngine` and registers it with the servic
 1. Decodes and validates its data source config.
 2. Registers its source-specific `AbstractReplicator` with `ReplicationEngine`.
 3. Registers its `RouteAPI` adapter with the router engine.
-4. Runs any module-specific initialization.
 
-When the service lifecycle starts, `ReplicationEngine.start()` starts every registered replicator.
+When the service lifecycle starts, `ReplicationEngine.start()` starts every registered replicator. Setup that is specific to running replication belongs in the replicator's `start()` method; connection checks call `testConnection()` without starting replication.
 
 ## Replicator Loop
 

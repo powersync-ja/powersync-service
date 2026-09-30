@@ -1,5 +1,31 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.23.0
+
+### Minor Changes
+
+- 5078032: Change the default MongoDB storage version from 2 to 4.
+
+### Patch Changes
+
+- 424bbc0: Skip chunk-merge compact for small buckets after initial replication.
+- b70f467: Remove global replication lock for MongoDB storage.
+- Updated dependencies [0483d4e]
+- Updated dependencies [28f024b]
+- Updated dependencies [5078032]
+- Updated dependencies [424bbc0]
+- Updated dependencies [e87703a]
+- Updated dependencies [b70f467]
+- Updated dependencies [18f0c95]
+- Updated dependencies [c60db6e]
+- Updated dependencies [0483d4e]
+- Updated dependencies [a8c3f15]
+  - @powersync/service-core@1.27.0
+  - @powersync/service-types@0.19.0
+  - @powersync/service-sync-rules@0.43.0
+  - @powersync/lib-services-framework@0.10.3
+  - @powersync/lib-service-mongodb@0.6.33
+
 ## 0.22.0
 
 ### Minor Changes

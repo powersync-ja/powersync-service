@@ -24,8 +24,6 @@ export const STORAGE_VERSIONS = new Map<number, ValidatedStorageVersion>([
   [4, { version: 4, stable: true }]
 ]);
 
-export const DEFAULT_STORAGE_VERSION = STORAGE_VERSIONS.get(2)!;
-
 /**
  * Parse a storage version.
  *

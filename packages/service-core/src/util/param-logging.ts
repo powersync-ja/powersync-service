@@ -18,8 +18,9 @@ export const DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS: ParamLoggingFormatOptions = {
  * Formats potentially arbitrary parameters for logging.
  * This limits the number of keys and strings to a maximum length.
  * A warning key-value is added if the number of keys exceeds the maximum.
- * String values exceeding the maximum length are truncated.
+ * Keys and string values exceeding the maximum length are truncated.
  * Non-String values are stringified, the maximum length is then applied.
+ * Values that cannot be serialized are replaced with a placeholder.
  * @param params - The parameters to format.
  * @param options - The options to use.
  * @default DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS
@@ -41,20 +42,26 @@ export function limitParamsForLogging(
     return value;
   }
 
+  function formatValue(value: unknown): string {
+    if (typeof value == 'string') {
+      return trimString(value);
+    }
+    try {
+      return trimString(JSON.stringify(value) ?? '[undefined]');
+    } catch {
+      return trimString('[unserializable]');
+    }
+  }
+
   return Object.fromEntries(
-    Object.entries(params).map(([key, value], index) => {
-      if (index == maxKeyCount) {
-        return ['⚠️', 'Additional parameters omitted'];
-      }
+    Object.entries(params)
+      .slice(0, maxKeyCount + 1)
+      .map(([key, value], index) => {
+        if (index == maxKeyCount) {
+          return ['⚠️', 'Additional parameters omitted'];
+        }
 
-      if (index > maxKeyCount) {
-        return [];
-      }
-
-      if (typeof value == 'string') {
-        return [key, trimString(value)];
-      }
-      return [key, trimString(JSON.stringify(value))];
-    })
+        return [trimString(key), formatValue(value)];
+      })
   );
 }

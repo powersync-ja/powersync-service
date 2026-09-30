@@ -44,8 +44,6 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
     });
   }
 
-  async onInitialized(context: system.ServiceContextContainer): Promise<void> {}
-
   /**
    * Combines base config with normalized connection settings
    */

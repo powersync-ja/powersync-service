@@ -297,7 +297,11 @@ bucket_definitions:
 });
 
 describe('Mongo Sync Parameter Storage Compact', () => {
-  register.registerParameterCompactTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+  for (const storageVersion of TEST_STORAGE_VERSIONS) {
+    describe(`storage v${storageVersion}`, () => {
+      register.registerParameterCompactTests({ ...INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion });
+    });
+  }
 });
 
 /**

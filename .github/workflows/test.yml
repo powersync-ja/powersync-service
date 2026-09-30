@@ -122,6 +122,7 @@ jobs:
       - name: Start PostgreSQL
         run: |
           docker run \
+            --name postgres-source \
             --health-cmd pg_isready \
             --health-interval 10s \
             --health-timeout 5s \
@@ -142,6 +143,16 @@ jobs:
 
       - name: Setup Node and build
         uses: ./.github/actions/setup-node-build
+
+      - name: Test PostgreSQL connection CLI
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          docker exec postgres-source psql -U postgres -d powersync_test -v ON_ERROR_STOP=1 \
+            -c 'CREATE PUBLICATION powersync FOR ALL TABLES'
+          pnpm --filter @powersync/service-image exec node lib/entry.js test-connection \
+            --config-path ../modules/module-postgres/ci/test-connection.yaml | tee test-connection.log
+          grep -F 'Connection succeeded to ' test-connection.log
 
       - name: Test Replication
         run: pnpm --filter='./modules/module-postgres' test
@@ -275,6 +286,14 @@ jobs:
       - name: Setup Node and build
         uses: ./.github/actions/setup-node-build
 
+      - name: Test MySQL connection CLI
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          pnpm --filter @powersync/service-image exec node lib/entry.js test-connection \
+            --config-path ../modules/module-mysql/ci/test-connection.yaml | tee test-connection.log
+          grep -F 'Connection succeeded to ' test-connection.log
+
       - name: Test Replication
         run: pnpm --filter='./modules/module-mysql' test
 
@@ -310,6 +329,14 @@ jobs:
 
       - name: Setup Node and build
         uses: ./.github/actions/setup-node-build
+
+      - name: Test MongoDB connection CLI
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          pnpm --filter @powersync/service-image exec node lib/entry.js test-connection \
+            --config-path ../modules/module-mongodb/ci/test-connection.yaml | tee test-connection.log
+          grep -F 'Connection succeeded to ' test-connection.log
 
       - name: Test Replication
         run: pnpm --filter='./modules/module-mongodb' test
@@ -365,6 +392,18 @@ jobs:
 
       - name: Test Replication
         run: pnpm --filter='./modules/module-convex' test
+
+      - name: Test Convex connection CLI
+        timeout-minutes: 2
+        shell: bash
+        env:
+          PS_CONVEX_URL: ${{ env.CONVEX_URL }}
+        run: |
+          PS_CONVEX_DEPLOY_KEY="$(pnpm exec node -p "JSON.parse(require('node:fs').readFileSync('modules/module-convex/.convex/local/default/config.json', 'utf8')).adminKey")"
+          export PS_CONVEX_DEPLOY_KEY
+          pnpm --filter @powersync/service-image exec node lib/entry.js test-connection \
+            --config-path ../modules/module-convex/ci/test-connection.yaml | tee test-connection.log
+          grep -F 'Connection succeeded to ' test-connection.log
 
       - name: Print Convex logs
         if: failure()
@@ -512,6 +551,16 @@ jobs:
 
       - name: Setup Node and build
         uses: ./.github/actions/setup-node-build
+
+      - name: Test MSSQL connection CLI
+        timeout-minutes: 2
+        shell: bash
+        env:
+          PS_MSSQL_PASSWORD: ${{ env.MSSQL_SA_PASSWORD }}
+        run: |
+          pnpm --filter @powersync/service-image exec node lib/entry.js test-connection \
+            --config-path ../modules/module-mssql/ci/test-connection.yaml | tee test-connection.log
+          grep -F 'Connection succeeded to ' test-connection.log
 
       - name: Test Replication
         run: pnpm --filter='./modules/module-mssql' test

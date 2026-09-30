@@ -166,7 +166,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       options.storageVersion ??
       options.config.parsed.config.storageVersion ??
       this.options.defaultStorageVersion ??
-      storage.CURRENT_STORAGE_VERSION;
+      storage.STORAGE_VERSION_2;
     const storageConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
     if (storageConfig == null || storageVersion >= storage.STORAGE_VERSION_4) {
       throw new framework.ServiceError(
