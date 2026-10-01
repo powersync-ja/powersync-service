@@ -1,5 +1,12 @@
 # @powersync/service-sync-rules
 
+## 0.43.1
+
+### Patch Changes
+
+- e703ca5: Restore `schema/sync_rules.json` file removed in version `0.43.0`.
+- 324093e: Internal refactor to make it clearer how legacy `token_parameters` values are derived.
+
 ## 0.43.0
 
 ### Minor Changes
