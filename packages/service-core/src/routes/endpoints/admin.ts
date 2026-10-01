@@ -161,15 +161,15 @@ export const reprocess = routeDefinition({
     // 1. This always re-parses the source YAML. If there are changes to the Sync Streams compiler, that can affect the sync plan.
     // 2. If the source does not set the storage version, this will update it do the current version.
     // We can consider tweaking this behavior in the future.
-    const new_rules = await activeBucketStorage.updateSyncRules(
-      storage.updateSyncRulesFromYaml(active.content.sync_rules_content, {
-        // This sync config already passed validation. But if the config is not valid anymore due
-        // to a service change, we do want to report the error here.
-        validate: true,
-        version_label: active.content.version_label,
-        forceNewReplicationStream: true
-      })
-    );
+    const updateOptions = storage.updateSyncRulesFromYaml(active.content.sync_rules_content, {
+      // This sync config already passed validation. But if the config is not valid anymore due
+      // to a service change, we do want to report the error here.
+      validate: true,
+      version_label: active.content.version_label,
+      forceNewReplicationStream: true
+    });
+    storage.logSyncConfigWarnings(updateOptions.config.parsed);
+    const new_rules = await activeBucketStorage.updateSyncRules(updateOptions);
 
     const baseConfig = await apiHandler.getSourceConfig();
 

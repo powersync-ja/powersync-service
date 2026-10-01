@@ -202,10 +202,11 @@ export class SyncConfigFromYaml {
     compatibility: CompatibilityContext
   ) {
     bucketMap?.reportError(
-      `'bucket_definitions' are not supported by the new compiler. Consider using https://powersync-community.github.io/bucket-definitions-to-sync-streams/ to translate them to streams.`
+      'Sync Rules (`bucket_definitions`) are not supported with `config: edition: 3`. Migrate to Sync Streams: https://docs.powersync.com/sync/rules/migrate-to-sync-streams.'
     );
 
-    if (streamMap == null) {
+    // The bucket_definitions error above already explains what to do, so don't also ask for 'streams'.
+    if (streamMap == null && bucketMap == null) {
       this.#errors.push(new YamlError(new Error(`'streams' are required.`)));
     }
 
@@ -328,12 +329,20 @@ export class SyncConfigFromYaml {
       this.#throwOnErrorIfRequested();
     }
 
-    // This is with config.edition <= 2, we want to encourage users with streams to migrate to version 3 to use
-    // compiled sync plans.
-    streamMap?.reportError(
-      'This is using the deprecated alpha version of Sync Streams. It will be removed in the next major version. Upgrade `config.edition` to version 3.',
+    // Only reported here: with config.edition: 3, bucket_definitions is already a fatal error in #compileSyncPlan().
+    bucketMap?.reportError(
+      'Sync Rules (`bucket_definitions`) are deprecated and will be removed in the next major version of the PowerSync Service. Migrate to Sync Streams: https://docs.powersync.com/sync/rules/migrate-to-sync-streams.',
       'warning'
     );
+
+    // Only for edition 2, where the alpha runs. Below that the stream compiler already fails with a fatal error
+    // telling the user to move to edition 3, so this warning would only repeat it.
+    if (compatibility.edition >= CompatibilityEdition.SYNC_STREAMS) {
+      streamMap?.reportError(
+        'This is using the deprecated alpha version of Sync Streams. It will be removed in the next major version. Upgrade `config.edition` to version 3.',
+        'warning'
+      );
+    }
 
     for (const { key, keyScalar, value: maybeMap } of bucketMap?.stringKeyedItems() ?? []) {
       if (!this.#checkUniqueName(key, keyScalar)) {

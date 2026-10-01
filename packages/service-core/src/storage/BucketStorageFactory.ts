@@ -261,6 +261,20 @@ export function updateSyncRulesFromConfig(
   return { config: { yaml: config.content, plan, parsed }, ...options };
 }
 
+/**
+ * Logs the non-fatal errors of a parsed sync config, such as the legacy Sync Rules deprecation warning.
+ *
+ * Call this where a sync config is loaded or deployed, so that operators see warnings in the service logs and not only
+ * in the diagnostics and validate API responses.
+ */
+export function logSyncConfigWarnings(parsed: SyncConfigWithErrors, log: typeof logger = logger) {
+  for (const error of parsed.errors) {
+    if (error.type == 'warning') {
+      log.warn(`Sync config warning: ${error.message}`);
+    }
+  }
+}
+
 export interface GetIntanceOptions {
   /**
    * The job lease, including a lease acquired during initial configuration.

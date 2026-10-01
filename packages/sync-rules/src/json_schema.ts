@@ -10,7 +10,9 @@ export const syncRulesSchema: ajvModule.Schema = {
   properties: {
     bucket_definitions: {
       type: 'object',
-      description: 'List of bucket definitions',
+      deprecated: true,
+      description:
+        'Deprecated: legacy Sync Rules bucket definitions. They will be removed in the next major version of the PowerSync Service. Use `streams:` (Sync Streams) instead: https://docs.powersync.com/sync/rules/migrate-to-sync-streams',
       examples: [{ global: { data: 'select * from mytable' } }],
       patternProperties: {
         '.*': {
