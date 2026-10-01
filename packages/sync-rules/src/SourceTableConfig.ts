@@ -24,14 +24,12 @@ export function createSourceTableConfigSchema(): JsonObject {
     propertyNames: {
       minLength: 1,
       pattern: '^[^.]+(?:\\.[^.]+){0,2}$',
-      patternErrorMessage:
-        'Use <table>, <database>.<table>, or <connection>.<database>.<table> for source table names.'
+      patternErrorMessage: 'Use <table>, <database>.<table>, or <connection>.<database>.<table> for source table names.'
     },
     additionalProperties: {
       type: 'object',
       properties: {},
-      additionalProperties: false,
-      maxProperties: 0
+      additionalProperties: false
     }
   };
 }
@@ -42,9 +40,7 @@ export function createSourceTableConfigSchema(): JsonObject {
 export function parseSourceTableConfigKey(name: string): ImplicitSchemaTablePattern {
   const parts = name.split('.');
   if (parts.length > 3 || parts.some((part) => !part)) {
-    throw new Error(
-      'Source table patterns must use <table>, <database>.<table>, or <connection>.<database>.<table>.'
-    );
+    throw new Error('Source table patterns must use <table>, <database>.<table>, or <connection>.<database>.<table>.');
   }
   const table = parts.pop()!;
   return new ImplicitSchemaTablePattern(parts.length == 0 ? null : parts.join('.'), table);
