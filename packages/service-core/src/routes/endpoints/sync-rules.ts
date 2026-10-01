@@ -181,15 +181,15 @@ export const reprocessSyncRules = routeDefinition({
     }
 
     const sync_rules = active.content;
-    const new_rules = await activeBucketStorage.updateSyncRules(
-      updateSyncRulesFromYaml(sync_rules.sync_rules_content, {
-        // This sync config already passed validation. But if the rules are not valid anymore due
-        // to a service change, we do want to report the error here.
-        validate: true,
-        version_label: sync_rules.version_label,
-        forceNewReplicationStream: true
-      })
-    );
+    const updateOptions = updateSyncRulesFromYaml(sync_rules.sync_rules_content, {
+      // This sync config already passed validation. But if the rules are not valid anymore due
+      // to a service change, we do want to report the error here.
+      validate: true,
+      version_label: sync_rules.version_label,
+      forceNewReplicationStream: true
+    });
+    logSyncConfigWarnings(updateOptions.config.parsed);
+    const new_rules = await activeBucketStorage.updateSyncRules(updateOptions);
     return {
       slot_name: new_rules.replicationStreamName
     };
