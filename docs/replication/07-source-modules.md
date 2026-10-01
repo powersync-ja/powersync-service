@@ -26,6 +26,8 @@ The route adapter creates checkpoint request heads by reading `pg_current_wal_ls
 
 MongoDB uses change streams and stores resume state in bucket storage. Initial snapshots and streaming can overlap depending on snapshotter support.
 
+[MongoDB replication adapters](mongodb-adapters.md) describes the provider hooks for snapshot selection and ordered changes/progress, including their recovery guarantees and exported test context.
+
 With MongoDB storage v3, MongoDB source replication supports incremental reprocessing for compatible sync config updates. The active and processing sync configs can share one change stream, compatible bucket and parameter definitions keep their persisted ids, and only new or changed definitions need new snapshot work before activation.
 
 The route adapter reads session cluster time for the checkpoint request head, then updates the checkpoints collection so the change stream observes a later operation.
