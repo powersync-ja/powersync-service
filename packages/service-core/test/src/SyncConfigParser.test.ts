@@ -8,7 +8,7 @@ import {
   DEFAULT_HYDRATION_STATE,
   HydratedSyncConfig,
   nodeSqlite,
-  normalizeConnectionConfig,
+  normalizeSourceTableConfig,
   PrecompiledSyncConfig,
   SyncConfig
 } from '@powersync/service-sync-rules';
@@ -24,60 +24,37 @@ const STREAMS = /* yaml */ `
 const CONFIGURED = /* yaml */ `
   config:
     edition: 3
-    connections:
-      default:
-        type: example
-        tables:
-          orders: { sample: 10 }
+    source_tables:
+      orders: { sample: 10 }
   streams:
     orders:
       query: SELECT * FROM orders
 `;
 
-// This fixture represents an external module. Core only knows the connection/table maps; sample is module-owned.
+// This fixture represents an external module. Core only knows the source-table map; sample is module-owned.
 function additionalParser(): AdditionalSyncConfigParser {
   const check = (config: SyncConfig) => {
-    for (const connection of Object.values(config.connectionConfig)) {
-      if (connection?.type != 'example') continue;
-      for (const table of Object.values(connection.tables ?? {})) {
-        if (typeof (table as { sample?: number })?.sample != 'number') throw new Error('Invalid persisted sample.');
-        if ((table as { sample?: number })?.sample === 13) throw new Error('Sample 13 is unsupported.');
-      }
+    for (const options of Object.values(config.sourceTableConfig)) {
+      if (typeof (options as { sample?: number })?.sample != 'number') throw new Error('Invalid persisted sample.');
+      if ((options as { sample?: number })?.sample === 13) throw new Error('Sample 13 is unsupported.');
     }
   };
   return {
     id: 'example.tables',
     extendJsonSchema({ schema }) {
-      const map = (schema.properties as any).config.properties.connections;
-      map.additionalProperties = {
-        if: { type: 'object', required: ['type'], properties: { type: { const: 'example' } } },
-        then: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['type'],
-          properties: {
-            type: { const: 'example' },
-            tables: {
-              type: 'object',
-              propertyNames: { minLength: 1 },
-              additionalProperties: {
-                type: 'object',
-                additionalProperties: false,
-                properties: { sample: { type: 'number' } }
-              }
-            }
-          }
-        },
-        else: map.additionalProperties
-      };
+      const options = (schema.properties as any).config.properties.source_tables.additionalProperties;
+      options.properties.sample = { type: 'number' };
     },
     parse({ config, context }) {
-      const connections = normalizeConnectionConfig(
-        (config as { config?: { connections?: unknown } }).config?.connections
+      const sourceTables = normalizeSourceTableConfig(
+        (config as { config?: { source_tables?: unknown } }).config?.source_tables
       );
-      for (const [tag, connection] of Object.entries(connections)) {
-        if (connection?.type != 'example') continue;
-        context.parsedConfig.connectionConfig = { ...context.parsedConfig.connectionConfig, [tag]: connection };
+      for (const [table, options] of Object.entries(sourceTables)) {
+        if (!Object.hasOwn(options!, 'sample')) continue;
+        context.parsedConfig.sourceTableConfig = {
+          ...context.parsedConfig.sourceTableConfig,
+          [table]: options
+        };
         const { plan } = context.parsedConfig as PrecompiledSyncConfig;
         plan.moduleData = { ...plan.moduleData, ['example.tables']: null };
       }
@@ -127,7 +104,7 @@ describe('service sync config parser', () => {
     expect(parser.parseContent(CONFIGURED, { defaultSchema: 'app' }).errors).toEqual([]);
     expect(baseSchema).toEqual(new SqlSyncConfigParser().jsonSchema);
     const composed = parser.jsonSchema;
-    delete (composed.properties as any).config.properties.connections;
+    delete (composed.properties as any).config.properties.source_tables;
     expect(parser.parseContent(CONFIGURED, { defaultSchema: 'app' }).errors).toEqual([]);
 
     expect(() => parser.registerParser(additionalParser())).toThrow('already registered');
@@ -197,19 +174,19 @@ describe('service sync config parser', () => {
         syncConfigParser
       });
     const restored = restore();
-    expect(restored.config.connectionConfig).toEqual(compiled.config.parsed.config.connectionConfig);
+    expect(restored.config.sourceTableConfig).toEqual(compiled.config.parsed.config.sourceTableConfig);
     expect(
-      restored.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) }).connectionConfig
-    ).toEqual(restored.config.connectionConfig);
+      restored.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) }).sourceTableConfig
+    ).toEqual(restored.config.sourceTableConfig);
     expect(() => restore(new SqlSyncConfigParser())).toThrow('Missing required sync config parsers: example.tables');
     const malformed = structuredClone(compiled.config.plan!);
-    (malformed.plan.connectionConfig!.default!.tables!.orders as any).sample = 'wrong';
+    (malformed.plan.sourceTableConfig!.orders as any).sample = 'wrong';
     expect(() => restore(parser, malformed)).toThrow();
-    (malformed.plan.connectionConfig!.default!.tables!.orders as any).sample = 13;
+    (malformed.plan.sourceTableConfig!.orders as any).sample = 13;
     expect(() => restore(parser, malformed)).toThrow('Sample 13');
     // A compiled plan is authoritative; its failure must not be hidden by reparsing valid source YAML.
     expect(() => restore(new SqlSyncConfigParser(), null)).toThrow();
-    expect(restore(parser, null).config.connectionConfig).toEqual(restored.config.connectionConfig);
+    expect(restore(parser, null).config.sourceTableConfig).toEqual(restored.config.sourceTableConfig);
   });
 
   test('checks all dependencies before hooks and ignores unused registered parsers', () => {
@@ -232,9 +209,7 @@ describe('service sync config parser', () => {
         parse({ context }) {
           const { plan } = context.parsedConfig as PrecompiledSyncConfig;
           plan.moduleData = { ...plan.moduleData, ['transformed']: null };
-          context.parsedConfig.connectionConfig = {
-            default: { type: 'transformed', tables: { orders: { compiled: true } } }
-          };
+          context.parsedConfig.sourceTableConfig = { orders: { compiled: true } };
         }
       }
     ]);
@@ -248,11 +223,11 @@ describe('service sync config parser', () => {
         syncConfigParser
       });
     expect((restore(parser).config as PrecompiledSyncConfig).plan.moduleData).toEqual({ transformed: null });
-    expect(restore(parser).config.connectionConfig).toEqual(compiled.config.parsed.config.connectionConfig);
+    expect(restore(parser).config.sourceTableConfig).toEqual(compiled.config.parsed.config.sourceTableConfig);
     expect(() => restore(new SqlSyncConfigParser())).toThrow('Missing required sync config parsers: transformed');
   });
 
-  test('persists module dependencies without connection options and accepts legacy plans without module data', () => {
+  test('persists module dependencies without source-table options and accepts legacy plans without module data', () => {
     const parser = new SqlSyncConfigParser([
       {
         id: 'required',
@@ -305,7 +280,7 @@ describe('service sync config parser', () => {
     );
   });
 
-  test('reuses equal connection options but requires replacement for additions, changes and removals', () => {
+  test('reuses equal source-table options but requires replacement for additions, changes and removals', () => {
     const first = deployOptions();
     const same = deployOptions(CONFIGURED.replace('SELECT * FROM orders', 'SELECT id FROM orders'));
     const changed = deployOptions(CONFIGURED.replace('sample: 10', 'sample: 20'));
@@ -316,7 +291,7 @@ describe('service sync config parser', () => {
     expect(isCompatible([absent.config.plan], first.config, logger)).toBe(false);
   });
 
-  test('merges equal connection config once', () => {
+  test('merges equal source-table config once', () => {
     const first = deployOptions().config.parsed.config;
     const same = deployOptions(CONFIGURED.replace('SELECT * FROM orders', 'SELECT id FROM orders')).config.parsed
       .config;
@@ -325,6 +300,6 @@ describe('service sync config parser', () => {
         definitions,
         createParams: { hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) }
       });
-    expect(hydrate([first, same]).connectionConfig).toEqual(first.connectionConfig);
+    expect(hydrate([first, same]).sourceTableConfig).toEqual(first.sourceTableConfig);
   });
 });
