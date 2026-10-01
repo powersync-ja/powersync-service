@@ -11,13 +11,13 @@ import {
 } from '@powersync/service-core';
 import {
   CompatibilityOption,
-  connectionConfigsEqual,
   DEFAULT_HYDRATION_STATE,
   EventDefinitionId,
   HydratedEventDescriptor,
   HydratedSyncConfig,
   HydrationState,
   nodeSqlite,
+  sourceTableConfigsEqual,
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
@@ -56,14 +56,14 @@ export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
     }
 
     if (storageConfig.incrementalReprocessing) {
-      // Active and processing configs share one source reader and must use the same connection options.
+      // Active and processing configs share one source reader and must use the same source-table options.
       if (
         this.syncConfigs.some(
-          ({ config }) => !connectionConfigsEqual(firstConfig.config.connectionConfig, config.connectionConfig)
+          ({ config }) => !sourceTableConfigsEqual(firstConfig.config.sourceTableConfig, config.sourceTableConfig)
         )
       ) {
         throw new ReplicationAssertionError(
-          `Sync configs in replication stream ${this.replicationStreamId} have different connection configuration.`
+          `Sync configs in replication stream ${this.replicationStreamId} have different source-table configuration.`
         );
       }
       if (syncConfigs.some((c) => c.mapping == null)) {
