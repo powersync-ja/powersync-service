@@ -1,0 +1,835 @@
+{
+  "generatedAt": "2026-09-14T13:58:41.919Z",
+  "node": "v24.18.1",
+  "nodeSqlite": "3.53.1",
+  "rustSqlite": "3.51.3",
+  "cpu": "AMD Ryzen 9 7900X 12-Core Processor",
+  "cpuCount": 24,
+  "platform": "linux",
+  "arch": "x64",
+  "rowCount": 40000,
+  "iterations": 7,
+  "batchSize": 1000,
+  "uvThreadpoolSize": 4,
+  "concurrencyLevels": [4],
+  "scope": "Four JS workers (plain and SQLite) versus four native evaluators, bounded ordered coordination. Cloned raw BSON input and serialized-result messaging for JS; buffer copy and N-API for Rust. Two scopes: conversion/evaluation and full preparation including replica IDs, subkeys and checksums, all on background threads for both implementations. Startup/first wave recorded separately; storage and source fetching excluded.",
+  "results": [
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 6544890,
+      "medianMs": 100.85580299999856,
+      "rowsPerSecond": 396606,
+      "inputMiBPerSecond": 61.88730158347151,
+      "inputMBPerSecond": 64.89353914519022,
+      "samplesMs": [
+        110.55877299999975, 110.10728999999992, 115.7919869999987, 99.434111999999, 100.85580299999856,
+        95.61217399999987, 95.75925499999903
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 472.04985799999986,
+      "firstWaveMs": 25.262271000000055
+    },
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 6544890,
+      "medianMs": 116.24497800000063,
+      "rowsPerSecond": 344101,
+      "inputMiBPerSecond": 53.694306662469906,
+      "inputMBPerSecond": 56.30256130290604,
+      "samplesMs": [
+        134.42287899999974, 124.61887399999978, 126.14644299999964, 116.24497800000063, 97.79821900000024,
+        98.32704899999953, 104.33329699999922
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 472.069156,
+      "firstWaveMs": 28.15207600000008
+    },
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "rust-4",
+      "inputBytes": 6544890,
+      "medianMs": 73.14808099999937,
+      "rowsPerSecond": 546836,
+      "inputMiBPerSecond": 85.32955904481152,
+      "inputMBPerSecond": 89.47452770497229,
+      "samplesMs": [
+        80.44341500000064, 68.78295699999944, 67.37285399999928, 73.14808099999937, 71.81061899999986,
+        80.44473099999959, 82.14048399999956
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 0.8222410000000764,
+      "firstWaveMs": 11.137778000000026
+    },
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 6544890,
+      "medianMs": 192.31669899999906,
+      "rowsPerSecond": 207990,
+      "inputMiBPerSecond": 32.45528614602589,
+      "inputMBPerSecond": 34.03183412585525,
+      "samplesMs": [
+        208.86889400000018, 181.78172099999938, 180.94209799999953, 201.37735900000007, 185.25700200000028,
+        194.37279399999898, 192.31669899999906
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 457.1225089999998,
+      "firstWaveMs": 43.0516590000002
+    },
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 6544890,
+      "medianMs": 199.2925890000006,
+      "rowsPerSecond": 200710,
+      "inputMiBPerSecond": 31.31924537697728,
+      "inputMBPerSecond": 32.840609040409326,
+      "samplesMs": [
+        199.2925890000006, 198.47770599999967, 174.97512000000097, 212.5241449999994, 217.34573099999943,
+        200.580073000001, 189.58979400000135
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 478.58687199999986,
+      "firstWaveMs": 37.30723999999964
+    },
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "rust-4",
+      "inputBytes": 6544890,
+      "medianMs": 139.96109400000023,
+      "rowsPerSecond": 285794,
+      "inputMiBPerSecond": 44.595918182120606,
+      "inputMBPerSecond": 46.7622095037353,
+      "samplesMs": [
+        148.26298999999926, 127.99143700000059, 133.01405499999964, 139.96109400000023, 138.74816100000135,
+        150.40777799999887, 158.22578799999974
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 0.390201000000161,
+      "firstWaveMs": 18.68685000000005
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 332.96514800000296,
+      "rowsPerSecond": 120133,
+      "inputMiBPerSecond": 108.70272701704226,
+      "inputMBPerSecond": 113.9830706846221,
+      "samplesMs": [
+        344.1432359999999, 332.96514800000296, 325.2040440000055, 331.29636500000197, 312.0727470000056,
+        335.22516099999484, 337.3046100000065
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 432.2597260000002,
+      "firstWaveMs": 57.957516000000396
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 320.96615299999394,
+      "rowsPerSecond": 124624,
+      "inputMiBPerSecond": 112.76646852303483,
+      "inputMBPerSecond": 118.24421249800977,
+      "samplesMs": [
+        314.7719739999993, 323.40458099999887, 337.6602589999966, 319.5579409999991, 317.23483199999464,
+        320.96615299999394, 324.669081
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 424.69325299999946,
+      "firstWaveMs": 55.005701999998564
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "rust-4",
+      "inputBytes": 37952390,
+      "medianMs": 125.54538799999864,
+      "rowsPerSecond": 318610,
+      "inputMiBPerSecond": 288.2958917553689,
+      "inputMBPerSecond": 302.3001529932777,
+      "samplesMs": [
+        125.54538799999864, 124.47342600000047, 114.60178100000121, 129.03032499999972, 151.52117200000066,
+        130.70482300000003, 117.352764999996
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 0.42989099999977043,
+      "firstWaveMs": 19.48775900000146
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 449.9712690000015,
+      "rowsPerSecond": 88895,
+      "inputMiBPerSecond": 80.4367347045735,
+      "inputMBPerSecond": 84.34402952958285,
+      "samplesMs": [
+        454.487000000001, 444.0502890000025, 454.6455470000001, 424.95282900000166, 449.9712690000015,
+        460.4031659999964, 446.3329420000009
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 433.3562729999994,
+      "firstWaveMs": 79.90836800000034
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 448.9669789999971,
+      "rowsPerSecond": 89093,
+      "inputMiBPerSecond": 80.61666287763589,
+      "inputMBPerSecond": 84.53269789357994,
+      "samplesMs": [
+        452.44416499999716, 452.0088770000002, 445.6079419999951, 457.4350919999997, 445.3828480000011,
+        448.9669789999971, 433.3309719999961
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 443.35289700000067,
+      "firstWaveMs": 73.74761899999976
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "rust-4",
+      "inputBytes": 37952390,
+      "medianMs": 183.7870999999941,
+      "rowsPerSecond": 217643,
+      "inputMiBPerSecond": 196.93558247142786,
+      "inputMBPerSecond": 206.50192532555994,
+      "samplesMs": [
+        182.74778399999923, 170.51376600000003, 183.7870999999941, 206.8227160000024, 177.10699600000225,
+        192.67627399999765, 197.91630299999815
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 0.3122800000001007,
+      "firstWaveMs": 24.67849700000079
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 161.2550240000055,
+      "rowsPerSecond": 248054,
+      "inputMiBPerSecond": 224.45328332363871,
+      "inputMBPerSecond": 235.3563260143678,
+      "samplesMs": [
+        161.2550240000055, 171.43725199999608, 178.40063799999916, 193.49490299999889, 160.5419449999972,
+        158.95268300000316, 160.34660399999848
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 442.8589310000025,
+      "firstWaveMs": 37.49042499999632
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 166.45799999999872,
+      "rowsPerSecond": 240301,
+      "inputMiBPerSecond": 217.43754934718473,
+      "inputMBPerSecond": 227.99979574427357,
+      "samplesMs": [
+        166.45799999999872, 165.38896699999896, 172.21019199999864, 181.50254100000166, 171.13784799999848,
+        165.45844999999827, 162.31672499999695
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 431.75347599999805,
+      "firstWaveMs": 39.92824799999653
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "rust-4",
+      "inputBytes": 37952390,
+      "medianMs": 79.15632700000424,
+      "rowsPerSecond": 505329,
+      "inputMiBPerSecond": 457.24986189962374,
+      "inputMBPerSecond": 479.46123119125986,
+      "samplesMs": [
+        74.20612500000425, 80.85753199999453, 75.86629499999981, 79.15632700000424, 78.38382600000477,
+        84.84791200000473, 81.12673699999868
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 0.5435910000014701,
+      "firstWaveMs": 12.28438499999902
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 235.15268600000127,
+      "rowsPerSecond": 170102,
+      "inputMiBPerSecond": 153.9179509488282,
+      "inputMBPerSecond": 161.39466933411848,
+      "samplesMs": [
+        235.15268600000127, 226.42974500000128, 249.5238610000015, 235.4449320000058, 230.52114199999778,
+        239.84286099999736, 234.3142530000041
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 427.1851670000033,
+      "firstWaveMs": 50.252050999995845
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 245.4017309999981,
+      "rowsPerSecond": 162998,
+      "inputMiBPerSecond": 147.48966701149178,
+      "inputMBPerSecond": 154.654125076242,
+      "samplesMs": [
+        234.030915000003, 239.5997389999975, 283.40946599999734, 249.02059599999484, 245.4017309999981,
+        232.73989200000506, 250.6302899999937
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 440.595362,
+      "firstWaveMs": 57.115999000001466
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "rust-4",
+      "inputBytes": 37952390,
+      "medianMs": 128.4251310000036,
+      "rowsPerSecond": 311466,
+      "inputMiBPerSecond": 281.8312841684575,
+      "inputMBPerSecond": 295.5215206282245,
+      "samplesMs": [
+        125.47105200000078, 121.78710699999647, 128.5405829999945, 120.42515300000377, 128.4251310000036,
+        136.13664900000003, 144.02528499999607
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 0.39299100000062026,
+      "firstWaveMs": 17.494410999999673
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 127384890,
+      "medianMs": 822.474979999999,
+      "rowsPerSecond": 48634,
+      "inputMiBPerSecond": 147.70503765504878,
+      "inputMBPerSecond": 154.87995756418044,
+      "samplesMs": [
+        847.884103999997, 822.474979999999, 815.167174999995, 858.2880159999913, 842.0600160000031, 817.7614900000044,
+        803.6018299999996
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 435.7698709999968,
+      "firstWaveMs": 105.64838200000668
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 127384890,
+      "medianMs": 445.27840299998934,
+      "rowsPerSecond": 89831,
+      "inputMiBPerSecond": 272.8263869811765,
+      "inputMBPerSecond": 286.0792015551741,
+      "samplesMs": [
+        483.3607000000047, 455.0123370000074, 448.33982999999716, 439.92465000000084, 436.61546799998905,
+        428.87174299999606, 445.27840299998934
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 436.90285199999926,
+      "firstWaveMs": 62.44871599999897
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "rust-4",
+      "inputBytes": 127384890,
+      "medianMs": 248.9411250000121,
+      "rowsPerSecond": 160681,
+      "inputMiBPerSecond": 488.0017228621002,
+      "inputMBPerSecond": 511.7068945518496,
+      "samplesMs": [
+        253.7369609999878, 247.31861899999785, 248.9411250000121, 257.1624070000107, 247.93576499998744,
+        264.83841100000427, 246.5770130000019
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 0.5083299999969313,
+      "firstWaveMs": 28.395170000003418
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 127384890,
+      "medianMs": 900.2027590000071,
+      "rowsPerSecond": 44434,
+      "inputMiBPerSecond": 134.95148362596208,
+      "inputMBPerSecond": 141.5068868945768,
+      "samplesMs": [
+        878.2836380000081, 903.1783510000096, 906.0617400000046, 891.2727589999995, 900.2027590000071,
+        909.2314249999908, 894.3598020000063
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 433.0410239999983,
+      "firstWaveMs": 125.92336199999409
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 127384890,
+      "medianMs": 511.5964459999959,
+      "rowsPerSecond": 78187,
+      "inputMiBPerSecond": 237.46001138412194,
+      "inputMBPerSecond": 248.99486889711704,
+      "samplesMs": [
+        547.3636990000086, 511.5964459999959, 551.696517000004, 511.4572449999978, 525.9990819999948, 504.5397190000076,
+        505.96983800000453
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 445.0557559999943,
+      "firstWaveMs": 83.7505669999955
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "rust-4",
+      "inputBytes": 127384890,
+      "medianMs": 289.919498999996,
+      "rowsPerSecond": 137969,
+      "inputMiBPerSecond": 419.02562025066493,
+      "inputMBPerSecond": 439.3802087799612,
+      "samplesMs": [
+        296.5958329999994, 298.3381490000029, 289.38145399998757, 289.919498999996, 285.32838799999445,
+        280.82049699999334, 294.11090200000035
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 0.41706999999587424,
+      "firstWaveMs": 34.543996000000334
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 173.20259899999655,
+      "rowsPerSecond": 230943,
+      "inputMiBPerSecond": 208.97041844755526,
+      "inputMBPerSecond": 219.1213654940637,
+      "samplesMs": [
+        195.4818579999992, 181.73232700000517, 166.98128700000234, 173.20259899999655, 169.97616500000004,
+        174.7272360000061, 169.54162200000428
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 438.0004670000053,
+      "firstWaveMs": 33.49564300000202
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 185.3889530000015,
+      "rowsPerSecond": 215763,
+      "inputMiBPerSecond": 195.2339608349431,
+      "inputMBPerSecond": 204.7176457164613,
+      "samplesMs": [
+        199.41309999999066, 203.05112099999678, 180.24101399999927, 178.29537200000777, 171.04421599999478,
+        185.3889530000015, 185.55624200000602
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 435.42421500000637,
+      "firstWaveMs": 38.01997599999595
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "rust-4",
+      "inputBytes": 37952390,
+      "medianMs": 84.94627699999546,
+      "rowsPerSecond": 470886,
+      "inputMiBPerSecond": 426.08364801244124,
+      "inputMBPerSecond": 446.7810872982936,
+      "samplesMs": [
+        99.70122999999148, 84.22078000000329, 98.36601699999301, 90.38396999999532, 82.40035699999135,
+        84.94627699999546, 81.91594399999303
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 0.4556100000045262,
+      "firstWaveMs": 12.584249000006821
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 251.54536299999745,
+      "rowsPerSecond": 159017,
+      "inputMiBPerSecond": 143.88744502212813,
+      "inputMBPerSecond": 150.87692155152303,
+      "samplesMs": [
+        251.9728299999988, 246.8617949999898, 254.91740800000844, 251.54536299999745, 251.36347900000692,
+        254.68452100000286, 247.15383499999007
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 422.0973529999901,
+      "firstWaveMs": 62.14203099999577
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 271.6380300000019,
+      "rowsPerSecond": 147255,
+      "inputMiBPerSecond": 133.24430157748216,
+      "inputMBPerSecond": 139.71677677090995,
+      "samplesMs": [
+        279.9484170000069, 271.6380300000019, 276.0083700000105, 265.32330200000433, 288.2981629999995,
+        264.71477399999276, 259.24092999999993
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 425.0263050000067,
+      "firstWaveMs": 52.866205000013
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "rust-4",
+      "inputBytes": 37952390,
+      "medianMs": 150.79856900000595,
+      "rowsPerSecond": 265255,
+      "inputMiBPerSecond": 240.01699637635136,
+      "inputMBPerSecond": 251.676061992329,
+      "samplesMs": [
+        150.79856900000595, 147.23781599999347, 169.53662800000166, 156.90383900000597, 137.14010699999926,
+        137.37342699999863, 159.6671859999915
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 0.41774099999747705,
+      "firstWaveMs": 19.41770199999155
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 884.2918159999826,
+      "rowsPerSecond": 45234,
+      "inputMiBPerSecond": 40.93017591518014,
+      "inputMBPerSecond": 42.918400140435935,
+      "samplesMs": [
+        926.0569259999902, 903.2129009999917, 882.092169999989, 876.013558000006, 884.2918159999826, 886.8715720000037,
+        855.9240740000096
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 431.1221809999988,
+      "firstWaveMs": 126.7582870000042
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 873.3009620000084,
+      "rowsPerSecond": 45803,
+      "inputMiBPerSecond": 41.44529911697618,
+      "inputMBPerSecond": 43.45854596688242,
+      "samplesMs": [
+        853.9053720000084, 901.1573870000138, 873.3009620000084, 890.4257849999995, 914.8876230000169,
+        873.1089659999998, 860.6706980000017
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 450.35930799999915,
+      "firstWaveMs": 118.77594300000055
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "rust-4",
+      "inputBytes": 37952390,
+      "medianMs": 310.7354730000079,
+      "rowsPerSecond": 128727,
+      "inputMiBPerSecond": 116.47920090936151,
+      "inputMBPerSecond": 122.13729457273466,
+      "samplesMs": [
+        320.0844940000097, 300.5013099999924, 320.8321339999966, 318.0430430000124, 310.7354730000079,
+        298.5620239999844, 305.9384850000206
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 0.5952899999974761,
+      "firstWaveMs": 45.52682400000049
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 1188.0576410000212,
+      "rowsPerSecond": 33668,
+      "inputMiBPerSecond": 30.46503666166207,
+      "inputMBPerSecond": 31.944906282538966,
+      "samplesMs": [
+        1232.6379999999772, 1178.3214620000217, 1192.3359390000114, 1214.308990999998, 1177.9929720000073,
+        1188.0576410000212, 1173.4681240000064
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 441.8841620000021,
+      "firstWaveMs": 161.58615399998962
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 1209.420156999986,
+      "rowsPerSecond": 33074,
+      "inputMiBPerSecond": 29.926919424771768,
+      "inputMBPerSecond": 31.38064946274948,
+      "samplesMs": [
+        1189.9739390000177, 1239.7805430000008, 1221.8202619999938, 1231.9442120000022, 1209.420156999986,
+        1181.0944010000094, 1184.3485439999786
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 442.0010099999927,
+      "firstWaveMs": 159.54120300000068
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "rust-4",
+      "inputBytes": 37952390,
+      "medianMs": 396.99998099997174,
+      "rowsPerSecond": 100756,
+      "inputMiBPerSecond": 91.1693232278416,
+      "inputMBPerSecond": 95.59796427295724,
+      "samplesMs": [
+        378.6812300000165, 374.5760280000104, 396.99998099997174, 389.6027269999904, 410.39042700000573,
+        401.61457600002177, 398.40763899998274
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 0.4132910000043921,
+      "firstWaveMs": 55.91572799999267
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 330.7676780000038,
+      "rowsPerSecond": 120931,
+      "inputMiBPerSecond": 109.42489849093714,
+      "inputMBPerSecond": 114.7403223600329,
+      "samplesMs": [
+        333.1173490000074, 379.25582299998496, 354.3743320000067, 310.99831500000437, 330.7676780000038,
+        297.61226100000204, 310.83243399998173
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 439.9237779999967,
+      "firstWaveMs": 71.78028899998753
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 335.6956240000145,
+      "rowsPerSecond": 119156,
+      "inputMiBPerSecond": 107.81856241662487,
+      "inputMBPerSecond": 113.05595690457484,
+      "samplesMs": [
+        329.980699000007, 341.21623300001374, 335.6956240000145, 338.93610900000203, 326.7684880000015,
+        344.8591610000003, 318.8214520000038
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 427.5464750000101,
+      "firstWaveMs": 59.41672899998957
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "rust-4",
+      "inputBytes": 37952390,
+      "medianMs": 203.20693099999335,
+      "rowsPerSecond": 196844,
+      "inputMiBPerSecond": 178.11508402355915,
+      "inputMBPerSecond": 186.76720234508755,
+      "samplesMs": [
+        203.30175400001463, 215.87647000001743, 200.8223500000022, 202.30958399997326, 203.20693099999335,
+        204.91514800000004, 203.0876560000179
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 0.7139500000048429,
+      "firstWaveMs": 29.12833999999566
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 481.3373069999798,
+      "rowsPerSecond": 83102,
+      "inputMiBPerSecond": 75.19512629266221,
+      "inputMBPerSecond": 78.84780474745457,
+      "samplesMs": [
+        481.3373069999798, 477.9353810000175, 489.72781300000497, 495.2970659999992, 516.4380500000261,
+        468.04462400000193, 477.0545559999882
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 445.57084299999406,
+      "firstWaveMs": 86.48039899999276
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 499.5778810000047,
+      "rowsPerSecond": 80068,
+      "inputMiBPerSecond": 72.44960388715259,
+      "inputMBPerSecond": 75.96891584557491,
+      "samplesMs": [
+        517.7791020000004, 484.0741899999848, 499.5778810000047, 480.3125379999983, 484.0433009999979,
+        506.5357340000046, 517.1365360000054
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 448.97517100002733,
+      "firstWaveMs": 76.82413899997482
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "rust-4",
+      "inputBytes": 37952390,
+      "medianMs": 307.31255100001,
+      "rowsPerSecond": 130161,
+      "inputMiBPerSecond": 117.77657460281283,
+      "inputMBPerSecond": 123.49768949071907,
+      "samplesMs": [
+        300.78246899999795, 340.5476090000011, 291.7796329999983, 291.72369899999467, 307.7385629999917,
+        347.81179999999586, 307.31255100001
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 0.7145699999819044,
+      "firstWaveMs": 37.305148999992525
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 173.5045659999887,
+      "rowsPerSecond": 230541,
+      "inputMiBPerSecond": 208.60672674882665,
+      "inputMBPerSecond": 218.74000710737764,
+      "samplesMs": [
+        179.938078999985, 185.33096500000102, 163.70657000000938, 173.5045659999887, 170.4606860000058,
+        166.2278370000131, 175.34452300000703
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 418.25931500000297,
+      "firstWaveMs": 34.86232200000086
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 173.37461600001552,
+      "rowsPerSecond": 230714,
+      "inputMiBPerSecond": 208.76308437926207,
+      "inputMBPerSecond": 218.9039599660691,
+      "samplesMs": [
+        189.45642599998973, 163.93954199997825, 171.93566799999098, 173.37461600001552, 173.41668500000378,
+        180.22907200001646, 167.80381500002113
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 434.25797900001635,
+      "firstWaveMs": 41.757299999997485
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "rust-4",
+      "inputBytes": 37952390,
+      "medianMs": 95.57336999999825,
+      "rowsPerSecond": 418527,
+      "inputMiBPerSecond": 378.70611436254745,
+      "inputMBPerSecond": 397.10214257382256,
+      "samplesMs": [
+        92.22195300000021, 100.78963099999237, 122.68756299998495, 95.57336999999825, 93.22685000000638,
+        95.01327900000615, 100.55642700000317
+      ],
+      "scope": "conversion-evaluation",
+      "concurrency": 4,
+      "setupMs": 0.5761100000236183,
+      "firstWaveMs": 13.91589699999895
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "js-plain-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 227.45117300000857,
+      "rowsPerSecond": 175862,
+      "inputMiBPerSecond": 159.1296237862534,
+      "inputMBPerSecond": 166.85950439129445,
+      "samplesMs": [
+        224.55311499998788, 227.45117300000857, 227.3920119999966, 235.21791799998027, 226.08844799999497,
+        232.06940499998746, 230.68037300001015
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 415.0995330000005,
+      "firstWaveMs": 47.906749000016134
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "js-sqlite-workers-4",
+      "inputBytes": 37952390,
+      "medianMs": 227.0473639999982,
+      "rowsPerSecond": 176175,
+      "inputMiBPerSecond": 159.412639510907,
+      "inputMBPerSecond": 167.15626788778883,
+      "samplesMs": [
+        227.0473639999982, 222.89301400000113, 222.21712300000945, 238.42743699997663, 224.90338000000338,
+        232.58876400001463, 240.45985100002144
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 423.4466089999769,
+      "firstWaveMs": 46.79341799998656
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "rust-4",
+      "inputBytes": 37952390,
+      "medianMs": 152.44057400000747,
+      "rowsPerSecond": 262397,
+      "inputMiBPerSecond": 237.4316669079954,
+      "inputMBPerSecond": 248.9651475597182,
+      "samplesMs": [
+        172.45187000001897, 152.44057400000747, 151.05235399998492, 147.0529239999887, 163.57878799998434,
+        145.02426399997785, 168.90180399999372
+      ],
+      "scope": "full-preparation",
+      "concurrency": 4,
+      "setupMs": 0.3773899999796413,
+      "firstWaveMs": 19.514105999987805
+    }
+  ],
+  "sink": 12784432710
+}

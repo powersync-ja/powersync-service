@@ -46,6 +46,9 @@ export interface UnscopedEvaluatedParameters {
 export type EvaluatedParametersResult = EvaluatedParameters | EvaluationError;
 export type UnscopedEvaluatedParametersResult = UnscopedEvaluatedParameters | EvaluationError;
 
+/** A bucket row whose payload is ready for checksumming and storage. */
+export type SerializedEvaluatedRow = Omit<EvaluatedRow, 'data'> & { data: string };
+
 export interface EvaluatedRow {
   bucket: string;
 
