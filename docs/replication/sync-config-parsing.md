@@ -22,8 +22,8 @@ Core owns the flat table-pattern map. Table keys follow the same right-to-left q
 `table`, `database.table`, or `connection.database.table`. Omitted components remain relative to runtime defaults.
 Declaring an entry does not add a replication source; SQL and stream definitions still select source tables.
 
-Core table options are empty. Both `additionalProperties: false` and `maxProperties: 0` reject options unless an
-external parser extends the shared table-option schema. Multiple parsers may add independent fields to the same table.
+Core table options are empty and `additionalProperties: false` rejects options unless an external parser extends the
+shared table-option schema. Multiple parsers may add independent fields to the same table.
 
 Parsed, compiled, and hydrated representations expose `sourceTableConfig`. Modules inspect their own fields rather than
 using a source-type discriminator. Authored table names and declaration order are persisted because wildcard precedence

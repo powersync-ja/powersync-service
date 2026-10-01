@@ -24,7 +24,6 @@ const ADDITIONAL_PARSER: AdditionalSyncConfigParser = {
   extendJsonSchema({ schema }) {
     const sourceTables = (schema.properties as any).config.properties.source_tables;
     sourceTables.additionalProperties.properties.sample = t.generateJSONSchema(SAMPLE_OPTION);
-    delete sourceTables.additionalProperties.maxProperties;
   },
   parse({ config, context }) {
     const sourceTables = (config as any).config?.source_tables;
@@ -121,7 +120,6 @@ describe('source table configuration', () => {
       extendJsonSchema({ schema }) {
         const options = (schema.properties as any).config.properties.source_tables.additionalProperties;
         options.properties.flag = { type: 'boolean' };
-        delete options.maxProperties;
       },
       parse({ config, context }) {
         const sourceTables = (config as any).config?.source_tables ?? {};
@@ -134,20 +132,20 @@ describe('source table configuration', () => {
         }
       }
     };
-    const result = parse(
-      'config: { edition: 3, source_tables: { orders: { sample: 1, flag: true } } }',
-      [ADDITIONAL_PARSER, flagParser]
-    );
+    const result = parse('config: { edition: 3, source_tables: { orders: { sample: 1, flag: true } } }', [
+      ADDITIONAL_PARSER,
+      flagParser
+    ]);
     expect(result.config.sourceTableConfig).toEqual({ orders: { sample: 1, flag: true } });
   });
 
   test('preserves declaration order and options through the sync plan', () => {
     const result = parse(
       /* yaml */ ` config:
-        edition: 3
-        source_tables:
-          orders%: { sample: 10 }
-          orders: { sample: 1 } `,
+          edition: 3
+          source_tables:
+            orders%: { sample: 10 }
+            orders: { sample: 1 } `,
       [ADDITIONAL_PARSER]
     );
     const plan = serializeSyncPlan((result.config as PrecompiledSyncConfig).plan);
@@ -160,9 +158,9 @@ describe('source table configuration', () => {
 
   test('reports hook errors at the authored option value', () => {
     const body = /* yaml */ ` config:
-      edition: 3
-      source_tables:
-        orders: { sample: -1 } `;
+        edition: 3
+        source_tables:
+          orders: { sample: -1 } `;
     try {
       parse(body, [ADDITIONAL_PARSER]);
       expect.fail('Expected validation to fail');
@@ -198,9 +196,7 @@ describe('source table configuration', () => {
     const plan = serializeSyncPlan(config.plan);
     expect(plan.version).toBe(1);
     expect(plan).not.toHaveProperty('sourceTableConfig');
-    expect(() => deserializeSyncPlan({ ...plan, sourceTableConfig: { orders: { sample: 1 } } })).toThrow(
-      'version 3'
-    );
+    expect(() => deserializeSyncPlan({ ...plan, sourceTableConfig: { orders: { sample: 1 } } })).toThrow('version 3');
   });
 
   test('normalizes portable values without reordering table declarations', () => {
@@ -214,7 +210,7 @@ describe('source table configuration', () => {
   test('keeps the generated base table schema closed', () => {
     const schema = createSyncRulesSchema();
     const options = (schema.properties as any).config.properties.source_tables.additionalProperties;
-    expect(options).toMatchObject({ additionalProperties: false, maxProperties: 0 });
+    expect(options).toMatchObject({ additionalProperties: false, properties: {} });
     const validate = compileSyncRulesSchemaValidator(schema);
     expect(validate({ config: { edition: 3, source_tables: { orders: {} } }, streams: {} })).toBe(true);
     expect(validate({ config: { edition: 3, source_tables: { orders: { sample: 1 } } }, streams: {} })).toBe(false);
