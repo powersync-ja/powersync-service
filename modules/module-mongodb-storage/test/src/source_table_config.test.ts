@@ -3,7 +3,7 @@ import { SqlSyncConfigParser, updateSyncRulesFromConfig } from '@powersync/servi
 import { test_utils } from '@powersync/service-core-tests';
 import {
   AdditionalSyncConfigParser,
-  normalizeConnectionConfig,
+  normalizeSourceTableConfig,
   PrecompiledSyncConfig
 } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
@@ -22,12 +22,9 @@ const CONFIGURED = /* yaml */ `
   # Sync config fixture.
   config:
     edition: 3
-    connections:
-      default:
-        type: example
-        tables:
-          orders:
-            sample: 10
+    source_tables:
+      orders:
+        sample: 10
   streams:
     orders:
       query: SELECT * FROM orders
@@ -37,35 +34,16 @@ const CONFIGURED = /* yaml */ `
 const TABLE_OPTIONS: AdditionalSyncConfigParser = {
   id: 'example.tables',
   extendJsonSchema({ schema }) {
-    const map = (schema.properties as any).config.properties.connections;
-    map.additionalProperties = {
-      if: { type: 'object', required: ['type'], properties: { type: { const: 'example' } } },
-      then: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['type'],
-        properties: {
-          type: { const: 'example' },
-          tables: {
-            type: 'object',
-            additionalProperties: {
-              type: 'object',
-              additionalProperties: false,
-              properties: { sample: { type: 'number' } }
-            }
-          }
-        }
-      },
-      else: map.additionalProperties
-    };
+    const options = (schema.properties as any).config.properties.source_tables.additionalProperties;
+    options.properties.sample = { type: 'number' };
   },
   parse({ config, context }) {
-    const connections = normalizeConnectionConfig(
-      (config as { config?: { connections?: unknown } }).config?.connections
+    const sourceTables = normalizeSourceTableConfig(
+      (config as { config?: { source_tables?: unknown } }).config?.source_tables
     );
-    for (const [tag, connection] of Object.entries(connections)) {
-      if (connection?.type != 'example') continue;
-      context.parsedConfig.connectionConfig = { ...context.parsedConfig.connectionConfig, [tag]: connection };
+    for (const [table, options] of Object.entries(sourceTables)) {
+      if (!Object.hasOwn(options!, 'sample')) continue;
+      context.parsedConfig.sourceTableConfig = { ...context.parsedConfig.sourceTableConfig, [table]: options };
       const { plan } = context.parsedConfig as PrecompiledSyncConfig;
       plan.moduleData = { ...plan.moduleData, ['example.tables']: null };
     }
@@ -82,13 +60,13 @@ function storageFactory(withModule: boolean) {
   });
 }
 
-describe.for(TEST_STORAGE_VERSIONS)('connection config with storage v%i', (storageVersion) => {
+describe.for(TEST_STORAGE_VERSIONS)('source-table config with storage v%i', (storageVersion) => {
   test('preserves module options across closing storage and loading its compiled plan', async () => {
     let expected;
     {
       await using factory = await storageFactory(true).factory();
       const parsed = factory.syncConfigParser.parseContent(CONFIGURED, test_utils.PARSE_OPTIONS);
-      expected = parsed.config.connectionConfig;
+      expected = parsed.config.sourceTableConfig;
       await factory.updateSyncRules(updateSyncRulesFromConfig(parsed, { storageVersion }));
     }
 
@@ -97,8 +75,8 @@ describe.for(TEST_STORAGE_VERSIONS)('connection config with storage v%i', (stora
     const deploying = (await reopened.getDeployingSyncConfig())!;
     expect(deploying.content.compiled_plan?.plan.version).toBe(3);
     const parsed = deploying.content.parsed(test_utils.PARSE_OPTIONS);
-    expect(parsed.syncConfigs[0].config.connectionConfig).toEqual(expected);
-    expect(parsed.hydratedSyncConfig.connectionConfig).toEqual(expected);
+    expect(parsed.syncConfigs[0].config.sourceTableConfig).toEqual(expected);
+    expect(parsed.hydratedSyncConfig.sourceTableConfig).toEqual(expected);
   });
 
   test('rejects saved options if the module is absent after restart', async () => {
@@ -126,10 +104,10 @@ describe.for(TEST_STORAGE_VERSIONS)('connection config with storage v%i', (stora
     );
     const deploying = (await factory.getDeployingSyncConfig())!;
     expect(deploying.content.compiled_plan?.plan.version).toBe(1);
-    expect(deploying.content.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig.connectionConfig).toEqual({});
+    expect(deploying.content.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig.sourceTableConfig).toEqual({});
   });
 
-  test('starts replacement processing when connection options change', async () => {
+  test('starts replacement processing when source-table options change', async () => {
     await using factory = await storageFactory(true).factory();
     const deploy = (yaml: string) =>
       factory.updateSyncRules(
@@ -146,7 +124,7 @@ describe.for(TEST_STORAGE_VERSIONS)('connection config with storage v%i', (stora
       await writer.commit('1/1');
     }
     if (storageVersion >= 3) {
-      // SQL-only edits can share source data when the connection options are identical.
+      // SQL-only edits can share source data when the source-table options are identical.
       const sameOptions = await deploy(CONFIGURED.replace('SELECT * FROM orders', 'SELECT id FROM orders'));
       expect(sameOptions.replicationStreamId).toBe(first.replicationStreamId);
       const storage = await test_utils.getTestStorage(factory, sameOptions);
