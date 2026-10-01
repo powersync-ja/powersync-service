@@ -28,11 +28,11 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB snapshot quer
         streamOptions: {
           snapshotChunkLength: 2,
           createReplicationQueryProvider: ({ connectionTag, defaultSchema, syncConfig }) => {
-            // Providers need the actual source namespace and parsed connection options to build their
-            // predicates. This sync config has no connection-specific options, so those are empty.
+            // Providers need the actual source namespace and parsed source-table options to build their
+            // predicates. This sync config has no source-table options, so those are empty.
             expect(connectionTag).toBe(context.connectionTag);
             expect(defaultSchema).toBe(context.db.databaseName);
-            expect(syncConfig.connectionConfig).toEqual({});
+            expect(syncConfig.sourceTableConfig).toEqual({});
             return { ...DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER, getSnapshotFilter };
           }
         }
