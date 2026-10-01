@@ -260,5 +260,27 @@ streams:
       expect(activeBucketStorage.getActiveSyncConfig).not.toHaveBeenCalled();
       expect(activeBucketStorage.updateSyncRules).not.toHaveBeenCalled();
     });
+
+    it('logs that bucket_definitions are deprecated', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn');
+      const activeBucketStorage = {
+        getDeployingSyncConfig: vi.fn(async () => null),
+        getActiveSyncConfig: vi.fn(async () => ({
+          content: makeSyncConfigContent({}),
+          replicationStream: {},
+          storage: {}
+        })),
+        updateSyncRules: vi.fn(async () => ({ replicationStreamName: 'new_slot' }))
+      };
+
+      await reprocess.handler({
+        context: makeContext(activeBucketStorage),
+        params: {},
+        request
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Sync Rules (`bucket_definitions`) are deprecated'));
+      warnSpy.mockRestore();
+    });
   });
 });

@@ -4,7 +4,11 @@ import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 
 import { RouteAPI } from '../../api/RouteAPI.js';
-import { updateSyncRulesFromConfig, updateSyncRulesFromYaml } from '../../storage/BucketStorageFactory.js';
+import {
+  logSyncConfigWarnings,
+  updateSyncRulesFromConfig,
+  updateSyncRulesFromYaml
+} from '../../storage/BucketStorageFactory.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -70,6 +74,7 @@ export const deploySyncRules = routeDefinition({
       });
     }
 
+    logSyncConfigWarnings(syncConfig);
     const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules(updateSyncRulesFromConfig(syncConfig));
 
     return {
