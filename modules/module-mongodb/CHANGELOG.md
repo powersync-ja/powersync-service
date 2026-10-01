@@ -1,5 +1,28 @@
 # @powersync/service-module-mongodb
 
+## 0.21.2
+
+### Patch Changes
+
+- 155febf: Report a MongoDB collection without columns when sampling it exceeds the query memory limit, instead of failing the whole schema request. Sampling a small collection of large documents can hit this limit, which previously blocked sync config validation and deployment for the entire connection.
+- 54d6f4b: Report a MongoDB view matched by a wildcard table pattern as a warning, instead of failing sync config validation. Previously, a view matching a pattern such as `"orders%"` made the whole validation request fail with `Cannot get name for wildcard table`.
+- 18f0c95: Add `fixed_booleans_in_json` to sync booleans in JSON columns as booleans instead of as 0/1 integer.
+- Updated dependencies [0483d4e]
+- Updated dependencies [28f024b]
+- Updated dependencies [5078032]
+- Updated dependencies [424bbc0]
+- Updated dependencies [e87703a]
+- Updated dependencies [b70f467]
+- Updated dependencies [18f0c95]
+- Updated dependencies [c60db6e]
+- Updated dependencies [0483d4e]
+- Updated dependencies [a8c3f15]
+  - @powersync/service-core@1.27.0
+  - @powersync/service-types@0.19.0
+  - @powersync/service-sync-rules@0.43.0
+  - @powersync/lib-services-framework@0.10.3
+  - @powersync/lib-service-mongodb@0.6.33
+
 ## 0.21.1
 
 ### Patch Changes

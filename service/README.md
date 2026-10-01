@@ -38,7 +38,7 @@ See the [Docker Compose Demo](https://github.com/powersync-ja/self-host-demo) fo
 
 # How to use the npm package
 
-The same service is published as an npm package, for environments where running the image is not an option, such as Windows Server. It requires Node.js 24 or later.
+The same service is published as an npm package, for environments where running the image is not an option, such as Windows Server. Use the exact NodeJS version as the Docker image for the release. **This deployment method is not officially supported**, and may have issues not present in the Docker image release.
 
 ```bash
 npm install @powersync/service-image

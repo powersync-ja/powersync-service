@@ -1,5 +1,29 @@
 # @powersync/service-core
 
+## 1.27.0
+
+### Minor Changes
+
+- 5078032: Change the default MongoDB storage version from 2 to 4.
+- b70f467: Remove global replication lock for MongoDB storage.
+
+### Patch Changes
+
+- 0483d4e: Merge overlapping static and dynamic bucket selections in service-core, preserving subscription metadata and priority for all storage backends. This prevents duplicate bucket operations and client checksum failures with Postgres storage.
+- 28f024b: Fix errors during websocket parameter logging.
+- 424bbc0: Skip chunk-merge compact for small buckets after initial replication.
+- c60db6e: Mark legacy Sync Rules and the alpha Sync Streams implementation as `@deprecated`, and update the sync-rules README, templates, and examples to document Sync Streams first. Capitalize "Sync Streams" in log and error messages.
+- a8c3f15: Fix loading storage migrations on Windows: migration scripts are now imported via file URLs, since the Node.js ESM loader rejects absolute Windows paths such as `C:\...`.
+- Updated dependencies [5078032]
+- Updated dependencies [e87703a]
+- Updated dependencies [18f0c95]
+- Updated dependencies [c60db6e]
+- Updated dependencies [0483d4e]
+  - @powersync/service-types@0.19.0
+  - @powersync/service-sync-rules@0.43.0
+  - @powersync/lib-services-framework@0.10.3
+  - @powersync/service-rsocket-router@0.2.28
+
 ## 1.26.1
 
 ### Patch Changes
