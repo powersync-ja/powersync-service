@@ -16,16 +16,20 @@ import * as sqlite from 'node:sqlite';
 import { describe, expect, test, vi } from 'vitest';
 
 const STREAMS = /* yaml */ `
-  config: { edition: 3 }
+  # Sync config fixture.
+  config:
+    edition: 3
   streams:
     orders:
       query: SELECT * FROM orders
 `;
 const CONFIGURED = /* yaml */ `
+  # Sync config fixture.
   config:
     edition: 3
     source_tables:
-      orders: { sample: 10 }
+      orders:
+        sample: 10
   streams:
     orders:
       query: SELECT * FROM orders

@@ -1,5 +1,5 @@
-import { normalizeSourceTableConfig, SourceTableConfigMap } from '../SourceTableConfig.js';
 import { ParameterLookupDefinitionId } from '../HydrationState.js';
+import { normalizeSourceTableConfig, SourceTableConfigMap } from '../SourceTableConfig.js';
 import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { SqlExpression } from './expression.js';
 import { MapSourceVisitor, visitExpr } from './expression_visitor.js';

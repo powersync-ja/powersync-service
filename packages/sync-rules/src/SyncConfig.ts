@@ -5,10 +5,10 @@ import {
   ParameterIndexLookupCreator
 } from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
-import { SourceTableConfigMap } from './SourceTableConfig.js';
 import { YamlError } from './errors.js';
 import { EventDefinition } from './events/EventDescriptor.js';
 import { HydratedSyncConfig } from './HydratedSyncConfig.js';
+import { SourceTableConfigMap } from './SourceTableConfig.js';
 import { SourceTableRef } from './SourceTableRef.js';
 import { TablePattern } from './TablePattern.js';
 import { SqliteInputValue, SqliteRow, SqliteValue } from './types.js';

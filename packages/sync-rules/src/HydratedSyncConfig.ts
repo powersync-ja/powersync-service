@@ -1,5 +1,4 @@
 import { BucketDataSource, HydratedBucketSource } from './BucketSource.js';
-import { SourceTableConfigMap } from './SourceTableConfig.js';
 import {
   BucketParameterQuerier,
   BucketSource,
@@ -28,6 +27,7 @@ import {
   SyncConfig,
   TablePattern
 } from './index.js';
+import { SourceTableConfigMap } from './SourceTableConfig.js';
 import { SourceTableRef, sourceTableRefKey } from './SourceTableRef.js';
 import { createScalarExpressionEngine } from './sync_plan/engine/factory.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';

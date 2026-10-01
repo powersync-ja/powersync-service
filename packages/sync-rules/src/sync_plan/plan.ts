@@ -1,6 +1,6 @@
 import { BucketPriority } from '../BucketDescription.js';
-import type { SourceTableConfigMap } from '../SourceTableConfig.js';
 import { ParameterLookupDefinitionId } from '../HydrationState.js';
+import type { SourceTableConfigMap } from '../SourceTableConfig.js';
 import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
 import { SqlExpression } from './expression.js';

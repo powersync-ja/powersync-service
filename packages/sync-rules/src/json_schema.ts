@@ -1,7 +1,7 @@
 import ajvModule from 'ajv';
 import { CompatibilityEdition, CompatibilityOption, TimeValuePrecision } from './compatibility.js';
-import { createSourceTableConfigSchema } from './SourceTableConfig.js';
 import type { JsonObject } from './json.js';
+import { createSourceTableConfigSchema } from './SourceTableConfig.js';
 import { STORAGE_VERSIONS } from './StorageVersion.js';
 import type { AdditionalSyncConfigParser } from './SyncConfigParserHooks.js';
 // Hack to make this work both in NodeJS and a browser

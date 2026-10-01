@@ -11,6 +11,7 @@ import { env } from './env.js';
 import { TEST_STORAGE_VERSIONS } from './util.js';
 
 const STREAMS = /* yaml */ `
+  # Sync config fixture.
   config:
     edition: 3
   streams:
@@ -18,6 +19,7 @@ const STREAMS = /* yaml */ `
       query: SELECT * FROM orders
 `;
 const CONFIGURED = /* yaml */ `
+  # Sync config fixture.
   config:
     edition: 3
     connections:
