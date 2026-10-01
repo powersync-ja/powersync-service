@@ -25,12 +25,15 @@ export class PostgresStorageProvider implements storage.StorageProvider {
 
     const decodedConfig = PostgresStorageConfig.decode(storage);
     const normalizedConfig = normalizePostgresStorageConfig(decodedConfig);
-    const storageFactory = new PostgresBucketStorageFactory({
-      config: normalizedConfig,
-      replicationStreamNamePrefix: options.resolvedConfig.slot_name_prefix,
-      checksumCacheTtlMs: options.resolvedConfig.api_parameters.bucket_count_cache_ttl_minutes * 60_000,
-      defaultStorageVersion: decodedConfig.default_storage_version
-    });
+    const storageFactory = new PostgresBucketStorageFactory(
+      {
+        config: normalizedConfig,
+        replicationStreamNamePrefix: options.resolvedConfig.slot_name_prefix,
+        checksumCacheTtlMs: options.resolvedConfig.api_parameters.bucket_count_cache_ttl_minutes * 60_000,
+        defaultStorageVersion: decodedConfig.default_storage_version
+      },
+      options.syncConfigParser
+    );
 
     const reportStorageFactory = new PostgresReportStorage({
       config: normalizedConfig

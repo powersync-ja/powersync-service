@@ -5,6 +5,7 @@ import {
   ParameterIndexLookupCreator
 } from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
+import { SourceTableConfigMap } from './SourceTableConfig.js';
 import { YamlError } from './errors.js';
 import { EventDefinition } from './events/EventDescriptor.js';
 import { HydratedSyncConfig } from './HydratedSyncConfig.js';
@@ -18,10 +19,16 @@ import { applyRowContext } from './utils.js';
  * resolve buckets for connections).
  */
 export abstract class SyncConfig {
+  /**
+   * Module-specific source options keyed by authored table pattern.
+   */
+  sourceTableConfig: SourceTableConfigMap = {};
   bucketDataSources: BucketDataSource[] = [];
   bucketParameterLookupSources: ParameterIndexLookupCreator[] = [];
   bucketSources: BucketSource[] = [];
-  /** Prepared event definitions. Executable event descriptors only exist on {@link HydratedSyncConfig}. */
+  /**
+   * Prepared event definitions. Executable event descriptors only exist on {@link HydratedSyncConfig}.
+   */
   eventDefinitions: EventDefinition[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
   /**

@@ -98,9 +98,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
   constructor(
     db: PowerSyncMongo,
+    syncConfigParser: storage.SyncConfigParser,
     private options: MongoBucketStorageOptions
   ) {
-    super();
+    super({ syncConfigParser });
     this.chunkCompactionConcurrency = normalizeChunkCompactionConcurrency(
       options.chunkCompactionConcurrency,
       options.objectStorage != null
@@ -423,7 +424,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     };
 
     await this.db.sync_rules.insertOne(doc, { session });
-    const rules = new MongoPersistedReplicationStream(this.db, doc, [syncConfigDoc]);
+    const rules = new MongoPersistedReplicationStream(this.db, doc, [syncConfigDoc], this.syncConfigParser);
     if (options.lock) {
       // We only lock when creating a new stream - otherwise we'll likely get lock contention
       // from an existing job on the stream, which would fail the entire transaction.
@@ -556,7 +557,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         ...existing,
         sync_configs: syncConfigStates
       },
-      [...existingConfigDocs, syncConfigDoc]
+      [...existingConfigDocs, syncConfigDoc],
+      this.syncConfigParser
     );
     // The stream already exists, so an active replication job may already hold the stream lock.
     // Deployment only persists the appended sync config; replication job locking is handled by
@@ -639,7 +641,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     };
 
     await this.db.sync_rules.insertOne(doc, { session });
-    const rules = new MongoPersistedReplicationStream(this.db, doc);
+    const rules = new MongoPersistedReplicationStream(this.db, doc, [], this.syncConfigParser);
     if (options.lock) {
       // The lock is persisted on rules.current_lock
       await rules.lock(session);
@@ -731,10 +733,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       if (syncConfigDocs.length == 0) {
         return null;
       }
-      return new MongoPersistedReplicationStream(this.db, v3, syncConfigDocs);
+      return new MongoPersistedReplicationStream(this.db, v3, syncConfigDocs, this.syncConfigParser);
     }
 
-    return new MongoPersistedReplicationStream(this.db, doc as SyncRuleDocumentV1);
+    return new MongoPersistedReplicationStream(this.db, doc as SyncRuleDocumentV1, [], this.syncConfigParser);
   }
 
   async getDeployingSyncConfig(): Promise<storage.ResolvedSyncConfig | null> {

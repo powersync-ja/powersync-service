@@ -1,5 +1,12 @@
 import { createLogger, logger as defaultLogger, transports } from '@powersync/lib-services-framework';
-import { framework, PowerSyncMigrationManager, ServiceContext, TestStorageOptions } from '@powersync/service-core';
+import {
+  framework,
+  PowerSyncMigrationManager,
+  ServiceContext,
+  SqlSyncConfigParser,
+  SyncConfigParser,
+  TestStorageOptions
+} from '@powersync/service-core';
 import { PostgresMigrationAgent } from '../migrations/PostgresMigrationAgent.js';
 import { PostgresBucketStorageFactory } from '../storage/PostgresBucketStorageFactory.js';
 import { PostgresReportStorage } from '../storage/PostgresReportStorage.js';
@@ -8,6 +15,7 @@ import { truncateTables } from './db.js';
 
 export type PostgresTestStorageOptions = {
   url: string;
+  syncConfigParser?: SyncConfigParser;
   /**
    * Vitest can cause issues when loading .ts files for migrations.
    * This allows for providing a custom PostgresMigrationAgent.
@@ -71,10 +79,13 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
   const clearStorage = async () => {
     await runMigrations({ down: false, up: true });
 
-    await using storageFactory = new PostgresBucketStorageFactory({
-      config: TEST_CONNECTION_OPTIONS,
-      replicationStreamNamePrefix: 'test_'
-    });
+    await using storageFactory = new PostgresBucketStorageFactory(
+      {
+        config: TEST_CONNECTION_OPTIONS,
+        replicationStreamNamePrefix: 'test_'
+      },
+      factoryOptions.syncConfigParser ?? new SqlSyncConfigParser()
+    );
     await truncateTables(storageFactory.db);
   };
 
@@ -100,10 +111,13 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
           await clearStorage();
         }
 
-        return new PostgresBucketStorageFactory({
-          config: TEST_CONNECTION_OPTIONS,
-          replicationStreamNamePrefix: 'test_'
-        });
+        return new PostgresBucketStorageFactory(
+          {
+            config: TEST_CONNECTION_OPTIONS,
+            replicationStreamNamePrefix: 'test_'
+          },
+          factoryOptions.syncConfigParser ?? new SqlSyncConfigParser()
+        );
       } catch (ex) {
         // Vitest does not display these errors nicely when using the `await using` syntx
         console.error(ex, ex.cause);

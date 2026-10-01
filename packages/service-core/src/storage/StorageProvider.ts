@@ -2,6 +2,7 @@ import { ServiceError } from '@powersync/lib-services-framework';
 import * as util from '../util/util-index.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
 import { ReportStorage } from './ReportStorage.js';
+import { SyncConfigParser } from './SyncConfigParser.js';
 
 export interface ActiveStorage {
   storage: BucketStorageFactory;
@@ -19,6 +20,10 @@ export interface ActiveStorage {
 export interface GetStorageOptions {
   // TODO: This should just be the storage config. Update once the slot name prefix coupling has been removed from the storage
   resolvedConfig: util.ResolvedPowerSyncConfig;
+  /**
+   * Service-wide parser containing every extension registered during module initialization.
+   */
+  syncConfigParser: SyncConfigParser;
 }
 
 /**
@@ -31,5 +36,8 @@ export interface StorageProvider {
    */
   type: string;
 
+  /**
+   * Creates active storage during storage-engine startup using the fully assembled service parser.
+   */
   getStorage(options: GetStorageOptions): Promise<ActiveStorage>;
 }
