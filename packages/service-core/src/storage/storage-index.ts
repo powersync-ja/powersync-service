@@ -1,4 +1,5 @@
 export * from './bson.js';
+export * from './bucket-report.js';
 export * from './BucketStorage.js';
 export * from './BucketStorageBatch.js';
 export * from './BucketStorageFactory.js';
