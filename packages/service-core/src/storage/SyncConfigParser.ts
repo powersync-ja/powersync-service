@@ -80,20 +80,6 @@ export class SqlSyncConfigParser implements SyncConfigParser {
   }
 
   validatePersisted({ config, context }: { config: SyncConfig; context: { defaultSchema: string } }): YamlError[] {
-    /**
-     * Ensure that all modules which created a persisted SyncConfig
-     * are currently loaded.
-     * This prevents a case for a SyncConfig with missing external modules to be loaded.
-     */
-    const requiredIds = new Set(
-      config instanceof PrecompiledSyncConfig ? Object.keys(config.plan.moduleData ?? {}) : []
-    );
-    const registeredIds = new Set(this.#parsers.map((parser) => parser.id));
-    const missingIds = [...requiredIds].filter((id) => !registeredIds.has(id));
-    if (missingIds.length != 0) {
-      throw new Error(`Missing required sync config parsers: ${missingIds.join(', ')}`);
-    }
-
     const errors: YamlError[] = [];
     const reportDiagnostic = (diagnostic: SyncConfigDiagnostic) => {
       const location = diagnostic.location;
@@ -107,6 +93,23 @@ export class SqlSyncConfigParser implements SyncConfigParser {
       error.type = diagnostic.level;
       errors.push(error);
     };
+
+    /**
+     * Ensure that all modules which created a persisted SyncConfig
+     * are currently loaded.
+     * This prevents a case for a SyncConfig with missing external modules to be loaded.
+     */
+    const requiredIds = new Set(
+      config instanceof PrecompiledSyncConfig ? Object.keys(config.plan.moduleData ?? {}) : []
+    );
+    const registeredIds = new Set(this.#parsers.map((parser) => parser.id));
+    const missingIds = [...requiredIds].filter((id) => !registeredIds.has(id));
+    if (missingIds.length != 0) {
+      reportDiagnostic({
+        level: 'fatal',
+        message: `Missing required sync config parsers: ${missingIds.join(', ')}`
+      });
+    }
 
     for (const parser of this.#parsers) {
       if (!requiredIds.has(parser.id)) continue;
