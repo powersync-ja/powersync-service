@@ -1,9 +1,16 @@
+/**
+ *  Bounded-cardinality attributes (labels) attached to a metric data point.
+ *  Only use low-cardinality enum-like values here — never user/client/request identifiers.
+ */
+export type MetricAttributes = Record<string, string | number | boolean>;
+
 export interface Counter {
   /**
    *  Increment the counter by the given value. Only positive numbers are valid.
    *  @param value
+   *  @param attributes optional low-cardinality labels for this increment
    */
-  add(value: number): void;
+  add(value: number, attributes?: MetricAttributes): void;
 }
 
 export interface UpDownCounter {

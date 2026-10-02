@@ -11,7 +11,10 @@ export type CreateRequestQueueParams = {
  * Creates a request queue which limits the amount of concurrent connections which
  * are active at any time.
  */
-export const createRequestQueueHook = (params: CreateRequestQueueParams): fastify.onRequestHookHandler => {
+export const createRequestQueueHook = (
+  params: CreateRequestQueueParams,
+  onRejected?: () => void
+): fastify.onRequestHookHandler => {
   const request_queue = a.queue<() => Promise<void>>((event, done) => {
     event().finally(done);
   }, params.concurrency);
@@ -27,6 +30,7 @@ export const createRequestQueueHook = (params: CreateRequestQueueParams): fastif
         path: request.url,
         queue_overflow: true
       });
+      onRejected?.();
       return reply.status(429).send();
     }
 
