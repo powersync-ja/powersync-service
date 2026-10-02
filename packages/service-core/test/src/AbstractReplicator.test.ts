@@ -1,7 +1,9 @@
 import { AbstractReplicationJob } from '@/replication/AbstractReplicationJob.js';
 import { AbstractReplicator, AbstractReplicatorOptions, CreateJobOptions } from '@/replication/AbstractReplicator.js';
 import { PersistedReplicationStream } from '@/storage/PersistedReplicationStream.js';
+import { SqlSyncConfigParser } from '@/storage/SyncConfigParser.js';
 import { SyncRulesBucketStorage } from '@/storage/SyncRulesBucketStorage.js';
+import { PrecompiledSyncConfig } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 
 class TestReplicator extends AbstractReplicator {
@@ -45,6 +47,13 @@ class TestReplicator extends AbstractReplicator {
     return (this as any).heartbeatIntervalNanos;
   }
 
+  async runStartupForTest(): Promise<void> {
+    const controller = new AbortController();
+    controller.abort();
+    (this as any).abortController = controller;
+    await (this as any).runLoop();
+  }
+
   shouldHandleStreamForTest(
     replicationStream: PersistedReplicationStream,
     loadedSyncRules: string | undefined,
@@ -53,6 +62,67 @@ class TestReplicator extends AbstractReplicator {
     return (this as any).shouldHandleReplicationStream(replicationStream, loadedSyncRules, loadedVersionLabel);
   }
 }
+
+describe('AbstractReplicator startup sync config', () => {
+  it.each([true, false])('retains registered module options with exit_on_error=%s', async (exitOnError) => {
+    const syncConfigParser = new SqlSyncConfigParser([
+      {
+        id: 'example.tables',
+        extendJsonSchema({ schema }) {
+          (schema.properties as any).config.properties.source_tables.additionalProperties.properties.sample = {
+            type: 'number'
+          };
+        },
+        parse({ config, context }) {
+          const sourceTables = (config as { config: { source_tables: { orders: { sample: number } } } }).config
+            .source_tables;
+          context.parsedConfig.sourceTableConfig = sourceTables;
+          (context.parsedConfig as PrecompiledSyncConfig).plan.moduleData = { 'example.tables': null };
+        }
+      }
+    ]);
+    const yaml = /* yaml */ `
+      {
+        config: { edition: 3, source_tables: { orders: { sample: 10 } } },
+        streams: { orders: { query: SELECT * FROM orders } }
+      }
+    `;
+    const configureSyncRules = vi.fn(async () => ({ updated: false }));
+    const replicator = new TestReplicator(async () => {}, {
+      id: 'test',
+      storageEngine: {
+        activeBucketStorage: { syncConfigParser, configureSyncRules }
+      } as unknown as AbstractReplicatorOptions['storageEngine'],
+      syncRuleProvider: { get: async () => yaml, exitOnError, versionLabel: 'v2' },
+      metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
+      rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
+    });
+
+    await replicator.runStartupForTest();
+
+    expect(configureSyncRules).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        lock: true,
+        version_label: 'v2',
+        config: expect.objectContaining({
+          parsed: expect.objectContaining({
+            errors: [],
+            config: expect.objectContaining({
+              sourceTableConfig: { orders: { sample: 10 } }
+            })
+          }),
+          plan: expect.objectContaining({
+            plan: expect.objectContaining({
+              version: 3,
+              sourceTableConfig: { orders: { sample: 10 } },
+              moduleData: { 'example.tables': null }
+            })
+          })
+        })
+      })
+    );
+  });
+});
 
 describe('AbstractReplicator heartbeat interval', () => {
   const options: AbstractReplicatorOptions = {

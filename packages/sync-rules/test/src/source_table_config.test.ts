@@ -3,13 +3,15 @@ import { describe, expect, test, vi } from 'vitest';
 import {
   AdditionalSyncConfigParser,
   deserializeSyncPlan,
+  ImplicitSchemaTablePattern,
   normalizeSourceTableConfig,
   parseSourceTableConfigKey,
   PrecompiledSyncConfig,
   serializeSyncPlan,
   sourceTableConfigsEqual,
   SqlSyncRules,
-  SyncRulesErrors
+  SyncRulesErrors,
+  TablePattern
 } from '../../src/index.js';
 import { compileSyncRulesSchemaValidator, createSyncRulesSchema } from '../../src/json_schema.js';
 
@@ -112,6 +114,178 @@ describe('source table configuration', () => {
       schema: 'app',
       tablePattern: 'orders'
     });
+    expect(parseSourceTableConfigKey('Archive.App.Orders')).toMatchObject({
+      connectionTag: 'archive',
+      schema: 'app',
+      tablePattern: 'orders'
+    });
+    expect(parseSourceTableConfigKey('%')).toMatchObject({
+      connectionTag: null,
+      schema: null,
+      tablePattern: '%',
+      isWildcard: true
+    });
+    expect(parseSourceTableConfigKey('1')).toMatchObject({ tablePattern: '1' });
+    expect(parseSourceTableConfigKey('Order-Archive')).toMatchObject({ tablePattern: 'order-archive' });
+    expect(new TablePattern('app.v2', 'orders', 'default')).toMatchObject({
+      connectionTag: 'default',
+      schema: 'app.v2',
+      tablePattern: 'orders'
+    });
+    expect(new TablePattern('app', 'orders', 'archive')).toMatchObject({
+      connectionTag: 'archive',
+      schema: 'app',
+      tablePattern: 'orders'
+    });
+    expect(new ImplicitSchemaTablePattern('archive.app', 'orders', null)).toMatchObject({
+      connectionTag: 'archive',
+      schema: 'app',
+      tablePattern: 'orders'
+    });
+  });
+
+  test.each([
+    ['Users', 'users'],
+    ['Users', '"users"'],
+    ['Archive.App.Users', 'archive.app.users'],
+    ['archive."app.v2".Users', 'archive."app.v2"."users"'],
+    ['Users%', 'users%']
+  ])('rejects source-table keys %s and %s that resolve to the same pattern', (first, second) => {
+    const yaml = withStreams(`config: { edition: 3, source_tables: { '${first}': {}, '${second}': {} } }`);
+    const hook = { id: 'example.noop', parse: vi.fn() };
+    expect(() => SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app', parsers: [hook] })).toThrow(
+      `Source-table keys ${JSON.stringify(first)} and ${JSON.stringify(second)} resolve to the same pattern.`
+    );
+    expect(hook.parse).not.toHaveBeenCalled();
+    const { errors } = SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app', throwOnError: false });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].type).toBe('fatal');
+    expect(yaml.slice(errors[0].location.start, errors[0].location.end)).toBe(`'${second}'`);
+  });
+
+  test.each([
+    ['"Users"', 'users'],
+    ['archive.app.users', 'other.app.users'],
+    ['app.users', 'other.users'],
+    ['"app.users"', 'app.users'],
+    ['users%', 'users']
+  ])('accepts distinct source-table patterns %s and %s', (first, second) => {
+    const yaml = withStreams(`config: { edition: 3, source_tables: { '${first}': {}, '${second}': {} } }`);
+    expect(SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app' }).errors).toEqual([]);
+  });
+
+  test('retains conservative equality of authored key spellings', () => {
+    expect(sourceTableConfigsEqual({ Users: { sample: 1 } }, { users: { sample: 1 } })).toBe(false);
+  });
+
+  test('uses Sync Stream quoting for qualified identifiers', () => {
+    expect(parseSourceTableConfigKey('"Orders"')).toMatchObject({
+      connectionTag: null,
+      schema: null,
+      tablePattern: 'Orders'
+    });
+    expect(parseSourceTableConfigKey('"fs.files"')).toMatchObject({
+      connectionTag: null,
+      schema: null,
+      tablePattern: 'fs.files'
+    });
+    const qualified = parseSourceTableConfigKey('archive.app."audit.events"');
+    expect(qualified).toMatchObject({
+      connectionTag: 'archive',
+      schema: 'app',
+      tablePattern: 'audit.events'
+    });
+    expect(parseSourceTableConfigKey('"Archive.Prod".app.orders')).toMatchObject({
+      connectionTag: 'Archive.Prod',
+      schema: 'app',
+      tablePattern: 'orders'
+    });
+    expect(parseSourceTableConfigKey('archive."App.V2".orders')).toMatchObject({
+      connectionTag: 'archive',
+      schema: 'App.V2',
+      tablePattern: 'orders'
+    });
+    expect(parseSourceTableConfigKey('conn.test."na""me"')).toMatchObject({
+      connectionTag: 'conn',
+      schema: 'test',
+      tablePattern: 'na"me'
+    });
+    expect(() => parseSourceTableConfigKey('"unterminated')).toThrow('Double-quote names containing dots');
+    expect(() => parseSourceTableConfigKey('""')).toThrow('Double-quote names containing dots');
+    expect(() => parseSourceTableConfigKey('"say"hello"')).toThrow('Double-quote names containing dots');
+    expect(() => parseSourceTableConfigKey('conn.test."na""."me"')).toThrow('Double-quote names containing dots');
+  });
+
+  test.each([
+    ['"other.app"', 'other', 'app'],
+    ['"app.v2"', 'app', 'v2']
+  ])('resolves %s consistently before and after serialization', (schema, expectedConnection, expectedSchema) => {
+    const yaml = /* yaml */ `config:
+  edition: 3
+streams:
+  orders:
+    query: SELECT * FROM SCHEMA.orders
+`.replace('SCHEMA', schema);
+    const fresh = SqlSyncRules.fromYaml(yaml, { defaultSchema: 'public' }).config as PrecompiledSyncConfig;
+    const restored = deserializeSyncPlan(serializeSyncPlan(fresh.plan));
+    const freshPattern = fresh.plan.dataSources[0].sourceTable.toTablePattern(fresh.defaultSchema);
+    const restoredPattern = restored.dataSources[0].sourceTable.toTablePattern(fresh.defaultSchema);
+
+    expect(fresh.plan.dataSources[0].sourceTable.connectionTag).toBe(expectedConnection);
+    expect(restored.dataSources[0].sourceTable.connectionTag).toBe(expectedConnection);
+    expect(freshPattern).toMatchObject({
+      connectionTag: 'default',
+      schema: expectedSchema,
+      tablePattern: 'orders'
+    });
+    expect(restoredPattern).toMatchObject({
+      connectionTag: 'default',
+      schema: expectedSchema,
+      tablePattern: 'orders'
+    });
+  });
+
+  test.each([
+    ['orders', 'default', 'public'],
+    ['app.orders', 'default', 'app'],
+    ['archive.app.orders', 'default', 'app'],
+    ['"App.V2".orders', 'default', 'App.V2'],
+    ['archive."App.V2".orders', 'default', 'App.V2'],
+    ['"Archive.Prod"."App.V2.Archive".orders', 'default', 'App.V2.Archive']
+  ])('preserves schemas and existing connection-tag behavior when resolving %s', (key, connectionTag, schema) => {
+    expect(parseSourceTableConfigKey(key).toTablePattern('public')).toMatchObject({
+      connectionTag,
+      schema,
+      tablePattern: 'orders'
+    });
+  });
+
+  test('retains qualified runtime defaults for unqualified source-table keys', () => {
+    expect(parseSourceTableConfigKey('orders').toTablePattern('archive.app')).toMatchObject({
+      connectionTag: 'archive',
+      schema: 'app',
+      tablePattern: 'orders'
+    });
+  });
+
+  test('accepts quoted source-table keys in authored config', () => {
+    const { config } = parse(
+      /* yaml */ ` config:
+          edition: 3
+          source_tables:
+            '"audit.events"': { sample: 1 } `,
+      [ADDITIONAL_PARSER]
+    );
+    expect(config.sourceTableConfig).toEqual({ '"audit.events"': { sample: 1 } });
+
+    const escapedQuote = parse(
+      /* yaml */ `config:
+          edition: 3
+          source_tables:
+            'conn.test."na""me"': { sample: 1 } `,
+      [ADDITIONAL_PARSER]
+    );
+    expect(escapedQuote.config.sourceTableConfig).toEqual({ 'conn.test."na""me"': { sample: 1 } });
   });
 
   test('composes fields from independent parsers', () => {
@@ -205,6 +379,33 @@ describe('source table configuration', () => {
     expect(sourceTableConfigsEqual(config, { orders: config.orders, 'orders%': config['orders%'] })).toBe(false);
     expect(() => normalizeSourceTableConfig({ orders: { date: new Date() } })).toThrow('plain JSON');
     expect(() => normalizeSourceTableConfig({ orders: { amount: Number.NaN } })).toThrow('finite');
+  });
+
+  test.each([
+    ['Users', 'users'],
+    ['Users', '"users"'],
+    ['Archive.App.Users', 'archive.app.users'],
+    ['Users%', 'users%']
+  ])('rejects colliding keys %s and %s at plan persistence boundaries', (first, second) => {
+    const sourceTableConfig = { [first]: { sample: 1 }, [second]: { sample: 2 } };
+    const message = `Source-table keys ${JSON.stringify(first)} and ${JSON.stringify(second)} resolve to the same pattern.`;
+    expect(() => normalizeSourceTableConfig(sourceTableConfig)).toThrow(message);
+    expect(() => sourceTableConfigsEqual(sourceTableConfig, {})).toThrow(message);
+
+    const config = parse('config: { edition: 3 }').config as PrecompiledSyncConfig;
+    const serialized = serializeSyncPlan(config.plan);
+    config.plan.sourceTableConfig = sourceTableConfig;
+    expect(() => serializeSyncPlan(config.plan)).toThrow(message);
+    expect(() => deserializeSyncPlan({ ...serialized, version: 3, sourceTableConfig })).toThrow(message);
+  });
+
+  test('preserves authored keys and declaration order for distinct case-sensitive names in saved plans', () => {
+    const sourceTableConfig = { '"Users"': { sample: 1 }, users: { sample: 2 } };
+    const config = parse('config: { edition: 3 }').config as PrecompiledSyncConfig;
+    config.plan.sourceTableConfig = sourceTableConfig;
+    const restored = deserializeSyncPlan(serializeSyncPlan(config.plan));
+    expect(restored.sourceTableConfig).toEqual(sourceTableConfig);
+    expect(Object.keys(restored.sourceTableConfig!)).toEqual(['"Users"', 'users']);
   });
 
   test('keeps the generated base table schema closed', () => {

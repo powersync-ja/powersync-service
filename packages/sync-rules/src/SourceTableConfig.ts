@@ -1,6 +1,9 @@
 import * as t from 'ts-codec';
 import type { JsonObject } from './json.js';
-import { ImplicitSchemaTablePattern } from './TablePattern.js';
+import { DEFAULT_TAG, ImplicitSchemaTablePattern, TablePattern } from './TablePattern.js';
+
+const SOURCE_TABLE_NAME_ERROR =
+  'Source table patterns must use <table>, <database>.<table>, or <connection>.<database>.<table>. Double-quote names containing dots or quotes.';
 
 /**
  * Options for one entry in `config.source_tables`. Core has no source-specific options.
@@ -23,8 +26,9 @@ export function createSourceTableConfigSchema(): JsonObject {
     type: 'object',
     propertyNames: {
       minLength: 1,
-      pattern: '^[^.]+(?:\\.[^.]+){0,2}$',
-      patternErrorMessage: 'Use <table>, <database>.<table>, or <connection>.<database>.<table> for source table names.'
+      pattern: '^(?:[^."]+|"(?:[^"]|"")+")(?:\\.(?:[^."]+|"(?:[^"]|"")+")){0,2}$',
+      patternErrorMessage:
+        'Use <table>, <database>.<table>, or <connection>.<database>.<table>. Double-quote names containing dots or quotes.'
     },
     additionalProperties: {
       type: 'object',
@@ -38,12 +42,60 @@ export function createSourceTableConfigSchema(): JsonObject {
  * Parse a source-table key using the same right-to-left qualification as Sync Stream table references.
  */
 export function parseSourceTableConfigKey(name: string): ImplicitSchemaTablePattern {
-  const parts = name.split('.');
-  if (parts.length > 3 || parts.some((part) => !part)) {
-    throw new Error('Source table patterns must use <table>, <database>.<table>, or <connection>.<database>.<table>.');
+  const parts = parseQualifiedIdentifiers(name);
+  if (parts.length > 3) throw new Error(SOURCE_TABLE_NAME_ERROR);
+
+  if (parts.length == 1) return new ImplicitSchemaTablePattern(null, parts[0]);
+  if (parts.length == 2) return new TablePattern(parts[0], parts[1], DEFAULT_TAG);
+  return new TablePattern(parts[1], parts[2], parts[0]);
+}
+
+/**
+ * Find authored keys that identify the same pattern after SQL identifier normalization.
+ * Invalid keys are left to the source-table schema validator.
+ */
+export function findDuplicateSourceTableConfigKeys(keys: Iterable<string>): Array<[string, string]> {
+  const seen = new Map<string, string>();
+  const duplicates: Array<[string, string]> = [];
+  for (const key of keys) {
+    let pattern: ImplicitSchemaTablePattern;
+    try {
+      pattern = parseSourceTableConfigKey(key);
+    } catch {
+      continue;
+    }
+    const identity = JSON.stringify([pattern.connectionTag, pattern.schema, pattern.tablePattern]);
+    const previous = seen.get(identity);
+    if (previous !== undefined) {
+      duplicates.push([previous, key]);
+    } else {
+      seen.set(identity, key);
+    }
   }
-  const table = parts.pop()!;
-  return new ImplicitSchemaTablePattern(parts.length == 0 ? null : parts.join('.'), table);
+  return duplicates;
+}
+
+/**
+ * Split a source-table key on unquoted dots and normalize each identifier.
+ */
+function parseQualifiedIdentifiers(name: string): string[] {
+  /*
+   * Match <table>, <database>.<table>, or <connection>.<database>.<table> from right to left.
+   * Each component is either unquoted without dots or quotes, or quoted to allow dots and escaped quotes within it.
+   * A quote inside a quoted component is represented by two consecutive quotes, following SQL identifier syntax.
+   */
+  const qualifiedIdentifier =
+    /^(?:(?:(?<connection>"(?:[^"]|"")+"|[^."]+)\.)?(?<database>"(?:[^"]|"")+"|[^."]+)\.)?(?<table>"(?:[^"]|"")+"|[^."]+)$/;
+  const match = qualifiedIdentifier.exec(name);
+  if (match == null) throw new Error(SOURCE_TABLE_NAME_ERROR);
+
+  // Nesting the optional groups aligns one-, two-, and three-part names from the right.
+  return [match.groups!.connection, match.groups!.database, match.groups!.table]
+    .filter((part): part is string => part != null)
+    .map((part) => {
+      // Quoted names preserve case and may contain dots or escaped quotes. Unquoted names follow SQL case folding.
+      return part.startsWith('"') ? part.slice(1, -1).replaceAll('""', '"') : part.toLowerCase();
+    });
 }
 
 /**
@@ -52,6 +104,13 @@ export function parseSourceTableConfigKey(name: string): ImplicitSchemaTablePatt
 export function normalizeSourceTableConfig(value: unknown): SourceTableConfigMap {
   if (value === undefined) return {};
   assertJsonObject(value, 'Source table configuration must be a JSON object.');
+  const duplicate = findDuplicateSourceTableConfigKeys(Object.keys(value))[0];
+  if (duplicate != null) {
+    const [previous, key] = duplicate;
+    throw new Error(
+      `Source-table keys ${JSON.stringify(previous)} and ${JSON.stringify(key)} resolve to the same pattern.`
+    );
+  }
   return Object.fromEntries(
     Object.entries(value).map(([table, options]) => {
       if (!table) throw new Error('A source table name must not be empty.');

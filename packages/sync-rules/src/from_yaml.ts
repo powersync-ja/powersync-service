@@ -18,6 +18,7 @@ import {
 } from './json_schema.js';
 import { QueryParseResult, SqlBucketDescriptor } from './legacy/SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './legacy/streams/from_sql.js';
+import { findDuplicateSourceTableConfigKeys } from './SourceTableConfig.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
 import { validateStorageVersion } from './StorageVersion.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
@@ -93,6 +94,25 @@ export class SyncConfigFromYaml {
           location && { start: location.start_offset, end: location.end_offset }
         )
       );
+    }
+    const sourceTables = encoded?.config?.source_tables;
+    if (
+      !this.#hasFatalError &&
+      sourceTables != null &&
+      typeof sourceTables == 'object' &&
+      !Array.isArray(sourceTables)
+    ) {
+      for (const [previous, duplicate] of findDuplicateSourceTableConfigKeys(Object.keys(sourceTables))) {
+        const location = sourceLocations.getLocation(['config', 'source_tables', duplicate], 'key');
+        this.#errors.push(
+          new YamlError(
+            new Error(
+              `Source-table keys ${JSON.stringify(previous)} and ${JSON.stringify(duplicate)} resolve to the same pattern.`
+            ),
+            location && { start: location.start_offset, end: location.end_offset }
+          )
+        );
+      }
     }
     // Parser hooks run before the JSON Schema check, so they can report specific diagnostics for the options they
     // own. Hooks must therefore tolerate structurally invalid input.
