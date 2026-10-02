@@ -10,23 +10,32 @@ import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.j
 import { CommonTableExpression } from './compiler/sqlite.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { PreparedEventDefinition } from './events/CompiledEventSourceQuery.js';
-import { validateSyncRulesSchema } from './json_schema.js';
+import {
+  compileSyncRulesSchemaValidator,
+  createSyncRulesSchema,
+  SyncRulesSchemaValidator,
+  validateSyncRulesSchema
+} from './json_schema.js';
 import { QueryParseResult, SqlBucketDescriptor } from './legacy/SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './legacy/streams/from_sql.js';
+import { findDuplicateSourceTableConfigKeys } from './SourceTableConfig.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
 import { validateStorageVersion } from './StorageVersion.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { CompiledEventDescriptor } from './sync_plan/plan.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
+import type { SyncConfigDiagnostic } from './SyncConfigParserHooks.js';
+import { AdditionalSyncConfigParser, validateAdditionalSyncConfigParsers } from './SyncConfigParserHooks.js';
 import { TablePattern } from './TablePattern.js';
 import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js';
 import { buildParsedToSourceValueMap, isBlockScalar, isQuotedScalar } from './yaml_scalar_map.js';
+import { createYamlSourceLocationResolver, mapAjvErrorsToYamlErrors } from './yaml_source_locations.js';
 import { documentState, YamlMapState, YamlScalarState, YamlState } from './yaml_validation.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
 /**
- * Reads `sync_rules.yaml` files containing a sync configuration.
+ * Reads `sync_rules.yaml` files containing a sync config.
  *
  * @internal Only exposed through `SqlSyncRules.fromYaml`.
  */
@@ -63,27 +72,105 @@ export class SyncConfigFromYaml {
       ]
     });
 
+    validateAdditionalSyncConfigParsers(this.options.parsers);
+    const sourceLocations = createYamlSourceLocationResolver(parsed);
     const config = this.#parseConfig(parsed);
-    // #parseConfig() should have found all errors in the YAML source. As an additional check, and to ensure our sync
-    // rules schema is up-to-date, also validate with ajv. We do this last because errors found here don't have line
-    // numbers on them.
+    let encoded: ReturnType<Document['toJSON']> = null;
+    // Validate the YAML nodes first so structural errors retain their source locations. Conversion can still fail
+    // for unresolved aliases inside module-owned options, which must follow the same diagnostic handling.
     if (!this.#hasFatalError) {
-      const valid = validateSyncRulesSchema(parsed.toJSON());
-      if (!valid) {
+      try {
+        encoded = parsed.toJSON();
+      } catch (error) {
+        this.#errors.push(new YamlError(error instanceof Error ? error : new Error(String(error))));
+      }
+    }
+    const hasSourceTableConfig = encoded?.config != null && Object.hasOwn(encoded.config, 'source_tables');
+    if (hasSourceTableConfig && config.compatibility.edition < CompatibilityEdition.COMPILED_STREAMS) {
+      const location = sourceLocations.getLocation(['config', 'source_tables'], 'key');
+      this.#errors.push(
+        new YamlError(
+          new Error("The 'config.source_tables' section requires edition 3."),
+          location && { start: location.start_offset, end: location.end_offset }
+        )
+      );
+    }
+    const sourceTables = encoded?.config?.source_tables;
+    if (
+      !this.#hasFatalError &&
+      sourceTables != null &&
+      typeof sourceTables == 'object' &&
+      !Array.isArray(sourceTables)
+    ) {
+      for (const [previous, duplicate] of findDuplicateSourceTableConfigKeys(Object.keys(sourceTables))) {
+        const location = sourceLocations.getLocation(['config', 'source_tables', duplicate], 'key');
         this.#errors.push(
-          ...validateSyncRulesSchema.errors!.map((e: any) => {
-            return new YamlError(e);
-          })
+          new YamlError(
+            new Error(
+              `Source-table keys ${JSON.stringify(previous)} and ${JSON.stringify(duplicate)} resolve to the same pattern.`
+            ),
+            location && { start: location.start_offset, end: location.end_offset }
+          )
         );
       }
     }
-
+    // Parser hooks run before the JSON Schema check, so they can report specific diagnostics for the options they
+    // own. Hooks must therefore tolerate structurally invalid input.
+    if (!this.#hasFatalError) {
+      const reportDiagnostic = (diagnostic: SyncConfigDiagnostic) => {
+        const location = diagnostic.location;
+        const error = new YamlError(
+          new Error(diagnostic.message),
+          location && {
+            start: location.start_offset,
+            end: location.end_offset
+          }
+        );
+        error.type = diagnostic.level;
+        this.#errors.push(error);
+      };
+      try {
+        for (const parser of this.options.parsers) {
+          parser.parse({
+            config: encoded,
+            context: {
+              parsedConfig: config,
+              sourceTables: config.getSourceTables(),
+              defaultSchema: this.options.defaultSchema,
+              sourceLocations,
+              reportDiagnostic
+            }
+          });
+          if (this.#hasFatalError) break;
+        }
+        // Hooks populate source-table options on the config, but persistence serializes its compiled plan.
+        // Keep the plan's source-table options in sync so they survive a reload.
+        if (config instanceof PrecompiledSyncConfig && Object.keys(config.sourceTableConfig).length != 0) {
+          config.plan.sourceTableConfig = config.sourceTableConfig;
+        }
+      } catch (error) {
+        this.#errors.push(new YamlError(error instanceof Error ? error : new Error(String(error))));
+      }
+    }
+    // The composed schema catches remaining structural issues, such as additional fields or source-table options no
+    // parser reported on. Run it last: its union-branch errors are less specific than the parser diagnostics above.
+    // Retain the YAML tree so errors highlight the actual key/value.
+    if (!this.#hasFatalError) {
+      const validate =
+        this.options.schemaValidator ??
+        (this.options.parsers.length == 0
+          ? validateSyncRulesSchema
+          : compileSyncRulesSchemaValidator(createSyncRulesSchema(this.options.parsers)));
+      if (!validate(encoded)) {
+        this.#errors.push(...mapAjvErrorsToYamlErrors(sourceLocations, validate.errors!));
+      }
+    }
     this.#throwOnErrorIfRequested();
     return config;
   }
 
   #parseConfig(parsed: Document): SyncConfig {
-    const root = documentState(parsed, (e) => this.#errors.push(e)).requireMap('Sync Config must be a YAML map.');
+    const root = documentState(parsed, (e) => this.#errors.push(e)).requireMap('Sync config must be a YAML map.');
 
     if (parsed.errors.length > 0 || root == null) {
       this.#errors.push(...parsed.errors.map((e) => new YamlError(e)));
@@ -97,6 +184,8 @@ export class SyncConfigFromYaml {
     using rootState = root;
 
     using declaredOptions = rootState.get('config')?.requireMap();
+    // The composed schema validates source-table options and preserves module-owned fields.
+    declaredOptions?.get('source_tables');
     let compatibility: CompatibilityContext;
     let storageVersion: number | undefined;
     if (declaredOptions) {
@@ -157,7 +246,7 @@ export class SyncConfigFromYaml {
   }
 
   /**
-   * Parses the `config` block of a sync configuration.
+   * Parses the `config` block of a sync config.
    *
    * @see https://docs.powersync.com/sync/advanced/compatibility
    */
@@ -591,6 +680,17 @@ export class SyncConfigFromYaml {
 }
 
 export interface SyncConfigFromYamlOptions {
+  /**
+   * Additional parsing hooks registered by the service. Standalone callers, including extension tests,
+   * can supply hooks through SqlSyncRules.fromYaml; omitted hooks are normalized to an empty array.
+   */
+  readonly parsers: readonly AdditionalSyncConfigParser[];
+  /**
+   * Compiled schema validator supplied by the service parser, matching its registered hooks.
+   * Standalone callers, including tests, normally omit this so the schema is composed from parsers.
+   * Supplying a validator skips schema composition and compilation but still runs the parsing hooks.
+   */
+  readonly schemaValidator?: SyncRulesSchemaValidator;
   readonly throwOnError: boolean;
   readonly schema?: SourceSchema;
   /**

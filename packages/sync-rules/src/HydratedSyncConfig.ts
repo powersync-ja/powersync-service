@@ -27,6 +27,7 @@ import {
   SyncConfig,
   TablePattern
 } from './index.js';
+import { SourceTableConfigMap } from './SourceTableConfig.js';
 import { SourceTableRef, sourceTableRefKey } from './SourceTableRef.js';
 import { createScalarExpressionEngine } from './sync_plan/engine/factory.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
@@ -47,6 +48,7 @@ export interface MatchingSources {
  * The persisted state specifically affects bucket names, as well as V3+ storage structure.
  */
 export class HydratedSyncConfig {
+  readonly sourceTableConfig: SourceTableConfigMap;
   /**
    * These are used by queriers, and do not support merging across multiple SyncConfigs.
    */
@@ -104,6 +106,8 @@ export class HydratedSyncConfig {
       throw new Error('HydratedSyncConfig requires at least one SyncConfig definition');
     }
 
+    // The service validates that definitions sharing a source reader have compatible source-table options.
+    this.sourceTableConfig = definitions[0].sourceTableConfig;
     this.sourceDefinitions = [...definitions];
     this.compatibility = assertSharedCompatibility(this.sourceDefinitions);
     this.hydrationInput = {
