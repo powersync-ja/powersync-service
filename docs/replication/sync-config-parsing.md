@@ -22,6 +22,22 @@ Core owns the flat table-pattern map. Table keys follow the same right-to-left q
 `table`, `database.table`, or `connection.database.table`. Omitted components remain relative to runtime defaults.
 Declaring an entry does not add a replication source; SQL and stream definitions still select source tables.
 
+Connection tags are accepted by the syntax and retained in parsed patterns and saved plans. During hydration, explicitly
+qualified patterns currently use the `default` connection tag, even when another tag was authored. Do not rely on a
+connection prefix to select a different replication connection. This preserves existing behavior; using connection tags
+consistently across SQL, source-table options, and saved plans requires a future change covering all of those paths.
+
+As in Sync Stream SQL, unquoted identifiers are converted to lowercase and double-quoted identifiers preserve their
+authored case. Double quotes also allow dots without treating them as qualification separators. Since YAML removes its
+own quotes, use an outer YAML quote to retain the identifier quotes, for example `'"audit.events"': {}`. The same
+quoting applies to connection and database components. Inside a quoted identifier, two consecutive double quotes
+represent one literal double quote, so `conn.test."na""me"` identifies the table `na"me`.
+
+Keys that resolve to identical connection, database, and table components are rejected before module parsers run.
+For example, `Users`, `users`, and `"users"` identify the same pattern, while `"Users"` remains distinct. Validation
+names both conflicting keys and highlights the later declaration. Overlapping wildcard patterns remain allowed.
+The same duplicate check applies when normalizing module-provided options and serializing or loading saved plans.
+
 Core table options are empty and `additionalProperties: false` rejects options unless an external parser extends the
 shared table-option schema. Multiple parsers may add independent fields to the same table.
 
