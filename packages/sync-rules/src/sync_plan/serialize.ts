@@ -1,6 +1,6 @@
 import { ParameterLookupDefinitionId } from '../HydrationState.js';
 import { normalizeSourceTableConfig, SourceTableConfigMap } from '../SourceTableConfig.js';
-import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
+import { DEFAULT_TAG, ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { SqlExpression } from './expression.js';
 import { MapSourceVisitor, visitExpr } from './expression_visitor.js';
 import {
@@ -276,7 +276,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
 
   function deserializeTablePattern(pattern: SerializedTablePattern): ImplicitSchemaTablePattern {
     if (pattern.schema) {
-      return new TablePattern(`${pattern.connection}.${pattern.schema}`, pattern.table);
+      return new TablePattern(pattern.schema, pattern.table, pattern.connection ?? DEFAULT_TAG);
     } else {
       return new ImplicitSchemaTablePattern(null, pattern.table);
     }

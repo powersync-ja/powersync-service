@@ -178,7 +178,7 @@ export const validateSyncRulesSchema: any = compileSyncRulesSchemaValidator(sync
 export type SyncRulesSchemaValidator = ajvModule.ValidateFunction;
 
 /**
- * An isolated composition shared by editor tooling, YAML validation and persisted connection options.
+ * An isolated composition shared by editor tooling, YAML validation and persisted source-table options.
  */
 export function createSyncRulesSchema(parsers: readonly AdditionalSyncConfigParser[] = []): JsonObject {
   const schema = structuredClone(syncRulesSchema) as JsonObject;

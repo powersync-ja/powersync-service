@@ -8,6 +8,8 @@
 
 Add `config.source_tables` to edition 3 sync configs. This flat map uses `table`, `database.table`, or `connection.database.table` keys. Core accepts empty table options; module-specific options require a registered parser that declares and parses them.
 
+Connection prefixes are parsed and stored, but explicitly qualified patterns continue to use the `default` connection tag during hydration. This change does not enable selecting another replication connection through a prefix.
+
 ```yaml
 config:
   edition: 3
