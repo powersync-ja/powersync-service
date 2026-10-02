@@ -193,7 +193,7 @@ describe('service sync config parser', () => {
     expect(restore(parser, null).config.sourceTableConfig).toEqual(restored.config.sourceTableConfig);
   });
 
-  test('checks all dependencies before hooks and ignores unused registered parsers', () => {
+  test('reports missing dependencies, runs required installed validators and ignores unused registered parsers', () => {
     const validatePersisted = vi.fn();
     const parser = new SqlSyncConfigParser([{ id: 'installed', parse() {}, validatePersisted }]);
     const { config } = parser.parseContent(STREAMS, { defaultSchema: 'app' });
@@ -203,7 +203,7 @@ describe('service sync config parser', () => {
     expect(() => parser.validatePersisted({ config, context: { defaultSchema: 'app' } })).toThrow(
       'Missing required sync config parsers: missing, also-missing'
     );
-    expect(validatePersisted).not.toHaveBeenCalled();
+    expect(validatePersisted).toHaveBeenCalledTimes(1);
   });
 
   test('restores transformed module state without applying the authoring schema', () => {
