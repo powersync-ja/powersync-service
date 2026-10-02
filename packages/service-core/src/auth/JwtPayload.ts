@@ -1,9 +1,9 @@
-import { BaseJwtPayload } from '@powersync/service-sync-rules';
+import { RequestJwtPayload } from '@powersync/service-sync-rules';
 
 /**
  * Payload from a JWT, always signed.
  */
-export class JwtPayload extends BaseJwtPayload {
+export class JwtPayload extends RequestJwtPayload {
   /**
    * Stringified version of sub. Used where we need a string user identifier, such as in write checkpoints
    * and per-user metrics.
