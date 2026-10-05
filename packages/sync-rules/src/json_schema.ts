@@ -138,7 +138,7 @@ export const syncRulesSchema: ajvModule.Schema = {
       type: 'object',
       description: 'Compatibility, storage, and source-table settings for these definitions.',
       properties: {
-        source_tables: createSourceTableConfigSchema(),
+        source_table_options: createSourceTableConfigSchema(),
         edition: {
           type: 'integer',
           default: CompatibilityEdition.LEGACY,

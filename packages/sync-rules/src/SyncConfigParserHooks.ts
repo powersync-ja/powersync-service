@@ -3,7 +3,7 @@ import type { SyncConfig } from './SyncConfig.js';
 import type { TablePattern } from './TablePattern.js';
 
 /**
- * A decoded config path, for example `['config', 'source_tables', 'orders', 'option']`.
+ * A decoded config path, for example `['config', 'source_table_options', 'orders', 'option']`.
  */
 export type SyncConfigSourcePath = readonly (string | number)[];
 export type SyncConfigSourceLocationTarget = 'key' | 'value';
