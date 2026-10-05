@@ -9,17 +9,21 @@ export interface MSSQLSnapshotQuery {
 
   /**
    *  Returns an async iterable iterator that yields the column metadata for the query followed by rows of data.
+   *  Once all rows have been returned, further calls yield nothing.
    */
   next(): AsyncIterableIterator<sql.IColumnMetadata | sql.IRecordSet<any>>;
 }
 
 /**
- * Snapshot query using a plain SELECT * FROM table
+ * Snapshot query using a plain SELECT * FROM table.
+ * The first call to next() returns the whole table; later calls yield nothing.
  *
  * This supports all tables but does not efficiently resume the snapshot
  * if the process is restarted.
  */
 export class SimpleSnapshotQuery implements MSSQLSnapshotQuery {
+  private done = false;
+
   public constructor(
     private readonly transaction: sql.Transaction,
     private readonly qualifiedTableName: string
@@ -28,6 +32,9 @@ export class SimpleSnapshotQuery implements MSSQLSnapshotQuery {
   public async initialize(): Promise<void> {}
 
   public async *next(): AsyncIterableIterator<sql.IColumnMetadata | sql.IRecordSet<any>> {
+    if (this.done) {
+      return;
+    }
     const metadataRequest = this.transaction.request();
     metadataRequest.stream = true;
     const metadataPromise = new Promise<sql.IColumnMetadata>((resolve, reject) => {
@@ -49,6 +56,7 @@ export class SimpleSnapshotQuery implements MSSQLSnapshotQuery {
     for await (const row of stream) {
       yield row;
     }
+    this.done = true;
   }
 }
 

@@ -5,7 +5,13 @@ import { ReplicationMetric } from '@powersync/service-types';
 import sql from 'mssql';
 import { describe, expect, test } from 'vitest';
 import { CDCStreamTestContext } from './CDCStreamTestContext.js';
-import { createTestTable, describeWithStorage, insertTestData, waitForPendingCDCChanges } from './util.js';
+import {
+  createTestTable,
+  describeWithStorage,
+  enableCDCForTable,
+  insertTestData,
+  waitForPendingCDCChanges
+} from './util.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -39,6 +45,41 @@ function defineCDCStreamTests(config: storage.TestStorageConfig) {
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([putOp('test_data', testData)]);
     expect(endRowCount - startRowCount).toEqual(1);
+  });
+
+  test('Initial snapshot of a composite primary key table larger than the snapshot batch size', async () => {
+    // A composite primary key cannot use BatchedSnapshotQuery, so the table is read in a single pass.
+    await using context = await CDCStreamTestContext.open(factory, { cdcStreamOptions: { snapshotBatchSize: 100 } });
+    const { connectionManager } = context;
+    await context.updateSyncRules(`
+config:
+  edition: 3
+streams:
+  global:
+    auto_subscribe: true
+    query: SELECT id_user AS id, id_user, id_visit FROM test_composite
+`);
+
+    await connectionManager.query(`
+      CREATE TABLE test_composite (
+        id_user INT NOT NULL,
+        id_visit INT NOT NULL,
+        CONSTRAINT PK_test_composite PRIMARY KEY (id_user, id_visit)
+      )`);
+    await enableCDCForTable({ connectionManager, table: 'test_composite' });
+    const beforeLSN = await getLatestLSN(connectionManager);
+    await connectionManager.query(`
+      WITH n AS (SELECT 1 AS i UNION ALL SELECT i + 1 FROM n WHERE i < 250)
+      INSERT INTO test_composite (id_user, id_visit) SELECT i, i % 10 FROM n OPTION (MAXRECURSION 250)`);
+    await waitForPendingCDCChanges(beforeLSN, connectionManager);
+    const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
+    expect(endRowCount - startRowCount).toEqual(250);
+    expect(await context.getBucketData('global|0[]')).toHaveLength(250);
   });
 
   test('Replicate basic values', async () => {
