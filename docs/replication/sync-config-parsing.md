@@ -68,6 +68,10 @@ Hooks are synchronous and deterministic. Database connectivity, collection disco
 validation. Some non-source parsing paths use a placeholder default schema, so modules must not persist names qualified
 with that value.
 
+Startup validation uses the replicator's default schema. MongoDB supplies the database from its normalized connection
+config, allowing qualified source-table options to match unqualified SQL tables in that database before replication
+starts. Source replicators with a known default schema should override `AbstractReplicator.defaultSchema`.
+
 ## Persistence and config deployment
 
 Nonempty source-table options or required module IDs use sync-plan format 3 so an older service rejects options it
