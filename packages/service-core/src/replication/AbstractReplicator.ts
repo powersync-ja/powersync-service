@@ -105,6 +105,13 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     return this.options.syncRuleProvider;
   }
 
+  /**
+   * Default schema for startup sync config validation. Source modules with a known default should override this.
+   */
+  protected get defaultSchema(): string {
+    return 'not_applicable';
+  }
+
   protected get rateLimiter() {
     return this.options.rateLimiter;
   }
@@ -167,7 +174,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
         const parsed = this.storage.syncConfigParser.parseContent(loadedSyncConfig, {
           schema: undefined,
-          defaultSchema: 'not_applicable',
+          defaultSchema: this.defaultSchema,
           throwOnError: this.syncRuleProvider.exitOnError
         });
         const { lock } = await this.storage.configureSyncRules(
