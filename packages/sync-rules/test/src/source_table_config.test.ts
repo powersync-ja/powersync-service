@@ -24,11 +24,11 @@ const SAMPLE_OPTION = t.number;
 const ADDITIONAL_PARSER: AdditionalSyncConfigParser = {
   id: 'example.tables',
   extendJsonSchema({ schema }) {
-    const sourceTables = (schema.properties as any).config.properties.source_tables;
+    const sourceTables = (schema.properties as any).config.properties.source_table_options;
     sourceTables.additionalProperties.properties.sample = t.generateJSONSchema(SAMPLE_OPTION);
   },
   parse({ config, context }) {
-    const sourceTables = (config as any).config?.source_tables;
+    const sourceTables = (config as any).config?.source_table_options;
     if (sourceTables == null || typeof sourceTables != 'object' || Array.isArray(sourceTables)) return;
     for (const [table, rawOptions] of Object.entries(sourceTables)) {
       if (rawOptions == null || typeof rawOptions != 'object' || Array.isArray(rawOptions)) continue;
@@ -44,7 +44,7 @@ const ADDITIONAL_PARSER: AdditionalSyncConfigParser = {
         context.reportDiagnostic({
           level: 'fatal',
           message: 'Sample must not be negative.',
-          location: context.sourceLocations.getLocation(['config', 'source_tables', table, 'sample'])
+          location: context.sourceLocations.getLocation(['config', 'source_table_options', table, 'sample'])
         });
       }
     }
@@ -60,16 +60,16 @@ function parse(config: string, parsers: AdditionalSyncConfigParser[] = []) {
 }
 
 describe('source table configuration', () => {
-  test('accepts source_tables alongside other settings and rejects old or misplaced spellings', () => {
+  test('accepts source_table_options alongside other settings and rejects old or misplaced spellings', () => {
     const yaml = /* yaml */ `
-      { config: { edition: 3, storage_version: 2, source_tables: { orders: { sample: 2 } } }, streams: {} }
+      { config: { edition: 3, storage_version: 2, source_table_options: { orders: { sample: 2 } } }, streams: {} }
     `;
     const { config } = SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app', parsers: [ADDITIONAL_PARSER] });
     expect(config.storageVersion).toBe(2);
     expect(config.sourceTableConfig).toEqual({ orders: { sample: 2 } });
     expect(() => parse('config: { edition: 3, connections: {} }')).toThrow("Unknown key 'connections'.");
-    expect(() => SqlSyncRules.fromYaml(`${withStreams()}source_tables: {}`, { defaultSchema: 'app' })).toThrow(
-      "Unknown key 'source_tables'."
+    expect(() => SqlSyncRules.fromYaml(`${withStreams()}source_table_options: {}`, { defaultSchema: 'app' })).toThrow(
+      "Unknown key 'source_table_options'."
     );
   });
 
@@ -77,7 +77,7 @@ describe('source table configuration', () => {
     const { config } = parse(
       /* yaml */ ` config:
           edition: 3
-          source_tables:
+          source_table_options:
             orders: { sample: 1 }
             another: {} `,
       [ADDITIONAL_PARSER]
@@ -95,7 +95,9 @@ describe('source table configuration', () => {
     ['orders: { unknown: true }', 'must NOT have additional properties'],
     ['orders: { sample: wrong }', 'must be number']
   ])('rejects invalid source-table options: %s', (entry, message) => {
-    expect(() => parse(`config: { edition: 3, source_tables: { ${entry} } }`, [ADDITIONAL_PARSER])).toThrow(message);
+    expect(() => parse(`config: { edition: 3, source_table_options: { ${entry} } }`, [ADDITIONAL_PARSER])).toThrow(
+      message
+    );
   });
 
   test('uses right-to-left table qualification', () => {
@@ -151,7 +153,7 @@ describe('source table configuration', () => {
     ['archive."app.v2".Users', 'archive."app.v2"."users"'],
     ['Users%', 'users%']
   ])('rejects source-table keys %s and %s that resolve to the same pattern', (first, second) => {
-    const yaml = withStreams(`config: { edition: 3, source_tables: { '${first}': {}, '${second}': {} } }`);
+    const yaml = withStreams(`config: { edition: 3, source_table_options: { '${first}': {}, '${second}': {} } }`);
     const hook = { id: 'example.noop', parse: vi.fn() };
     expect(() => SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app', parsers: [hook] })).toThrow(
       `Source-table keys ${JSON.stringify(first)} and ${JSON.stringify(second)} resolve to the same pattern.`
@@ -170,7 +172,7 @@ describe('source table configuration', () => {
     ['"app.users"', 'app.users'],
     ['users%', 'users']
   ])('accepts distinct source-table patterns %s and %s', (first, second) => {
-    const yaml = withStreams(`config: { edition: 3, source_tables: { '${first}': {}, '${second}': {} } }`);
+    const yaml = withStreams(`config: { edition: 3, source_table_options: { '${first}': {}, '${second}': {} } }`);
     expect(SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app' }).errors).toEqual([]);
   });
 
@@ -272,7 +274,7 @@ streams:
     const { config } = parse(
       /* yaml */ ` config:
           edition: 3
-          source_tables:
+          source_table_options:
             '"audit.events"': { sample: 1 } `,
       [ADDITIONAL_PARSER]
     );
@@ -281,7 +283,7 @@ streams:
     const escapedQuote = parse(
       /* yaml */ `config:
           edition: 3
-          source_tables:
+          source_table_options:
             'conn.test."na""me"': { sample: 1 } `,
       [ADDITIONAL_PARSER]
     );
@@ -292,11 +294,11 @@ streams:
     const flagParser: AdditionalSyncConfigParser = {
       id: 'example.flags',
       extendJsonSchema({ schema }) {
-        const options = (schema.properties as any).config.properties.source_tables.additionalProperties;
+        const options = (schema.properties as any).config.properties.source_table_options.additionalProperties;
         options.properties.flag = { type: 'boolean' };
       },
       parse({ config, context }) {
-        const sourceTables = (config as any).config?.source_tables ?? {};
+        const sourceTables = (config as any).config?.source_table_options ?? {};
         for (const [table, options] of Object.entries(sourceTables) as [string, any][]) {
           if (!Object.hasOwn(options, 'flag')) continue;
           context.parsedConfig.sourceTableConfig = {
@@ -306,7 +308,7 @@ streams:
         }
       }
     };
-    const result = parse('config: { edition: 3, source_tables: { orders: { sample: 1, flag: true } } }', [
+    const result = parse('config: { edition: 3, source_table_options: { orders: { sample: 1, flag: true } } }', [
       ADDITIONAL_PARSER,
       flagParser
     ]);
@@ -317,7 +319,7 @@ streams:
     const result = parse(
       /* yaml */ ` config:
           edition: 3
-          source_tables:
+          source_table_options:
             orders%: { sample: 10 }
             orders: { sample: 1 } `,
       [ADDITIONAL_PARSER]
@@ -333,7 +335,7 @@ streams:
   test('reports hook errors at the authored option value', () => {
     const body = /* yaml */ ` config:
         edition: 3
-        source_tables:
+        source_table_options:
           orders: { sample: -1 } `;
     try {
       parse(body, [ADDITIONAL_PARSER]);
@@ -362,7 +364,7 @@ streams:
 
   test('requires edition 3 and plan version 3 for configured tables', () => {
     expect(() =>
-      SqlSyncRules.fromYaml(/* yaml */ `{ config: { edition: 2, source_tables: {} }, streams: {} }`, {
+      SqlSyncRules.fromYaml(/* yaml */ `{ config: { edition: 2, source_table_options: {} }, streams: {} }`, {
         defaultSchema: 'app'
       })
     ).toThrow('edition 3');
@@ -410,10 +412,12 @@ streams:
 
   test('keeps the generated base table schema closed', () => {
     const schema = createSyncRulesSchema();
-    const options = (schema.properties as any).config.properties.source_tables.additionalProperties;
+    const options = (schema.properties as any).config.properties.source_table_options.additionalProperties;
     expect(options).toMatchObject({ additionalProperties: false, properties: {} });
     const validate = compileSyncRulesSchemaValidator(schema);
-    expect(validate({ config: { edition: 3, source_tables: { orders: {} } }, streams: {} })).toBe(true);
-    expect(validate({ config: { edition: 3, source_tables: { orders: { sample: 1 } } }, streams: {} })).toBe(false);
+    expect(validate({ config: { edition: 3, source_table_options: { orders: {} } }, streams: {} })).toBe(true);
+    expect(validate({ config: { edition: 3, source_table_options: { orders: { sample: 1 } } }, streams: {} })).toBe(
+      false
+    );
   });
 });

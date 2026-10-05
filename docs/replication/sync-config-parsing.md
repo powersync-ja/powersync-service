@@ -5,13 +5,13 @@ saved configs. Modules register additional parsers during initialization, before
 
 ## Common source-table structure
 
-Edition 3 sync configs declare source-specific options under `config.source_tables`, alongside settings such as
+Edition 3 sync configs declare source-specific options under `config.source_table_options`, alongside settings such as
 `edition` and `storage_version`:
 
 ```yaml
 config:
   edition: 3
-  source_tables:
+  source_table_options:
     orders: {}
 streams:
   orders:
@@ -50,7 +50,7 @@ may depend on both.
 Register an `AdditionalSyncConfigParser` with `serviceContext.syncConfigParser.registerParser(...)`. Hooks are ordered
 and identified by unique IDs:
 
-- `extendJsonSchema({ schema })` can extend each entry in `config.source_tables`. Preserve validation of unrelated
+- `extendJsonSchema({ schema })` can extend each entry in `config.source_table_options`. Preserve validation of unrelated
   fields and source modules. Additional root-level config fields are unsupported. Tooling reads a copy of the same
   schema through `syncConfigParser.jsonSchema`.
 - `parse({ config, context })` receives decoded sync config. The context provides the candidate parsed config,
@@ -61,7 +61,7 @@ and identified by unique IDs:
   Modules with semantic restrictions beyond their JSON schema must repeat those checks here.
 
 For example, a hook can report an option error using
-`context.sourceLocations.getLocation(['config', 'source_tables', table, 'option'])`. JSON Schema errors use the same
+`context.sourceLocations.getLocation(['config', 'source_table_options', table, 'option'])`. JSON Schema errors use the same
 source locations. `patternErrorMessage` is accepted as an editor annotation while AJV still enforces `pattern`.
 
 Hooks are synchronous and deterministic. Database connectivity, collection discovery, and index checks belong in source

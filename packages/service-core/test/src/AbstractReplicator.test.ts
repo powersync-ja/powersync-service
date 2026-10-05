@@ -69,13 +69,13 @@ describe('AbstractReplicator startup sync config', () => {
       {
         id: 'example.tables',
         extendJsonSchema({ schema }) {
-          (schema.properties as any).config.properties.source_tables.additionalProperties.properties.sample = {
+          (schema.properties as any).config.properties.source_table_options.additionalProperties.properties.sample = {
             type: 'number'
           };
         },
         parse({ config, context }) {
-          const sourceTables = (config as { config: { source_tables: { orders: { sample: number } } } }).config
-            .source_tables;
+          const sourceTables = (config as { config: { source_table_options: { orders: { sample: number } } } }).config
+            .source_table_options;
           context.parsedConfig.sourceTableConfig = sourceTables;
           (context.parsedConfig as PrecompiledSyncConfig).plan.moduleData = { 'example.tables': null };
         }
@@ -83,7 +83,7 @@ describe('AbstractReplicator startup sync config', () => {
     ]);
     const yaml = /* yaml */ `
       {
-        config: { edition: 3, source_tables: { orders: { sample: 10 } } },
+        config: { edition: 3, source_table_options: { orders: { sample: 10 } } },
         streams: { orders: { query: SELECT * FROM orders } }
       }
     `;

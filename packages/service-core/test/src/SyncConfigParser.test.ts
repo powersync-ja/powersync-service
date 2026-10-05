@@ -27,7 +27,7 @@ const CONFIGURED = /* yaml */ `
   # Sync config fixture.
   config:
     edition: 3
-    source_tables:
+    source_table_options:
       orders:
         sample: 10
   streams:
@@ -46,12 +46,12 @@ function additionalParser(): AdditionalSyncConfigParser {
   return {
     id: 'example.tables',
     extendJsonSchema({ schema }) {
-      const options = (schema.properties as any).config.properties.source_tables.additionalProperties;
+      const options = (schema.properties as any).config.properties.source_table_options.additionalProperties;
       options.properties.sample = { type: 'number' };
     },
     parse({ config, context }) {
       const sourceTables = normalizeSourceTableConfig(
-        (config as { config?: { source_tables?: unknown } }).config?.source_tables
+        (config as { config?: { source_table_options?: unknown } }).config?.source_table_options
       );
       for (const [table, options] of Object.entries(sourceTables)) {
         if (!Object.hasOwn(options!, 'sample')) continue;
@@ -108,7 +108,7 @@ describe('service sync config parser', () => {
     expect(parser.parseContent(CONFIGURED, { defaultSchema: 'app' }).errors).toEqual([]);
     expect(baseSchema).toEqual(new SqlSyncConfigParser().jsonSchema);
     const composed = parser.jsonSchema;
-    delete (composed.properties as any).config.properties.source_tables;
+    delete (composed.properties as any).config.properties.source_table_options;
     expect(parser.parseContent(CONFIGURED, { defaultSchema: 'app' }).errors).toEqual([]);
 
     expect(() => parser.registerParser(additionalParser())).toThrow('already registered');

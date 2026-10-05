@@ -6,7 +6,7 @@ const SOURCE_TABLE_NAME_ERROR =
   'Source table patterns must use <table>, <database>.<table>, or <connection>.<database>.<table>. Double-quote names containing dots or quotes.';
 
 /**
- * Options for one entry in `config.source_tables`. Core has no source-specific options.
+ * Options for one entry in `config.source_table_options`. Core has no source-specific options.
  */
 export const SOURCE_TABLE_CONFIG = t.object({});
 export type SourceTableConfig = t.Decoded<typeof SOURCE_TABLE_CONFIG>;

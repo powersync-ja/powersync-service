@@ -85,17 +85,17 @@ export class SyncConfigFromYaml {
         this.#errors.push(new YamlError(error instanceof Error ? error : new Error(String(error))));
       }
     }
-    const hasSourceTableConfig = encoded?.config != null && Object.hasOwn(encoded.config, 'source_tables');
+    const hasSourceTableConfig = encoded?.config != null && Object.hasOwn(encoded.config, 'source_table_options');
     if (hasSourceTableConfig && config.compatibility.edition < CompatibilityEdition.COMPILED_STREAMS) {
-      const location = sourceLocations.getLocation(['config', 'source_tables'], 'key');
+      const location = sourceLocations.getLocation(['config', 'source_table_options'], 'key');
       this.#errors.push(
         new YamlError(
-          new Error("The 'config.source_tables' section requires edition 3."),
+          new Error("The 'config.source_table_options' section requires edition 3."),
           location && { start: location.start_offset, end: location.end_offset }
         )
       );
     }
-    const sourceTables = encoded?.config?.source_tables;
+    const sourceTables = encoded?.config?.source_table_options;
     if (
       !this.#hasFatalError &&
       sourceTables != null &&
@@ -103,7 +103,7 @@ export class SyncConfigFromYaml {
       !Array.isArray(sourceTables)
     ) {
       for (const [previous, duplicate] of findDuplicateSourceTableConfigKeys(Object.keys(sourceTables))) {
-        const location = sourceLocations.getLocation(['config', 'source_tables', duplicate], 'key');
+        const location = sourceLocations.getLocation(['config', 'source_table_options', duplicate], 'key');
         this.#errors.push(
           new YamlError(
             new Error(
@@ -185,7 +185,7 @@ export class SyncConfigFromYaml {
 
     using declaredOptions = rootState.get('config')?.requireMap();
     // The composed schema validates source-table options and preserves module-owned fields.
-    declaredOptions?.get('source_tables');
+    declaredOptions?.get('source_table_options');
     let compatibility: CompatibilityContext;
     let storageVersion: number | undefined;
     if (declaredOptions) {
