@@ -18,6 +18,7 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
       {
         await using context = await openChangeStreamTestContext(factory, { storageVersion });
         await context.updateSyncRules(/* yaml */ `
+          # Sync config fixture.
           config:
             edition: 3
           streams:

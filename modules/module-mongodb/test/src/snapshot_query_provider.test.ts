@@ -38,6 +38,7 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB snapshot quer
         }
       });
       await context.updateSyncRules(/* yaml */ `
+        # Sync config fixture.
         config:
           edition: 3
         streams:
@@ -82,6 +83,7 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB snapshot quer
         }
       });
       await context.updateSyncRules(/* yaml */ `
+        # Sync config fixture.
         config:
           edition: 3
         streams:
