@@ -32,8 +32,7 @@ import {
   createCheckpoint,
   getCaptureInstances,
   getLatestLSN,
-  getLatestReplicatedLSN,
-  isIColumnMetadata
+  getLatestReplicatedLSN
 } from '../utils/mssql.js';
 import { getReplicationIdentityColumns, getTablesFromPattern, ResolvedTable } from '../utils/schema.js';
 import {
@@ -393,28 +392,23 @@ export class CDCStream {
       this.logger.info(
         `Snapshotting ${physicalTable.toQualifiedName()} ${sourceTable.formatSnapshotProgress()} - not resumable`
       );
-      query = new SimpleSnapshotQuery(transaction, physicalTable.toQualifiedName());
+      query = new SimpleSnapshotQuery(transaction, physicalTable.toQualifiedName(), this.snapshotBatchSize);
       replicatedCount = 0;
     }
-    await query.initialize();
 
-    let hasRemainingData = true;
-    while (hasRemainingData) {
-      // Fetch 10k at a time.
-      // The balance here is between latency overhead per FETCH call,
-      // and not spending too much time on each FETCH call.
-      // We aim for a couple of seconds on each FETCH call.
-      let batchReplicatedCount = 0;
-      let columns: sql.IColumnMetadata | null = null;
-      const cursor = query.next();
-      for await (const result of cursor) {
-        if (columns == null && isIColumnMetadata(result)) {
-          columns = result;
-          continue;
-        } else {
-          if (!columns) {
-            throw new ReplicationAssertionError(`Missing column metadata`);
-          }
+    try {
+      // Fetched once for the whole snapshot. Column changes require deploying a new sync config anyway,
+      // since replication continues against the captured schema until then.
+      const columns = await query.getColumnMetadata();
+
+      let hasRemainingData = true;
+      while (hasRemainingData) {
+        // Fetch this.snapshotBatchSize rows at a time
+        // The balance here is between latency overhead per FETCH call,
+        // and not spending too much time on each FETCH call.
+        // We aim for a couple of seconds on each FETCH call.
+        let batchReplicatedCount = 0;
+        for await (const result of query.next()) {
           const inputRow: SqliteInputRow = toSqliteInputRow(result, columns);
           const row = this.syncRules.applyRowContext<never>(inputRow);
           // This auto-flushes when the batch reaches its size limit
@@ -430,45 +424,49 @@ export class CDCStream {
           replicatedCount++;
           batchReplicatedCount++;
           this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
+
+          this.touch();
         }
 
-        this.touch();
-      }
+        // Important: flush before marking progress
+        await batch.flush();
 
-      // Important: flush before marking progress
-      await batch.flush();
+        let lastKey: Uint8Array | undefined;
+        if (query instanceof BatchedSnapshotQuery) {
+          lastKey = query.getLastKeySerialized();
+        }
+        if (lastCountTime < performance.now() - 10 * 60 * 1000) {
+          // Even though we're doing the snapshot inside a transaction, the transaction uses
+          // the default "Read Committed" isolation level. This means we can get new data
+          // within the transaction, so we re-estimate the count every 10 minutes when replicating
+          // large tables.
+          // This uses a separate connection: the snapshot query may still be in progress on the transaction.
+          totalEstimatedCount = await this.estimatedCountNumber(physicalTable);
+          lastCountTime = performance.now();
+        }
+        const updatedSourceTable = await batch.updateTableProgress(sourceTable, {
+          lastKey: lastKey,
+          replicatedCount: replicatedCount,
+          totalEstimatedCount: totalEstimatedCount
+        });
+        this.tableCache.updateSourceTable(updatedSourceTable);
+        sourceTable = updatedSourceTable;
 
-      let lastKey: Uint8Array | undefined;
-      if (query instanceof BatchedSnapshotQuery) {
-        lastKey = query.getLastKeySerialized();
-      }
-      if (lastCountTime < performance.now() - 10 * 60 * 1000) {
-        // Even though we're doing the snapshot inside a transaction, the transaction uses
-        // the default "Read Committed" isolation level. This means we can get new data
-        // within the transaction, so we re-estimate the count every 10 minutes when replicating
-        // large tables.
-        totalEstimatedCount = await this.estimatedCountNumber(physicalTable, transaction);
-        lastCountTime = performance.now();
-      }
-      const updatedSourceTable = await batch.updateTableProgress(sourceTable, {
-        lastKey: lastKey,
-        replicatedCount: replicatedCount,
-        totalEstimatedCount: totalEstimatedCount
-      });
-      this.tableCache.updateSourceTable(updatedSourceTable);
-      sourceTable = updatedSourceTable;
+        if (this.abortSignal.aborted) {
+          // We only abort after flushing
+          throw new ReplicationAbortedError(`Initial replication interrupted`);
+        }
 
-      if (this.abortSignal.aborted) {
-        // We only abort after flushing
-        throw new ReplicationAbortedError(`Initial replication interrupted`);
+        // When the batch of rows is smaller than the requested batch size we know it is the final batch
+        if (batchReplicatedCount < this.snapshotBatchSize) {
+          hasRemainingData = false;
+        } else {
+          this.logger.info(`Snapshotting ${physicalTable.toQualifiedName()} ${sourceTable.formatSnapshotProgress()}`);
+        }
       }
-
-      // When the batch of rows is smaller than the requested batch size we know it is the final batch
-      if (batchReplicatedCount < this.snapshotBatchSize) {
-        hasRemainingData = false;
-      } else {
-        this.logger.info(`Snapshotting ${physicalTable.toQualifiedName()} ${sourceTable.formatSnapshotProgress()}`);
-      }
+    } finally {
+      // Cancel the snapshot query if it is still in progress, so that the transaction can be rolled back.
+      await query.close();
     }
   }
 
@@ -476,10 +474,9 @@ export class CDCStream {
    *  Estimate the number of rows in a table. This query uses partition stats view to get a fast estimate of the row count.
    *  This requires that the MSSQL DB user has the VIEW DATABASE PERFORMANCE STATE permission.
    * @param table
-   * @param transaction
    */
-  async estimatedCountNumber(table: MSSQLSourceTable, transaction?: sql.Transaction): Promise<number> {
-    const request = transaction ? transaction.request() : await this.connections.createRequest();
+  async estimatedCountNumber(table: MSSQLSourceTable): Promise<number> {
+    const request = await this.connections.createRequest();
     const { recordset: result } = await request.input('tableName', table.toQualifiedName()).query(
       `SELECT SUM(row_count) AS total_rows
        FROM sys.dm_db_partition_stats
