@@ -3,7 +3,7 @@ import { SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-r
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 
-import { RouteAPI } from '../../api/RouteAPI.js';
+import { PatternResult, RouteAPI } from '../../api/RouteAPI.js';
 import { updateSyncRulesFromConfig } from '../../storage/BucketStorageFactory.js';
 import { SyncConfigParser } from '../../storage/SyncConfigParser.js';
 import { authApi } from '../auth.js';
@@ -215,11 +215,26 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string, syncConf
       // No schema-based validation at this point
       schema: undefined
     });
-    const source_table_patterns = rules.config.getSourceTables();
-    const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules.config);
+    const errors: string[] = [];
+    const recordError = (error: any) => {
+      errors.push(...(error instanceof SyncRulesErrors ? error.errors.map((e) => e.message) : [error.message]));
+    };
+    try {
+      await apiHandler.validateSourceCapabilities?.(rules.config);
+    } catch (e) {
+      recordError(e);
+    }
+    let resolved_tables: PatternResult[] = [];
+    try {
+      const source_table_patterns = rules.config.getSourceTables();
+      resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules.config);
+    } catch (e) {
+      recordError(e);
+    }
 
     return {
-      valid: true,
+      valid: errors.length == 0,
+      ...(errors.length > 0 ? { errors } : {}),
       bucket_definitions: rules.config.debugRepresentation(),
       source_tables: resolved_tables,
       data_tables: rules.config.debugGetOutputTables()

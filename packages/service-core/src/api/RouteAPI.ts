@@ -41,6 +41,12 @@ export interface RouteAPI {
   getConnectionStatus(): Promise<types.ConnectionStatusV2>;
 
   /**
+   * Checks whether the source supports the capabilities required by this sync config.
+   * Must not modify the source. Throw to report a fatal validation error.
+   */
+  validateSourceCapabilities?(syncConfig: SyncConfig): Promise<void>;
+
+  /**
    * Expand sync config table patterns into table metadata from the source connection.
    *
    * This is used by validation and diagnostics paths to explain what will be

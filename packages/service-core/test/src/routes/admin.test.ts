@@ -3,6 +3,7 @@ import { logger } from '@powersync/lib-services-framework';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { diagnostics, reprocess, validate } from '../../../src/routes/endpoints/admin.js';
+import { validateSyncRules } from '../../../src/routes/endpoints/sync-rules.js';
 import { mockServiceContext } from './mocks.js';
 
 describe('admin routes', () => {
@@ -85,6 +86,43 @@ bucket_definitions:
     };
     return content as unknown as storage.PersistedSyncConfigContent;
   }
+
+  it.each([false, true])(
+    'continues sync-config diagnostics after capability failure (table failure: %s)',
+    async (tableFailure) => {
+      const context = makeContext();
+      const api = context.service_context.routerEngine.getAPI();
+      vi.spyOn(context.service_context.routerEngine, 'getAPI').mockReturnValue(api);
+      api.validateSourceCapabilities = async () => {
+        throw new Error('Unsupported capability');
+      };
+      const tables = vi.spyOn(api, 'getDebugTablesInfo').mockImplementation(async () => {
+        if (tableFailure) throw new Error('Table inspection failed');
+        return [{ schema: 'public', pattern: 'items', wildcard: false, tables: [] }];
+      });
+      const response = await validateSyncRules.handler({
+        context,
+        request,
+        params: {
+          content: /* yaml */ `
+            config:
+              edition: 3
+            streams:
+              items:
+                query: SELECT * FROM items
+          `
+        }
+      });
+      const body = JSON.parse(response.data);
+      expect(body.valid).toBe(false);
+      expect(body.errors).toEqual(
+        tableFailure ? ['Unsupported capability', 'Table inspection failed'] : ['Unsupported capability']
+      );
+      expect(tables).toHaveBeenCalledOnce();
+      expect(body.source_tables).toHaveLength(tableFailure ? 0 : 1);
+      expect(body.data_tables).toBeDefined();
+    }
+  );
 
   describe('validate', () => {
     it('uses the service parser and includes its diagnostics', async () => {

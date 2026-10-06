@@ -230,3 +230,67 @@ streams:
     expect(yaml.slice(error.location!.start_offset, error.location!.end_offset)).toBe('unknown_key');
   });
 });
+
+describe('source capability validation', () => {
+  test('reports capability failures alongside table diagnostics', async () => {
+    const api = makeRouteAPI();
+    api.validateSourceCapabilities = async () => {
+      throw new Error('Source capability unavailable');
+    };
+    api.getDebugTablesInfo = async () => [
+      {
+        schema: 'public',
+        pattern: 'items',
+        wildcard: false,
+        table: {
+          schema: 'public',
+          name: 'items',
+          data_queries: true,
+          parameter_queries: false,
+          replication_id: [],
+          errors: [{ level: 'warning', message: 'Index missing' }]
+        }
+      }
+    ];
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
+    expect(result!.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ level: 'fatal', message: 'Source capability unavailable' }),
+        expect.objectContaining({ level: 'warning', message: 'Index missing' })
+      ])
+    );
+    expect(result!.connections[0].tables).toHaveLength(1);
+  });
+
+  test('preserves both validation failures and continues independent diagnostics', async () => {
+    const api = makeRouteAPI({
+      wal_status: 'extended',
+      safe_wal_size: 4 * GB,
+      max_slot_wal_keep_size: 10 * GB
+    });
+    api.validateSourceCapabilities = async () => {
+      throw new Error('Source capability unavailable');
+    };
+    api.getDebugTablesInfo = async () => {
+      throw new Error('Table metadata unavailable');
+    };
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
+    expect(result!.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ level: 'fatal', message: 'Source capability unavailable' }),
+        expect.objectContaining({ level: 'fatal', message: 'Table metadata unavailable' }),
+        expect.objectContaining({ level: 'warning', message: expect.stringContaining('WAL budget') })
+      ])
+    );
+  });
+
+  test('does not check capabilities when connection checks are disabled', async () => {
+    const api = makeRouteAPI();
+    let called = false;
+    api.validateSourceCapabilities = async () => {
+      called = true;
+    };
+    await getSyncRulesStatus(api, makeSyncRulesContent(), { ...OPTIONS, check_connection: false }, makeSystemStorage());
+    expect(called).toBe(false);
+  });
+});
