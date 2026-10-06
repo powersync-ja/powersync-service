@@ -26,6 +26,7 @@ catalogs:
       version: 4.1.11
 
 overrides:
+  convex>ws: ^8.22.0
   '@journeyapps-labs/common-sdk@1.0.x>@journeyapps-labs/micro-streaming': ^1.0.2
 
 importers:
@@ -99,8 +100,8 @@ importers:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.16.2)(@vitest/coverage-v8@4.1.11)(@vitest/ui@4.1.11)(vite@8.0.16(@types/node@22.16.2)(esbuild@0.27.0)(yaml@2.8.3))
       ws:
-        specifier: ^8.21.0
-        version: 8.21.0
+        specifier: ^8.22.0
+        version: 8.22.0
 
   libs/lib-mongodb:
     dependencies:
@@ -597,8 +598,8 @@ importers:
         specifier: 'catalog:'
         version: 14.0.0
       ws:
-        specifier: ^8.21.0
-        version: 8.21.0
+        specifier: ^8.22.0
+        version: 8.22.0
     devDependencies:
       '@types/ws':
         specifier: ~8.2.0
@@ -896,8 +897,8 @@ importers:
         specifier: ^7.29.1
         version: 7.29.1
       ws:
-        specifier: ^8.21.0
-        version: 8.21.0
+        specifier: ^8.22.0
+        version: 8.22.0
       yaml:
         specifier: ^2.8.3
         version: 2.8.3
@@ -4334,8 +4335,8 @@ packages:
     resolution: {integrity: sha512-WG6oDbTuNkiDr0sjYiuV715ZBUYOZVf838wu+7M0WAbkCmv5z2P7OW9gCfgEclXPwP08r5CvBtEyqV7vht070A==}
     engines: {node: '>=22.13'}
 
-  ws@8.21.0:
-    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
+  ws@8.22.0:
+    resolution: {integrity: sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -6172,7 +6173,7 @@ snapshots:
     dependencies:
       esbuild: 0.27.0
       prettier: 3.9.9
-      ws: 8.21.0
+      ws: 8.22.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -7852,7 +7853,7 @@ snapshots:
       js-yaml: 4.1.1
       write-file-atomic: 7.0.1
 
-  ws@8.21.0: {}
+  ws@8.22.0: {}
 
   wsl-utils@0.1.0:
     dependencies:
