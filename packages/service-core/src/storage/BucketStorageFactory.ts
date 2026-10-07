@@ -262,6 +262,25 @@ export function updateSyncRulesFromConfig(
   return { config: { yaml: config.content, plan, parsed }, ...options };
 }
 
+/**
+ * Logs the errors and warnings of a parsed sync config
+ *
+ * Call this where a sync config is loaded or deployed, so that operators see these in the service logs and not only
+ * in the diagnostics and validate API responses.
+ *
+ * Fatal errors usually throw during parsing before this is reached. They can reach this when the sync config is parsed
+ * without validation, such as at startup with `exit_on_error: false`.
+ */
+export function logSyncConfigErrors(parsed: SyncConfigWithErrors, log: typeof logger = logger) {
+  for (const error of parsed.errors) {
+    if (error.type == 'warning') {
+      log.warn(`Sync config warning: ${error.message}`);
+    } else {
+      log.error(`Sync config error: ${error.message}`);
+    }
+  }
+}
+
 export interface GetIntanceOptions {
   /**
    * The job lease, including a lease acquired during initial configuration.

@@ -5,7 +5,7 @@ import * as t from 'ts-codec';
 import { assertSourceCapabilities } from '../../api/source-capabilities.js';
 
 import { PatternResult, RouteAPI } from '../../api/RouteAPI.js';
-import { updateSyncRulesFromConfig } from '../../storage/BucketStorageFactory.js';
+import { logSyncConfigErrors, updateSyncRulesFromConfig } from '../../storage/BucketStorageFactory.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -71,6 +71,8 @@ export const deploySyncRules = routeDefinition({
         details: e.message
       });
     }
+
+    logSyncConfigErrors(syncConfig);
 
     try {
       // Validate if the current sources support the configuration specified in the Sync Config
@@ -197,6 +199,7 @@ export const reprocessSyncRules = routeDefinition({
       // to a service change, we do want to report the error here.
       throwOnError: true
     });
+    logSyncConfigErrors(parsed);
     await assertSourceCapabilities(payload.context.service_context.routerEngine.getAPI(), parsed.config);
 
     const new_rules = await activeBucketStorage.updateSyncRules(

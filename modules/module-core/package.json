@@ -23,6 +23,6 @@
     "@powersync/service-core": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
     "@powersync/service-types": "workspace:*",
-    "fastify": "^5.8.5"
+    "fastify": "^5.12.5"
   }
 }

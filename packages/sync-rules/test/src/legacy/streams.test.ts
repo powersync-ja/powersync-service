@@ -43,7 +43,7 @@ describe('streams', () => {
         compatibility: CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY,
         defaultSchema: 'public'
       })
-    ).throws('Sync streams require edition 2 or later');
+    ).throws('Sync Streams require edition 3');
   });
 
   test('without filter', () => {

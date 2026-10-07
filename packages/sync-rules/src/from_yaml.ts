@@ -270,10 +270,11 @@ export class SyncConfigFromYaml {
     sourceTableConfig: SourceTableConfigMap
   ) {
     bucketMap?.reportError(
-      `'bucket_definitions' are not supported by the new compiler. Consider using https://powersync-community.github.io/bucket-definitions-to-sync-streams/ to translate them to streams.`
+      'Sync Rules (`bucket_definitions`) are not supported with `config: edition: 3`. Migrate to Sync Streams: https://docs.powersync.com/sync/rules/migrate-to-sync-streams.'
     );
 
-    if (streamMap == null) {
+    // The bucket_definitions error above already explains what to do, so don't also ask for 'streams'.
+    if (streamMap == null && bucketMap == null) {
       this.#errors.push(new YamlError(new Error(`'streams' are required.`)));
     }
 
@@ -398,12 +399,23 @@ export class SyncConfigFromYaml {
       this.#throwOnErrorIfRequested();
     }
 
-    // This is with config.edition <= 2, we want to encourage users with streams to migrate to version 3 to use
-    // compiled sync plans.
-    streamMap?.reportError(
-      'This is using the deprecated alpha version of Sync Streams. It will be removed in the next major version. Upgrade `config.edition` to version 3.',
+    // Only reported here: with config.edition: 3, bucket_definitions is already a fatal error in #compileSyncPlan().
+    bucketMap?.reportError(
+      'Sync Rules (`bucket_definitions`) are deprecated and will be removed in the next major version of the PowerSync Service. Migrate to Sync Streams: https://docs.powersync.com/sync/rules/migrate-to-sync-streams.',
       'warning'
     );
+
+    // The edition is checked once for the whole streams block, so that a block without any query to compile still
+    // reports it. Edition 2 runs the alpha, so it only gets a warning.
+    const supportsStreams = compatibility.edition >= CompatibilityEdition.SYNC_STREAMS;
+    if (supportsStreams) {
+      streamMap?.reportError(
+        'This is using the deprecated alpha version of Sync Streams. It will be removed in the next major version. Upgrade `config.edition` to version 3.',
+        'warning'
+      );
+    } else {
+      streamMap?.reportError('Sync Streams require edition 3. Add a `config: {edition: 3}` block to the sync config.');
+    }
 
     for (const { key, keyScalar, value: maybeMap } of bucketMap?.stringKeyedItems() ?? []) {
       if (!this.#checkUniqueName(key, keyScalar)) {
@@ -456,6 +468,11 @@ export class SyncConfigFromYaml {
       rules.bucketSources.push(descriptor);
       rules.bucketDataSources.push(...descriptor.dataSources);
       rules.bucketParameterLookupSources.push(...descriptor.parameterIndexLookupCreators);
+    }
+
+    if (!supportsStreams) {
+      // The edition error above covers the whole streams block. Compiling each stream would only repeat it.
+      return rules;
     }
 
     for (const { key, keyScalar, value } of streamMap?.stringKeyedItems() ?? []) {

@@ -30,10 +30,10 @@
     "@powersync/service-rsocket-router": "workspace:*",
     "@powersync/service-module-core": "workspace:*",
     "@powersync/service-module-convex": "workspace:*",
-    "@sentry/node": "^10.2.0"
+    "@sentry/node": "^10.75.2"
   },
   "devDependencies": {
-    "@sentry/types": "^10.2.0",
+    "@sentry/types": "^10.75.2",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2"
   }

@@ -178,6 +178,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           defaultSchema: this.defaultSchema,
           throwOnError: this.syncRuleProvider.exitOnError
         });
+        storage.logSyncConfigErrors(parsed, this.logger);
         const { lock } = await this.storage.configureSyncRules(
           storage.updateSyncRulesFromConfig(parsed, {
             lock: true,
