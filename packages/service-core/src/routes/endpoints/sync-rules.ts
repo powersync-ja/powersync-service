@@ -5,7 +5,7 @@ import * as t from 'ts-codec';
 
 import { RouteAPI } from '../../api/RouteAPI.js';
 import {
-  logSyncConfigWarnings,
+  logSyncConfigErrors,
   updateSyncRulesFromConfig,
   updateSyncRulesFromYaml
 } from '../../storage/BucketStorageFactory.js';
@@ -74,7 +74,7 @@ export const deploySyncRules = routeDefinition({
       });
     }
 
-    logSyncConfigWarnings(syncConfig);
+    logSyncConfigErrors(syncConfig);
     const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules(updateSyncRulesFromConfig(syncConfig));
 
     return {
@@ -188,7 +188,7 @@ export const reprocessSyncRules = routeDefinition({
       version_label: sync_rules.version_label,
       forceNewReplicationStream: true
     });
-    logSyncConfigWarnings(updateOptions.config.parsed);
+    logSyncConfigErrors(updateOptions.config.parsed);
     const new_rules = await activeBucketStorage.updateSyncRules(updateOptions);
     return {
       slot_name: new_rules.replicationStreamName

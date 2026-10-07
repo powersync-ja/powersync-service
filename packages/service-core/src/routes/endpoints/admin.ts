@@ -168,7 +168,7 @@ export const reprocess = routeDefinition({
       version_label: active.content.version_label,
       forceNewReplicationStream: true
     });
-    storage.logSyncConfigWarnings(updateOptions.config.parsed);
+    storage.logSyncConfigErrors(updateOptions.config.parsed);
     const new_rules = await activeBucketStorage.updateSyncRules(updateOptions);
 
     const baseConfig = await apiHandler.getSourceConfig();

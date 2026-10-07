@@ -170,7 +170,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           validate: this.syncRuleProvider.exitOnError,
           version_label: versionLabel
         });
-        storage.logSyncConfigWarnings(updateOptions.config.parsed, this.logger);
+        storage.logSyncConfigErrors(updateOptions.config.parsed, this.logger);
         const { lock } = await this.storage.configureSyncRules(updateOptions);
         if (lock) {
           configuredLock = lock;
