@@ -1,6 +1,7 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
-import { api, ParseSyncConfigOptions, ReplicationHeadCallback } from '@powersync/service-core';
+import type { ParseSyncConfigOptions } from '@powersync/service-core';
+import { api, ReplicationHeadCallback } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
@@ -37,6 +38,15 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     return {
       defaultSchema: this.defaultSchema
     };
+  }
+
+  async validateSourceCapabilities(config: sync_rules.SyncConfig): Promise<void> {
+    const filtered = sync_rules.hasMongoFilterExpressions(
+      config instanceof sync_rules.PrecompiledSyncConfig ? (config.plan.sourceTableConfig ?? {}) : {},
+      this.connectionTag
+    );
+    // An external implementation can override this to only throw if replication pre-filtering is supported.
+    if (filtered) throw new Error('MongoDB replication pre-filtering is not available for this connection.');
   }
 
   async shutdown(): Promise<void> {

@@ -1,25 +1,28 @@
 ---
 '@powersync/service-sync-rules': minor
 '@powersync/service-core': minor
+'@powersync/service-module-mongodb': minor
 '@powersync/service-module-mongodb-storage': patch
 '@powersync/service-module-postgres-storage': patch
 '@powersync/lib-services-framework': patch
 ---
 
-Add `config.source_table_options` to edition 3 sync configs. This flat map uses `table`, `database.table`, or `connection.database.table` keys. Core accepts empty table options; module-specific options require a registered parser that declares and parses them.
+Add `config.source_table_options` to edition 3 sync configs, including MongoDB pre-filtering expressions. Generate editor schemas with examples and report validation errors at their YAML source locations.
 
-Connection prefixes are parsed and stored, but explicitly qualified patterns continue to use the `default` connection tag during hydration. This change does not enable selecting another replication connection through a prefix.
+MongoDB replication pre-filtering is only available in the Team and Enterprise editions. For example:
 
 ```yaml
 config:
   edition: 3
   source_table_options:
-    my_table: {}
+    orders:
+      mongodb_filter_expression:
+        $and:
+          - $eq: ['$$doc.active', true]
+          - $in: ['$$doc.status', ['pending', 'shipped']]
 streams:
-  my_table:
-    query: SELECT * FROM my_table
+  orders:
+    query: SELECT * FROM orders
 ```
 
-Plans with parsed source-table options or required module IDs use sync-plan format 3. Plans without either retain formats 1 and 2. Changed source-table options require replacement processing when a new sync config is deployed.
-
-Add a shared service-context parser with module registration hooks for schema extension, parsing, and persisted validation. Validation routes, deployments, replication, and saved-config loading use this parser. Saved plans fail to load when a required module is unavailable.
+Validation and deployment reject filters when the feature is unavailable. Changing source-table options requires replacement processing when deploying a new sync config.

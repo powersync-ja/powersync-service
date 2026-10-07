@@ -1,9 +1,7 @@
 import { AbstractReplicationJob } from '@/replication/AbstractReplicationJob.js';
 import { AbstractReplicator, AbstractReplicatorOptions, CreateJobOptions } from '@/replication/AbstractReplicator.js';
 import { PersistedReplicationStream } from '@/storage/PersistedReplicationStream.js';
-import { SqlSyncConfigParser } from '@/storage/SyncConfigParser.js';
 import { SyncRulesBucketStorage } from '@/storage/SyncRulesBucketStorage.js';
-import { PrecompiledSyncConfig } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 
 class TestReplicator extends AbstractReplicator {
@@ -64,26 +62,10 @@ class TestReplicator extends AbstractReplicator {
 }
 
 describe('AbstractReplicator startup sync config', () => {
-  it.each([true, false])('retains registered module options with exit_on_error=%s', async (exitOnError) => {
-    const syncConfigParser = new SqlSyncConfigParser([
-      {
-        id: 'example.tables',
-        extendJsonSchema({ schema }) {
-          (schema.properties as any).config.properties.source_table_options.additionalProperties.properties.sample = {
-            type: 'number'
-          };
-        },
-        parse({ config, context }) {
-          const sourceTables = (config as { config: { source_table_options: { orders: { sample: number } } } }).config
-            .source_table_options;
-          context.parsedConfig.sourceTableConfig = sourceTables;
-          (context.parsedConfig as PrecompiledSyncConfig).plan.moduleData = { 'example.tables': null };
-        }
-      }
-    ]);
+  it.each([true, false])('retains source-table options with exit_on_error=%s', async (exitOnError) => {
     const yaml = /* yaml */ `
       {
-        config: { edition: 3, source_table_options: { orders: { sample: 10 } } },
+        config: { edition: 3, source_table_options: { orders: { mongodb_filter_expression: 'disabled' } } },
         streams: { orders: { query: SELECT * FROM orders } }
       }
     `;
@@ -91,7 +73,7 @@ describe('AbstractReplicator startup sync config', () => {
     const replicator = new TestReplicator(async () => {}, {
       id: 'test',
       storageEngine: {
-        activeBucketStorage: { syncConfigParser, configureSyncRules }
+        activeBucketStorage: { configureSyncRules }
       } as unknown as AbstractReplicatorOptions['storageEngine'],
       syncRuleProvider: { get: async () => yaml, exitOnError, versionLabel: 'v2' },
       metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
@@ -108,14 +90,15 @@ describe('AbstractReplicator startup sync config', () => {
           parsed: expect.objectContaining({
             errors: [],
             config: expect.objectContaining({
-              sourceTableConfig: { orders: { sample: 10 } }
+              plan: expect.objectContaining({
+                sourceTableConfig: { orders: { mongodb_filter_expression: 'disabled' } }
+              })
             })
           }),
           plan: expect.objectContaining({
             plan: expect.objectContaining({
               version: 3,
-              sourceTableConfig: { orders: { sample: 10 } },
-              moduleData: { 'example.tables': null }
+              sourceTableConfig: { orders: { mongodb_filter_expression: 'disabled' } }
             })
           })
         })

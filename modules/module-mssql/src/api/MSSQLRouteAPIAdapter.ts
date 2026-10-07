@@ -1,4 +1,5 @@
-import { api, ParseSyncConfigOptions, PatternResult, ReplicationLagOptions } from '@powersync/service-core';
+import type { ParseSyncConfigOptions } from '@powersync/service-core';
+import { api, PatternResult, ReplicationLagOptions } from '@powersync/service-core';
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import sql from 'mssql';

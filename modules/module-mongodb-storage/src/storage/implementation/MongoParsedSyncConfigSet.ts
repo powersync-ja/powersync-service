@@ -17,6 +17,7 @@ import {
   HydratedSyncConfig,
   HydrationState,
   nodeSqlite,
+  PrecompiledSyncConfig,
   sourceTableConfigsEqual,
   SyncConfigWithErrors,
   versionedHydrationState
@@ -59,7 +60,13 @@ export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
       // Active and processing configs share one source reader and must use the same source-table options.
       if (
         this.syncConfigs.some(
-          ({ config }) => !sourceTableConfigsEqual(firstConfig.config.sourceTableConfig, config.sourceTableConfig)
+          ({ config }) =>
+            !sourceTableConfigsEqual(
+              firstConfig.config instanceof PrecompiledSyncConfig
+                ? (firstConfig.config.plan.sourceTableConfig ?? {})
+                : {},
+              config instanceof PrecompiledSyncConfig ? (config.plan.sourceTableConfig ?? {}) : {}
+            )
         )
       ) {
         throw new ReplicationAssertionError(

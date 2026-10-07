@@ -1,86 +1,62 @@
-# Sync config parsing and source-table options
+# Source-table options
 
-`ServiceContext.syncConfigParser` is the shared parser for validation routes, deployments, replication, and loading
-saved configs. Modules register additional parsers during initialization, before storage starts.
-
-## Common source-table structure
-
-Edition 3 sync configs declare source-specific options under `config.source_table_options`, alongside settings such as
-`edition` and `storage_version`:
+Sync configs can specify source-specific replication options under `config.source_table_options`. This is a map from
+table names or patterns to option objects. The currently supported option is `mongodb_filter_expression`, which
+specifies MongoDB replication pre-filtering:
 
 ```yaml
 config:
   edition: 3
   source_table_options:
-    orders: {}
+    orders:
+      mongodb_filter_expression:
+        $eq: ['$$doc.active', true]
 streams:
   orders:
     query: SELECT * FROM orders
 ```
 
-Core owns the flat table-pattern map. Table keys follow the same right-to-left qualification as Sync Stream queries:
-`table`, `database.table`, or `connection.database.table`. Omitted components remain relative to runtime defaults.
-Declaring an entry does not add a replication source; SQL and stream definitions still select source tables.
+Executing MongoDB replication pre-filtering requires additional external modules. The service parses and validates
+these expressions, but rejects their deployment when the configured source adapter does not support the feature.
 
-Connection tags are accepted by the syntax and retained in parsed patterns and saved plans. During hydration, explicitly
-qualified patterns currently use the `default` connection tag, even when another tag was authored. Do not rely on a
-connection prefix to select a different replication connection. This preserves existing behavior; using connection tags
-consistently across SQL, source-table options, and saved plans requires a future change covering all of those paths.
+## Table names and patterns
 
-As in Sync Stream SQL, unquoted identifiers are converted to lowercase and double-quoted identifiers preserve their
-authored case. Double quotes also allow dots without treating them as qualification separators. Since YAML removes its
-own quotes, use an outer YAML quote to retain the identifier quotes, for example `'"audit.events"': {}`. The same
-quoting applies to connection and database components. Inside a quoted identifier, two consecutive double quotes
-represent one literal double quote, so `conn.test."na""me"` identifies the table `na"me`.
+Table keys use the same right-to-left qualification as Sync Stream queries: `table`, `database.table`, or
+`connection.database.table`. Omitted components use runtime defaults. Declaring source-table options does not add
+a replication source; the stream queries still select the source tables.
 
-Keys that resolve to identical connection, database, and table components are rejected before module parsers run.
-For example, `Users`, `users`, and `"users"` identify the same pattern, while `"Users"` remains distinct. Validation
-names both conflicting keys and highlights the later declaration. Overlapping wildcard patterns remain allowed.
-The same duplicate check applies when normalizing module-provided options and serializing or loading saved plans.
+Connection prefixes are accepted and retained in saved configuration. However, query hydration currently uses the
+`default` connection tag for explicitly qualified patterns. A connection prefix should not be used to select a
+different replication connection.
 
-Core table options are empty and `additionalProperties: false` rejects options unless an external parser extends the
-shared table-option schema. Multiple parsers may add independent fields to the same table.
+Unquoted identifiers are converted to lowercase. Double-quoted identifiers preserve case and may contain dots.
+Use an outer YAML quote to retain the identifier quotes, for example `'"audit.events"': {}`. Inside a quoted
+identifier, two double quotes represent one literal double quote.
 
-Parsed, compiled, and hydrated representations expose `sourceTableConfig`. Modules inspect their own fields rather than
-using a source-type discriminator. Authored table names and declaration order are persisted because wildcard precedence
-may depend on both.
+Keys that resolve to the same connection, database, and table pattern are rejected. For example, `Users`, `users`,
+and `"users"` identify the same pattern, while `"Users"` remains distinct. Overlapping wildcard patterns are allowed.
 
-## Generic parser hooks
+## MongoDB pre-filtering expressions
 
-Register an `AdditionalSyncConfigParser` with `serviceContext.syncConfigParser.registerParser(...)`. Hooks are ordered
-and identified by unique IDs:
+`mongodb_filter_expression` accepts an expression or the string `disabled`. Expressions support:
 
-- `extendJsonSchema({ schema })` can extend each entry in `config.source_table_options`. Preserve validation of unrelated
-  fields and source modules. Additional root-level config fields are unsupported. Tooling reads a copy of the same
-  schema through `syncConfigParser.jsonSchema`.
-- `parse({ config, context })` receives decoded sync config. The context provides the candidate parsed config,
-  SQL-selected source tables, default schema, source-location lookup, and diagnostic reporting. Merge owned values into
-  `sourceTableConfig` without removing fields written by other parsers. For a `PrecompiledSyncConfig`, write the parser
-  ID into `parsedConfig.plan.moduleData` with a `null` value when required.
-- `validatePersisted({ config, context })` validates saved fields without reparsing SQL or relying on YAML locations.
-  Modules with semantic restrictions beyond their JSON schema must repeat those checks here.
+- `$eq`: a source field and a literal value, such as `{ $eq: ['$$doc.active', true] }`.
+- `$in`: a source field and a nonempty list of literal values.
+- `$and` and `$or`: nonempty lists of nested filter expressions.
 
-For example, a hook can report an option error using
-`context.sourceLocations.getLocation(['config', 'source_table_options', table, 'option'])`. JSON Schema errors use the same
-source locations. `patternErrorMessage` is accepted as an editor annotation while AJV still enforces `pattern`.
+Source fields use the `$$doc.` prefix. Literal values include strings, numbers, booleans, and supported Extended JSON
+wrappers for BSON values. Unknown source-table options and invalid expressions are rejected during parsing.
 
-Hooks are synchronous and deterministic. Database connectivity, collection discovery, and index checks belong in source
-validation. Some non-source parsing paths use a placeholder default schema, so modules must not persist names qualified
-with that value.
+The sync-config JSON Schema includes expression shapes and examples for editor autocomplete. Runtime validation
+also checks BSON literal values and reports errors at the relevant YAML keys or values. Source capability checks
+run during validation, deployment, and reprocessing; validation can report capability failures alongside other
+diagnostics.
 
-Startup validation uses the replicator's default schema. MongoDB supplies the database from its normalized connection
-config, allowing qualified source-table options to match unqualified SQL tables in that database before replication
-starts. Source replicators with a known default schema should override `AbstractReplicator.defaultSchema`.
+## Saved configuration
 
-## Persistence and config deployment
+Compiled plans retain the options in `sourceTableConfig`. Hydrated configs expose the options from the first underlying
+plan; configs sharing a replication reader must have identical options. Saved plans preserve authored
+table names and declaration order. Source-table options use sync-plan format 3; plans without them retain formats
+1 and 2. Loading a saved plan validates its source-table options without reparsing SQL.
 
-Nonempty source-table options or required module IDs use sync-plan format 3 so an older service rejects options it
-cannot interpret. Plans without either retain formats 1 and 2.
-
-Required parser IDs are stored as keys of `moduleData`, with `null` values reserved for future module-owned data. Loading
-a saved plan checks those IDs against registered parsers before running persisted validators and hydration. If a required
-module is absent, loading fails. A failed saved plan is never replaced by silently reparsing its original source.
-
-Source-table configurations must match before configs share incremental processing. Equality preserves table declaration
-and expression order. Adding, changing, removing, or reordering source-table options requires replacement processing when
-a new sync config is deployed; the active config can keep serving while that replacement is prepared.
+Changing source-table options requires replacement processing when deploying a new sync config.

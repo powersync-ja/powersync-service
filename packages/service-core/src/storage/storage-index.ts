@@ -25,4 +25,3 @@ export * from './implementation/BucketDefinitionMapping.js';
 export * from './implementation/IncrementalReprocessingCompatibility.js';
 export * from './implementation/IncrementalReprocessingSyncConfigLog.js';
 export * from './implementation/ReplicationStreamStorageIds.js';
-export * from './SyncConfigParser.js';

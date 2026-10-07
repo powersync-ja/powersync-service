@@ -36,4 +36,7 @@ export { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 export * from './sync_plan/plan.js';
 export * from './sync_plan/plan_equality_serialized.js';
 export * from './sync_plan/serialize.js';
-export * from './SyncConfigParserHooks.js';
+export * from './SyncConfigDiagnostics.js';
+
+export * from './mongo/MongoFilterExpression.js';
+export { MongoFilterValidationError } from './mongo/MongoFilterValidation.js';

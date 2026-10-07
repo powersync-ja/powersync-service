@@ -2,11 +2,9 @@ import { BaseObserver, logger, ServiceError } from '@powersync/lib-services-fram
 import { ResolvedPowerSyncConfig } from '../util/util-index.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
 import { ActiveStorage, StorageProvider } from './StorageProvider.js';
-import { SyncConfigParser } from './SyncConfigParser.js';
 
 export type StorageEngineOptions = {
   configuration: ResolvedPowerSyncConfig;
-  syncConfigParser: SyncConfigParser;
 };
 
 export interface StorageEngineListener {
@@ -17,7 +15,6 @@ export interface StorageEngineListener {
 export class StorageEngine extends BaseObserver<StorageEngineListener> {
   // TODO: This will need to revisited when we actually support multiple storage providers.
   private storageProviders: Map<string, StorageProvider> = new Map();
-  private startupStarted = false;
   private currentActiveStorage: ActiveStorage | null = null;
 
   constructor(private options: StorageEngineOptions) {
@@ -36,10 +33,6 @@ export class StorageEngine extends BaseObserver<StorageEngineListener> {
     return this.currentActiveStorage;
   }
 
-  get started(): boolean {
-    return this.startupStarted;
-  }
-
   /**
    * Register a provider which generates a {@link BucketStorageFactory}
    * given the matching config specified in the loaded {@link ResolvedPowerSyncConfig}
@@ -49,12 +42,10 @@ export class StorageEngine extends BaseObserver<StorageEngineListener> {
   }
 
   public async start(): Promise<void> {
-    this.startupStarted = true;
     logger.info('Starting Storage Engine...');
     const { configuration } = this.options;
     this.currentActiveStorage = await this.storageProviders.get(configuration.storage.type)!.getStorage({
-      resolvedConfig: configuration,
-      syncConfigParser: this.options.syncConfigParser
+      resolvedConfig: configuration
     });
     this.iterateListeners((cb) => cb.storageActivated?.(this.activeBucketStorage));
     this.currentActiveStorage.onFatalError?.((error) => {

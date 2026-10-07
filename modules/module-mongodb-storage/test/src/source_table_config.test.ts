@@ -1,11 +1,7 @@
 import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
-import { SqlSyncConfigParser, updateSyncRulesFromConfig } from '@powersync/service-core';
+import { updateSyncRulesFromConfig } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
-import {
-  AdditionalSyncConfigParser,
-  normalizeSourceTableConfig,
-  PrecompiledSyncConfig
-} from '@powersync/service-sync-rules';
+import { PrecompiledSyncConfig, SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
 import { TEST_STORAGE_VERSIONS } from './util.js';
@@ -24,81 +20,43 @@ const CONFIGURED = /* yaml */ `
     edition: 3
     source_table_options:
       orders:
-        sample: 10
+        mongodb_filter_expression: { $eq: ['$$doc.active', true] }
   streams:
     orders:
       query: SELECT * FROM orders
 `;
 
-// A small module-owned option exercises persistence without introducing MongoDB filter syntax into core.
-const TABLE_OPTIONS: AdditionalSyncConfigParser = {
-  id: 'example.tables',
-  extendJsonSchema({ schema }) {
-    const options = (schema.properties as any).config.properties.source_table_options.additionalProperties;
-    options.properties.sample = { type: 'number' };
-  },
-  parse({ config, context }) {
-    const sourceTables = normalizeSourceTableConfig(
-      (config as { config?: { source_table_options?: unknown } }).config?.source_table_options
-    );
-    for (const [table, options] of Object.entries(sourceTables)) {
-      if (!Object.hasOwn(options!, 'sample')) continue;
-      context.parsedConfig.sourceTableConfig = { ...context.parsedConfig.sourceTableConfig, [table]: options };
-      const { plan } = context.parsedConfig as PrecompiledSyncConfig;
-      plan.moduleData = { ...plan.moduleData, ['example.tables']: null };
-    }
-  }
-};
-
-function storageFactory(withModule: boolean) {
-  const syncConfigParser = new SqlSyncConfigParser(withModule ? [TABLE_OPTIONS] : []);
+function storageFactory() {
   return mongoTestStorageFactoryGenerator({
     url: env.MONGO_TEST_URL,
     isCI: env.CI,
-    supportsMultipleSyncConfigs: true,
-    syncConfigParser
+    supportsMultipleSyncConfigs: true
   });
 }
 
 describe.for(TEST_STORAGE_VERSIONS)('source-table config with storage v%i', (storageVersion) => {
-  test('preserves module options across closing storage and loading its compiled plan', async () => {
+  test('preserves source-table options across closing storage and loading its compiled plan', async () => {
     let expected;
     {
-      await using factory = await storageFactory(true).factory();
-      const parsed = factory.syncConfigParser.parseContent(CONFIGURED, test_utils.PARSE_OPTIONS);
-      expected = parsed.config.sourceTableConfig;
+      await using factory = await storageFactory().factory();
+      const parsed = SqlSyncRules.fromYaml(CONFIGURED, test_utils.PARSE_OPTIONS);
+      expected = (parsed.config as PrecompiledSyncConfig).plan.sourceTableConfig;
       await factory.updateSyncRules(updateSyncRulesFromConfig(parsed, { storageVersion }));
     }
 
     // Reopen the same database without clearing it, as a service restart would.
-    await using reopened = await storageFactory(true).factory({ doNotClear: true });
+    await using reopened = await storageFactory().factory({ doNotClear: true });
     const deploying = (await reopened.getDeployingSyncConfig())!;
     expect(deploying.content.compiled_plan?.plan.version).toBe(3);
     const parsed = deploying.content.parsed(test_utils.PARSE_OPTIONS);
-    expect(parsed.syncConfigs[0].config.sourceTableConfig).toEqual(expected);
+    expect((parsed.syncConfigs[0].config as PrecompiledSyncConfig).plan.sourceTableConfig).toEqual(expected);
     expect(parsed.hydratedSyncConfig.sourceTableConfig).toEqual(expected);
   });
 
-  test('rejects saved options if the module is absent after restart', async () => {
-    {
-      await using factory = await storageFactory(true).factory();
-      await factory.updateSyncRules(
-        updateSyncRulesFromConfig(factory.syncConfigParser.parseContent(CONFIGURED, test_utils.PARSE_OPTIONS), {
-          storageVersion
-        })
-      );
-    }
-    await using reopened = await storageFactory(false).factory({ doNotClear: true });
-    const deploying = (await reopened.getDeployingSyncConfig())!;
-    expect(() => deploying.content.parsed(test_utils.PARSE_OPTIONS)).toThrow(
-      'Missing required sync config parsers: example.tables'
-    );
-  });
-
-  test('continues loading unfiltered plans without an additional parser', async () => {
-    await using factory = await storageFactory(false).factory();
+  test('continues loading unfiltered plans without source options', async () => {
+    await using factory = await storageFactory().factory();
     await factory.updateSyncRules(
-      updateSyncRulesFromConfig(factory.syncConfigParser.parseContent(STREAMS, test_utils.PARSE_OPTIONS), {
+      updateSyncRulesFromConfig(SqlSyncRules.fromYaml(STREAMS, test_utils.PARSE_OPTIONS), {
         storageVersion
       })
     );
@@ -108,10 +66,10 @@ describe.for(TEST_STORAGE_VERSIONS)('source-table config with storage v%i', (sto
   });
 
   test('starts replacement processing when source-table options change', async () => {
-    await using factory = await storageFactory(true).factory();
+    await using factory = await storageFactory().factory();
     const deploy = (yaml: string) =>
       factory.updateSyncRules(
-        updateSyncRulesFromConfig(factory.syncConfigParser.parseContent(yaml, test_utils.PARSE_OPTIONS), {
+        updateSyncRulesFromConfig(SqlSyncRules.fromYaml(yaml, test_utils.PARSE_OPTIONS), {
           storageVersion
         })
       );
@@ -132,7 +90,7 @@ describe.for(TEST_STORAGE_VERSIONS)('source-table config with storage v%i', (sto
       await writer.markAllSnapshotDone('2/1');
       await writer.commit('2/1');
     }
-    const changed = await deploy(CONFIGURED.replace('sample: 10', 'sample: 20'));
+    const changed = await deploy(CONFIGURED.replace('true', 'false'));
     expect(changed.replicationStreamId).not.toBe(first.replicationStreamId);
     expect((await factory.getActiveSyncConfig())?.content.replicationStreamId).toBe(first.replicationStreamId);
   });
