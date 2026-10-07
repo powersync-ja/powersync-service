@@ -36,14 +36,15 @@ describe('source table configuration', () => {
     const second = parse(
       'config: { edition: 3, source_table_options: { orders: { mongodb_filter_expression: disabled } } }'
     ).config;
-    expect(first).not.toHaveProperty('sourceTableConfig');
     const hydrated = new HydratedSyncConfig({
       definitions: [first, second],
       createParams: { hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) }
     });
-    expect(hydrated.sourceTableConfig).toBe(first.plan.sourceTableConfig);
+    expect(hydrated.sourceTableConfig).toEqual({
+      orders: { mongodb_filter_expression: 'disabled' }
+    });
   });
-  test('accepts source_table_options alongside other settings and rejects old or misplaced spellings', () => {
+  test('accepts source_table_options alongside other settings and rejects options outside config', () => {
     const yaml = /* yaml */ `
       {
         config:
@@ -60,7 +61,6 @@ describe('source table configuration', () => {
     expect((config as PrecompiledSyncConfig).plan.sourceTableConfig).toEqual({
       orders: { mongodb_filter_expression: 'disabled' }
     });
-    expect(() => parse('config: { edition: 3, connections: {} }')).toThrow("Unknown key 'connections'.");
     expect(() => SqlSyncRules.fromYaml(`${withStreams()}source_table_options: {}`, { defaultSchema: 'app' })).toThrow(
       "Unknown key 'source_table_options'."
     );
@@ -354,12 +354,13 @@ streams:
     expect(Object.keys(restored.sourceTableConfig!)).toEqual(['"Users"', 'users']);
   });
 
-  test('keeps the generated base table schema closed', () => {
+  test('generated schema accepts supported table options and rejects unknown options', () => {
     const schema = createSyncRulesSchema();
-    const options = (schema.properties as any).config.properties.source_table_options.additionalProperties;
-    expect(options).toMatchObject({ additionalProperties: false, properties: {} });
     const validate = compileSyncRulesSchemaValidator(schema);
     expect(validate({ config: { edition: 3, source_table_options: { orders: {} } }, streams: {} })).toBe(true);
+    expect(validate({ config: { edition: 3, source_table_options: { orders: { unknown: true } } }, streams: {} })).toBe(
+      false
+    );
     expect(
       validate({
         config: { edition: 3, source_table_options: { orders: { mongodb_filter_expression: 'disabled' } } },

@@ -16,7 +16,7 @@ const CONFIGURED = /* yaml */ `
 `;
 
 describe('source-table options', () => {
-  test('parses without module registration and preserves filters through compiled storage', () => {
+  test('preserves filters through compiled storage', () => {
     const parsed = SqlSyncRules.fromYaml(CONFIGURED, { defaultSchema: 'app' });
     const update = updateSyncRulesFromConfig(parsed);
     const restored = parsePersistedSyncConfigContent({
@@ -25,10 +25,9 @@ describe('source-table options', () => {
       storageVersion: 2,
       parseOptions: { defaultSchema: 'app' }
     });
-    expect((restored.config as PrecompiledSyncConfig).plan.sourceTableConfig).toEqual(
-      (parsed.config as PrecompiledSyncConfig).plan.sourceTableConfig
-    );
-    expect(update.config.plan!.plan).not.toHaveProperty('moduleData');
+    expect((restored.config as PrecompiledSyncConfig).plan.sourceTableConfig).toEqual({
+      orders: { mongodb_filter_expression: { $eq: ['$$doc.active', true] } }
+    });
   });
   test('reports invalid expressions before storage', () => {
     expect(() =>
@@ -37,7 +36,7 @@ describe('source-table options', () => {
       })
     ).toThrow('Expected a source field');
   });
-  test('removing filters after a downgrade requires replacement processing', () => {
+  test('requires replacement processing when filters change or are removed', () => {
     const deploy = (yaml: string) => updateSyncRulesFromConfig(SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app' }));
     const first = deploy(CONFIGURED);
     const same = deploy(CONFIGURED.replace('SELECT *', 'SELECT id'));

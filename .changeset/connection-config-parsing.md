@@ -3,6 +3,10 @@
 '@powersync/service-core': minor
 '@powersync/service-types': minor
 '@powersync/service-module-mongodb': minor
+'@powersync/service-module-postgres': patch
+'@powersync/service-module-mysql': patch
+'@powersync/service-module-mssql': patch
+'@powersync/service-module-convex': patch
 '@powersync/service-module-mongodb-storage': patch
 '@powersync/service-module-postgres-storage': patch
 '@powersync/lib-services-framework': patch
@@ -26,7 +30,7 @@ streams:
     query: SELECT * FROM orders
 ```
 
-Validation and deployment reject filters when the feature is unavailable. Changing source-table options requires replacement processing when deploying a new sync config.
+Validation and deployment reject filters when the feature is unavailable. Postgres, MySQL, SQL Server, and Convex sources reject MongoDB pre-filtering expressions. Filesystem-loaded sync configs also run source-capability checks before persistence, and fatal diagnostics block deployment even when `exit_on_error` is disabled. Changing source-table options requires replacement processing when deploying a new sync config.
 
 Source capability validation returns structured `ValidationDiagnostic` entries, allowing multiple fatal issues and
 advisory warnings. Deployment and reprocessing reject fatal diagnostics while validation continues collecting
