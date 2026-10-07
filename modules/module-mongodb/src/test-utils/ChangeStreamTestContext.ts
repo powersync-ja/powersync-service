@@ -19,6 +19,7 @@ import {
   updateSyncRulesFromConfig,
   utils
 } from '@powersync/service-core';
+import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { setTimeout } from 'node:timers/promises';
 
 import { SentinelLSN } from '../common/SentinelLSN.js';
@@ -192,9 +193,8 @@ export class ChangeStreamTestContext implements AsyncDisposable {
 
   async updateSyncRules(content: string) {
     const replicationStream = await this.factory.updateSyncRules(
-      // Deployment and resume must use the same parser, including caller-registered extensions.
       updateSyncRulesFromConfig(
-        this.factory.syncConfigParser.parseContent(content, {
+        SqlSyncRules.fromYaml(content, {
           defaultSchema: this.db.databaseName,
           throwOnError: true
         }),

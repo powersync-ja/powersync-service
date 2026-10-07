@@ -328,6 +328,13 @@ export enum ErrorCode {
    */
   PSYNC_S1347 = 'PSYNC_S1347',
 
+  /**
+   * The sync config requires MongoDB pre-filtering, but no query provider factory is registered.
+   *
+   * Restore the required module, or remove the filters and deploy a new sync config to restart replication.
+   */
+  PSYNC_S1348 = 'PSYNC_S1348',
+
   // ## PSYNC_S14xx: MongoDB storage replication issues
 
   /**

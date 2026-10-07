@@ -108,3 +108,7 @@ the protected `openWith({ options, createContext })` helper.
 
 `updateSyncRules(yaml)` uses the supplied storage factory's sync config parser, including registered additional
 parsers. External modules can therefore use their real YAML configuration in integration tests.
+
+## Provider availability
+
+A saved sync config with MongoDB pre-filtering expressions requires a registered query provider factory. Replication reports an error before snapshot setup if that factory is absent, including after a downgrade. Restore the required module, or remove the filters and deploy a new sync config to start replacement processing. Configured wildcard expressions still require support when individual collections disable their filters, since new collections may match later.

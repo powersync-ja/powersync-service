@@ -19,7 +19,7 @@ import {
   SourceTable,
   storage
 } from '@powersync/service-core';
-import { HydratedSyncConfig } from '@powersync/service-sync-rules';
+import { hasMongoFilterExpressions, HydratedSyncConfig } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { performance } from 'node:perf_hooks';
 import { PostImagesOption } from '../types/types.js';
@@ -124,6 +124,7 @@ export class ChangeStream extends replication.AbstractReplicationStream {
 
   private readonly sourceRowConverter: SourceRowConverter;
   private readonly queryProvider: MongoReplicationQueryProvider;
+  private readonly hasQueryProviderFactory: boolean;
 
   private keepaliveIntervalMs: number;
 
@@ -157,6 +158,7 @@ export class ChangeStream extends replication.AbstractReplicationStream {
     this.sync_rules = options.storage.getParsedSyncRules({
       defaultSchema: this.defaultDb.databaseName
     });
+    this.hasQueryProviderFactory = options.createReplicationQueryProvider != null;
     this.queryProvider =
       options.createReplicationQueryProvider?.({
         syncConfig: this.sync_rules,
@@ -499,6 +501,17 @@ export class ChangeStream extends replication.AbstractReplicationStream {
   }
 
   private async initReplication() {
+    // A previously deployed config may outlive the module that provided pre-filtering.
+    // Throw inside replicate() so the failure is persisted in replication diagnostics.
+    if (
+      !this.hasQueryProviderFactory &&
+      hasMongoFilterExpressions(this.sync_rules.sourceTableConfig, this.connections.connectionTag)
+    ) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1348,
+        'This sync config requires MongoDB pre-filtering, but no query provider factory is registered. Restore the required module, or remove the filters and deploy a new sync config to restart replication.'
+      );
+    }
     const result = await this.snapshotter.checkSlot();
     await this.snapshotter.setupCheckpointsCollection();
     if (result.needsInitialSync) {
