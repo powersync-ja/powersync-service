@@ -1130,7 +1130,7 @@ event_definitions:
     });
   });
 
-  test('suggests upgrading for streams on edition 2', () => {
+  test('suggests upgrading for Sync Streams on edition 2', () => {
     const { config: rules, errors } = SqlSyncRules.fromYaml(
       `
 config:
@@ -1172,7 +1172,7 @@ bucket_definitions:
     expect(errors[0].message).toContain('https://docs.powersync.com/sync/rules/migrate-to-sync-streams');
   });
 
-  test('does not warn about bucket_definitions for a streams config', () => {
+  test('does not warn about bucket_definitions for a Sync Streams config', () => {
     const { errors } = SqlSyncRules.fromYaml(
       `
 config:

@@ -52,7 +52,7 @@ bucket_definitions:
       warnSpy.mockRestore();
     });
 
-    it('does not log a warning for a streams config', async () => {
+    it('does not log a warning for a Sync Streams config', async () => {
       const warnSpy = vi.spyOn(logger, 'warn');
 
       await deploySyncRules.handler({

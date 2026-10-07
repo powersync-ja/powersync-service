@@ -136,7 +136,7 @@ bucket_definitions:
       );
     });
 
-    it('does not report the deprecation warning for a streams config', async () => {
+    it('does not report the deprecation warning for a Sync Streams config', async () => {
       const context = makeContext();
 
       const response = await validate.handler({
