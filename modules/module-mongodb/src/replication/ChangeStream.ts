@@ -12,6 +12,7 @@ import {
   MetricsEngine,
   PerformanceTracer,
   RelationCache,
+  replication,
   ReplicationLagTracker,
   SaveOperationTag,
   SourceEntityDescriptor,
@@ -36,9 +37,8 @@ import {
 } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, detectDocumentDb, timestampToDate } from './replication-utils.js';
 import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
-export interface ChangeStreamOptions {
+export interface ChangeStreamOptions extends replication.AbstractReplicationStreamOptions {
   connections: MongoManager;
-  storage: storage.SyncRulesBucketStorage;
   metrics: MetricsEngine;
   abort_signal: AbortSignal;
   /**
@@ -79,7 +79,7 @@ export class ChangeStreamInvalidatedError extends DatabaseConnectionError {
   }
 }
 
-export class ChangeStream {
+export class ChangeStream extends replication.AbstractReplicationStream {
   sync_rules: HydratedSyncConfig;
   group_id: number;
 
@@ -130,7 +130,8 @@ export class ChangeStream {
   private lastPersistedResumeTimestamp = 0;
   private lastBatchCheckpoint = 0;
 
-  constructor(options: ChangeStreamOptions) {
+  constructor(private readonly options: ChangeStreamOptions) {
+    super(options, { defaultSchema: options.connections.db.databaseName });
     this.storage = options.storage;
     this.metrics = options.metrics;
     this.group_id = options.storage.replicationStreamId;
@@ -431,7 +432,7 @@ export class ChangeStream {
     }
   }
 
-  async replicate() {
+  protected async doReplicate() {
     let streamPromise: Promise<void> | null = null;
     let loopPromise: Promise<void> | null = null;
     let cleanupPromise: Promise<void> | null = null;
@@ -468,9 +469,6 @@ export class ChangeStream {
 
       const results = await Promise.allSettled([loopPromise, streamPromise, cleanupPromise]);
       throw replicationLoopError(results);
-    } catch (e) {
-      await this.storage.reportError(e);
-      throw e;
     } finally {
       this.abortController.abort();
     }

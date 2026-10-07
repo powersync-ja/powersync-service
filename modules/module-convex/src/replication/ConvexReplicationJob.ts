@@ -59,6 +59,7 @@ export class ConvexReplicationJob extends replication.AbstractReplicationJob {
         connections: manager,
         logger: this.logger,
         metrics: this.options.metrics,
+        assertSourceCapabilities: this.options.assertSourceCapabilities,
         storage: this.options.storage
       });
 

@@ -68,6 +68,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
       }
       const stream = new ChangeStream({
         abort_signal: this.abortController.signal,
+        assertSourceCapabilities: this.options.assertSourceCapabilities,
         storage: this.options.storage,
         metrics: this.options.metrics,
         connections: connectionManager,

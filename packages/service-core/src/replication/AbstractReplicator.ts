@@ -24,6 +24,7 @@ const REFRESH_INTERVAL_MS = 5_000;
 export interface CreateJobOptions {
   lock: storage.ReplicationLock;
   storage: storage.SyncRulesBucketStorage;
+  assertSourceCapabilities?: (config: SyncConfig) => Promise<void>;
 }
 
 export interface AbstractReplicatorOptions {
@@ -128,7 +129,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   }
 
   /**
-   * Register an assertion that blocks unsupported file-loaded sync configs before persistence.
+   * Register an assertion that blocks unsupported file-loaded sync configs before replication.
    */
   public registerSourceCapabilitiesAssertion(assertion: (config: SyncConfig) => Promise<void>): void {
     this.assertSourceCapabilities = assertion;
@@ -188,7 +189,13 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           throwOnError: this.syncRuleProvider.exitOnError
         });
         storage.logSyncConfigErrors(parsed, this.logger);
-        await this.assertSourceCapabilities?.(parsed.config);
+        try {
+          await this.assertSourceCapabilities?.(parsed.config);
+        } catch (error) {
+          if (this.syncRuleProvider.exitOnError) throw error;
+          // Persist the config for diagnostics; the job-start check will prevent unsafe replication.
+          this.logger.error('Sync config source capability validation failed', error);
+        }
         const { lock } = await this.storage.configureSyncRules(
           storage.updateSyncRulesFromConfig(parsed, {
             lock: true,
@@ -200,7 +207,6 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         }
       } catch (e) {
         // Log and re-raise to exit.
-        // Fatal source-capability diagnostics block deployment even when exit_on_error is false.
         this.logger.error(`Failed to update sync config`, e);
         throw e;
       }
@@ -316,7 +322,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         const syncRuleStorage = this.storage.getInstance(replicationStream, { replicationLock: lock });
         const newJob = this.createJob({
           lock: lock,
-          storage: syncRuleStorage
+          storage: syncRuleStorage,
+          assertSourceCapabilities: this.assertSourceCapabilities
         });
 
         newJobs.set(jobId, newJob);
