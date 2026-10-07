@@ -2,7 +2,6 @@ import * as sqlite from 'node:sqlite';
 
 import { expect } from 'vitest';
 import {
-  BaseJwtPayload,
   BucketDataScope,
   BucketDataSource,
   BucketParameterQuerier,
@@ -24,6 +23,7 @@ import {
   ParameterLookupDefinitionId,
   ParameterLookupScope,
   RequestedStream,
+  RequestJwtPayload,
   RequestParameters,
   ScopedEvaluateParameterRow,
   ScopedEvaluateRow,
@@ -91,7 +91,7 @@ export function requestParameters(
   jwtPayload: Record<string, any>,
   clientParameters?: Record<string, any>
 ): RequestParameters {
-  return new RequestParameters(new BaseJwtPayload(jwtPayload), clientParameters ?? {});
+  return new RequestParameters(new RequestJwtPayload(jwtPayload), clientParameters ?? {});
 }
 
 export function normalizeQuerierOptions(

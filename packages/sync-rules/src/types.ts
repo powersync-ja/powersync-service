@@ -119,14 +119,7 @@ export function isEvaluatedParameters(e: EvaluatedParametersResult): e is Evalua
 export type EvaluationResult = EvaluatedRow | EvaluationError;
 export type UnscopedEvaluationResult = UnscopedEvaluatedRow | EvaluationError;
 
-export interface RequestJwtPayload {
-  userIdJson: SqliteJsonValue;
-  parsedPayload: Record<string, any>;
-  /** Legacy token_parameters */
-  parameters?: Record<string, any> | undefined;
-}
-
-export class BaseJwtPayload implements RequestJwtPayload {
+export class RequestJwtPayload {
   /**
    * Raw payload from JSON.parse.
    *
@@ -145,11 +138,6 @@ export class BaseJwtPayload implements RequestJwtPayload {
     this.parsedPayload = parsedPayload;
 
     this.userIdJson = jsonValueToSqlite(true, parsedPayload.sub);
-  }
-
-  get parameters(): Record<string, any> | undefined {
-    // Verified to be either undefined or an object when parsing the token.
-    return this.parsedPayload.parameters;
   }
 }
 
@@ -214,20 +202,18 @@ export class RequestParameters implements ParameterValueSet {
       return;
     }
 
-    // This type is verified when we verify the token
-    const legacyParameters = tokenPayload.parameters as Record<string, any> | undefined;
-
-    const tokenParameters = {
-      ...legacyParameters,
-      // sub takes presedence over any embedded parameters
-      user_id: tokenPayload.userIdJson
-    };
+    // If the token has a non-null `parameters` key, the service verifies it to be an object (in KeyStore.verifyJwt).
+    const legacyParameters = tokenPayload.parsedPayload.parameters as Record<string, any> | undefined | null;
 
     // Client and token parameters don't contain DateTime values or other custom types, so we don't need to consider
     // compatibility.
     this.parsedTokenPayload = tokenPayload.parsedPayload;
     this.legacyTokenParameters = toSyncRulesParameters(
-      tokenParameters,
+      {
+        ...legacyParameters,
+        // sub takes presedence over any embedded parameters
+        user_id: tokenPayload.userIdJson
+      },
       CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
     );
     this.userId = tokenPayload.userIdJson;
