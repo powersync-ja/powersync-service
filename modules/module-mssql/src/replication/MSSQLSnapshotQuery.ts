@@ -5,50 +5,92 @@ import { MSSQLBaseType } from '../types/mssql-data-types.js';
 import { escapeIdentifier } from '../utils/mssql.js';
 
 export interface MSSQLSnapshotQuery {
-  initialize(): Promise<void>;
+  /**
+   *  Returns the column metadata for the rows that would be returned for this query.
+   */
+  getColumnMetadata(): Promise<sql.IColumnMetadata>;
 
   /**
-   *  Returns an async iterable iterator that yields the column metadata for the query followed by rows of data.
+   *  Returns an async iterator for the next batch of rows, yielding at most the batch size.
+   *  A batch smaller than the batch size indicates that there are no rows left.
    */
-  next(): AsyncIterableIterator<sql.IColumnMetadata | sql.IRecordSet<any>>;
+  next(): AsyncIterableIterator<Record<string, any>>;
+
+  /**
+   *  Cancels the query if it is still in progress.
+   */
+  close(): Promise<void>;
 }
 
 /**
- * Snapshot query using a plain SELECT * FROM table
- *
- * This supports all tables but does not efficiently resume the snapshot
- * if the process is restarted.
+ *  Helper class that encapsulates the streaming logic of the queries used for snapshots.
+ */
+class StreamingQuery {
+  readonly rows: AsyncIterableIterator<any>;
+  private readonly completed: Promise<void>;
+  private finished = false;
+
+  constructor(
+    private readonly request: sql.Request,
+    query: string
+  ) {
+    const stream = request.toReadableStream();
+    // Errors are surfaced by iterating the rows. This listener prevents an unhandled 'error' event
+    // when the query fails after iteration has stopped, such as the cancellation error from cancel().
+    stream.on('error', () => {});
+    // In stream mode, errors are emitted on the stream instead of rejecting this promise.
+    this.completed = request.query(query).then(
+      () => {
+        this.finished = true;
+      },
+      () => {
+        this.finished = true;
+      }
+    );
+    this.rows = stream[Symbol.asyncIterator]();
+  }
+
+  async cancel(): Promise<void> {
+    if (!this.finished) {
+      this.request.cancel();
+    }
+    // Resolves once the driver has released the transaction's connection.
+    await this.completed;
+  }
+}
+
+/**
+ * Snapshot query using a plain SELECT * FROM table.
+ * This supports all tables but cannot resume the snapshot if the process is restarted.
  */
 export class SimpleSnapshotQuery implements MSSQLSnapshotQuery {
+  private query: StreamingQuery | null = null;
+
   public constructor(
     private readonly transaction: sql.Transaction,
-    private readonly qualifiedTableName: string
+    private readonly qualifiedTableName: string,
+    private readonly batchSize: number = 10_000
   ) {}
 
-  public async initialize(): Promise<void> {}
+  public getColumnMetadata(): Promise<sql.IColumnMetadata> {
+    return queryColumnMetadata(this.transaction, this.qualifiedTableName);
+  }
 
-  public async *next(): AsyncIterableIterator<sql.IColumnMetadata | sql.IRecordSet<any>> {
-    const metadataRequest = this.transaction.request();
-    metadataRequest.stream = true;
-    const metadataPromise = new Promise<sql.IColumnMetadata>((resolve, reject) => {
-      metadataRequest.on('recordset', resolve);
-      metadataRequest.on('error', reject);
-    });
-
-    metadataRequest.query(`SELECT TOP(0) * FROM ${this.qualifiedTableName}`);
-
-    const columnMetadata: sql.IColumnMetadata = await metadataPromise;
-    yield columnMetadata;
-
-    const request = this.transaction.request();
-    const stream = request.toReadableStream();
-
-    request.query(`SELECT * FROM ${this.qualifiedTableName}`);
-
-    // MSSQL only streams one row at a time
-    for await (const row of stream) {
-      yield row;
+  public async *next(): AsyncIterableIterator<Record<string, any>> {
+    // Opened on the first call, and iterated straight away so that the row iterator receives any query error.
+    this.query ??= new StreamingQuery(this.transaction.request(), `SELECT * FROM ${this.qualifiedTableName}`);
+    for (let i = 0; i < this.batchSize; i++) {
+      // MSSQL only streams one row at a time
+      const result = await this.query.rows.next();
+      if (result.done) {
+        return;
+      }
+      yield result.value;
     }
+  }
+
+  public async close(): Promise<void> {
+    await this.query?.cancel();
   }
 }
 
@@ -56,10 +98,9 @@ export class SimpleSnapshotQuery implements MSSQLSnapshotQuery {
  * Performs a table snapshot query, batching by ranges of primary key data.
  *
  * This may miss some rows if they are modified during the snapshot query.
- * In that case, replication will pick up those rows afterward,
- * possibly resulting in an IdSnapshotQuery.
+ * In that case, replication will pick up those rows afterward.
  *
- * Currently, this only supports a table with a single primary key column,
+ * Currently, this only supports tables with a single primary key column,
  * of a select few types.
  */
 export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
@@ -93,6 +134,7 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
   }
 
   private readonly key: ColumnDescriptor;
+  private query: StreamingQuery | null = null;
   lastKey: string | bigint | null = null;
 
   public constructor(
@@ -109,55 +151,50 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
     }
   }
 
-  public async initialize(): Promise<void> {
-    // No-op
+  public async getColumnMetadata(): Promise<sql.IColumnMetadata> {
+    const columnMetadata = await queryColumnMetadata(this.transaction, this.qualifiedTableName);
+
+    const foundPrimaryKey = columnMetadata[this.key.name];
+    if (!foundPrimaryKey) {
+      throw new Error(
+        `Cannot find primary key column ${this.key.name} in results. Keys: ${Object.keys(columnMetadata).join(', ')}`
+      );
+    }
+    return columnMetadata;
   }
 
   public getLastKeySerialized(): Uint8Array {
     return bson.serialize({ [this.key.name]: this.lastKey });
   }
 
-  public async *next(): AsyncIterableIterator<sql.IColumnMetadata | sql.IRecordSet<any>> {
+  public async *next(): AsyncIterableIterator<Record<string, any>> {
     const escapedKeyName = escapeIdentifier(this.key.name);
-    const metadataRequest = this.transaction.request();
-    metadataRequest.stream = true;
-    const metadataPromise = new Promise<sql.IColumnMetadata>((resolve, reject) => {
-      metadataRequest.on('recordset', resolve);
-      metadataRequest.on('error', reject);
-    });
-    metadataRequest.query(`SELECT TOP(0) * FROM ${this.qualifiedTableName}`);
-
-    const columnMetadata: sql.IColumnMetadata = await metadataPromise;
-
-    const foundPrimaryKey = columnMetadata[this.key.name];
-    if (!foundPrimaryKey) {
-      throw new Error(
-        `Cannot find primary key column ${this.key.name} in results. Keys: ${Object.keys(columnMetadata.columns).join(', ')}`
-      );
-    }
-
-    yield columnMetadata;
-
     const request = this.transaction.request();
-    const stream = request.toReadableStream();
     if (this.lastKey == null) {
-      request.query(`SELECT TOP(${this.batchSize}) * FROM ${this.qualifiedTableName} ORDER BY ${escapedKeyName}`);
+      this.query = new StreamingQuery(
+        request,
+        `SELECT TOP(${this.batchSize}) * FROM ${this.qualifiedTableName} ORDER BY ${escapedKeyName}`
+      );
     } else {
       if (this.key.typeId == null) {
         throw new Error(`typeId required for primary key ${this.key.name}`);
       }
-      request
-        .input('lastKey', this.lastKey)
-        .query(
-          `SELECT TOP(${this.batchSize}) * FROM ${this.qualifiedTableName} WHERE ${escapedKeyName} > @lastKey ORDER BY ${escapedKeyName}`
-        );
+      request.input('lastKey', this.lastKey);
+      this.query = new StreamingQuery(
+        request,
+        `SELECT TOP(${this.batchSize}) * FROM ${this.qualifiedTableName} WHERE ${escapedKeyName} > @lastKey ORDER BY ${escapedKeyName}`
+      );
     }
 
     // MSSQL only streams one row at a time
-    for await (const row of stream) {
+    for await (const row of this.query.rows) {
       this.lastKey = row[this.key.name];
       yield row;
     }
+  }
+
+  public async close(): Promise<void> {
+    await this.query?.cancel();
   }
 
   private deserializeKey(key: Uint8Array) {
@@ -172,4 +209,12 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
 
     return decoded[this.key.name];
   }
+}
+
+async function queryColumnMetadata(
+  transaction: sql.Transaction,
+  qualifiedTableName: string
+): Promise<sql.IColumnMetadata> {
+  const { recordset } = await transaction.request().query(`SELECT TOP(0) * FROM ${qualifiedTableName}`);
+  return recordset.columns;
 }
