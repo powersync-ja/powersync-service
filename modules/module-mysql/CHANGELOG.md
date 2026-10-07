@@ -1,5 +1,18 @@
 # @powersync/service-module-mysql
 
+## 0.16.4
+
+### Patch Changes
+
+- 286b0f8: Update WebSocket and HTTP dependencies to address reported security vulnerabilities. Update the OpenTelemetry metrics exporters to remove the protobufjs dependency and include metrics security fixes.
+- Updated dependencies [e703ca5]
+- Updated dependencies [324093e]
+- Updated dependencies [286b0f8]
+- Updated dependencies [57ef2f4]
+  - @powersync/service-sync-rules@0.43.1
+  - @powersync/service-core@1.27.1
+  - @powersync/lib-services-framework@0.10.4
+
 ## 0.16.3
 
 ### Patch Changes
