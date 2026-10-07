@@ -1151,6 +1151,41 @@ streams:
     expect(errors[0].message).toContain('This is using the deprecated alpha version of Sync Streams');
   });
 
+  test('requires edition 3 for Sync Streams, reported once for all streams', () => {
+    const { errors } = SqlSyncRules.fromYaml(
+      `
+streams:
+  a:
+    query: SELECT * FROM users
+  b:
+    queries:
+      - SELECT * FROM users
+      - SELECT * FROM comments
+    `,
+      {
+        ...PARSE_OPTIONS,
+        throwOnError: false
+      }
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].type).toEqual('fatal');
+    expect(errors[0].message).toContain('Sync Streams require edition 3');
+  });
+
+  test('requires edition 3 for Sync Streams without queries', () => {
+    for (const streams of ['streams: {}', 'streams:\n  a:\n    auto_subscribe: true']) {
+      const { errors } = SqlSyncRules.fromYaml(streams, {
+        ...PARSE_OPTIONS,
+        throwOnError: false
+      });
+
+      expect(errors).toHaveLength(1);
+      expect(errors[0].type).toEqual('fatal');
+      expect(errors[0].message).toContain('Sync Streams require edition 3');
+    }
+  });
+
   test('warns that bucket_definitions are deprecated', () => {
     const { errors } = SqlSyncRules.fromYaml(
       `

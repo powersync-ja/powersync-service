@@ -335,13 +335,16 @@ export class SyncConfigFromYaml {
       'warning'
     );
 
-    // Only for edition 2, where the alpha runs. Below that the stream compiler already fails with a fatal error
-    // telling the user to move to edition 3, so this warning would only repeat it.
-    if (compatibility.edition >= CompatibilityEdition.SYNC_STREAMS) {
+    // The edition is checked once for the whole streams block, so that a block without any query to compile still
+    // reports it. Edition 2 runs the alpha, so it only gets a warning.
+    const supportsStreams = compatibility.edition >= CompatibilityEdition.SYNC_STREAMS;
+    if (supportsStreams) {
       streamMap?.reportError(
         'This is using the deprecated alpha version of Sync Streams. It will be removed in the next major version. Upgrade `config.edition` to version 3.',
         'warning'
       );
+    } else {
+      streamMap?.reportError('Sync Streams require edition 3. Add a `config: {edition: 3}` block to the sync config.');
     }
 
     for (const { key, keyScalar, value: maybeMap } of bucketMap?.stringKeyedItems() ?? []) {
@@ -395,6 +398,11 @@ export class SyncConfigFromYaml {
       rules.bucketSources.push(descriptor);
       rules.bucketDataSources.push(...descriptor.dataSources);
       rules.bucketParameterLookupSources.push(...descriptor.parameterIndexLookupCreators);
+    }
+
+    if (!supportsStreams) {
+      // The edition error above covers the whole streams block. Compiling each stream would only repeat it.
+      return rules;
     }
 
     for (const { key, keyScalar, value } of streamMap?.stringKeyedItems() ?? []) {
