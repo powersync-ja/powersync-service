@@ -1,9 +1,5 @@
 import type { JsonObject } from './json.js';
-import {
-  MONGO_FILTER_JSON_SCHEMA,
-  MONGO_FILTER_VALIDATOR,
-  type MongoTableFilter
-} from './mongo/MongoFilterExpression.js';
+import { MONGO_FILTER_VALIDATOR, type MongoTableFilter } from './mongo/MongoFilterExpression.js';
 import { DEFAULT_TAG, ImplicitSchemaTablePattern, TablePattern } from './TablePattern.js';
 
 const SOURCE_TABLE_NAME_ERROR =
@@ -37,10 +33,7 @@ export function createSourceTableConfigSchema(): JsonObject {
       type: 'object',
       properties: {
         mongodb_filter_expression: {
-          anyOf: [
-            { ...MONGO_FILTER_JSON_SCHEMA, $id: 'https://powersync.com/schemas/mongodb-filter-expression' },
-            { const: 'disabled' }
-          ]
+          anyOf: [{ $ref: '#/definitions/mongodb_filter_expression' }, { const: 'disabled' }]
         }
       },
       additionalProperties: false

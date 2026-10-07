@@ -52,11 +52,10 @@ const WRAPPERS = {
   )
 };
 /**
- * Zod 4.4 omits tuple bounds from draft-7 output; keep the editor's arity tied to the tuple definition.
+ * MongoDB comparisons take a field reference and a scalar or list operand.
  */
 function comparison<T extends z.ZodType>(value: T) {
-  const items = [FIELD, value] as const;
-  return z.tuple(items).meta({ minItems: items.length, maxItems: items.length });
+  return z.tuple([FIELD, value]);
 }
 
 /**
@@ -82,9 +81,9 @@ function createGrammar({ dispatch }: { dispatch: boolean }): z.ZodType<MongoFilt
       })
     : z.union([z.boolean(), NUMBER, STRING, wrappers]);
   // Defer resolution so boolean operators can contain nested expressions.
-  const expression: z.ZodType<MongoFilterExpression> = z.lazy(() =>
-    keyed(operands, dispatch)
-  ) as z.ZodType<MongoFilterExpression>;
+  const expression: z.ZodType<MongoFilterExpression> = z
+    .lazy(() => keyed(operands, dispatch))
+    .meta(dispatch ? {} : { id: 'mongodb_filter_expression' }) as z.ZodType<MongoFilterExpression>;
   const operands = {
     $eq: comparison(literal).meta({
       description: 'Compare a source field with a scalar constant.',
@@ -150,13 +149,18 @@ function forwardIssues(schema: z.ZodType, value: unknown, context: z.RefinementC
 // Structural alternatives support editor autocomplete; runtime dispatch gives focused errors.
 export const MONGO_FILTER_SCHEMA = createGrammar({ dispatch: false });
 export const MONGO_FILTER_VALIDATOR = createGrammar({ dispatch: true });
-export const MONGO_FILTER_JSON_SCHEMA = z.toJSONSchema(MONGO_FILTER_SCHEMA, {
-  // Match the draft supported by our default AJV validator.
-  target: 'draft-7',
-  io: 'input',
-  // Share repeated schemas instead of expanding them at every occurrence.
-  reused: 'ref'
-}) as unknown as JsonObject;
+// Export as a child so Zod names recursive references using its metadata ID instead of `#`.
+// These definitions can then be embedded directly in the complete Sync Config schema.
+export const MONGO_FILTER_JSON_SCHEMA_DEFINITIONS = z.toJSONSchema(
+  z.object({ mongodb_filter_expression: MONGO_FILTER_SCHEMA }),
+  {
+    // Match the draft supported by our default AJV validator.
+    target: 'draft-7',
+    io: 'input',
+    // Share repeated schemas instead of expanding them at every occurrence.
+    reused: 'ref'
+  }
+).definitions as unknown as JsonObject;
 
 /**
  * Validates authored input without replacing it with Zod's parsed output.
