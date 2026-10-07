@@ -1,6 +1,7 @@
 import ajvModule from 'ajv';
 import { CompatibilityEdition, CompatibilityOption, TimeValuePrecision } from './compatibility.js';
 import type { JsonObject } from './json.js';
+import { MONGO_FILTER_JSON_SCHEMA_DEFINITIONS } from './mongo/MongoFilterExpression.js';
 import { createSourceTableConfigSchema } from './SourceTableConfig.js';
 import { STORAGE_VERSIONS } from './StorageVersion.js';
 // Hack to make this work both in NodeJS and a browser
@@ -8,6 +9,7 @@ const Ajv = ajvModule.default ?? ajvModule;
 
 export const syncRulesSchema: ajvModule.Schema = {
   type: 'object',
+  definitions: MONGO_FILTER_JSON_SCHEMA_DEFINITIONS,
   properties: {
     bucket_definitions: {
       type: 'object',

@@ -8,6 +8,7 @@ packages:
   - '!**/test/**'
 
 catalog:
+  zod: ^4.6.5
   vitest: ^4.1.11
   '@vitest/ui': ^4.1.11
   '@vitest/coverage-v8': ^4.1.11
