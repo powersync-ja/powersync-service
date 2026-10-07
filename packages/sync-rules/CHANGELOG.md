@@ -1,5 +1,13 @@
 # @powersync/service-sync-rules
 
+## 0.43.1
+
+### Patch Changes
+
+- e703ca5: Restore `schema/sync_rules.json` file removed in version `0.43.0`.
+- 324093e: Internal refactor to make it clearer how legacy `token_parameters` values are derived.
+- 57ef2f4: Report a non-fatal deprecation warning when a sync config uses legacy Sync Rules (`bucket_definitions:`). It appears in the `/api/admin/v1/diagnostics` and `/api/admin/v1/validate` responses with `level: 'warning'`, and the service now logs sync config errors and warnings when it loads or deploys a sync config.
+
 ## 0.43.0
 
 ### Minor Changes

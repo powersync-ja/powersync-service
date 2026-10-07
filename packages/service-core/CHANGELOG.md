@@ -1,5 +1,19 @@
 # @powersync/service-core
 
+## 1.27.1
+
+### Patch Changes
+
+- 286b0f8: Update WebSocket and HTTP dependencies to address reported security vulnerabilities. Update the OpenTelemetry metrics exporters to remove the protobufjs dependency and include metrics security fixes.
+- 57ef2f4: Report a non-fatal deprecation warning when a sync config uses legacy Sync Rules (`bucket_definitions:`). It appears in the `/api/admin/v1/diagnostics` and `/api/admin/v1/validate` responses with `level: 'warning'`, and the service now logs sync config errors and warnings when it loads or deploys a sync config.
+- Updated dependencies [e703ca5]
+- Updated dependencies [324093e]
+- Updated dependencies [286b0f8]
+- Updated dependencies [57ef2f4]
+  - @powersync/service-sync-rules@0.43.1
+  - @powersync/service-rsocket-router@0.2.29
+  - @powersync/lib-services-framework@0.10.4
+
 ## 1.27.0
 
 ### Minor Changes

@@ -1,5 +1,25 @@
 # @powersync/service-image
 
+## 1.27.1
+
+### Patch Changes
+
+- 286b0f8: Update WebSocket and HTTP dependencies to address reported security vulnerabilities. Update the OpenTelemetry metrics exporters to remove the protobufjs dependency and include metrics security fixes.
+- 286b0f8: Update Node.js to 24.21.0.
+- Updated dependencies [286b0f8]
+- Updated dependencies [57ef2f4]
+  - @powersync/service-module-core@0.2.37
+  - @powersync/service-rsocket-router@0.2.29
+  - @powersync/service-core@1.27.1
+  - @powersync/service-module-mysql@0.16.4
+  - @powersync/lib-services-framework@0.10.4
+  - @powersync/service-module-convex@0.4.3
+  - @powersync/service-module-mongodb@0.21.3
+  - @powersync/service-module-mongodb-storage@0.23.1
+  - @powersync/service-module-mssql@0.10.4
+  - @powersync/service-module-postgres@0.23.3
+  - @powersync/service-module-postgres-storage@0.19.3
+
 ## 1.27.0
 
 ### Patch Changes
