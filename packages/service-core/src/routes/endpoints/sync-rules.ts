@@ -2,6 +2,7 @@ import { ErrorCode, errors, router, schema } from '@powersync/lib-services-frame
 import { SqlSyncRules, SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
+import { assertSourceCapabilities } from '../../api/source-capabilities.js';
 
 import { PatternResult, RouteAPI } from '../../api/RouteAPI.js';
 import { logSyncConfigErrors, updateSyncRulesFromConfig } from '../../storage/BucketStorageFactory.js';
@@ -74,7 +75,7 @@ export const deploySyncRules = routeDefinition({
     logSyncConfigErrors(syncConfig);
     try {
       // Validate if the current sources support the configuration specified in the Sync Config
-      await service_context.routerEngine.getAPI().validateSourceCapabilities?.(syncConfig.config);
+      await assertSourceCapabilities(service_context.routerEngine.getAPI(), syncConfig.config);
     } catch (error) {
       throw new errors.ServiceError({
         status: 422,
@@ -198,7 +199,7 @@ export const reprocessSyncRules = routeDefinition({
       throwOnError: true
     });
     logSyncConfigErrors(parsed);
-    await payload.context.service_context.routerEngine.getAPI().validateSourceCapabilities?.(parsed.config);
+    await assertSourceCapabilities(payload.context.service_context.routerEngine.getAPI(), parsed.config);
 
     const new_rules = await activeBucketStorage.updateSyncRules(
       updateSyncRulesFromConfig(parsed, {
@@ -230,11 +231,15 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
       schema: undefined
     });
     const errors: string[] = [];
+    const warnings: string[] = [];
     const recordError = (error: any) => {
       errors.push(...(error instanceof SyncRulesErrors ? error.errors.map((e) => e.message) : [error.message]));
     };
     try {
-      await apiHandler.validateSourceCapabilities?.(rules.config);
+      const diagnostics = (await apiHandler.validateSourceCapabilities?.(rules.config)) ?? [];
+      for (const diagnostic of diagnostics) {
+        (diagnostic.level === 'fatal' ? errors : warnings).push(diagnostic.message);
+      }
     } catch (e) {
       recordError(e);
     }
@@ -248,6 +253,7 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
 
     return {
       valid: errors.length == 0,
+      ...(warnings.length > 0 ? { warnings } : {}),
       ...(errors.length > 0 ? { errors } : {}),
       bucket_definitions: rules.config.debugRepresentation(),
       source_tables: resolved_tables,

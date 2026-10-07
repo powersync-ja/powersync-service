@@ -90,7 +90,7 @@ export async function getSyncRulesStatus(
 
   if (check_connection) {
     try {
-      await apiHandler.validateSourceCapabilities?.(rules);
+      validationErrors.push(...((await apiHandler.validateSourceCapabilities?.(rules)) ?? []));
     } catch (e) {
       validationErrors.push({ level: 'fatal', message: e.message, ts: now });
     }

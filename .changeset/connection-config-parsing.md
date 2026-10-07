@@ -1,6 +1,7 @@
 ---
 '@powersync/service-sync-rules': minor
 '@powersync/service-core': minor
+'@powersync/service-types': minor
 '@powersync/service-module-mongodb': minor
 '@powersync/service-module-mongodb-storage': patch
 '@powersync/service-module-postgres-storage': patch
@@ -26,3 +27,7 @@ streams:
 ```
 
 Validation and deployment reject filters when the feature is unavailable. Changing source-table options requires replacement processing when deploying a new sync config.
+
+Source capability validation returns structured `ValidationDiagnostic` entries, allowing multiple fatal issues and
+advisory warnings. Deployment and reprocessing reject fatal diagnostics while validation continues collecting
+independent findings. Existing `ReplicationError` consumers retain the same diagnostic shape.

@@ -169,7 +169,7 @@ export const reprocess = routeDefinition({
       throwOnError: true
     });
     storage.logSyncConfigErrors(parsed);
-    await apiHandler.validateSourceCapabilities?.(parsed.config);
+    await api.assertSourceCapabilities(apiHandler, parsed.config);
 
     const new_rules = await activeBucketStorage.updateSyncRules(
       storage.updateSyncRulesFromConfig(parsed, {
