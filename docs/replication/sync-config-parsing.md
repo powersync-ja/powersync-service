@@ -50,7 +50,8 @@ wrappers for BSON values. Unknown source-table options and invalid expressions a
 The sync-config JSON Schema includes expression shapes and examples for editor autocomplete. Runtime validation
 also checks BSON literal values and reports errors at the relevant YAML keys or values. Source capability checks
 run during validation, deployment, and reprocessing; validation can report capability failures alongside other
-diagnostics.
+diagnostics. File-loaded sync configs are checked before persistence at replication startup. Fatal source-capability
+diagnostics block deployment even when `exit_on_error` is disabled.
 
 ## Saved configuration
 

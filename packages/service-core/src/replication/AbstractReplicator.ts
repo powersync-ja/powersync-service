@@ -1,5 +1,5 @@
 import { container, ErrorCode, logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { SqlSyncRules, type SyncConfig } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -74,6 +74,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   private abortController: AbortController | undefined;
 
+  private assertSourceCapabilities: ((config: SyncConfig) => Promise<void>) | undefined;
+
   protected constructor(private options: AbstractReplicatorOptions) {
     this.logger = logger.child({ name: `Replicator:${options.id}` });
     const heartbeatIntervalSeconds = options.heartbeatIntervalSeconds ?? DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
@@ -123,6 +125,13 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   protected get stopped() {
     return this.abortController?.signal.aborted;
+  }
+
+  /**
+   * Register an assertion that blocks unsupported file-loaded sync configs before persistence.
+   */
+  public registerSourceCapabilitiesAssertion(assertion: (config: SyncConfig) => Promise<void>): void {
+    this.assertSourceCapabilities = assertion;
   }
 
   public async start(): Promise<void> {
@@ -179,6 +188,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           throwOnError: this.syncRuleProvider.exitOnError
         });
         storage.logSyncConfigErrors(parsed, this.logger);
+        await this.assertSourceCapabilities?.(parsed.config);
         const { lock } = await this.storage.configureSyncRules(
           storage.updateSyncRulesFromConfig(parsed, {
             lock: true,
@@ -190,7 +200,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         }
       } catch (e) {
         // Log and re-raise to exit.
-        // Should only reach this due to validation errors if exit_on_error is true.
+        // Fatal source-capability diagnostics block deployment even when exit_on_error is false.
         this.logger.error(`Failed to update sync config`, e);
         throw e;
       }

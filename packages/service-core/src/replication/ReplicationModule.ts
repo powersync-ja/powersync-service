@@ -90,8 +90,15 @@ export abstract class ReplicationModule<TConfig extends types.configFile.DataSou
     // If decoding fails, this will raise a hard error, and stop the service.
     this.decodeConfig(baseMatchingConfig);
 
-    context.replicationEngine?.register(this.createReplicator(context));
-    context.routerEngine?.registerAPI(this.createRouteAPIAdapter());
+    const sourceAPI = this.createRouteAPIAdapter();
+    context.routerEngine?.registerAPI(sourceAPI);
+    if (context.replicationEngine) {
+      const replicator = this.createReplicator(context);
+      // KLUDGE: Allows additional validation of filesystem-loaded sync configs before persistence.
+      // This could be replaced by a shared deployment validation flow in the future.
+      replicator.registerSourceCapabilitiesAssertion((config) => api.assertSourceCapabilities(sourceAPI, config));
+      context.replicationEngine.register(replicator);
+    }
   }
 
   protected decodeConfig(config: TConfig): void {

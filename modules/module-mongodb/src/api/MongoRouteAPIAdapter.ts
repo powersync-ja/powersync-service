@@ -46,7 +46,13 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     );
     // External implementations override this to validate the capabilities they provide.
     return filtered
-      ? [{ level: 'fatal', message: 'MongoDB replication pre-filtering is only available in the Team and Enterprise editions and is not enabled for this connection.' }]
+      ? [
+          {
+            level: 'fatal',
+            message:
+              'MongoDB replication pre-filtering is only available in the Team and Enterprise editions and is not enabled for this connection.'
+          }
+        ]
       : [];
   }
 
