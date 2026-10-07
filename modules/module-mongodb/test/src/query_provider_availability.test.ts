@@ -51,6 +51,7 @@ test.each([
         replicationStreamId: 1,
         replicationStreamName: 'availability',
         getParsedSyncRules: () => hydrated,
+        getParsedSyncConfigSet: () => ({ syncConfigs: [parsed] }),
         reportError,
         logger
       } as unknown as storage.SyncRulesBucketStorage
