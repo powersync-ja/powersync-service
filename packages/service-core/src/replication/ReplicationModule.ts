@@ -91,7 +91,8 @@ export abstract class ReplicationModule<TConfig extends types.configFile.DataSou
     this.decodeConfig(baseMatchingConfig);
 
     const sourceAPI = this.createRouteAPIAdapter();
-    context.routerEngine?.registerAPI(sourceAPI);
+    // The router exists even in replication-only mode and owns adapter shutdown through the service lifecycle.
+    context.routerEngine.registerAPI(sourceAPI);
     if (context.replicationEngine) {
       const replicator = this.createReplicator(context);
       // KLUDGE: Reuse the adapter validation for filesystem-loaded configs and stream startup.

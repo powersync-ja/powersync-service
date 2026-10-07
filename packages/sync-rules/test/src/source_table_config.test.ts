@@ -91,6 +91,24 @@ describe('source table configuration', () => {
     expect(() => parse(`config: { edition: 3, source_table_options: { ${entry} } }`)).toThrow(message);
   });
 
+  test.each(['Orders', '"Orders"'])('matches SQL stream identifier case for %s', (name) => {
+    const { config } = SqlSyncRules.fromYaml(
+      /* yaml */ `
+        # Sync config fixture.
+        config:
+          edition: 3
+        streams:
+          orders:
+            query: SELECT * FROM ${name}
+      `,
+      { defaultSchema: 'app' }
+    );
+    const hydrated = config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) });
+    const [streamPattern] = hydrated.getSourceTables();
+    expect(parseSourceTableConfigKey(name).toTablePattern('app')).toEqual(streamPattern);
+    expect(streamPattern.tablePattern).toBe(name.startsWith('"') ? 'Orders' : 'orders');
+  });
+
   test('uses right-to-left table qualification', () => {
     expect(parseSourceTableConfigKey('orders')).toMatchObject({
       connectionTag: null,
@@ -333,7 +351,9 @@ streams:
     };
     const message = `Source-table keys ${JSON.stringify(first)} and ${JSON.stringify(second)} resolve to the same pattern.`;
     expect(() => normalizeSourceTableConfig(sourceTableConfig)).toThrow(message);
-    expect(() => sourceTableConfigsEqual(sourceTableConfig, {})).toThrow(message);
+    expect(sourceTableConfigsEqual(sourceTableConfig, {})).toBe(false);
+    expect(sourceTableConfigsEqual({}, sourceTableConfig)).toBe(false);
+    expect(sourceTableConfigsEqual(sourceTableConfig, sourceTableConfig)).toBe(false);
 
     const config = parse('config: { edition: 3 }').config as PrecompiledSyncConfig;
     const serialized = serializeSyncPlan(config.plan);

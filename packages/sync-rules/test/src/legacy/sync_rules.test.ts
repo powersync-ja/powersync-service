@@ -1151,38 +1151,63 @@ streams:
     expect(errors[0].message).toContain('This is using the deprecated alpha version of Sync Streams');
   });
 
-  test('requires edition 3 for Sync Streams, reported once for all streams', () => {
+  test.each([undefined, 1])('rejects actual Sync Stream queries in edition %s', (edition) => {
     const { errors } = SqlSyncRules.fromYaml(
-      `
-streams:
-  a:
-    query: SELECT * FROM users
-  b:
-    queries:
-      - SELECT * FROM users
-      - SELECT * FROM comments
-    `,
-      {
-        ...PARSE_OPTIONS,
-        throwOnError: false
-      }
+      /* yaml */ `
+        # Sync config fixture.
+        config: ${edition == null ? '{}' : `{ edition: ${edition} }`}
+        streams:
+          a:
+            query: SELECT * FROM users
+      `,
+      { ...PARSE_OPTIONS, throwOnError: false }
     );
-
-    expect(errors).toHaveLength(1);
-    expect(errors[0].type).toEqual('fatal');
-    expect(errors[0].message).toContain('Sync Streams require edition 3');
+    expect(errors.filter((error) => error.type === 'fatal')).toEqual([
+      expect.objectContaining({ message: expect.stringContaining('Sync Streams require edition 2 or later') })
+    ]);
   });
 
-  test('requires edition 3 for Sync Streams without queries', () => {
-    for (const streams of ['streams: {}', 'streams:\n  a:\n    auto_subscribe: true']) {
-      const { errors } = SqlSyncRules.fromYaml(streams, {
-        ...PARSE_OPTIONS,
-        throwOnError: false
-      });
+  test.each([undefined, 1, 2])('only warns about an empty legacy streams block in edition %s', (edition) => {
+    const { errors } = SqlSyncRules.fromYaml(
+      /* yaml */ `
+        # Sync config fixture.
+        config: ${edition == null ? '{}' : `{ edition: ${edition} }`}
+        bucket_definitions: {}
+        streams: {}
+      `,
+      { ...PARSE_OPTIONS, throwOnError: true }
+    );
+    expect(errors.every((error) => error.type === 'warning')).toBe(true);
+    expect(errors).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('deprecated alpha version of Sync Streams'),
+        type: 'warning'
+      })
+    );
+  });
 
-      expect(errors).toHaveLength(1);
-      expect(errors[0].type).toEqual('fatal');
-      expect(errors[0].message).toContain('Sync Streams require edition 3');
+  test.each([undefined, 1, 2, 3])('reports consistent stream diagnostics in edition %s', (edition) => {
+    for (const hasQuery of [false, true]) {
+      const { errors } = SqlSyncRules.fromYaml(
+        /* yaml */ `
+          # Sync config fixture.
+          config: ${edition == null ? '{}' : `{ edition: ${edition} }`}
+          streams: ${hasQuery ? '{ orders: { query: SELECT * FROM orders } }' : '{}'}
+        `,
+        { ...PARSE_OPTIONS, throwOnError: false }
+      );
+      const fatalErrors = errors.filter((error) => error.type === 'fatal');
+      const warnings = errors.filter((error) => error.type === 'warning');
+      expect(fatalErrors).toHaveLength(hasQuery && (edition ?? 1) < 2 ? 1 : 0);
+      expect(warnings).toHaveLength((edition ?? 1) < 3 ? 1 : 0);
+      if (fatalErrors.length > 0) {
+        expect(fatalErrors[0].message).toContain('require edition 2 or later');
+        expect(fatalErrors[0].message).toContain('Set `config.edition` to 3');
+      }
+      if (warnings.length > 0) {
+        expect(warnings[0].message).toContain('deprecated alpha version of Sync Streams');
+        expect(warnings[0].message).toContain('Upgrade `config.edition` to version 3');
+      }
     }
   });
 
