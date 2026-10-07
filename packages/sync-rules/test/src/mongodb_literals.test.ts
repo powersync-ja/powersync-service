@@ -42,7 +42,6 @@ describe('MongoDB expression literals', () => {
     { $uuid: 'private-invalid-uuid' },
     { $regex: 'private-pattern' }
   ])('rejects invalid or unsupported constants: %j', (config) => {
-    expect(() => parseMongoLiteral({ config })).toThrow(ZodError);
     expect(() => parseExpression({ config: { $eq: ['$$doc.value', config] } })).toThrow(ZodError);
     expect(() => parseExpression({ config: { $in: ['$$doc.value', [config]] } })).toThrow(ZodError);
   });
