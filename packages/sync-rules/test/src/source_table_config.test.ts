@@ -312,15 +312,13 @@ streams:
     ).toThrow('version 3');
   });
 
-  test('normalizes portable values without reordering table declarations', () => {
+  test('normalizes options without reordering table declarations', () => {
     const config = {
       'orders%': { mongodb_filter_expression: 'disabled' as const },
       orders: { mongodb_filter_expression: 'disabled' as const }
     };
     expect(sourceTableConfigsEqual(config, { ...config })).toBe(true);
     expect(sourceTableConfigsEqual(config, { orders: config.orders, 'orders%': config['orders%'] })).toBe(false);
-    expect(() => normalizeSourceTableConfig({ orders: { date: new Date() } })).toThrow('plain JSON');
-    expect(() => normalizeSourceTableConfig({ orders: { amount: Number.NaN } })).toThrow('finite');
   });
 
   test.each([

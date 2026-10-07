@@ -639,7 +639,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     };
 
     await this.db.sync_rules.insertOne(doc, { session });
-    const rules = new MongoPersistedReplicationStream(this.db, doc, []);
+    const rules = new MongoPersistedReplicationStream(this.db, doc);
     if (options.lock) {
       // The lock is persisted on rules.current_lock
       await rules.lock(session);
@@ -734,7 +734,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       return new MongoPersistedReplicationStream(this.db, v3, syncConfigDocs);
     }
 
-    return new MongoPersistedReplicationStream(this.db, doc as SyncRuleDocumentV1, []);
+    return new MongoPersistedReplicationStream(this.db, doc as SyncRuleDocumentV1);
   }
 
   async getDeployingSyncConfig(): Promise<storage.ResolvedSyncConfig | null> {

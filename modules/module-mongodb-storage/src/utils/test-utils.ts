@@ -7,7 +7,6 @@ import { PowerSyncMongo } from '../storage/implementation/db.js';
 export type MongoTestStorageOptions = {
   url: string;
   isCI: boolean;
-
   monitorCommands?: boolean;
 } & Omit<MongoBucketStorageOptions, 'replicationStreamNamePrefix'>;
 

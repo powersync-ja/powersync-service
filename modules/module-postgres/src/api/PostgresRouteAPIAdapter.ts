@@ -1,7 +1,6 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { ErrorCode, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
-import type { ParseSyncConfigOptions } from '@powersync/service-core';
-import { api } from '@powersync/service-core';
+import { api, ParseSyncConfigOptions } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
@@ -35,6 +34,10 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
   ) {
     this.typeCache = new PostgresTypeResolver(pool);
     this.connectionTag = connectionTag ?? sync_rules.DEFAULT_TAG;
+  }
+
+  async validateSourceCapabilities(config: sync_rules.SyncConfig): Promise<service_types.ValidationDiagnostic[]> {
+    return api.validateNoMongoFilterExpressions(config, this.connectionTag);
   }
 
   getParseSyncRulesOptions(): ParseSyncConfigOptions {

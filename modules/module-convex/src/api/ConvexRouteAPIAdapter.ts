@@ -1,5 +1,4 @@
-import type { ParseSyncConfigOptions } from '@powersync/service-core';
-import { api, ReplicationLagOptions } from '@powersync/service-core';
+import { api, ParseSyncConfigOptions, ReplicationLagOptions } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
@@ -182,6 +181,10 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
 
   async [Symbol.asyncDispose]() {
     await this.shutdown();
+  }
+
+  async validateSourceCapabilities(config: sync_rules.SyncConfig): Promise<service_types.ValidationDiagnostic[]> {
+    return api.validateNoMongoFilterExpressions(config, this.connectionManager.connectionTag);
   }
 
   getParseSyncRulesOptions(): ParseSyncConfigOptions {

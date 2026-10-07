@@ -1,7 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
-import type { ParseSyncConfigOptions } from '@powersync/service-core';
-import { api, ReplicationHeadCallback } from '@powersync/service-core';
+import { api, ParseSyncConfigOptions, ReplicationHeadCallback } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
@@ -47,7 +46,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     );
     // External implementations override this to validate the capabilities they provide.
     return filtered
-      ? [{ level: 'fatal', message: 'MongoDB replication pre-filtering is not available for this connection.' }]
+      ? [{ level: 'fatal', message: 'MongoDB replication pre-filtering is only available in the Team and Enterprise editions and is not enabled for this connection.' }]
       : [];
   }
 

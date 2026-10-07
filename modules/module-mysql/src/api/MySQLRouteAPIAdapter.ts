@@ -1,5 +1,4 @@
-import type { ParseSyncConfigOptions } from '@powersync/service-core';
-import { api } from '@powersync/service-core';
+import { api, ParseSyncConfigOptions } from '@powersync/service-core';
 
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
@@ -28,6 +27,10 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
 
   async getSourceConfig(): Promise<service_types.configFile.ResolvedDataSourceConfig> {
     return this.config;
+  }
+
+  async validateSourceCapabilities(config: sync_rules.SyncConfig): Promise<service_types.ValidationDiagnostic[]> {
+    return api.validateNoMongoFilterExpressions(config, this.config.tag ?? sync_rules.DEFAULT_TAG);
   }
 
   getParseSyncRulesOptions(): ParseSyncConfigOptions {
