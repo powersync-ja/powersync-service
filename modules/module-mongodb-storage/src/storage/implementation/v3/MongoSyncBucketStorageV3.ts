@@ -15,9 +15,14 @@ import {
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import {
+  BucketDefinitionId,
+  ParameterLookupRows,
+  ScopedParameterLookup,
+  SqliteJsonRow
+} from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
+import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
@@ -31,7 +36,8 @@ import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStr
 import {
   MongoCheckpointState,
   MongoSyncBucketStorage,
-  MongoSyncBucketStorageOptions
+  MongoSyncBucketStorageOptions,
+  TopBucketSelection
 } from '../MongoSyncBucketStorage.js';
 import { MongoCheckpointAPIOptions } from '../MongoWriteCheckpointAPI.js';
 import { loadBucketDataDocument, maxOpId } from './bucket-format.js';
@@ -227,6 +233,42 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     }).compact();
     this.logger.info(`Compacted chunks after initial replication in ${(Date.now() - start) / 1000}s`);
     return { buckets: compactedBuckets };
+  }
+
+  // For storage v3, bucket state is a per-stream collection shared by every sync config the replication
+  // stream hosts (active + processing + stopped, until cleanup runs). Scope to the active config's definition
+  // ids so the report excludes stale buckets from old/stopped definitions. `this.storageIds` is derived from
+  // the active config only (see getActiveSyncConfig).
+  protected async collectTopBuckets(limit: number): Promise<TopBucketSelection> {
+    const definitionIds = this.storageIds.bucketDefinitionIds;
+    if (definitionIds.length == 0) {
+      return {
+        buckets: [],
+        definitions: [],
+        definitionsTruncated: false,
+        totals: { bucketCount: 0, operations: 0, operationBytes: 0, estimated: false }
+      };
+    }
+    // One `_id` range per active definition, so the {_id} index bounds the scan per definition; a dotted
+    // `{'_id.d': ...}` match cannot use the compound-object index and would scan the whole collection.
+    return await this.aggregateTopBuckets(
+      this.db.bucketState(this.replicationStreamId),
+      { $or: definitionIds.map((d) => ({ _id: idPrefixFilter<{ d: BucketDefinitionId; b: string }>({ d }, ['b']) })) },
+      limit,
+      {
+        // bucket_stats is maintained by writers and compactors, so these are current, exact counts.
+        operations: { $ifNull: ['$bucket_stats.count', 0] },
+        operationBytes: { $toDouble: { $ifNull: ['$bucket_stats.bytes', 0] } },
+        // The last full compact's statistics: its `puts` count doubles as the bucket's live row count as of
+        // that compact, from which the report derives rows, fragmentation and the suggested action.
+        fullCompact: {
+          operations: '$last_full_compact.count',
+          puts: '$last_full_compact.puts',
+          at: '$last_full_compact.at',
+          nextCompactAt: '$next_compact_check'
+        }
+      }
+    );
   }
 
   protected createMongoParameterCompactor(
