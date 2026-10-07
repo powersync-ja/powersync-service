@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { LineCounter, parseDocument } from 'yaml';
 import { SqlSyncRules } from '../../src/index.js';
+import { fatalErrors } from './util.js';
 
 describe('SqlSyncRules.fromYaml errors', () => {
   test('invalid edition', () => {
@@ -194,5 +195,5 @@ function checkErrors(yaml: string) {
     errors.splice(matchIndex, 1);
   }
 
-  expect(errors, 'Unexpected errors were reported').toEqual([]);
+  expect(fatalErrors(errors), 'Unexpected errors were reported').toEqual([]);
 }

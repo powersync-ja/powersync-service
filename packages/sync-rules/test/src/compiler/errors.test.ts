@@ -3,11 +3,12 @@ import { SqlSyncRules } from '../../../src/SqlSyncRules.js';
 import { SourceTableDefinition, StaticSchema } from '../../../src/StaticSchema.js';
 import { DEFAULT_TAG } from '../../../src/TablePattern.js';
 import { SourceSchema } from '../../../src/types.js';
+import { fatalErrors } from '../util.js';
 import { compilationErrorsForSingleStream, yamlToSyncPlan } from './utils.js';
 
 function expectSingleErrorSource(yaml: string, source: string) {
   const { errors } = SqlSyncRules.fromYaml(yaml, { throwOnError: false, defaultSchema: 'test_schema' });
-  const sources = errors.map((e) => yaml.substring(e.location.start, e.location.end));
+  const sources = fatalErrors(errors).map((e) => yaml.substring(e.location.start, e.location.end));
   expect(sources).toHaveLength(1);
   expect(sources[0]).toEqual(source);
 }
@@ -690,7 +691,7 @@ bucket_definitions:
 
     expect(errors).toHaveLength(1);
     const [error] = errors;
-    expect(error.message).toContain("'bucket_definitions' are not supported by the new compiler.");
+    expect(error.message).toContain('Sync Rules (`bucket_definitions`) are not supported with `config: edition: 3`.');
     expect(error.source).toStrictEqual(`a:
     data:
       - SELECT * FROM users
