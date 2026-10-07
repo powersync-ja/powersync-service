@@ -140,7 +140,12 @@ export function normalizeSourceTableConfig(value: unknown): SourceTableConfigMap
  * Conservative equality: declaration order and expression order are significant.
  */
 export function sourceTableConfigsEqual(left: SourceTableConfigMap, right: SourceTableConfigMap): boolean {
-  return JSON.stringify(normalizeSourceTableConfig(left)) == JSON.stringify(normalizeSourceTableConfig(right));
+  try {
+    return JSON.stringify(normalizeSourceTableConfig(left)) == JSON.stringify(normalizeSourceTableConfig(right));
+  } catch {
+    // Saved options may no longer validate after an upgrade. Do not reuse their replication stream.
+    return false;
+  }
 }
 
 function assertObject(value: unknown, message: string): asserts value is JsonObject {

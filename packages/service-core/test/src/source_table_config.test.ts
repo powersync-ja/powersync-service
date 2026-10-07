@@ -51,4 +51,11 @@ describe('source-table options', () => {
     expect(isCompatible([first.config.plan], changed.config, logger)).toBe(false);
     expect(isCompatible([first.config.plan], removed.config, logger)).toBe(false);
   });
+  test('requires replacement processing when saved source-table options no longer validate', () => {
+    const update = updateSyncRulesFromConfig(SqlSyncRules.fromYaml(CONFIGURED, { defaultSchema: 'app' }));
+    const existing = structuredClone(update.config.plan!);
+    // A saved expression can become unsupported after a module or version change.
+    Object.assign(existing.plan.sourceTableConfig!.orders!, { mongodb_filter_expression: { $unsupported: [] } });
+    expect(isCompatible([existing], update.config, logger)).toBe(false);
+  });
 });
