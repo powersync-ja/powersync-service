@@ -13,8 +13,9 @@ const provider: MongoReplicationQueryProvider = {
 };
 ```
 
-This repo defines the adapter boundary. A module that implements filtering owns its config validation,
-expression compilation and decisions about which documents belong in the filtered set.
+This repo defines the adapter boundary. The shared sync config parser validates MongoDB filter expression syntax.
+A module that implements filtering owns source-capability validation, expression compilation, and decisions about
+which documents belong in the filtered set.
 
 ## Snapshot selection
 
@@ -106,8 +107,9 @@ Opening clears the selected source database and storage by default. Reopen with 
 drains replication before inspecting durable state. Subclasses can reuse resource setup and failure cleanup with
 the protected `openWith({ options, createContext })` helper.
 
-`updateSyncRules(yaml)` uses the supplied storage factory's sync config parser, including registered additional
-parsers. External modules can therefore use their real YAML configuration in integration tests.
+`updateSyncRules(yaml)` parses sync configs with the shared `SqlSyncRules.fromYaml()` parser, which accepts
+`config.source_table_options` and MongoDB pre-filtering expressions. External modules supply a query provider
+for expression compilation and execution; they do not register additional sync config parsers.
 
 ## Provider availability
 
