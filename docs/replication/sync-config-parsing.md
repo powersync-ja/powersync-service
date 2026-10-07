@@ -60,3 +60,9 @@ table names and declaration order. Source-table options use sync-plan format 3; 
 1 and 2. Loading a saved plan validates its source-table options without reparsing SQL.
 
 Changing source-table options requires replacement processing when deploying a new sync config.
+
+Source adapters return `ValidationDiagnostic[]` from `validateSourceCapabilities`. Each diagnostic has a `level`
+(`warning` or `fatal`), a `message`, and optional source location and timestamp. Deployment and reprocessing reject
+fatal diagnostics; warnings are advisory. Validation collects diagnostics and continues independent table checks.
+Unexpected adapter failures may still throw and are reported as fatal errors. `ReplicationError` remains an alias
+for the same diagnostic shape used in existing response fields.

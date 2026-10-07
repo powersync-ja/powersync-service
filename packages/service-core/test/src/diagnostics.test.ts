@@ -234,9 +234,10 @@ streams:
 describe('source capability validation', () => {
   test('reports capability failures alongside table diagnostics', async () => {
     const api = makeRouteAPI();
-    api.validateSourceCapabilities = async () => {
-      throw new Error('Source capability unavailable');
-    };
+    api.validateSourceCapabilities = async () => [
+      { level: 'fatal', message: 'Source capability unavailable' },
+      { level: 'warning', message: 'Source advisory', location: { start_offset: 1, end_offset: 4 } }
+    ];
     api.getDebugTablesInfo = async () => [
       {
         schema: 'public',
@@ -256,7 +257,12 @@ describe('source capability validation', () => {
     expect(result!.errors).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ level: 'fatal', message: 'Source capability unavailable' }),
-        expect.objectContaining({ level: 'warning', message: 'Index missing' })
+        expect.objectContaining({ level: 'warning', message: 'Index missing' }),
+        expect.objectContaining({
+          level: 'warning',
+          message: 'Source advisory',
+          location: { start_offset: 1, end_offset: 4 }
+        })
       ])
     );
     expect(result!.connections[0].tables).toHaveLength(1);
@@ -289,6 +295,7 @@ describe('source capability validation', () => {
     let called = false;
     api.validateSourceCapabilities = async () => {
       called = true;
+      return [];
     };
     await getSyncRulesStatus(api, makeSyncRulesContent(), { ...OPTIONS, check_connection: false }, makeSystemStorage());
     expect(called).toBe(false);

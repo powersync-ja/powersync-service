@@ -3,7 +3,7 @@ import { logger } from '@powersync/lib-services-framework';
 import { PrecompiledSyncConfig, SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { diagnostics, reprocess, validate } from '../../../src/routes/endpoints/admin.js';
-import { deploySyncRules, validateSyncRules } from '../../../src/routes/endpoints/sync-rules.js';
+import { deploySyncRules, reprocessSyncRules, validateSyncRules } from '../../../src/routes/endpoints/sync-rules.js';
 import { mockServiceContext } from './mocks.js';
 
 describe('admin routes', () => {
@@ -124,6 +124,27 @@ bucket_definitions:
     }
   );
 
+  it('keeps advisory capability diagnostics visible without invalidating the config', async () => {
+    const context = makeContext();
+    const api = context.service_context.routerEngine.getAPI();
+    vi.spyOn(context.service_context.routerEngine, 'getAPI').mockReturnValue(api);
+    api.validateSourceCapabilities = async () => [{ level: 'warning', message: 'Source advisory' }];
+    const response = await validateSyncRules.handler({
+      context,
+      request,
+      params: {
+        content: /* yaml */ `
+          config:
+            edition: 3
+          streams:
+            items:
+              query: SELECT * FROM items
+        `
+      }
+    });
+    expect(JSON.parse(response.data)).toMatchObject({ valid: true, warnings: ['Source advisory'] });
+  });
+
   it.each([true, false])('deployment checks source capabilities before persistence (allowed: %s)', async (allowed) => {
     const updateSyncRules = vi.fn(async () => ({ replicationStreamName: 'new-slot' }));
     const context = makeContext({ updateSyncRules });
@@ -136,7 +157,9 @@ bucket_definitions:
       expect((config as PrecompiledSyncConfig).plan.sourceTableConfig?.orders?.mongodb_filter_expression).toEqual({
         $eq: ['$$doc.active', true]
       });
-      if (!allowed) throw new Error('MongoDB pre-filtering is not available for this connection.');
+      return allowed
+        ? [{ level: 'warning', message: 'Advisory source warning' }]
+        : [{ level: 'fatal', message: 'MongoDB pre-filtering is not available for this connection.' }];
     };
     const result = deploySyncRules.handler({
       context,
@@ -254,6 +277,24 @@ bucket_definitions:
   });
 
   describe('reprocess', () => {
+    it.each([reprocess, reprocessSyncRules])('blocks reprocessing on returned fatal diagnostics', async (route) => {
+      const active = makeSyncConfigContent({ id: 7 });
+      const updateSyncRules = vi.fn();
+      const context = makeContext({
+        getDeployingSyncConfig: vi.fn(async () => null),
+        getActiveSyncConfig: vi.fn(async () => ({ content: active })),
+        updateSyncRules
+      });
+      const api = context.service_context.routerEngine.getAPI();
+      vi.spyOn(context.service_context.routerEngine, 'getAPI').mockReturnValue(api);
+      api.validateSourceCapabilities = async () => [
+        { level: 'warning', message: 'Advisory' },
+        { level: 'fatal', message: 'Unsupported source' }
+      ];
+      await expect(route.handler({ context, params: {}, request })).rejects.toThrow('Unsupported source');
+      expect(updateSyncRules).not.toHaveBeenCalled();
+    });
+
     it('reprocesses the active sync config', async () => {
       const active = makeSyncConfigContent({ id: 7, syncConfigId: 'active-config', version_label: 'v6' });
       const updateSyncRules = vi.fn(async () => ({

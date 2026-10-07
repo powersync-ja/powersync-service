@@ -43,9 +43,10 @@ export interface RouteAPI {
 
   /**
    * Checks whether the source supports the capabilities required by this sync config.
-   * Must not modify the source. Throw to report a fatal validation error.
+   * Must not modify the source. Return advisory warnings and fatal validation diagnostics.
+   * An empty array means no issues; throw only for unexpected failures.
    */
-  validateSourceCapabilities?(syncConfig: SyncConfig): Promise<void>;
+  validateSourceCapabilities?(syncConfig: SyncConfig): Promise<types.ValidationDiagnostic[]>;
 
   /**
    * Expand sync config table patterns into table metadata from the source connection.
