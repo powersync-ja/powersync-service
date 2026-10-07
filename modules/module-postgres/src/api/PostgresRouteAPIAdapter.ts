@@ -1,6 +1,7 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { ErrorCode, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
-import { api, ParseSyncConfigOptions } from '@powersync/service-core';
+import type { ParseSyncConfigOptions } from '@powersync/service-core';
+import { api } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';

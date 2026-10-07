@@ -1,4 +1,5 @@
-import { api, ParseSyncConfigOptions } from '@powersync/service-core';
+import type { ParseSyncConfigOptions } from '@powersync/service-core';
+import { api } from '@powersync/service-core';
 
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';

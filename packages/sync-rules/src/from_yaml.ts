@@ -10,22 +10,17 @@ import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.j
 import { CommonTableExpression } from './compiler/sqlite.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { PreparedEventDefinition } from './events/CompiledEventSourceQuery.js';
-import {
-  compileSyncRulesSchemaValidator,
-  createSyncRulesSchema,
-  SyncRulesSchemaValidator,
-  validateSyncRulesSchema
-} from './json_schema.js';
+import { validateSyncRulesSchema } from './json_schema.js';
 import { QueryParseResult, SqlBucketDescriptor } from './legacy/SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './legacy/streams/from_sql.js';
+import { parseMongoFilterExpression } from './mongo/MongoFilterExpression.js';
+import type { SourceTableConfigMap } from './SourceTableConfig.js';
 import { findDuplicateSourceTableConfigKeys } from './SourceTableConfig.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
 import { validateStorageVersion } from './StorageVersion.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { CompiledEventDescriptor } from './sync_plan/plan.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
-import type { SyncConfigDiagnostic } from './SyncConfigParserHooks.js';
-import { AdditionalSyncConfigParser, validateAdditionalSyncConfigParsers } from './SyncConfigParserHooks.js';
 import { TablePattern } from './TablePattern.js';
 import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js';
 import { buildParsedToSourceValueMap, isBlockScalar, isQuotedScalar } from './yaml_scalar_map.js';
@@ -72,12 +67,11 @@ export class SyncConfigFromYaml {
       ]
     });
 
-    validateAdditionalSyncConfigParsers(this.options.parsers);
-    const sourceLocations = createYamlSourceLocationResolver(parsed);
+    const sourceLocationResolver = createYamlSourceLocationResolver(parsed);
     const config = this.#parseConfig(parsed);
     let encoded: ReturnType<Document['toJSON']> = null;
     // Validate the YAML nodes first so structural errors retain their source locations. Conversion can still fail
-    // for unresolved aliases inside module-owned options, which must follow the same diagnostic handling.
+    // for unresolved aliases inside source-table options, which must follow the same diagnostic handling.
     if (!this.#hasFatalError) {
       try {
         encoded = parsed.toJSON();
@@ -87,82 +81,17 @@ export class SyncConfigFromYaml {
     }
     const hasSourceTableConfig = encoded?.config != null && Object.hasOwn(encoded.config, 'source_table_options');
     if (hasSourceTableConfig && config.compatibility.edition < CompatibilityEdition.COMPILED_STREAMS) {
-      const location = sourceLocations.getLocation(['config', 'source_table_options'], 'key');
+      const location = sourceLocationResolver.getLocation(['config', 'source_table_options'], 'key');
       this.#errors.push(
-        new YamlError(
-          new Error("The 'config.source_table_options' section requires edition 3."),
-          location && { start: location.start_offset, end: location.end_offset }
-        )
+        new YamlError(new Error("The 'config.source_table_options' section requires edition 3."), location)
       );
     }
-    const sourceTables = encoded?.config?.source_table_options;
-    if (
-      !this.#hasFatalError &&
-      sourceTables != null &&
-      typeof sourceTables == 'object' &&
-      !Array.isArray(sourceTables)
-    ) {
-      for (const [previous, duplicate] of findDuplicateSourceTableConfigKeys(Object.keys(sourceTables))) {
-        const location = sourceLocations.getLocation(['config', 'source_table_options', duplicate], 'key');
-        this.#errors.push(
-          new YamlError(
-            new Error(
-              `Source-table keys ${JSON.stringify(previous)} and ${JSON.stringify(duplicate)} resolve to the same pattern.`
-            ),
-            location && { start: location.start_offset, end: location.end_offset }
-          )
-        );
-      }
-    }
-    // Parser hooks run before the JSON Schema check, so they can report specific diagnostics for the options they
-    // own. Hooks must therefore tolerate structurally invalid input.
-    if (!this.#hasFatalError) {
-      const reportDiagnostic = (diagnostic: SyncConfigDiagnostic) => {
-        const location = diagnostic.location;
-        const error = new YamlError(
-          new Error(diagnostic.message),
-          location && {
-            start: location.start_offset,
-            end: location.end_offset
-          }
-        );
-        error.type = diagnostic.level;
-        this.#errors.push(error);
-      };
-      try {
-        for (const parser of this.options.parsers) {
-          parser.parse({
-            config: encoded,
-            context: {
-              parsedConfig: config,
-              sourceTables: config.getSourceTables(),
-              defaultSchema: this.options.defaultSchema,
-              sourceLocations,
-              reportDiagnostic
-            }
-          });
-          if (this.#hasFatalError) break;
-        }
-        // Hooks populate source-table options on the config, but persistence serializes its compiled plan.
-        // Keep the plan's source-table options in sync so they survive a reload.
-        if (config instanceof PrecompiledSyncConfig && Object.keys(config.sourceTableConfig).length != 0) {
-          config.plan.sourceTableConfig = config.sourceTableConfig;
-        }
-      } catch (error) {
-        this.#errors.push(new YamlError(error instanceof Error ? error : new Error(String(error))));
-      }
-    }
-    // The composed schema catches remaining structural issues, such as additional fields or source-table options no
-    // parser reported on. Run it last: its union-branch errors are less specific than the parser diagnostics above.
+    // Check the remaining config structure after collecting specific expression diagnostics.
     // Retain the YAML tree so errors highlight the actual key/value.
     if (!this.#hasFatalError) {
-      const validate =
-        this.options.schemaValidator ??
-        (this.options.parsers.length == 0
-          ? validateSyncRulesSchema
-          : compileSyncRulesSchemaValidator(createSyncRulesSchema(this.options.parsers)));
+      const validate = validateSyncRulesSchema;
       if (!validate(encoded)) {
-        this.#errors.push(...mapAjvErrorsToYamlErrors(sourceLocations, validate.errors!));
+        this.#errors.push(...mapAjvErrorsToYamlErrors(sourceLocationResolver, validate.errors!));
       }
     }
     this.#throwOnErrorIfRequested();
@@ -184,8 +113,32 @@ export class SyncConfigFromYaml {
     using rootState = root;
 
     using declaredOptions = rootState.get('config')?.requireMap();
-    // The composed schema validates source-table options and preserves module-owned fields.
-    declaredOptions?.get('source_table_options');
+    using sourceTables = declaredOptions
+      ?.get('source_table_options')
+      ?.requireMap('Source-table options must be a map of table names or patterns to option maps.');
+    if (sourceTables) {
+      const sourceLocationResolver = createYamlSourceLocationResolver(parsed);
+      for (const { key: table, value } of sourceTables.stringKeyedItems()) {
+        using tableOptions = value.requireMap('Options for a source table must be a map.');
+        const expression = tableOptions?.get('mongodb_filter_expression');
+        if (!expression) continue;
+        let filter: unknown;
+        try {
+          filter = expression.node.toJS(parsed);
+        } catch (error) {
+          expression.reportError(error instanceof Error ? error.message : String(error));
+          continue;
+        }
+        if (filter === 'disabled') continue;
+        this.#errors.push(
+          ...parseMongoFilterExpression({
+            value: filter,
+            basePath: ['config', 'source_table_options', table, 'mongodb_filter_expression'],
+            sourceLocationResolver
+          })
+        );
+      }
+    }
     let compatibility: CompatibilityContext;
     let storageVersion: number | undefined;
     if (declaredOptions) {
@@ -204,6 +157,31 @@ export class SyncConfigFromYaml {
       compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
     }
 
+    let sourceTableConfig: SourceTableConfigMap = {};
+    if (sourceTables && !this.#hasFatalError) {
+      try {
+        sourceTableConfig = sourceTables.node.toJS(parsed) as SourceTableConfigMap;
+      } catch (error) {
+        sourceTables.reportError(error instanceof Error ? error.message : String(error));
+      }
+      /**
+       * Table pattern keys can map to the same table via different pathways.
+       * E.g. [default_schema].[tablename] and [tablename] can refer to the same item,
+       * we report errors for duplicates.
+       */
+      const sourceLocationResolver = createYamlSourceLocationResolver(parsed);
+      for (const [previous, duplicate] of findDuplicateSourceTableConfigKeys(Object.keys(sourceTableConfig))) {
+        this.#errors.push(
+          new YamlError(
+            new Error(
+              `Source-table keys ${JSON.stringify(previous)} and ${JSON.stringify(duplicate)} resolve to the same pattern.`
+            ),
+            sourceLocationResolver.getLocation(['config', 'source_table_options', duplicate], 'key')
+          )
+        );
+      }
+    }
+
     // Bucket definitions using explicit parameter and data queries.
     const bucketMap = rootState.get('bucket_definitions')?.requireMap();
     const streamMap = rootState.get('streams')?.requireMap();
@@ -212,7 +190,7 @@ export class SyncConfigFromYaml {
 
     let result: SyncConfig;
     if (compatibility.edition >= CompatibilityEdition.COMPILED_STREAMS) {
-      result = this.#compileSyncPlan(bucketMap, streamMap, globalCtes, eventMap, compatibility);
+      result = this.#compileSyncPlan(bucketMap, streamMap, globalCtes, eventMap, compatibility, sourceTableConfig);
       this.#warnOnUnusedCtes();
     } else {
       // We don't support CTEs at all in this compiler implementation.
@@ -288,7 +266,8 @@ export class SyncConfigFromYaml {
     streamMap: YamlMapState | undefined,
     globalCtes: YamlMapState | undefined,
     eventMap: YamlMapState | undefined,
-    compatibility: CompatibilityContext
+    compatibility: CompatibilityContext,
+    sourceTableConfig: SourceTableConfigMap
   ) {
     bucketMap?.reportError(
       `'bucket_definitions' are not supported by the new compiler. Consider using https://powersync-community.github.io/bucket-definitions-to-sync-streams/ to translate them to streams.`
@@ -386,7 +365,9 @@ export class SyncConfigFromYaml {
 
     this.#compileEventDefinitions(eventMap, compiler);
 
-    return new PrecompiledSyncConfig(compiler.toSyncPlan(), compatibility, {
+    const plan = compiler.toSyncPlan();
+    plan.sourceTableConfig = sourceTableConfig;
+    return new PrecompiledSyncConfig(plan, compatibility, {
       defaultSchema: this.options.defaultSchema,
       sourceText: this.yaml
     });
@@ -680,17 +661,6 @@ export class SyncConfigFromYaml {
 }
 
 export interface SyncConfigFromYamlOptions {
-  /**
-   * Additional parsing hooks registered by the service. Standalone callers, including extension tests,
-   * can supply hooks through SqlSyncRules.fromYaml; omitted hooks are normalized to an empty array.
-   */
-  readonly parsers: readonly AdditionalSyncConfigParser[];
-  /**
-   * Compiled schema validator supplied by the service parser, matching its registered hooks.
-   * Standalone callers, including tests, normally omit this so the schema is composed from parsers.
-   * Supplying a validator skips schema composition and compilation but still runs the parsing hooks.
-   */
-  readonly schemaValidator?: SyncRulesSchemaValidator;
   readonly throwOnError: boolean;
   readonly schema?: SourceSchema;
   /**

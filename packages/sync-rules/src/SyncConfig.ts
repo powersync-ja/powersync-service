@@ -8,7 +8,6 @@ import { CompatibilityContext } from './compatibility.js';
 import { YamlError } from './errors.js';
 import { EventDefinition } from './events/EventDescriptor.js';
 import { HydratedSyncConfig } from './HydratedSyncConfig.js';
-import { SourceTableConfigMap } from './SourceTableConfig.js';
 import { SourceTableRef } from './SourceTableRef.js';
 import { TablePattern } from './TablePattern.js';
 import { SqliteInputValue, SqliteRow, SqliteValue } from './types.js';
@@ -19,10 +18,6 @@ import { applyRowContext } from './utils.js';
  * resolve buckets for connections).
  */
 export abstract class SyncConfig {
-  /**
-   * Module-specific source options keyed by authored table pattern.
-   */
-  sourceTableConfig: SourceTableConfigMap = {};
   bucketDataSources: BucketDataSource[] = [];
   bucketParameterLookupSources: ParameterIndexLookupCreator[] = [];
   bucketSources: BucketSource[] = [];

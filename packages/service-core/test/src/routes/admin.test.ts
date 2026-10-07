@@ -1,9 +1,9 @@
 import { BasicRouterRequest, Context, JwtPayload, ParsedSyncConfigSet, storage } from '@/index.js';
 import { logger } from '@powersync/lib-services-framework';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { PrecompiledSyncConfig, SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { diagnostics, reprocess, validate } from '../../../src/routes/endpoints/admin.js';
-import { validateSyncRules } from '../../../src/routes/endpoints/sync-rules.js';
+import { deploySyncRules, validateSyncRules } from '../../../src/routes/endpoints/sync-rules.js';
 import { mockServiceContext } from './mocks.js';
 
 describe('admin routes', () => {
@@ -124,20 +124,63 @@ bucket_definitions:
     }
   );
 
+  it.each([true, false])('deployment checks source capabilities before persistence (allowed: %s)', async (allowed) => {
+    const updateSyncRules = vi.fn(async () => ({ replicationStreamName: 'new-slot' }));
+    const context = makeContext({ updateSyncRules });
+    context.service_context.configuration = {
+      sync_rules: { present: false }
+    } as typeof context.service_context.configuration;
+    const api = context.service_context.routerEngine.getAPI();
+    vi.spyOn(context.service_context.routerEngine, 'getAPI').mockReturnValue(api);
+    api.validateSourceCapabilities = async (config) => {
+      expect((config as PrecompiledSyncConfig).plan.sourceTableConfig?.orders?.mongodb_filter_expression).toEqual({
+        $eq: ['$$doc.active', true]
+      });
+      if (!allowed) throw new Error('MongoDB pre-filtering is not available for this connection.');
+    };
+    const result = deploySyncRules.handler({
+      context,
+      request,
+      params: {
+        content: /* yaml */ `
+          config:
+            edition: 3
+            source_table_options:
+              orders:
+                mongodb_filter_expression: { $eq: ['$$doc.active', true] }
+          streams:
+            orders:
+              query: SELECT * FROM orders
+        `
+      }
+    });
+    if (allowed) {
+      await expect(result).resolves.toEqual({ slot_name: 'new-slot' });
+      expect(updateSyncRules).toHaveBeenCalledOnce();
+    } else {
+      await expect(result).rejects.toThrow();
+      expect(updateSyncRules).not.toHaveBeenCalled();
+    }
+  });
+
   describe('validate', () => {
     it('uses the service parser and includes its diagnostics', async () => {
       const context = makeContext();
-      context.service_context.syncConfigParser.registerParser({
-        id: 'example.validation',
-        parse({ context }) {
-          expect(context.defaultSchema).toBe('public');
-          context.reportDiagnostic({ level: 'fatal', message: 'Rejected by module validation.' });
-        }
-      });
+      const api = context.service_context.routerEngine.getAPI();
+      vi.spyOn(context.service_context.routerEngine, 'getAPI').mockReturnValue(api);
+      api.validateSourceCapabilities = async () => {
+        throw new Error('Rejected by module validation.');
+      };
       const response = await validate.handler({
         context,
         request,
-        params: { sync_rules: 'config: { edition: 3 }\nstreams: {}\n' }
+        params: {
+          sync_rules: /* yaml */ `
+            config:
+              edition: 3
+            streams: {}
+          `
+        }
       });
       expect(response.errors).toContainEqual(
         expect.objectContaining({

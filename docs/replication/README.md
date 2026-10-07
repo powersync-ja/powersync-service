@@ -97,7 +97,7 @@ In storage modes that support incremental reprocessing, a replication stream can
 
 ## Reading Path
 
-For module-owned source-table options, shared parser registration, and saved-config validation, see
+For source-table options, expression validation, and execution capability checks, see
 [Sync config parsing and source-table options](./sync-config-parsing.md).
 
 1. [Core concepts](./01-core-concepts.md): common vocabulary used by the replication code and storage implementations.

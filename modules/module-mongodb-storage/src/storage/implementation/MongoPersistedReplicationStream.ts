@@ -21,8 +21,7 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
   constructor(
     private readonly db: PowerSyncMongo,
     private readonly doc: SyncRuleDocumentV1 | ReplicationStreamDocumentV3,
-    private readonly configs: SyncConfigDefinition[],
-    private readonly syncConfigParser: storage.SyncConfigParser
+    private readonly configs: SyncConfigDefinition[]
   ) {
     const storageVersion = doc.storage_version ?? storage.LEGACY_STORAGE_VERSION;
     const replicationJobId =
@@ -54,17 +53,11 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
         throw new ServiceAssertionError(`Cannot create v3 storage without sync config definitions`);
       }
       return this.configs.map(
-        (config) =>
-          new MongoPersistedSyncConfigContentV3(
-            this.db,
-            this.doc as ReplicationStreamDocumentV3,
-            config,
-            this.syncConfigParser
-          )
+        (config) => new MongoPersistedSyncConfigContentV3(this.db, this.doc as ReplicationStreamDocumentV3, config)
       );
     }
 
-    return [new MongoPersistedSyncConfigContentV1(this.db, this.doc as SyncRuleDocumentV1, this.syncConfigParser)];
+    return [new MongoPersistedSyncConfigContentV1(this.db, this.doc as SyncRuleDocumentV1)];
   }
 
   get syncConfigIds(): bson.ObjectId[] {
@@ -103,8 +96,7 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
           content: config.content,
           compiledPlan: config.serialized_plan ?? null,
           storageVersion: this.storageVersion,
-          parseOptions: options,
-          syncConfigParser: this.syncConfigParser
+          parseOptions: options
         }),
         mapping: SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(config.rule_mapping)
       };

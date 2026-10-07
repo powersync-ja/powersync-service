@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { SqlSyncConfigParser, SyncConfigParser, TestStorageOptions } from '@powersync/service-core';
+import { TestStorageOptions } from '@powersync/service-core';
 import { MongoBucketStorage, MongoBucketStorageOptions } from '../storage/MongoBucketStorage.js';
 import { MongoReportStorage } from '../storage/MongoReportStorage.js';
 import { PowerSyncMongo } from '../storage/implementation/db.js';
@@ -7,7 +7,7 @@ import { PowerSyncMongo } from '../storage/implementation/db.js';
 export type MongoTestStorageOptions = {
   url: string;
   isCI: boolean;
-  syncConfigParser?: SyncConfigParser;
+
   monitorCommands?: boolean;
 } & Omit<MongoBucketStorageOptions, 'replicationStreamNamePrefix'>;
 
@@ -28,7 +28,7 @@ export function mongoTestStorageFactoryGenerator(factoryOptions: MongoTestStorag
         await db.clear();
       }
 
-      return new MongoBucketStorage(db, factoryOptions.syncConfigParser ?? new SqlSyncConfigParser(), {
+      return new MongoBucketStorage(db, {
         replicationStreamNamePrefix: 'test_',
         checksumOptions: factoryOptions.checksumOptions,
         supportsMultipleSyncConfigs: factoryOptions.supportsMultipleSyncConfigs,

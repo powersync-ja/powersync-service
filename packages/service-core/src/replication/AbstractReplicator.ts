@@ -1,4 +1,5 @@
 import { container, ErrorCode, logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
+import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -172,7 +173,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         // versions before that check was added, so we keep the lock for now - for where te service version and sync config is updated at
         // the same time.
 
-        const parsed = this.storage.syncConfigParser.parseContent(loadedSyncConfig, {
+        const parsed = SqlSyncRules.fromYaml(loadedSyncConfig, {
           schema: undefined,
           defaultSchema: this.defaultSchema,
           throwOnError: this.syncRuleProvider.exitOnError

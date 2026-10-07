@@ -1,5 +1,4 @@
 import { container, LifeCycledSystem, MigrationManager, ServiceIdentifier } from '@powersync/lib-services-framework';
-import type { AdditionalSyncConfigParser } from '@powersync/service-sync-rules';
 
 import { EventsEngine } from '../events/EventsEngine.js';
 import { framework } from '../index.js';
@@ -10,16 +9,6 @@ import * as routes from '../routes/routes-index.js';
 import * as storage from '../storage/storage-index.js';
 import { SyncContext } from '../sync/SyncContext.js';
 import * as utils from '../util/util-index.js';
-
-/**
- * Registration-capable sync-config parser exposed to modules through the service context.
- */
-export interface ServiceContextSyncConfigParser extends storage.SyncConfigParser {
-  /**
-   * Registers a deterministic parser extension during module initialization, before storage starts.
-   */
-  registerParser(extension: AdditionalSyncConfigParser): void;
-}
 
 export interface ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
@@ -33,11 +22,6 @@ export interface ServiceContext {
   writeCheckpointBatcher: utils.WriteCheckpointBatcher;
   serviceMode: ServiceContextMode;
   eventsEngine: EventsEngine;
-  /**
-   * Service-wide parser shared by routes, replication, and storage. Source modules register parser extensions on this
-   * instance during module initialization.
-   */
-  readonly syncConfigParser: ServiceContextSyncConfigParser;
 }
 
 export enum ServiceContextMode {
@@ -69,20 +53,16 @@ export class ServiceContextContainer implements ServiceContext {
   routerEngine: routes.RouterEngine;
   writeCheckpointBatcher: utils.WriteCheckpointBatcher;
   serviceMode: ServiceContextMode;
-  readonly #syncConfigParser: ServiceContextSyncConfigParser;
 
   constructor(options: ServiceContextOptions) {
     this.serviceMode = options.serviceMode;
     const { configuration } = options;
     this.configuration = configuration;
 
-    this.#syncConfigParser = new ServiceContextSyncConfigParserImpl(() => this.storageEngine.started);
-
     this.lifeCycleEngine = new LifeCycledSystem();
 
     this.storageEngine = new storage.StorageEngine({
-      configuration,
-      syncConfigParser: this.#syncConfigParser
+      configuration
     });
     this.storageEngine.registerListener({
       storageFatalError: (error) => {
@@ -134,13 +114,6 @@ export class ServiceContextContainer implements ServiceContext {
     return container.getOptional(replication.ReplicationEngine);
   }
 
-  /**
-   * Returns the service-wide parser shared by routes, replication, and storage.
-   */
-  get syncConfigParser(): ServiceContextSyncConfigParser {
-    return this.#syncConfigParser;
-  }
-
   get metricsEngine(): metrics.MetricsEngine {
     return container.getImplementation(metrics.MetricsEngine);
   }
@@ -162,24 +135,5 @@ export class ServiceContextContainer implements ServiceContext {
    */
   get<T>(identifier: ServiceIdentifier<T>) {
     return container.getImplementation(identifier);
-  }
-}
-
-/**
- * Registration-capable parser exposed by the service context during module initialization.
- */
-class ServiceContextSyncConfigParserImpl extends storage.SqlSyncConfigParser implements ServiceContextSyncConfigParser {
-  constructor(private readonly isStorageStarted: () => boolean) {
-    super();
-  }
-
-  /**
-   * Registers an extension while preserving one parser definition for the service lifetime.
-   */
-  override registerParser(extension: AdditionalSyncConfigParser): void {
-    if (this.isStorageStarted()) {
-      throw new Error('A sync config parser extension cannot be registered after the storage engine has started.');
-    }
-    super.registerParser(extension);
   }
 }

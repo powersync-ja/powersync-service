@@ -1,11 +1,10 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { SqlSyncRules, SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 
 import { PatternResult, RouteAPI } from '../../api/RouteAPI.js';
 import { updateSyncRulesFromConfig } from '../../storage/BucketStorageFactory.js';
-import { SyncConfigParser } from '../../storage/SyncConfigParser.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -56,8 +55,9 @@ export const deploySyncRules = routeDefinition({
     let syncConfig: SyncConfigWithErrors;
 
     try {
+      // First ensure the SyncConfig parses correctly
       const apiHandler = service_context.routerEngine.getAPI();
-      syncConfig = service_context.syncConfigParser.parseContent(content, {
+      syncConfig = SqlSyncRules.fromYaml(content, {
         ...apiHandler.getParseSyncRulesOptions(),
         // We don't do any schema-level validation at this point
         schema: undefined
@@ -68,6 +68,18 @@ export const deploySyncRules = routeDefinition({
         code: ErrorCode.PSYNC_R0001,
         description: 'Sync config parsing failed',
         details: e.message
+      });
+    }
+
+    try {
+      // Validate if the current sources support the configuration specified in the Sync Config
+      await service_context.routerEngine.getAPI().validateSourceCapabilities?.(syncConfig.config);
+    } catch (error) {
+      throw new errors.ServiceError({
+        status: 422,
+        code: ErrorCode.PSYNC_R0001,
+        description: 'Source capability validation failed',
+        details: error.message
       });
     }
 
@@ -95,7 +107,7 @@ export const validateSyncRules = routeDefinition({
     const { service_context } = payload.context;
     const apiHandler = service_context.routerEngine.getAPI();
 
-    const info = await debugSyncRules(apiHandler, content, service_context.syncConfigParser);
+    const info = await debugSyncRules(apiHandler, content);
 
     return replyPrettyJson(info);
   }
@@ -122,12 +134,10 @@ export const currentSyncRules = routeDefinition({
 
     const sync_rules = active.content;
     const apiHandler = service_context.routerEngine.getAPI();
-    const info = await debugSyncRules(apiHandler, sync_rules.sync_rules_content, service_context.syncConfigParser);
+    const info = await debugSyncRules(apiHandler, sync_rules.sync_rules_content);
     const next = await activeBucketStorage.getDeployingSyncConfig();
 
-    const next_info = next
-      ? await debugSyncRules(apiHandler, next.content.sync_rules_content, service_context.syncConfigParser)
-      : null;
+    const next_info = next ? await debugSyncRules(apiHandler, next.content.sync_rules_content) : null;
 
     const response = {
       current: {
@@ -179,13 +189,15 @@ export const reprocessSyncRules = routeDefinition({
     }
 
     const sync_rules = active.content;
-    const parsed = payload.context.service_context.syncConfigParser.parseContent(sync_rules.sync_rules_content, {
+    const parsed = SqlSyncRules.fromYaml(sync_rules.sync_rules_content, {
       ...payload.context.service_context.routerEngine.getAPI().getParseSyncRulesOptions(),
       schema: undefined,
       // This sync config already passed validation. But if the rules are not valid anymore due
       // to a service change, we do want to report the error here.
       throwOnError: true
     });
+    await payload.context.service_context.routerEngine.getAPI().validateSourceCapabilities?.(parsed.config);
+
     const new_rules = await activeBucketStorage.updateSyncRules(
       updateSyncRulesFromConfig(parsed, {
         version_label: sync_rules.version_label,
@@ -208,9 +220,9 @@ function replyPrettyJson(payload: any) {
   });
 }
 
-async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string, syncConfigParser: SyncConfigParser) {
+async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
   try {
-    const rules = syncConfigParser.parseContent(sync_rules, {
+    const rules = SqlSyncRules.fromYaml(sync_rules, {
       ...apiHandler.getParseSyncRulesOptions(),
       // No schema-based validation at this point
       schema: undefined

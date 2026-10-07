@@ -1,4 +1,4 @@
-import { SqlSyncConfigParser } from '@powersync/service-core';
+import {} from '@powersync/service-core';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { Direction } from '@powersync/lib-services-framework';
@@ -17,13 +17,10 @@ describe('Migrations', () => {
     // The migration tests clear the migration store, without running the down migrations.
     // This ensures all the down migrations have been run before.
     const setup = POSTGRES_STORAGE_SETUP;
-    await using factory = new PostgresBucketStorageFactory(
-      {
-        config: TEST_CONNECTION_OPTIONS,
-        replicationStreamNamePrefix: 'test_'
-      },
-      new SqlSyncConfigParser()
-    );
+    await using factory = new PostgresBucketStorageFactory({
+      config: TEST_CONNECTION_OPTIONS,
+      replicationStreamNamePrefix: 'test_'
+    });
 
     await dropTables(factory.db);
     await setup.migrate(Direction.Down);

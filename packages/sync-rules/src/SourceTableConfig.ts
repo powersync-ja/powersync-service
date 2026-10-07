@@ -1,15 +1,20 @@
-import * as t from 'ts-codec';
 import type { JsonObject } from './json.js';
+import {
+  MONGO_FILTER_JSON_SCHEMA,
+  MONGO_FILTER_VALIDATOR,
+  type MongoTableFilter
+} from './mongo/MongoFilterExpression.js';
 import { DEFAULT_TAG, ImplicitSchemaTablePattern, TablePattern } from './TablePattern.js';
 
 const SOURCE_TABLE_NAME_ERROR =
   'Source table patterns must use <table>, <database>.<table>, or <connection>.<database>.<table>. Double-quote names containing dots or quotes.';
 
 /**
- * Options for one entry in `config.source_table_options`. Core has no source-specific options.
+ * Options for one entry in `config.source_table_options`. MongoDB filtering is parsed in every edition; execution support is validated by the source adapter.
  */
-export const SOURCE_TABLE_CONFIG = t.object({});
-export type SourceTableConfig = t.Decoded<typeof SOURCE_TABLE_CONFIG>;
+export interface SourceTableConfig {
+  mongodb_filter_expression?: MongoTableFilter;
+}
 
 /**
  * Source-table options keyed by an authored table pattern.
@@ -19,20 +24,25 @@ export type SourceTableConfigMap<TTableConfig extends SourceTableConfig = Source
 >;
 
 /**
- * Generate the common source-table map while making the empty base option explicit.
+ * Generate the source-table options schema with MongoDB pre-filtering expressions.
  */
 export function createSourceTableConfigSchema(): JsonObject {
   return {
     type: 'object',
     propertyNames: {
       minLength: 1,
-      pattern: '^(?:[^."]+|"(?:[^"]|"")+")(?:\\.(?:[^."]+|"(?:[^"]|"")+")){0,2}$',
-      patternErrorMessage:
-        'Use <table>, <database>.<table>, or <connection>.<database>.<table>. Double-quote names containing dots or quotes.'
+      pattern: '^(?:[^."]+|"(?:[^"]|"")+")(?:\\.(?:[^."]+|"(?:[^"]|"")+")){0,2}$'
     },
     additionalProperties: {
       type: 'object',
-      properties: {},
+      properties: {
+        mongodb_filter_expression: {
+          anyOf: [
+            { ...MONGO_FILTER_JSON_SCHEMA, $id: 'https://powersync.com/schemas/mongodb-filter-expression' },
+            { const: 'disabled' }
+          ]
+        }
+      },
       additionalProperties: false
     }
   };
@@ -116,6 +126,18 @@ export function normalizeSourceTableConfig(value: unknown): SourceTableConfigMap
       if (!table) throw new Error('A source table name must not be empty.');
       parseSourceTableConfigKey(table);
       assertJsonObject(options, 'Source table options must be JSON objects.');
+      for (const key of Object.keys(options)) {
+        if (key !== 'mongodb_filter_expression') throw new Error(`Unknown source-table option: ${key}`);
+      }
+      const filter = options.mongodb_filter_expression;
+      if (filter !== undefined && filter !== 'disabled') {
+        const result = MONGO_FILTER_VALIDATOR.safeParse(filter);
+        if (!result.success) {
+          throw new Error(
+            `Invalid MongoDB pre-filtering expression for source table ${JSON.stringify(table)}: ${result.error.message}`
+          );
+        }
+      }
       return [table, structuredClone(options) as SourceTableConfig];
     })
   );
@@ -149,4 +171,16 @@ function assertJsonValue(value: unknown, parents: Set<object>): void {
   parents.add(value!);
   for (const child of Object.values(value!)) assertJsonValue(child, parents);
   parents.delete(value!);
+}
+
+/**
+ * Configured expressions require execution support even when current collections opt out.
+ */
+export function hasMongoFilterExpressions(config: SourceTableConfigMap, connectionTag: string): boolean {
+  return Object.entries(config).some(
+    ([name, options]) =>
+      (parseSourceTableConfigKey(name).connectionTag ?? DEFAULT_TAG) === connectionTag &&
+      options?.mongodb_filter_expression !== undefined &&
+      options.mongodb_filter_expression !== 'disabled'
+  );
 }

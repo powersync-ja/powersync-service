@@ -3,7 +3,6 @@ import { CompatibilityEdition, CompatibilityOption, TimeValuePrecision } from '.
 import type { JsonObject } from './json.js';
 import { createSourceTableConfigSchema } from './SourceTableConfig.js';
 import { STORAGE_VERSIONS } from './StorageVersion.js';
-import type { AdditionalSyncConfigParser } from './SyncConfigParserHooks.js';
 // Hack to make this work both in NodeJS and a browser
 const Ajv = ajvModule.default ?? ajvModule;
 
@@ -180,9 +179,8 @@ export type SyncRulesSchemaValidator = ajvModule.ValidateFunction;
 /**
  * An isolated composition shared by editor tooling, YAML validation and persisted source-table options.
  */
-export function createSyncRulesSchema(parsers: readonly AdditionalSyncConfigParser[] = []): JsonObject {
+export function createSyncRulesSchema(): JsonObject {
   const schema = structuredClone(syncRulesSchema) as JsonObject;
-  for (const parser of parsers) parser.extendJsonSchema?.({ schema });
   return schema;
 }
 
@@ -192,10 +190,6 @@ export function createSyncRulesSchema(parsers: readonly AdditionalSyncConfigPars
 export function compileSyncRulesSchemaValidator(schema: ajvModule.Schema): SyncRulesSchemaValidator {
   return new Ajv({
     allErrors: true,
-    verbose: true,
-    keywords: [
-      { keyword: 'patternErrorMessage', schemaType: 'string' },
-      { keyword: 'defaultSnippets', schemaType: 'array' }
-    ]
+    keywords: [{ keyword: 'defaultSnippets', schemaType: 'array' }]
   }).compile(schema);
 }

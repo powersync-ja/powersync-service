@@ -99,9 +99,7 @@ async function getMongoSyncConfigContents(factory: storage.BucketStorageFactory,
     })
     .toArray();
 
-  return syncConfigDocs.map(
-    (config) => new MongoPersistedSyncConfigContentV3(mongoFactory.db, doc, config, mongoFactory.syncConfigParser)
-  );
+  return syncConfigDocs.map((config) => new MongoPersistedSyncConfigContentV3(mongoFactory.db, doc, config));
 }
 
 /**

@@ -20,17 +20,13 @@ export abstract class MongoPersistedSyncConfigContentBase extends storage.Persis
     options: Omit<storage.PersistedSyncConfigContentData, 'syncConfigId'> & {
       mapping: SingleSyncConfigBucketDefinitionMapping;
       syncConfigId: bson.ObjectId | null;
-    },
-    syncConfigParser: storage.SyncConfigParser
+    }
   ) {
     const { mapping, syncConfigId, ...base } = options;
-    super(
-      {
-        ...base,
-        syncConfigId: syncConfigId?.toHexString() ?? null
-      },
-      syncConfigParser
-    );
+    super({
+      ...base,
+      syncConfigId: syncConfigId?.toHexString() ?? null
+    });
     this.mapping = mapping;
     this.syncConfigObjectId = syncConfigId;
   }
@@ -64,23 +60,19 @@ export abstract class MongoPersistedSyncConfigContentBase extends storage.Persis
   }
 }
 export class MongoPersistedSyncConfigContentV1 extends MongoPersistedSyncConfigContentBase {
-  constructor(db: PowerSyncMongo, doc: SyncRuleDocumentV1, syncConfigParser: storage.SyncConfigParser) {
-    super(
-      db,
-      {
-        replicationStreamId: doc._id,
-        sync_rules_content: doc.content,
-        compiled_plan: doc.serialized_plan ?? null,
-        // Handle legacy values
-        replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
-        storageVersion: doc.storage_version ?? storage.LEGACY_STORAGE_VERSION,
-        mapping: new SingleSyncConfigBucketDefinitionMapping(),
-        syncConfigId: null,
-        syncConfigState: doc.state,
-        version_label: doc.version_label ?? undefined
-      },
-      syncConfigParser
-    );
+  constructor(db: PowerSyncMongo, doc: SyncRuleDocumentV1) {
+    super(db, {
+      replicationStreamId: doc._id,
+      sync_rules_content: doc.content,
+      compiled_plan: doc.serialized_plan ?? null,
+      // Handle legacy values
+      replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
+      storageVersion: doc.storage_version ?? storage.LEGACY_STORAGE_VERSION,
+      mapping: new SingleSyncConfigBucketDefinitionMapping(),
+      syncConfigId: null,
+      syncConfigState: doc.state,
+      version_label: doc.version_label ?? undefined
+    });
   }
 
   async getSyncConfigStatus(): Promise<storage.PersistedSyncConfigStatus | null> {
@@ -95,32 +87,23 @@ export class MongoPersistedSyncConfigContentV1 extends MongoPersistedSyncConfigC
 export class MongoPersistedSyncConfigContentV3 extends MongoPersistedSyncConfigContentBase {
   declare public readonly syncConfigObjectId: bson.ObjectId;
 
-  constructor(
-    db: PowerSyncMongo,
-    doc: ReplicationStreamDocumentV3,
-    config: SyncConfigDefinition,
-    syncConfigParser: storage.SyncConfigParser
-  ) {
+  constructor(db: PowerSyncMongo, doc: ReplicationStreamDocumentV3, config: SyncConfigDefinition) {
     const state = doc.sync_configs.find((c) => c._id.equals(config._id));
     if (state == null) {
       throw new ServiceAssertionError(`Cannot find sync config ${config._id} in replication stream ${doc._id}`);
     }
-    super(
-      db,
-      {
-        replicationStreamId: doc._id,
-        sync_rules_content: config.content,
-        compiled_plan: config.serialized_plan ?? null,
+    super(db, {
+      replicationStreamId: doc._id,
+      sync_rules_content: config.content,
+      compiled_plan: config.serialized_plan ?? null,
 
-        replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
-        storageVersion: doc.storage_version,
-        mapping: SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(config.rule_mapping),
-        syncConfigId: config._id,
-        syncConfigState: state.state,
-        version_label: config.version_label
-      },
-      syncConfigParser
-    );
+      replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
+      storageVersion: doc.storage_version,
+      mapping: SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(config.rule_mapping),
+      syncConfigId: config._id,
+      syncConfigState: state.state,
+      version_label: config.version_label
+    });
   }
 
   async getSyncConfigStatus(): Promise<storage.PersistedSyncConfigStatus | null> {

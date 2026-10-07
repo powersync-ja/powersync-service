@@ -1,11 +1,11 @@
 import type { ErrorObject } from 'ajv';
 import { Document, isMap, isNode, isScalar, Node } from 'yaml';
-import { YamlError } from './errors.js';
+import { ErrorLocation, YamlError } from './errors.js';
 import type {
   SyncConfigSourceLocationResolver,
   SyncConfigSourceLocationTarget,
   SyncConfigSourcePath
-} from './SyncConfigParserHooks.js';
+} from './SyncConfigDiagnostics.js';
 
 /**
  * Creates a path-based source-location resolver over a parsed YAML document.
@@ -24,21 +24,14 @@ export function createYamlSourceLocationResolver(document: Document): SyncConfig
  * For example, a type error at `/config/edition` highlights that field's value and retains AJV's message.
  */
 export function mapAjvErrorsToYamlErrors(
-  sourceLocations: SyncConfigSourceLocationResolver,
+  sourceLocationResolver: SyncConfigSourceLocationResolver,
   errors: readonly ErrorObject[]
 ): YamlError[] {
   return errors.map((error) => {
     const { path, target } = getAjvErrorSourcePath(error);
-    const location = sourceLocations.getLocation(path, target);
-    // Honor editor guidance such as "Use $$doc.name" instead of showing the reference regex.
-    // Only pattern failures use this annotation; other failures retain their own AJV messages.
-    const guidance =
-      error.keyword === 'pattern' && typeof error.parentSchema === 'object' && error.parentSchema !== null
-        ? error.parentSchema.patternErrorMessage
-        : undefined;
-    const message =
-      typeof guidance === 'string' ? guidance : (error.message ?? 'The sync config does not match its JSON Schema.');
-    return new YamlError(new Error(message), location && { start: location.start_offset, end: location.end_offset });
+    const location = sourceLocationResolver.getLocation(path, target);
+    const message = error.message ?? 'The sync config does not match its JSON Schema.';
+    return new YamlError(new Error(message), location);
   });
 }
 
@@ -78,7 +71,7 @@ function getYamlPathLocation(
   document: Document,
   path: SyncConfigSourcePath,
   target: SyncConfigSourceLocationTarget
-): { start_offset: number; end_offset: number } | undefined {
+): ErrorLocation | undefined {
   const resolvedPath = [...path];
   while (true) {
     const node = getYamlPathNode(document, resolvedPath, target);
@@ -119,15 +112,15 @@ function getYamlPathNode(
 
 /**
  * Converts a YAML node's range into source offsets, including any trailing comment or newline in the node range.
- * A range `[4, 7, 8]` becomes `{ start_offset: 4, end_offset: 8 }`; a node without a range has no location.
+ * A range `[4, 7, 8]` becomes `{ start: 4, end: 8 }`; a node without a range has no location.
  */
-function getNodeLocation(node: Node | undefined): { start_offset: number; end_offset: number } | undefined {
+function getNodeLocation(node: Node | undefined): ErrorLocation | undefined {
   if (node?.range == null) {
     return undefined;
   }
   return {
-    start_offset: node.range[0],
-    end_offset: node.range[2]
+    start: node.range[0],
+    end: node.range[2]
   };
 }
 

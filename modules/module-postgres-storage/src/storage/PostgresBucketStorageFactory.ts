@@ -25,11 +25,8 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
 
   private activeStorageCache: storage.SyncRulesBucketStorage | undefined;
 
-  constructor(
-    protected options: PostgresBucketStorageOptions,
-    syncConfigParser: storage.SyncConfigParser
-  ) {
-    super({ syncConfigParser });
+  constructor(protected options: PostgresBucketStorageOptions) {
+    super();
     this.db = new lib_postgres.DatabaseClient({
       config: options.config,
       schema: STORAGE_SCHEMA_NAME,
@@ -235,7 +232,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
         .decoded(models.SyncRules)
         .first();
 
-      return new PostgresPersistedReplicationStream(this.db, newSyncRulesRow!, this.syncConfigParser);
+      return new PostgresPersistedReplicationStream(this.db, newSyncRulesRow!);
     });
   }
 
@@ -369,7 +366,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       .decoded(models.SyncRules)
       .rows();
 
-    return rows.map((row) => new PostgresPersistedReplicationStream(this.db, row, this.syncConfigParser));
+    return rows.map((row) => new PostgresPersistedReplicationStream(this.db, row));
   }
 
   async getStoppedReplicationStreams(): Promise<storage.PersistedReplicationStream[]> {
@@ -384,14 +381,14 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       .decoded(models.SyncRules)
       .rows();
 
-    return rows.map((row) => new PostgresPersistedReplicationStream(this.db, row, this.syncConfigParser));
+    return rows.map((row) => new PostgresPersistedReplicationStream(this.db, row));
   }
 
   private resolvedSyncConfigFromRow(
     row: models.SyncRulesDecoded,
     options: { cacheActiveStorage?: boolean } = {}
   ): storage.ResolvedSyncConfig {
-    const stream = new PostgresPersistedReplicationStream(this.db, row, this.syncConfigParser);
+    const stream = new PostgresPersistedReplicationStream(this.db, row);
     const content = stream.syncConfigContent[0];
     const thisFactory = this;
 

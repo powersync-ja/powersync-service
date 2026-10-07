@@ -23,10 +23,6 @@ import { SqlExpression } from './expression.js';
  * but we must never alter the semantics for existing serialized plans.
  */
 export interface SyncPlan {
-  /**
-   * Required parser IDs stored as keys. Module-owned payloads are not supported yet.
-   */
-  moduleData?: Record<string, null>;
   sourceTableConfig?: SourceTableConfigMap;
   dataSources: StreamDataSource[];
   buckets: StreamBucketDataSource[];
