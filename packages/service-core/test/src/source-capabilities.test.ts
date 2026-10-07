@@ -4,14 +4,15 @@ import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
 const FILTERED_CONFIG = /* yaml */ `
-config:
-  edition: 3
-  source_table_options:
+  # Sync config fixture.
+  config:
+    edition: 3
+    source_table_options:
+      orders:
+        mongodb_filter_expression: { $eq: ['$$doc.active', true] }
+  streams:
     orders:
-      mongodb_filter_expression: { $eq: ['$$doc.active', true] }
-streams:
-  orders:
-    query: SELECT * FROM orders
+      query: SELECT * FROM orders
 `;
 
 describe('unsupported MongoDB source options', () => {

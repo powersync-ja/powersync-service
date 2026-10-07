@@ -105,6 +105,7 @@ bucket_definitions:
         request,
         params: {
           content: /* yaml */ `
+            # Sync config fixture.
             config:
               edition: 3
             streams:
@@ -134,6 +135,7 @@ bucket_definitions:
       request,
       params: {
         content: /* yaml */ `
+          # Sync config fixture.
           config:
             edition: 3
           streams:
@@ -166,6 +168,7 @@ bucket_definitions:
       request,
       params: {
         content: /* yaml */ `
+          # Sync config fixture.
           config:
             edition: 3
             source_table_options:
@@ -199,6 +202,7 @@ bucket_definitions:
         request,
         params: {
           sync_rules: /* yaml */ `
+            # Sync config fixture.
             config:
               edition: 3
             streams: {}
