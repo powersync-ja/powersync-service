@@ -1,4 +1,3 @@
-import {} from '@powersync/service-core';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { Direction } from '@powersync/lib-services-framework';

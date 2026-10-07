@@ -21,7 +21,7 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
   constructor(
     private readonly db: PowerSyncMongo,
     private readonly doc: SyncRuleDocumentV1 | ReplicationStreamDocumentV3,
-    private readonly configs: SyncConfigDefinition[]
+    private readonly configs: SyncConfigDefinition[] = []
   ) {
     const storageVersion = doc.storage_version ?? storage.LEGACY_STORAGE_VERSION;
     const replicationJobId =

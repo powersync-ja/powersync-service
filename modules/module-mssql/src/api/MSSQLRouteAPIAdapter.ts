@@ -1,6 +1,5 @@
-import type { ParseSyncConfigOptions } from '@powersync/service-core';
-import { api, PatternResult, ReplicationLagOptions } from '@powersync/service-core';
-import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { api, ParseSyncConfigOptions, PatternResult, ReplicationLagOptions } from '@powersync/service-core';
+import { SqlSyncRules, TablePattern, type SyncConfig } from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import sql from 'mssql';
 import { toExpressionTypeFromMSSQLType } from '../common/mssqls-to-sqlite.js';
@@ -215,6 +214,10 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
     }
 
     return result;
+  }
+
+  async validateSourceCapabilities(config: SyncConfig): Promise<service_types.ValidationDiagnostic[]> {
+    return api.validateNoMongoFilterExpressions(config, this.connectionManager.connectionTag);
   }
 
   getParseSyncRulesOptions(): ParseSyncConfigOptions {

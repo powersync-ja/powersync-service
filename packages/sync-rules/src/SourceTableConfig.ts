@@ -109,11 +109,11 @@ function parseQualifiedIdentifiers(name: string): string[] {
 }
 
 /**
- * Validate and copy portable source-table options while preserving declaration order.
+ * Validate and copy source-table options while preserving declaration order.
  */
 export function normalizeSourceTableConfig(value: unknown): SourceTableConfigMap {
   if (value === undefined) return {};
-  assertJsonObject(value, 'Source table configuration must be a JSON object.');
+  assertObject(value, 'Source table configuration must be a JSON object.');
   const duplicate = findDuplicateSourceTableConfigKeys(Object.keys(value))[0];
   if (duplicate != null) {
     const [previous, key] = duplicate;
@@ -125,7 +125,7 @@ export function normalizeSourceTableConfig(value: unknown): SourceTableConfigMap
     Object.entries(value).map(([table, options]) => {
       if (!table) throw new Error('A source table name must not be empty.');
       parseSourceTableConfigKey(table);
-      assertJsonObject(options, 'Source table options must be JSON objects.');
+      assertObject(options, 'Source table options must be JSON objects.');
       for (const key of Object.keys(options)) {
         if (key !== 'mongodb_filter_expression') throw new Error(`Unknown source-table option: ${key}`);
       }
@@ -150,27 +150,8 @@ export function sourceTableConfigsEqual(left: SourceTableConfigMap, right: Sourc
   return JSON.stringify(normalizeSourceTableConfig(left)) == JSON.stringify(normalizeSourceTableConfig(right));
 }
 
-function assertJsonObject(value: unknown, message: string): asserts value is JsonObject {
+function assertObject(value: unknown, message: string): asserts value is JsonObject {
   if (value == null || typeof value != 'object' || Array.isArray(value)) throw new Error(message);
-  assertJsonValue(value, new Set());
-}
-
-function assertJsonValue(value: unknown, parents: Set<object>): void {
-  if (value === null || typeof value == 'string' || typeof value == 'boolean') return;
-  if (typeof value == 'number' && Number.isFinite(value)) return;
-  if (typeof value != 'object' || parents.has(value!)) {
-    throw new Error('Source table configuration must contain finite, acyclic JSON values.');
-  }
-  if (
-    !Array.isArray(value) &&
-    Object.getPrototypeOf(value) !== Object.prototype &&
-    Object.getPrototypeOf(value) !== null
-  ) {
-    throw new Error('Source table configuration must contain plain JSON objects.');
-  }
-  parents.add(value!);
-  for (const child of Object.values(value!)) assertJsonValue(child, parents);
-  parents.delete(value!);
 }
 
 /**
