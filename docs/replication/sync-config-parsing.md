@@ -50,8 +50,11 @@ wrappers for BSON values. Unknown source-table options and invalid expressions a
 The sync-config JSON Schema includes expression shapes and examples for editor autocomplete. Runtime validation
 also checks BSON literal values and reports errors at the relevant YAML keys or values. Source capability checks
 run during validation, deployment, and reprocessing; validation can report capability failures alongside other
-diagnostics. File-loaded sync configs are checked before persistence at replication startup. Fatal source-capability
-diagnostics block deployment even when `exit_on_error` is disabled.
+diagnostics. File-loaded sync configs are checked after parsing at replication startup. With `exit_on_error`
+enabled, source-capability errors fail startup before persistence. With it disabled, failures are logged and
+configs are persisted for diagnostics. The shared `AbstractReplicationStream` checks persisted configs for fatal parsing errors and source capabilities
+before snapshotting or streaming. Warnings do not block replication. Failures block replication and are reported through storage; the job releases its lock and validation
+is retried when a new job starts.
 
 ## Saved configuration
 

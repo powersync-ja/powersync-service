@@ -232,6 +232,39 @@ streams:
 });
 
 describe('source capability validation', () => {
+  test('exposes stored replication errors when source checks cannot run', async () => {
+    const content = makeSyncRulesContent({
+      status: {
+        id: '1',
+        replicationStreamId: 1,
+        state: storage.SyncRuleState.PROCESSING,
+        last_checkpoint_lsn: null,
+        last_fatal_error: 'Source capability unavailable',
+        last_fatal_error_ts: new Date(),
+        last_keepalive_ts: null,
+        last_checkpoint_ts: null
+      }
+    });
+    const result = await getSyncRulesStatus(
+      makeRouteAPI(),
+      content,
+      {
+        ...OPTIONS,
+        check_connection: false,
+        active: false,
+        include_content: true
+      },
+      makeSystemStorage()
+    );
+    expect(result?.content).toBe(MINIMAL_SYNC_RULES);
+    expect(result?.errors).toContainEqual(
+      expect.objectContaining({
+        level: 'fatal',
+        message: 'Source capability unavailable'
+      })
+    );
+  });
+
   test('reports capability failures alongside table diagnostics', async () => {
     const api = makeRouteAPI();
     api.validateSourceCapabilities = async () => [

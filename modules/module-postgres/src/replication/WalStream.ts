@@ -14,6 +14,7 @@ import {
   getUuidReplicaIdentityBson,
   MetricsEngine,
   RelationCache,
+  replication,
   ReplicationLagTracker,
   SaveUpdate,
   SourceEntityDescriptor,
@@ -50,10 +51,9 @@ import {
 } from './SnapshotQuery.js';
 import { computeWalBudgetReport, formatWalBudgetLine } from './wal-budget-utils.js';
 
-export interface WalStreamOptions {
+export interface WalStreamOptions extends replication.AbstractReplicationStreamOptions {
   logger?: Logger;
   connections: PgManager;
-  storage: storage.SyncRulesBucketStorage;
   metrics: MetricsEngine;
   abort_signal: AbortSignal;
 
@@ -117,7 +117,7 @@ export const sendKeepAlive = async (db: pgwire.PgClient) => {
   await lib_postgres.retriedQuery(db, KEEPALIVE_STATEMENT);
 };
 
-export class WalStream {
+export class WalStream extends replication.AbstractReplicationStream {
   sync_rules: HydratedSyncConfig;
   group_id: number;
 
@@ -162,7 +162,8 @@ export class WalStream {
   /** Timestamp of last slot health check. */
   private lastSlotHealthCheckTime = 0;
 
-  constructor(options: WalStreamOptions) {
+  constructor(private readonly options: WalStreamOptions) {
+    super(options, { defaultSchema: POSTGRES_DEFAULT_SCHEMA });
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
     this.metrics = options.metrics;
@@ -1015,26 +1016,21 @@ WHERE  oid = $1::regclass`,
     return null;
   }
 
-  async replicate() {
-    try {
-      // If anything errors here, the entire replication process is halted, and
-      // all connections automatically closed, including this one.
-      this.initialSnapshotPromise = (async () => {
-        const initReplicationConnection = await this.connections.replicationConnection();
-        await this.initReplication(initReplicationConnection);
-        await initReplicationConnection.end();
-      })();
+  protected async doReplicate() {
+    // If anything errors here, the entire replication process is halted, and
+    // all connections automatically closed, including this one.
+    this.initialSnapshotPromise = (async () => {
+      const initReplicationConnection = await this.connections.replicationConnection();
+      await this.initReplication(initReplicationConnection);
+      await initReplicationConnection.end();
+    })();
 
-      await this.initialSnapshotPromise;
+    await this.initialSnapshotPromise;
 
-      // At this point, the above connection has often timed out, so we start a new one
-      const streamReplicationConnection = await this.connections.replicationConnection();
-      await this.streamChanges(streamReplicationConnection);
-      await streamReplicationConnection.end();
-    } catch (e) {
-      await this.storage.reportError(e);
-      throw e;
-    }
+    // At this point, the above connection has often timed out, so we start a new one
+    const streamReplicationConnection = await this.connections.replicationConnection();
+    await this.streamChanges(streamReplicationConnection);
+    await streamReplicationConnection.end();
   }
 
   /**

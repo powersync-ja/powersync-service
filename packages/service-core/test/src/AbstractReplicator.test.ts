@@ -3,6 +3,7 @@ import { assertSourceCapabilities, validateNoMongoFilterExpressions } from '@/ap
 import { AbstractReplicationJob } from '@/replication/AbstractReplicationJob.js';
 import { AbstractReplicator, AbstractReplicatorOptions, CreateJobOptions } from '@/replication/AbstractReplicator.js';
 import { PersistedReplicationStream } from '@/storage/PersistedReplicationStream.js';
+import type { ReplicationLock } from '@/storage/ReplicationLock.js';
 import { SyncRulesBucketStorage } from '@/storage/SyncRulesBucketStorage.js';
 import type { SyncConfig } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
@@ -55,6 +56,14 @@ class TestReplicator extends AbstractReplicator {
     await (this as any).runLoop();
   }
 
+  async refreshForTest(configuredLock?: ReplicationLock): Promise<{ replicationJobStarted: boolean }> {
+    (this as any).abortController = new AbortController();
+    return (this as any).refresh({
+      configuredLock,
+      loadedVersionLabel: this.syncRuleProvider.versionLabel
+    });
+  }
+
   shouldHandleStreamForTest(
     replicationStream: PersistedReplicationStream,
     loadedSyncRules: string | undefined,
@@ -65,7 +74,7 @@ class TestReplicator extends AbstractReplicator {
 }
 
 describe('AbstractReplicator startup sync config', () => {
-  it.each([true, false])('rejects unsupported file-loaded filters with exit_on_error=%s', async (exitOnError) => {
+  it.each([true, false])('respects exit_on_error=%s for unsupported file-loaded filters', async (exitOnError) => {
     const yaml = /* yaml */ `
       # Sync config fixture.
       config:
@@ -98,13 +107,73 @@ describe('AbstractReplicator startup sync config', () => {
       )
     );
 
-    await expect(replicator.runStartupForTest()).rejects.toThrow('only supported by MongoDB sources');
-    expect(configureSyncRules).not.toHaveBeenCalled();
+    if (exitOnError) {
+      await expect(replicator.runStartupForTest()).rejects.toThrow('only supported by MongoDB sources');
+      expect(configureSyncRules).not.toHaveBeenCalled();
+    } else {
+      await expect(replicator.runStartupForTest()).resolves.toBeUndefined();
+      expect(configureSyncRules).toHaveBeenCalledOnce();
+    }
   });
 
-  it.each(['warning', 'valid', 'unexpected error'] as const)(
-    'handles %s source-capability results before persisting a file-loaded config',
-    async (result) => {
+  it('passes source validation to replication jobs after persisting a file-loaded config', async () => {
+    const yaml = /* yaml */ `
+      # Sync config fixture.
+      config:
+        edition: 3
+      streams:
+        orders:
+          query: SELECT * FROM orders
+    `;
+    const lock = { sync_rules_id: 1, release: vi.fn(async () => {}) } as ReplicationLock;
+    const stream = {
+      replicationStreamId: 1,
+      replicationStreamName: 'test',
+      replicationJobId: 'test-1',
+      state: 'PROCESSING'
+    } as unknown as PersistedReplicationStream;
+    const bucketStorage = {} as SyncRulesBucketStorage;
+    const configureSyncRules = vi.fn(async () => ({ updated: true, lock }));
+    const replicator = new TestReplicator(async () => {}, {
+      id: 'test',
+      storageEngine: {
+        activeBucketStorage: {
+          configureSyncRules,
+          getReplicatingReplicationStreams: async () => [stream],
+          getStoppedReplicationStreams: async () => [],
+          getInstance: () => bucketStorage
+        }
+      } as unknown as AbstractReplicatorOptions['storageEngine'],
+      syncRuleProvider: { get: async () => yaml, exitOnError: false, versionLabel: undefined },
+      metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
+      rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
+    });
+    const assertion = vi.fn(async (): Promise<void> => {
+      throw new Error('Source capability unavailable');
+    });
+    replicator.registerSourceCapabilitiesAssertion(assertion);
+    const start = vi.fn();
+    const createJob = vi.spyOn(replicator, 'createJob').mockReturnValue({ start } as unknown as AbstractReplicationJob);
+
+    await replicator.runStartupForTest();
+    expect(configureSyncRules).toHaveBeenCalledOnce();
+    await expect(replicator.refreshForTest(lock)).resolves.toEqual({ replicationJobStarted: true });
+    expect(createJob).toHaveBeenCalledExactlyOnceWith({
+      lock,
+      storage: bucketStorage,
+      assertSourceCapabilities: assertion
+    });
+    expect(assertion).toHaveBeenCalledOnce();
+    expect(start).toHaveBeenCalledOnce();
+  });
+
+  it.each(
+    [true, false].flatMap((exitOnError) =>
+      (['warning', 'valid', 'unexpected error'] as const).map((result) => ({ exitOnError, result }))
+    )
+  )(
+    'checks source capabilities before persistence: $result, exit_on_error=$exitOnError',
+    async ({ result, exitOnError }) => {
       const yaml = /* yaml */ `
         # Sync config fixture.
         config:
@@ -123,7 +192,7 @@ describe('AbstractReplicator startup sync config', () => {
         storageEngine: {
           activeBucketStorage: { configureSyncRules }
         } as unknown as AbstractReplicatorOptions['storageEngine'],
-        syncRuleProvider: { get: async () => yaml, exitOnError: true, versionLabel: undefined },
+        syncRuleProvider: { get: async () => yaml, exitOnError, versionLabel: undefined },
         metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
         rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
       });
@@ -140,7 +209,7 @@ describe('AbstractReplicator startup sync config', () => {
         )
       );
 
-      if (result === 'unexpected error') {
+      if (result === 'unexpected error' && exitOnError) {
         await expect(replicator.runStartupForTest()).rejects.toThrow('Source validation failed');
         expect(calls).toEqual(['validate']);
       } else {

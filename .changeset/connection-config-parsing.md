@@ -30,7 +30,7 @@ streams:
     query: SELECT * FROM orders
 ```
 
-Validation and deployment reject filters when the feature is unavailable. Postgres, MySQL, SQL Server, and Convex sources reject MongoDB pre-filtering expressions. Filesystem-loaded sync configs also run source-capability checks before persistence, and fatal diagnostics block deployment even when `exit_on_error` is disabled. Changing source-table options requires replacement processing when deploying a new sync config.
+Validation and deployment reject filters when the feature is unavailable. Postgres, MySQL, SQL Server, and Convex sources reject MongoDB pre-filtering expressions. Filesystem-loaded sync configs also run source-capability checks. With `exit_on_error` disabled, configs remain available to diagnostics while fatal source errors block replication. Changing source-table options requires replacement processing when deploying a new sync config.
 
 Source capability validation returns structured `ValidationDiagnostic` entries, allowing multiple fatal issues and
 advisory warnings. Deployment and reprocessing reject fatal diagnostics while validation continues collecting

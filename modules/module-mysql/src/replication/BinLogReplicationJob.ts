@@ -79,6 +79,7 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
       const stream = new BinLogStream({
         logger: this.logger,
         abortSignal: this.abortController.signal,
+        assertSourceCapabilities: this.options.assertSourceCapabilities,
         storage: this.options.storage,
         metrics: this.options.metrics,
         connections: connectionManager

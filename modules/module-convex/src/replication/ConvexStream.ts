@@ -11,6 +11,7 @@ import {
 import {
   MetricsEngine,
   RelationCache,
+  replication,
   ReplicationLagTracker,
   SaveOperationTag,
   SourceEntityDescriptor,
@@ -28,9 +29,8 @@ import { toSqliteInputRow } from '../common/convex-to-sqlite.js';
 import { ConvexConnectionManager } from './ConvexConnectionManager.js';
 import { BinaryConvexSnapshotProgressCursor, decodeSnapshotProgressCursor } from './ConvexSnapshotProgressCursor.js';
 
-export interface ConvexStreamOptions {
+export interface ConvexStreamOptions extends replication.AbstractReplicationStreamOptions {
   connections: ConvexConnectionManager;
-  storage: storage.SyncRulesBucketStorage;
   metrics: MetricsEngine;
   abortSignal: AbortSignal;
   logger?: Logger;
@@ -42,7 +42,7 @@ export class ConvexCursorExpiredError extends DatabaseConnectionError {
   }
 }
 
-export class ConvexStream {
+export class ConvexStream extends replication.AbstractReplicationStream {
   private readonly storage: storage.SyncRulesBucketStorage;
   private readonly metrics: MetricsEngine;
   private readonly syncConfig: HydratedSyncConfig;
@@ -57,6 +57,7 @@ export class ConvexStream {
   private initialSnapshotPromise: Promise<void> | null = null;
 
   constructor(private readonly options: ConvexStreamOptions) {
+    super(options, { defaultSchema: options.connections.schema });
     this.storage = options.storage;
     this.metrics = options.metrics;
     this.syncConfig = options.storage.getParsedSyncRules({ defaultSchema: options.connections.schema });
@@ -103,17 +104,12 @@ export class ConvexStream {
     return parsed;
   }
 
-  async replicate() {
-    try {
-      this.initialSnapshotPromise = this.initReplication();
-      // This pattern/member is used for tests
-      await this.initialSnapshotPromise;
+  protected async doReplicate() {
+    this.initialSnapshotPromise = this.initReplication();
+    // This pattern/member is used for tests
+    await this.initialSnapshotPromise;
 
-      await this.streamChanges();
-    } catch (error) {
-      await this.storage.reportError(error);
-      throw error;
-    }
+    await this.streamChanges();
   }
 
   /**

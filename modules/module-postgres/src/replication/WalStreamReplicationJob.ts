@@ -123,6 +123,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       const stream = new WalStream({
         logger: this.logger,
         abort_signal: this.abortController.signal,
+        assertSourceCapabilities: this.options.assertSourceCapabilities,
         storage: this.options.storage,
         metrics: this.options.metrics,
         connections: connectionManager

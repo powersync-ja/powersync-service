@@ -94,8 +94,8 @@ export abstract class ReplicationModule<TConfig extends types.configFile.DataSou
     context.routerEngine?.registerAPI(sourceAPI);
     if (context.replicationEngine) {
       const replicator = this.createReplicator(context);
-      // KLUDGE: Allows additional validation of filesystem-loaded sync configs before persistence.
-      // This could be replaced by a shared deployment validation flow in the future.
+      // KLUDGE: Reuse the adapter validation for filesystem-loaded configs and stream startup.
+      // A shared validation interface could replace this registration through the route adapter in the future.
       replicator.registerSourceCapabilitiesAssertion((config) => api.assertSourceCapabilities(sourceAPI, config));
       context.replicationEngine.register(replicator);
     }

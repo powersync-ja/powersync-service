@@ -76,6 +76,7 @@ export class CDCReplicationJob extends replication.AbstractReplicationJob {
       const stream = new CDCStream({
         logger: this.logger,
         abortSignal: this.abortController.signal,
+        assertSourceCapabilities: this.options.assertSourceCapabilities,
         storage: this.options.storage,
         metrics: this.options.metrics,
         connections: connectionManager,
