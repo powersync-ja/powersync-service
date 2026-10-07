@@ -1,7 +1,10 @@
+import type { RouteAPI } from '@/api/RouteAPI.js';
+import { assertSourceCapabilities, validateNoMongoFilterExpressions } from '@/api/source-capabilities.js';
 import { AbstractReplicationJob } from '@/replication/AbstractReplicationJob.js';
 import { AbstractReplicator, AbstractReplicatorOptions, CreateJobOptions } from '@/replication/AbstractReplicator.js';
 import { PersistedReplicationStream } from '@/storage/PersistedReplicationStream.js';
 import { SyncRulesBucketStorage } from '@/storage/SyncRulesBucketStorage.js';
+import type { SyncConfig } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 
 class TestReplicator extends AbstractReplicator {
@@ -62,6 +65,91 @@ class TestReplicator extends AbstractReplicator {
 }
 
 describe('AbstractReplicator startup sync config', () => {
+  it.each([true, false])('rejects unsupported file-loaded filters with exit_on_error=%s', async (exitOnError) => {
+    const yaml = /* yaml */ `
+      # Sync config fixture.
+      config:
+        edition: 3
+        source_table_options:
+          orders:
+            mongodb_filter_expression: { $eq: ['$$doc.active', true] }
+      streams:
+        orders:
+          query: SELECT * FROM orders
+    `;
+    const configureSyncRules = vi.fn(async () => ({ updated: false }));
+    const replicator = new TestReplicator(async () => {}, {
+      id: 'test',
+      storageEngine: {
+        activeBucketStorage: { configureSyncRules }
+      } as unknown as AbstractReplicatorOptions['storageEngine'],
+      syncRuleProvider: { get: async () => yaml, exitOnError, versionLabel: undefined },
+      metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
+      rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
+    });
+    replicator.registerSourceCapabilitiesAssertion((config) =>
+      assertSourceCapabilities(
+        {
+          async validateSourceCapabilities(config: SyncConfig) {
+            return validateNoMongoFilterExpressions(config, 'default');
+          }
+        } as unknown as RouteAPI,
+        config
+      )
+    );
+
+    await expect(replicator.runStartupForTest()).rejects.toThrow('only supported by MongoDB sources');
+    expect(configureSyncRules).not.toHaveBeenCalled();
+  });
+
+  it.each(['warning', 'valid', 'unexpected error'] as const)(
+    'handles %s source-capability results before persisting a file-loaded config',
+    async (result) => {
+      const yaml = /* yaml */ `
+        # Sync config fixture.
+        config:
+          edition: 3
+        streams:
+          orders:
+            query: SELECT * FROM orders
+      `;
+      const calls: string[] = [];
+      const configureSyncRules = vi.fn(async () => {
+        calls.push('persist');
+        return { updated: false };
+      });
+      const replicator = new TestReplicator(async () => {}, {
+        id: 'test',
+        storageEngine: {
+          activeBucketStorage: { configureSyncRules }
+        } as unknown as AbstractReplicatorOptions['storageEngine'],
+        syncRuleProvider: { get: async () => yaml, exitOnError: true, versionLabel: undefined },
+        metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
+        rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
+      });
+      replicator.registerSourceCapabilitiesAssertion((config) =>
+        assertSourceCapabilities(
+          {
+            async validateSourceCapabilities() {
+              calls.push('validate');
+              if (result === 'unexpected error') throw new Error('Source validation failed');
+              return result === 'warning' ? [{ level: 'warning', message: 'Missing index' }] : [];
+            }
+          } as unknown as RouteAPI,
+          config
+        )
+      );
+
+      if (result === 'unexpected error') {
+        await expect(replicator.runStartupForTest()).rejects.toThrow('Source validation failed');
+        expect(calls).toEqual(['validate']);
+      } else {
+        await replicator.runStartupForTest();
+        expect(calls).toEqual(['validate', 'persist']);
+      }
+    }
+  );
+
   it.each([true, false])('retains source-table options with exit_on_error=%s', async (exitOnError) => {
     const yaml = /* yaml */ `
       {

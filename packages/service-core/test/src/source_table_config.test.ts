@@ -4,6 +4,7 @@ import { PrecompiledSyncConfig, SqlSyncRules } from '@powersync/service-sync-rul
 import { describe, expect, test } from 'vitest';
 
 const CONFIGURED = /* yaml */ `
+  # Sync config fixture.
   config:
     edition: 3
     source_table_options:
