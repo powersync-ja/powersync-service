@@ -20,7 +20,9 @@ export const FULL_COMPACT_RESCHEDULE_MARGIN_MS = 60 * 1000;
 export interface PendingCompactionGroup {
   /**
    * Input documents are ordered from oldest to newest, matching `ops`.
-   * Keeping the inputs intact lets unchanged singletons retain their object.
+   * Keeping input metadata lets unchanged singletons retain their stored object.
+   * Full compaction releases input ops after processing to avoid retaining
+   * superseded payloads while a pending group spans read batches.
    */
   inputs: BucketDataDocumentV3[];
   ops: BucketDataDoc[];
