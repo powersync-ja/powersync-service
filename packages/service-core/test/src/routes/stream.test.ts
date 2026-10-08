@@ -241,7 +241,7 @@ describe('Stream Route', () => {
           close_reason: 'client_closed',
           transport: 'http_stream'
         })
-      ).toBe(0);
+      ).toBeUndefined();
     });
 
     it('reports the PowerSync code for a ServiceError mid-stream', async () => {

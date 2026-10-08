@@ -173,7 +173,7 @@ describe.each([SyncTransport.HttpStream, SyncTransport.RSocket])('%s connection 
       const connection = startConnection(transport, context);
       await source.ready;
       expect(await recorder.seriesValue(APIMetric.CONCURRENT_CONNECTIONS, {})).toBe(1);
-      expect(await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, {})).toBe(0);
+      expect(await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, {})).toBeUndefined();
 
       if (closeReason === 'client_closed') {
         connection.disconnect();

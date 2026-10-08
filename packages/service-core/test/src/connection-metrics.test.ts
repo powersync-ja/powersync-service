@@ -42,14 +42,14 @@ describe('recordSyncConnection', () => {
     expect(await seriesValue({ close_reason: closeReason, outcome })).toBe(1);
   });
 
-  it('exports a zero baseline before the first failure in an error-code series', async () => {
+  it('creates an error-code series on its first failure without resetting it on initialization', async () => {
     const labels = {
       outcome: 'error',
       close_reason: 'stream_error',
       error_code: ErrorCode.PSYNC_S2403,
       transport: 'http_stream'
     };
-    expect(await seriesValue(labels)).toBe(0);
+    expect(await seriesValue(labels)).toBeUndefined();
 
     recordSyncConnection(recorder.engine, {
       transport: SyncTransport.HttpStream,
@@ -62,23 +62,14 @@ describe('recordSyncConnection', () => {
     expect(await seriesValue(labels)).toBe(1);
   });
 
-  it.each([
-    { outcome: 'success', close_reason: 'client_closed', error_code: 'none', transport: 'http_stream' },
-    { outcome: 'success', close_reason: 'process_shutdown', error_code: 'none', transport: 'rsocket' },
-    { outcome: 'rejected', close_reason: 'service_unavailable', error_code: 'PSYNC_S2003', transport: 'http_stream' },
-    { outcome: 'rejected', close_reason: 'no_sync_config', error_code: 'PSYNC_S2302', transport: 'rsocket' },
-    { outcome: 'rejected', close_reason: 'storage_error', error_code: 'PSYNC_S2403', transport: 'http_stream' },
-    { outcome: 'rejected', close_reason: 'sync_config_error', error_code: 'other', transport: 'rsocket' },
-    { outcome: 'rejected', close_reason: 'concurrency_limit', error_code: 'other', transport: 'http_stream' },
-    { outcome: 'rejected', close_reason: 'concurrency_limit', error_code: 'PSYNC_S2304', transport: 'rsocket' }
-  ])('initializes $transport / $close_reason / $error_code to zero', async (labels) => {
-    expect(await seriesValue(labels)).toBe(0);
-  });
+  it('does not seed connection series but still initializes the concurrent connection gauge', async () => {
+    expect(await seriesValue({})).toBeUndefined();
+    expect(await recorder.seriesValue(APIMetric.CONCURRENT_CONNECTIONS, {})).toBe(0);
 
-  it('does not initialize impossible outcome/reason/code combinations', async () => {
-    expect(await seriesValue({ outcome: 'success', error_code: 'PSYNC_S2305' })).toBeUndefined();
-    expect(await seriesValue({ close_reason: 'no_sync_config', error_code: 'PSYNC_S2403' })).toBeUndefined();
-    expect(await seriesValue({ outcome: 'error', close_reason: 'client_closed' })).toBeUndefined();
+    initializeCoreAPIMetrics(recorder.engine);
+
+    expect(await seriesValue({})).toBeUndefined();
+    expect(await recorder.seriesValue(APIMetric.CONCURRENT_CONNECTIONS, {})).toBe(0);
   });
 
   describe('error_code', () => {
