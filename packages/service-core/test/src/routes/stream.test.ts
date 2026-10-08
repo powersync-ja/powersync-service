@@ -237,7 +237,7 @@ describe('Stream Route', () => {
       ).toEqual(1);
       expect(
         await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, {
-          outcome: 'success',
+          outcome: 'ok',
           close_reason: 'client_closed',
           transport: 'http_stream'
         })

@@ -14,7 +14,7 @@ import { createServer } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { expect, it } from 'vitest';
 
-it('scrapes only observed connection series', async () => {
+it('scrapes only observed connection series and omits error_code for ok closes', async () => {
   const exporter = new PrometheusExporter({ preventServerStart: true });
   const provider = new MeterProvider({ readers: [exporter] });
   const engine = new MetricsEngine({
@@ -49,6 +49,26 @@ it('scrapes only observed connection series', async () => {
     const afterFailure = await scrape();
     expect(afterFailure).toHaveLength(1);
     expect(errorSeries(afterFailure)).toMatch(/ 1$/);
+
+    for (const [index, error] of [
+      undefined,
+      new ServiceError(ErrorCode.PSYNC_S2403, 'Ignored on an ok close')
+    ].entries()) {
+      recordSyncConnection(engine, {
+        transport: SyncTransport.HttpStream,
+        closeReason: SyncCloseReason.ClientClosed,
+        error
+      });
+
+      const afterClose = await scrape();
+      expect(afterClose).toHaveLength(2);
+      expect(errorSeries(afterClose)).toMatch(/ 1$/);
+      const okSeries = afterClose.find((line) => line.includes('outcome="ok"'));
+      expect(okSeries).toContain('close_reason="client_closed"');
+      expect(okSeries).toContain('transport="http_stream"');
+      expect(okSeries).not.toContain('error_code=');
+      expect(okSeries).toMatch(new RegExp(` ${index + 1}$`));
+    }
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await provider.shutdown();

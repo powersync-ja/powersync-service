@@ -95,9 +95,8 @@ describe('Sync stream client disconnect', () => {
       await expect
         .poll(() =>
           recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, {
-            outcome: 'success',
+            outcome: 'ok',
             close_reason: 'client_closed',
-            error_code: 'none',
             transport: 'http_stream'
           })
         )
@@ -111,11 +110,11 @@ describe('Sync stream client disconnect', () => {
     }
   }
 
-  it('counts a real client hangup as a success', async () => {
+  it('counts a real client hangup as an ok close', async () => {
     await abortClientMidStream('identity');
   });
 
-  it('counts a real client hangup on a compressed response as a success', async () => {
+  it('counts a real client hangup on a compressed response as an ok close', async () => {
     // Gzip adds a separate teardown path.
     await abortClientMidStream('gzip');
   });
