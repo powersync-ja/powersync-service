@@ -36,6 +36,10 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
     this.connectionTag = connectionTag ?? sync_rules.DEFAULT_TAG;
   }
 
+  async validateSourceCapabilities(config: sync_rules.SyncConfig): Promise<service_types.ValidationDiagnostic[]> {
+    return api.validateNoMongoFilterExpressions(config, this.connectionTag);
+  }
+
   getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
       defaultSchema: 'public'

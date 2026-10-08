@@ -2,13 +2,10 @@ import { ErrorCode, errors, router, schema } from '@powersync/lib-services-frame
 import { SqlSyncRules, SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
+import { assertSourceCapabilities } from '../../api/source-capabilities.js';
 
-import { RouteAPI } from '../../api/RouteAPI.js';
-import {
-  logSyncConfigErrors,
-  updateSyncRulesFromConfig,
-  updateSyncRulesFromYaml
-} from '../../storage/BucketStorageFactory.js';
+import { PatternResult, RouteAPI } from '../../api/RouteAPI.js';
+import { logSyncConfigErrors, updateSyncRulesFromConfig } from '../../storage/BucketStorageFactory.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -59,6 +56,7 @@ export const deploySyncRules = routeDefinition({
     let syncConfig: SyncConfigWithErrors;
 
     try {
+      // First ensure the SyncConfig parses correctly
       const apiHandler = service_context.routerEngine.getAPI();
       syncConfig = SqlSyncRules.fromYaml(content, {
         ...apiHandler.getParseSyncRulesOptions(),
@@ -75,6 +73,19 @@ export const deploySyncRules = routeDefinition({
     }
 
     logSyncConfigErrors(syncConfig);
+
+    try {
+      // Validate if the current sources support the configuration specified in the Sync Config
+      await assertSourceCapabilities(service_context.routerEngine.getAPI(), syncConfig.config);
+    } catch (error) {
+      throw new errors.ServiceError({
+        status: 422,
+        code: ErrorCode.PSYNC_R0001,
+        description: 'Source capability validation failed',
+        details: error.message
+      });
+    }
+
     const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules(updateSyncRulesFromConfig(syncConfig));
 
     return {
@@ -181,15 +192,22 @@ export const reprocessSyncRules = routeDefinition({
     }
 
     const sync_rules = active.content;
-    const updateOptions = updateSyncRulesFromYaml(sync_rules.sync_rules_content, {
+    const parsed = SqlSyncRules.fromYaml(sync_rules.sync_rules_content, {
+      ...payload.context.service_context.routerEngine.getAPI().getParseSyncRulesOptions(),
+      schema: undefined,
       // This sync config already passed validation. But if the rules are not valid anymore due
       // to a service change, we do want to report the error here.
-      validate: true,
-      version_label: sync_rules.version_label,
-      forceNewReplicationStream: true
+      throwOnError: true
     });
-    logSyncConfigErrors(updateOptions.config.parsed);
-    const new_rules = await activeBucketStorage.updateSyncRules(updateOptions);
+    logSyncConfigErrors(parsed);
+    await assertSourceCapabilities(payload.context.service_context.routerEngine.getAPI(), parsed.config);
+
+    const new_rules = await activeBucketStorage.updateSyncRules(
+      updateSyncRulesFromConfig(parsed, {
+        version_label: sync_rules.version_label,
+        forceNewReplicationStream: true
+      })
+    );
     return {
       slot_name: new_rules.replicationStreamName
     };
@@ -213,11 +231,31 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
       // No schema-based validation at this point
       schema: undefined
     });
-    const source_table_patterns = rules.config.getSourceTables();
-    const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules.config);
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    const recordError = (error: any) => {
+      errors.push(...(error instanceof SyncRulesErrors ? error.errors.map((e) => e.message) : [error.message]));
+    };
+    try {
+      const diagnostics = (await apiHandler.validateSourceCapabilities?.(rules.config)) ?? [];
+      for (const diagnostic of diagnostics) {
+        (diagnostic.level === 'fatal' ? errors : warnings).push(diagnostic.message);
+      }
+    } catch (e) {
+      recordError(e);
+    }
+    let resolved_tables: PatternResult[] = [];
+    try {
+      const source_table_patterns = rules.config.getSourceTables();
+      resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules.config);
+    } catch (e) {
+      recordError(e);
+    }
 
     return {
-      valid: true,
+      valid: errors.length == 0,
+      ...(warnings.length > 0 ? { warnings } : {}),
+      ...(errors.length > 0 ? { errors } : {}),
       bucket_definitions: rules.config.debugRepresentation(),
       source_tables: resolved_tables,
       data_tables: rules.config.debugGetOutputTables()

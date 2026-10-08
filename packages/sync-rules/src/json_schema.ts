@@ -1,12 +1,15 @@
 import ajvModule from 'ajv';
 import { CompatibilityEdition, CompatibilityOption, TimeValuePrecision } from './compatibility.js';
+import type { JsonObject } from './json.js';
+import { MONGO_FILTER_JSON_SCHEMA_DEFINITIONS } from './mongo/MongoFilterExpression.js';
+import { createSourceTableConfigSchema } from './SourceTableConfig.js';
 import { STORAGE_VERSIONS } from './StorageVersion.js';
 // Hack to make this work both in NodeJS and a browser
 const Ajv = ajvModule.default ?? ajvModule;
-const ajv = new Ajv({ allErrors: true, verbose: true });
 
 export const syncRulesSchema: ajvModule.Schema = {
   type: 'object',
+  definitions: MONGO_FILTER_JSON_SCHEMA_DEFINITIONS,
   properties: {
     bucket_definitions: {
       type: 'object',
@@ -136,8 +139,9 @@ export const syncRulesSchema: ajvModule.Schema = {
     },
     config: {
       type: 'object',
-      description: 'Config declaring the compatibility level used to parse these definitions.',
+      description: 'Compatibility, storage, and source-table settings for these definitions.',
       properties: {
+        source_table_options: createSourceTableConfigSchema(),
         edition: {
           type: 'integer',
           default: CompatibilityEdition.LEGACY,
@@ -172,4 +176,24 @@ export const syncRulesSchema: ajvModule.Schema = {
   additionalProperties: false
 } as const;
 
-export const validateSyncRulesSchema: any = ajv.compile(syncRulesSchema);
+export const validateSyncRulesSchema: any = compileSyncRulesSchemaValidator(syncRulesSchema);
+
+export type SyncRulesSchemaValidator = ajvModule.ValidateFunction;
+
+/**
+ * An isolated composition shared by editor tooling, YAML validation and persisted source-table options.
+ */
+export function createSyncRulesSchema(): JsonObject {
+  const schema = structuredClone(syncRulesSchema) as JsonObject;
+  return schema;
+}
+
+/**
+ * Permit editor annotations without weakening AJV's checks for unknown validation keywords.
+ */
+export function compileSyncRulesSchemaValidator(schema: ajvModule.Schema): SyncRulesSchemaValidator {
+  return new Ajv({
+    allErrors: true,
+    keywords: [{ keyword: 'defaultSnippets', schemaType: 'array' }]
+  }).compile(schema);
+}

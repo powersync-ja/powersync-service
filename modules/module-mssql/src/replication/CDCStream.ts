@@ -10,6 +10,7 @@ import {
 import {
   getUuidReplicaIdentityBson,
   MetricsEngine,
+  replication,
   ReplicationLagTracker,
   SourceEntityDescriptor,
   storage
@@ -51,9 +52,8 @@ import type {
 import { MSSQLTableReconciliationState } from './MSSQLTableReconciliationContext.js';
 import { SchemaChange, SchemaChangeType } from './SchemaChange.js';
 
-export interface CDCStreamOptions {
+export interface CDCStreamOptions extends replication.AbstractReplicationStreamOptions {
   connections: MSSQLConnectionManager;
-  storage: storage.SyncRulesBucketStorage;
   metrics: MetricsEngine;
   abortSignal: AbortSignal;
   logger?: Logger;
@@ -110,7 +110,7 @@ export class CDCDataExpiredError extends DatabaseConnectionError {
   }
 }
 
-export class CDCStream {
+export class CDCStream extends replication.AbstractReplicationStream {
   private readonly syncRules: HydratedSyncConfig;
   private readonly storage: storage.SyncRulesBucketStorage;
   private readonly connections: MSSQLConnectionManager;
@@ -126,6 +126,7 @@ export class CDCStream {
   private warnedSchemaChangeCount = new Map<number, number>();
 
   constructor(private options: CDCStreamOptions) {
+    super(options, { defaultSchema: options.connections.schema });
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
     this.syncRules = options.storage.getParsedSyncRules({ defaultSchema: options.connections.schema });
@@ -177,14 +178,9 @@ export class CDCStream {
     return this.options.snapshotBatchSize ?? 10_000;
   }
 
-  async replicate() {
-    try {
-      await this.initReplication();
-      await this.streamChanges();
-    } catch (e) {
-      await this.storage.reportError(e);
-      throw e;
-    }
+  protected async doReplicate() {
+    await this.initReplication();
+    await this.streamChanges();
   }
 
   async populateTableCache() {

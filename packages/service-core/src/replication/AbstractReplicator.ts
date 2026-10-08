@@ -1,4 +1,5 @@
 import { container, ErrorCode, logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
+import { SqlSyncRules, type SyncConfig } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -23,6 +24,7 @@ const REFRESH_INTERVAL_MS = 5_000;
 export interface CreateJobOptions {
   lock: storage.ReplicationLock;
   storage: storage.SyncRulesBucketStorage;
+  assertSourceCapabilities?: (config: SyncConfig) => Promise<void>;
 }
 
 export interface AbstractReplicatorOptions {
@@ -73,6 +75,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   private abortController: AbortController | undefined;
 
+  private assertSourceCapabilities: ((config: SyncConfig) => Promise<void>) | undefined;
+
   protected constructor(private options: AbstractReplicatorOptions) {
     this.logger = logger.child({ name: `Replicator:${options.id}` });
     const heartbeatIntervalSeconds = options.heartbeatIntervalSeconds ?? DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
@@ -105,6 +109,13 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     return this.options.syncRuleProvider;
   }
 
+  /**
+   * Default schema for startup sync config validation. Source modules with a known default should override this.
+   */
+  protected get defaultSchema(): string {
+    return 'not_applicable';
+  }
+
   protected get rateLimiter() {
     return this.options.rateLimiter;
   }
@@ -115,6 +126,13 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   protected get stopped() {
     return this.abortController?.signal.aborted;
+  }
+
+  /**
+   * Register an assertion that blocks unsupported file-loaded sync configs before replication.
+   */
+  public registerSourceCapabilitiesAssertion(assertion: (config: SyncConfig) => Promise<void>): void {
+    this.assertSourceCapabilities = assertion;
   }
 
   public async start(): Promise<void> {
@@ -165,19 +183,30 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         // versions before that check was added, so we keep the lock for now - for where te service version and sync config is updated at
         // the same time.
 
-        const updateOptions = storage.updateSyncRulesFromYaml(loadedSyncConfig, {
-          lock: true,
-          validate: this.syncRuleProvider.exitOnError,
-          version_label: versionLabel
+        const parsed = SqlSyncRules.fromYaml(loadedSyncConfig, {
+          schema: undefined,
+          defaultSchema: this.defaultSchema,
+          throwOnError: this.syncRuleProvider.exitOnError
         });
-        storage.logSyncConfigErrors(updateOptions.config.parsed, this.logger);
-        const { lock } = await this.storage.configureSyncRules(updateOptions);
+        storage.logSyncConfigErrors(parsed, this.logger);
+        try {
+          await this.assertSourceCapabilities?.(parsed.config);
+        } catch (error) {
+          if (this.syncRuleProvider.exitOnError) throw error;
+          // Persist the config for diagnostics; the job-start check will prevent unsafe replication.
+          this.logger.error('Sync config source capability validation failed', error);
+        }
+        const { lock } = await this.storage.configureSyncRules(
+          storage.updateSyncRulesFromConfig(parsed, {
+            lock: true,
+            version_label: versionLabel
+          })
+        );
         if (lock) {
           configuredLock = lock;
         }
       } catch (e) {
         // Log and re-raise to exit.
-        // Should only reach this due to validation errors if exit_on_error is true.
         this.logger.error(`Failed to update sync config`, e);
         throw e;
       }
@@ -293,7 +322,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         const syncRuleStorage = this.storage.getInstance(replicationStream, { replicationLock: lock });
         const newJob = this.createJob({
           lock: lock,
-          storage: syncRuleStorage
+          storage: syncRuleStorage,
+          assertSourceCapabilities: this.assertSourceCapabilities
         });
 
         newJobs.set(jobId, newJob);

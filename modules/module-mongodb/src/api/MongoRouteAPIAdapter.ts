@@ -39,6 +39,23 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     };
   }
 
+  async validateSourceCapabilities(config: sync_rules.SyncConfig): Promise<service_types.ValidationDiagnostic[]> {
+    const filtered = sync_rules.hasMongoFilterExpressions(
+      config instanceof sync_rules.PrecompiledSyncConfig ? (config.plan.sourceTableConfig ?? {}) : {},
+      this.connectionTag
+    );
+    // External implementations override this to validate the capabilities they provide.
+    return filtered
+      ? [
+          {
+            level: 'fatal',
+            message:
+              'MongoDB replication pre-filtering is only available in the Team and Enterprise editions and is not enabled for this connection.'
+          }
+        ]
+      : [];
+  }
+
   async shutdown(): Promise<void> {
     await this.client.close();
   }

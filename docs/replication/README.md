@@ -97,6 +97,9 @@ In storage modes that support incremental reprocessing, a replication stream can
 
 ## Reading Path
 
+For source-table options, expression validation, and execution capability checks, see
+[Sync config parsing and source-table options](./sync-config-parsing.md).
+
 1. [Core concepts](./01-core-concepts.md): common vocabulary used by the replication code and storage implementations.
 2. [Replication lifecycle](./02-replication-lifecycle.md): how `ReplicationEngine`, `AbstractReplicator`, and `AbstractReplicationJob` manage work.
 3. [Source connector overview](./03-source-connector-overview.md): what Postgres, MongoDB, MySQL, SQL Server, Convex, and future source modules provide.

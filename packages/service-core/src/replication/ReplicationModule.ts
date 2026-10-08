@@ -90,8 +90,16 @@ export abstract class ReplicationModule<TConfig extends types.configFile.DataSou
     // If decoding fails, this will raise a hard error, and stop the service.
     this.decodeConfig(baseMatchingConfig);
 
-    context.replicationEngine?.register(this.createReplicator(context));
-    context.routerEngine?.registerAPI(this.createRouteAPIAdapter());
+    const sourceAPI = this.createRouteAPIAdapter();
+    // The router exists even in replication-only mode and owns adapter shutdown through the service lifecycle.
+    context.routerEngine.registerAPI(sourceAPI);
+    if (context.replicationEngine) {
+      const replicator = this.createReplicator(context);
+      // KLUDGE: Reuse the adapter validation for filesystem-loaded configs and stream startup.
+      // A shared validation interface could replace this registration through the route adapter in the future.
+      replicator.registerSourceCapabilitiesAssertion((config) => api.assertSourceCapabilities(sourceAPI, config));
+      context.replicationEngine.register(replicator);
+    }
   }
 
   protected decodeConfig(config: TConfig): void {

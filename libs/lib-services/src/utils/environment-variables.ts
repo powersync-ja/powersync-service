@@ -1,5 +1,6 @@
 import * as dotenv from 'dotenv';
-import * as t from 'zod';
+// Preserve the framework's existing Zod 3 validator API while sharing the catalog dependency.
+import * as t from 'zod/v3';
 
 const string = t.string();
 const number = t

@@ -10,6 +10,7 @@ export * from './ExpressionType.js';
 export * from './HydratedSyncConfig.js';
 export * from './HydrationState.js';
 export * from './IdSequence.js';
+export * from './json.js';
 export * from './json_schema.js';
 export * from './request_functions.js';
 export * from './schema-generators/schema-generators.js';
@@ -28,9 +29,14 @@ export * from './utils.js';
 
 export * from './compiler/compiler.js';
 export { HashMap, HashSet } from './compiler/equality.js';
+export * from './SourceTableConfig.js';
 export { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
 export { Database, SQLite, Statement, nodeSqlite, sqliteExpressionEngine } from './sync_plan/engine/sqlite.js';
 export { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 export * from './sync_plan/plan.js';
 export * from './sync_plan/plan_equality_serialized.js';
 export * from './sync_plan/serialize.js';
+export * from './SyncConfigDiagnostics.js';
+
+export * from './mongo/MongoFilterExpression.js';
+export { MongoFilterValidationError } from './mongo/MongoFilterValidation.js';

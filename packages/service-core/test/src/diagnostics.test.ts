@@ -205,4 +205,132 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
     expect(result!.version_label).toBe('v6');
     expect(result!.errors).toEqual([expect.objectContaining({ level: 'fatal', message: 'Invalid sync config' })]);
   });
+
+  test('reports each sync config error with its source location when parsing fails', async () => {
+    const yaml = `
+config:
+  edition: 3
+streams:
+  global:
+    query: SELECT id FROM test_table
+    unknown_key: true
+`;
+    const content = makeSyncRulesContent();
+    content.parsed = (options?: any) => {
+      SqlSyncRules.fromYaml(yaml, { ...options, defaultSchema: 'public', throwOnError: true });
+      throw new Error('Expected parsing to fail');
+    };
+
+    const result = await getSyncRulesStatus(makeRouteAPI(), content, OPTIONS, makeSystemStorage());
+
+    expect(result!.errors).toHaveLength(1);
+    const [error] = result!.errors;
+    expect(error.level).toBe('fatal');
+    expect(error.message).not.toContain('Expected parsing to fail');
+    expect(yaml.slice(error.location!.start_offset, error.location!.end_offset)).toBe('unknown_key');
+  });
+});
+
+describe('source capability validation', () => {
+  test('exposes stored replication errors when source checks cannot run', async () => {
+    const content = makeSyncRulesContent({
+      status: {
+        id: '1',
+        replicationStreamId: 1,
+        state: storage.SyncRuleState.PROCESSING,
+        last_checkpoint_lsn: null,
+        last_fatal_error: 'Source capability unavailable',
+        last_fatal_error_ts: new Date(),
+        last_keepalive_ts: null,
+        last_checkpoint_ts: null
+      }
+    });
+    const result = await getSyncRulesStatus(
+      makeRouteAPI(),
+      content,
+      {
+        ...OPTIONS,
+        check_connection: false,
+        active: false,
+        include_content: true
+      },
+      makeSystemStorage()
+    );
+    expect(result?.content).toBe(MINIMAL_SYNC_RULES);
+    expect(result?.errors).toContainEqual(
+      expect.objectContaining({
+        level: 'fatal',
+        message: 'Source capability unavailable'
+      })
+    );
+  });
+
+  test('reports capability failures alongside table diagnostics', async () => {
+    const api = makeRouteAPI();
+    api.validateSourceCapabilities = async () => [
+      { level: 'fatal', message: 'Source capability unavailable' },
+      { level: 'warning', message: 'Source advisory', location: { start_offset: 1, end_offset: 4 } }
+    ];
+    api.getDebugTablesInfo = async () => [
+      {
+        schema: 'public',
+        pattern: 'items',
+        wildcard: false,
+        table: {
+          schema: 'public',
+          name: 'items',
+          data_queries: true,
+          parameter_queries: false,
+          replication_id: [],
+          errors: [{ level: 'warning', message: 'Index missing' }]
+        }
+      }
+    ];
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
+    expect(result!.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ level: 'fatal', message: 'Source capability unavailable' }),
+        expect.objectContaining({ level: 'warning', message: 'Index missing' }),
+        expect.objectContaining({
+          level: 'warning',
+          message: 'Source advisory',
+          location: { start_offset: 1, end_offset: 4 }
+        })
+      ])
+    );
+    expect(result!.connections[0].tables).toHaveLength(1);
+  });
+
+  test('preserves both validation failures and continues independent diagnostics', async () => {
+    const api = makeRouteAPI({
+      wal_status: 'extended',
+      safe_wal_size: 4 * GB,
+      max_slot_wal_keep_size: 10 * GB
+    });
+    api.validateSourceCapabilities = async () => {
+      throw new Error('Source capability unavailable');
+    };
+    api.getDebugTablesInfo = async () => {
+      throw new Error('Table metadata unavailable');
+    };
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
+    expect(result!.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ level: 'fatal', message: 'Source capability unavailable' }),
+        expect.objectContaining({ level: 'fatal', message: 'Table metadata unavailable' }),
+        expect.objectContaining({ level: 'warning', message: expect.stringContaining('WAL budget') })
+      ])
+    );
+  });
+
+  test('does not check capabilities when connection checks are disabled', async () => {
+    const api = makeRouteAPI();
+    let called = false;
+    api.validateSourceCapabilities = async () => {
+      called = true;
+      return [];
+    };
+    await getSyncRulesStatus(api, makeSyncRulesContent(), { ...OPTIONS, check_connection: false }, makeSystemStorage());
+    expect(called).toBe(false);
+  });
 });

@@ -17,13 +17,14 @@ When the service lifecycle starts, `ReplicationEngine.start()` starts every regi
 An `AbstractReplicator` is responsible for source-level orchestration. It does not apply individual source rows itself. Instead, it:
 
 1. Reads the sync config YAML from wherever the service configuration points to.
-2. Persists changed sync config through `BucketStorageFactory.configureSyncRules()`.
-3. Repeatedly refreshes the set of replication streams that should be running.
-4. Acquires a replication lock for new streams.
-5. Creates a source-specific `AbstractReplicationJob` with the locked `SyncRulesBucketStorage`.
-6. Starts the job.
-7. Stops jobs whose replication streams no longer need processing.
-8. Cleans up stopped replication streams by calling source cleanup and then storage termination.
+2. Parses filesystem-loaded sync config and checks source capabilities. With `exit_on_error` enabled, failures stop startup before persistence. With it disabled, failures are logged and the config is persisted so diagnostics remain available.
+3. Persists changed sync config through `BucketStorageFactory.configureSyncRules()`.
+4. Repeatedly refreshes the set of replication streams that should be running.
+5. Acquires a replication lock for new streams.
+6. Creates a source-specific `AbstractReplicationJob` with the source-capability callback.
+7. Starts the job. Its `AbstractReplicationStream` checks persisted configs for fatal parsing errors and source capabilities before snapshotting or streaming. Warnings remain advisory. Failures are reported through storage for diagnostics; the job releases its lock and validation is retried when a new job starts.
+8. Stops jobs whose replication streams no longer need processing.
+9. Cleans up stopped replication streams by calling source cleanup and then storage termination.
 
 The refresh loop runs continuously until the service is stopped. It also periodically calls `keepAlive()` on running jobs when the rate limiter allows it.
 

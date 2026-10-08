@@ -1,5 +1,6 @@
 import { BucketPriority } from '../BucketDescription.js';
 import { ParameterLookupDefinitionId } from '../HydrationState.js';
+import type { SourceTableConfigMap } from '../SourceTableConfig.js';
 import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
 import { SqlExpression } from './expression.js';
@@ -22,6 +23,7 @@ import { SqlExpression } from './expression.js';
  * but we must never alter the semantics for existing serialized plans.
  */
 export interface SyncPlan {
+  sourceTableConfig?: SourceTableConfigMap;
   dataSources: StreamDataSource[];
   buckets: StreamBucketDataSource[];
   parameterIndexes: StreamParameterIndexLookupCreator[];

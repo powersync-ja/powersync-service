@@ -202,6 +202,7 @@ export interface PersistedSyncConfigContentData {
   readonly version_label?: string;
 }
 export type PersistedSyncConfigId = string;
+
 export interface ParseSyncConfigOptions {
   defaultSchema: string;
 }

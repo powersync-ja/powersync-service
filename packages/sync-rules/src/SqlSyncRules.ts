@@ -5,7 +5,11 @@ import { SyncConfigFromYaml } from './from_yaml.js';
 import { RequestParameters, SourceSchema, SqliteJsonRow } from './types.js';
 
 export interface SyncRulesOptions {
+  /**
+   * Source database schema.
+   */
   schema?: SourceSchema;
+
   /**
    * The default schema to use when only a table name is specified.
    *

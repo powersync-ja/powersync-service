@@ -1,4 +1,5 @@
 export * from './AbstractReplicationJob.js';
+export * from './AbstractReplicationStream.js';
 export * from './AbstractReplicator.js';
 export * from './ErrorRateLimiter.js';
 export * from './RelationCache.js';

@@ -227,14 +227,15 @@ export function updateSyncRulesFromYaml(
   content: string,
   options?: Omit<UpdateSyncRulesOptions, 'config'> & { validate?: boolean }
 ): UpdateSyncRulesOptions {
+  const { validate, ...updateOptions } = options ?? {};
   const config = SqlSyncRules.fromYaml(content, {
     // No schema-based validation at this point
     schema: undefined,
     defaultSchema: options?.defaultSchema ?? 'not_applicable', // Not needed for validation
-    throwOnError: options?.validate ?? false
+    throwOnError: validate ?? false
   });
 
-  return updateSyncRulesFromConfig(config, options);
+  return updateSyncRulesFromConfig(config, updateOptions);
 }
 
 export function updateSyncRulesFromConfig(

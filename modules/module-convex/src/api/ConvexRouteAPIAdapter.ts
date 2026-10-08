@@ -183,6 +183,10 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
     await this.shutdown();
   }
 
+  async validateSourceCapabilities(config: sync_rules.SyncConfig): Promise<service_types.ValidationDiagnostic[]> {
+    return api.validateNoMongoFilterExpressions(config, this.connectionManager.connectionTag);
+  }
+
   getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
       defaultSchema: this.connectionManager.schema
