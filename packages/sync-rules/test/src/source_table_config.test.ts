@@ -80,11 +80,11 @@ describe('source table configuration', () => {
   });
 
   test.each([
-    ['"": {}', 'fewer than 1 characters'],
+    ['"": {}', 'Source table patterns must use'],
     ['orders: null', 'Options for a source table must be a map.'],
     ['orders: []', 'Options for a source table must be a map.'],
-    ['a.b.c.d: {}', 'must match pattern'],
-    ['a..orders: {}', 'must match pattern'],
+    ['a.b.c.d: {}', 'Source table patterns must use'],
+    ['a..orders: {}', 'Source table patterns must use'],
     ['orders: { unknown: true }', "Unknown key 'unknown'."],
     ['orders: { mongodb_filter_expression: wrong }', 'Expected exactly one']
   ])('rejects invalid source-table options: %s', (entry, message) => {

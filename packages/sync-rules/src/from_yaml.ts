@@ -15,7 +15,11 @@ import { QueryParseResult, SqlBucketDescriptor } from './legacy/SqlBucketDescrip
 import { syncStreamFromSql } from './legacy/streams/from_sql.js';
 import { parseMongoFilterExpression } from './mongo/MongoFilterExpression.js';
 import type { SourceTableConfigMap } from './SourceTableConfig.js';
-import { findDuplicateSourceTableConfigKeys } from './SourceTableConfig.js';
+import {
+  findDuplicateSourceTableConfigKeys,
+  normalizeSourceTableConfig,
+  parseSourceTableConfigKey
+} from './SourceTableConfig.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
 import { validateStorageVersion } from './StorageVersion.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
@@ -118,7 +122,12 @@ export class SyncConfigFromYaml {
       ?.requireMap('Source-table options must be a map of table names or patterns to option maps.');
     if (sourceTables) {
       const sourceLocationResolver = createYamlSourceLocationResolver(parsed);
-      for (const { key: table, value } of sourceTables.stringKeyedItems()) {
+      for (const { key: table, keyScalar, value } of sourceTables.stringKeyedItems()) {
+        try {
+          parseSourceTableConfigKey(table);
+        } catch (error) {
+          keyScalar.reportError(error instanceof Error ? error.message : String(error));
+        }
         using tableOptions = value.requireMap('Options for a source table must be a map.');
         const expression = tableOptions?.get('mongodb_filter_expression');
         if (!expression) continue;
@@ -160,25 +169,26 @@ export class SyncConfigFromYaml {
     let sourceTableConfig: SourceTableConfigMap = {};
     if (sourceTables && !this.#hasFatalError) {
       try {
-        sourceTableConfig = sourceTables.node.toJS(parsed) as SourceTableConfigMap;
+        const authoredOptions = sourceTables.node.toJS(parsed) as SourceTableConfigMap;
+        // Different authored keys can resolve to the same SQL identifier. Report each duplicate at its key.
+        const sourceLocationResolver = createYamlSourceLocationResolver(parsed);
+        for (const [previous, duplicate] of findDuplicateSourceTableConfigKeys(Object.keys(authoredOptions))) {
+          this.#errors.push(
+            new YamlError(
+              new Error(
+                `Source-table keys ${JSON.stringify(previous)} and ${JSON.stringify(duplicate)} resolve to the same pattern.`
+              ),
+              sourceLocationResolver.getLocation(['config', 'source_table_options', duplicate], 'key')
+            )
+          );
+        }
+        if (!this.#hasFatalError) {
+          // Only normalized options belong in the plan. Failures remain YAML diagnostics so invalid configs
+          // can be persisted for diagnostics without failing again during serialization.
+          sourceTableConfig = normalizeSourceTableConfig(authoredOptions);
+        }
       } catch (error) {
         sourceTables.reportError(error instanceof Error ? error.message : String(error));
-      }
-      /**
-       * Table pattern keys can map to the same table via different pathways.
-       * E.g. [default_schema].[tablename] and [tablename] can refer to the same item,
-       * we report errors for duplicates.
-       */
-      const sourceLocationResolver = createYamlSourceLocationResolver(parsed);
-      for (const [previous, duplicate] of findDuplicateSourceTableConfigKeys(Object.keys(sourceTableConfig))) {
-        this.#errors.push(
-          new YamlError(
-            new Error(
-              `Source-table keys ${JSON.stringify(previous)} and ${JSON.stringify(duplicate)} resolve to the same pattern.`
-            ),
-            sourceLocationResolver.getLocation(['config', 'source_table_options', duplicate], 'key')
-          )
-        );
       }
     }
 
