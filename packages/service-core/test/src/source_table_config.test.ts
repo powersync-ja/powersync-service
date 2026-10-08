@@ -36,6 +36,49 @@ describe('source-table options', () => {
       })
     ).toThrow('Expected a source field');
   });
+  test.each([
+    ['a..orders: {}', 'Source table patterns must use'],
+    ['Users: {}, users: {}', 'resolve to the same pattern']
+  ])('persists fatal diagnostics for invalid source-table options: %s', (options, message) => {
+    const yaml = /* yaml */ `
+      # Sync config fixture.
+      config:
+        edition: 3
+        source_table_options: { ${options} }
+      streams:
+        orders:
+          query: SELECT * FROM orders
+    `;
+    const parsed = SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app', throwOnError: false });
+    expect(parsed.errors).toContainEqual(
+      expect.objectContaining({ type: 'fatal', message: expect.stringContaining(message) })
+    );
+    const diagnostic = parsed.errors.find((error) => error.type === 'fatal' && error.message.includes(message))!;
+    const offendingKey = options.startsWith('a..') ? 'a..orders' : 'users';
+    expect(yaml.slice(diagnostic.location.start, diagnostic.location.end)).toContain(offendingKey);
+    const update = updateSyncRulesFromConfig(parsed);
+    expect(update.config.yaml).toBe(yaml);
+    const restored = parsePersistedSyncConfigContent({
+      content: update.config.yaml,
+      compiledPlan: update.config.plan!,
+      storageVersion: 2,
+      parseOptions: { defaultSchema: 'app' }
+    });
+    expect(restored.errors.map(({ message, type, location }) => ({ message, type, location }))).toEqual(
+      parsed.errors.map(({ message, type, location }) => ({ message, type, location }))
+    );
+    expect((restored.config as PrecompiledSyncConfig).plan.sourceTableConfig ?? {}).toEqual({});
+  });
+
+  test('keeps valid filters on a partial plan with an unrelated SQL error', () => {
+    const yaml = CONFIGURED.replace('SELECT * FROM orders', 'SELECT FROM');
+    const parsed = SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app', throwOnError: false });
+    expect(parsed.errors.some((error) => error.type === 'fatal')).toBe(true);
+    const update = updateSyncRulesFromConfig(parsed);
+    expect(update.config.plan!.plan.sourceTableConfig).toEqual({
+      orders: { mongodb_filter_expression: { $eq: ['$$doc.active', true] } }
+    });
+  });
   test('requires replacement processing when filters change or are removed', () => {
     const deploy = (yaml: string) => updateSyncRulesFromConfig(SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app' }));
     const first = deploy(CONFIGURED);
