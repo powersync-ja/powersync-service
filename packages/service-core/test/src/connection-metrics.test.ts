@@ -1,6 +1,6 @@
 import { ErrorCode, InternalServerError, ServiceError } from '@powersync/lib-services-framework';
 import { APIMetric } from '@powersync/service-types';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   initializeCoreAPIMetrics,
@@ -27,19 +27,21 @@ describe('recordSyncConnection', () => {
   }
 
   it.each([
-    [SyncCloseReason.ClientClosed, 'success', SyncTransport.HttpStream],
-    [SyncCloseReason.ServiceClosed, 'success', SyncTransport.HttpStream],
-    [SyncCloseReason.ProcessShutdown, 'success', SyncTransport.HttpStream],
-    [SyncCloseReason.Unknown, 'success', SyncTransport.HttpStream],
+    [SyncCloseReason.ClientClosed, 'ok', SyncTransport.HttpStream],
+    [SyncCloseReason.ServiceClosed, 'ok', SyncTransport.HttpStream],
+    [SyncCloseReason.ProcessShutdown, 'ok', SyncTransport.HttpStream],
+    [SyncCloseReason.Unknown, 'ok', SyncTransport.HttpStream],
     [SyncCloseReason.StreamError, 'error', SyncTransport.HttpStream],
     [SyncCloseReason.ServiceUnavailable, 'rejected', SyncTransport.HttpStream],
     [SyncCloseReason.NoSyncConfig, 'rejected', SyncTransport.HttpStream],
     [SyncCloseReason.StorageError, 'rejected', SyncTransport.HttpStream],
+    [SyncCloseReason.SyncConfigError, 'rejected', SyncTransport.HttpStream],
     [SyncCloseReason.ConcurrencyLimit, 'rejected', SyncTransport.RSocket]
   ] as const)('classifies %s as %s', async (closeReason, outcome, transport) => {
     recordSyncConnection(recorder.engine, { transport, closeReason });
 
     expect(await seriesValue({ close_reason: closeReason, outcome })).toBe(1);
+    expect(await seriesValue({})).toBe(1);
   });
 
   it('creates an error-code series on its first failure without resetting it on initialization', async () => {
@@ -131,15 +133,25 @@ describe('recordSyncConnection', () => {
       ).toBe(1);
     });
 
-    it('reports none for a success even when the handler collected an error', async () => {
+    it.each([
+      SyncCloseReason.ClientClosed,
+      SyncCloseReason.ServiceClosed,
+      SyncCloseReason.ProcessShutdown,
+      SyncCloseReason.Unknown
+    ])('omits error_code and counts %s once even when the handler collected an error', async (closeReason) => {
+      const add = vi.spyOn(recorder.engine.getCounter(APIMetric.SYNC_CONNECTIONS), 'add');
       recordSyncConnection(recorder.engine, {
         transport: SyncTransport.RSocket,
-        closeReason: SyncCloseReason.ClientClosed,
+        closeReason,
         error: new InternalServerError(new Error('ignored'))
       });
 
-      expect(await seriesValue({ close_reason: 'client_closed', error_code: 'none' })).toBe(1);
-      expect(await seriesValue({ close_reason: 'client_closed', error_code: ErrorCode.PSYNC_S2001 })).toBeUndefined();
+      expect(add).toHaveBeenCalledExactlyOnceWith(1, {
+        outcome: 'ok',
+        close_reason: closeReason,
+        transport: 'rsocket'
+      });
+      expect(await seriesValue({})).toBe(1);
     });
   });
 
@@ -155,7 +167,7 @@ describe('recordSyncConnection', () => {
       closeReason: SyncCloseReason.ClientClosed
     });
 
-    const labels = { outcome: 'success', close_reason: 'client_closed', error_code: 'none' };
+    const labels = { outcome: 'ok', close_reason: 'client_closed' };
     expect(await seriesValue({ ...labels, transport: 'http_stream' })).toBe(2);
     expect(await seriesValue({ ...labels, transport: 'rsocket' })).toBe(1);
   });

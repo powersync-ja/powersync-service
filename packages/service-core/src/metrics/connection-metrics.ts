@@ -1,6 +1,7 @@
 import { ErrorCode, errors } from '@powersync/lib-services-framework';
 import { APIMetric } from '@powersync/service-types';
-import { MetricsEngine } from './MetricsEngine.js';
+import type { MetricsEngine } from './MetricsEngine.js';
+import type { MetricAttributes } from './metrics-interfaces.js';
 
 export enum SyncCloseReason {
   /** Routine client disconnect/reconnect. */
@@ -23,14 +24,14 @@ export enum SyncTransport {
 }
 
 type SyncConnectionReasonPolicy = Readonly<{
-  outcome: 'success' | 'error' | 'rejected';
+  outcome: 'ok' | 'error' | 'rejected';
   logText: string;
 }>;
 
 const SYNC_CONNECTION_REASON_POLICY = {
-  [SyncCloseReason.ClientClosed]: { outcome: 'success', logText: 'client closing stream' },
-  [SyncCloseReason.ServiceClosed]: { outcome: 'success', logText: 'service closing stream' },
-  [SyncCloseReason.ProcessShutdown]: { outcome: 'success', logText: 'process shutdown' },
+  [SyncCloseReason.ClientClosed]: { outcome: 'ok', logText: 'client closing stream' },
+  [SyncCloseReason.ServiceClosed]: { outcome: 'ok', logText: 'service closing stream' },
+  [SyncCloseReason.ProcessShutdown]: { outcome: 'ok', logText: 'process shutdown' },
   [SyncCloseReason.StreamError]: { outcome: 'error', logText: 'stream error' },
   [SyncCloseReason.ServiceUnavailable]: { outcome: 'rejected', logText: 'service unavailable' },
   [SyncCloseReason.NoSyncConfig]: { outcome: 'rejected', logText: 'no sync config' },
@@ -38,7 +39,7 @@ const SYNC_CONNECTION_REASON_POLICY = {
   [SyncCloseReason.SyncConfigError]: { outcome: 'rejected', logText: 'sync config error' },
   [SyncCloseReason.ConcurrencyLimit]: { outcome: 'rejected', logText: 'concurrency limit' },
   // Nothing was thrown or reported, so the stream ended cleanly without a specific reason.
-  [SyncCloseReason.Unknown]: { outcome: 'success', logText: 'unknown' }
+  [SyncCloseReason.Unknown]: { outcome: 'ok', logText: 'unknown' }
 } as const satisfies Readonly<Record<SyncCloseReason, SyncConnectionReasonPolicy>>;
 
 /** Wording used by existing log-based dashboards for the `close_reason` field. */
@@ -58,17 +59,17 @@ const ERROR_CODES: ReadonlySet<string> = new Set(Object.values(ErrorCode));
 export function recordSyncConnection(engine: MetricsEngine, metric: SyncConnectionMetric): void {
   const { outcome } = SYNC_CONNECTION_REASON_POLICY[metric.closeReason];
 
-  // Keep successful closes in one error_code series, even if an error was supplied.
-  let errorCode = 'none';
-  if (outcome !== 'success') {
-    const code = errors.ServiceError.isServiceError(metric.error) ? metric.error.errorData?.code : undefined;
-    errorCode = typeof code == 'string' && ERROR_CODES.has(code) ? code : 'other';
-  }
-
-  engine.getCounter(APIMetric.SYNC_CONNECTIONS).add(1, {
+  const attributes: MetricAttributes = {
     outcome,
     close_reason: metric.closeReason,
-    error_code: errorCode,
     transport: metric.transport
-  });
+  };
+
+  if (outcome !== 'ok') {
+    const code = errors.ServiceError.isServiceError(metric.error) ? metric.error.errorData?.code : undefined;
+    const errorCode = typeof code == 'string' && ERROR_CODES.has(code) ? code : 'other';
+    attributes.error_code = errorCode;
+  }
+
+  engine.getCounter(APIMetric.SYNC_CONNECTIONS).add(1, attributes);
 }

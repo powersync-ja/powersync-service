@@ -189,9 +189,8 @@ describe.each([SyncTransport.HttpStream, SyncTransport.RSocket])('%s connection 
       expect(
         await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, {
           transport,
-          outcome: 'success',
-          close_reason: closeReason,
-          error_code: 'none'
+          outcome: 'ok',
+          close_reason: closeReason
         })
       ).toBe(1);
       expect(await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, {})).toBe(1);
@@ -199,7 +198,7 @@ describe.each([SyncTransport.HttpStream, SyncTransport.RSocket])('%s connection 
     }
   );
 
-  it('counts token expiry as a successful server close', async () => {
+  it('counts token expiry as an ok server close', async () => {
     const source = idleStorage();
     const { recorder, context } = testContext(source.storage);
     context.token_payload = new JwtPayload({ sub: 'test-user', exp: 0 });
@@ -210,9 +209,8 @@ describe.each([SyncTransport.HttpStream, SyncTransport.RSocket])('%s connection 
     expect(
       await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, {
         transport,
-        outcome: 'success',
-        close_reason: 'service_closed',
-        error_code: 'none'
+        outcome: 'ok',
+        close_reason: 'service_closed'
       })
     ).toBe(1);
     expect(await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, {})).toBe(1);
