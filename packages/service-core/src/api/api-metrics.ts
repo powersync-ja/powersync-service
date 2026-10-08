@@ -1,6 +1,5 @@
 import { APIMetric } from '@powersync/service-types';
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
-import { initializeSyncConnectionMetrics } from '../metrics/connection-metrics.js';
 
 /**
  *  Create and register the core API metrics.
@@ -44,5 +43,4 @@ export function initializeCoreAPIMetrics(engine: MetricsEngine): void {
 
   // Initialize the metric, so that it reports a value before connections have been opened.
   concurrent_connections.add(0);
-  initializeSyncConnectionMetrics(engine);
 }

@@ -14,7 +14,7 @@ import { createServer } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { expect, it } from 'vitest';
 
-it('scrapes a zero baseline and the first increment with bounded series initialization', async () => {
+it('scrapes only observed connection series', async () => {
   const exporter = new PrometheusExporter({ preventServerStart: true });
   const provider = new MeterProvider({ readers: [exporter] });
   const engine = new MetricsEngine({
@@ -39,21 +39,16 @@ it('scrapes a zero baseline and the first increment with bounded series initiali
         )
       );
 
-    const before = await scrape();
-    // Leave headroom for new PowerSync codes, without permitting a full label Cartesian product.
-    expect(before.length).toBeLessThan(500);
-    expect(before.every((line) => line.endsWith(' 0'))).toBe(true);
-    expect(errorSeries(before)).toMatch(/ 0$/);
+    expect(await scrape()).toEqual([]);
 
     recordSyncConnection(engine, {
       transport: SyncTransport.HttpStream,
       closeReason: SyncCloseReason.StreamError,
       error: new ServiceError(ErrorCode.PSYNC_S2403, 'Storage query timed out')
     });
-    const after = await scrape();
-    expect(after).toHaveLength(before.length);
-    expect(errorSeries(after)).toMatch(/ 1$/);
-    expect(after.filter((line) => !line.endsWith(' 0'))).toHaveLength(1);
+    const afterFailure = await scrape();
+    expect(afterFailure).toHaveLength(1);
+    expect(errorSeries(afterFailure)).toMatch(/ 1$/);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await provider.shutdown();

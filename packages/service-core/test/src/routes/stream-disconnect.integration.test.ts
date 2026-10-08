@@ -103,7 +103,7 @@ describe('Sync stream client disconnect', () => {
         )
         .toBe(1);
 
-      expect(await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, { outcome: 'error' })).toBe(0);
+      expect(await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, { outcome: 'error' })).toBeUndefined();
       expect(await recorder.seriesValue(APIMetric.SYNC_CONNECTIONS, {})).toBe(1);
       expect(await recorder.seriesValue(APIMetric.CONCURRENT_CONNECTIONS, {})).toBe(0);
     } finally {
