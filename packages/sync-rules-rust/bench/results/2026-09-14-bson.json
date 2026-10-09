@@ -1,0 +1,497 @@
+{
+  "generatedAt": "2026-09-14T13:15:07.080Z",
+  "node": "v24.18.1",
+  "nodeSqlite": "3.53.1",
+  "rustSqlite": "3.51.3",
+  "cpu": "AMD Ryzen 9 7900X 12-Core Processor",
+  "cpuCount": 24,
+  "platform": "linux",
+  "arch": "x64",
+  "rowCount": 10000,
+  "iterations": 7,
+  "batchSize": 1000,
+  "scope": "Raw BSON conversion, source row evaluation and data JSON serialization, including boundary costs; excludes source fetching, replica identity extraction, checksums, storage, config compilation and BSON fixture generation. One sequentially awaited batch at a time; no JS worker-pool comparison.",
+  "results": [
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "js-plain",
+      "inputBytes": 1627890,
+      "medianMs": 51.85889199999997,
+      "rowsPerSecond": 192831,
+      "inputMiBPerSecond": 29.936560984268063,
+      "samplesMs": [
+        51.85889199999997, 52.387428999999884, 52.36236000000008, 51.085671000000275, 51.213358999999855,
+        52.86662899999965, 50.93085599999995
+      ]
+    },
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "js-sqlite",
+      "inputBytes": 1627890,
+      "medianMs": 55.734132000000045,
+      "rowsPerSecond": 179423,
+      "inputMiBPerSecond": 27.8550472973109,
+      "samplesMs": [
+        57.98178699999994, 55.09948499999996, 57.02927899999986, 55.734132000000045, 56.20524000000023,
+        55.22982400000001, 52.91471799999999
+      ]
+    },
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "rust-fields-async",
+      "inputBytes": 1627890,
+      "medianMs": 80.40275900000006,
+      "rowsPerSecond": 124374,
+      "inputMiBPerSecond": 19.3087513692729,
+      "samplesMs": [
+        82.35774000000015, 78.50376099999994, 80.45013500000005, 81.53136099999983, 80.40275900000006,
+        79.25802500000009, 79.55994800000008
+      ]
+    },
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "rust-bson-sync",
+      "inputBytes": 1627890,
+      "medianMs": 41.346562000000176,
+      "rowsPerSecond": 241858,
+      "inputMiBPerSecond": 37.54790743991154,
+      "samplesMs": [
+        41.25951299999997, 41.165665999999874, 42.646081000000095, 46.72175500000003, 41.346562000000176,
+        41.657624999999825, 41.0285200000003
+      ]
+    },
+    {
+      "scenario": "flat-passthrough",
+      "implementation": "rust-bson-async",
+      "inputBytes": 1627890,
+      "medianMs": 45.94934299999977,
+      "rowsPerSecond": 217631,
+      "inputMiBPerSecond": 33.786704696399646,
+      "samplesMs": [
+        46.092418999999836, 43.74626399999988, 47.383998999999676, 45.48739400000022, 45.62687099999994,
+        45.94934299999977, 46.94752100000005
+      ]
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "js-plain",
+      "inputBytes": 9479625,
+      "medianMs": 235.40670300000056,
+      "rowsPerSecond": 42480,
+      "inputMiBPerSecond": 38.40364261701833,
+      "samplesMs": [
+        230.54079000000002, 238.83854699999938, 235.22548300000017, 235.40670300000056, 240.66092600000047,
+        234.7561799999985, 235.50743199999852
+      ]
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "js-sqlite",
+      "inputBytes": 9479625,
+      "medianMs": 240.23431999999957,
+      "rowsPerSecond": 41626,
+      "inputMiBPerSecond": 37.631904099558355,
+      "samplesMs": [
+        248.26902299999983, 235.43162100000063, 240.23431999999957, 240.83584599999995, 240.04701000000023,
+        240.00068800000008, 240.93482099999892
+      ]
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "rust-fields-async",
+      "inputBytes": 9479625,
+      "medianMs": 262.3590029999996,
+      "rowsPerSecond": 38116,
+      "inputMiBPerSecond": 34.458413045816506,
+      "samplesMs": [
+        254.84407199999987, 276.9181150000004, 264.353106999999, 273.99998400000004, 257.4323260000001,
+        262.3590029999996, 255.97482000000127
+      ]
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "rust-bson-sync",
+      "inputBytes": 9479625,
+      "medianMs": 106.50912699999935,
+      "rowsPerSecond": 93889,
+      "inputMiBPerSecond": 84.87981402441363,
+      "samplesMs": [
+        104.5078309999999, 108.52044699999988, 107.18824099999983, 109.54751800000122, 104.3697540000012,
+        106.50912699999935, 106.34981100000005
+      ]
+    },
+    {
+      "scenario": "sample-passthrough",
+      "implementation": "rust-bson-async",
+      "inputBytes": 9479625,
+      "medianMs": 111.53722999999991,
+      "rowsPerSecond": 89656,
+      "inputMiBPerSecond": 81.0534284531058,
+      "samplesMs": [
+        110.03405100000055, 112.03285700000015, 111.61293699999987, 111.2131989999998, 111.64705200000026,
+        111.53722999999991, 110.64589100000012
+      ]
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "js-plain",
+      "inputBytes": 9479625,
+      "medianMs": 108.28855699999986,
+      "rowsPerSecond": 92346,
+      "inputMiBPerSecond": 83.4850434996803,
+      "samplesMs": [
+        109.74982699999964, 111.10795800000051, 108.03980199999933, 108.28855699999986, 107.86617699999988,
+        109.32697499999995, 107.45990099999835
+      ]
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "js-sqlite",
+      "inputBytes": 9479625,
+      "medianMs": 111.07416899999953,
+      "rowsPerSecond": 90030,
+      "inputMiBPerSecond": 81.39133493461145,
+      "samplesMs": [
+        112.44325500000014, 111.07416899999953, 111.52488100000119, 109.93427800000063, 110.56291299999793,
+        113.50315799999953, 110.96054699999877
+      ]
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "rust-fields-async",
+      "inputBytes": 9479625,
+      "medianMs": 124.19236300000011,
+      "rowsPerSecond": 80520,
+      "inputMiBPerSecond": 72.7941289889346,
+      "samplesMs": [
+        123.04289900000003, 129.672994999999, 124.19236300000011, 126.98073099999965, 128.83956099999705,
+        122.79597099999955, 122.76694199999838
+      ]
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "rust-bson-sync",
+      "inputBytes": 9479625,
+      "medianMs": 63.173069000000396,
+      "rowsPerSecond": 158295,
+      "inputMiBPerSecond": 143.10646981014239,
+      "samplesMs": [
+        63.363712000000305, 64.13368400000036, 63.27657399999953, 63.09393900000214, 63.173069000000396,
+        63.01795300000231, 63.09040100000129
+      ]
+    },
+    {
+      "scenario": "sample-projection",
+      "implementation": "rust-bson-async",
+      "inputBytes": 9479625,
+      "medianMs": 67.90094599999975,
+      "rowsPerSecond": 147273,
+      "inputMiBPerSecond": 133.14210514331614,
+      "samplesMs": [
+        67.90094599999975, 70.60820299999978, 66.55545900000106, 66.25594600000113, 67.28651099999843,
+        68.04145600000265, 68.34314000000086
+      ]
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "js-plain",
+      "inputBytes": 31837890,
+      "medianMs": 717.3595270000005,
+      "rowsPerSecond": 13940,
+      "inputMiBPerSecond": 42.32602598664221,
+      "samplesMs": [
+        717.1981070000002, 733.1160760000021, 717.218707, 715.081474999999, 723.9892089999994, 717.3595270000005,
+        726.2660419999957
+      ]
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "js-sqlite",
+      "inputBytes": 31837890,
+      "medianMs": 366.2844039999982,
+      "rowsPerSecond": 27301,
+      "inputMiBPerSecond": 82.89454219177603,
+      "samplesMs": [
+        368.164840999998, 365.2806070000006, 369.224341000001, 370.1799400000018, 366.2844039999982, 364.59231099999306,
+        365.1092669999998
+      ]
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "rust-fields-async",
+      "inputBytes": 31837890,
+      "medianMs": 396.9184260000002,
+      "rowsPerSecond": 25194,
+      "inputMiBPerSecond": 76.4967711062307,
+      "samplesMs": [
+        400.79779300000155, 396.9184260000002, 394.3198960000009, 402.3043600000019, 394.32023800000024,
+        393.21803699999873, 414.55191300000297
+      ]
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "rust-bson-sync",
+      "inputBytes": 31837890,
+      "medianMs": 223.76191499999914,
+      "rowsPerSecond": 44690,
+      "inputMiBPerSecond": 135.69323439856822,
+      "samplesMs": [
+        223.53156500000114, 223.76191499999914, 223.7207269999999, 223.9832260000003, 224.89389699999447,
+        223.23642200000177, 225.45359999999346
+      ]
+    },
+    {
+      "scenario": "nested-json",
+      "implementation": "rust-bson-async",
+      "inputBytes": 31837890,
+      "medianMs": 231.75432600000204,
+      "rowsPerSecond": 43149,
+      "inputMiBPerSecond": 131.01364063239586,
+      "samplesMs": [
+        233.4323869999971, 233.72587600000043, 230.87427200000093, 230.6387739999991, 232.98667099999875,
+        230.88750099999743, 231.75432600000204
+      ]
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "js-plain",
+      "inputBytes": 9479625,
+      "medianMs": 117.83504499999981,
+      "rowsPerSecond": 84864,
+      "inputMiBPerSecond": 76.72144472523104,
+      "samplesMs": [
+        123.98191300000326, 117.83504499999981, 121.81232399999863, 117.18133200000011, 116.5887259999945,
+        116.37654000000475, 122.20399099999486
+      ]
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "js-sqlite",
+      "inputBytes": 9479625,
+      "medianMs": 128.61828999999852,
+      "rowsPerSecond": 77749,
+      "inputMiBPerSecond": 70.28918586666563,
+      "samplesMs": [
+        127.69822700000077, 132.24939399999857, 128.61828999999852, 128.8042179999975, 128.51663499999995,
+        128.820971000001, 127.99397999999928
+      ]
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "rust-fields-async",
+      "inputBytes": 9479625,
+      "medianMs": 132.88235999999597,
+      "rowsPerSecond": 75255,
+      "inputMiBPerSecond": 68.03367197619663,
+      "samplesMs": [
+        138.78051600000617, 132.88235999999597, 132.29372600000352, 132.87029600000096, 133.46484200000123,
+        132.1470560000016, 132.88517000000138
+      ]
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "rust-bson-sync",
+      "inputBytes": 9479625,
+      "medianMs": 73.77758699999686,
+      "rowsPerSecond": 135543,
+      "inputMiBPerSecond": 122.5368741276803,
+      "samplesMs": [
+        73.90686999999889, 73.26920600000449, 73.78393500000675, 73.56810899999982, 73.77758699999686,
+        73.56870300000446, 74.33263599999918
+      ]
+    },
+    {
+      "scenario": "sample-functions",
+      "implementation": "rust-bson-async",
+      "inputBytes": 9479625,
+      "medianMs": 79.79551899999933,
+      "rowsPerSecond": 125320,
+      "inputMiBPerSecond": 113.29552091343216,
+      "samplesMs": [
+        79.6322599999985, 79.79551899999933, 78.09036700000433, 80.77159599999868, 80.29965900000389, 79.75925300000381,
+        84.74627999999939
+      ]
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "js-plain",
+      "inputBytes": 9479625,
+      "medianMs": 622.7256229999984,
+      "rowsPerSecond": 16058,
+      "inputMiBPerSecond": 14.517589380873478,
+      "samplesMs": [
+        614.939069, 608.352307000001, 640.6940390000018, 663.4654879999944, 622.7256229999984, 626.4820959999997,
+        609.7675369999924
+      ]
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "js-sqlite",
+      "inputBytes": 9479625,
+      "medianMs": 627.1932789999992,
+      "rowsPerSecond": 15944,
+      "inputMiBPerSecond": 14.414176928166047,
+      "samplesMs": [
+        628.8531019999937, 625.3956169999947, 627.1932789999992, 623.9172950000066, 622.9528740000023,
+        630.3206559999962, 628.3673670000062
+      ]
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "rust-fields-async",
+      "inputBytes": 9479625,
+      "medianMs": 417.1746620000049,
+      "rowsPerSecond": 23971,
+      "inputMiBPerSecond": 21.67071904204597,
+      "samplesMs": [
+        410.2351389999967, 410.5586919999987, 417.1746620000049, 411.0044380000036, 420.66107100000227,
+        435.21764700000494, 425.333507000003
+      ]
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "rust-bson-sync",
+      "inputBytes": 9479625,
+      "medianMs": 268.5710179999951,
+      "rowsPerSecond": 37234,
+      "inputMiBPerSecond": 33.661394140684095,
+      "samplesMs": [
+        262.6850789999953, 274.3250190000035, 269.4124260000026, 268.5710179999951, 263.4257660000003,
+        267.26296299999376, 269.0924640000012
+      ]
+    },
+    {
+      "scenario": "sample-fanout",
+      "implementation": "rust-bson-async",
+      "inputBytes": 9479625,
+      "medianMs": 266.8973860000042,
+      "rowsPerSecond": 37468,
+      "inputMiBPerSecond": 33.87247446350957,
+      "samplesMs": [
+        265.91110599999956, 265.11338599999726, 269.7828289999961, 266.5343219999995, 266.8973860000042,
+        268.58932300000015, 269.56469300000754
+      ]
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "js-plain",
+      "inputBytes": 9479625,
+      "medianMs": 208.3400410000031,
+      "rowsPerSecond": 47998,
+      "inputMiBPerSecond": 43.39288236802479,
+      "samplesMs": [
+        204.45457199998782, 212.77411899999424, 204.57508899999084, 208.3400410000031, 210.40718999999808,
+        205.02340299999923, 211.9256260000111
+      ]
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "js-sqlite",
+      "inputBytes": 9479625,
+      "medianMs": 223.03647799999453,
+      "rowsPerSecond": 44836,
+      "inputMiBPerSecond": 40.533615723894364,
+      "samplesMs": [
+        219.80319500000041, 225.85483600001317, 225.46854400000302, 219.3903980000032, 218.06107199999678,
+        223.03647799999453, 224.78366400000232
+      ]
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "rust-fields-async",
+      "inputBytes": 9479625,
+      "medianMs": 205.9719560000085,
+      "rowsPerSecond": 48550,
+      "inputMiBPerSecond": 43.891775692328835,
+      "samplesMs": [
+        212.1160760000057, 202.33571400000073, 199.9722699999984, 205.9719560000085, 205.01389900001232,
+        207.15471599999, 210.24704299999576
+      ]
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "rust-bson-sync",
+      "inputBytes": 9479625,
+      "medianMs": 146.9775329999975,
+      "rowsPerSecond": 68038,
+      "inputMiBPerSecond": 61.509230064861356,
+      "samplesMs": [
+        146.9775329999975, 145.5961729999981, 145.72687399999995, 149.11676299999817, 147.08740200000466,
+        148.8024860000005, 145.59258900000714
+      ]
+    },
+    {
+      "scenario": "sample-many-queries",
+      "implementation": "rust-bson-async",
+      "inputBytes": 9479625,
+      "medianMs": 151.9377400000085,
+      "rowsPerSecond": 65816,
+      "inputMiBPerSecond": 59.50118049447157,
+      "samplesMs": [
+        151.90662399999565, 150.51562700000068, 151.41538899998704, 151.9377400000085, 152.1921590000129,
+        152.0706449999998, 153.53321599999617
+      ]
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "js-plain",
+      "inputBytes": 9479625,
+      "medianMs": 102.1735800000024,
+      "rowsPerSecond": 97873,
+      "inputMiBPerSecond": 88.48153203266818,
+      "samplesMs": [
+        100.92572199999995, 100.32255799999984, 101.08664199999475, 105.30217199999606, 102.1735800000024,
+        103.2627680000005, 103.77410899999086
+      ]
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "js-sqlite",
+      "inputBytes": 9479625,
+      "medianMs": 108.20943100001023,
+      "rowsPerSecond": 92413,
+      "inputMiBPerSecond": 83.54609028174026,
+      "samplesMs": [
+        108.30390199999965, 107.11821000000054, 108.67981800000416, 113.51635200000601, 107.7580980000057,
+        108.20943100001023, 106.36677999999665
+      ]
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "rust-fields-async",
+      "inputBytes": 9479625,
+      "medianMs": 126.04811099999642,
+      "rowsPerSecond": 79335,
+      "inputMiBPerSecond": 71.72241471879617,
+      "samplesMs": [
+        122.52924099999655, 123.6370190000016, 124.52412899999763, 128.55421399998886, 126.23076600000786,
+        126.04811099999642, 128.51437800000713
+      ]
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "rust-bson-sync",
+      "inputBytes": 9479625,
+      "medianMs": 68.68766199999664,
+      "rowsPerSecond": 145587,
+      "inputMiBPerSecond": 131.61715843033122,
+      "samplesMs": [
+        69.49789100000635, 67.52704500000982, 68.02256399999897, 69.7089180000039, 68.17956299999787, 68.9596259999962,
+        68.68766199999664
+      ]
+    },
+    {
+      "scenario": "sample-parameters",
+      "implementation": "rust-bson-async",
+      "inputBytes": 9479625,
+      "medianMs": 75.31813800000236,
+      "rowsPerSecond": 132770,
+      "inputMiBPerSecond": 120.03051498249086,
+      "samplesMs": [
+        72.99621499999193, 71.3670909999928, 81.78175300000294, 78.5363459999935, 74.3388169999962, 77.44823200000974,
+        75.31813800000236
+      ]
+    }
+  ],
+  "sink": 2631536775
+}

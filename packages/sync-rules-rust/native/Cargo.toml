@@ -1,0 +1,30 @@
+[package]
+name = "powersync-sync-rules-rust"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "FSL-1.1-ALv2"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+napi = { version = "3", features = ["napi8"] }
+napi-derive = "3"
+rusqlite = { version = "0.39", features = ["bundled", "functions"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+ryu-js = "1"
+geozero = { version = "0.14", default-features = false, features = ["with-wkb", "with-wkt", "with-geojson"] }
+bson = "2.15"
+thiserror = "2"
+itoa = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v5"] }
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true
