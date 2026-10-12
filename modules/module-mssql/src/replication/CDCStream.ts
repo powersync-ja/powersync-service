@@ -408,7 +408,7 @@ export class CDCStream {
         // and not spending too much time on each FETCH call.
         // We aim for a couple of seconds on each FETCH call.
         let batchReplicatedCount = 0;
-        for await (const result of query.next()) {
+        for await (const result of query.nextBatch()) {
           const inputRow: SqliteInputRow = toSqliteInputRow(result, columns);
           const row = this.syncRules.applyRowContext<never>(inputRow);
           // This auto-flushes when the batch reaches its size limit

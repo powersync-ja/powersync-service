@@ -14,7 +14,7 @@ export interface MSSQLSnapshotQuery {
    *  Returns an async iterator for the next batch of rows, yielding at most the batch size.
    *  A batch smaller than the batch size indicates that there are no rows left.
    */
-  next(): AsyncIterableIterator<Record<string, any>>;
+  nextBatch(): AsyncIterableIterator<Record<string, any>>;
 
   /**
    *  Cancels the query if it is still in progress.
@@ -76,7 +76,7 @@ export class SimpleSnapshotQuery implements MSSQLSnapshotQuery {
     return queryColumnMetadata(this.transaction, this.qualifiedTableName);
   }
 
-  public async *next(): AsyncIterableIterator<Record<string, any>> {
+  public async *nextBatch(): AsyncIterableIterator<Record<string, any>> {
     // Opened on the first call, and iterated straight away so that the row iterator receives any query error.
     this.query ??= new StreamingQuery(this.transaction.request(), `SELECT * FROM ${this.qualifiedTableName}`);
     for (let i = 0; i < this.batchSize; i++) {
@@ -167,7 +167,7 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
     return bson.serialize({ [this.key.name]: this.lastKey });
   }
 
-  public async *next(): AsyncIterableIterator<Record<string, any>> {
+  public async *nextBatch(): AsyncIterableIterator<Record<string, any>> {
     const escapedKeyName = escapeIdentifier(this.key.name);
     const request = this.transaction.request();
     if (this.lastKey == null) {
