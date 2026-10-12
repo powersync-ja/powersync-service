@@ -265,8 +265,8 @@ importers:
         version: 5.12.5
     devDependencies:
       '@opentelemetry/sdk-metrics':
-        specifier: ^2.0.1
-        version: 2.0.1(@opentelemetry/api@1.9.0)
+        specifier: ^2.8.0
+        version: 2.8.0(@opentelemetry/api@1.9.0)
 
   modules/module-mongodb:
     dependencies:

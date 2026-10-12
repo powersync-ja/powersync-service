@@ -26,6 +26,6 @@
     "fastify": "^5.12.5"
   },
   "devDependencies": {
-    "@opentelemetry/sdk-metrics": "^2.0.1"
+    "@opentelemetry/sdk-metrics": "^2.8.0"
   }
 }
