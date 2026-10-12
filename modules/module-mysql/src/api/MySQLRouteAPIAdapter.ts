@@ -29,14 +29,11 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
     return this.config;
   }
 
-  async validateSourceCapabilities(config: sync_rules.SyncConfig): Promise<service_types.ValidationDiagnostic[]> {
-    return api.validateNoMongoFilterExpressions(config, this.config.tag ?? sync_rules.DEFAULT_TAG);
-  }
-
   getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
       // In MySQL Schema and Database are the same thing. There is no default database
-      defaultSchema: this.config.database
+      defaultSchema: this.config.database,
+      connections: { [this.config.tag ?? sync_rules.DEFAULT_TAG]: { type: this.config.type } }
     };
   }
 

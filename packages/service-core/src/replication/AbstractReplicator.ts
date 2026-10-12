@@ -1,5 +1,5 @@
 import { container, ErrorCode, logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
-import { SqlSyncRules, type SyncConfig } from '@powersync/service-sync-rules';
+import { DEFAULT_TAG, SqlSyncRules, type SyncConfig } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -8,6 +8,7 @@ import { MetricsEngine } from '../metrics/MetricsEngine.js';
 import * as storage from '../storage/storage-index.js';
 import { StorageEngine } from '../storage/storage-index.js';
 import { SyncRulesProvider } from '../util/config/sync-rules/sync-rules-provider.js';
+import type { ResolvedPowerSyncConfig } from '../util/config/types.js';
 import { AbstractReplicationJob } from './AbstractReplicationJob.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { ConnectionTestResult } from './ReplicationModule.js';
@@ -32,6 +33,10 @@ export interface AbstractReplicatorOptions {
   storageEngine: StorageEngine;
   metricsEngine: MetricsEngine;
   syncRuleProvider: SyncRulesProvider;
+  /**
+   * Source connection metadata from the service config, used when parsing filesystem-loaded sync configs.
+   */
+  configuration?: Pick<ResolvedPowerSyncConfig, 'connections'>;
   /**
    * This limits the effect of retries when there is a persistent issue.
    */
@@ -186,6 +191,14 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         const parsed = SqlSyncRules.fromYaml(loadedSyncConfig, {
           schema: undefined,
           defaultSchema: this.defaultSchema,
+          connections:
+            this.options.configuration?.connections &&
+            Object.fromEntries(
+              this.options.configuration.connections.map((connection) => [
+                connection.tag ?? DEFAULT_TAG,
+                { type: connection.type }
+              ])
+            ),
           throwOnError: this.syncRuleProvider.exitOnError
         });
         storage.logSyncConfigErrors(parsed, this.logger);

@@ -20,12 +20,12 @@ import {
   normalizeSourceTableConfig,
   parseSourceTableConfigKey
 } from './SourceTableConfig.js';
-import { SqlSyncRules } from './SqlSyncRules.js';
+import { SqlSyncRules, type SourceConnectionMap } from './SqlSyncRules.js';
 import { validateStorageVersion } from './StorageVersion.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { CompiledEventDescriptor } from './sync_plan/plan.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
-import { TablePattern } from './TablePattern.js';
+import { DEFAULT_TAG, ImplicitSchemaTablePattern, TablePattern } from './TablePattern.js';
 import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js';
 import { buildParsedToSourceValueMap, isBlockScalar, isQuotedScalar } from './yaml_scalar_map.js';
 import { createYamlSourceLocationResolver, mapAjvErrorsToYamlErrors } from './yaml_source_locations.js';
@@ -123,8 +123,9 @@ export class SyncConfigFromYaml {
     if (sourceTables) {
       const sourceLocationResolver = createYamlSourceLocationResolver(parsed);
       for (const { key: table, keyScalar, value } of sourceTables.stringKeyedItems()) {
+        let pattern: ImplicitSchemaTablePattern | undefined;
         try {
-          parseSourceTableConfigKey(table);
+          pattern = parseSourceTableConfigKey(table);
         } catch (error) {
           keyScalar.reportError(error instanceof Error ? error.message : String(error));
         }
@@ -139,13 +140,31 @@ export class SyncConfigFromYaml {
           continue;
         }
         if (filter === 'disabled') continue;
-        this.#errors.push(
-          ...parseMongoFilterExpression({
-            value: filter,
-            basePath: ['config', 'source_table_options', table, 'mongodb_filter_expression'],
-            sourceLocationResolver
-          })
-        );
+        const errors = parseMongoFilterExpression({
+          value: filter,
+          basePath: ['config', 'source_table_options', table, 'mongodb_filter_expression'],
+          sourceLocationResolver
+        });
+        this.#errors.push(...errors);
+        if (errors.length > 0 || !pattern) continue;
+
+        const tag = pattern.connectionTag ?? DEFAULT_TAG;
+        const connections = this.options.connections;
+        if (connections === undefined) {
+          expression.reportError(
+            `Cannot verify MongoDB replication pre-filtering for connection ${JSON.stringify(tag)} without connection type information.`,
+            'warning'
+          );
+        } else if (!Object.hasOwn(connections, tag)) {
+          expression.reportError(
+            `Unknown source connection ${JSON.stringify(tag)} for MongoDB replication pre-filtering.`,
+            'warning'
+          );
+        } else if (connections[tag].type !== 'mongodb') {
+          expression.reportError(
+            `MongoDB replication pre-filtering expressions are only supported by MongoDB sources. Connection ${JSON.stringify(tag)} has type ${JSON.stringify(connections[tag].type)}.`
+          );
+        }
       }
     }
     let compatibility: CompatibilityContext;
@@ -686,6 +705,7 @@ export interface SyncConfigFromYamlOptions {
    * 'public' for Postgres, default database for MongoDB/MySQL.
    */
   readonly defaultSchema: string;
+  readonly connections?: SourceConnectionMap;
 }
 
 interface CommonTableExpressionWithName {

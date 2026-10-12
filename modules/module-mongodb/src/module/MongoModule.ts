@@ -37,6 +37,7 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
       id: this.getDefaultId(normalisedConfig.database ?? ''),
       syncRuleProvider: syncRuleProvider,
       storageEngine: context.storageEngine,
+      configuration: context.configuration,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
       rateLimiter: new MongoErrorRateLimiter(),

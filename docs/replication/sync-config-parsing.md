@@ -19,6 +19,12 @@ streams:
 Executing MongoDB replication pre-filtering requires additional external modules. The service parses and validates
 these expressions, but rejects their deployment when the configured source adapter does not support the feature.
 
+Parsing accepts an optional `connections` map keyed by connection tag, with values of the form `{ type: string }`.
+MongoDB pre-filtering expressions require a connection with `type: 'mongodb'`. Known non-MongoDB sources
+produce fatal diagnostics at the expression. Unknown connection tags produce advisory warnings. When connection metadata is omitted, expressions still parse but report
+an advisory warning that the connection type could not be checked. The service supplies connection metadata when
+parsing for validation, deployment, and filesystem loading. Disabled filters do not require MongoDB.
+
 ## Table names and patterns
 
 Table keys use the same right-to-left qualification as Sync Stream queries: `table`, `database.table`, or

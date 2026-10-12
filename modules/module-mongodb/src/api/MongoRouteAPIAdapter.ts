@@ -35,16 +35,24 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
 
   getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
-      defaultSchema: this.defaultSchema
+      defaultSchema: this.defaultSchema,
+      connections: { [this.connectionTag]: { type: this.config.type } }
     };
   }
 
   async validateSourceCapabilities(config: sync_rules.SyncConfig): Promise<service_types.ValidationDiagnostic[]> {
+    return this.validateMongoFilters(config);
+  }
+
+  /**
+   * Validate MongoDB pre-filtering support. External modules can override this method to account for
+   * their plan parameters and filter capabilities while retaining other source-capability checks.
+   */
+  protected async validateMongoFilters(config: sync_rules.SyncConfig): Promise<service_types.ValidationDiagnostic[]> {
     const filtered = sync_rules.hasMongoFilterExpressions(
       config instanceof sync_rules.PrecompiledSyncConfig ? (config.plan.sourceTableConfig ?? {}) : {},
       this.connectionTag
     );
-    // External implementations override this to validate the capabilities they provide.
     return filtered
       ? [
           {

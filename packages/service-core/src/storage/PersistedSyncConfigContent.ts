@@ -10,6 +10,7 @@ import {
   HydrationState,
   nodeSqlite,
   PrecompiledSyncConfig,
+  SourceConnectionMap,
   SqlSyncRules,
   SyncConfigWithErrors,
   versionedHydrationState,
@@ -205,4 +206,5 @@ export type PersistedSyncConfigId = string;
 
 export interface ParseSyncConfigOptions {
   defaultSchema: string;
+  connections?: SourceConnectionMap;
 }

@@ -36,6 +36,7 @@ export class ConvexModule extends replication.ReplicationModule<types.ConvexConn
       id: this.getDefaultId(normalizedConfig.deployment_url),
       syncRuleProvider,
       storageEngine: context.storageEngine,
+      configuration: context.configuration,
       metricsEngine: context.metricsEngine,
       connectionFactory,
       rateLimiter: new ConvexErrorRateLimiter()

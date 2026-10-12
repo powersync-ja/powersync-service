@@ -1,11 +1,10 @@
 import type { RouteAPI } from '@/api/RouteAPI.js';
-import { assertSourceCapabilities, validateNoMongoFilterExpressions } from '@/api/source-capabilities.js';
+import { assertSourceCapabilities } from '@/api/source-capabilities.js';
 import { AbstractReplicationJob } from '@/replication/AbstractReplicationJob.js';
 import { AbstractReplicator, AbstractReplicatorOptions, CreateJobOptions } from '@/replication/AbstractReplicator.js';
 import { PersistedReplicationStream } from '@/storage/PersistedReplicationStream.js';
 import type { ReplicationLock } from '@/storage/ReplicationLock.js';
 import { SyncRulesBucketStorage } from '@/storage/SyncRulesBucketStorage.js';
-import type { SyncConfig } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 
 class TestReplicator extends AbstractReplicator {
@@ -86,33 +85,31 @@ describe('AbstractReplicator startup sync config', () => {
         orders:
           query: SELECT * FROM orders
     `;
-    const configureSyncRules = vi.fn(async () => ({ updated: false }));
+    const configureSyncRules = vi.fn(
+      async (_options: import('@/storage/BucketStorageFactory.js').UpdateSyncRulesOptions) => ({ updated: false })
+    );
     const replicator = new TestReplicator(async () => {}, {
       id: 'test',
       storageEngine: {
         activeBucketStorage: { configureSyncRules }
       } as unknown as AbstractReplicatorOptions['storageEngine'],
+      configuration: { connections: [{ type: 'postgresql' }] },
       syncRuleProvider: { get: async () => yaml, exitOnError, versionLabel: undefined },
       metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
       rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
     });
-    replicator.registerSourceCapabilitiesAssertion((config) =>
-      assertSourceCapabilities(
-        {
-          async validateSourceCapabilities(config: SyncConfig) {
-            return validateNoMongoFilterExpressions(config, 'default');
-          }
-        } as unknown as RouteAPI,
-        config
-      )
-    );
-
     if (exitOnError) {
       await expect(replicator.runStartupForTest()).rejects.toThrow('only supported by MongoDB sources');
       expect(configureSyncRules).not.toHaveBeenCalled();
     } else {
       await expect(replicator.runStartupForTest()).resolves.toBeUndefined();
       expect(configureSyncRules).toHaveBeenCalledOnce();
+      expect(configureSyncRules.mock.calls[0][0].config.plan?.errors).toEqual([
+        expect.objectContaining({
+          level: 'fatal',
+          message: expect.stringContaining('only supported by MongoDB sources')
+        })
+      ]);
     }
   });
 

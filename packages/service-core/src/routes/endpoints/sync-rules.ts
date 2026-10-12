@@ -231,7 +231,7 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
       schema: undefined
     });
     const errors: string[] = [];
-    const warnings: string[] = [];
+    const warnings = rules.errors.filter((error) => error.type === 'warning').map((error) => error.message);
     const recordError = (error: any) => {
       errors.push(...(error instanceof SyncRulesErrors ? error.errors.map((e) => e.message) : [error.message]));
     };
