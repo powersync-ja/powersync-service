@@ -61,6 +61,43 @@ enabled, source-capability errors fail startup before persistence. With it disab
 configs are persisted for diagnostics. Source-specific replication startup checks validate execution requirements.
 Warnings remain advisory.
 
+### Why validate instead of calling `EJSON.deserialize`?
+
+The filter language uses a subset of [MongoDB Extended JSON v2](https://github.com/mongodb/specifications/blob/master/source/extended-json/extended-json.md)
+for typed constants; it is not a general-purpose EJSON parser. `EJSON.deserialize` converts wrapper objects into
+BSON values, but does not validate which filter operators, field references, or literal types this feature supports.
+For example, it can return an ordinary object for an unknown wrapper instead of rejecting it as an invalid operand.
+
+The Zod declarations serve both editor JSON Schema generation and runtime validation. Their issue paths identify
+the relevant YAML key or value, while custom payload errors avoid including configured literal values. Validation
+preserves the authored JSON-compatible wrappers in saved plans instead of replacing them with BSON instances;
+the external filter executor is responsible for interpreting those wrappers.
+
+The supported constants and differences are:
+
+- Strings, booleans, finite numbers, and `$oid`, `$numberInt`, `$numberLong`, `$numberDouble`, `$numberDecimal`,
+  `$uuid`, `$date`, `$timestamp`, and `$binary` wrappers are supported. Null, arbitrary documents, array literals
+  (other than the operand list for `$in`), and other EJSON types such as regular expressions and code are excluded.
+- `$literal` is an aggregation-expression escape, not an EJSON type wrapper. Here it accepts only strings and
+  permits text starting with `$`, which bare string constants cannot contain at the start.
+- Unwrapped integer-valued numbers must fit Int32. Larger integers require an explicit wrapper instead of relying
+  on the EJSON parser's numeric type inference. Integer wrapper strings disallow leading `+` and leading zeroes,
+  and are checked against their signed Int32/Int64 bounds before conversion. The installed BSON parser can wrap
+  overflowing values: `$numberInt: '2147483648'` becomes `-2147483648`; our validation rejects it.
+- Non-finite doubles and decimals are excluded even though EJSON supports them. Decimal128 representability is
+  checked with BSON's `Decimal128.fromString`; it is not reimplemented using JavaScript floating-point numbers.
+- Binary values require canonical padded base64 and exactly two hexadecimal subtype digits. EJSON permits a
+  one-digit subtype, and the installed BSON parser also accepts some noncanonical base64. After structural checks,
+  we delegate subtype constraints, including UUID byte length, to `EJSON.deserialize` with `relaxed: false`.
+- Date strings require a four-digit year, a `T` separator, and an explicit `Z` or numeric timezone. The finite
+  timestamp check follows the BSON library's `Date.parse` behavior, including normalization of some nonexistent
+  calendar dates. For example, `2026-02-29T00:00:00Z` is accepted as March 1. Pre-1970 strings and more than three
+  fractional digits are also accepted; this is not strict validation of the spec's date representation. Date
+  milliseconds must fit JavaScript Date's range of ±8,640,000,000,000,000, rather than BSON's full signed Int64 range.
+
+These restrictions define the filter language's validation contract. BSON conversion alone would remove the
+operator/type restrictions, editor support, precise diagnostics, and checks against silent numeric coercion.
+
 ## Saved configuration
 
 Compiled plans retain the options in `sourceTableConfig`. Hydrated configs expose the options from the first underlying

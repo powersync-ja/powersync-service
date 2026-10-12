@@ -19,6 +19,12 @@ function integerRange(value: unknown, minimum: bigint, maximum: bigint): void {
 
 /**
  * Specialized payload checks attached directly to Zod schemas. Wrapper selection and recursion belong to the schema.
+ * This validates the filter's supported EJSON subset without replacing authored values with BSON instances.
+ * EJSON.deserialize alone is not a strict validator: the BSON library can coerce overflowing integers or
+ * normalize malformed base64 instead of rejecting them. Explicit bounds and syntax checks prevent those coercions;
+ * BSON still supplies Decimal128 representability and binary subtype checks where appropriate.
+ * Date strings deliberately retain the library's Date.parse behavior rather than strict calendar validation.
+ * See docs/replication/sync-config-parsing.md for the differences from general Extended JSON.
  */
 export const MONGO_BSON_VALIDATORS = {
   mongoNumber: {
@@ -36,6 +42,9 @@ export const MONGO_BSON_VALIDATORS = {
     type: 'string',
     /**
      * Checks a canonical Int32 payload against its signed bounds.
+     * In BSON 6.10.4, EJSON.deserialize({ $numberInt: '2147483648' }, { relaxed: false })
+     * wraps to -2147483648. Default relaxed mode instead returns the out-of-range JS number 2147483648.
+     * Reject the overflow in either case rather than relying on deserialization to validate the bounds.
      */
     validate(value: unknown) {
       integerRange(value, -2_147_483_648n, 2_147_483_647n);
@@ -45,6 +54,9 @@ export const MONGO_BSON_VALIDATORS = {
     type: 'string',
     /**
      * Checks a canonical Int64 payload using exact integer arithmetic.
+     * In BSON 6.10.4, EJSON.deserialize({ $numberLong: '9223372036854775808' }, { relaxed: false })
+     * wraps to Long(-9223372036854775808). Default relaxed mode also wraps, then loses precision when
+     * converting to a JS number. Checking with BigInt rejects the overflow before either conversion.
      */
     validate(value: unknown) {
       integerRange(value, -9_223_372_036_854_775_808n, 9_223_372_036_854_775_807n);
@@ -77,7 +89,9 @@ export const MONGO_BSON_VALIDATORS = {
   mongoDateString: {
     type: 'string',
     /**
-     * Checks date validity after the schema requires an ISO timestamp with an explicit timezone.
+     * Requires a finite timestamp after the schema checks the timestamp format and explicit timezone.
+     * BSON's EJSON date-string conversion also uses Date.parse, including its calendar normalization
+     * (for example, 2026-02-29 becomes March 1). This does not enforce strict calendar validity.
      */
     validate(value: unknown) {
       if (typeof value != 'string' || !Number.isFinite(Date.parse(value))) fail('expected a valid ISO date string.');
@@ -96,6 +110,9 @@ export const MONGO_BSON_VALIDATORS = {
     type: 'object',
     /**
      * Checks BSON subtype constraints, including UUID byte length, after structural byte-encoding validation.
+     * BSON 6.10.4 accepts { $binary: { base64: 'AQI', subType: '0' } } in both relaxed and typed modes;
+     * re-serialization produces base64 'AQI=' and subtype '00'. The Zod schema rejects missing padding
+     * and one-digit subtypes independently before this check, requiring the canonical spelling we support.
      */
     validate(value: unknown) {
       try {

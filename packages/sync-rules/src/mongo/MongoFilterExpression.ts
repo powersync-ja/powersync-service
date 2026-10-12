@@ -29,7 +29,15 @@ const DATE_STRING = bson(
   z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/),
   'mongoDateString'
 );
-// Extended JSON wrappers retain BSON types that plain JSON values cannot express.
+/**
+ * Supported filter literals, not a general-purpose EJSON parser. EJSON.deserialize converts BSON wrappers but
+ * does not enforce our expression grammar, reject ordinary object operands, or generate editor schemas.
+ * These declarations also supply paths for YAML diagnostics while keeping authored wrappers in saved plans.
+ * We intentionally exclude other EJSON types and non-finite numbers. Plain integers must fit Int32, date
+ * milliseconds must fit JavaScript Date, and binary subtypes use exactly two hex digits.
+ * $literal is a string-only aggregation-expression escape here, not an EJSON type wrapper.
+ * See docs/replication/sync-config-parsing.md for the supported subset and parser compatibility details.
+ */
 const WRAPPERS = {
   $literal: z.string(),
   $oid: z.string().regex(/^[0-9a-fA-F]{24}$/),

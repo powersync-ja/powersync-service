@@ -2,6 +2,7 @@
 '@powersync/service-sync-rules': minor
 '@powersync/service-core': minor
 '@powersync/service-types': minor
+'@powersync/service-errors': minor
 '@powersync/service-module-mongodb': minor
 '@powersync/service-module-postgres': patch
 '@powersync/service-module-mysql': patch
@@ -14,7 +15,7 @@
 
 Add `config.source_table_options` to edition 3 sync configs, including MongoDB pre-filtering expressions. Generate editor schemas with examples and report validation errors at their YAML source locations.
 
-MongoDB replication pre-filtering is only available in the Team and Enterprise editions. For example:
+MongoDB replication pre-filtering is not supported in the Open Edition; unsupported configurations report `PSYNC_S1348`. For example:
 
 ```yaml
 config:

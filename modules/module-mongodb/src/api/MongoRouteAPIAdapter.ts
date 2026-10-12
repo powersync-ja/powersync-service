@@ -4,7 +4,7 @@ import { api, ParseSyncConfigOptions, ReplicationHeadCallback } from '@powersync
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
-import { logger } from '@powersync/lib-services-framework';
+import { ErrorCode, logger } from '@powersync/lib-services-framework';
 import { CheckpointImplementation } from '../replication/checkpoints/CheckpointImplementation.js';
 import { createCheckpointImplementation } from '../replication/checkpoints/create-checkpoint-implementation.js';
 import { MongoManager } from '../replication/MongoManager.js';
@@ -57,8 +57,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
       ? [
           {
             level: 'fatal',
-            message:
-              'MongoDB replication pre-filtering is only available in the Team and Enterprise editions and is not enabled for this connection.'
+            message: `[${ErrorCode.PSYNC_S1348}] MongoDB replication pre-filtering is not supported in the Open Edition.`
           }
         ]
       : [];

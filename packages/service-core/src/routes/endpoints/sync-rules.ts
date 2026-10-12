@@ -74,7 +74,7 @@ export const deploySyncRules = routeDefinition({
 
     logSyncConfigErrors(syncConfig);
     try {
-      // Validate if the current sources support the configuration specified in the Sync Config
+      // Validate if the current sources support the configuration specified in the sync config
       await assertSourceCapabilities(service_context.routerEngine.getAPI(), syncConfig.config);
     } catch (error) {
       throw new errors.ServiceError({
