@@ -37,7 +37,6 @@ export class WalStreamReplicator extends replication.AbstractReplicator<WalStrea
     return new WalStreamReplicationJob({
       id: this.createJobId(options.storage.replicationStreamId),
       storage: options.storage,
-      assertSourceCapabilities: options.assertSourceCapabilities,
       metrics: this.metrics,
       connectionFactory: this.connectionFactory,
       lock: options.lock,

@@ -19,7 +19,6 @@ export class ConvexReplicator extends replication.AbstractReplicator<ConvexRepli
     return new ConvexReplicationJob({
       id: this.createJobId(options.storage.replicationStreamId),
       storage: options.storage,
-      assertSourceCapabilities: options.assertSourceCapabilities,
       metrics: this.metrics,
       lock: options.lock,
       connectionFactory: this.connectionFactory,

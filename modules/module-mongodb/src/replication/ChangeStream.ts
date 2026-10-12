@@ -12,7 +12,6 @@ import {
   MetricsEngine,
   PerformanceTracer,
   RelationCache,
-  replication,
   ReplicationLagTracker,
   SaveOperationTag,
   SourceEntityDescriptor,
@@ -37,7 +36,8 @@ import {
 } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, detectDocumentDb, timestampToDate } from './replication-utils.js';
 import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
-export interface ChangeStreamOptions extends replication.AbstractReplicationStreamOptions {
+export interface ChangeStreamOptions {
+  storage: storage.SyncRulesBucketStorage;
   connections: MongoManager;
   metrics: MetricsEngine;
   abort_signal: AbortSignal;
@@ -79,7 +79,7 @@ export class ChangeStreamInvalidatedError extends DatabaseConnectionError {
   }
 }
 
-export class ChangeStream extends replication.AbstractReplicationStream {
+export class ChangeStream {
   sync_rules: HydratedSyncConfig;
   group_id: number;
 
@@ -131,7 +131,6 @@ export class ChangeStream extends replication.AbstractReplicationStream {
   private lastBatchCheckpoint = 0;
 
   constructor(private readonly options: ChangeStreamOptions) {
-    super(options, { defaultSchema: options.connections.db.databaseName });
     this.storage = options.storage;
     this.metrics = options.metrics;
     this.group_id = options.storage.replicationStreamId;
@@ -432,7 +431,7 @@ export class ChangeStream extends replication.AbstractReplicationStream {
     }
   }
 
-  protected async doReplicate() {
+  async replicate() {
     let streamPromise: Promise<void> | null = null;
     let loopPromise: Promise<void> | null = null;
     let cleanupPromise: Promise<void> | null = null;
@@ -469,6 +468,9 @@ export class ChangeStream extends replication.AbstractReplicationStream {
 
       const results = await Promise.allSettled([loopPromise, streamPromise, cleanupPromise]);
       throw replicationLoopError(results);
+    } catch (e) {
+      await this.storage.reportError(e);
+      throw e;
     } finally {
       this.abortController.abort();
     }

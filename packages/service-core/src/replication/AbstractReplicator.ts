@@ -25,7 +25,6 @@ const REFRESH_INTERVAL_MS = 5_000;
 export interface CreateJobOptions {
   lock: storage.ReplicationLock;
   storage: storage.SyncRulesBucketStorage;
-  assertSourceCapabilities?: (config: SyncConfig) => Promise<void>;
 }
 
 export interface AbstractReplicatorOptions {
@@ -335,8 +334,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         const syncRuleStorage = this.storage.getInstance(replicationStream, { replicationLock: lock });
         const newJob = this.createJob({
           lock: lock,
-          storage: syncRuleStorage,
-          assertSourceCapabilities: this.assertSourceCapabilities
+          storage: syncRuleStorage
         });
 
         newJobs.set(jobId, newJob);

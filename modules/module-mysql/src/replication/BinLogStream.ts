@@ -12,7 +12,6 @@ import {
   getUuidReplicaIdentityBson,
   InternalOpId,
   MetricsEngine,
-  replication,
   ReplicationLagTracker,
   SourceTable,
   storage
@@ -27,7 +26,8 @@ import { createRandomServerId, qualifiedMySQLTable } from '../utils/mysql-utils.
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { BinLogEventHandler, BinLogListener, Row, SchemaChange, SchemaChangeType } from './zongji/BinLogListener.js';
 
-export interface BinLogStreamOptions extends replication.AbstractReplicationStreamOptions {
+export interface BinLogStreamOptions {
+  storage: storage.SyncRulesBucketStorage;
   connections: MySQLConnectionManager;
   metrics: MetricsEngine;
   abortSignal: AbortSignal;
@@ -61,7 +61,7 @@ function createTableId(schema: string, tableName: string): string {
   return `${schema}.${tableName}`;
 }
 
-export class BinLogStream extends replication.AbstractReplicationStream {
+export class BinLogStream {
   private readonly syncRules: sync_rules.HydratedSyncConfig;
   private readonly groupId: number;
 
@@ -82,7 +82,6 @@ export class BinLogStream extends replication.AbstractReplicationStream {
   private binLogListener: BinLogListener | null = null;
 
   constructor(private options: BinLogStreamOptions) {
-    super(options, { defaultSchema: options.connections.databaseName });
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
     this.connections = options.connections;
@@ -363,12 +362,17 @@ export class BinLogStream extends replication.AbstractReplicationStream {
     await batch.flush();
   }
 
-  protected async doReplicate() {
-    // If anything errors here, the entire replication process is halted, and
-    // all connections automatically closed, including this one.
-    await this.initReplication();
-    await this.streamChanges();
-    this.logger.info('BinLogStream has been shut down');
+  async replicate() {
+    try {
+      // If anything errors here, the entire replication process is halted, and
+      // all connections automatically closed, including this one.
+      await this.initReplication();
+      await this.streamChanges();
+      this.logger.info('BinLogStream has been shut down');
+    } catch (e) {
+      await this.storage.reportError(e);
+      throw e;
+    }
   }
 
   private async ensureActiveServerUuid() {
