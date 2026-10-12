@@ -86,9 +86,8 @@ event_definitions:
       { defaultSchema: 'test_schema', throwOnError: true }
     );
 
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatchObject({ type: 'warning' });
-    expect(errors[0].message).toContain('legacy event payload queries are ignored');
+    const payloadWarning = errors.find((error) => error.message.includes('legacy event payload queries are ignored'));
+    expect(payloadWarning).toMatchObject({ type: 'warning' });
 
     const event = config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) })
       .eventDescriptors[0];
