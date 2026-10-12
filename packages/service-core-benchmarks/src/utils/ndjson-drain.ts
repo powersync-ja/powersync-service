@@ -149,6 +149,8 @@ export function createNdjsonStreamReader(response: Response, markerIds: readonly
       closed = true;
       try {
         await reader.cancel();
+      } catch {
+        // Sometimes this will fail but we dont really mind, so just catch it.
       } finally {
         reader.releaseLock();
       }
