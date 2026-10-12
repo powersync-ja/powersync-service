@@ -1163,7 +1163,7 @@ streams:
       { ...PARSE_OPTIONS, throwOnError: false }
     );
     expect(errors.filter((error) => error.type === 'fatal')).toEqual([
-      expect.objectContaining({ message: expect.stringContaining('Sync streams require edition 2 or later') })
+      expect.objectContaining({ message: expect.stringContaining('Sync Streams require edition 3') })
     ]);
   });
 
@@ -1201,9 +1201,9 @@ streams:
       expect(fatalErrors).toHaveLength(hasQuery && (edition ?? 1) < 2 ? 1 : 0);
       expect(warnings).toHaveLength((edition ?? 1) < 3 ? 1 : 0);
       if (fatalErrors.length > 0) {
-        expect(fatalErrors[0].message).toContain('require edition 2 or later');
+        expect(fatalErrors[0].message).toContain('require edition 3');
         expect(fatalErrors[0].message).toBe(
-          'Sync streams require edition 2 or later. Try adding a `config: {edition: 2} block to the end of the file.`'
+          'Sync Streams require edition 3. Add a `config: {edition: 3}` block to the Sync Config.'
         );
       }
       if (warnings.length > 0) {
