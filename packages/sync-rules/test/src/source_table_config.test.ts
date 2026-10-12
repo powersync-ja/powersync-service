@@ -330,6 +330,17 @@ streams:
     ).toThrow('version 3');
   });
 
+  test('rejects non-default active filters in saved plans', () => {
+    const sourceTableConfig = {
+      'archive.app.orders': { mongodb_filter_expression: { $eq: ['$$doc.active', true] } }
+    };
+    const message = 'only supports the "default" connection';
+    expect(() => normalizeSourceTableConfig(sourceTableConfig)).toThrow(message);
+    const config = parse('config: { edition: 3 }').config as PrecompiledSyncConfig;
+    const serialized = serializeSyncPlan(config.plan);
+    expect(() => deserializeSyncPlan({ ...serialized, version: 3, sourceTableConfig })).toThrow(message);
+  });
+
   test('normalizes options without reordering table declarations', () => {
     const config = {
       'orders%': { mongodb_filter_expression: 'disabled' as const },

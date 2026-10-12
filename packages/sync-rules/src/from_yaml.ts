@@ -16,6 +16,7 @@ import { syncStreamFromSql } from './legacy/streams/from_sql.js';
 import { parseMongoFilterExpression } from './mongo/MongoFilterExpression.js';
 import type { SourceTableConfigMap } from './SourceTableConfig.js';
 import {
+  assertMongoFilterConnection,
   findDuplicateSourceTableConfigKeys,
   normalizeSourceTableConfig,
   parseSourceTableConfigKey
@@ -148,6 +149,12 @@ export class SyncConfigFromYaml {
         this.#errors.push(...errors);
         if (errors.length > 0 || !pattern) continue;
 
+        try {
+          assertMongoFilterConnection(pattern);
+        } catch (error) {
+          expression.reportError(error instanceof Error ? error.message : String(error));
+          continue;
+        }
         const tag = pattern.connectionTag ?? DEFAULT_TAG;
         const connections = this.options.connections;
         if (connections === undefined) {

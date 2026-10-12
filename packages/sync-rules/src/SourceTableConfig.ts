@@ -117,13 +117,14 @@ export function normalizeSourceTableConfig(value: unknown): SourceTableConfigMap
   return Object.fromEntries(
     Object.entries(value).map(([table, options]) => {
       if (!table) throw new Error('A source table name must not be empty.');
-      parseSourceTableConfigKey(table);
+      const pattern = parseSourceTableConfigKey(table);
       assertObject(options, 'Source table options must be JSON objects.');
       for (const key of Object.keys(options)) {
         if (key !== 'mongodb_filter_expression') throw new Error(`Unknown source-table option: ${key}`);
       }
       const filter = options.mongodb_filter_expression;
       if (filter !== undefined && filter !== 'disabled') {
+        assertMongoFilterConnection(pattern);
         const result = MONGO_FILTER_VALIDATOR.safeParse(filter);
         if (!result.success) {
           throw new Error(
@@ -134,6 +135,20 @@ export function normalizeSourceTableConfig(value: unknown): SourceTableConfigMap
       return [table, structuredClone(options) as SourceTableConfig];
     })
   );
+}
+
+/**
+ * Reject filter connection tags that query hydration cannot honor.
+ */
+export function assertMongoFilterConnection(pattern: ImplicitSchemaTablePattern): void {
+  // FIXME: Revisit when multiple connections are supported and query hydration honors explicit tags.
+  // Until then, accepting another tag can silently omit its filter while the query reads the default connection.
+  const tag = pattern.connectionTag ?? DEFAULT_TAG;
+  if (tag !== DEFAULT_TAG) {
+    throw new Error(
+      `MongoDB replication pre-filtering only supports the "${DEFAULT_TAG}" connection; connection ${JSON.stringify(tag)} is not supported.`
+    );
+  }
 }
 
 /**

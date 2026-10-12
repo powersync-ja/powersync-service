@@ -127,45 +127,34 @@ describe('MongoDB filter connection types', () => {
     }
   );
 
-  test.each(['mongo.app.orders', '"Mongo".app.orders'])('resolves the authored connection tag for %s', (table) => {
-    const tag = table.startsWith('"') ? 'Mongo' : 'mongo';
-    const yaml = config(EXPRESSION, table);
-    expect(
-      SqlSyncRules.fromYaml(yaml, {
-        defaultSchema: 'app',
-        connections: { default: { type: 'postgresql' }, [tag]: { type: 'mongodb' } }
-      }).errors
-    ).toEqual([]);
-    expect(() =>
-      SqlSyncRules.fromYaml(yaml, {
-        defaultSchema: 'app',
-        connections: { default: { type: 'mongodb' }, [tag]: { type: 'postgresql' } }
-      })
-    ).toThrow(`Connection "${tag}" has type "postgresql".`);
-  });
-
-  test.each([{}, { default: { type: 'mongodb' } }] as SourceConnectionMap[])(
-    'warns about unknown tags when connections are supplied: %j',
-    (connections) => {
-      const yaml = config(EXPRESSION, 'missing.app.orders');
-      const { errors } = SqlSyncRules.fromYaml(yaml, {
-        defaultSchema: 'app',
-        connections
-      });
-      expect(errors).toHaveLength(1);
-      expect(errors[0].type).toBe('warning');
-      expect(errors[0].message).toBe('Unknown source connection "missing" for MongoDB replication pre-filtering.');
-      expect(YAML.parse(yaml.slice(errors[0].location.start, errors[0].location.end))).toEqual(EXPRESSION);
+  test.each(['mongo.app.orders', '"Mongo".app.orders'])(
+    'rejects non-default filter connections for %s even with connection metadata',
+    (table) => {
+      const tag = table.startsWith('"') ? 'Mongo' : 'mongo';
+      const yaml = config(EXPRESSION, table);
+      const connectionMaps: Array<SourceConnectionMap | undefined> = [
+        undefined,
+        {},
+        { default: { type: 'mongodb' }, [tag]: { type: 'mongodb' } }
+      ];
+      for (const connections of connectionMaps) {
+        const options = { defaultSchema: 'app', connections };
+        expect(() => SqlSyncRules.fromYaml(yaml, options)).toThrow('only supports the "default" connection');
+        const { errors } = SqlSyncRules.fromYaml(yaml, { ...options, throwOnError: false });
+        expect(errors).toHaveLength(1);
+        expect(errors[0].type).toBe('fatal');
+        expect(YAML.parse(yaml.slice(errors[0].location.start, errors[0].location.end))).toEqual(EXPRESSION);
+      }
     }
   );
 
   test('missing metadata produces an advisory warning at the expression', () => {
-    const yaml = config(EXPRESSION, 'mongo.app.orders');
+    const yaml = config(EXPRESSION, 'orders');
     const { errors } = SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app' });
     expect(errors).toHaveLength(1);
     expect(errors[0].type).toBe('warning');
     expect(errors[0].message).toBe(
-      'Cannot verify MongoDB replication pre-filtering for connection "mongo" without connection type information.'
+      'Cannot verify MongoDB replication pre-filtering for connection "default" without connection type information.'
     );
     expect(YAML.parse(yaml.slice(errors[0].location.start, errors[0].location.end))).toEqual(EXPRESSION);
   });

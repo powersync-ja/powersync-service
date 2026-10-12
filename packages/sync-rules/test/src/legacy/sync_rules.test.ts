@@ -1203,7 +1203,7 @@ streams:
       if (fatalErrors.length > 0) {
         expect(fatalErrors[0].message).toContain('require edition 3');
         expect(fatalErrors[0].message).toBe(
-          'Sync Streams require edition 3. Add a `config: {edition: 3}` block to the Sync Config.'
+          'Sync Streams require edition 3. Add a `config: {edition: 3}` block to the sync config.'
         );
       }
       if (warnings.length > 0) {

@@ -21,7 +21,7 @@ these expressions, but rejects their deployment when the configured source adapt
 
 Parsing accepts an optional `connections` map keyed by connection tag, with values of the form `{ type: string }`.
 MongoDB pre-filtering expressions require a connection with `type: 'mongodb'`. Known non-MongoDB sources
-produce fatal diagnostics at the expression. Unknown connection tags produce advisory warnings. When connection metadata is omitted, expressions still parse but report
+produce fatal diagnostics at the expression. Active filters with non-default connection tags are rejected until multiple connections are supported. Unknown default connection metadata produces an advisory warning. When connection metadata is omitted, expressions still parse but report
 an advisory warning that the connection type could not be checked. The service supplies connection metadata when
 parsing for validation, deployment, and filesystem loading. Disabled filters do not require MongoDB.
 
@@ -31,7 +31,7 @@ Table keys use the same right-to-left qualification as Sync Stream queries: `tab
 `connection.database.table`. Omitted components use runtime defaults. Declaring source-table options does not add
 a replication source; the stream queries still select the source tables.
 
-Connection prefixes are accepted and retained in saved configuration. However, query hydration currently uses the
+Connection prefixes are retained in saved configuration, but active MongoDB filters require the `default` tag. Query hydration currently uses the
 `default` connection tag for explicitly qualified patterns. A connection prefix should not be used to select a
 different replication connection.
 

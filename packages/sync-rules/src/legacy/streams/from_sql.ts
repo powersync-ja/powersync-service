@@ -74,7 +74,7 @@ class SyncStreamCompiler {
   compile(): SyncStream {
     if (this.options.compatibility.edition < CompatibilityEdition.SYNC_STREAMS) {
       throw new SqlRuleError(
-        'Sync Streams require edition 3. Add a `config: {edition: 3}` block to the Sync Config.',
+        'Sync Streams require edition 3. Add a `config: {edition: 3}` block to the sync config.',
         this.sql
       );
     }
