@@ -4,7 +4,7 @@ import { PrecompiledSyncConfig, SqlSyncRules } from '@powersync/service-sync-rul
 import { describe, expect, test } from 'vitest';
 
 const CONFIGURED = /* yaml */ `
-  # Sync config fixture.
+  # sync config fixture.
   config:
     edition: 3
     source_table_options:
@@ -41,7 +41,7 @@ describe('source-table options', () => {
     ['Users: {}, users: {}', 'resolve to the same pattern']
   ])('persists fatal diagnostics for invalid source-table options: %s', (options, message) => {
     const yaml = /* yaml */ `
-      # Sync config fixture.
+      # sync config fixture.
       config:
         edition: 3
         source_table_options: { ${options} }

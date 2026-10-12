@@ -94,7 +94,7 @@ describe('source table configuration', () => {
   test.each(['Orders', '"Orders"'])('matches SQL stream identifier case for %s', (name) => {
     const { config } = SqlSyncRules.fromYaml(
       /* yaml */ `
-        # Sync config fixture.
+        # sync config fixture.
         config:
           edition: 3
         streams:

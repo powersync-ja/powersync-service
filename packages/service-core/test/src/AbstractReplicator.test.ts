@@ -75,7 +75,7 @@ class TestReplicator extends AbstractReplicator {
 describe('AbstractReplicator startup sync config', () => {
   it.each([true, false])('respects exit_on_error=%s for unsupported file-loaded filters', async (exitOnError) => {
     const yaml = /* yaml */ `
-      # Sync config fixture.
+      # sync config fixture.
       config:
         edition: 3
         source_table_options:
@@ -121,7 +121,7 @@ describe('AbstractReplicator startup sync config', () => {
     'checks source capabilities before persistence: $result, exit_on_error=$exitOnError',
     async ({ result, exitOnError }) => {
       const yaml = /* yaml */ `
-        # Sync config fixture.
+        # sync config fixture.
         config:
           edition: 3
         streams:

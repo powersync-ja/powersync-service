@@ -1,6 +1,6 @@
 # Source-table options
 
-Sync configs can specify source-specific replication options under `config.source_table_options`. This is a map from
+A sync config can specify source-specific replication options under `config.source_table_options`. This is a map from
 table names or patterns to option objects. The currently supported option is `mongodb_filter_expression`, which
 specifies MongoDB replication pre-filtering:
 

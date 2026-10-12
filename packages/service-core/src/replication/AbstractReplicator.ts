@@ -206,7 +206,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         } catch (error) {
           if (this.syncRuleProvider.exitOnError) throw error;
           // Persist the config for diagnostics; the job-start check will prevent unsafe replication.
-          this.logger.error('Sync config source capability validation failed', error);
+          this.logger.error('Source capability validation failed for the sync config', error);
         }
         const { lock } = await this.storage.configureSyncRules(
           storage.updateSyncRulesFromConfig(parsed, {

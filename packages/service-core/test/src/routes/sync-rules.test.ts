@@ -32,7 +32,7 @@ describe('sync-rules routes', () => {
 
   describe('filter connection validation', () => {
     const FILTERED_CONFIG = /* yaml */ `
-      # Sync config fixture.
+      # sync config fixture.
       config:
         edition: 3
         source_table_options:

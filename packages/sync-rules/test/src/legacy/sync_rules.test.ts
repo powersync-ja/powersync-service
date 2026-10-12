@@ -1154,7 +1154,7 @@ streams:
   test.each([undefined, 1])('rejects actual Sync Stream queries in edition %s', (edition) => {
     const { errors } = SqlSyncRules.fromYaml(
       /* yaml */ `
-        # Sync config fixture.
+        # sync config fixture.
         config: ${edition == null ? '{}' : `{ edition: ${edition} }`}
         streams:
           a:
@@ -1170,7 +1170,7 @@ streams:
   test.each([undefined, 1, 2])('only warns about an empty legacy streams block in edition %s', (edition) => {
     const { errors } = SqlSyncRules.fromYaml(
       /* yaml */ `
-        # Sync config fixture.
+        # sync config fixture.
         config: ${edition == null ? '{}' : `{ edition: ${edition} }`}
         bucket_definitions: {}
         streams: {}
@@ -1190,7 +1190,7 @@ streams:
     for (const hasQuery of [false, true]) {
       const { errors } = SqlSyncRules.fromYaml(
         /* yaml */ `
-          # Sync config fixture.
+          # sync config fixture.
           config: ${edition == null ? '{}' : `{ edition: ${edition} }`}
           streams: ${hasQuery ? '{ orders: { query: SELECT * FROM orders } }' : '{}'}
         `,

@@ -158,7 +158,7 @@ function forwardIssues(schema: z.ZodType, value: unknown, context: z.RefinementC
 export const MONGO_FILTER_SCHEMA = createGrammar({ dispatch: false });
 export const MONGO_FILTER_VALIDATOR = createGrammar({ dispatch: true });
 // Export as a child so Zod names recursive references using its metadata ID instead of `#`.
-// These definitions can then be embedded directly in the complete Sync Config schema.
+// These definitions can then be embedded directly in the complete sync config schema.
 export const MONGO_FILTER_JSON_SCHEMA_DEFINITIONS = z.toJSONSchema(
   z.object({ mongodb_filter_expression: MONGO_FILTER_SCHEMA }),
   {

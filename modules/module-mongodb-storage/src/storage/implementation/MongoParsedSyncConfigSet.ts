@@ -70,7 +70,7 @@ export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
         )
       ) {
         throw new ReplicationAssertionError(
-          `Sync configs in replication stream ${this.replicationStreamId} have different source-table configuration.`
+          `The sync configs in replication stream ${this.replicationStreamId} have different source-table configuration.`
         );
       }
       if (syncConfigs.some((c) => c.mapping == null)) {
