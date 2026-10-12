@@ -1,3 +1,4 @@
+import type { OperationEvidence } from '../utils/operation-evidence.js';
 import { ApiClientConfiguration } from './ApiBenchmark.js';
 import { BenchmarkIterationRuntime } from './BenchmarkRunOptions.js';
 import { BenchmarkScenario } from './BenchmarkScenario.js';
@@ -10,16 +11,7 @@ import {
 import { SnapshotBenchmarkTarget } from './SnapshotBenchmark.js';
 import { StorageBenchmarkImplementationId } from './StorageBenchmark.js';
 
-export interface CombinedBenchmarkWorkload {
-  readonly snapshot_row_count: number;
-  readonly streaming_mutation_count: number;
-  readonly transaction_count: number;
-  readonly payload_bytes: number;
-}
-
-export interface CombinedBenchmarkScenario
-  extends BenchmarkScenario<CombinedBenchmarkWorkload>,
-    ApiClientConfiguration {
+export interface CombinedBenchmarkScenario extends BenchmarkScenario, ApiClientConfiguration {
   readonly layer: 'combined';
   readonly producer: ReplicationBenchmarkProducerId;
   readonly storage: {
@@ -54,7 +46,7 @@ export interface CombinedBenchmarkObservation {
   readonly checkpointVisibleAtNs: string;
   /** Child-process monotonic time retained for diagnostics, never cross-clock duration calculations. */
   readonly childCheckpointVisibleAtNs: string;
-  readonly operations: readonly { readonly op: string; readonly object_id?: string; readonly data?: string | null }[];
+  readonly evidence: OperationEvidence;
   readonly snapshotDone: boolean;
   readonly bucketCount: number;
 }

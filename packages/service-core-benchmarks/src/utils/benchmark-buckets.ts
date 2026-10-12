@@ -2,6 +2,7 @@ import { storage } from '@powersync/service-core';
 import {
   HydratedSyncConfig,
   mergeBuckets,
+  RequestedStream,
   RequestJwtPayload,
   RequestParameters,
   ResolvedBucket
@@ -14,6 +15,7 @@ export interface ResolveBenchmarkBucketsOptions {
   readonly syncRules: HydratedSyncConfig;
   readonly checkpoint: storage.ReplicationCheckpoint;
   readonly syncParameters: Record<string, unknown>;
+  readonly streams?: Record<string, RequestedStream[]>;
 }
 
 export async function resolveBenchmarkBuckets(options: ResolveBenchmarkBucketsOptions): Promise<ResolvedBucket[]> {
@@ -25,7 +27,7 @@ export async function resolveBenchmarkBuckets(options: ResolveBenchmarkBucketsOp
   const { querier, errors } = options.syncRules.getBucketParameterQuerier({
     globalParameters,
     hasDefaultStreams: true,
-    streams: {}
+    streams: options.streams ?? {}
   });
 
   if (errors.length > 0) {
@@ -45,7 +47,10 @@ export async function resolveBenchmarkBuckets(options: ResolveBenchmarkBucketsOp
       })
     : [];
 
-  return mergeBuckets([...querier.staticBuckets, ...dynamicBuckets]);
+  const buckets = mergeBuckets([...querier.staticBuckets, ...dynamicBuckets]);
+  if (remainingParameterResults < 0 || buckets.length > PARAMETER_RESULT_LIMIT)
+    throw new Error(`Benchmark requested more than ${PARAMETER_RESULT_LIMIT} buckets`);
+  return buckets;
 }
 
 export function bucketRequests(buckets: readonly ResolvedBucket[]): storage.BucketDataRequest[] {

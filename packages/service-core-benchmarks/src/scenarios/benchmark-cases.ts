@@ -4,6 +4,7 @@ import { assertDistinctPostgresSourceAndStorage } from '../implementations/repli
 import { MongoStorageBenchmarkImplementation } from '../implementations/storage/MongoStorageBenchmarkImplementation.js';
 import { PostgresStorageBenchmarkImplementation } from '../implementations/storage/PostgresStorageBenchmarkImplementation.js';
 import type { ApiBenchmarkScenario } from '../types/ApiBenchmark.js';
+import type { BenchmarkScenario } from '../types/BenchmarkScenario.js';
 import type { StorageBenchmarkImplementation, StorageBenchmarkScenario } from '../types/StorageBenchmark.js';
 import {
   createMongoCategoryApiScenario,
@@ -25,6 +26,7 @@ import {
   postgresReplicationStorage,
   postgresSourceCase
 } from './replication-scenarios.js';
+import { expandScenario } from './scenario-presets.js';
 import {
   createMongoCategoryStorageScenario,
   createMongoQuickStorageScenario,
@@ -46,7 +48,7 @@ interface StorageBenchmarkCase {
   readonly expectedStorage: StorageBenchmarkScenario['storage'];
 }
 
-export const apiBenchmarkCases: readonly ApiBenchmarkCase[] = [
+const baseApiBenchmarkCases: readonly ApiBenchmarkCase[] = [
   ...POSTGRES_STORAGE_BENCHMARK_VERSIONS.flatMap((version) => [
     createPostgresApiCase(createPostgresCategoryApiScenario(version)),
     createPostgresApiCase(createPostgresQuickApiScenario(version)),
@@ -59,7 +61,7 @@ export const apiBenchmarkCases: readonly ApiBenchmarkCase[] = [
   ])
 ];
 
-export const storageBenchmarkCases: readonly StorageBenchmarkCase[] = [
+const baseStorageBenchmarkCases: readonly StorageBenchmarkCase[] = [
   ...POSTGRES_STORAGE_BENCHMARK_VERSIONS.flatMap((version) => [
     ...createStorageModeCases(createPostgresCategoryStorageScenario(version), createPostgresStorageCase),
     ...createStorageModeCases(createPostgresQuickStorageScenario(version), createPostgresStorageCase)
@@ -77,7 +79,7 @@ function createStorageModeCases(
   return [write, createStorageReadScenario(write), createStorageWriteReadScenario(write)].map(createCase);
 }
 
-export const replicationBenchmarkCases = [
+const baseReplicationBenchmarkCases = [
   ...POSTGRES_STORAGE_BENCHMARK_VERSIONS.flatMap((version) => {
     const storage = postgresReplicationStorage(version);
     return [
@@ -98,7 +100,7 @@ export const replicationBenchmarkCases = [
   })
 ];
 
-export const combinedBenchmarkCases = [
+const baseCombinedBenchmarkCases = [
   ...POSTGRES_STORAGE_BENCHMARK_VERSIONS.flatMap((version) => {
     const storage = postgresReplicationStorage(version);
     return [
@@ -116,6 +118,19 @@ export const combinedBenchmarkCases = [
     ];
   })
 ];
+
+export const apiBenchmarkCases = expandCases(baseApiBenchmarkCases);
+export const storageBenchmarkCases = expandCases(baseStorageBenchmarkCases);
+export const replicationBenchmarkCases = expandCases(baseReplicationBenchmarkCases);
+export const combinedBenchmarkCases = expandCases(baseCombinedBenchmarkCases);
+
+function expandCases<T extends { readonly scenario: BenchmarkScenario }>(cases: readonly T[]): T[] {
+  const expanded: T[] = [];
+  for (const base of cases) {
+    for (const scenario of expandScenario(base.scenario)) expanded.push({ ...base, scenario });
+  }
+  return [...new Map(expanded.map((entry) => [entry.scenario.id, entry])).values()];
+}
 
 export const allBenchmarkScenarios = [
   ...apiBenchmarkCases,

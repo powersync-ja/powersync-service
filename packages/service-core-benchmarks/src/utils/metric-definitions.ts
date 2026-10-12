@@ -7,6 +7,7 @@ export const counterUnits: Record<string, string> = {
   source_logical_bytes: 'bytes',
   payload_bytes: 'bytes',
   read_data_bytes: 'bytes',
+  bucket_data_bytes: 'bytes',
   writer_save_calls: 'calls',
   writer_flushes: 'flushes',
   bucket_operations: 'ops',
@@ -46,6 +47,7 @@ const replicationCounters = [
   'source_rows',
   'source_logical_bytes',
   'payload_bytes',
+  'bucket_data_bytes',
   'writer_save_calls',
   'bucket_operations',
   'parameter_operations'

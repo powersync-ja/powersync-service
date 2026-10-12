@@ -10,6 +10,7 @@ import {
   ReplicationBenchmarkSourceAdapter
 } from '../../types/ReplicationBenchmark.js';
 import { StorageBenchmarkImplementationId } from '../../types/StorageBenchmark.js';
+import { benchmarkMarkerIds, benchmarkSubscriptions, renderBenchmarkSync } from '../../utils/benchmark-sync.js';
 import { ControlledReplicationIterationResource } from './ControlledReplicationIterationResource.js';
 
 export interface ReplicationBenchmarkSourceSelection {
@@ -99,7 +100,7 @@ export class ControlledReplicationBenchmarkImplementation implements Replication
           if (source.id !== this.sourceId) {
             throw new Error(`Replication source fixture ${this.sourceId} created adapter ${source.id}`);
           }
-          await source.createSchema(setup.iterationId);
+          await source.createSchema(setup.iterationId, setup.scenario.data, signal);
           const snapshotTarget = await source.populateSnapshot(setup.manifest);
           await source.prepareTransactions(setup.manifest);
           Object.assign(environment, await source.collectMetadata());
@@ -108,8 +109,10 @@ export class ControlledReplicationBenchmarkImplementation implements Replication
           const { replicationStreamName } = await controller.request(
             'setup_iteration',
             {
-              syncRules: setup.scenario.syncRule(source.sourceTable),
+              syncRules: renderBenchmarkSync(setup.scenario.data, setup.scenario.sync, source.sourceTable),
               syncParameters: setup.scenario.sync_parameters,
+              streams: benchmarkSubscriptions(setup.scenario.sync),
+              markerIds: benchmarkMarkerIds(setup.scenario.data),
               storageVersion: setup.scenario.storage.version,
               source: sourceDescriptor
             },

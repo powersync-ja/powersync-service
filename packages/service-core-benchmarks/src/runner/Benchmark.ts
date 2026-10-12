@@ -1,3 +1,4 @@
+import { validateScenarioDimensions } from '../scenarios/scenario-presets.js';
 import {
   BenchmarkCorrectnessResult,
   BenchmarkIterationDescriptor,
@@ -218,6 +219,11 @@ export abstract class Benchmark<Scenario extends BenchmarkScenario, RunContext, 
   }
 
   private validateScenario(): Error | null {
+    try {
+      validateScenarioDimensions(this.scenario);
+    } catch (error) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
     if (!Number.isInteger(this.scenario.warmup_iterations) || this.scenario.warmup_iterations < 0) {
       return new RangeError('warmup_iterations must be non-negative');
     }

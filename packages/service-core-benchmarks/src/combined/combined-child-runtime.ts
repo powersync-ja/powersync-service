@@ -7,13 +7,15 @@ import {
   system,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { METRICS_HELPER, StorageDataHelpers } from '@powersync/service-core-tests';
+import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { CoreModule } from '@powersync/service-module-core';
+import type { RequestedStream } from '@powersync/service-sync-rules';
 import { createBenchmarkServiceContext } from '../replication/BenchmarkServiceContext.js';
 import { constructReplicationChildImplementation } from '../replication/ReplicationChildClassLoader.js';
 import { ReplicationChildSourceImplementation } from '../replication/ReplicationChildSourceImplementation.js';
 import { StorageBenchmarkImplementation, StorageBenchmarkRunResource } from '../types/StorageBenchmark.js';
 import { bucketRequests, resolveBenchmarkBuckets } from '../utils/benchmark-buckets.js';
+import { OperationAccumulator, readBucketEvidence } from '../utils/operation-evidence.js';
 import {
   CombinedChildCommand,
   CombinedChildCommandKind,
@@ -37,6 +39,8 @@ interface CombinedChildRuntimeState {
   storageTerminated: boolean;
   environment?: object;
   syncParameters?: Record<string, unknown>;
+  streams?: Record<string, RequestedStream[]>;
+  markerIds?: readonly string[];
   defaultSchema?: string;
 }
 
@@ -169,6 +173,8 @@ export class CombinedChildRuntime {
       this.state.syncRulesContent = syncRulesContent;
       this.state.bucketStorage = bucketStorage;
       this.state.syncParameters = payload.syncParameters;
+      this.state.streams = payload.streams;
+      this.state.markerIds = payload.markerIds;
       this.state.defaultSchema = sourceSetup.defaultSchema;
 
       const replicationEngine = new replication.ReplicationEngine();
@@ -209,12 +215,17 @@ export class CombinedChildRuntime {
 
   private async collectEvidence(): Promise<CombinedChildEvidencePayload> {
     const bucketStorage = required(this.state.bucketStorage, 'bucket storage');
-    const content = required(this.state.syncRulesContent, 'sync rules content');
     const [checkpoint, status] = await Promise.all([bucketStorage.getCheckpoint(), bucketStorage.getStatus()]);
     const lsn = checkpoint.lsn;
     const storageCheckpoint = checkpoint.checkpoint.toString(10);
     if (lsn == null) {
-      return { storageCheckpoint, checkpoint: null, operations: [], snapshotDone: status.snapshotDone, bucketCount: 0 };
+      return {
+        storageCheckpoint,
+        checkpoint: null,
+        evidence: new OperationAccumulator().summary(),
+        snapshotDone: status.snapshotDone,
+        bucketCount: 0
+      };
     }
 
     const checkpointVisibleAtNs = process.hrtime.bigint().toString();
@@ -223,21 +234,19 @@ export class CombinedChildRuntime {
         defaultSchema: required(this.state.defaultSchema, 'default schema')
       }),
       checkpoint,
-      syncParameters: required(this.state.syncParameters, 'sync parameters')
+      syncParameters: required(this.state.syncParameters, 'sync parameters'),
+      streams: this.state.streams
     });
-    const chunks = await new StorageDataHelpers(bucketStorage, content).getAllBucketData(
-      bucketRequests(buckets),
-      checkpoint
-    );
-    const operations = chunks.flatMap((chunk) => chunk.chunkData.data);
+    const evidence = await readBucketEvidence({
+      storage: bucketStorage,
+      checkpoint,
+      requests: bucketRequests(buckets),
+      markerIds: this.state.markerIds ?? []
+    });
     return {
       storageCheckpoint,
       checkpoint: lsn,
-      operations: operations.map((operation) => ({
-        op: operation.op,
-        object_id: operation.object_id,
-        data: operation.data
-      })),
+      evidence,
       snapshotDone: status.snapshotDone,
       bucketCount: buckets.length,
       checkpointVisibleAtNs
@@ -300,6 +309,8 @@ export class CombinedChildRuntime {
       this.state.bucketStorage = undefined;
       this.state.syncRulesContent = undefined;
       this.state.syncParameters = undefined;
+      this.state.streams = undefined;
+      this.state.markerIds = undefined;
       this.state.defaultSchema = undefined;
       this.state.storageTerminated = false;
       this.monitorRunning = false;

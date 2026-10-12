@@ -22,24 +22,22 @@ describe.each(apiBenchmarkCases)('$scenario.id', ({ scenario, implementation }) 
     const result = await benchmark.run();
     await writeBenchmarkResult(result);
 
-    console.info(JSON.stringify({ scenario: result.scenario.id, summary: result.summary }, null, 2));
-
     expect(result.status, JSON.stringify(result, null, 2)).toBe('passed');
     expect(result.scenario.storage).toEqual(scenario.storage);
     expect(result.iterations.map(({ kind, status }) => ({ kind, status }))).toEqual([
-      { kind: 'warmup', status: 'passed' },
-      { kind: 'measured', status: 'passed' },
-      { kind: 'measured', status: 'passed' },
-      { kind: 'measured', status: 'passed' }
+      ...Array.from({ length: scenario.warmup_iterations }, () => ({ kind: 'warmup', status: 'passed' })),
+      ...Array.from({ length: scenario.measured_iterations }, () => ({ kind: 'measured', status: 'passed' }))
     ]);
     expect(result.summary).toMatchObject({
-      measured_iterations: 3,
-      successful_iterations: 3,
+      measured_iterations: scenario.measured_iterations,
+      successful_iterations: scenario.measured_iterations,
       failed_iterations: 0,
-      boundaries: { http_read: { sample_count: 3 } }
+      boundaries: { http_read: { sample_count: scenario.measured_iterations } }
     });
     if (scenario.mode === 'streaming') {
-      expect(result.summary?.boundaries).toMatchObject({ end_to_end_streaming: { sample_count: 3 } });
+      expect(result.summary?.boundaries).toMatchObject({
+        end_to_end_streaming: { sample_count: scenario.measured_iterations }
+      });
     }
   });
 });

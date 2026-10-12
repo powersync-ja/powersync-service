@@ -8,12 +8,8 @@ import { assertDistinctPostgresSourceAndStorage } from '../implementations/repli
 import { CombinedBenchmarkScenario } from '../types/CombinedBenchmark.js';
 import { ReplicationBenchmarkProducerId } from '../types/ReplicationBenchmark.js';
 import { StorageBenchmarkImplementationId } from '../types/StorageBenchmark.js';
-import {
-  createCategoryReplicationSyncRules,
-  createCategorySyncParameters,
-  createReplicationSyncRules
-} from '../utils/replication-sync-rules.js';
 import { mongoReplicationSource, postgresReplicationSource } from './replication-scenarios.js';
+import { categorySync, defineScenario, singleTableData } from './scenario-presets.js';
 
 export interface CombinedBenchmarkCase {
   readonly scenario: CombinedBenchmarkScenario;
@@ -25,8 +21,7 @@ export function createQuickCombinedScenario(
   storage: StorageBenchmarkImplementationId,
   storageVersion: number
 ): CombinedBenchmarkScenario {
-  return {
-    id: `combined.initial.baseline.${source}.${storage}.v${storageVersion}.quick.ndjson`,
+  return defineScenario<CombinedBenchmarkScenario>({
     description: `Initial snapshot from ${source} through ${storage} storage version ${storageVersion} to one NDJSON client`,
     layer: 'combined',
     profile: 'quick',
@@ -40,12 +35,9 @@ export function createQuickCombinedScenario(
     mode: 'initial',
     transport: { encoding: 'ndjson', compression: 'none' },
     clients: { count: 1 },
-    workload: { snapshot_row_count: 1_000, streaming_mutation_count: 1_000, transaction_count: 10, payload_bytes: 256 },
-    syncRule: createReplicationSyncRules,
-    sync_parameters: {},
-    expected_bucket_count: 1,
-    expected_bucket_operation_count: 1_000
-  };
+    data: singleTableData({ rowCount: 1_000, rowBytes: 512 }),
+    sync: categorySync({ engine: 'sync-rules', bucketCount: 1 })
+  });
 }
 
 export function createStreamingCombinedScenario(
@@ -54,13 +46,12 @@ export function createStreamingCombinedScenario(
   storageVersion: number
 ): CombinedBenchmarkScenario {
   const initial = createQuickCombinedScenario(source, storage, storageVersion);
-  return {
+  return defineScenario<CombinedBenchmarkScenario>({
     ...initial,
-    id: `combined.streaming.baseline.${source}.${storage}.v${storageVersion}.quick.ndjson`,
     description: `Post-initial updates from ${source} through ${storage} to one NDJSON client`,
     tags: initial.tags.map((tag) => (tag === 'phase:snapshot' ? 'phase:streaming' : tag)),
     mode: 'streaming'
-  };
+  });
 }
 
 export function createCategoryCombinedScenario(
@@ -69,15 +60,12 @@ export function createCategoryCombinedScenario(
   storageVersion: number
 ): CombinedBenchmarkScenario {
   const scenario = createQuickCombinedScenario(source, storage, storageVersion);
-  return {
+  return defineScenario<CombinedBenchmarkScenario>({
     ...scenario,
-    id: `combined.initial.buckets-10.${source}.${storage}.v${storageVersion}.quick.ndjson`,
     description: `Initial snapshot from ${source} across 10 category buckets through ${storage} storage version ${storageVersion} to one NDJSON client`,
     tags: [...scenario.tags, 'shape:10-buckets'],
-    syncRule: createCategoryReplicationSyncRules,
-    sync_parameters: createCategorySyncParameters(),
-    expected_bucket_count: 10
-  };
+    sync: categorySync({ engine: 'sync-rules', bucketCount: 10 })
+  });
 }
 
 export function createQuickCombinedCases(

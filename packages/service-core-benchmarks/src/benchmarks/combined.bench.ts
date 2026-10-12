@@ -23,26 +23,24 @@ describe.each(combinedBenchmarkCases)('$scenario.id', ({ scenario, implementatio
 
     expect(result.status, JSON.stringify(result, null, 2)).toBe('passed');
     expect(result.iterations.map(({ kind, status }) => ({ kind, status }))).toEqual([
-      { kind: 'warmup', status: 'passed' },
-      { kind: 'measured', status: 'passed' },
-      { kind: 'measured', status: 'passed' },
-      { kind: 'measured', status: 'passed' }
+      ...Array.from({ length: scenario.warmup_iterations }, () => ({ kind: 'warmup', status: 'passed' })),
+      ...Array.from({ length: scenario.measured_iterations }, () => ({ kind: 'measured', status: 'passed' }))
     ]);
     expect(result.summary).toMatchObject({
-      measured_iterations: 3,
-      successful_iterations: 3,
+      measured_iterations: scenario.measured_iterations,
+      successful_iterations: scenario.measured_iterations,
       failed_iterations: 0,
       boundaries:
         scenario.mode === 'streaming'
           ? {
-              replication_streaming: { sample_count: 3 },
-              http_read: { sample_count: 3 },
-              end_to_end_streaming: { sample_count: 3 }
+              replication_streaming: { sample_count: scenario.measured_iterations },
+              http_read: { sample_count: scenario.measured_iterations },
+              end_to_end_streaming: { sample_count: scenario.measured_iterations }
             }
           : {
-              replication_snapshot: { sample_count: 3 },
-              http_read: { sample_count: 3 },
-              end_to_end_snapshot: { sample_count: 3 }
+              replication_snapshot: { sample_count: scenario.measured_iterations },
+              http_read: { sample_count: scenario.measured_iterations },
+              end_to_end_snapshot: { sample_count: scenario.measured_iterations }
             }
     });
   });

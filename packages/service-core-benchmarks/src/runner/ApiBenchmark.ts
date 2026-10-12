@@ -1,8 +1,8 @@
 import { storage, system, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { BATCH_OPTIONS, resolveTestTable } from '@powersync/service-core-tests';
+import { BATCH_OPTIONS } from '@powersync/service-core-tests';
 import { CoreModule } from '@powersync/service-module-core';
 import { randomUUID } from 'node:crypto';
-import { generateBaselineStorageRows } from '../generators/generate-baseline-storage-rows.js';
+import { createDataManifest, rowBatches } from '../generators/benchmark-data.js';
 import { createBenchmarkServiceContext } from '../replication/BenchmarkServiceContext.js';
 import { ApiBenchmarkScenario } from '../types/ApiBenchmark.js';
 import { BenchmarkCorrectnessCheck, BenchmarkCorrectnessResult } from '../types/BenchmarkIteration.js';
@@ -18,8 +18,16 @@ import {
   reservePort
 } from '../utils/api-utils.js';
 import {
+  benchmarkClientStreams,
+  benchmarkMarkerIds,
+  renderBenchmarkSync,
+  verifyBenchmarkEvidence
+} from '../utils/benchmark-sync.js';
+import { resolveBenchmarkTables } from '../utils/benchmark-tables.js';
+import {
   createNdjsonStreamReader,
   drainNdjsonResponse,
+  drainNdjsonUntilCheckpoint,
   NdjsonDrainObservation,
   NdjsonStreamReader
 } from '../utils/ndjson-drain.js';
@@ -37,7 +45,7 @@ interface ApiBenchmarkIterationContext {
   readonly replicationLock: storage.ReplicationLock;
   readonly bucketStorage: storage.SyncRulesBucketStorage;
   readonly writer: storage.BucketStorageBatch;
-  readonly sourceTable: storage.SourceTable;
+  readonly sourceTables: ReadonlyMap<string, storage.SourceTable>;
   readonly serviceContext: system.ServiceContextContainer;
   readonly endpoint: string;
   readonly token: string;
@@ -78,10 +86,10 @@ export class ApiBenchmark extends Benchmark<
     let serviceContext: system.ServiceContextContainer | undefined;
     let streamReader: NdjsonStreamReader | undefined;
 
-    const manifest = generateBaselineStorageRows(this.scenario.workload);
+    const manifest = createDataManifest(this.scenario.data, 'snapshot');
 
     try {
-      const syncRules = this.scenario.syncRule(SOURCE_TABLE);
+      const syncRules = renderBenchmarkSync(this.scenario.data, this.scenario.sync, SOURCE_TABLE);
       replicationStream = await run.resource.factory.updateSyncRules(
         updateSyncRulesFromYaml(syncRules, {
           validate: true,
@@ -93,12 +101,21 @@ export class ApiBenchmark extends Benchmark<
       replicationLock = await replicationStream.lock();
       bucketStorage = run.resource.factory.getInstance(replicationStream, { replicationLock });
       writer = await bucketStorage.createWriter(BATCH_OPTIONS);
-      const sourceTable = await resolveTestTable(writer, 'benchmark_items', ['id'], run.resource);
+      const sourceTables = await resolveBenchmarkTables(writer, this.scenario.data);
       await writer.markAllSnapshotDone('0/0');
 
-      for (const row of manifest.rows) {
-        await writer.save({ sourceTable, tag: storage.SaveOperationTag.INSERT, after: row, afterReplicaId: row.id });
-      }
+      for (const range of manifest.snapshot)
+        for (const batch of rowBatches(range, this.scenario.data.batch_size)) {
+          runtime.signal.throwIfAborted();
+          for (const row of batch)
+            await writer.save({
+              sourceTable: sourceTables.get(range.table.key)!,
+              tag: storage.SaveOperationTag.INSERT,
+              after: row,
+              afterReplicaId: row.id
+            });
+          await writer.flush();
+        }
 
       const commit = await writer.commit(TARGET_POSITION);
 
@@ -124,11 +141,13 @@ export class ApiBenchmark extends Benchmark<
       let initialCheckpoint: string | undefined;
       if (this.scenario.mode === 'streaming') {
         const response = await this.openSyncStream(endpoint, token, runtime.signal);
-        streamReader = createNdjsonStreamReader(response);
+        streamReader = createNdjsonStreamReader(response, benchmarkMarkerIds(this.scenario.data));
         const initial = await streamReader.nextCheckpoint();
         if (
           initial.status !== 200 ||
-          initial.operations.length !== manifest.rows.length ||
+          !verifyBenchmarkEvidence(this.scenario.data, this.scenario.sync, initial.evidence, ['snapshot']).every(
+            (check) => check.passed
+          ) ||
           initial.completedCheckpoint == null
         ) {
           throw new Error('Streaming API benchmark initial sync did not complete');
@@ -142,7 +161,7 @@ export class ApiBenchmark extends Benchmark<
         replicationLock,
         bucketStorage,
         writer,
-        sourceTable,
+        sourceTables,
         serviceContext,
         endpoint,
         token,
@@ -163,26 +182,31 @@ export class ApiBenchmark extends Benchmark<
     if (this.scenario.mode === 'streaming') {
       const reader = context.streamReader;
       if (reader == null) throw new Error('Streaming API client was not initialized');
-      const rows = generateBaselineStorageRows(this.scenario.workload).rows.map((row) => ({
-        ...row,
-        id: `stream-${row.id}`
-      }));
+      const manifest = createDataManifest(this.scenario.data, 'streaming');
       runtime.metrics.startBoundary('end_to_end_streaming', 'storage_write_start');
       try {
-        for (const row of rows) {
-          await context.writer.save({
-            sourceTable: context.sourceTable,
-            tag: storage.SaveOperationTag.INSERT,
-            after: row,
-            afterReplicaId: row.id
-          });
-        }
-        const commit = await context.writer.commit('1/2');
-        if (commit.checkpointBlocked || !commit.checkpointCreated) {
-          throw new Error('Streaming benchmark data did not create a checkpoint');
+        let transactionIndex = 0;
+        for (const transaction of manifest.transactions) {
+          for (const range of transaction.ranges)
+            for (const batch of rowBatches(range, this.scenario.data.batch_size)) {
+              runtime.signal.throwIfAborted();
+              for (const row of batch)
+                await context.writer.save({
+                  sourceTable: context.sourceTables.get(range.table.key)!,
+                  tag: storage.SaveOperationTag.INSERT,
+                  after: row,
+                  afterReplicaId: row.id
+                });
+              await context.writer.flush();
+            }
+          const commit = await context.writer.commit(`1/${(++transactionIndex + 1).toString(16)}`);
+          if (commit.checkpointBlocked || !commit.checkpointCreated) {
+            throw new Error('Streaming benchmark transaction did not create a checkpoint');
+          }
         }
         runtime.metrics.startBoundary('http_read', 'storage_committed');
-        const observation = await reader.nextCheckpoint();
+        const checkpoint = await context.bucketStorage.getCheckpoint();
+        const observation = await drainNdjsonUntilCheckpoint(reader, checkpoint.checkpoint.toString());
         runtime.metrics.endBoundary('http_read', 'client_checkpoint_complete');
         this.recordClientCounters(observation, runtime);
         return observation;
@@ -194,7 +218,7 @@ export class ApiBenchmark extends Benchmark<
     let observation: NdjsonDrainObservation;
     try {
       const response = await this.openSyncStream(context.endpoint, context.token, runtime.signal);
-      observation = await drainNdjsonResponse(response);
+      observation = await drainNdjsonResponse(response, benchmarkMarkerIds(this.scenario.data));
     } finally {
       runtime.metrics.endBoundary('http_read', 'stream_complete');
     }
@@ -207,10 +231,6 @@ export class ApiBenchmark extends Benchmark<
     observation: NdjsonDrainObservation,
     context: ApiBenchmarkIterationContext
   ): Promise<BenchmarkCorrectnessResult> {
-    const dataLines = observation.lines.filter(
-      (line) => line != null && typeof line === 'object' && 'data' in line
-    ).length;
-
     const checks: BenchmarkCorrectnessCheck[] = [
       check('http_status', observation.status === 200, { actual: observation.status }),
       check('ndjson_content_type', observation.headers['content-type']?.includes('application/x-ndjson') === true, {
@@ -223,14 +243,13 @@ export class ApiBenchmark extends Benchmark<
         expected: this.scenario.expected_bucket_count,
         actual: observation.bucketNames.length
       }),
-      check('operation_count', observation.operations.length === this.scenario.expected_bucket_operation_count, {
+      check('operation_count', observation.evidence.operationCount === this.scenario.expected_bucket_operation_count, {
         expected: this.scenario.expected_bucket_operation_count,
-        actual: observation.operations.length
+        actual: observation.evidence.operationCount
       }),
-      check('response_contains_data', dataLines > 0, {
-        data_lines: dataLines,
-        expected_operations: this.scenario.expected_bucket_operation_count
-      }),
+      ...verifyBenchmarkEvidence(this.scenario.data, this.scenario.sync, observation.evidence, [
+        this.scenario.mode === 'streaming' ? 'streaming' : 'snapshot'
+      ]),
       check('response_has_bytes', observation.wireBytes > 0, { actual: observation.wireBytes })
     ];
 
@@ -242,9 +261,9 @@ export class ApiBenchmark extends Benchmark<
         }),
         check(
           'post_initial_rows_only',
-          observation.operations.every((operation) => operation.object_id?.startsWith('stream-item-')),
+          observation.evidence.byPhase.streaming === observation.evidence.operationCount,
           {
-            operation_count: observation.operations.length
+            operation_count: observation.evidence.operationCount
           }
         )
       );
@@ -274,12 +293,13 @@ export class ApiBenchmark extends Benchmark<
   private async openSyncStream(endpoint: string, token: string, signal: AbortSignal): Promise<Response> {
     return await fetch(`${endpoint}/sync/stream`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'accept-encoding': 'identity' },
       body: JSON.stringify({
         raw_data: true,
         client_id: randomUUID(),
         buckets: [],
-        parameters: this.scenario.sync_parameters
+        parameters: this.scenario.sync_parameters,
+        streams: { include_defaults: true, subscriptions: benchmarkClientStreams(this.scenario.sync) }
       }),
       signal
     });
@@ -287,8 +307,8 @@ export class ApiBenchmark extends Benchmark<
 
   private recordClientCounters(observation: NdjsonDrainObservation, runtime: BenchmarkIterationRuntime): void {
     runtime.metrics.setCounter('response_wire_bytes', observation.wireBytes);
-    runtime.metrics.setCounter('response_lines', observation.lines.length);
-    runtime.metrics.setCounter('bucket_operations', observation.operations.length);
+    runtime.metrics.setCounter('response_lines', observation.lineCount);
+    runtime.metrics.setCounter('bucket_operations', observation.evidence.operationCount);
     runtime.metrics.setCounter('distinct_buckets', observation.bucketNames.length);
   }
 }

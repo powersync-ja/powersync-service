@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { generateBaselineReplicationManifest } from '../generators/generate-baseline-replication-manifest.js';
+import { createDataManifest } from '../generators/benchmark-data.js';
 import { monotonicMilliseconds } from '../replication/replication-child-protocol.js';
 import { BenchmarkCorrectnessCheck, BenchmarkCorrectnessResult } from '../types/BenchmarkIteration.js';
 import { BenchmarkRunOptions } from '../types/BenchmarkRunOptions.js';
@@ -11,11 +11,11 @@ import {
   CombinedBenchmarkScenario
 } from '../types/CombinedBenchmark.js';
 import { check } from '../utils/api-utils.js';
+import { benchmarkClientStreams, benchmarkMarkerIds, verifyBenchmarkEvidence } from '../utils/benchmark-sync.js';
 import {
   createNdjsonStreamReader,
   drainNdjsonResponse,
   drainNdjsonUntilCheckpoint,
-  NdjsonDataOperation,
   NdjsonDrainObservation,
   NdjsonStreamReader
 } from '../utils/ndjson-drain.js';
@@ -56,10 +56,10 @@ export class CombinedBenchmark extends Benchmark<
     runtime: CombinedBenchmarkIterationContext['runtime']
   ): Promise<CombinedIterationState> {
     runtime.signal.throwIfAborted();
-    const manifest = generateBaselineReplicationManifest({
-      workload: this.scenario.workload,
-      phase: this.scenario.mode === 'streaming' ? 'streaming' : 'snapshot'
-    });
+    const manifest = createDataManifest(
+      this.scenario.data,
+      this.scenario.mode === 'streaming' ? 'streaming' : 'snapshot'
+    );
     const resource = await run.resource.createIteration({
       iterationId: `${this.runOptions.runId}-${runtime.kind}-${runtime.iteration}`,
       scenario: this.scenario,
@@ -72,11 +72,13 @@ export class CombinedBenchmark extends Benchmark<
       await resource.releaseReplication(false);
       const initialStorage = await resource.observeCheckpoint();
       const response = await this.openSyncStream(resource.endpoint, resource.token, runtime.signal);
-      streamReader = createNdjsonStreamReader(response);
+      streamReader = createNdjsonStreamReader(response, benchmarkMarkerIds(this.scenario.data));
       const initial = await streamReader.nextCheckpoint();
       if (
         initial.status !== 200 ||
-        initial.operations.length !== this.scenario.workload.snapshot_row_count ||
+        !verifyBenchmarkEvidence(this.scenario.data, this.scenario.sync, initial.evidence, ['snapshot']).every(
+          (check) => check.passed
+        ) ||
         initial.completedCheckpoint !== initialStorage.storageCheckpoint
       ) {
         throw new Error('Combined streaming benchmark initial client sync did not complete');
@@ -111,7 +113,7 @@ export class CombinedBenchmark extends Benchmark<
       let clientObservation: NdjsonDrainObservation;
       try {
         const response = await this.openSyncStream(resource.endpoint, resource.token, runtime.signal);
-        clientObservation = await drainNdjsonResponse(response);
+        clientObservation = await drainNdjsonResponse(response, benchmarkMarkerIds(this.scenario.data));
       } finally {
         runtime.metrics.endBoundary('http_read', 'stream_complete');
       }
@@ -160,15 +162,6 @@ export class CombinedBenchmark extends Benchmark<
   ): Promise<BenchmarkCorrectnessResult> {
     const { storage, client } = observation;
     const comparison = context.resource.comparePosition(storage.checkpoint, storage.target);
-    const storagePuts = storage.operations.filter((operation) => operation.op === 'PUT');
-    const clientPuts = client.operations.filter((operation) => operation.op === 'PUT');
-    const storageMarker = storage.operations.find((operation) => operation.object_id === storage.target.markerId);
-    const clientMarker = client.operations.find((operation) => operation.object_id === storage.target.markerId);
-    const expectedOperations = this.scenario.expected_bucket_operation_count;
-    const expectedStorageOperations =
-      this.scenario.mode === 'streaming'
-        ? this.scenario.workload.snapshot_row_count + expectedOperations
-        : expectedOperations;
     const checks: BenchmarkCorrectnessCheck[] = [
       check('snapshot_complete', storage.snapshotDone, { actual: storage.snapshotDone }),
       check('checkpoint_position', comparison.comparable && comparison.reached, comparison),
@@ -176,18 +169,12 @@ export class CombinedBenchmark extends Benchmark<
         expected: this.scenario.expected_bucket_count,
         actual: storage.bucketCount
       }),
-      check('storage_operation_count', storage.operations.length === expectedStorageOperations, {
-        expected: expectedStorageOperations,
-        actual: storage.operations.length
-      }),
-      check('storage_put_operation_count', storagePuts.length === expectedStorageOperations, {
-        expected: expectedStorageOperations,
-        actual: storagePuts.length
-      }),
-      check('storage_target_marker_visible', markerContainsTarget(storageMarker), {
-        marker_id: storage.target.markerId,
-        actual: storageMarker ?? null
-      }),
+      ...verifyBenchmarkEvidence(
+        this.scenario.data,
+        this.scenario.sync,
+        storage.evidence,
+        this.scenario.mode === 'streaming' ? ['snapshot', 'streaming'] : ['snapshot']
+      ).map((check) => ({ ...check, name: `storage_${check.name}` })),
       check('http_status', client.status === 200, { actual: client.status }),
       check('ndjson_content_type', client.headers['content-type']?.includes('application/x-ndjson') === true, {
         actual: client.headers['content-type']
@@ -219,18 +206,9 @@ export class CombinedBenchmark extends Benchmark<
           completion_line: client.completionLineIndex
         }
       ),
-      check('client_operation_count', client.operations.length === expectedOperations, {
-        expected: expectedOperations,
-        actual: client.operations.length
-      }),
-      check('client_put_operation_count', clientPuts.length === expectedOperations, {
-        expected: expectedOperations,
-        actual: clientPuts.length
-      }),
-      check('client_target_marker_visible', markerContainsTarget(clientMarker), {
-        marker_id: storage.target.markerId,
-        actual: clientMarker ?? null
-      }),
+      ...verifyBenchmarkEvidence(this.scenario.data, this.scenario.sync, client.evidence, [
+        this.scenario.mode === 'streaming' ? 'streaming' : 'snapshot'
+      ]).map((check) => ({ ...check, name: `client_${check.name}` })),
       check('response_has_bytes', client.wireBytes > 0, { actual: client.wireBytes }),
       check(
         'checkpoint_complete_matches_protocol_checkpoint',
@@ -255,13 +233,9 @@ export class CombinedBenchmark extends Benchmark<
           initial: context.initialCheckpoint,
           actual: client.completedCheckpoint
         }),
-        check(
-          'post_initial_rows_only',
-          client.operations.every((operation) => operation.object_id?.startsWith('stream-')),
-          {
-            operation_count: client.operations.length
-          }
-        )
+        check('post_initial_rows_only', client.evidence.byPhase.streaming === client.evidence.operationCount, {
+          operation_count: client.evidence.operationCount
+        })
       );
     }
     return { passed: checks.every((candidate) => candidate.passed), checks };
@@ -320,38 +294,32 @@ export class CombinedBenchmark extends Benchmark<
     client: NdjsonDrainObservation
   ): void {
     const { metrics } = context.runtime;
-    const storagePutCount = storage.operations.filter((operation) => operation.op === 'PUT').length;
-    const clientPutCount = client.operations.filter((operation) => operation.op === 'PUT').length;
+    const clientPutCount = client.evidence.putCount;
     const streaming = this.scenario.mode === 'streaming';
     metrics.setCounter(
       'source_rows',
-      streaming ? this.scenario.workload.streaming_mutation_count : context.manifest.snapshotRows.length
+      streaming ? context.manifest.streamingRowCount : context.manifest.snapshotRowCount
     );
     metrics.setCounter('source_transactions', streaming ? context.manifest.transactions.length : 0);
     metrics.setCounter('source_logical_bytes', context.manifest.sourceLogicalBytes);
     metrics.setCounter('payload_bytes', context.manifest.payloadBytes);
+    metrics.setCounter('bucket_data_bytes', storage.evidence.phaseDataBytes[streaming ? 'streaming' : 'snapshot'] ?? 0);
     metrics.setCounter(
       'writer_save_calls',
-      streaming ? this.scenario.workload.streaming_mutation_count : context.manifest.expectedPutCount
+      streaming ? context.manifest.streamingRowCount : context.manifest.expectedPutCount
     );
-    metrics.setCounter(
-      'bucket_operations',
-      streaming ? storage.operations.length - context.manifest.snapshotRows.length : storage.operations.length
-    );
-    metrics.setCounter(
-      'storage_put_operations',
-      streaming ? storagePutCount - context.manifest.snapshotRows.length : storagePutCount
-    );
+    metrics.setCounter('bucket_operations', storage.evidence.byPhase[streaming ? 'streaming' : 'snapshot'] ?? 0);
+    metrics.setCounter('storage_put_operations', storage.evidence.byPhase[streaming ? 'streaming' : 'snapshot'] ?? 0);
     metrics.setCounter('parameter_operations', 0);
     metrics.setCounter('distinct_buckets', storage.bucketCount);
     metrics.setCounter('visible_checkpoints', streaming ? context.manifest.transactions.length : 1);
     metrics.setCounter('target_markers', streaming ? context.manifest.transactions.length : 1);
-    metrics.setCounter('client_operations', client.operations.length);
+    metrics.setCounter('client_operations', client.evidence.operationCount);
     metrics.setCounter('client_put_operations', clientPutCount);
     metrics.setCounter('client_count', this.scenario.clients.count);
     metrics.setCounter('protocol_plaintext_bytes', client.wireBytes);
     metrics.setCounter('response_wire_bytes', client.wireBytes);
-    metrics.setCounter('response_lines', client.lines.length);
+    metrics.setCounter('response_lines', client.lineCount);
   }
 
   private async openSyncStream(endpoint: string, token: string, signal: AbortSignal): Promise<Response> {
@@ -367,25 +335,10 @@ export class CombinedBenchmark extends Benchmark<
         raw_data: true,
         client_id: randomUUID(),
         buckets: [],
-        parameters: this.scenario.sync_parameters
+        parameters: this.scenario.sync_parameters,
+        streams: { include_defaults: true, subscriptions: benchmarkClientStreams(this.scenario.sync) }
       }),
       signal
     });
   }
-}
-
-function markerContainsTarget(
-  operation: { readonly op: string; readonly data?: unknown } | NdjsonDataOperation | undefined
-): boolean {
-  if (operation?.op !== 'PUT' || typeof operation.data !== 'string') return false;
-  try {
-    const data: unknown = JSON.parse(operation.data);
-    return isRecord(data) && data.is_target === 1;
-  } catch {
-    return false;
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value);
 }

@@ -1,11 +1,11 @@
 import { CombinedChildController, CombinedChildTransport } from '../../combined/CombinedChildController.js';
 import { ForkedCombinedChildTransport } from '../../combined/ForkedCombinedChildTransport.js';
 import { fixtureEnvironment } from '../../env.js';
-import { generateBaselineSnapshotManifest } from '../../generators/generate-baseline-snapshot-manifest.js';
 import { CombinedChildResourceMonitor } from '../../monitors/CombinedChildResourceMonitor.js';
 import { CombinedBenchmarkImplementation, CombinedBenchmarkRunResource } from '../../types/CombinedBenchmark.js';
 import { ReplicationBenchmarkSourceAdapter } from '../../types/ReplicationBenchmark.js';
 import { createBenchmarkKey, createToken, reservePort } from '../../utils/api-utils.js';
+import { benchmarkMarkerIds, benchmarkSubscriptions, renderBenchmarkSync } from '../../utils/benchmark-sync.js';
 import type {
   ReplicationBenchmarkSourceSelection,
   ReplicationBenchmarkStorageSelection
@@ -107,12 +107,8 @@ export class ControlledCombinedBenchmarkImplementation implements CombinedBenchm
             );
           }
 
-          await source.createSchema(setup.iterationId);
-          const snapshotTarget = await source.populateSnapshot(
-            setup.scenario.mode === 'streaming'
-              ? generateBaselineSnapshotManifest(setup.scenario.workload)
-              : setup.manifest
-          );
+          await source.createSchema(setup.iterationId, setup.scenario.data, signal);
+          const snapshotTarget = await source.populateSnapshot(setup.manifest);
           if (setup.scenario.mode === 'streaming') await source.prepareTransactions(setup.manifest);
           Object.assign(environment, await source.collectMetadata());
 
@@ -123,8 +119,10 @@ export class ControlledCombinedBenchmarkImplementation implements CombinedBenchm
           const childSetup = await controller.request(
             'setup_iteration',
             {
-              syncRules: setup.scenario.syncRule(source.sourceTable),
+              syncRules: renderBenchmarkSync(setup.scenario.data, setup.scenario.sync, source.sourceTable),
               syncParameters: setup.scenario.sync_parameters,
+              streams: benchmarkSubscriptions(setup.scenario.sync),
+              markerIds: benchmarkMarkerIds(setup.scenario.data),
               storageVersion: setup.scenario.storage.version,
               source: sourceDescriptor,
               port,

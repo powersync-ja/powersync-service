@@ -1,5 +1,5 @@
 import { BenchmarkScenario } from './BenchmarkScenario.js';
-import { StorageBenchmarkImplementationId, StorageBenchmarkWorkload } from './StorageBenchmark.js';
+import { StorageBenchmarkImplementationId } from './StorageBenchmark.js';
 
 export interface ApiClientConfiguration {
   readonly mode: 'initial' | 'streaming';
@@ -12,7 +12,7 @@ export interface ApiClientConfiguration {
   };
 }
 
-export interface ApiBenchmarkScenario extends BenchmarkScenario<StorageBenchmarkWorkload>, ApiClientConfiguration {
+export interface ApiBenchmarkScenario extends BenchmarkScenario, ApiClientConfiguration {
   readonly layer: 'api';
   readonly storage: {
     readonly implementation: StorageBenchmarkImplementationId;

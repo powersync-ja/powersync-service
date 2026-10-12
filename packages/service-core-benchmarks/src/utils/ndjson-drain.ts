@@ -1,3 +1,5 @@
+import { OperationAccumulator, OperationEvidence } from './operation-evidence.js';
+
 export interface NdjsonDataOperation {
   readonly [field: string]: unknown;
   readonly op_id: string;
@@ -9,12 +11,12 @@ export interface NdjsonDataOperation {
 export interface NdjsonDrainObservation {
   readonly status: number;
   readonly headers: Record<string, string>;
-  readonly lines: readonly unknown[];
+  readonly lineCount: number;
   readonly wireBytes: number;
   readonly firstByteAtNs: string | null;
   readonly completedCheckpoint: string | null;
   readonly checkpointLastOpId: string | null;
-  readonly operations: readonly NdjsonDataOperation[];
+  readonly evidence: OperationEvidence;
   readonly bucketNames: readonly string[];
   readonly dataBucketNames: readonly string[];
   readonly checkpointLineIndex: number | null;
@@ -24,8 +26,8 @@ export interface NdjsonDrainObservation {
 }
 
 interface NdjsonDrainState {
-  readonly lines: unknown[];
-  readonly operations: NdjsonDataOperation[];
+  lineCount: number;
+  readonly accumulator: OperationAccumulator;
   readonly bucketNames: Set<string>;
   readonly dataBucketNames: Set<string>;
   completedCheckpoint: string | null;
@@ -35,8 +37,11 @@ interface NdjsonDrainState {
   completionLineIndex: number | null;
 }
 
-export async function drainNdjsonResponse(response: Response): Promise<NdjsonDrainObservation> {
-  const reader = createNdjsonStreamReader(response);
+export async function drainNdjsonResponse(
+  response: Response,
+  markerIds: readonly string[] = []
+): Promise<NdjsonDrainObservation> {
+  const reader = createNdjsonStreamReader(response, markerIds);
   try {
     return await reader.nextCheckpoint();
   } finally {
@@ -53,8 +58,8 @@ export async function drainNdjsonUntilCheckpoint(
   reader: NdjsonStreamReader,
   targetCheckpoint: string
 ): Promise<NdjsonDrainObservation> {
-  const lines: unknown[] = [];
-  const operations: NdjsonDataOperation[] = [];
+  let lineCount = 0;
+  const accumulator = new OperationAccumulator();
   const bucketNames = new Set<string>();
   const dataBucketNames = new Set<string>();
   let wireBytes = 0;
@@ -64,9 +69,9 @@ export async function drainNdjsonUntilCheckpoint(
   let latest: NdjsonDrainObservation;
   do {
     latest = await reader.nextCheckpoint();
-    const offset = lines.length;
-    lines.push(...latest.lines);
-    operations.push(...latest.operations);
+    const offset = lineCount;
+    lineCount += latest.lineCount;
+    accumulator.merge(latest.evidence);
     latest.bucketNames.forEach((name) => bucketNames.add(name));
     latest.dataBucketNames.forEach((name) => dataBucketNames.add(name));
     wireBytes += latest.wireBytes;
@@ -76,19 +81,19 @@ export async function drainNdjsonUntilCheckpoint(
   } while (latest.completedCheckpoint == null || BigInt(latest.completedCheckpoint) < BigInt(targetCheckpoint));
   return {
     ...latest,
-    lines,
-    operations,
-    bucketNames: [...bucketNames].sort(),
+    lineCount,
+    evidence: accumulator.summary(),
+    bucketNames: latest.bucketNames,
     dataBucketNames: [...dataBucketNames].sort(),
     wireBytes,
     firstByteAtNs,
     checkpointLineIndex,
     firstDataLineIndex,
-    completionLineIndex: lines.length - 1
+    completionLineIndex: lineCount - 1
   };
 }
 
-export function createNdjsonStreamReader(response: Response): NdjsonStreamReader {
+export function createNdjsonStreamReader(response: Response, markerIds: readonly string[] = []): NdjsonStreamReader {
   if (response.body == null) {
     throw new Error('API response did not include a body');
   }
@@ -97,10 +102,11 @@ export function createNdjsonStreamReader(response: Response): NdjsonStreamReader
   const decoder = new TextDecoder();
   let pending = '';
   let closed = false;
+  const bucketNames = new Set<string>();
   return {
     async nextCheckpoint() {
       if (closed) throw new Error('NDJSON stream reader is closed');
-      const state = createDrainState();
+      const state = createDrainState(markerIds, bucketNames);
       let wireBytes = 0;
       let firstByteAtNs: string | null = null;
       while (state.completedCheckpoint == null) {
@@ -124,12 +130,12 @@ export function createNdjsonStreamReader(response: Response): NdjsonStreamReader
       return {
         status: response.status,
         headers: Object.fromEntries(response.headers.entries()),
-        lines: state.lines,
+        lineCount: state.lineCount,
         wireBytes,
         firstByteAtNs,
         completedCheckpoint: state.completedCheckpoint,
         checkpointLastOpId: state.checkpointLastOpId,
-        operations: state.operations,
+        evidence: state.accumulator.summary(),
         bucketNames: [...state.bucketNames].sort(),
         dataBucketNames: [...state.dataBucketNames].sort(),
         checkpointLineIndex: state.checkpointLineIndex,
@@ -150,11 +156,11 @@ export function createNdjsonStreamReader(response: Response): NdjsonStreamReader
   };
 }
 
-function createDrainState(): NdjsonDrainState {
+function createDrainState(markerIds: readonly string[], bucketNames: Set<string>): NdjsonDrainState {
   return {
-    lines: [],
-    operations: [],
-    bucketNames: new Set(),
+    lineCount: 0,
+    accumulator: new OperationAccumulator(markerIds),
+    bucketNames,
     dataBucketNames: new Set(),
     completedCheckpoint: null,
     checkpointLastOpId: null,
@@ -171,8 +177,7 @@ function consumeLines(input: string, state: NdjsonDrainState): string {
     if (line.length === 0) continue;
 
     const value: unknown = JSON.parse(line);
-    const lineIndex = state.lines.length;
-    state.lines.push(value);
+    const lineIndex = state.lineCount++;
 
     const checkpointLastOpId = readCheckpointLastOpId(value);
     if (checkpointLastOpId != null) {
@@ -185,7 +190,8 @@ function consumeLines(input: string, state: NdjsonDrainState): string {
     const operations = readDataOperations(value);
     if (operations != null) {
       state.firstDataLineIndex ??= lineIndex;
-      state.operations.push(...operations);
+      const bucket = (value as { data: { bucket: string } }).data.bucket;
+      for (const operation of operations) state.accumulator.add(bucket, operation);
     }
 
     const completedCheckpoint = readCompletedCheckpoint(value);

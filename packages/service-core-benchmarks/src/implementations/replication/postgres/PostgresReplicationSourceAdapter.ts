@@ -1,6 +1,8 @@
 import { normalizeConnectionConfig } from '@powersync/lib-service-postgres';
 import * as jpgwire from '@powersync/service-jpgwire';
 import { createHash } from 'node:crypto';
+import { BenchmarkRow, rowBatches, rowId } from '../../../generators/benchmark-data.js';
+import type { BenchmarkDataDefinition } from '../../../types/BenchmarkDataDefinition.js';
 import {
   ReplicationBenchmarkManifest,
   ReplicationBenchmarkSourceAdapter,
@@ -90,7 +92,8 @@ export class PostgresReplicationSourceAdapter implements ReplicationBenchmarkSou
   readonly capabilities = POSTGRES_REPLICATION_SOURCE_CAPABILITIES;
 
   private readonly connectionConfig;
-  private readonly transactions = new Map<string, ReplicationBenchmarkTransaction>();
+  private manifest?: ReplicationBenchmarkManifest;
+  private signal?: AbortSignal;
   private connection?: jpgwire.PgConnection;
   private schema?: string;
   private replicationStreamName?: string;
@@ -131,8 +134,10 @@ export class PostgresReplicationSourceAdapter implements ReplicationBenchmarkSou
     this.replicationStreamName = name;
   }
 
-  async createSchema(iterationId: string): Promise<void> {
+  async createSchema(iterationId: string, data: BenchmarkDataDefinition, signal?: AbortSignal): Promise<void> {
     this.assertActive();
+    this.signal = signal;
+    signal?.throwIfAborted();
     if (this.connection != null) throw new Error('PostgreSQL benchmark source schema is already initialized');
 
     this.connection = await jpgwire.connectPgWire(this.connectionConfig, {
@@ -140,19 +145,21 @@ export class PostgresReplicationSourceAdapter implements ReplicationBenchmarkSou
       applicationName: 'powersync replication benchmark source'
     });
     this.schema = schemaNameForIteration(iterationId);
-    const qualifiedTable = this.qualifiedTable();
     await this.connection.query('BEGIN');
     try {
       await this.connection.query(`CREATE SCHEMA ${quoteIdentifier(this.schema)}`);
-      await this.connection.query(`
-        CREATE TABLE ${qualifiedTable} (
+      for (const table of data.tables)
+        await this.connection.query(`
+        CREATE TABLE ${this.qualifiedTable(table.name)} (
           id text PRIMARY KEY,
           owner_id text NOT NULL,
           category text NOT NULL,
           version integer NOT NULL,
-          updated_at timestamptz NOT NULL,
+          updated_at text NOT NULL,
           payload text NOT NULL,
-          is_target integer NOT NULL
+          is_target integer NOT NULL,
+          partition_key bigint NOT NULL,
+          table_key text NOT NULL
         )
       `);
       await this.ensurePublication();
@@ -174,30 +181,46 @@ export class PostgresReplicationSourceAdapter implements ReplicationBenchmarkSou
 
   async populateSnapshot(manifest: SnapshotBenchmarkManifest): Promise<ReplicationBenchmarkTarget> {
     const connection = this.requiredConnection();
-    await this.insertRowsInTransaction(connection, manifest.snapshotRows);
-    const nativePosition = await this.emitCausalMarker(connection, 'snapshot', manifest.target.markerId);
-    return { markerId: manifest.target.markerId, nativePosition };
+    for (const range of manifest.snapshot)
+      for (const batch of rowBatches(range, manifest.data.batch_size)) {
+        this.signal?.throwIfAborted();
+        await connection.query('BEGIN');
+        try {
+          await this.insertBatch(connection, range.table.name, batch);
+          await connection.query('COMMIT');
+        } catch (error) {
+          await rollbackWithCause(connection, error);
+        }
+      }
+    const range = manifest.snapshot.at(-1)!;
+    const markerId = rowId(range.table, 'snapshot', range.count - 1);
+    const nativePosition = await this.emitCausalMarker(connection, 'snapshot', markerId);
+    return { markerId, nativePosition };
   }
 
   async prepareTransactions(manifest: ReplicationBenchmarkManifest): Promise<void> {
     this.requiredConnection();
-    this.transactions.clear();
-    for (const transaction of manifest.transactions) this.transactions.set(transaction.id, transaction);
+    this.manifest = manifest;
   }
 
   async commitTransaction(transaction: ReplicationBenchmarkTransaction): Promise<ReplicationBenchmarkTarget> {
     const connection = this.requiredConnection();
-    const prepared = this.transactions.get(transaction.id);
+    const prepared = this.manifest?.transactions.byId(transaction.id);
     if (prepared == null) throw new Error(`Unknown PostgreSQL benchmark transaction ${transaction.id}`);
-    await this.insertRowsInTransaction(
-      connection,
-      prepared.mutations.map((mutation) => mutation.row)
-    );
+    await connection.query('BEGIN');
+    try {
+      for (const range of prepared.ranges)
+        for (const batch of rowBatches(range, this.manifest!.data.batch_size)) {
+          this.signal?.throwIfAborted();
+          await this.insertBatch(connection, range.table.name, batch);
+        }
+      await connection.query('COMMIT');
+    } catch (error) {
+      await rollbackWithCause(connection, error);
+    }
     const committedAtNs = process.hrtime.bigint().toString();
     const nativePosition = await this.emitCausalMarker(connection, 'transaction', prepared.id);
-    const marker = prepared.mutations.at(-1)?.row;
-    if (marker == null) throw new Error(`PostgreSQL benchmark transaction ${transaction.id} has no target marker`);
-    return { markerId: marker.id, nativePosition, committedAtNs };
+    return { markerId: prepared.target.markerId, nativePosition, committedAtNs };
   }
 
   async keepalive(): Promise<ReplicationBenchmarkTarget> {
@@ -243,7 +266,7 @@ export class PostgresReplicationSourceAdapter implements ReplicationBenchmarkSou
       this.connectionCleanupComplete = true;
       this.connection = undefined;
     }
-    this.transactions.clear();
+    this.manifest = undefined;
     this.disposed = true;
   }
 
@@ -269,34 +292,11 @@ export class PostgresReplicationSourceAdapter implements ReplicationBenchmarkSou
     }
   }
 
-  private async insertRowsInTransaction(
-    connection: jpgwire.PgConnection,
-    rows: ReplicationBenchmarkManifest['snapshotRows']
-  ): Promise<void> {
-    await connection.query('BEGIN');
-    try {
-      for (const row of rows) {
-        await connection.query({
-          statement: `
-            INSERT INTO ${this.qualifiedTable()}
-              (id, owner_id, category, version, updated_at, payload, is_target)
-            VALUES ($1, $2, $3, $4, $5::timestamptz, $6, $7)
-          `,
-          params: [
-            { type: 'varchar', value: row.id },
-            { type: 'varchar', value: row.owner_id },
-            { type: 'varchar', value: row.category },
-            { type: 'int4', value: row.version },
-            { type: 'varchar', value: row.updated_at },
-            { type: 'varchar', value: row.payload },
-            { type: 'int4', value: row.is_target }
-          ]
-        });
-      }
-      await connection.query('COMMIT');
-    } catch (error) {
-      await rollbackWithCause(connection, error);
-    }
+  private async insertBatch(connection: jpgwire.PgConnection, table: string, batch: BenchmarkRow[]): Promise<void> {
+    await connection.query({
+      statement: `INSERT INTO ${this.qualifiedTable(table)} (id, owner_id, category, version, updated_at, payload, is_target, partition_key, table_key) SELECT id, owner_id, category, version, updated_at, payload, is_target, partition_key, table_key FROM jsonb_to_recordset($1::jsonb) AS r(id text, owner_id text, category text, version integer, updated_at text, payload text, is_target integer, partition_key bigint, table_key text)`,
+      params: [{ type: 'varchar', value: JSON.stringify(batch) }]
+    });
   }
 
   private async emitCausalMarker(
@@ -361,9 +361,9 @@ export class PostgresReplicationSourceAdapter implements ReplicationBenchmarkSou
     );
   }
 
-  private qualifiedTable(): string {
+  private qualifiedTable(table = TABLE_NAME): string {
     if (this.schema == null) throw new Error('PostgreSQL benchmark source schema is not initialized');
-    return `${quoteIdentifier(this.schema)}.${quoteIdentifier(TABLE_NAME)}`;
+    return `${quoteIdentifier(this.schema)}.${quoteIdentifier(table)}`;
   }
 
   private requiredConnection(requireSchema = true): jpgwire.PgConnection {

@@ -1,14 +1,31 @@
 import { StorageBenchmarkImplementationId, StorageBenchmarkScenario } from '../types/StorageBenchmark.js';
-import {
-  createCategoryStorageSyncRules,
-  createCategorySyncParameters,
-  createStorageSyncRules
-} from '../utils/replication-sync-rules.js';
+import { categorySync, defineScenario, singleTableData } from './scenario-presets.js';
+
+export function makeStorageScenario(
+  options: Pick<StorageBenchmarkScenario, 'storage' | 'mode' | 'data' | 'sync'> &
+    Partial<Pick<StorageBenchmarkScenario, 'profile' | 'timeout_ms' | 'warmup_iterations' | 'measured_iterations'>>
+): StorageBenchmarkScenario {
+  const profile = options.profile ?? 'quick';
+  return defineScenario<StorageBenchmarkScenario>({
+    ...options,
+    profile,
+    layer: 'storage',
+    description: `Direct ${options.mode} benchmark`,
+    tags: ['layer:storage', `profile:${profile}`, options.storage.implementation, `version:${options.storage.version}`],
+    prerequisites: [options.storage.implementation],
+    timeout_ms: options.timeout_ms ?? (profile === 'manual' ? 1_800_000 : 120_000),
+    warmup_iterations: options.warmup_iterations ?? (profile === 'manual' ? 0 : 1),
+    measured_iterations: options.measured_iterations ?? (profile === 'manual' ? 1 : 3),
+    flush_policy: 'automatic',
+    primary_boundary:
+      options.mode === 'write-read' ? 'storage_write_read' : options.mode === 'read' ? 'storage_read' : 'storage_write'
+  });
+}
 
 export function createPostgresQuickStorageScenario(version: number): StorageBenchmarkScenario {
   return createQuickStorageScenario(
     'storage:postgres',
-    'Write 1000 rows to global bucket directly to PostgreSQL bucket storage',
+    'Write 10000 rows to global bucket directly to PostgreSQL bucket storage',
     version
   );
 }
@@ -16,55 +33,47 @@ export function createPostgresQuickStorageScenario(version: number): StorageBenc
 export function createMongoQuickStorageScenario(version: number): StorageBenchmarkScenario {
   return createQuickStorageScenario(
     'storage:mongodb',
-    'Write 1000 rows to global bucket directly to MongoDB bucket storage',
+    'Write 10000 rows to global bucket directly to MongoDB bucket storage',
     version
   );
 }
 
 export function createPostgresCategoryStorageScenario(version: number): StorageBenchmarkScenario {
   const scenario = createPostgresQuickStorageScenario(version);
-  return {
+  return defineScenario<StorageBenchmarkScenario>({
     ...scenario,
-    id: `storage.write.buckets-10.postgres-storage.v${version}.quick`,
     description: 'Write 10000 rows across 10 category buckets directly to PostgreSQL bucket storage',
     tags: [...scenario.tags, 'shape:10-buckets'],
-    syncRule: createCategoryStorageSyncRules,
-    sync_parameters: createCategorySyncParameters(),
-    expected_bucket_count: 10
-  };
+    sync: categorySync({ engine: 'sync-rules', bucketCount: 10 })
+  });
 }
 
 export function createMongoCategoryStorageScenario(version: number): StorageBenchmarkScenario {
   const scenario = createMongoQuickStorageScenario(version);
-  return {
+  return defineScenario<StorageBenchmarkScenario>({
     ...scenario,
-    id: `storage.write.buckets-10.mongo-storage.v${version}.quick`,
     description: 'Write 10000 rows across 10 category buckets directly to MongoDB bucket storage',
     tags: [...scenario.tags, 'shape:10-buckets'],
-    syncRule: createCategoryStorageSyncRules,
-    sync_parameters: createCategorySyncParameters(),
-    expected_bucket_count: 10
-  };
+    sync: categorySync({ engine: 'sync-rules', bucketCount: 10 })
+  });
 }
 
 export function createStorageReadScenario(write: StorageBenchmarkScenario): StorageBenchmarkScenario {
-  return {
+  return defineScenario<StorageBenchmarkScenario>({
     ...write,
-    id: write.id.replace('storage.write.', 'storage.read.'),
-    description: `Read ${write.workload.row_count} rows from ${write.expected_bucket_count} bucket${write.expected_bucket_count === 1 ? '' : 's'} in ${write.storage.implementation} bucket storage`,
+    description: `Read ${write.data.tables.reduce((count, table) => count + table.snapshot_row_count, 0)} rows from ${write.expected_bucket_count} bucket${write.expected_bucket_count === 1 ? '' : 's'} in ${write.storage.implementation} bucket storage`,
     primary_boundary: 'storage_read',
     mode: 'read'
-  };
+  });
 }
 
 export function createStorageWriteReadScenario(write: StorageBenchmarkScenario): StorageBenchmarkScenario {
-  return {
+  return defineScenario<StorageBenchmarkScenario>({
     ...write,
-    id: write.id.replace('storage.write.', 'storage.write-read.'),
-    description: `Write and read ${write.workload.row_count} rows in ${write.storage.implementation} bucket storage across ${write.expected_bucket_count} bucket${write.expected_bucket_count === 1 ? '' : 's'}`,
+    description: `Write and read ${write.data.tables.reduce((count, table) => count + table.snapshot_row_count, 0)} rows in ${write.storage.implementation} bucket storage across ${write.expected_bucket_count} bucket${write.expected_bucket_count === 1 ? '' : 's'}`,
     primary_boundary: 'storage_write_read',
     mode: 'write-read'
-  };
+  });
 }
 
 function createQuickStorageScenario(
@@ -72,8 +81,7 @@ function createQuickStorageScenario(
   description: string,
   version: number
 ): StorageBenchmarkScenario {
-  return {
-    id: `storage.write.${implementation}.v${version}.quick`,
+  return defineScenario<StorageBenchmarkScenario>({
     description,
     layer: 'storage',
     profile: 'quick',
@@ -89,13 +97,7 @@ function createQuickStorageScenario(
     mode: 'write',
     primary_boundary: 'storage_write',
     flush_policy: 'automatic',
-    workload: {
-      row_count: 10_000,
-      payload_bytes: 256
-    },
-    syncRule: createStorageSyncRules,
-    sync_parameters: {},
-    expected_bucket_count: 1,
-    expected_bucket_operation_count: 10_000
-  };
+    data: singleTableData({ rowCount: 10_000, rowBytes: 512 }),
+    sync: categorySync({ engine: 'sync-rules', bucketCount: 1 })
+  });
 }

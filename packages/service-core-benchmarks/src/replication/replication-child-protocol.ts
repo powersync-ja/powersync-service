@@ -1,7 +1,9 @@
-import type { ReplicationBenchmarkObservation, ReplicationReleaseObservation } from '../types/ReplicationBenchmark.js';
+import type { RequestedStream } from '@powersync/service-sync-rules';
+import type { ReplicationReleaseObservation } from '../types/ReplicationBenchmark.js';
+import type { OperationEvidence } from '../utils/operation-evidence.js';
 import type { ReplicationChildClassDescriptor } from './ReplicationChildClassLoader.js';
 
-export const REPLICATION_CHILD_PROTOCOL_VERSION = 3 as const;
+export const REPLICATION_CHILD_PROTOCOL_VERSION = 4 as const;
 
 export interface ReplicationChildInitializePayload {
   readonly storage: ReplicationChildClassDescriptor;
@@ -12,6 +14,8 @@ export interface ReplicationChildSetupIterationPayload {
   readonly storageVersion: number;
   readonly source: ReplicationChildClassDescriptor;
   readonly syncParameters: Record<string, unknown>;
+  readonly streams: Record<string, RequestedStream[]>;
+  readonly markerIds: readonly string[];
 }
 
 export interface ReplicationChildCommandPayloads {
@@ -28,7 +32,7 @@ export interface ReplicationChildCommandPayloads {
 
 export interface ReplicationChildEvidencePayload {
   readonly checkpoint: string | null;
-  readonly operations: ReplicationBenchmarkObservation['operations'];
+  readonly evidence: OperationEvidence;
   readonly snapshotDone: boolean;
   readonly bucketCount: number;
 }

@@ -1,4 +1,4 @@
-import { generateBaselineReplicationManifest } from '../generators/generate-baseline-replication-manifest.js';
+import { createDataManifest } from '../generators/benchmark-data.js';
 import { monotonicMilliseconds } from '../replication/replication-child-protocol.js';
 import { BenchmarkCorrectnessCheck, BenchmarkCorrectnessResult } from '../types/BenchmarkIteration.js';
 import { BenchmarkRunOptions } from '../types/BenchmarkRunOptions.js';
@@ -10,6 +10,7 @@ import {
   ReplicationBenchmarkScenario,
   ReplicationBenchmarkTarget
 } from '../types/ReplicationBenchmark.js';
+import { verifyBenchmarkEvidence } from '../utils/benchmark-sync.js';
 import { replicationWorkCounters } from '../utils/replication-counters.js';
 import { Benchmark } from './Benchmark.js';
 
@@ -52,7 +53,10 @@ export class ReplicationBenchmark extends Benchmark<
     runtime: IterationState['runtime']
   ): Promise<IterationState> {
     runtime.signal.throwIfAborted();
-    const manifest = generateBaselineReplicationManifest(this.scenario);
+    const manifest = createDataManifest(
+      this.scenario.data,
+      this.scenario.phase === 'snapshot' ? 'snapshot' : 'streaming'
+    );
     const resource = await run.resource.createIteration({
       iterationId: `${this.runOptions.runId}-${runtime.kind}-${runtime.iteration}`,
       scenario: this.scenario,
@@ -60,7 +64,19 @@ export class ReplicationBenchmark extends Benchmark<
     });
     const context: IterationState = { runtime, resource, manifest, keepalives: 0 };
     if (this.scenario.phase === 'streaming') {
-      await resource.releaseReplication(true);
+      try {
+        const release = await resource.releaseReplication(true);
+        const initial = await resource.observeCheckpoint({ target: release.target! });
+        if (
+          !verifyBenchmarkEvidence(this.scenario.data, this.scenario.sync, initial.evidence, ['snapshot']).every(
+            (check) => check.passed
+          )
+        )
+          throw new Error('Initial replication snapshot verification failed');
+      } catch (error) {
+        await resource.dispose();
+        throw error;
+      }
     }
     return context;
   }
@@ -104,7 +120,7 @@ export class ReplicationBenchmark extends Benchmark<
       monotonicMilliseconds(observation.checkpointVisibleAtNs)
     );
 
-    const workCounters = replicationWorkCounters(this.scenario.phase, manifest, observation.operations);
+    const workCounters = replicationWorkCounters(this.scenario.phase, manifest, observation.evidence);
     Object.entries(workCounters).forEach((counter) => {
       const [name, value] = counter;
       runtime.metrics.setCounter(name, value);
@@ -116,6 +132,10 @@ export class ReplicationBenchmark extends Benchmark<
     );
     runtime.metrics.setCounter('source_logical_bytes', manifest.sourceLogicalBytes);
     runtime.metrics.setCounter('payload_bytes', manifest.payloadBytes);
+    runtime.metrics.setCounter(
+      'bucket_data_bytes',
+      observation.evidence.phaseDataBytes[this.scenario.phase === 'snapshot' ? 'snapshot' : 'streaming'] ?? 0
+    );
     runtime.metrics.setCounter('parameter_operations', 0);
     runtime.metrics.setCounter('distinct_buckets', observation.bucketCount);
     runtime.metrics.setCounter(
@@ -134,8 +154,6 @@ export class ReplicationBenchmark extends Benchmark<
     context: IterationState
   ): Promise<BenchmarkCorrectnessResult> {
     const comparison = context.resource.comparePosition(observation.checkpoint, observation.target);
-    const puts = observation.operations.filter((operation) => operation.op === 'PUT');
-    const marker = observation.operations.find((operation) => operation.object_id === observation.target.markerId);
     const checks: BenchmarkCorrectnessCheck[] = [
       check('snapshot_complete', observation.snapshotDone, { actual: observation.snapshotDone }),
       check('checkpoint_position', comparison.reached, comparison),
@@ -143,18 +161,12 @@ export class ReplicationBenchmark extends Benchmark<
         expected: this.scenario.expected_bucket_count,
         actual: observation.bucketCount
       }),
-      check('operation_count', observation.operations.length === this.scenario.expected_bucket_operation_count, {
-        expected: this.scenario.expected_bucket_operation_count,
-        actual: observation.operations.length
-      }),
-      check('put_operation_count', puts.length === this.scenario.expected_bucket_operation_count, {
-        expected: this.scenario.expected_bucket_operation_count,
-        actual: puts.length
-      }),
-      check('target_marker_visible', markerContainsTarget(marker), {
-        marker_id: observation.target.markerId,
-        actual: marker ?? null
-      })
+      ...verifyBenchmarkEvidence(
+        this.scenario.data,
+        this.scenario.sync,
+        observation.evidence,
+        this.scenario.phase === 'snapshot' ? ['snapshot'] : ['snapshot', 'streaming']
+      )
     ];
     return { passed: checks.every((candidate) => candidate.passed), checks };
   }
@@ -174,15 +186,6 @@ export class ReplicationBenchmark extends Benchmark<
 
   protected async cleanupRun(run: ReplicationBenchmarkRunContext): Promise<void> {
     await run.resource.dispose();
-  }
-}
-
-function markerContainsTarget(operation: { op: string; data?: string | null } | undefined): boolean {
-  if (operation?.op !== 'PUT' || typeof operation.data !== 'string') return false;
-  try {
-    return (JSON.parse(operation.data) as { is_target?: number }).is_target === 1;
-  } catch {
-    return false;
   }
 }
 

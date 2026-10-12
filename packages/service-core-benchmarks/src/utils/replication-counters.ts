@@ -1,30 +1,16 @@
-import type {
-  ReplicationBenchmarkManifest,
-  ReplicationBenchmarkObservation,
-  ReplicationBenchmarkPhase
-} from '../types/ReplicationBenchmark.js';
+import type { ReplicationBenchmarkManifest, ReplicationBenchmarkPhase } from '../types/ReplicationBenchmark.js';
+import type { OperationEvidence } from './operation-evidence.js';
 
-/** Counters for the timed phase. Evidence also includes the untimed initial snapshot. */
+/** Counters for the timed phase. Storage evidence includes the untimed snapshot. */
 export function replicationWorkCounters(
   phase: ReplicationBenchmarkPhase,
   manifest: ReplicationBenchmarkManifest,
-  operations: ReplicationBenchmarkObservation['operations']
+  evidence: OperationEvidence
 ): { source_rows: number; writer_save_calls: number; bucket_operations: number } {
-  const rows =
-    phase === 'snapshot'
-      ? manifest.snapshotRows
-      : manifest.transactions.flatMap((transaction) => transaction.mutations.map((mutation) => mutation.row));
-  const measuredIds = new Set(rows.map((row) => row.id));
-
-  const bucket_operations =
-    phase === 'snapshot'
-      ? operations.length
-      : operations.filter((operation) => operation.object_id != null && measuredIds.has(operation.object_id)).length;
-
+  const rows = phase === 'snapshot' ? manifest.snapshotRowCount : manifest.streamingRowCount;
   return {
-    source_rows: rows.length,
-    // The benchmark's insert-only workload expects one writer save per source row.
-    writer_save_calls: rows.length,
-    bucket_operations
+    source_rows: rows,
+    writer_save_calls: rows,
+    bucket_operations: evidence.byPhase[phase === 'snapshot' ? 'snapshot' : 'streaming'] ?? 0
   };
 }

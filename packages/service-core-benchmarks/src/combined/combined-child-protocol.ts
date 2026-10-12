@@ -1,8 +1,10 @@
+import type { RequestedStream } from '@powersync/service-sync-rules';
 import type * as jose from 'jose';
 import type { ReplicationChildClassDescriptor } from '../replication/ReplicationChildClassLoader.js';
 import type { ReplicationReleaseObservation } from '../types/ReplicationBenchmark.js';
+import type { OperationEvidence } from '../utils/operation-evidence.js';
 
-export const COMBINED_CHILD_PROTOCOL_VERSION = 2 as const;
+export const COMBINED_CHILD_PROTOCOL_VERSION = 3 as const;
 
 export interface CombinedChildInitializePayload {
   readonly storage: ReplicationChildClassDescriptor;
@@ -15,6 +17,8 @@ export interface CombinedChildSetupIterationPayload {
   readonly port: number;
   readonly jwk: jose.JWK;
   readonly syncParameters: Record<string, unknown>;
+  readonly streams: Record<string, RequestedStream[]>;
+  readonly markerIds: readonly string[];
 }
 
 export interface CombinedChildCommandPayloads {
@@ -32,7 +36,7 @@ export interface CombinedChildCommandPayloads {
 interface CombinedChildEvidenceBase {
   /** Exact bucket-storage checkpoint id exposed to the sync protocol. */
   readonly storageCheckpoint: string;
-  readonly operations: readonly { readonly op: string; readonly object_id?: string; readonly data?: string | null }[];
+  readonly evidence: OperationEvidence;
   readonly snapshotDone: boolean;
   readonly bucketCount: number;
 }

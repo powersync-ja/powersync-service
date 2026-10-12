@@ -1,15 +1,12 @@
 import { storage } from '@powersync/service-core';
+import type { BenchmarkDataManifest } from '../generators/benchmark-data.js';
+import type { OperationEvidence } from '../utils/operation-evidence.js';
 import { BenchmarkIterationRuntime } from './BenchmarkRunOptions.js';
 import { BenchmarkScenario } from './BenchmarkScenario.js';
 
 export type StorageBenchmarkImplementationId = 'storage:postgres' | 'storage:mongodb';
 
-export interface StorageBenchmarkWorkload {
-  readonly row_count: number;
-  readonly payload_bytes: number;
-}
-
-export interface StorageBenchmarkScenario extends BenchmarkScenario<StorageBenchmarkWorkload> {
+export interface StorageBenchmarkScenario extends BenchmarkScenario {
   readonly layer: 'storage';
   readonly storage: {
     readonly implementation: StorageBenchmarkImplementationId;
@@ -30,11 +27,7 @@ export interface StorageBenchmarkItem {
   readonly payload: string;
 }
 
-export interface StorageBenchmarkManifest {
-  readonly rows: readonly StorageBenchmarkItem[];
-  readonly sourceLogicalBytes: number;
-  readonly payloadBytes: number;
-}
+export type StorageBenchmarkManifest = BenchmarkDataManifest;
 
 export interface StorageBenchmarkRunResource {
   readonly factory: storage.BucketStorageFactory;
@@ -72,7 +65,7 @@ export interface StorageBenchmarkIterationContext {
   readonly storage: storage.SyncRulesBucketStorage;
   readonly syncRulesContent: storage.PersistedSyncConfigContent;
   readonly writer: storage.BucketStorageBatch;
-  readonly sourceTable: storage.SourceTable;
+  readonly sourceTables: ReadonlyMap<string, storage.SourceTable>;
   readonly manifest: StorageBenchmarkManifest;
   readonly flushes: StorageBenchmarkFlushCounter;
   readonly targetPosition: string;
@@ -88,5 +81,5 @@ export interface StorageBenchmarkReadObservation {
   readonly checkpoint: storage.ReplicationCheckpoint;
   readonly buckets: readonly import('@powersync/service-sync-rules').ResolvedBucket[];
   readonly checksums: import('@powersync/service-core').ChecksumMap;
-  readonly chunks: readonly storage.SyncBucketDataChunk[];
+  readonly evidence: OperationEvidence;
 }

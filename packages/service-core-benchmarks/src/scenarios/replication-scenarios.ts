@@ -12,19 +12,14 @@ import { PostgresReplicationSourceAdapter } from '../implementations/replication
 import { resolvePostgresSourceBenchmarkConfiguration } from '../implementations/replication/postgres/PostgresSourceBenchmarkConfiguration.js';
 import { ReplicationBenchmarkPhase, ReplicationBenchmarkScenario } from '../types/ReplicationBenchmark.js';
 import { StorageBenchmarkImplementationId } from '../types/StorageBenchmark.js';
-import {
-  createCategoryReplicationSyncRules,
-  createCategorySyncParameters,
-  createReplicationSyncRules
-} from '../utils/replication-sync-rules.js';
+import { categorySync, defineScenario, singleTableData } from './scenario-presets.js';
 
 export function createMongoSourceQuickReplicationScenario(
   phase: ReplicationBenchmarkPhase,
   storage: StorageBenchmarkImplementationId,
   storageVersion: number
 ): ReplicationBenchmarkScenario {
-  return {
-    id: `replication.${phase}.baseline.mongodb-source.${storage}.v${storageVersion}.quick`,
+  return defineScenario<ReplicationBenchmarkScenario>({
     description: `MongoDB ${phase} replication into ${storage} storage version ${storageVersion}`,
     layer: 'replication',
     profile: 'quick',
@@ -45,17 +40,9 @@ export function createMongoSourceQuickReplicationScenario(
     storage: { implementation: storage, version: storageVersion },
     checkpoint_policy: 'target-visible',
     core_verification: false,
-    workload: {
-      snapshot_row_count: 1_000,
-      streaming_mutation_count: 1_000,
-      transaction_count: 10,
-      payload_bytes: 256
-    },
-    syncRule: createReplicationSyncRules,
-    sync_parameters: {},
-    expected_bucket_count: 1,
-    expected_bucket_operation_count: phase === 'snapshot' ? 1_000 : 2_000
-  };
+    data: singleTableData({ rowCount: 1_000, rowBytes: 512 }),
+    sync: categorySync({ engine: 'sync-rules', bucketCount: 1 })
+  });
 }
 
 export function createPostgresSourceQuickReplicationScenario(
@@ -63,8 +50,7 @@ export function createPostgresSourceQuickReplicationScenario(
   storage: StorageBenchmarkImplementationId,
   storageVersion: number
 ): ReplicationBenchmarkScenario {
-  return {
-    id: `replication.${phase}.baseline.postgres-source.${storage}.v${storageVersion}.quick`,
+  return defineScenario<ReplicationBenchmarkScenario>({
     description: `PostgreSQL ${phase} replication into ${storage} storage version ${storageVersion}`,
     layer: 'replication',
     profile: 'quick',
@@ -85,17 +71,9 @@ export function createPostgresSourceQuickReplicationScenario(
     storage: { implementation: storage, version: storageVersion },
     checkpoint_policy: 'target-visible',
     core_verification: false,
-    workload: {
-      snapshot_row_count: 1_000,
-      streaming_mutation_count: 1_000,
-      transaction_count: 10,
-      payload_bytes: 256
-    },
-    syncRule: createReplicationSyncRules,
-    sync_parameters: {},
-    expected_bucket_count: 1,
-    expected_bucket_operation_count: phase === 'snapshot' ? 1_000 : 2_000
-  };
+    data: singleTableData({ rowCount: 1_000, rowBytes: 512 }),
+    sync: categorySync({ engine: 'sync-rules', bucketCount: 1 })
+  });
 }
 
 export function createMongoSourceCategoryReplicationScenario(
@@ -103,15 +81,12 @@ export function createMongoSourceCategoryReplicationScenario(
   storageVersion: number
 ): ReplicationBenchmarkScenario {
   const scenario = createMongoSourceQuickReplicationScenario('snapshot', storage, storageVersion);
-  return {
+  return defineScenario<ReplicationBenchmarkScenario>({
     ...scenario,
-    id: `replication.snapshot.buckets-10.mongodb-source.${storage}.v${storageVersion}.quick`,
     description: `MongoDB snapshot replication across 10 category buckets into ${storage} storage version ${storageVersion}`,
     tags: [...scenario.tags, 'shape:10-buckets'],
-    syncRule: createCategoryReplicationSyncRules,
-    sync_parameters: createCategorySyncParameters(),
-    expected_bucket_count: 10
-  };
+    sync: categorySync({ engine: 'sync-rules', bucketCount: 10 })
+  });
 }
 
 export function postgresReplicationStorage(version: number): ReplicationBenchmarkStorageSelection {

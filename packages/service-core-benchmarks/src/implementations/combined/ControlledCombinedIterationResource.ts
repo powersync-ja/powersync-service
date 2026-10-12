@@ -51,7 +51,7 @@ export async function waitForCombinedTargetEvidence(
       continue;
     }
     const comparison = options.comparePosition(evidence.checkpoint, options.target);
-    const marker = evidence.operations.find((operation) => operation.object_id === options.target.markerId);
+    const marker = evidence.evidence.markers[options.target.markerId]?.operation;
     if (evidence.snapshotDone && comparison.comparable && comparison.reached && markerContainsTarget(marker)) {
       return {
         target: options.target,
@@ -59,7 +59,7 @@ export async function waitForCombinedTargetEvidence(
         checkpoint: evidence.checkpoint,
         checkpointVisibleAtNs: now().toString(),
         childCheckpointVisibleAtNs: evidence.checkpointVisibleAtNs,
-        operations: evidence.operations,
+        evidence: evidence.evidence,
         snapshotDone: evidence.snapshotDone,
         bucketCount: evidence.bucketCount
       };
@@ -91,7 +91,7 @@ export class ControlledCombinedIterationResource implements CombinedBenchmarkIte
   }
 
   async commitTransaction(transactionId: string): Promise<ReplicationBenchmarkTarget> {
-    const transaction = this.setup.manifest.transactions.find((candidate) => candidate.id === transactionId);
+    const transaction = this.setup.manifest.transactions.byId(transactionId);
     if (transaction == null) throw new Error(`Unknown benchmark transaction ${transactionId}`);
     return await this.source.commitTransaction(transaction);
   }
@@ -159,7 +159,7 @@ export class ControlledCombinedIterationResource implements CombinedBenchmarkIte
   }
 }
 
-function markerContainsTarget(operation: { op: string; data?: string | null } | undefined): boolean {
+function markerContainsTarget(operation: { op: string; data?: unknown } | undefined): boolean {
   if (operation?.op !== 'PUT' || typeof operation.data !== 'string') return false;
   try {
     return (JSON.parse(operation.data) as { is_target?: number }).is_target === 1;

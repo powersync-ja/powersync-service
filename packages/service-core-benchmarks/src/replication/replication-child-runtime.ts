@@ -7,9 +7,11 @@ import {
   system,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { METRICS_HELPER, StorageDataHelpers } from '@powersync/service-core-tests';
+import { METRICS_HELPER } from '@powersync/service-core-tests';
+import type { RequestedStream } from '@powersync/service-sync-rules';
 import { StorageBenchmarkImplementation, StorageBenchmarkRunResource } from '../types/StorageBenchmark.js';
 import { bucketRequests, resolveBenchmarkBuckets } from '../utils/benchmark-buckets.js';
+import { OperationAccumulator, readBucketEvidence } from '../utils/operation-evidence.js';
 import { createBenchmarkServiceContext } from './BenchmarkServiceContext.js';
 import { constructReplicationChildImplementation } from './ReplicationChildClassLoader.js';
 import { ReplicationChildSourceImplementation } from './ReplicationChildSourceImplementation.js';
@@ -30,6 +32,8 @@ interface ReplicationChildRuntimeState {
   lifecycleStarted: boolean;
   environment?: object;
   syncParameters?: Record<string, unknown>;
+  streams?: Record<string, RequestedStream[]>;
+  markerIds?: readonly string[];
   defaultSchema?: string;
 }
 
@@ -122,6 +126,8 @@ export class ReplicationChildRuntime {
       this.state.syncRulesContent = this.state.replicationStream.syncConfigContent[0];
       this.state.bucketStorage = resource.factory.getInstance(this.state.replicationStream);
       this.state.syncParameters = payload.syncParameters;
+      this.state.streams = payload.streams;
+      this.state.markerIds = payload.markerIds;
       this.state.defaultSchema = sourceConfiguration.defaultSchema;
 
       const engine = new replication.ReplicationEngine();
@@ -156,32 +162,34 @@ export class ReplicationChildRuntime {
 
   private async collectEvidence(): Promise<ReplicationChildEvidencePayload> {
     const bucketStorage = required(this.state.bucketStorage, 'bucket storage');
-    const content = required(this.state.syncRulesContent, 'sync rules content');
     const checkpoint = await bucketStorage.getCheckpoint();
     const status = await bucketStorage.getStatus();
     const lsn = checkpoint.lsn;
     if (lsn == null) {
-      return { checkpoint: null, operations: [], snapshotDone: status.snapshotDone, bucketCount: 0 };
+      return {
+        checkpoint: null,
+        evidence: new OperationAccumulator().summary(),
+        snapshotDone: status.snapshotDone,
+        bucketCount: 0
+      };
     }
     const buckets = await resolveBenchmarkBuckets({
       syncRules: bucketStorage.getParsedSyncRules({
         defaultSchema: required(this.state.defaultSchema, 'default schema')
       }),
       checkpoint,
-      syncParameters: required(this.state.syncParameters, 'sync parameters')
+      syncParameters: required(this.state.syncParameters, 'sync parameters'),
+      streams: this.state.streams
     });
-    const chunks = await new StorageDataHelpers(bucketStorage, content).getAllBucketData(
-      bucketRequests(buckets),
-      checkpoint
-    );
-    const operations = chunks.flatMap((chunk) => chunk.chunkData.data);
+    const evidence = await readBucketEvidence({
+      storage: bucketStorage,
+      checkpoint,
+      requests: bucketRequests(buckets),
+      markerIds: this.state.markerIds ?? []
+    });
     return {
       checkpoint: lsn,
-      operations: operations.map((operation) => ({
-        op: operation.op,
-        object_id: operation.object_id,
-        data: operation.data
-      })),
+      evidence,
       snapshotDone: status.snapshotDone,
       bucketCount: buckets.length
     };
@@ -217,6 +225,8 @@ export class ReplicationChildRuntime {
     this.state.bucketStorage = undefined;
     this.state.syncRulesContent = undefined;
     this.state.syncParameters = undefined;
+    this.state.streams = undefined;
+    this.state.markerIds = undefined;
     this.state.defaultSchema = undefined;
     if (errors.length > 0) throw new AggregateError(errors, 'Replication child cleanup failed');
   }

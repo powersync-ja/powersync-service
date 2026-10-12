@@ -2,6 +2,8 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { BSON_DESERIALIZE_DATA_OPTIONS } from '@powersync/service-core';
 import { createCheckpoint } from '@powersync/service-module-mongodb';
 import { createHash } from 'node:crypto';
+import { rowBatches, rowId } from '../../../generators/benchmark-data.js';
+import type { BenchmarkDataDefinition } from '../../../types/BenchmarkDataDefinition.js';
 import {
   ReplicationBenchmarkManifest,
   ReplicationBenchmarkSourceAdapter,
@@ -38,7 +40,8 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
   readonly capabilities = MONGODB_REPLICATION_SOURCE_CAPABILITIES;
 
   private readonly client: mongo.MongoClient;
-  private readonly transactions = new Map<string, ReplicationBenchmarkTransaction>();
+  private manifest?: ReplicationBenchmarkManifest;
+  private signal?: AbortSignal;
   private database?: mongo.Db;
   private databaseName?: string;
   private serverVersion?: string;
@@ -68,8 +71,10 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
 
   setReplicationStreamName(_name: string): void {}
 
-  async createSchema(iterationId: string): Promise<void> {
+  async createSchema(iterationId: string, data: BenchmarkDataDefinition, signal?: AbortSignal): Promise<void> {
     this.assertActive();
+    this.signal = signal;
+    signal?.throwIfAborted();
     if (this.database != null) throw new Error('MongoDB benchmark source schema is already initialized');
 
     await this.client.connect();
@@ -80,59 +85,60 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
     this.serverVersion = typeof buildInfo.version === 'string' ? buildInfo.version : 'unknown';
     this.databaseName = databaseNameForIteration(iterationId);
     this.database = this.client.db(this.databaseName);
-    await this.database.createCollection(COLLECTION_NAME);
     this.schemaCreated = true;
+    for (const table of data.tables) await this.database.createCollection(table.name);
   }
 
   async populateSnapshot(manifest: SnapshotBenchmarkManifest): Promise<ReplicationBenchmarkTarget> {
     const database = this.requiredDatabase();
-    if (manifest.snapshotRows.length > 0) {
-      await database.collection(COLLECTION_NAME).insertMany([...manifest.snapshotRows], {
-        writeConcern: { w: 'majority' }
-      });
-    }
+    for (const range of manifest.snapshot)
+      for (const batch of rowBatches(range, manifest.data.batch_size)) {
+        this.signal?.throwIfAborted();
+        await database.collection<mongo.Document & { _id: string }>(range.table.name).insertMany(
+          batch.map((row) => ({ ...row, _id: row.id })),
+          { ordered: true, writeConcern: { w: 'majority' } }
+        );
+      }
+    const range = manifest.snapshot.at(-1)!;
+    const markerId = rowId(range.table, 'snapshot', range.count - 1);
     const nativePosition = await createCheckpoint(database, `${this.databaseName}:snapshot`);
-    return { markerId: manifest.target.markerId, nativePosition };
+    return { markerId, nativePosition };
   }
 
   async prepareTransactions(manifest: ReplicationBenchmarkManifest): Promise<void> {
     this.requiredDatabase();
-    this.transactions.clear();
-    for (const transaction of manifest.transactions) this.transactions.set(transaction.id, transaction);
+    this.manifest = manifest;
   }
 
   async commitTransaction(transaction: ReplicationBenchmarkTransaction): Promise<ReplicationBenchmarkTarget> {
     const database = this.requiredDatabase();
-    const prepared = this.transactions.get(transaction.id);
+    const prepared = this.manifest?.transactions.byId(transaction.id);
     if (prepared == null) throw new Error(`Unknown MongoDB benchmark transaction ${transaction.id}`);
 
-    const operations: mongo.AnyBulkWriteOperation<mongo.Document>[] = prepared.mutations.map((mutation) => ({
-      insertOne: { document: mutation.row }
-    }));
+    const writeBatches = async (session?: mongo.ClientSession) => {
+      for (const range of prepared.ranges)
+        for (const batch of rowBatches(range, this.manifest!.data.batch_size)) {
+          this.signal?.throwIfAborted();
+          await database.collection<mongo.Document & { _id: string }>(range.table.name).insertMany(
+            batch.map((row) => ({ ...row, _id: row.id })),
+            { ordered: true, ...(session ? { session } : { writeConcern: { w: 'majority' } }) }
+          );
+        }
+    };
     if (this.atomicity === 'transaction') {
       const session = this.client.startSession();
       try {
-        await session.withTransaction(
-          async () => {
-            await database.collection(COLLECTION_NAME).bulkWrite(operations, { ordered: true, session });
-          },
-          { writeConcern: { w: 'majority' } }
-        );
+        await session.withTransaction(() => writeBatches(session), { writeConcern: { w: 'majority' } });
       } finally {
         await session.endSession();
       }
     } else {
-      await database.collection(COLLECTION_NAME).bulkWrite(operations, {
-        ordered: true,
-        writeConcern: { w: 'majority' }
-      });
+      await writeBatches();
     }
 
     const committedAtNs = process.hrtime.bigint().toString();
     const nativePosition = await createCheckpoint(database, `${this.databaseName}:${transaction.id}`);
-    const marker = prepared.mutations.at(-1)?.row;
-    if (marker == null) throw new Error(`MongoDB benchmark transaction ${transaction.id} has no target marker`);
-    return { markerId: marker.id, nativePosition, committedAtNs };
+    return { markerId: prepared.target.markerId, nativePosition, committedAtNs };
   }
 
   async keepalive(): Promise<ReplicationBenchmarkTarget> {
@@ -180,7 +186,7 @@ export class MongoReplicationSourceAdapter implements ReplicationBenchmarkSource
         throw new AggregateError([error], 'MongoDB benchmark source cleanup failed');
       }
     }
-    this.transactions.clear();
+    this.manifest = undefined;
     this.disposed = true;
   }
 

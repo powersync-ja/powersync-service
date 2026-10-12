@@ -1,11 +1,10 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { BATCH_OPTIONS, resolveTestTable, StorageDataHelpers } from '@powersync/service-core-tests';
-import { generateBaselineStorageRows } from '../generators/generate-baseline-storage-rows.js';
+import { BATCH_OPTIONS } from '@powersync/service-core-tests';
+import { createDataManifest, rowBatches } from '../generators/benchmark-data.js';
 import { BenchmarkCorrectnessCheck, BenchmarkCorrectnessResult } from '../types/BenchmarkIteration.js';
 import { BenchmarkRunOptions } from '../types/BenchmarkRunOptions.js';
 import {
   StorageBenchmarkImplementation,
-  StorageBenchmarkItem,
   StorageBenchmarkIterationContext,
   StorageBenchmarkObservation,
   StorageBenchmarkReadObservation,
@@ -13,6 +12,14 @@ import {
   StorageBenchmarkScenario
 } from '../types/StorageBenchmark.js';
 import { bucketRequests, resolveBenchmarkBuckets } from '../utils/benchmark-buckets.js';
+import {
+  benchmarkMarkerIds,
+  benchmarkSubscriptions,
+  renderBenchmarkSync,
+  verifyBenchmarkEvidence
+} from '../utils/benchmark-sync.js';
+import { resolveBenchmarkTables } from '../utils/benchmark-tables.js';
+import { readBucketEvidence } from '../utils/operation-evidence.js';
 import { Benchmark } from './Benchmark.js';
 
 const TARGET_POSITION = '1/1';
@@ -46,7 +53,7 @@ export class StorageBenchmark extends Benchmark<
     runtime: StorageBenchmarkIterationContext['runtime']
   ): Promise<StorageBenchmarkIterationContext> {
     runtime.signal.throwIfAborted();
-    const manifest = generateBaselineStorageRows(this.scenario.workload);
+    const manifest = createDataManifest(this.scenario.data, 'snapshot');
     const flushes = { count: 0 };
     let replicationStream: storage.PersistedReplicationStream | undefined;
     let replicationLock: storage.ReplicationLock | undefined;
@@ -55,7 +62,7 @@ export class StorageBenchmark extends Benchmark<
 
     try {
       replicationStream = await run.resource.factory.updateSyncRules(
-        updateSyncRulesFromYaml(this.scenario.syncRule(SOURCE_TABLE), {
+        updateSyncRulesFromYaml(renderBenchmarkSync(this.scenario.data, this.scenario.sync, SOURCE_TABLE), {
           validate: true,
           defaultSchema: 'public',
           storageVersion: this.scenario.storage.version
@@ -72,12 +79,12 @@ export class StorageBenchmark extends Benchmark<
           }
         }
       });
-      const sourceTable = await resolveTestTable(writer, 'benchmark_items', ['id'], run.resource);
+      const sourceTables = await resolveBenchmarkTables(writer, this.scenario.data);
       await writer.markAllSnapshotDone('0/0');
 
       let seedCommit: storage.CheckpointResult | undefined;
       if (this.scenario.mode === 'read') {
-        seedCommit = await this.writeRows({ writer, sourceTable, manifest, signal: runtime.signal });
+        seedCommit = await this.writeRows({ writer, sourceTables, manifest, signal: runtime.signal });
       }
 
       return {
@@ -87,7 +94,7 @@ export class StorageBenchmark extends Benchmark<
         storage: bucketStorage,
         syncRulesContent,
         writer,
-        sourceTable,
+        sourceTables,
         manifest,
         flushes,
         targetPosition: TARGET_POSITION,
@@ -112,16 +119,16 @@ export class StorageBenchmark extends Benchmark<
       runtime.metrics.startBoundary('storage_write', 'first_writer_save');
       commit = await this.writeRows({
         writer: context.writer,
-        sourceTable: context.sourceTable,
+        sourceTables: context.sourceTables,
         manifest: context.manifest,
         signal: runtime.signal
       });
       runtime.metrics.endBoundary('storage_write', 'checkpoint_safe_commit');
-      runtime.metrics.setCounter('writer_save_calls', context.manifest.rows.length);
+      runtime.metrics.setCounter('writer_save_calls', context.manifest.snapshotRowCount);
       runtime.metrics.setCounter('writer_flushes', context.flushes.count);
     }
     if (commit == null) throw new Error('Storage benchmark has no committed checkpoint');
-    runtime.metrics.setCounter('source_rows', context.manifest.rows.length);
+    runtime.metrics.setCounter('source_rows', context.manifest.snapshotRowCount);
     runtime.metrics.setCounter('source_logical_bytes', context.manifest.sourceLogicalBytes);
     runtime.metrics.setCounter('payload_bytes', context.manifest.payloadBytes);
 
@@ -133,12 +140,9 @@ export class StorageBenchmark extends Benchmark<
       if (this.scenario.mode === 'write-read') {
         runtime.metrics.endBoundary('storage_write_read', 'bucket_download_complete');
       }
-      const operations = read.chunks.flatMap((chunk) => chunk.chunkData.data);
-      runtime.metrics.setCounter(
-        'read_data_bytes',
-        operations.reduce((bytes, op) => bytes + Buffer.byteLength(op.data ?? '', 'utf8'), 0)
-      );
-      runtime.metrics.setCounter('bucket_operations', operations.length);
+      runtime.metrics.setCounter('read_data_bytes', read.evidence.dataBytes);
+      runtime.metrics.setCounter('bucket_data_bytes', read.evidence.dataBytes);
+      runtime.metrics.setCounter('bucket_operations', read.evidence.operationCount);
       runtime.metrics.setCounter('distinct_buckets', read.buckets.length);
       runtime.metrics.setCounter('parameter_operations', 0);
     }
@@ -150,15 +154,8 @@ export class StorageBenchmark extends Benchmark<
     context: StorageBenchmarkIterationContext,
     runtime: StorageBenchmarkIterationContext['runtime']
   ): Promise<BenchmarkCorrectnessResult> {
-    const { checkpoint, buckets, checksums, chunks } =
+    const { checkpoint, buckets, checksums, evidence } =
       observation.read ?? (await this.readStorage(context, runtime.signal));
-    const operations = chunks.flatMap((chunk) => chunk.chunkData.data);
-    const firstExpected = context.manifest.rows[0];
-    const lastExpected = context.manifest.rows.at(-1)!;
-    const firstActual = operations.find((operation) => operation.object_id === firstExpected.id);
-    const lastActual = operations.find((operation) => operation.object_id === lastExpected.id);
-    const putCount = operations.filter((operation) => operation.op === 'PUT').length;
-
     const checks: BenchmarkCorrectnessCheck[] = [
       check('checkpoint_created', observation.commit.checkpointCreated && !observation.commit.checkpointBlocked, {
         commit: observation.commit
@@ -177,41 +174,17 @@ export class StorageBenchmark extends Benchmark<
       }),
       check(
         'checksum_operations',
-        [...checksums.values()].reduce((count, item) => count + item.count, 0) === operations.length,
+        [...checksums.values()].reduce((count, item) => count + item.count, 0) === evidence.operationCount,
         {
-          expected: operations.length,
+          expected: evidence.operationCount,
           actual: [...checksums.values()].reduce((count, item) => count + item.count, 0)
         }
       ),
-      check('operation_count', operations.length === this.scenario.expected_bucket_operation_count, {
-        expected: this.scenario.expected_bucket_operation_count,
-        actual: operations.length
-      }),
-      check('put_operation_count', putCount === this.scenario.expected_bucket_operation_count, {
-        expected: this.scenario.expected_bucket_operation_count,
-        actual: putCount
-      }),
-      check(
-        'sample_payload_bytes',
-        [firstExpected, lastExpected].every(
-          (row) => Buffer.byteLength(row.payload, 'utf8') === this.scenario.workload.payload_bytes
-        ),
-        {
-          expected: this.scenario.workload.payload_bytes,
-          actual: [firstExpected, lastExpected].map((row) => Buffer.byteLength(row.payload, 'utf8'))
-        }
-      ),
-      check('first_row', operationMatchesRow(firstActual, firstExpected), {
-        expected_id: firstExpected.id,
-        actual: firstActual ?? null
-      }),
-      check('last_row', operationMatchesRow(lastActual, lastExpected), {
-        expected_id: lastExpected.id,
-        actual: lastActual ?? null
-      })
+      ...verifyBenchmarkEvidence(this.scenario.data, this.scenario.sync, evidence, ['snapshot'])
     ];
 
-    runtime.metrics.setCounter('bucket_operations', operations.length);
+    runtime.metrics.setCounter('bucket_data_bytes', evidence.dataBytes);
+    runtime.metrics.setCounter('bucket_operations', evidence.operationCount);
     runtime.metrics.setCounter('parameter_operations', 0);
     runtime.metrics.setCounter('distinct_buckets', buckets.length);
 
@@ -223,19 +196,22 @@ export class StorageBenchmark extends Benchmark<
 
   private async writeRows(options: {
     writer: storage.BucketStorageBatch;
-    sourceTable: storage.SourceTable;
+    sourceTables: ReadonlyMap<string, storage.SourceTable>;
     manifest: StorageBenchmarkIterationContext['manifest'];
     signal: AbortSignal;
   }): Promise<storage.CheckpointResult> {
-    for (const row of options.manifest.rows) {
-      options.signal.throwIfAborted();
-      await options.writer.save({
-        sourceTable: options.sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: row,
-        afterReplicaId: row.id
-      });
-    }
+    for (const range of options.manifest.snapshot)
+      for (const batch of rowBatches(range, this.scenario.data.batch_size)) {
+        options.signal.throwIfAborted();
+        for (const row of batch)
+          await options.writer.save({
+            sourceTable: options.sourceTables.get(range.table.key)!,
+            tag: storage.SaveOperationTag.INSERT,
+            after: row,
+            afterReplicaId: row.id
+          });
+        await options.writer.flush();
+      }
     const commit = await options.writer.commit(TARGET_POSITION);
     if (commit.checkpointBlocked || !commit.checkpointCreated) {
       throw new Error(`Storage commit did not create an unblocked checkpoint: ${JSON.stringify(commit)}`);
@@ -252,7 +228,8 @@ export class StorageBenchmark extends Benchmark<
     const buckets = await resolveBenchmarkBuckets({
       syncRules: context.storage.getParsedSyncRules({ defaultSchema: SOURCE_TABLE.schema }),
       checkpoint,
-      syncParameters: this.scenario.sync_parameters
+      syncParameters: this.scenario.sync_parameters,
+      streams: benchmarkSubscriptions(this.scenario.sync)
     });
     const requests = bucketRequests(buckets);
     const checksums = await context.storage.getChecksums(
@@ -260,11 +237,14 @@ export class StorageBenchmark extends Benchmark<
       requests.map(({ bucket, source }) => ({ bucket, source })),
       { requestHint: 'bulk' }
     );
-    const chunks = await new StorageDataHelpers(context.storage, context.syncRulesContent).getAllBucketData(
+    const evidence = await readBucketEvidence({
+      storage: context.storage,
+      checkpoint,
       requests,
-      checkpoint
-    );
-    return { checkpoint, buckets, checksums, chunks };
+      markerIds: benchmarkMarkerIds(this.scenario.data),
+      signal
+    });
+    return { checkpoint, buckets, checksums, evidence };
   }
 
   protected async cleanupIteration(context: StorageBenchmarkIterationContext): Promise<void> {
@@ -331,26 +311,4 @@ export class StorageBenchmark extends Benchmark<
 
 function check(name: string, passed: boolean, details: object): BenchmarkCorrectnessCheck {
   return { name, passed, details };
-}
-
-function operationMatchesRow(
-  operation: { op: string; data?: string | null } | undefined,
-  expected: StorageBenchmarkItem
-): boolean {
-  if (operation?.op !== 'PUT' || typeof operation.data !== 'string') {
-    return false;
-  }
-  try {
-    const actual = JSON.parse(operation.data) as Partial<StorageBenchmarkItem>;
-    return (
-      actual.id === expected.id &&
-      actual.owner_id === expected.owner_id &&
-      actual.category === expected.category &&
-      actual.version === expected.version &&
-      actual.updated_at === expected.updated_at &&
-      actual.payload === expected.payload
-    );
-  } catch {
-    return false;
-  }
 }

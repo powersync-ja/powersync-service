@@ -1,3 +1,4 @@
+import type { BenchmarkDataManifest } from '../generators/benchmark-data.js';
 export interface SnapshotBenchmarkItem {
   readonly [column: string]: string | number;
   readonly id: string;
@@ -14,10 +15,4 @@ export interface SnapshotBenchmarkTarget {
   readonly nativePosition: string | null;
 }
 
-export interface SnapshotBenchmarkManifest {
-  readonly snapshotRows: readonly SnapshotBenchmarkItem[];
-  readonly target: SnapshotBenchmarkTarget;
-  readonly sourceLogicalBytes: number;
-  readonly payloadBytes: number;
-  readonly expectedPutCount: number;
-}
+export type SnapshotBenchmarkManifest = BenchmarkDataManifest;
