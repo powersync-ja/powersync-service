@@ -2615,6 +2615,43 @@ bucket_definitions:
     });
   });
 
+  test('full compaction releases superseded input payloads across read batches', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const documents = Array.from({ length: 6 }, (_, index) =>
+      serializeBucketData(BUCKET, [makeOp(index + 1, 'A', 'x'.repeat(256 * 1024), ctx, sourceTableId)])
+    );
+    const latest = makeOp(7, 'A', 'latest', ctx, sourceTableId);
+    documents.push(serializeBucketData(BUCKET, [latest]));
+    await insertDocs(collection, documents);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 7n);
+
+    const compactor = bucketStorage.createMongoCompactor({
+      compactBuckets: [BUCKET],
+      maxOpId: 7n,
+      moveBatchQueryLimit: 2
+    });
+    const originalFlush = (compactor as any).flushCompactionGroup.bind(compactor);
+    const flushSpy = vi.spyOn(compactor as any, 'flushCompactionGroup').mockImplementation(async (...args: any[]) => {
+      const group = args[1];
+      // All seven inputs merge into one small output across four read batches.
+      // Keeping their original ops here would retain every superseded payload.
+      expect(group.inputs).toHaveLength(7);
+      expect(group.inputs.every((input: BucketDataDocumentV3) => input.ops == null)).toBe(true);
+      expect(group.ops.filter((op: BucketDataDoc) => op.op === 'MOVE')).toHaveLength(6);
+      return originalFlush(...args);
+    });
+
+    await expect(compactor.compact()).resolves.toBe(1);
+    expect(flushSpy).toHaveBeenCalledOnce();
+    const compacted = await collection.find({ '_id.b': BUCKET }).toArray();
+    const ops = compacted.flatMap((document) => document.ops!);
+    expect(ops.map((op) => op.op)).toEqual(['CLEAR', 'PUT']);
+    expect(ops[1]).toMatchObject({ o: latest.o, data: latest.data });
+    expect(compacted.reduce((sum, document) => sum + document.checksum, 0n)).toBe(
+      documents.reduce((sum, document) => sum + document.checksum, 0n)
+    );
+  });
+
   test('7. cross-batch seen map overflow - dedup continues across batches', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
 
