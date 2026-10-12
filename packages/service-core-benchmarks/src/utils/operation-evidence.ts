@@ -101,9 +101,13 @@ export class OperationAccumulator {
   }
 }
 
-/** Storage hydration prefixes logical bucket names with the persisted config id. */
+/** Remove storage hydration IDs and Sync Stream query IDs from the logical definition name. */
 export function streamNameForBucket(bucket: string): string {
-  return bucket.replace(/^\d+#/, '').split(/[|\[]/, 1)[0];
+  // MongoDB v3+ appends hexadecimal replication stream and bucket definition IDs.
+  return bucket
+    .replace(/^\d+#/, '')
+    .split(/[|\[]/, 1)[0]
+    .replace(/\.[0-9a-f]+\.[0-9a-f]+$/, '');
 }
 
 function increment(counts: Record<string, number>, key: string, count: number): void {
