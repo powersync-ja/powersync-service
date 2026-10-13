@@ -64,7 +64,9 @@ export class CDCStreamTestContext implements AsyncDisposable {
 
   async dispose() {
     this.abortController.abort();
-    await this.snapshotPromise;
+    // Let an interrupted snapshot finish before closing its connections.
+    // Its error is handled by the caller of replicateSnapshot().
+    await this.snapshotPromise?.catch(() => {});
     await this.streamPromise;
     await this.connectionManager.end();
     await this.factory?.[Symbol.asyncDispose]();
@@ -154,7 +156,8 @@ export class CDCStreamTestContext implements AsyncDisposable {
   }
 
   async replicateSnapshot() {
-    await this.cdcStream.initReplication();
+    this.snapshotPromise = this.cdcStream.initReplication();
+    await this.snapshotPromise;
     this.replicationDone = true;
   }
 
