@@ -4,6 +4,36 @@ Adds benchmarks for the areas of the PowerSync service.
 
 This is generally used to test changes to different areas of the service, allowing for implementation comparisons that help improve the service as a whole.
 
+## Adding new benchmarks
+
+- Add a dataset to `baseline-datasets.ts` when all suites should run it.
+- Pass a suite-specific dataset list to `createDatasetCases` in `benchmark-cases.ts` when only that suite needs it.
+- Add a custom test to the list of cases for that suite in `benchmark-cases.ts`
+
+The builders in `scenario-presets.ts` are configurable: `singleTableData`, `multiTableData`, and `categorySync` accept custom dimensions. `defineScenario` recalculates based identity, tags, client parameters, and expected operation counts. For example, a larger API case could be authored in `benchmark-cases.ts` as:
+
+```ts
+import { createPostgresApiCase, createPostgresQuickApiScenario } from './api-scenarios.js';
+import { categorySync, defineScenario, singleTableData } from './scenario-presets.js';
+
+const customApiCase = createPostgresApiCase(
+  defineScenario(
+    {
+      ...createPostgresQuickApiScenario(2),
+      description: 'Initial API sync with larger rows'
+    },
+    singleTableData({ rowCount: 25_000, rowBytes: 1_024, batchSize: 500 }),
+    categorySync({ engine: 'sync-streams', bucketCount: 20 })
+  )
+);
+
+export const apiBenchmarkCases = [...createDatasetCases(baseApiBenchmarkCases, BASELINE_DATASETS), customApiCase];
+```
+
+Append custom cases after dataset expansion to preserve their dimensions. Adding them to a `base*BenchmarkCases` list replaces their data and sync definitions with each selected dataset.
+
+For arbitrary table layouts, pass `BenchmarkDataDefinition` and `BenchmarkSyncDefinition` objects directly to `defineScenario`. `makeStorageScenario` also supports custom storage dimensions and execution settings.
+
 ## Usage
 
 The benchmarks use environment variables to set the location of running instances of databases, which are used within the benchmarks:

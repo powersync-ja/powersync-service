@@ -271,14 +271,3 @@ export function defineScenario<T extends BenchmarkScenario>(
       : snapshotCount
   } as unknown as T;
 }
-
-export function expandScenario<T extends BenchmarkScenario>(base: T): T[] {
-  const matched = defineScenario<T>(base, base.data, { ...base.sync, engine: 'sync-streams' });
-  if (base.expected_bucket_count !== 1) return [base, matched];
-  const { data, sync } = multiTableData({ rowCount: 100, rowBytes: 512 });
-  return [
-    base,
-    matched,
-    defineScenario<T>({ ...base, description: 'Two tables with overlapping Sync Stream membership' }, data, sync)
-  ];
-}

@@ -27,6 +27,12 @@ export interface StorageBenchmarkItem {
   readonly payload: string;
 }
 
+export interface StorageBenchmarkCase {
+  readonly scenario: StorageBenchmarkScenario;
+  readonly implementation: StorageBenchmarkImplementation;
+  readonly expectedStorage: StorageBenchmarkScenario['storage'];
+}
+
 export type StorageBenchmarkManifest = BenchmarkDataManifest;
 
 export interface StorageBenchmarkRunResource {

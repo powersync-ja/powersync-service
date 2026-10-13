@@ -36,7 +36,7 @@ export function createQuickCombinedScenario(
     transport: { encoding: 'ndjson', compression: 'none' },
     clients: { count: 1 },
     data: singleTableData({ rowCount: 1_000, rowBytes: 512 }),
-    sync: categorySync({ engine: 'sync-rules', bucketCount: 1 })
+    sync: categorySync({ engine: 'sync-streams', bucketCount: 1 })
   });
 }
 
@@ -64,7 +64,7 @@ export function createCategoryCombinedScenario(
     ...scenario,
     description: `Initial snapshot from ${source} across 10 category buckets through ${storage} storage version ${storageVersion} to one NDJSON client`,
     tags: [...scenario.tags, 'shape:10-buckets'],
-    sync: categorySync({ engine: 'sync-rules', bucketCount: 10 })
+    sync: categorySync({ engine: 'sync-streams', bucketCount: 10 })
   });
 }
 

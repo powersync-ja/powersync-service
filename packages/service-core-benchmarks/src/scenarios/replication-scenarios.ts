@@ -41,7 +41,7 @@ export function createMongoSourceQuickReplicationScenario(
     checkpoint_policy: 'target-visible',
     core_verification: false,
     data: singleTableData({ rowCount: 1_000, rowBytes: 512 }),
-    sync: categorySync({ engine: 'sync-rules', bucketCount: 1 })
+    sync: categorySync({ engine: 'sync-streams', bucketCount: 1 })
   });
 }
 
@@ -72,7 +72,7 @@ export function createPostgresSourceQuickReplicationScenario(
     checkpoint_policy: 'target-visible',
     core_verification: false,
     data: singleTableData({ rowCount: 1_000, rowBytes: 512 }),
-    sync: categorySync({ engine: 'sync-rules', bucketCount: 1 })
+    sync: categorySync({ engine: 'sync-streams', bucketCount: 1 })
   });
 }
 
@@ -85,7 +85,7 @@ export function createMongoSourceCategoryReplicationScenario(
     ...scenario,
     description: `MongoDB snapshot replication across 10 category buckets into ${storage} storage version ${storageVersion}`,
     tags: [...scenario.tags, 'shape:10-buckets'],
-    sync: categorySync({ engine: 'sync-rules', bucketCount: 10 })
+    sync: categorySync({ engine: 'sync-streams', bucketCount: 10 })
   });
 }
 

@@ -1,4 +1,7 @@
-import { ApiBenchmarkScenario } from '../types/ApiBenchmark.js';
+import { env } from '../env.js';
+import { MongoStorageBenchmarkImplementation } from '../implementations/storage/MongoStorageBenchmarkImplementation.js';
+import { PostgresStorageBenchmarkImplementation } from '../implementations/storage/PostgresStorageBenchmarkImplementation.js';
+import { ApiBenchmarkCase, ApiBenchmarkScenario } from '../types/ApiBenchmark.js';
 import { StorageBenchmarkImplementationId } from '../types/StorageBenchmark.js';
 import { categorySync, defineScenario, singleTableData } from './scenario-presets.js';
 
@@ -37,7 +40,7 @@ export function createMongoCategoryApiScenario(version: number): ApiBenchmarkSce
     ...scenario,
     description: 'Drain an initial single-client NDJSON sync across 10 category buckets from mongodb-storage',
     tags: [...scenario.tags, 'shape:10-buckets'],
-    sync: categorySync({ engine: 'sync-rules', bucketCount: 10 })
+    sync: categorySync({ engine: 'sync-streams', bucketCount: 10 })
   });
 }
 
@@ -47,7 +50,7 @@ export function createPostgresCategoryApiScenario(version: number): ApiBenchmark
     ...scenario,
     description: 'Drain an initial single-client NDJSON sync across 10 category buckets from postgres-storage',
     tags: [...scenario.tags, 'shape:10-buckets'],
-    sync: categorySync({ engine: 'sync-rules', bucketCount: 10 })
+    sync: categorySync({ engine: 'sync-streams', bucketCount: 10 })
   });
 }
 
@@ -69,6 +72,25 @@ function createQuickApiScenario(
     transport: { encoding: 'ndjson', compression: 'none' },
     clients: { count: 1 },
     data: singleTableData({ rowCount: 1_000, rowBytes: 512 }),
-    sync: categorySync({ engine: 'sync-rules', bucketCount: 1 })
+    sync: categorySync({ engine: 'sync-streams', bucketCount: 1 })
   });
+}
+
+export function createPostgresApiCase(scenario: ApiBenchmarkScenario): ApiBenchmarkCase {
+  return {
+    scenario,
+    implementation: new PostgresStorageBenchmarkImplementation({
+      url: env.BENCHMARK_POSTGRES_STORAGE_URL!
+    })
+  };
+}
+
+export function createMongoApiCase(scenario: ApiBenchmarkScenario): ApiBenchmarkCase {
+  return {
+    scenario,
+    implementation: new MongoStorageBenchmarkImplementation({
+      url: env.BENCHMARK_MONGODB_STORAGE_URL!,
+      isCI: env.CI
+    })
+  };
 }

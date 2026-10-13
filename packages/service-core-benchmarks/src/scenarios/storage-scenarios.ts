@@ -1,4 +1,11 @@
-import { StorageBenchmarkImplementationId, StorageBenchmarkScenario } from '../types/StorageBenchmark.js';
+import { env } from '../env.js';
+import { MongoStorageBenchmarkImplementation } from '../implementations/storage/MongoStorageBenchmarkImplementation.js';
+import { PostgresStorageBenchmarkImplementation } from '../implementations/storage/PostgresStorageBenchmarkImplementation.js';
+import {
+  StorageBenchmarkCase,
+  StorageBenchmarkImplementationId,
+  StorageBenchmarkScenario
+} from '../types/StorageBenchmark.js';
 import { categorySync, defineScenario, singleTableData } from './scenario-presets.js';
 
 export function makeStorageScenario(
@@ -25,7 +32,7 @@ export function makeStorageScenario(
 export function createPostgresQuickStorageScenario(version: number): StorageBenchmarkScenario {
   return createQuickStorageScenario(
     'storage:postgres',
-    'Write 10000 rows to global bucket directly to PostgreSQL bucket storage',
+    'Write 1000 rows to global bucket directly to PostgreSQL bucket storage',
     version
   );
 }
@@ -33,7 +40,7 @@ export function createPostgresQuickStorageScenario(version: number): StorageBenc
 export function createMongoQuickStorageScenario(version: number): StorageBenchmarkScenario {
   return createQuickStorageScenario(
     'storage:mongodb',
-    'Write 10000 rows to global bucket directly to MongoDB bucket storage',
+    'Write 1000 rows to global bucket directly to MongoDB bucket storage',
     version
   );
 }
@@ -42,9 +49,9 @@ export function createPostgresCategoryStorageScenario(version: number): StorageB
   const scenario = createPostgresQuickStorageScenario(version);
   return defineScenario<StorageBenchmarkScenario>({
     ...scenario,
-    description: 'Write 10000 rows across 10 category buckets directly to PostgreSQL bucket storage',
+    description: 'Write 1000 rows across 10 category buckets directly to PostgreSQL bucket storage',
     tags: [...scenario.tags, 'shape:10-buckets'],
-    sync: categorySync({ engine: 'sync-rules', bucketCount: 10 })
+    sync: categorySync({ engine: 'sync-streams', bucketCount: 10 })
   });
 }
 
@@ -52,9 +59,9 @@ export function createMongoCategoryStorageScenario(version: number): StorageBenc
   const scenario = createMongoQuickStorageScenario(version);
   return defineScenario<StorageBenchmarkScenario>({
     ...scenario,
-    description: 'Write 10000 rows across 10 category buckets directly to MongoDB bucket storage',
+    description: 'Write 1000 rows across 10 category buckets directly to MongoDB bucket storage',
     tags: [...scenario.tags, 'shape:10-buckets'],
-    sync: categorySync({ engine: 'sync-rules', bucketCount: 10 })
+    sync: categorySync({ engine: 'sync-streams', bucketCount: 10 })
   });
 }
 
@@ -97,7 +104,35 @@ function createQuickStorageScenario(
     mode: 'write',
     primary_boundary: 'storage_write',
     flush_policy: 'automatic',
-    data: singleTableData({ rowCount: 10_000, rowBytes: 512 }),
-    sync: categorySync({ engine: 'sync-rules', bucketCount: 1 })
+    data: singleTableData({ rowCount: 1_000, rowBytes: 512 }),
+    sync: categorySync({ engine: 'sync-streams', bucketCount: 1 })
   });
+}
+
+export function createPostgresStorageCase(scenario: StorageBenchmarkScenario): StorageBenchmarkCase {
+  return {
+    scenario,
+    implementation: new PostgresStorageBenchmarkImplementation({
+      url: env.BENCHMARK_POSTGRES_STORAGE_URL!
+    }),
+    expectedStorage: { implementation: 'storage:postgres', version: scenario.storage.version }
+  };
+}
+
+export function createMongoStorageCase(scenario: StorageBenchmarkScenario): StorageBenchmarkCase {
+  return {
+    scenario,
+    implementation: new MongoStorageBenchmarkImplementation({
+      url: env.BENCHMARK_MONGODB_STORAGE_URL!,
+      isCI: env.CI
+    }),
+    expectedStorage: { implementation: 'storage:mongodb', version: scenario.storage.version }
+  };
+}
+
+export function createStorageModeCases(
+  write: StorageBenchmarkScenario,
+  createCase: (scenario: StorageBenchmarkScenario) => StorageBenchmarkCase
+): StorageBenchmarkCase[] {
+  return [write, createStorageReadScenario(write), createStorageWriteReadScenario(write)].map(createCase);
 }
