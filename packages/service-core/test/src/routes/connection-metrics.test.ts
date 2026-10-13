@@ -110,7 +110,9 @@ function idleStorage() {
   const ending = Promise.withResolvers<void>();
   const storage: Partial<SyncRulesBucketStorage> = {
     getParsedSyncRules: () =>
-      new SqlSyncRules('bucket_definitions: {}').hydrate({
+      SqlSyncRules.fromYaml('config:\n  edition: 3\nstreams: {}', {
+        defaultSchema: 'public'
+      }).config.hydrate({
         hydrationState: DEFAULT_HYDRATION_STATE,
         sqlite: nodeSqlite(sqlite)
       }),

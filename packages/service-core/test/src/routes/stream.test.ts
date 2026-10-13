@@ -198,7 +198,9 @@ describe('Stream Route', () => {
       onTestFinished(() => recorder.shutdown());
       const storage = {
         getParsedSyncRules() {
-          return new SqlSyncRules('bucket_definitions: {}').hydrate(defaultHydrationOptions);
+          return SqlSyncRules.fromYaml('config:\n  edition: 3\nstreams: {}', {
+            defaultSchema: 'public'
+          }).config.hydrate(defaultHydrationOptions);
         },
         watchCheckpointChanges: async function* (options) {
           throw streamError;

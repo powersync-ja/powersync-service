@@ -16,17 +16,25 @@ describe('Sync stream client disconnect', () => {
   function busyStorage() {
     return {
       getParsedSyncRules: () =>
-        SqlSyncRules.fromYaml('bucket_definitions:\n  global:\n    data: []', {
-          defaultSchema: 'public'
-        }).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) }),
+        SqlSyncRules.fromYaml(
+          `
+config:
+  edition: 3
+streams:
+  global:
+    auto_subscribe: true
+    query: SELECT * FROM test
+`,
+          { defaultSchema: 'public' }
+        ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) }),
       getChecksums: async (_checkpoint, buckets) =>
         new Map(buckets.map(({ bucket }) => [bucket, { bucket, checksum: 1, count: 100_000 }])),
-      getBucketDataBatch: async function* () {
+      getBucketDataBatch: async function* (_checkpoint, buckets) {
         // Bounded so an abort that fails to stop the stream cannot run away.
         for (let batch = 0; batch < 100; batch++) {
           yield {
             chunkData: {
-              bucket: 'global[]',
+              bucket: buckets[0].bucket,
               data: Array.from({ length: 1000 }, () => ({ op: 'PUT' })),
               has_more: true,
               after: `${batch * 1000}`,
