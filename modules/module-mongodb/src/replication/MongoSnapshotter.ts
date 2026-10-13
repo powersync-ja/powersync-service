@@ -22,7 +22,7 @@ import {
   DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER,
   MongoReplicationQueryProvider
 } from './MongoReplicationQueryProvider.js';
-import { MongoReplicationStreamItem, openMongoReplicationStream } from './MongoReplicationStream.js';
+import { MongoReplicationStreamBatch, openMongoReplicationStream } from './MongoReplicationStream.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { ChangeStreamBatch } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, detectDocumentDb } from './replication-utils.js';
@@ -646,7 +646,8 @@ export class MongoSnapshotter {
     let eventsSeen = 0;
     let batchesSeen = 0;
 
-    for await (const item of iter) {
+    streamLoop: for await (const sourceBatch of iter) {
+      this.abortSignal.throwIfAborted();
       if (performance.now() - startTime >= LSN_TIMEOUT_SECONDS * 1000) {
         break;
       }
@@ -654,26 +655,35 @@ export class MongoSnapshotter {
         await this.checkpointImplementation.createBatchCheckpoint();
         lastCheckpointCreated = performance.now();
       }
-      if (item.type == 'progress') {
-        batchesSeen += 1;
-        continue;
-      }
-      const changeDocument = item.event;
-      const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
-
-      if (ns?.coll == CHECKPOINTS_COLLECTION && 'documentKey' in changeDocument) {
-        const kind = this.checkpointImplementation.event.observe(changeDocument);
-        if (kind != 'own-barrier') {
-          // Standalone events still feed the implementation's coordinate via
-          // event.observe above; we only resolve on our own barrier.
-          continue;
+      for (const { event: changeDocument } of sourceBatch.events) {
+        this.abortSignal.throwIfAborted();
+        if (performance.now() - startTime >= LSN_TIMEOUT_SECONDS * 1000) {
+          break streamLoop;
         }
-        // Observing our own barrier has set the coordinate (the barrier event
-        // carries the sentinel counter directly), so the LSN is ready.
-        return this.checkpointImplementation.event.lsn(changeDocument);
-      }
+        if (performance.now() - lastCheckpointCreated >= LSN_CREATE_INTERVAL_SECONDS * 1000) {
+          await this.checkpointImplementation.createBatchCheckpoint();
+          lastCheckpointCreated = performance.now();
+        }
+        const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
 
-      eventsSeen += 1;
+        if (ns?.coll == CHECKPOINTS_COLLECTION && 'documentKey' in changeDocument) {
+          const kind = this.checkpointImplementation.event.observe(changeDocument);
+          if (kind != 'own-barrier') {
+            // Standalone events still feed the implementation's coordinate via
+            // event.observe above; we only resolve on our own barrier.
+            continue;
+          }
+          // Observing our own barrier has set the coordinate (the barrier event
+          // carries the sentinel counter directly), so the LSN is ready.
+          return this.checkpointImplementation.event.lsn(changeDocument);
+        }
+
+        eventsSeen += 1;
+      }
+      const resumeToken = sourceBatch.getResumeToken();
+      if (resumeToken != null) {
+        batchesSeen++;
+      }
     }
 
     // Could happen if there is a very large replication lag?
@@ -687,14 +697,19 @@ export class MongoSnapshotter {
    * Given a snapshot LSN, validate that we can read from it, by opening a change stream.
    */
   private async validateSnapshotLsn(lsn: string) {
-    const stream = this.openChangeStream({
-      lsn,
-      maxAwaitTimeMS: 0,
-      filters: this.getSourceNamespaceFilters(),
-      signal: this.abortSignal
-    });
-    for await (const _item of stream) {
-      break;
+    const filters = this.getSourceNamespaceFilters();
+    const stream = this.openChangeStream({ lsn, maxAwaitTimeMS: 0, filters, signal: this.abortSignal });
+    for await (const batch of stream) {
+      this.abortSignal.throwIfAborted();
+      // Reading one complete event validates the position; closing the stream abandons batch progress.
+      for (const _change of batch.events) {
+        return;
+      }
+      // An empty or fully filtered batch can also validate the position through safe progress.
+      // If a split event is unfinished, progress is undefined: keep reading until it is complete.
+      if (batch.getResumeToken() != null) {
+        return;
+      }
     }
   }
 
@@ -750,7 +765,7 @@ export class MongoSnapshotter {
     signal?: AbortSignal;
     tracer?: PerformanceTracer<'changestream'>;
     onBatch?: (batch: ChangeStreamBatch) => Disposable | void;
-  }): AsyncIterableIterator<MongoReplicationStreamItem> {
+  }): AsyncIterableIterator<MongoReplicationStreamBatch> {
     return openMongoReplicationStream({
       db: this.defaultDb,
       queryProvider: this.queryProvider,

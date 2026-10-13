@@ -1,5 +1,8 @@
 import { DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER } from '@module/replication/MongoReplicationQueryProvider.js';
-import { MongoReplicationStreamItem } from '@module/replication/MongoReplicationStream.js';
+import {
+  createMongoReplicationStreamBatch,
+  MongoReplicationStreamBatch
+} from '@module/replication/MongoReplicationStream.js';
 import { describe, expect, test, vi } from 'vitest';
 import { openChangeStreamTestContext } from './change_stream_test_setup.js';
 import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
@@ -41,31 +44,35 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
       const provider = {
         ...DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER,
         openChangeStream: ({ open }: Parameters<typeof DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER.openChangeStream>[0]) =>
-          (async function* (): AsyncGenerator<MongoReplicationStreamItem> {
+          (async function* (): AsyncGenerator<MongoReplicationStreamBatch> {
             let retained = false;
-            let filtered = 0;
-            for await (const item of open({})) {
-              if (item.type == 'change' && 'documentKey' in item.event && item.event.ns.coll == 'documents') {
-                if (String(item.event.documentKey._id) != '1') {
-                  filtered++;
-                  continue;
+            for await (const batch of open({})) {
+              let filtered = 0;
+              const events = (function* () {
+                for (const change of batch.events) {
+                  const { event } = change;
+                  if ('documentKey' in event && event.ns.coll == 'documents') {
+                    if (String(event.documentKey._id) != '1') {
+                      filtered++;
+                      continue;
+                    }
+                    retained = true;
+                  }
+                  yield change;
                 }
-                retained = true;
-              } else if (item.type == 'progress') {
-                // open({}) uses the shared reader, which emits progress with the batch's resume token
-                // after consuming a MongoDB batch, provided no split event is incomplete. This is a
-                // reader-generated boundary, not a MongoDB change event or a result of filtering.
-                // If a boundary arrives after retaining document 1 but before excluding any later
-                // documents, suppress it until a boundary also covers excluded changes. Forwarding
-                // that boundary triggers the injected flush failure with document 1 still pending,
-                // verifying that its write must be durable before the resume token can be saved.
-                if (retained && filtered == 0) continue;
-                yield { ...item, filteredCount: filtered };
-                retained = false;
-                filtered = 0;
-                continue;
-              }
-              yield item;
+              })();
+              yield createMongoReplicationStreamBatch({
+                events: events,
+                resolveResumeToken: () => {
+                  const progress = batch.getResumeToken();
+                  if (progress == null || (retained && filtered == 0)) {
+                    return undefined;
+                  }
+                  retained = false;
+                  return progress;
+                },
+                resolveMetadata: () => ({ filteredCount: filtered })
+              });
             }
           })()
       };
@@ -224,32 +231,43 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
             createReplicationQueryProvider: () => ({
               ...DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER,
               openChangeStream({ open }) {
-                return (async function* (): AsyncGenerator<MongoReplicationStreamItem> {
-                  let count = 0;
-                  for await (const item of open({})) {
-                    // Drop data events but keep the shared reader's batch boundaries and any control
-                    // events. Report how many complete changes each forwarded boundary excludes.
-                    if (item.type == 'change' && 'ns' in item.event && item.event.ns.coll == 'documents') {
-                      count++;
-                      continue;
-                    }
-                    if (item.type == 'progress' && count > 0) {
-                      filtered += count;
-                      beforeFailure = (await context.storage!.getStatus()).resumeLsn!;
-                      // The adapter error prevents delivery of the boundary. The flush error allows
-                      // delivery but fails storage processing before its resume token can be saved.
-                      if (scenario == 'adapter failure') throw new Error('injected adapter failure');
-                      failFlush = scenario == 'flush failure';
-                      yield { ...item, filteredCount: count };
-                      count = 0;
-                      // next() is requested only after this module has handled the progress item. Inspect actual
+                return (async function* (): AsyncGenerator<MongoReplicationStreamBatch> {
+                  for await (const batch of open({})) {
+                    let count = 0;
+                    const positionBeforeBatch = (await context.storage!.getStatus()).resumeLsn!;
+                    const events = (function* () {
+                      for (const change of batch.events) {
+                        if ('ns' in change.event && change.event.ns.coll == 'documents') {
+                          count++;
+                          continue;
+                        }
+                        yield change;
+                      }
+                    })();
+                    let forwardedProgress = false;
+                    yield createMongoReplicationStreamBatch({
+                      events: events,
+                      resolveResumeToken: () => {
+                        const progress = batch.getResumeToken();
+                        if (progress == null || count == 0) {
+                          return progress;
+                        }
+                        filtered += count;
+                        beforeFailure = positionBeforeBatch;
+                        if (scenario == 'adapter failure') throw new Error('injected adapter failure');
+                        failFlush = scenario == 'flush failure';
+                        forwardedProgress = true;
+                        return progress;
+                      },
+                      resolveMetadata: () => ({ filteredCount: count })
+                    });
+                    if (forwardedProgress) {
+                      // next() is requested only after this module has handled the batch, including its progress item. Inspect actual
                       // persisted state here, without sleeps or waiting for a later checkpoint event.
                       savedPositions.push((await context.storage!.getStatus()).resumeLsn!);
                       // End the successful case deliberately while the later checkpoint marker is
                       // still pending, so assertions observe progress independently of a commit.
                       if (savedPositions.length == 3) throw new Error('stopped after three safe boundaries');
-                    } else {
-                      yield item;
                     }
                   }
                 })();

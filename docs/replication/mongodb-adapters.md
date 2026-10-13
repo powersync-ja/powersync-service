@@ -39,35 +39,67 @@ selection, post-image requirements, timeouts and cancellation are already bound.
 `pipelineStages` and the `fullDocumentBeforeChange` image option. Additional stages run after namespace selection
 and before MongoDB's final large-event split stage.
 
-The callback returns parsed, reassembled changes and safe progress boundaries. A provider can wrap this iterator
-to discard marked events or translate exits from a filtered set into delete events. The adapter needs to read
-change-stream events so it can skip a document change while still passing its resume token to the replication loop.
-Filtering the event out in the MongoDB pipeline removes it before the adapter can record that progress.
+`open(...)` yields lazy parsed batches to both default and filtering providers. Raw transport batches and
+split-event assembly remain inside the shared opener. Each batch
+contains `events: Iterable<MongoReplicationStreamChange>`, `getResumeToken()` and `metadata`. Each change contains a complete
+parsed `event` and `hasBufferedChanges`. Document bodies remain BSON buffers. Async iteration occurs once per
+batch; synchronous iteration parses entries only as requested, without allocating an array of parsed envelopes.
 
-The returned items have two forms:
+The consumer contract is:
 
-| Item                                               | Meaning                                                                                                               |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `{ type: 'change', event, hasBufferedChanges }`    | A complete source event to process. Row bodies remain raw BSON buffers.                                               |
-| `{ type: 'progress', resumeToken, filteredCount }` | A safe source position covering completed events; `filteredCount` counts excluded events since the previous boundary. |
+```ts
+for await (const batch of stream) {
+  for (const change of batch.events) {
+    await processChange(change);
+  }
+  const filteredCount = batch.metadata.filteredCount;
+  // Aggregate non-null counts, including batches without a safe token.
+  const resumeToken = batch.getResumeToken();
+  if (resumeToken != null) {
+    await persistResumeToken(resumeToken);
+  }
+}
+```
 
-Wrappers must preserve ordering and close the underlying iterator when they finish, fail or are cancelled.
-Using `for await` around `open(...)` provides this cleanup. Checkpoint and DDL events must remain intact.
-Synthetic deletes must retain the original document key, namespace, resume token and transaction metadata.
-`hasBufferedChanges` describes the received batch, including envelopes the wrapper may later exclude; preserve
-it when forwarding an event so checkpoint batching still accounts for that work.
+Consume events once and completely before accessing the token, metadata or the next batch. Both token and
+metadata access throw before exhaustion, including after the last event but before the iterator reports completion.
+After exhaustion, `getResumeToken()` returns a stable safe token or `undefined`; `metadata` is a cached immutable
+object. If processing fails or is cancelled, close the iterators without saving a token.
+
+Filtering providers wrap `batch.events` with a synchronous generator. Use
+`createMongoReplicationStreamBatch({ events, resolveResumeToken, resolveMetadata })` to finalize both results
+after successful exhaustion. Forward the source batch's safe token and report excluded complete events in
+`metadata.filteredCount` for this batch only, including when no token is safe. Use `null` when no filtering was
+applied, `0` when filtering excluded nothing, or a positive count. The metadata callback defaults to `null`.
+
+`ChangeStream` aggregates non-null counts across batches until it persists and reports progress, then resets
+its aggregate to `null`. Unfiltered traffic omits filtering details from logs; applied filtering can report zero.
+Later parsing or filtering cannot change an earlier batch's cached token or metadata.
+
+Providers may discard marked events or translate exits from a filtered set into deletes. Filtering events out in
+the MongoDB pipeline prevents the provider from recording their progress. Preserve checkpoint and DDL events,
+and retain the original key, namespace, token and transaction metadata on synthetic deletes.
+
+Each change's `hasBufferedChanges` records whether source entries followed that event, including entries a filter
+may exclude. Preserve it when forwarding or transforming the change; the consumer cannot infer this from the
+length of a lazy iterable. This flag controls checkpoint batching, not safe progress.
+
+Wrappers must preserve order and close the underlying iterators on completion, failure or cancellation.
+Use `for await` for source batches and `for...of` for their events so errors and early returns trigger cleanup.
 
 ## Durable progress and recovery
 
-The default reader emits a progress item at each safe batch boundary, including empty batches. An empty batch
-can carry a newer MongoDB resume token without any document changes. Forwarding that token lets the replication
-loop advance its recovery position and run idle keepalives, subject to the existing throttle.
+A raw batch token is a transport position, not automatically safe progress. The shared parser detects and joins
+split fragments across batches, normalizes namespaces and skips events covered by legacy timestamp positions.
 
-Split events do not require a separate progress notification for each fragment. The reader assembles all
-fragments before yielding the complete change; normal checkpoint handling still controls its visibility to
-clients. While reassembly is incomplete, the reader suppresses batch progress, including progress from empty
-batches between fragments. Otherwise, the loop could save a resume token past fragments held only in memory,
-and a restart would lose those fragments. Once reassembly is complete, normal batch progress can resume.
+For example, raw batches `[A, B fragment 1]` and `[B fragment 2, C]` produce event iterables yielding A, then B and C.
+After consuming the first iterable, `getResumeToken()` returns undefined because B is unfinished. After consuming
+the second, it returns safe progress. B remains buffered until its final fragment. An earlier batch's undefined
+result stays unchanged even after later fragments finish. A source ending with an incomplete event fails.
+
+Empty batches and fully filtered batches must still have their event iterables exhausted. They can then carry
+safe progress without yielding any events. While split assembly is incomplete, even empty batches return no
+progress: saving their tokens would skip fragments held only in memory after a restart.
 
 `bytesReplicatedMetric` counts all received bytes, including events the provider later
 filters out. `chunksReplicatedMetric` counts all received batches, including batches where the provider filters out

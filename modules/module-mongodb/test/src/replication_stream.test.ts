@@ -1,17 +1,30 @@
 import { ChangeStreamInvalidatedError } from '@module/replication/ChangeStream.js';
 import { DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER } from '@module/replication/MongoReplicationQueryProvider.js';
-import { openMongoReplicationStream, readMongoReplicationStream } from '@module/replication/MongoReplicationStream.js';
-import { ChangeStreamBatch, mapChangeStreamError } from '@module/replication/RawChangeStream.js';
+import {
+  createMongoReplicationStreamBatch,
+  MongoReplicationParserOptions,
+  MongoReplicationStreamBatch,
+  openMongoReplicationStream,
+  parseMongoReplicationStream,
+  RawMongoReplicationStreamBatch
+} from '@module/replication/MongoReplicationStream.js';
+import {
+  mapChangeStreamError,
+  parseChangeDocument,
+  ProjectedChangeStreamDocument
+} from '@module/replication/RawChangeStream.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { DatabaseConnectionError } from '@powersync/lib-services-framework';
 import { describe, expect, test, vi } from 'vitest';
 import { env } from './env.js';
 
 /**
- * Exercise cursor construction and stream decoding without contacting MongoDB. Cursor tests intercept
+ * Exercise cursor construction and stream parsing without contacting MongoDB. Cursor tests intercept
  * the driver's command method; reader tests supply BSON batches with explicit events and resume tokens.
  */
 describe('MongoDB replication stream reader', () => {
+  const read = (options: MongoReplicationParserOptions & { batches: AsyncIterable<RawMongoReplicationStreamBatch> }) =>
+    flattenBatches(parseMongoReplicationStream(options));
   test.each(['pre', 'post'])('invalidates replication when a required %s-image is missing', (image) => {
     const error = new mongo.MongoServerError({
       code: 47,
@@ -48,7 +61,7 @@ describe('MongoDB replication stream reader', () => {
     const command = vi.spyOn(mongo.Db.prototype, 'command').mockRejectedValue(new Error('observed command'));
     try {
       await expect(
-        collect(
+        collectStream(
           openMongoReplicationStream({
             db,
             queryProvider: DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER,
@@ -96,7 +109,7 @@ describe('MongoDB replication stream reader', () => {
     const timestamp = new mongo.Timestamp({ t: 10, i: 1 });
     try {
       await expect(
-        collect(
+        collectStream(
           openMongoReplicationStream({
             db: client.db('app'),
             queryProvider: {
@@ -136,16 +149,16 @@ describe('MongoDB replication stream reader', () => {
   test('keeps raw rows, buffered checkpoint information and idle progress', async () => {
     // Two changes arrive together, followed by an empty response. Preserve raw BSON document bodies
     // and indicate whether another change is buffered, while exposing a resume boundary for each batch.
-    const onBatch = vi.fn();
     const batches = [batch([event('first'), event('second')], 'data'), batch([], 'idle')];
-    const items = await collect(
-      readMongoReplicationStream({
+    const outputBatches = await collectBatches(
+      read({
         batches: from(batches),
         defaultSchema: 'app',
-        multipleDatabases: false,
-        onBatch
+        multipleDatabases: false
       })
     );
+    expect(outputBatches.map((items) => items.length)).toEqual([3, 1]);
+    const items = outputBatches.flat();
     expect(items.map((item) => item.type)).toEqual(['change', 'change', 'progress', 'progress']);
     expect(items[0]).toMatchObject({ type: 'change', hasBufferedChanges: true });
     expect(items[1]).toMatchObject({ type: 'change', hasBufferedChanges: false });
@@ -153,10 +166,9 @@ describe('MongoDB replication stream reader', () => {
     expect(Buffer.isBuffer(items[0].event.fullDocument)).toBe(true);
     expect(mongo.BSON.deserialize(items[0].event.fullDocument!)).toEqual({ _id: 'first', body: 'raw row' });
     expect(items.slice(2)).toEqual([
-      { type: 'progress', resumeToken: { _data: 'data' }, filteredCount: 0 },
-      { type: 'progress', resumeToken: { _data: 'idle' }, filteredCount: 0 }
+      { type: 'progress', resumeToken: { _data: 'data' }, filteredCount: null },
+      { type: 'progress', resumeToken: { _data: 'idle' }, filteredCount: null }
     ]);
-    expect(onBatch.mock.calls.map(([value]) => value)).toEqual(batches);
   });
 
   test('withholds progress across split batches, including an idle response between fragments', async () => {
@@ -169,27 +181,26 @@ describe('MongoDB replication stream reader', () => {
       fullDocument: original.fullDocument,
       splitEvent: { fragment: 2, of: 2 }
     };
-    const onBatch = vi.fn();
-    const items = await collect(
-      readMongoReplicationStream({
+    const outputBatches = await collectBatches(
+      read({
         batches: from([
           batch([event('before'), first], 'unsafe'),
           batch([], 'still-unsafe'),
           batch([last, event('after')], 'safe')
         ]),
         defaultSchema: 'app',
-        multipleDatabases: false,
-        onBatch
+        multipleDatabases: false
       })
     );
+    expect(outputBatches.map((items) => items.length)).toEqual([1, 0, 3]);
+    const items = outputBatches.flat();
     // A consumer must never save either partial token, even though all three transport batches are counted.
     expect(items.map((item) => item.type)).toEqual(['change', 'change', 'change', 'progress']);
     expect(items[1]).toMatchObject({
       type: 'change',
       event: { documentKey: { _id: 'large' }, _id: { _data: 'fragment-2' } }
     });
-    expect(items[3]).toEqual({ type: 'progress', resumeToken: { _data: 'safe' }, filteredCount: 0 });
-    expect(onBatch).toHaveBeenCalledTimes(3);
+    expect(items[3]).toEqual({ type: 'progress', resumeToken: { _data: 'safe' }, filteredCount: null });
   });
 
   test.each([
@@ -208,7 +219,7 @@ describe('MongoDB replication stream reader', () => {
     // Invalid fragment sequences must reject consumption and close the upstream iterator so a caller
     // cannot mistake a partial document for a complete change or continue from its batch token.
     const closed = vi.fn();
-    const stream = readMongoReplicationStream({
+    const stream = read({
       batches: from([batch(events, 'unsafe')], closed),
       defaultSchema: 'app',
       multipleDatabases: false
@@ -220,17 +231,20 @@ describe('MongoDB replication stream reader', () => {
   test.each(['return', 'abort'] as const)(
     'closes the upstream iterator on %s without acknowledging unread work',
     async (end) => {
-      // Stop after the first change while another remains in the same batch. Both consumer return
-      // and signal cancellation must run upstream cleanup before the batch's progress is yielded.
+      // Stop after the first batch while another remains unread. Both consumer return
+      // and signal cancellation must close the source without delivering the next batch.
       const closed = vi.fn();
       const controller = new AbortController();
-      const stream = readMongoReplicationStream({
-        batches: from([batch([event('first'), event('unread')], 'unsafe')], closed),
+      const stream = read({
+        batches: from([batch([event('first')], 'safe'), batch([event('unread')], 'unread')], closed),
         defaultSchema: 'app',
         multipleDatabases: false,
         signal: controller.signal
       });
-      expect((await stream.next()).value).toMatchObject({ type: 'change' });
+      expect([...(await stream.next()).value!]).toMatchObject([
+        { type: 'change' },
+        { type: 'progress', resumeToken: { _data: 'safe' } }
+      ]);
       if (end == 'return') await stream.return(undefined);
       else {
         controller.abort(new Error('cancelled'));
@@ -245,7 +259,7 @@ describe('MongoDB replication stream reader', () => {
     // The remaining event uses an Atlas Flex database prefix that must be removed before delivery.
     const timestamp = new mongo.Timestamp({ t: 10, i: 1 });
     const items = await collect(
-      readMongoReplicationStream({
+      read({
         batches: from([
           batch(
             [
@@ -268,6 +282,147 @@ describe('MongoDB replication stream reader', () => {
   });
 });
 
+describe('lazy batch consumption contract', () => {
+  test('keeps batch metadata independent of safe tokens and distinguishes unfiltered from zero', () => {
+    for (const filteredCount of [null, 0, 2]) {
+      const output = createMongoReplicationStreamBatch({
+        events: [],
+        resolveResumeToken: () => undefined,
+        resolveMetadata: () => ({ filteredCount })
+      });
+      expect(() => output.metadata).toThrow('Consume all batch events');
+      expect([...output.events]).toEqual([]);
+      expect(output.getResumeToken()).toBeUndefined();
+      expect(output.metadata.filteredCount).toBe(filteredCount);
+      expect(Object.isFrozen(output.metadata)).toBe(true);
+    }
+    const unfiltered = createMongoReplicationStreamBatch({ events: [], resolveResumeToken: () => undefined });
+    expect([...unfiltered.events]).toEqual([]);
+    expect(unfiltered.metadata.filteredCount).toBeNull();
+  });
+
+  test('requires exhaustion even after the last event, and caches progress once', () => {
+    const change = { event: parseChangeDocument(batch([event('one')], 'safe').events[0]), hasBufferedChanges: false };
+    let filteredCount = 2;
+    const progress = vi.fn(() => ({ _data: 'safe' }));
+    const output = createMongoReplicationStreamBatch({
+      events: [change],
+      resolveResumeToken: progress,
+      resolveMetadata: () => ({ filteredCount })
+    });
+    expect(() => output.getResumeToken()).toThrow('Consume all batch events');
+    expect(() => output.metadata).toThrow('Consume all batch events');
+    const iterator = output.events[Symbol.iterator]();
+    expect(iterator.next().value).toBe(change);
+    expect(() => output.getResumeToken()).toThrow('Consume all batch events');
+    expect(() => output.metadata).toThrow('Consume all batch events');
+    expect(progress).not.toHaveBeenCalled();
+    expect(iterator.next().done).toBe(true);
+    const saved = output.getResumeToken();
+    filteredCount = 99;
+    expect(output.getResumeToken()).toBe(saved);
+    expect(output.metadata.filteredCount).toBe(2);
+    expect(progress).toHaveBeenCalledOnce();
+    expect(() => [...output.events]).toThrow('only be consumed once');
+  });
+
+  test.each(['return', 'failure'] as const)('withholds progress after iteration ends by %s', (end) => {
+    const closed = vi.fn();
+    const progress = vi.fn(() => ({ _data: 'unsafe' }));
+    const output = createMongoReplicationStreamBatch({
+      events: (function* () {
+        try {
+          yield { event: parseChangeDocument(batch([event('one')], 'safe').events[0]), hasBufferedChanges: true };
+          throw new Error('filter failure');
+        } finally {
+          closed();
+        }
+      })(),
+      resolveResumeToken: progress
+    });
+    const iterator = output.events[Symbol.iterator]();
+    iterator.next();
+    if (end == 'return') iterator.return?.();
+    else expect(() => iterator.next()).toThrow('filter failure');
+    expect(closed).toHaveBeenCalledOnce();
+    expect(progress).not.toHaveBeenCalled();
+    expect(() => output.getResumeToken()).toThrow('Consume all batch events');
+    expect(() => output.metadata).toThrow('Consume all batch events');
+  });
+
+  test('rejects advancing the stream past an unconsumed batch and closes its source', async () => {
+    const closed = vi.fn();
+    const stream = parseMongoReplicationStream({
+      batches: from([batch([event('one')], 'one'), batch([event('two')], 'two')], closed),
+      defaultSchema: 'app',
+      multipleDatabases: false
+    });
+    await stream.next();
+    await expect(stream.next()).rejects.toThrow('Consume all batch events');
+    expect(closed).toHaveBeenCalledOnce();
+  });
+
+  test('an earlier batch keeps its progress result after later fragments complete', async () => {
+    const original = event('large');
+    const stream = parseMongoReplicationStream({
+      batches: from([
+        batch([{ ...original, fullDocument: undefined, splitEvent: { fragment: 1, of: 2 } }], 'unsafe'),
+        batch(
+          [{ _id: { _data: 'last' }, fullDocument: original.fullDocument, splitEvent: { fragment: 2, of: 2 } }],
+          'safe'
+        )
+      ]),
+      defaultSchema: 'app',
+      multipleDatabases: false
+    });
+    const first = (await stream.next()).value!;
+    expect([...first.events]).toEqual([]);
+    expect(first.getResumeToken()).toBeUndefined();
+    const second = (await stream.next()).value!;
+    expect([...second.events]).toHaveLength(1);
+    expect(second.getResumeToken()).toEqual({ _data: 'safe' });
+    expect(first.getResumeToken()).toBeUndefined();
+    expect((await stream.next()).done).toBe(true);
+  });
+
+  test('filtering parses on demand and preserves buffered work when trailing events are excluded', async () => {
+    const source = batch([event('checkpoint'), event('excluded')], 'safe');
+    const stream = parseMongoReplicationStream({
+      batches: from([source]),
+      defaultSchema: 'app',
+      multipleDatabases: false
+    });
+    const input = (await stream.next()).value!;
+    const inspected = vi.fn();
+    let filtered = 0;
+    const output = createMongoReplicationStreamBatch({
+      events: (function* () {
+        for (const change of input.events) {
+          inspected(change.event);
+          if ('documentKey' in change.event && change.event.documentKey._id == 'excluded') {
+            filtered++;
+            continue;
+          }
+          yield change;
+        }
+      })(),
+      resolveResumeToken: () => input.getResumeToken(),
+      resolveMetadata: () => ({ filteredCount: filtered })
+    });
+    expect(inspected).not.toHaveBeenCalled();
+    const iterator = output.events[Symbol.iterator]();
+    expect(iterator.next().value).toMatchObject({ hasBufferedChanges: true });
+    expect(inspected).toHaveBeenCalledTimes(1);
+    expect(() => output.getResumeToken()).toThrow('Consume all batch events');
+    expect(() => output.metadata).toThrow('Consume all batch events');
+    expect(iterator.next().done).toBe(true);
+    expect(inspected).toHaveBeenCalledTimes(2);
+    expect(output.getResumeToken()).toEqual({ _data: 'safe' });
+    expect(output.metadata.filteredCount).toBe(1);
+    expect((await stream.next()).done).toBe(true);
+  });
+});
+
 /**
  * Minimal insert event for the app.documents fixture namespace; callers override fields for each scenario.
  */
@@ -282,14 +437,12 @@ function event(id: string): mongo.Document {
 }
 
 /**
- * Encode events as raw BSON, matching the reader's transport input. Tokens are opaque test labels;
- * the fixed byte count supports batch accounting assertions without depending on BSON payload size.
+ * Encode events as raw BSON, matching the reader's transport input. Tokens are opaque test labels.
  */
-function batch(events: mongo.Document[], token: string): ChangeStreamBatch {
+function batch(events: mongo.Document[], token: string): RawMongoReplicationStreamBatch {
   return {
     events: events.map((event) => Buffer.from(mongo.BSON.serialize(event))),
-    resumeToken: { _data: token },
-    byteSize: 1234
+    resumeToken: { _data: token }
   };
 }
 
@@ -304,8 +457,40 @@ async function* from<T>(values: T[], closed?: () => void) {
   }
 }
 
-async function collect<T>(stream: AsyncIterable<T>): Promise<T[]> {
+async function collect<T>(stream: AsyncIterable<Iterable<T>>): Promise<T[]> {
   const items: T[] = [];
-  for await (const item of stream) items.push(item);
+  for await (const batch of stream) items.push(...batch);
   return items;
+}
+
+async function collectBatches<T>(stream: AsyncIterable<Iterable<T>>): Promise<T[][]> {
+  const batches: T[][] = [];
+  for await (const batch of stream) batches.push([...batch]);
+  return batches;
+}
+
+/**
+ * Flatten parsed batches only in tests to assert ordered events and progress across both paths.
+ */
+type MongoReplicationStreamItem =
+  | { type: 'change'; event: ProjectedChangeStreamDocument; hasBufferedChanges: boolean }
+  | { type: 'progress'; resumeToken: mongo.ResumeToken; filteredCount: number | null };
+
+async function* flattenBatches(
+  batches: AsyncIterable<MongoReplicationStreamBatch>
+): AsyncGenerator<Iterable<MongoReplicationStreamItem>> {
+  for await (const batch of batches) yield items(batch);
+  function* items(batch: MongoReplicationStreamBatch): Generator<MongoReplicationStreamItem> {
+    for (const change of batch.events) yield { type: 'change', ...change };
+    const progress = batch.getResumeToken();
+    if (progress != null) {
+      yield { type: 'progress', resumeToken: progress, filteredCount: batch.metadata.filteredCount };
+    }
+  }
+}
+
+async function collectStream<T>(stream: AsyncIterable<T>): Promise<T[]> {
+  const batches: T[] = [];
+  for await (const batch of stream) batches.push(batch);
+  return batches;
 }

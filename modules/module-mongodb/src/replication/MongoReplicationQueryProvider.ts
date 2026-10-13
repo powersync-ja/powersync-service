@@ -2,7 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { SourceTable } from '@powersync/service-core';
 import { HydratedSyncConfig } from '@powersync/service-sync-rules';
 import { MongoManager } from './MongoManager.js';
-import { MongoReplicationStreamContext, MongoReplicationStreamItem } from './MongoReplicationStream.js';
+import { MongoReplicationStreamBatch, MongoReplicationStreamContext } from './MongoReplicationStream.js';
 
 /**
  * Sync config and source namespace information used to construct a provider for a replication attempt.
@@ -37,15 +37,20 @@ export interface MongoReplicationQueryProvider {
   /**
    * Call context.open() with any additional stages/pre-image options, then optionally wrap its iterator.
    * Unlike pipeline stages alone, the wrapper can exclude marked events while still forwarding progress.
-   * Yield changes and safe progress, including when all data events are excluded.
-   * Count excluded complete events in the next progress item's filteredCount, resetting it after each
-   * progress item. Preserve the reader's safe resume token rather than advancing past buffered changes.
+   * The opener parses events lazily. Wrap batch.events with a synchronous
+   * filtering generator and createMongoReplicationStreamBatch to cache progress after exhaustion.
+   * The default provider returns the same lazy batches without filtering.
+   * Providers may regroup batches, but must preserve the ordering of changes and progress boundaries.
+   * Preserve each change's hasBufferedChanges, including when removing trailing source events.
+   * Report excluded complete events in metadata.filteredCount for each batch, even without a safe token.
+   * Use null when filtering was not applied, or zero when it excluded nothing. ChangeStream aggregates counts.
+   * Preserve the reader's safe resume token rather than advancing past buffered changes.
    * An exit from a filtered set may be represented as a synthetic delete retaining its original key and token.
    * Checkpoint/DDL events must remain ordered and intact. Progress alone must never stand in for a checkpoint.
    * Each call opens a separate iterator, also used for snapshot barriers and resume validation. Keep
    * per-iterator state separate and close the underlying iterator when the wrapper exits.
    */
-  openChangeStream(context: MongoReplicationStreamContext): AsyncIterableIterator<MongoReplicationStreamItem>;
+  openChangeStream(context: MongoReplicationStreamContext): AsyncIterableIterator<MongoReplicationStreamBatch>;
 
   /**
    * Returns an additional MongoDB find predicate for a physical source table.
