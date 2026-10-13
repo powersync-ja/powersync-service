@@ -240,6 +240,7 @@ export function defineScenario<T extends BenchmarkScenario>(
     ...(producer ? [producer] : []),
     ...(phase ? [`phase:${phase}`] : []),
     ...(sync.streams.length === 1 && sync.streams[0].bucket_count === 10 ? ['shape:10-buckets'] : []),
+    ...(sync.streams.length === 1 && sync.streams[0].bucket_count === 100 ? ['shape:100-buckets'] : []),
     ...(sync.streams.length === 1 && sync.streams[0].bucket_count === 1 ? ['shape:single-bucket'] : []),
     `engine:${sync.engine}`,
     `layout:${data.tables.length === 1 ? 'single-table' : 'multi-table'}`

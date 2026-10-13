@@ -34,7 +34,8 @@ export default defineConfig(() => ({
       { name: 'layer:replication' },
       { name: 'layer:storage' },
       { name: 'shape:single-bucket' },
-      { name: 'shape:10-buckets' }
+      { name: 'shape:10-buckets' },
+      { name: 'shape:100-buckets' }
     ]
   }
 }));

@@ -89,6 +89,8 @@ function createDatasetCases<T extends { readonly scenario: BenchmarkScenario }>(
       scenario: defineScenario(
         {
           ...base.scenario,
+          profile: dataset.profile ?? base.scenario.profile,
+          timeout_ms: dataset.timeout_ms ?? base.scenario.timeout_ms,
           description: `${dataset.name}: ${base.scenario.layer === 'storage' && 'mode' in base.scenario ? `Direct ${base.scenario.mode} benchmark` : base.scenario.description}`
         },
         dataset.data,
