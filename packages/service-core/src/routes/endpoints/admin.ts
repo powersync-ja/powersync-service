@@ -77,10 +77,10 @@ export const diagnostics = routeDefinition({
 
     const {
       storageEngine: { activeBucketStorage },
-      configuration: { sync_rules }
+      configuration
     } = service_context;
 
-    const sync_config_mode = sync_rules.present ? 'file' : 'api';
+    const sync_config_mode = configuration?.sync_rules.present ? 'file' : 'api';
     const active = await activeBucketStorage.getActiveSyncConfig();
     const deploying = await activeBucketStorage.getDeployingSyncConfig();
 
