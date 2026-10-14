@@ -70,15 +70,22 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
       if (this.isStopped) {
         return;
       }
-      const stream = new ChangeStream({
-        abort_signal: this.abortController.signal,
-        storage: this.options.storage,
-        metrics: this.options.metrics,
-        connections: connectionManager,
-        keepaliveIntervalMs: connectionManager.options.heartbeat_interval_seconds * 1_000,
-        logger: this.logger,
-        createReplicationQueryProvider: this.createReplicationQueryProvider
-      });
+      let stream: ChangeStream;
+      try {
+        stream = new ChangeStream({
+          abort_signal: this.abortController.signal,
+          storage: this.options.storage,
+          metrics: this.options.metrics,
+          connections: connectionManager,
+          keepaliveIntervalMs: connectionManager.options.heartbeat_interval_seconds * 1_000,
+          logger: this.logger,
+          createReplicationQueryProvider: this.createReplicationQueryProvider
+        });
+      } catch (error) {
+        // Construction can fail before ChangeStream.replicate() reports errors.
+        await this.storage.reportError(error);
+        throw error;
+      }
       this.lastStream = stream;
       await stream.replicate();
     } finally {
