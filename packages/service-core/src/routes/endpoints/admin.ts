@@ -8,7 +8,7 @@ import {
   SqlSyncRules,
   StaticSchema
 } from '@powersync/service-sync-rules';
-import { internal_routes } from '@powersync/service-types';
+import { internal_routes, ServiceInfo } from '@powersync/service-types';
 
 import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules';
 import * as api from '../../api/api-index.js';
@@ -59,7 +59,7 @@ export const diagnostics = routeDefinition({
     const { context } = payload;
     const { service_context } = context;
     const include_content = payload.params.sync_rules_content ?? false;
-    const serviceResponse = {
+    const serviceResponse: { service: ServiceInfo } = {
       service: {
         version: POWERSYNC_VERSION
       }

@@ -1,6 +1,6 @@
 import * as t from 'ts-codec';
 import { anyPrimitive, enumLiteral } from './codecs.js';
-import { ConnectionStatus, InstanceSchema, SyncRulesStatus } from './definitions.js';
+import { ConnectionStatus, InstanceSchema, ServiceInfo, SyncRulesStatus } from './definitions.js';
 
 export const GetSchemaRequest = t.object({});
 export type GetSchemaRequest = t.Encoded<typeof GetSchemaRequest>;
@@ -57,11 +57,7 @@ export const DiagnosticsResponse = t.object({
 
   sync_config_mode: enumLiteral('api', 'file').optional(),
 
-  service: t
-    .object({
-      version: t.string
-    })
-    .optional()
+  service: ServiceInfo.optional()
 });
 export type DiagnosticsResponse = t.Encoded<typeof DiagnosticsResponse>;
 
