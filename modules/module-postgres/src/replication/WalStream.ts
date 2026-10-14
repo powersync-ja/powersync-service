@@ -51,9 +51,9 @@ import {
 import { computeWalBudgetReport, formatWalBudgetLine } from './wal-budget-utils.js';
 
 export interface WalStreamOptions {
+  storage: storage.SyncRulesBucketStorage;
   logger?: Logger;
   connections: PgManager;
-  storage: storage.SyncRulesBucketStorage;
   metrics: MetricsEngine;
   abort_signal: AbortSignal;
 
@@ -162,7 +162,7 @@ export class WalStream {
   /** Timestamp of last slot health check. */
   private lastSlotHealthCheckTime = 0;
 
-  constructor(options: WalStreamOptions) {
+  constructor(private readonly options: WalStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
     this.metrics = options.metrics;

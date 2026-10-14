@@ -251,28 +251,6 @@ export function toQualifiedTableName(schema: string, tableName: string): string 
   return `${escapeIdentifier(schema)}.${escapeIdentifier(tableName)}`;
 }
 
-export function isIColumnMetadata(obj: any): obj is sql.IColumnMetadata {
-  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
-    return false;
-  }
-
-  let propertiesMatched = true;
-  for (const value of Object.values(obj)) {
-    const property = value as any;
-    propertiesMatched =
-      typeof property.index === 'number' &&
-      typeof property.name === 'string' &&
-      (typeof property.length === 'number' || typeof property.length === 'undefined') &&
-      (typeof property.type === 'function' || typeof property.type === 'object') &&
-      typeof property.nullable === 'boolean' &&
-      typeof property.caseSensitive === 'boolean' &&
-      typeof property.identity === 'boolean' &&
-      typeof property.readOnly === 'boolean';
-  }
-
-  return propertiesMatched;
-}
-
 export function addParameters(request: sql.Request, parameters: MSSQLParameter[]): sql.Request {
   for (const param of parameters) {
     if (param.type) {

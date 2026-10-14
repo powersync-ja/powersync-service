@@ -8,7 +8,7 @@ import { test_utils } from '@powersync/service-core-tests';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
 import { PostImagesOption } from '@module/types/types.js';
-import { ChangeStreamTestContext } from './change_stream_utils.js';
+import { openChangeStreamTestContext } from './change_stream_test_setup.js';
 import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
 import { testTimeout } from './test-timeouts.js';
 import { describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
@@ -27,8 +27,8 @@ describe('change stream', () => {
 function defineChangeStreamTests({ factory, storageVersion }: StorageVersionTestContext) {
   const supportsConcurrentSnapshots = storageVersion >= 3;
 
-  const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
-    return ChangeStreamTestContext.open(factory, { ...options, storageVersion });
+  const openContext = (options?: Parameters<typeof openChangeStreamTestContext>[1]) => {
+    return openChangeStreamTestContext(factory, { ...options, storageVersion });
   };
   // DocumentDB does not support changeStreamPreAndPostImages, which this test requires via postImages: READ_ONLY.
   test.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('replicating basic values', async () => {

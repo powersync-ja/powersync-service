@@ -1,6 +1,7 @@
 import { SyncConfig, TablePattern } from '@powersync/service-sync-rules';
 import * as types from '@powersync/service-types';
-import { ParseSyncConfigOptions, SyncRulesBucketStorage } from '../storage/storage-index.js';
+import type { ParseSyncConfigOptions } from '../storage/PersistedSyncConfigContent.js';
+import { SyncRulesBucketStorage } from '../storage/storage-index.js';
 
 export interface PatternResult {
   schema: string;
@@ -39,6 +40,13 @@ export interface RouteAPI {
    * This is usually some test query to verify the source can be reached.
    */
   getConnectionStatus(): Promise<types.ConnectionStatusV2>;
+
+  /**
+   * Checks whether the source supports the capabilities required by this sync config.
+   * Must not modify the source. Return advisory warnings and fatal validation diagnostics.
+   * An empty array means no issues; throw only for unexpected failures.
+   */
+  validateSourceCapabilities?(syncConfig: SyncConfig): Promise<types.ValidationDiagnostic[]>;
 
   /**
    * Expand sync config table patterns into table metadata from the source connection.
