@@ -1,5 +1,5 @@
 import { BasicRouterRequest, Context, JwtPayload, ParsedSyncConfigSet, storage } from '@/index.js';
-import { logger } from '@powersync/lib-services-framework';
+import { ErrorCode, logger } from '@powersync/lib-services-framework';
 import { PrecompiledSyncConfig, SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { diagnostics, reprocess, validate } from '../../../src/routes/endpoints/admin.js';
@@ -327,23 +327,38 @@ streams:
   });
 
   describe('reprocess', () => {
-    it.each([reprocess, reprocessSyncRules])('blocks reprocessing on returned fatal diagnostics', async (route) => {
-      const active = makeSyncConfigContent({ id: 7 });
-      const updateSyncRules = vi.fn();
-      const context = makeContext({
-        getDeployingSyncConfig: vi.fn(async () => null),
-        getActiveSyncConfig: vi.fn(async () => ({ content: active })),
-        updateSyncRules
-      });
-      const api = context.service_context.routerEngine.getAPI();
-      vi.spyOn(context.service_context.routerEngine, 'getAPI').mockReturnValue(api);
-      api.validateSourceCapabilities = async () => [
-        { level: 'warning', message: 'Advisory' },
-        { level: 'fatal', message: 'Unsupported source' }
-      ];
-      await expect(route.handler({ context, params: {}, request })).rejects.toThrow('Unsupported source');
-      expect(updateSyncRules).not.toHaveBeenCalled();
-    });
+    it.each([reprocess, reprocessSyncRules].flatMap((route) => [false, true].map((throws) => ({ route, throws }))))(
+      'returns 422 for rejected reprocessing at $route.path (adapter throws: $throws)',
+      async ({ route, throws }) => {
+        const active = makeSyncConfigContent({ id: 7 });
+        const updateSyncRules = vi.fn();
+        const context = makeContext({
+          getDeployingSyncConfig: vi.fn(async () => null),
+          getActiveSyncConfig: vi.fn(async () => ({ content: active })),
+          updateSyncRules
+        });
+        const api = context.service_context.routerEngine.getAPI();
+        vi.spyOn(context.service_context.routerEngine, 'getAPI').mockReturnValue(api);
+        api.validateSourceCapabilities = async () => {
+          if (throws) {
+            throw new Error('Unsupported source');
+          }
+          return [
+            { level: 'warning', message: 'Advisory' },
+            { level: 'fatal', message: 'Unsupported source' }
+          ];
+        };
+        await expect(route.handler({ context, params: {}, request })).rejects.toMatchObject({
+          errorData: {
+            status: 422,
+            code: ErrorCode.PSYNC_R0001,
+            description: 'Source capability validation failed',
+            details: 'Unsupported source'
+          }
+        });
+        expect(updateSyncRules).not.toHaveBeenCalled();
+      }
+    );
 
     it('reprocesses the active sync config', async () => {
       const active = makeSyncConfigContent({ id: 7, syncConfigId: 'active-config', version_label: 'v6' });

@@ -135,7 +135,8 @@ export class SyncConfigFromYaml {
         if (!expression) continue;
         let filter: unknown;
         try {
-          filter = expression.node.toJS(parsed);
+          // Disallow YAML aliases so recursive validation only receives a tree.
+          filter = expression.node.toJS(parsed, { maxAliasCount: 0 });
         } catch (error) {
           expression.reportError(error instanceof Error ? error.message : String(error));
           continue;

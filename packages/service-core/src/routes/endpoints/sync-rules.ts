@@ -73,17 +73,8 @@ export const deploySyncRules = routeDefinition({
     }
 
     logSyncConfigErrors(syncConfig);
-    try {
-      // Validate if the current sources support the configuration specified in the sync config
-      await assertSourceCapabilities(service_context.routerEngine.getAPI(), syncConfig.config);
-    } catch (error) {
-      throw new errors.ServiceError({
-        status: 422,
-        code: ErrorCode.PSYNC_R0001,
-        description: 'Source capability validation failed',
-        details: error.message
-      });
-    }
+    // Validate if the current sources support the configuration specified in the sync config
+    await assertSourceCapabilities(service_context.routerEngine.getAPI(), syncConfig.config);
 
     const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules(updateSyncRulesFromConfig(syncConfig));
 

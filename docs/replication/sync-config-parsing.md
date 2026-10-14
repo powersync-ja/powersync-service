@@ -52,6 +52,7 @@ and `"users"` identify the same pattern, while `"Users"` remains distinct. Overl
 
 Source fields use the `$$doc.` prefix. Literal values include strings, numbers, booleans, and supported Extended JSON
 wrappers for BSON values. Unknown source-table options and invalid expressions are rejected during parsing.
+YAML aliases are not supported inside filter expressions.
 
 The sync-config JSON Schema includes expression shapes and examples for editor autocomplete. Runtime validation
 also checks BSON literal values and reports errors at the relevant YAML keys or values. Source capability checks

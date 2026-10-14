@@ -18,6 +18,57 @@ function config(expression: unknown, table = 'orders/~1') {
 }
 
 describe('MongoDB expression validation', () => {
+  test.each(['&self { $and: [*self] }', '&self { $and: [{ $or: [*self] }] }'])(
+    'rejects cyclic aliases with located diagnostics: %s',
+    (expression) => {
+      const yaml = /* yaml */ `
+        # Filter containing a cyclic YAML alias.
+        config:
+          edition: 3
+          source_table_options:
+            orders:
+              mongodb_filter_expression: ${expression}
+        streams:
+          orders:
+            query: SELECT * FROM orders
+      `;
+      const options = { defaultSchema: 'app', connections: { default: { type: 'mongodb' } } };
+      expect(() => SqlSyncRules.fromYaml(yaml, options)).toThrow('alias count');
+      const { errors } = SqlSyncRules.fromYaml(yaml, { ...options, throwOnError: false });
+      expect(errors).toHaveLength(1);
+      expect(errors[0].type).toBe('fatal');
+      expect(errors[0].message).toContain('alias count');
+      expect(yaml.slice(errors[0].location.start, errors[0].location.end).trim()).toBe(
+        expression.replace('&self ', '')
+      );
+    }
+  );
+
+  test('also rejects shared aliases without cycles', () => {
+    const yaml = /* yaml */ `
+      # Filter containing a shared YAML alias.
+      config:
+        edition: 3
+        source_table_options:
+          orders:
+            mongodb_filter_expression:
+              $and:
+                - &condition { $eq: ['$$doc.active', true] }
+                - *condition
+      streams:
+        orders:
+          query: SELECT * FROM orders
+    `;
+    const errors = SqlSyncRules.validate(yaml, {
+      defaultSchema: 'app',
+      connections: { default: { type: 'mongodb' } }
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].type).toBe('fatal');
+    expect(errors[0].message).toContain('alias count');
+    expect(yaml.slice(errors[0].location.start, errors[0].location.end)).toContain('*condition');
+  });
+
   test.each([null, false, 'invalid', []])('locates invalid option maps: %j', (value) => {
     for (const tableOptions of [false, true]) {
       const yaml = YAML.stringify({
