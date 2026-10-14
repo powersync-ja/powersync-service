@@ -38,6 +38,7 @@ export function mockServiceContext(storage: Partial<SyncRulesBucketStorage> | nu
   });
   createCoreAPIMetrics(metricsEngine);
   const service_context: Partial<ServiceContext> = {
+    loadedSyncConfig: { mode: 'api' },
     syncContext: new SyncContext({ maxBuckets: 1, maxDataFetchConcurrency: 1, maxParameterQueryResults: 1 }),
     eventsEngine: new EventsEngine(),
     routerEngine: {

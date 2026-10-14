@@ -21,6 +21,7 @@ export type MigrationContext = {
 export type Runner = (config: RunnerConfig) => Promise<void>;
 
 export type SyncRulesConfig = {
+  source?: 'api' | 'config';
   present: boolean;
   version_label?: string;
   content?: string;

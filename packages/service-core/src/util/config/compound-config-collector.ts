@@ -243,11 +243,17 @@ export class CompoundConfigCollector {
     baseConfig: configFile.PowerSyncConfig,
     runnerConfig: RunnerConfig
   ): Promise<SyncRulesConfig> {
+    if (baseConfig.sync_config?.source == 'api') {
+      if (runnerConfig.sync_config_base64) {
+        throw new Error('sync_config.source api cannot be combined with Base64 sync config');
+      }
+      return { source: 'api', present: false, exit_on_error: true };
+    }
     for (const collector of this.options.syncRulesCollectors) {
       try {
         const config = await collector.collect(baseConfig, runnerConfig);
         if (config) {
-          return config;
+          return { ...config, source: 'config' };
         }
         logger.debug(
           `Could not collect sync config with ${collector.name} method. Moving on to next method if available.`
@@ -259,7 +265,9 @@ export class CompoundConfigCollector {
     }
     return {
       present: false,
-      exit_on_error: true
+      source: baseConfig.sync_config?.source ?? 'api',
+      exit_on_error: baseConfig.sync_config?.exit_on_error ?? true,
+      version_label: baseConfig.sync_config?.version_label
     };
   }
 }

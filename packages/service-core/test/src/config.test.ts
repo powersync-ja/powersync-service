@@ -1,3 +1,4 @@
+import { loadSyncConfig } from '@/system/LoadedSyncConfig.js';
 // Vitest Unit Tests
 import { CompoundConfigCollector } from '@/index.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -252,6 +253,7 @@ describe('Config', () => {
     });
 
     expect(result.sync_rules).toEqual({
+      source: 'config',
       present: true,
       version_label: 'v6',
       exit_on_error: true,
@@ -282,6 +284,7 @@ describe('Config', () => {
     });
 
     expect(result.sync_rules).toEqual({
+      source: 'config',
       present: true,
       exit_on_error: true,
       content: expect.stringContaining('edition: 2')
@@ -313,6 +316,7 @@ describe('Config', () => {
     });
 
     expect(result.sync_rules).toEqual({
+      source: 'config',
       present: true,
       exit_on_error: true,
       content: expect.stringContaining('edition: 2')
@@ -344,4 +348,79 @@ describe('Config', () => {
       })
     ).rejects.toThrow(/Both `sync_config` and `sync_rules` are present/);
   });
+});
+
+const SOURCE_TEST_CONFIG = /* yaml */ `
+  # Config used to test deployment source selection.
+  config:
+    edition: 3
+  streams:
+    todos:
+      query: SELECT id FROM todos
+`;
+
+describe('sync config deployment source', () => {
+  it.each([
+    { name: 'omitted', sync: undefined, base64: false, source: 'api', mode: 'api' },
+    {
+      name: 'implicit file',
+      sync: { path: '/nonexistent-powersync-source-test/sync-config.yaml' },
+      base64: false,
+      source: 'config',
+      mode: 'unavailable'
+    },
+    { name: 'explicit API', sync: { source: 'api' }, base64: false, source: 'api', mode: 'api' },
+    { name: 'empty section', sync: {}, base64: false, source: 'api', mode: 'api' },
+    { name: 'empty section with Base64', sync: {}, base64: true, source: 'config', mode: 'configured' },
+    { name: 'options without content', sync: { exit_on_error: false }, base64: false, source: 'api', mode: 'api' },
+    { name: 'explicit config', sync: { source: 'config' }, base64: false, source: 'config', mode: 'configured' },
+    {
+      name: 'implicit inline',
+      sync: { content: SOURCE_TEST_CONFIG },
+      base64: false,
+      source: 'config',
+      mode: 'configured'
+    },
+    {
+      name: 'explicit inline',
+      sync: { source: 'config', content: SOURCE_TEST_CONFIG },
+      base64: false,
+      source: 'config',
+      mode: 'configured'
+    },
+    { name: 'implicit Base64', sync: undefined, base64: true, source: 'config', mode: 'configured' },
+    { name: 'explicit Base64', sync: { source: 'config' }, base64: true, source: 'config', mode: 'configured' }
+  ])('selects the deployment source for $name', async ({ sync, base64, source, mode }) => {
+    const result = await new CompoundConfigCollector().collectConfig({
+      config_base64: Buffer.from(JSON.stringify({ storage: { type: 'mongodb' }, sync_config: sync })).toString(
+        'base64'
+      ),
+      sync_config_base64: base64 ? Buffer.from(SOURCE_TEST_CONFIG).toString('base64') : undefined
+    });
+    expect(result.sync_rules.source).toBe(source);
+    const loaded = await loadSyncConfig(result.sync_rules);
+    expect(loaded.mode).toBe(mode);
+    if (loaded.mode == 'configured') {
+      expect(loaded.config?.yaml).toBe(base64 || (sync && 'content' in sync) ? SOURCE_TEST_CONFIG : undefined);
+      expect(loaded.config?.parsed.errors.filter((error) => error.type == 'fatal') ?? []).toEqual([]);
+    }
+  });
+
+  it.each(['path', 'content', 'version_label', 'exit_on_error', 'base64'])(
+    'rejects API source combined with %s',
+    async (field) => {
+      const sync = {
+        source: 'api',
+        ...(field == 'base64' ? {} : { [field]: field == 'exit_on_error' ? false : 'value' })
+      };
+      await expect(
+        new CompoundConfigCollector().collectConfig({
+          config_base64: Buffer.from(JSON.stringify({ storage: { type: 'mongodb' }, sync_config: sync })).toString(
+            'base64'
+          ),
+          sync_config_base64: field == 'base64' ? Buffer.from(SOURCE_TEST_CONFIG).toString('base64') : undefined
+        })
+      ).rejects.toThrow(/cannot be combined/);
+    }
+  );
 });

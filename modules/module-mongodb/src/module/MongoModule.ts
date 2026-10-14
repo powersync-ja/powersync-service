@@ -1,12 +1,5 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
-import {
-  api,
-  ConfigurationFileSyncRulesProvider,
-  ConnectionTestResult,
-  replication,
-  system,
-  TearDownOptions
-} from '@powersync/service-core';
+import { api, ConnectionTestResult, replication, system, TearDownOptions } from '@powersync/service-core';
 import { MongoRouteAPIAdapter } from '../api/MongoRouteAPIAdapter.js';
 import { ChangeStreamReplicator } from '../replication/ChangeStreamReplicator.js';
 import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
@@ -30,12 +23,11 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
 
   protected createReplicator(context: system.ServiceContext): replication.AbstractReplicator {
     const normalisedConfig = this.resolveConfig(this.decodedConfig!);
-    const syncRuleProvider = new ConfigurationFileSyncRulesProvider(context.configuration.sync_rules);
     const connectionFactory = new ConnectionManagerFactory(normalisedConfig);
 
     return new ChangeStreamReplicator({
       id: this.getDefaultId(normalisedConfig.database ?? ''),
-      syncRuleProvider: syncRuleProvider,
+      loadedSyncConfig: context.loadedSyncConfig,
       storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,

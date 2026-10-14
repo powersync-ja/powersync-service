@@ -9,6 +9,9 @@ export class FileSystemSyncRulesCollector extends SyncRulesCollector {
   }
 
   async collect(baseConfig: configFile.PowerSyncConfig, runnerConfig: RunnerConfig): Promise<SyncRulesConfig | null> {
+    if (baseConfig.sync_config?.source == 'api') {
+      return null;
+    }
     const sync_path = baseConfig.sync_config?.path;
     if (!sync_path) {
       return null;

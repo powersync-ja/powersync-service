@@ -9,9 +9,11 @@ import * as routes from '../routes/routes-index.js';
 import * as storage from '../storage/storage-index.js';
 import { SyncContext } from '../sync/SyncContext.js';
 import * as utils from '../util/util-index.js';
+import { LoadedSyncConfig } from './LoadedSyncConfig.js';
 
 export interface ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;
+  loadedSyncConfig: LoadedSyncConfig;
   lifeCycleEngine: LifeCycledSystem;
   metricsEngine: metrics.MetricsEngine;
   replicationEngine: replication.ReplicationEngine | null;
@@ -45,6 +47,10 @@ export interface ServiceContextOptions {
  * This controls registering, initializing and the lifecycle of various services.
  */
 export class ServiceContextContainer implements ServiceContext {
+  /**
+   * Initialized by the core module before source modules or routes consume it.
+   */
+  loadedSyncConfig!: LoadedSyncConfig;
   configuration: utils.ResolvedPowerSyncConfig;
   lifeCycleEngine: LifeCycledSystem;
   storageEngine: storage.StorageEngine;

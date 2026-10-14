@@ -46,8 +46,8 @@ export const deploySyncRules = routeDefinition({
     const { service_context } = payload.context;
     const { storageEngine } = service_context;
 
-    if (service_context.configuration.sync_rules.present) {
-      // If sync config is configured via the service config, disable deploy via the API.
+    if (service_context.loadedSyncConfig.mode != 'api') {
+      // A configured source owns deployments even when its content is invalid or unavailable.
       throw new errors.ServiceError({
         status: 422,
         code: ErrorCode.PSYNC_S4105,

@@ -270,6 +270,10 @@ export type GenericStorageConfig = t.Encoded<typeof GenericStorageConfig>;
 
 export const SyncConfig = t
   .object({
+    source: t.literal('config').optional().meta({
+      description:
+        'Deploy sync config through service configuration, even before content is supplied. When omitted, a path or content selects config; otherwise API deployment is enabled.'
+    }),
     version_label: t.string
       .meta({
         description: 'Optional label identifying this deployed sync config version.'
@@ -291,6 +295,7 @@ export const SyncConfig = t
       })
       .optional()
   })
+  .or(t.object({ source: t.literal('api').meta({ description: 'Manage sync config deployments through the API.' }) }))
   .meta({
     description: 'The sync config defining which data syncs to which users.'
   });

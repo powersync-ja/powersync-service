@@ -38,6 +38,15 @@ export abstract class ConfigCollector {
      * After this point a serialized config has been found. Any failures to decode or validate
      * will result in a hard stop.
      */
+    const syncConfig = serialized.sync_config ?? serialized.sync_rules;
+    if (syncConfig?.source == 'api') {
+      for (const field of ['content', 'path', 'version_label', 'exit_on_error']) {
+        if (field in syncConfig) {
+          throw new Error(`sync_config.source api cannot be combined with ${field}`);
+        }
+      }
+    }
+
     const decoded = this.decode(serialized);
     this.validate(decoded);
 

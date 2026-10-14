@@ -61,10 +61,12 @@ export const diagnostics = routeDefinition({
 
     const apiHandler = service_context.routerEngine.getAPI();
 
+    const rejectedConfig = api.getInvalidLocalSyncConfigStatus(service_context.loadedSyncConfig, include_content);
     const status = await apiHandler.getConnectionStatus();
     if (!status) {
       return internal_routes.DiagnosticsResponse.encode({
-        connections: []
+        connections: [],
+        deploying_sync_rules: rejectedConfig
       });
     }
 
@@ -87,7 +89,8 @@ export const diagnostics = routeDefinition({
     );
 
     const deploying_status =
-      deploying == null
+      rejectedConfig ??
+      (deploying == null
         ? undefined
         : await api.getSyncRulesStatus(
             apiHandler,
@@ -99,7 +102,7 @@ export const diagnostics = routeDefinition({
               active: false
             },
             deploying.storage
-          );
+          ));
 
     return internal_routes.DiagnosticsResponse.encode({
       connections: [

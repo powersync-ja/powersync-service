@@ -1,12 +1,5 @@
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
-import {
-  api,
-  ConfigurationFileSyncRulesProvider,
-  ConnectionTestResult,
-  replication,
-  system,
-  TearDownOptions
-} from '@powersync/service-core';
+import { api, ConnectionTestResult, replication, system, TearDownOptions } from '@powersync/service-core';
 import { ConvexRouteAPIAdapter } from '../api/ConvexRouteAPIAdapter.js';
 import { checkSourceConfiguration } from '../replication/check-source-configuration.js';
 import { ConvexConnectionManagerFactory } from '../replication/ConvexConnectionManagerFactory.js';
@@ -29,12 +22,11 @@ export class ConvexModule extends replication.ReplicationModule<types.ConvexConn
 
   protected createReplicator(context: system.ServiceContext): replication.AbstractReplicator {
     const normalizedConfig = this.resolveConfig(this.decodedConfig!);
-    const syncRuleProvider = new ConfigurationFileSyncRulesProvider(context.configuration.sync_rules);
     const connectionFactory = new ConvexConnectionManagerFactory(normalizedConfig);
 
     return new ConvexReplicator({
       id: this.getDefaultId(normalizedConfig.deployment_url),
-      syncRuleProvider,
+      loadedSyncConfig: context.loadedSyncConfig,
       storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
       connectionFactory,

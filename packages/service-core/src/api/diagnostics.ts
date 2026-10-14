@@ -3,6 +3,7 @@ import { DEFAULT_TAG, SourceTableRef, SyncConfigWithErrors } from '@powersync/se
 import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
+import { LoadedSyncConfig } from '../system/LoadedSyncConfig.js';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
 import { RouteAPI, SlotWalBudgetInfo } from './RouteAPI.js';
 
@@ -31,6 +32,30 @@ export interface DiagnosticsOptions {
 }
 
 export const DEFAULT_DATASOURCE_ID = 'default';
+
+/**
+ * Report the context's rejected config without creating a persisted deployment.
+ * API-only instances with an unavailable file retain stored diagnostics.
+ */
+export function getInvalidLocalSyncConfigStatus(
+  loaded: LoadedSyncConfig,
+  includeContent: boolean
+): SyncRulesStatus | undefined {
+  if (loaded.mode != 'configured' || loaded.config == null) {
+    return undefined;
+  }
+  const { parsed, yaml } = loaded.config;
+  if (!parsed.errors.some((error) => error.type == 'fatal')) {
+    return undefined;
+  }
+  const now = new Date().toISOString();
+  return {
+    version_label: loaded.versionLabel,
+    content: includeContent ? yaml : undefined,
+    connections: [],
+    errors: parsed.errors.map((error) => syncConfigYamlErrorToReplicationError(error, now))
+  };
+}
 
 export async function getSyncRulesStatus(
   apiHandler: RouteAPI,

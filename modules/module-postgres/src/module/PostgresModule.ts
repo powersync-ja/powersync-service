@@ -1,12 +1,5 @@
 import { baseUri, NormalizedBasePostgresConnectionConfig } from '@powersync/lib-service-postgres';
-import {
-  api,
-  ConfigurationFileSyncRulesProvider,
-  ConnectionTestResult,
-  modules,
-  replication,
-  system
-} from '@powersync/service-core';
+import { api, ConnectionTestResult, modules, replication, system } from '@powersync/service-core';
 import { PostgresRouteAPIAdapter } from '../api/PostgresRouteAPIAdapter.js';
 import { ConnectionManagerFactory } from '../replication/ConnectionManagerFactory.js';
 import { PgManager } from '../replication/PgManager.js';
@@ -33,12 +26,11 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
 
   protected createReplicator(context: system.ServiceContext): replication.AbstractReplicator {
     const normalisedConfig = this.resolveConfig(this.decodedConfig!);
-    const syncRuleProvider = new ConfigurationFileSyncRulesProvider(context.configuration.sync_rules);
     const connectionFactory = new ConnectionManagerFactory(normalisedConfig);
 
     return new WalStreamReplicator({
       id: this.getDefaultId(normalisedConfig.database),
-      syncRuleProvider: syncRuleProvider,
+      loadedSyncConfig: context.loadedSyncConfig,
       storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
