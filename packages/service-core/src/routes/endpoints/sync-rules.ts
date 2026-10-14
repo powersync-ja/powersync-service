@@ -9,6 +9,7 @@ import {
   updateSyncRulesFromConfig,
   updateSyncRulesFromYaml
 } from '../../storage/BucketStorageFactory.js';
+import * as storage from '../../storage/storage-index.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -115,7 +116,8 @@ export const currentSyncRules = routeDefinition({
       storageEngine: { activeBucketStorage }
     } = service_context;
 
-    const active = await activeBucketStorage.getActiveSyncConfig();
+    // `next` includes an invalid deployment, so it matches what diagnostics reports.
+    const { active, next } = await activeBucketStorage.getSyncConfigStatus();
     if (!active) {
       throw new errors.ServiceError({
         status: 422,
@@ -127,7 +129,6 @@ export const currentSyncRules = routeDefinition({
     const sync_rules = active.content;
     const apiHandler = service_context.routerEngine.getAPI();
     const info = await debugSyncRules(apiHandler, sync_rules.sync_rules_content);
-    const next = await activeBucketStorage.getDeployingSyncConfig();
 
     const next_info = next ? await debugSyncRules(apiHandler, next.content.sync_rules_content) : null;
 
@@ -162,16 +163,18 @@ export const reprocessSyncRules = routeDefinition({
     const {
       storageEngine: { activeBucketStorage }
     } = payload.context.service_context;
-    const next = await activeBucketStorage.getDeployingSyncConfig();
+    const { active, next } = await activeBucketStorage.getSyncConfigStatus();
     if (next != null) {
       throw new errors.ServiceError({
         status: 409,
         code: ErrorCode.PSYNC_S4106,
-        description: 'Busy processing sync config - cannot reprocess'
+        description:
+          next.content.syncConfigState == storage.SyncRuleState.INVALID
+            ? 'Cannot reprocess while the latest sync config deployment is invalid - deploy a new sync config first'
+            : 'Busy processing sync config - cannot reprocess'
       });
     }
 
-    const active = await activeBucketStorage.getActiveSyncConfig();
     if (active == null) {
       throw new errors.ServiceError({
         status: 422,

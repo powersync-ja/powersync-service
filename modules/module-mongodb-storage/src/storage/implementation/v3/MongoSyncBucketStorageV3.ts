@@ -301,13 +301,23 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       {
         _id: this.replicationStreamId
       },
-      {
-        $set: {
-          state: storage.SyncRuleState.TERMINATED,
-          persisted_lsn: null,
-          sync_configs: []
+      [
+        {
+          $set: {
+            state: storage.SyncRuleState.TERMINATED,
+            persisted_lsn: null,
+            // Recovery can replace this stream while its invalid deployment still needs diagnostics.
+            // Invalid configs own no data; retain only their metadata after clearing the old storage.
+            sync_configs: {
+              $filter: {
+                input: '$sync_configs',
+                as: 'config',
+                cond: { $eq: ['$$config.state', storage.SyncRuleState.INVALID] }
+              }
+            }
+          }
         }
-      }
+      ]
     );
   }
 

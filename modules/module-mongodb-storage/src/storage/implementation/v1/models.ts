@@ -86,7 +86,7 @@ export interface SyncRuleDocumentV1 extends SyncRuleDocumentBase, SyncRuleCheckp
   /**
    * True if initial snapshot has been replicated.
    *
-   * Can only be false if state == PROCESSING.
+   * False while processing or when a deployment is invalid.
    */
   snapshot_done: boolean;
 

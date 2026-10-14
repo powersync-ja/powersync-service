@@ -505,7 +505,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
             _id: { $ne: this.replicationStreamId },
             state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
           },
-          stopReplicationStreamPipeline(),
+          // Recovery activation must retain rejected deployments on the old stream for diagnostics.
+          // Operator deployments already supersede earlier invalid attempts when they are persisted.
+          stopReplicationStreamPipeline({ preserveInvalid: true }),
           { session }
         );
         activated = true;

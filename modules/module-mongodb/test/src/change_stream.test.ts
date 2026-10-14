@@ -687,7 +687,7 @@ streams:
 
       const processingStorage = await context.updateSyncRules(syncConfig('redeployed without behavioral changes'));
       expect(processingStorage.replicationStreamId).toBe(replicationStreamId);
-      expect(await context.factory.getDeployingSyncConfig()).not.toBeNull();
+      expect(await context.factory.getProcessingSyncConfig()).not.toBeNull();
 
       await context.replicateSnapshot();
 

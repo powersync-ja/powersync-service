@@ -71,8 +71,7 @@ export const diagnostics = routeDefinition({
     const {
       storageEngine: { activeBucketStorage }
     } = service_context;
-    const active = await activeBucketStorage.getActiveSyncConfig();
-    const deploying = await activeBucketStorage.getDeployingSyncConfig();
+    const { active, next } = await activeBucketStorage.getSyncConfigStatus();
 
     const active_status = await api.getSyncRulesStatus(
       apiHandler,
@@ -87,18 +86,18 @@ export const diagnostics = routeDefinition({
     );
 
     const deploying_status =
-      deploying == null
+      next == null
         ? undefined
         : await api.getSyncRulesStatus(
             apiHandler,
-            deploying.content,
+            next.content,
             {
               include_content,
               check_connection: status.connected,
               live_status: true,
               active: false
             },
-            deploying.storage
+            next.storage
           );
 
     return internal_routes.DiagnosticsResponse.encode({
@@ -140,16 +139,18 @@ export const reprocess = routeDefinition({
       storageEngine: { activeBucketStorage }
     } = service_context;
     const apiHandler = service_context.routerEngine.getAPI();
-    const next = await activeBucketStorage.getDeployingSyncConfig();
+    const { active, next } = await activeBucketStorage.getSyncConfigStatus();
     if (next != null) {
       throw new errors.ServiceError({
         status: 409,
         code: ErrorCode.PSYNC_S4106,
-        description: 'Busy processing sync config - cannot reprocess'
+        description:
+          next.content.syncConfigState == storage.SyncRuleState.INVALID
+            ? 'Cannot reprocess while the latest sync config deployment is invalid - deploy a new sync config first'
+            : 'Busy processing sync config - cannot reprocess'
       });
     }
 
-    const active = await activeBucketStorage.getActiveSyncConfig();
     if (active == null) {
       throw new errors.ServiceError({
         status: 422,

@@ -51,6 +51,9 @@ export const DiagnosticsResponse = t.object({
    *
    * Once initial replication is done, this will be placed in `active_sync_rules`.
    *
+   * This can also be the latest deployment with fatal validation errors. That config is never
+   * replicated or activated, and stays here until a newer sync config is deployed.
+   *
    * Sync-config-level errors are listed here.
    */
   deploying_sync_rules: SyncRulesStatus.optional()

@@ -1105,7 +1105,7 @@ streams:
       );
       expect(second.replicationStreamId).toBe(first.replicationStreamId);
 
-      const deploying = await factory.getDeployingSyncConfig();
+      const deploying = await factory.getProcessingSyncConfig();
       expect(deploying?.replicationStream.replicationStreamId).toBe(first.replicationStreamId);
       const bucketStorage = await getTestStorage(factory, deploying!.replicationStream);
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -1304,7 +1304,7 @@ streams:
       expect(second.replicationStreamId).toEqual(first.replicationStreamId);
 
       configs = await getMongoSyncConfigContents(factory, first.replicationStreamId);
-      const deploying = await factory.getDeployingSyncConfig();
+      const deploying = await factory.getProcessingSyncConfig();
       expect(configs).toHaveLength(2);
       expect(deploying).not.toBeNull();
       expect((await factory.getActiveSyncConfig())?.content.syncConfigId).toBe(firstConfigId);
@@ -1334,7 +1334,7 @@ streams:
           .map((status) => status?.state)
           .sort()
       ).toEqual([storage.SyncRuleState.ACTIVE, storage.SyncRuleState.STOP]);
-      expect(await factory.getDeployingSyncConfig()).toBeNull();
+      expect(await factory.getProcessingSyncConfig()).toBeNull();
       expect((await factory.getActiveSyncConfig())?.content.syncConfigId).not.toBe(firstConfigId);
       const updatedActiveStorage = (await factory.getActiveSyncConfig())?.storage as MongoSyncBucketStorage;
       expect(updatedActiveStorage.replicationStream.replicationJobId).not.toBe(
@@ -1577,7 +1577,7 @@ streams:
     // The first stream stays active until the replacement has replicated.
     const active = await factory.getActiveSyncConfig();
     expect(active?.replicationStream.replicationStreamId).toEqual(first.replicationStreamId);
-    expect((await factory.getDeployingSyncConfig())?.replicationStream.replicationStreamId).toEqual(
+    expect((await factory.getProcessingSyncConfig())?.replicationStream.replicationStreamId).toEqual(
       second.replicationStreamId
     );
   });

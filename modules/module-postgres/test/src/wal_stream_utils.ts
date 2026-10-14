@@ -104,7 +104,7 @@ export class WalStreamTestContext implements AsyncDisposable {
   }
 
   async loadNextSyncRules() {
-    const syncConfig = await this.factory.getDeployingSyncConfig();
+    const syncConfig = await this.factory.getProcessingSyncConfig();
     if (syncConfig == null) {
       throw new Error(`Next replication stream not available`);
     }

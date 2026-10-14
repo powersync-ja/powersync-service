@@ -46,7 +46,7 @@ export function registerDataStorageDataTests(config: storage.TestStorageConfig &
     }
 
     await using replacement = await generateStorageFactory({ doNotClear: true });
-    const deploying = await replacement.getDeployingSyncConfig();
+    const deploying = await replacement.getProcessingSyncConfig();
     expect(deploying).not.toBeNull();
     await getTestStorage(replacement, deploying!.replicationStream);
   });

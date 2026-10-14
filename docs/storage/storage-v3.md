@@ -15,6 +15,8 @@ Common states are:
 1. One `ACTIVE` sync config in an `ACTIVE` stream.
 2. One `ACTIVE` config plus one `PROCESSING` config in the same active stream during incremental reprocessing.
 3. A separate `PROCESSING` stream when incremental reprocessing is not supported or the update is incompatible.
+4. One `ACTIVE` config plus one `INVALID` config appended by a deployment with fatal validation errors. The invalid config is never processed, and the next deployment marks it `STOP`.
+5. Automatic recovery of the active config in a separate `PROCESSING` stream while an `INVALID` deployment remains visible. When recovery replaces and clears the old stream, its invalid config metadata and definition remain available for diagnostics until a new deployment supersedes them.
 
 The sync API reads from a single active config. A processing config embedded in the same stream does not affect client checkpoints until activation.
 
@@ -146,7 +148,7 @@ config uses its event definition.
 
 ## Cleanup of stopped sync configs
 
-Incremental streams can contain stopped sync config state while the stream continues serving live config state. Cleanup compares stopped configs with live configs using their persisted mappings. Live means `ACTIVE`, `PROCESSING`, or `ERRORED`.
+Incremental streams can contain stopped sync config state while the stream continues serving live config state. Cleanup compares stopped configs with live configs using their persisted mappings. Live means `ACTIVE`, `PROCESSING`, or `ERRORED`. `INVALID` configs are never processed, so they hold no data of their own.
 
 1. Bucket data collections, parameter index collections, and bucket state are removed only for ids no live config still uses.
 2. Source table memberships for unused ids are removed from retained source tables.

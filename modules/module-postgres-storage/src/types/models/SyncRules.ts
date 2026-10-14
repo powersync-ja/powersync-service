@@ -10,7 +10,7 @@ export const SyncRules = t.object({
   /**
    * True if initial snapshot has been replicated.
    *
-   * Can only be false if state == PROCESSING.
+   * False while processing or when a deployment is invalid.
    */
   snapshot_done: t.boolean,
   /**

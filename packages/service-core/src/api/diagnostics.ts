@@ -49,7 +49,10 @@ export async function getSyncRulesStatus(
   }
 
   const include_content = options.include_content ?? false;
-  const live_status = options.live_status ?? false;
+  // An invalid config is never replicated, so it has no slot or replication state to probe. Its status
+  // would also only echo stream-level fields (errors, checkpoints) of another config sharing the stream.
+  const invalid = syncConfig.syncConfigState == storage.SyncRuleState.INVALID;
+  const live_status = !invalid && (options.live_status ?? false);
   const check_connection = options.check_connection ?? false;
   const now = new Date().toISOString();
 
@@ -96,7 +99,7 @@ export async function getSyncRulesStatus(
       }
     });
 
-    if (systemStorage) {
+    if (systemStorage && !invalid) {
       try {
         replication_lag_bytes = await apiHandler.getReplicationLagBytes({
           bucketStorage: systemStorage
@@ -152,7 +155,7 @@ export async function getSyncRulesStatus(
   }
 
   const errors = tables_flat.flatMap((info) => info.errors);
-  const statusSource = await syncConfig.getSyncConfigStatus();
+  const statusSource = invalid ? null : await syncConfig.getSyncConfigStatus();
 
   if (statusSource?.last_fatal_error) {
     errors.push({

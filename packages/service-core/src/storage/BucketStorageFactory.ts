@@ -9,12 +9,18 @@ import {
 } from '@powersync/service-sync-rules';
 import { ReplicationError } from '@powersync/service-types';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
+import { SyncRuleState } from './BucketStorage.js';
 import { PersistedReplicationStream } from './PersistedReplicationStream.js';
 import { PersistedSyncConfigContent } from './PersistedSyncConfigContent.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { ReportStorage } from './ReportStorage.js';
 import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
+
+export interface SyncConfigStatus {
+  active: ResolvedSyncConfig | null;
+  next: ResolvedSyncConfig | null;
+}
 
 /**
  * Represents a configured storage provider.
@@ -34,17 +40,18 @@ export abstract class BucketStorageFactory
   async configureSyncRules(
     options: UpdateSyncRulesOptions
   ): Promise<{ updated: boolean; persisted_sync_rules?: PersistedReplicationStream; lock?: ReplicationLock }> {
-    const deploying = await this.getDeployingSyncConfig();
-    const active = await this.getActiveSyncConfig();
+    const { active, next } = await this.getSyncConfigStatus();
 
     if (
-      deploying?.content.sync_rules_content == options.config.yaml &&
-      deploying.content.version_label == options.version_label
+      next?.content.sync_rules_content == options.config.yaml &&
+      next.content.version_label == options.version_label &&
+      // An invalid config that now parses cleanly (e.g. after an upgrade) must be deployed again.
+      (next.content.syncConfigState != SyncRuleState.INVALID || hasFatalSyncConfigErrors(options))
     ) {
       logger.info('Sync config unchanged');
       return { updated: false };
     } else if (
-      deploying == null &&
+      next == null &&
       active?.content.sync_rules_content == options.config.yaml &&
       active.content.version_label == options.version_label
     ) {
@@ -88,9 +95,18 @@ export abstract class BucketStorageFactory
   abstract getActiveSyncConfig(): Promise<ResolvedSyncConfig | null>;
 
   /**
-   * Get the sync config and storage that is still deploying.
+   * Get the sync config and storage currently in PROCESSING state.
+   * Excludes INVALID deployments, including when one coexists with automatic recovery.
    */
-  abstract getDeployingSyncConfig(): Promise<ResolvedSyncConfig | null>;
+  abstract getProcessingSyncConfig(): Promise<ResolvedSyncConfig | null>;
+
+  /**
+   * Read the active config and the latest pending deployment from a consistent snapshot.
+   * An INVALID deployment takes precedence over automatic recovery processing of the active config.
+   * Otherwise next is the PROCESSING deployment, or null after activation.
+   * Historical invalid configs are excluded.
+   */
+  abstract getSyncConfigStatus(): Promise<SyncConfigStatus>;
 
   /**
    * Get all replication streams currently replicating.
@@ -333,4 +349,13 @@ export interface TestStorageConfig {
   tableIdStrings: boolean;
   storageVersion?: number;
   compressedBucketStorage?: boolean;
+}
+
+/**
+ * True if the parsed sync config has fatal errors, so the deployment must be stored as INVALID.
+ *
+ * Uses the parse errors rather than the serialized plan, since only compiled configs have a plan.
+ */
+export function hasFatalSyncConfigErrors(options: UpdateSyncRulesOptions): boolean {
+  return options.config.parsed.errors.some((error) => error.type == 'fatal');
 }

@@ -18,8 +18,14 @@ import { storage } from '@powersync/service-core';
  *
  * Do not use this when an ACTIVE stream transitions to ERRORED, and is being replaced by a new PROCESSING one.
  * In that case, we need to maintain the ERRORED state, which this pipeline does not cover.
+ *
+ * With preserveInvalid=true, stop the stream but retain its embedded INVALID config states for
+ * diagnostics. Activation uses this because the replacement may be automatic recovery, which
+ * does not supersede a rejected operator deployment. A new operator deployment stops superseded
+ * invalid attempts when it is persisted, before activation.
+ * With preserveInvalid=false (the default), stop every embedded config as well as the stream.
  */
-export function stopReplicationStreamPipeline(): mongo.Document[] {
+export function stopReplicationStreamPipeline(options: { preserveInvalid?: boolean } = {}): mongo.Document[] {
   return [
     {
       $set: {
@@ -32,7 +38,20 @@ export function stopReplicationStreamPipeline(): mongo.Document[] {
                 input: '$sync_configs',
                 as: 'config',
                 in: {
-                  $mergeObjects: ['$$config', { state: storage.SyncRuleState.STOP }]
+                  $mergeObjects: [
+                    '$$config',
+                    {
+                      state: options.preserveInvalid
+                        ? {
+                            $cond: [
+                              { $eq: ['$$config.state', storage.SyncRuleState.INVALID] },
+                              storage.SyncRuleState.INVALID,
+                              storage.SyncRuleState.STOP
+                            ]
+                          }
+                        : storage.SyncRuleState.STOP
+                    }
+                  ]
                 }
               }
             },

@@ -11,7 +11,7 @@ A stream has:
 - A stable `replicationStreamId`.
 - A human-readable `replicationStreamName`, often used as a source-side slot or marker name.
 - A storage version.
-- A lifecycle state such as `PROCESSING`, `ACTIVE`, `STOP`, `TERMINATED`, or `ERRORED`.
+- A lifecycle state such as `PROCESSING`, `ACTIVE`, `STOP`, `TERMINATED`, `ERRORED`, or `INVALID`.
 - One or more persisted sync config definitions that can be parsed into a hydrated sync config.
 
 The public sync API reads from the active sync config of the active replication stream. Replicators may also process a separate deploying stream while an older stream remains active for clients. In incremental storage, a processing sync config can instead be embedded in the active stream; it stays invisible to clients until storage activates it.
