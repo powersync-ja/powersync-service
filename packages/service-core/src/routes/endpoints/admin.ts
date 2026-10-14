@@ -80,7 +80,7 @@ export const diagnostics = routeDefinition({
       configuration
     } = service_context;
 
-    const sync_config_mode = configuration?.sync_rules.present ? 'file' : 'api';
+    const sync_config_source = configuration?.sync_rules.present ? 'config' : 'api';
     const active = await activeBucketStorage.getActiveSyncConfig();
     const deploying = await activeBucketStorage.getDeployingSyncConfig();
 
@@ -122,7 +122,7 @@ export const diagnostics = routeDefinition({
       ],
       active_sync_rules: active_status,
       deploying_sync_rules: deploying_status,
-      sync_config_mode
+      sync_config_source
     });
   }
 });

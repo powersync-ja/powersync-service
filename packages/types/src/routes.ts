@@ -55,7 +55,7 @@ export const DiagnosticsResponse = t.object({
    */
   deploying_sync_rules: SyncRulesStatus.optional(),
 
-  sync_config_mode: enumLiteral('api', 'file').optional(),
+  sync_config_source: enumLiteral('api', 'config').optional(),
 
   service: ServiceInfo.optional()
 });
