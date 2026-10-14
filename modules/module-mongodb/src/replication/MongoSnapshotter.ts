@@ -22,7 +22,8 @@ import {
   DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER,
   MongoReplicationQueryProvider
 } from './MongoReplicationQueryProvider.js';
-import { MongoReplicationStreamBatch, openMongoReplicationStream } from './MongoReplicationStream.js';
+import { openMongoReplicationStream } from './MongoReplicationStream.js';
+import type { MongoReplicationStreamBatch } from './MongoReplicationStreamTypes.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { ChangeStreamBatch } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, detectDocumentDb } from './replication-utils.js';
@@ -646,43 +647,48 @@ export class MongoSnapshotter {
     let eventsSeen = 0;
     let batchesSeen = 0;
 
-    streamLoop: for await (const sourceBatch of iter) {
-      this.abortSignal.throwIfAborted();
+    // Returns false once the timeout is reached. Otherwise creates another checkpoint when one is due.
+    const shouldKeepWaiting = async () => {
       if (performance.now() - startTime >= LSN_TIMEOUT_SECONDS * 1000) {
-        break;
+        return false;
       }
       if (performance.now() - lastCheckpointCreated >= LSN_CREATE_INTERVAL_SECONDS * 1000) {
         await this.checkpointImplementation.createBatchCheckpoint();
         lastCheckpointCreated = performance.now();
       }
+      return true;
+    };
+
+    streamLoop: for await (const sourceBatch of iter) {
+      this.abortSignal.throwIfAborted();
       for (const { event: changeDocument } of sourceBatch.events) {
         this.abortSignal.throwIfAborted();
-        if (performance.now() - startTime >= LSN_TIMEOUT_SECONDS * 1000) {
-          break streamLoop;
-        }
-        if (performance.now() - lastCheckpointCreated >= LSN_CREATE_INTERVAL_SECONDS * 1000) {
-          await this.checkpointImplementation.createBatchCheckpoint();
-          lastCheckpointCreated = performance.now();
-        }
         const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
 
         if (ns?.coll == CHECKPOINTS_COLLECTION && 'documentKey' in changeDocument) {
-          const kind = this.checkpointImplementation.event.observe(changeDocument);
-          if (kind != 'own-barrier') {
-            // Standalone events still feed the implementation's coordinate via
-            // event.observe above; we only resolve on our own barrier.
-            continue;
+          // Standalone events still feed the implementation's coordinate via
+          // event.observe; we only resolve on our own barrier.
+          if (this.checkpointImplementation.event.observe(changeDocument) == 'own-barrier') {
+            // Observing our own barrier has set the coordinate (the barrier event
+            // carries the sentinel counter directly), so the LSN is ready.
+            // This is checked before the timeout, so a barrier we already hold is never discarded.
+            return this.checkpointImplementation.event.lsn(changeDocument);
           }
-          // Observing our own barrier has set the coordinate (the barrier event
-          // carries the sentinel counter directly), so the LSN is ready.
-          return this.checkpointImplementation.event.lsn(changeDocument);
+        } else {
+          eventsSeen += 1;
         }
 
-        eventsSeen += 1;
+        if (!(await shouldKeepWaiting())) {
+          break streamLoop;
+        }
       }
       const resumeToken = sourceBatch.getResumeToken();
       if (resumeToken != null) {
         batchesSeen++;
+      }
+      // Empty batches have no events to trigger the per-event check.
+      if (!(await shouldKeepWaiting())) {
+        break;
       }
     }
 

@@ -1,8 +1,10 @@
 import { DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER } from '@module/replication/MongoReplicationQueryProvider.js';
 import {
   createMongoReplicationStreamBatch,
-  MongoReplicationStreamBatch
+  filterMongoReplicationStream
 } from '@module/replication/MongoReplicationStream.js';
+import type { MongoReplicationStreamBatch } from '@module/replication/MongoReplicationStreamTypes.js';
+import { MongoReplicationFilterResult } from '@module/replication/MongoReplicationStreamTypes.js';
 import { describe, expect, test, vi } from 'vitest';
 import { openChangeStreamTestContext } from './change_stream_test_setup.js';
 import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
@@ -46,32 +48,30 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
         openChangeStream: ({ open }: Parameters<typeof DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER.openChangeStream>[0]) =>
           (async function* (): AsyncGenerator<MongoReplicationStreamBatch> {
             let retained = false;
-            for await (const batch of open({})) {
-              let filtered = 0;
-              const events = (function* () {
-                for (const change of batch.events) {
-                  const { event } = change;
-                  if ('documentKey' in event && event.ns.coll == 'documents') {
-                    if (String(event.documentKey._id) != '1') {
-                      filtered++;
-                      continue;
-                    }
-                    retained = true;
+            const filteredStream = filterMongoReplicationStream({
+              batches: open({}),
+              filter: (event) => {
+                if (event.ns.coll == 'documents') {
+                  if (String(event.documentKey._id) != '1') {
+                    return MongoReplicationFilterResult.EXCLUDE;
                   }
-                  yield change;
+                  retained = true;
                 }
-              })();
+                return MongoReplicationFilterResult.KEEP;
+              }
+            });
+            for await (const batch of filteredStream) {
               yield createMongoReplicationStreamBatch({
-                events: events,
+                events: batch.events,
                 resolveResumeToken: () => {
                   const progress = batch.getResumeToken();
-                  if (progress == null || (retained && filtered == 0)) {
+                  if (progress == null || (retained && batch.metadata.filteredCount == 0)) {
                     return undefined;
                   }
                   retained = false;
                   return progress;
                 },
-                resolveMetadata: () => ({ filteredCount: filtered })
+                resolveMetadata: () => batch.metadata
               });
             }
           })()
@@ -262,7 +262,7 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapt
                       resolveMetadata: () => ({ filteredCount: count })
                     });
                     if (forwardedProgress) {
-                      // next() is requested only after this module has handled the batch, including its progress item. Inspect actual
+                      // next() is requested only after this module has handled the batch, including its resume token. Inspect actual
                       // persisted state here, without sleeps or waiting for a later checkpoint event.
                       savedPositions.push((await context.storage!.getStatus()).resumeLsn!);
                       // End the successful case deliberately while the later checkpoint marker is

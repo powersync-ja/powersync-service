@@ -32,7 +32,8 @@ import {
   MongoReplicationQueryProvider,
   MongoReplicationQueryProviderFactory
 } from './MongoReplicationQueryProvider.js';
-import { MongoReplicationStreamBatch, openMongoReplicationStream } from './MongoReplicationStream.js';
+import { openMongoReplicationStream } from './MongoReplicationStream.js';
+import type { MongoReplicationStreamBatch } from './MongoReplicationStreamTypes.js';
 import { MongoSnapshotter, MongoSnapshotterHooks } from './MongoSnapshotter.js';
 import { ChangeStreamBatch, ProjectedChangeStreamDocument } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, detectDocumentDb, timestampToDate } from './replication-utils.js';

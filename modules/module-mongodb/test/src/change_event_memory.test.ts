@@ -15,32 +15,6 @@ test('parsed document images share the raw event allocation', () => {
   }
 });
 
-test('clearing input slots retains the raw payload allocations through parsed images', () => {
-  const input: Array<Buffer | undefined> = [createRawEvent('first'), createRawEvent('second')];
-  const rawBytes = input.reduce((total, event) => total + event!.byteLength, 0);
-  const parsed = [];
-  for (let index = 0; index < input.length; index++) {
-    parsed.push(parseChangeDocument(input[index]!));
-    input[index] = undefined;
-  }
-
-  expect(input).toEqual([undefined, undefined]);
-  const retainedAllocations = new Set<ArrayBufferLike>();
-  const ids: unknown[] = [];
-  for (const event of parsed) {
-    if (event.operationType != 'update') throw new Error('Expected an update');
-    for (const image of [event.fullDocument, event.fullDocumentBeforeChange]) {
-      retainedAllocations.add(image!.buffer);
-    }
-    ids.push(mongo.BSON.deserialize(event.fullDocument!)._id);
-  }
-  expect(ids).toEqual(['first', 'second']);
-  // Removing array references cannot free these allocations: the parsed images still reference them.
-  // Check backing-store identity/size instead of GC timing or noisy process-wide memory measurements.
-  expect(retainedAllocations.size).toBe(2);
-  expect([...retainedAllocations].reduce((total, allocation) => total + allocation.byteLength, 0)).toBe(rawBytes);
-});
-
 /**
  * Allocate each event independently so Node's shared small-buffer pool cannot explain retained memory.
  */

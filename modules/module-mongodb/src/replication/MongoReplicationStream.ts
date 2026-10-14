@@ -1,6 +1,16 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { Logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
+import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { buildMongoChangeStreamPipeline, MongoReplicationQueryProvider } from './MongoReplicationQueryProvider.js';
+import {
+  MongoReplicationFilterOptions,
+  MongoReplicationFilterResult,
+  MongoReplicationParserOptions,
+  MongoReplicationStreamBatch,
+  MongoReplicationStreamBatchMetadata,
+  MongoReplicationStreamChange,
+  MongoReplicationStreamOptions,
+  RawMongoReplicationStreamBatch
+} from './MongoReplicationStreamTypes.js';
 import {
   ChangeStreamBatch,
   parseChangeDocument,
@@ -8,68 +18,7 @@ import {
   rawChangeStream,
   RawChangeStreamOptions
 } from './RawChangeStream.js';
-
-/**
- * An unparsed MongoDB response batch. Consumers parse its entries incrementally and retain unfinished
- * split events across batches before deciding whether its resume token is safe to persist.
- */
-export interface RawMongoReplicationStreamBatch {
-  /**
-   * Original BSON entries in source order, including possible split-event fragments.
-   */
-  events: Buffer[];
-  /**
-   * Transport position after this batch. It may cover an incomplete event and is not yet safe progress.
-   */
-  resumeToken: mongo.ResumeToken;
-}
-
-/**
- * A complete event and its position within the original source batch.
- */
-export interface MongoReplicationStreamChange {
-  event: ProjectedChangeStreamDocument;
-  /**
-   * MongoDB returned more entries after this event, even if a provider later excludes them or the
-   * parser retains them as unfinished split fragments. For [checkpoint, excluded change], preserve
-   * true on the checkpoint so ChangeStream groups commits instead of treating it as caught up.
-   * Providers must preserve this value when forwarding or transforming events.
-   */
-  hasBufferedChanges: boolean;
-}
-
-/**
- * Statistics for one fully consumed batch, independent of whether its resume token is safe.
- */
-export interface MongoReplicationStreamBatchMetadata {
-  /**
-   * Complete events excluded from this batch. Null means no filtering was applied; zero means
-   * filtering was applied but no events were excluded. Counts do not carry across batches.
-   */
-  readonly filteredCount: number | null;
-}
-
-/**
- * A single-use batch of complete events, parsed or filtered lazily as the consumer iterates.
- * Exhaust events before reading its resume token, metadata or the next batch.
- */
-export interface MongoReplicationStreamBatch {
-  /**
-   * Complete changes in source order, parsed or filtered lazily during synchronous iteration.
-   * Consume once and fully. It may be empty after filtering or while assembling a split event.
-   */
-  events: Iterable<MongoReplicationStreamChange>;
-  /**
-   * Returns the safe resume token after events are fully consumed, or undefined while a split event
-   * is unfinished. Throws before exhaustion. The result remains stable after later batches.
-   */
-  getResumeToken(): mongo.ResumeToken | undefined;
-  /**
-   * Final statistics for this batch, available even without a safe resume token.
-   * Throws before events are fully consumed; the result is immutable and cached afterward.
-   */
-  readonly metadata: MongoReplicationStreamBatchMetadata;
-}
+import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 
 /**
  * Wraps changes with a single-use iterator. Caches the token and metadata after successful exhaustion.
@@ -97,13 +46,15 @@ export function createMongoReplicationStreamBatch({
   let resumeToken: mongo.ResumeToken | undefined;
   let metadata: MongoReplicationStreamBatchMetadata;
   function assertComplete() {
+    // Progress is only safe to read after every event has been consumed and finalization succeeds.
     if (!complete) {
       throw new ReplicationAssertionError('Consume all batch events before requesting token or metadata');
     }
   }
   return {
     events: {
-      [Symbol.iterator]() {
+      [Symbol.iterator](): Iterator<MongoReplicationStreamChange> {
+        // A second pass would repeat parsing/filtering against state that has already advanced.
         if (started) {
           throw new ReplicationAssertionError('Batch events can only be consumed once');
         }
@@ -122,7 +73,9 @@ export function createMongoReplicationStreamBatch({
   };
 
   function* iterate() {
+    // Delegate lazily; an error or early return skips the finalization below.
     yield* events;
+    // Cache this batch's final results before later batches can change the parser or filter state.
     resumeToken = resolveResumeToken();
     metadata = Object.freeze({ ...resolveMetadata() });
     complete = true;
@@ -130,32 +83,51 @@ export function createMongoReplicationStreamBatch({
 }
 
 /**
- * Provider-controlled additions to the shared cursor setup. Source scope, resume position, post-image
- * requirements and cancellation remain controlled by the MongoDB replication module.
+ * Filter complete data changes while retaining source batch boundaries and recovery bookkeeping.
+ * Return MongoReplicationFilterResult.KEEP to forward a change, EXCLUDE to omit it, or DELETE for an exit.
+ * Synthetic deletes retain the source identity, resume token and transaction metadata.
+ * The callback runs synchronously and lazily; failures and early exits close the underlying stream.
  */
-export interface MongoReplicationStreamOptions {
-  /**
-   * Inserted after namespace selection and before the final large-event split stage.
-   */
-  pipelineStages?: mongo.Document[];
-  /**
-   * Request pre-images without overriding the reader's post-image, resume or scope options.
-   */
-  imageOptions?: Pick<mongo.ChangeStreamOptions, 'fullDocumentBeforeChange'>;
-}
+export async function* filterMongoReplicationStream({
+  batches,
+  filter
+}: MongoReplicationFilterOptions): AsyncGenerator<MongoReplicationStreamBatch> {
+  for await (const sourceBatch of batches) {
+    let filteredCount = 0;
+    const batch = createMongoReplicationStreamBatch({
+      events: filterEvents(),
+      resolveResumeToken: () => sourceBatch.getResumeToken(),
+      resolveMetadata: () => ({ filteredCount: (sourceBatch.metadata.filteredCount ?? 0) + filteredCount })
+    });
+    yield batch;
+    // Assert that the consumer exhausted this batch before requesting the next one, even if every event
+    // was filtered out. The token value is unused; getResumeToken() throws if consumption is incomplete.
+    batch.getResumeToken();
 
-/**
- * Bound source opener supplied to a query provider for one stream invocation.
- * Providers may wrap the lazy event iterables to filter or transform complete changes.
- */
-export interface MongoReplicationStreamContext {
-  /**
-   * Open batches whose events are parsed lazily, with cursor scope, position, cancellation and
-   * accounting already bound. Each call owns independent split-event assembly and parser state.
-   * Events are complete; progress is withheld while a split event is unfinished.
-   * Close the iterator on completion, cancellation or failure (for await handles this).
-   */
-  open(options: MongoReplicationStreamOptions): AsyncIterableIterator<MongoReplicationStreamBatch>;
+    function* filterEvents(): Generator<MongoReplicationStreamChange> {
+      for (const change of sourceBatch.events) {
+        const { event } = change;
+        if (
+          (event.operationType != 'insert' &&
+            event.operationType != 'update' &&
+            event.operationType != 'replace' &&
+            event.operationType != 'delete') ||
+          event.ns.coll == CHECKPOINTS_COLLECTION
+        ) {
+          yield change;
+          continue;
+        }
+        const result = filter(event);
+        if (result == MongoReplicationFilterResult.EXCLUDE) {
+          filteredCount++;
+        } else if (result == MongoReplicationFilterResult.DELETE) {
+          yield { ...change, event: { ...event, operationType: 'delete' } };
+        } else {
+          yield change;
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -230,35 +202,6 @@ export function openMongoReplicationStream({
 }
 
 /**
- * Source context for lazy parsing of raw BSON events in default and filtering providers.
- * These options control namespace normalization, legacy timestamp skipping and cancellation; split-event
- * state belongs to each parser instance and must not be shared between independently opened streams.
- */
-export interface MongoReplicationParserOptions {
-  /**
-   * Expected database name when correcting Atlas Flex's prefixed namespaces in single-database mode.
-   */
-  defaultSchema: string;
-  /**
-   * Preserve database names when the stream covers multiple databases instead of normalizing them.
-   */
-  multipleDatabases: boolean;
-  /**
-   * Exclude complete events at or before this legacy resume timestamp. Leave unset for exact-token
-   * resumes, where later events can share the same timestamp, and for snapshot barrier probes.
-   */
-  startAfter?: mongo.Timestamp | null;
-  /**
-   * Abort parsing and progress evaluation when the owning replication attempt is cancelled.
-   */
-  signal?: AbortSignal;
-  /**
-   * Receives the namespace-correction warning, at most once per parser instance.
-   */
-  logger?: Logger;
-}
-
-/**
  * Creates a stateful parser for one raw MongoDB stream. Parses BSON entries, joins split-event
  * fragments across batches, normalizes namespaces and skips events covered by legacy timestamps.
  * After processing a batch, callers can request safe progress. Check completion on natural EOF,
@@ -271,7 +214,7 @@ export function createMongoReplicationStreamParser({
   signal,
   logger
 }: MongoReplicationParserOptions) {
-  const state: { splitDocument: ProjectedChangeStreamDocument | null } = { splitDocument: null };
+  let splitDocument: ProjectedChangeStreamDocument | null = null;
   let flexDbNameWorkaroundLogged = false;
   return {
     parse(rawEvent: Buffer): ProjectedChangeStreamDocument | null {
@@ -281,23 +224,27 @@ export function createMongoReplicationStreamParser({
       if (fragment != null) {
         // A retry can resume after a received fragment inside the raw reader. Keep the partial event in
         // memory across batches/retries, but never expose its token as a durable recovery boundary.
-        const expectedFragment = state.splitDocument == null ? 1 : state.splitDocument.splitEvent!.fragment + 1;
+        const expectedFragment = splitDocument == null ? 1 : splitDocument.splitEvent!.fragment + 1;
         if (
           fragment.fragment != expectedFragment ||
           fragment.fragment > fragment.of ||
-          (state.splitDocument != null && fragment.of != state.splitDocument.splitEvent!.of)
+          (splitDocument != null && fragment.of != splitDocument.splitEvent!.of)
         ) {
           throw new ReplicationAssertionError(`Unexpected splitEvent: ${JSON.stringify(fragment)}`);
         }
-        state.splitDocument = state.splitDocument == null ? event : Object.assign(state.splitDocument, event);
-        if (fragment.fragment != fragment.of) return null;
-        event = state.splitDocument;
-        state.splitDocument = null;
-      } else if (state.splitDocument != null) {
-        throw new ReplicationAssertionError(`Incomplete splitEvent: ${JSON.stringify(state.splitDocument.splitEvent)}`);
+        splitDocument = splitDocument == null ? event : Object.assign(splitDocument, event);
+        if (fragment.fragment != fragment.of) {
+          return null;
+        }
+        event = splitDocument;
+        splitDocument = null;
+      } else if (splitDocument != null) {
+        throw new ReplicationAssertionError(`Incomplete splitEvent: ${JSON.stringify(splitDocument.splitEvent)}`);
       }
 
-      if (startAfter != null && event.clusterTime?.lte(startAfter)) return null;
+      if (startAfter != null && event.clusterTime?.lte(startAfter)) {
+        return null;
+      }
 
       if (
         !multipleDatabases &&
@@ -316,13 +263,15 @@ export function createMongoReplicationStreamParser({
       }
       return event;
     },
-    getResumeToken(resumeToken: mongo.ResumeToken) {
-      signal?.throwIfAborted();
-      return state.splitDocument == null ? resumeToken : undefined;
+    /**
+     * Returns the given transport token if it is safe to persist, or undefined while a split event is unfinished.
+     */
+    getSafeResumeToken(resumeToken: mongo.ResumeToken) {
+      return splitDocument == null ? resumeToken : undefined;
     },
     assertComplete() {
-      if (state.splitDocument != null) {
-        throw new ReplicationAssertionError(`Incomplete splitEvent: ${JSON.stringify(state.splitDocument.splitEvent)}`);
+      if (splitDocument != null) {
+        throw new ReplicationAssertionError(`Incomplete splitEvent: ${JSON.stringify(splitDocument.splitEvent)}`);
       }
     }
   };
@@ -344,23 +293,21 @@ export async function* parseMongoReplicationStream({
   for await (const sourceBatch of batches) {
     options.signal?.throwIfAborted();
     const batch = createMongoReplicationStreamBatch({
-      events: parseEvents(sourceBatch),
-      resolveResumeToken: () => parser.getResumeToken(sourceBatch.resumeToken)
+      events: parseEvents(sourceBatch.events),
+      resolveResumeToken: () => parser.getSafeResumeToken(sourceBatch.resumeToken)
     });
     yield batch;
-    // Validate consumption before requesting the next source batch, including empty batches.
+    // Split-event state is shared across batches, so the consumer must finish this one before the next is read.
+    // This also covers empty batches.
     batch.getResumeToken();
   }
   parser.assertComplete();
 
-  /**
-   * Parses raw entries only as the consumer requests the next complete event, without building a parsed array.
-   */
-  function* parseEvents(sourceBatch: RawMongoReplicationStreamBatch): Generator<MongoReplicationStreamChange> {
-    for (let index = 0; index < sourceBatch.events.length; index++) {
-      const event = parser.parse(sourceBatch.events[index]);
+  function* parseEvents(rawEvents: Buffer[]): Generator<MongoReplicationStreamChange> {
+    for (let index = 0; index < rawEvents.length; index++) {
+      const event = parser.parse(rawEvents[index]);
       if (event != null) {
-        yield { event, hasBufferedChanges: index < sourceBatch.events.length - 1 };
+        yield { event, hasBufferedChanges: index < rawEvents.length - 1 };
       }
     }
   }

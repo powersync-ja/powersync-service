@@ -7,6 +7,7 @@ export * from './MongoErrorRateLimiter.js';
 export * from './MongoRelation.js';
 export * from './MongoReplicationQueryProvider.js';
 export * from './MongoReplicationStream.js';
+export * from './MongoReplicationStreamTypes.js';
 export * from './MongoSnapshotter.js';
 export * from './RawChangeStream.js';
 export { CHECKPOINTS_COLLECTION } from './replication-utils.js';

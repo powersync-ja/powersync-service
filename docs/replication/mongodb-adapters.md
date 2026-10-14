@@ -7,7 +7,7 @@ serves the attempt's snapshots, streaming reader, snapshot barriers and resume v
 The default provider preserves ordinary MongoDB and DocumentDB replication:
 
 ```ts
-const provider: MongoReplicationQueryProvider = {
+const PROVIDER: MongoReplicationQueryProvider = {
   getSnapshotFilter: () => null,
   openChangeStream: ({ open }) => open({})
 };
@@ -52,10 +52,12 @@ for await (const batch of stream) {
   for (const change of batch.events) {
     await processChange(change);
   }
+  signal.throwIfAborted();
   const filteredCount = batch.metadata.filteredCount;
   // Aggregate non-null counts, including batches without a safe token.
   const resumeToken = batch.getResumeToken();
   if (resumeToken != null) {
+    await flushPendingWrites();
     await persistResumeToken(resumeToken);
   }
 }
@@ -66,26 +68,58 @@ metadata access throw before exhaustion, including after the last event but befo
 After exhaustion, `getResumeToken()` returns a stable safe token or `undefined`; `metadata` is a cached immutable
 object. If processing fails or is cancelled, close the iterators without saving a token.
 
-Filtering providers wrap `batch.events` with a synchronous generator. Use
-`createMongoReplicationStreamBatch({ events, resolveResumeToken, resolveMetadata })` to finalize both results
-after successful exhaustion. Forward the source batch's safe token and report excluded complete events in
-`metadata.filteredCount` for this batch only, including when no token is safe. Use `null` when no filtering was
-applied, `0` when filtering excluded nothing, or a positive count. The metadata callback defaults to `null`.
+Requesting the next batch before the current one is exhausted is an error: the shared opener throws a `ReplicationAssertionError` on that next pull instead of silently skipping the batch. This applies to empty batches too, and to providers that stop iterating `batch.events` early. Closing the stream instead of pulling again is fine.
 
-`ChangeStream` aggregates non-null counts across batches until it persists and reports progress, then resets
-its aggregate to `null`. Unfiltered traffic omits filtering details from logs; applied filtering can report zero.
-Later parsing or filtering cannot change an earlier batch's cached token or metadata.
+Filtering providers use `filterMongoReplicationStream` instead of constructing batch wrappers. This basic
+example selects documents by an immutable string ID prefix, so snapshots and streaming use the same predicate:
 
-Providers may discard marked events or translate exits from a filtered set into deletes. Filtering events out in
-the MongoDB pipeline prevents the provider from recording their progress. Preserve checkpoint and DDL events,
-and retain the original key, namespace, token and transaction metadata on synthetic deletes.
+```ts
+import {
+  filterMongoReplicationStream,
+  MongoReplicationFilter,
+  MongoReplicationFilterResult,
+  MongoReplicationQueryProvider
+} from '@powersync/service-module-mongodb';
 
-Each change's `hasBufferedChanges` records whether source entries followed that event, including entries a filter
-may exclude. Preserve it when forwarding or transforming the change; the consumer cannot infer this from the
-length of a lazy iterable. This flag controls checkpoint batching, not safe progress.
+const FILTER: MongoReplicationFilter = (event) =>
+  String(event.documentKey._id).startsWith('public-')
+    ? MongoReplicationFilterResult.KEEP
+    : MongoReplicationFilterResult.EXCLUDE;
 
-Wrappers must preserve order and close the underlying iterators on completion, failure or cancellation.
-Use `for await` for source batches and `for...of` for their events so errors and early returns trigger cleanup.
+const PROVIDER: MongoReplicationQueryProvider = {
+  getSnapshotFilter: () => ({ $expr: { $regexMatch: { input: '$_id', regex: '^public-' } } }),
+  openChangeStream: ({ open }) => filterMongoReplicationStream({ batches: open({}), filter: FILTER })
+};
+```
+
+The runnable [filtering example test](../../modules/module-mongodb/test/src/filtering_example.test.ts) imports the
+public module entry point and verifies retained IDs, exclusion counts and resume progress through a fully filtered batch.
+This example assumes string IDs. Filters on mutable fields must also handle documents leaving the selected set:
+request the required pre-images through `open({ imageOptions: { fullDocumentBeforeChange: 'required' } })`, evaluate
+before/after membership, and return `MongoReplicationFilterResult.DELETE` for exits. Source deletes must be kept
+when the deleted document belonged to the set; absence of a post-image alone is not grounds for exclusion.
+
+`filterMongoReplicationStream` takes a `MongoReplicationFilterOptions` object with `batches` and `filter` properties.
+The exported `MongoReplicationFilter` callback returns a `MongoReplicationFilterResult` enum value. These types
+and the shared batch definitions live in [MongoReplicationStreamTypes.ts](../../modules/module-mongodb/src/replication/MongoReplicationStreamTypes.ts) and are exported by the replication module.
+The synchronous callback receives complete data changes, with document bodies still encoded as BSON buffers.
+Return `MongoReplicationFilterResult.KEEP` to forward the event, `.EXCLUDE` to omit it, or `.DELETE` when a document
+leaves the filtered set.
+The helper retains source identity, token and transaction metadata on synthetic deletes. Checkpoint and DDL
+events bypass the callback and remain intact. Membership evaluation must agree with snapshot selection.
+
+The helper owns lazy iteration, batch boundaries, safe token forwarding, exclusion counts and iterator cleanup.
+It preserves each change's `hasBufferedChanges`, including when trailing events are excluded. It counts exclusions
+per batch even when no token is safe; applied filtering reports zero when nothing was excluded. Composed helpers
+include upstream exclusion counts. Unfiltered streams retain `filteredCount: null`.
+
+`ChangeStream` aggregates counts until it persists progress. Filtering events out in the MongoDB pipeline would
+prevent the helper from counting them; use pipeline stages to annotate events and decide membership in the callback.
+Keep callback state local to each `openChangeStream` invocation, since snapshot probes also open independent readers.
+
+The lower-level `createMongoReplicationStreamBatch` remains available for specialized wrappers. Such wrappers must
+preserve source batch boundaries, consume events fully, forward safe progress, and close iterators on failure or
+cancellation. Ordinary filtering should use the shared helper.
 
 ## Durable progress and recovery
 
@@ -117,6 +151,20 @@ precedence over timestamp deduplication: later operations in the same transactio
 Returning progress regularly can reduce replay and long waits for matching events. It does not eliminate every
 MongoDB timeout. Persistence currently follows safe active boundaries; changes to that cadence need separate
 measurement and review.
+
+## Local verification and benchmarking
+
+The [filtering lifecycle test](../../modules/module-mongodb/test/src/filtering_lifecycle.test.ts) uses real MongoDB
+pre/post-images and bucket storage to check snapshot selection, membership entries and exits, source deletes,
+and restart. The [provider diagnostic test](../../modules/module-mongodb/test/src/query_provider_diagnostics.test.ts)
+reopens storage to verify that removing a required provider leaves a persisted replication error.
+
+The [throughput experiment](../../modules/module-mongodb/benchmarks/replication_branch_throughput.benchmark.ts)
+lives in `benchmarks/`, separate from normal and `SLOW_TESTS` runs. From `modules/module-mongodb`,
+run `TEST_POSTGRES_STORAGE=false pnpm benchmark:replication -t 'storage v2'`. The dedicated configuration enables
+GC and serial fork execution. Run again with `MEMORY_EAGER=true` to compare parsing modes. It reports measurements,
+not a performance pass/fail threshold, and defaults to about 2 GiB of source payloads. For a small smoke run, use
+`THROUGHPUT_ROWS=20 THROUGHPUT_PAYLOAD_BYTES=1024`. Run benchmarks sequentially against idle test databases.
 
 ## Tests in external modules
 

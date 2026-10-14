@@ -2,12 +2,16 @@ import { ChangeStreamInvalidatedError } from '@module/replication/ChangeStream.j
 import { DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER } from '@module/replication/MongoReplicationQueryProvider.js';
 import {
   createMongoReplicationStreamBatch,
+  filterMongoReplicationStream,
+  openMongoReplicationStream,
+  parseMongoReplicationStream
+} from '@module/replication/MongoReplicationStream.js';
+import type {
   MongoReplicationParserOptions,
   MongoReplicationStreamBatch,
-  openMongoReplicationStream,
-  parseMongoReplicationStream,
   RawMongoReplicationStreamBatch
-} from '@module/replication/MongoReplicationStream.js';
+} from '@module/replication/MongoReplicationStreamTypes.js';
+import { MongoReplicationFilterResult } from '@module/replication/MongoReplicationStreamTypes.js';
 import {
   mapChangeStreamError,
   parseChangeDocument,
@@ -420,6 +424,194 @@ describe('lazy batch consumption contract', () => {
     expect(output.getResumeToken()).toEqual({ _data: 'safe' });
     expect(output.metadata.filteredCount).toBe(1);
     expect((await stream.next()).done).toBe(true);
+  });
+
+  test('does not finalize again after a failure while resolving the token', () => {
+    const resolve = vi.fn(() => {
+      throw new Error('resolve failure');
+    });
+    const output = createMongoReplicationStreamBatch({ events: [], resolveResumeToken: resolve });
+    const iterator = output.events[Symbol.iterator]();
+    expect(() => iterator.next()).toThrow('resolve failure');
+    expect(iterator.next().done).toBe(true);
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(() => output.getResumeToken()).toThrow('Consume all batch events');
+  });
+
+  test('ends parsed event iteration on early return without exposing progress', async () => {
+    const stream = parseMongoReplicationStream({
+      batches: from([batch([event('one'), event('two')], 'safe')]),
+      defaultSchema: 'app',
+      multipleDatabases: false
+    });
+    const output = (await stream.next()).value!;
+    const iterator = output.events[Symbol.iterator]();
+    expect(iterator.next().value).toMatchObject({ event: { documentKey: { _id: 'one' } } });
+    expect(iterator.return?.(7)).toEqual({ done: true, value: 7 });
+    expect(iterator.next().done).toBe(true);
+    expect(() => output.getResumeToken()).toThrow('Consume all batch events');
+    await stream.return(undefined);
+  });
+
+  test('a parse failure ends iteration without parsing later events or exposing progress', async () => {
+    const stream = parseMongoReplicationStream({
+      batches: from([batch([{ ...event('bad'), splitEvent: { fragment: 2, of: 2 } }, event('after')], 'safe')]),
+      defaultSchema: 'app',
+      multipleDatabases: false
+    });
+    const output = (await stream.next()).value!;
+    const iterator = output.events[Symbol.iterator]();
+    expect(() => iterator.next()).toThrow('Unexpected splitEvent');
+    expect(iterator.next().done).toBe(true);
+    expect(() => output.getResumeToken()).toThrow('Consume all batch events');
+    await stream.return(undefined);
+  });
+
+  test('rejects advancing past an empty batch whose events were never iterated', async () => {
+    const closed = vi.fn();
+    const stream = parseMongoReplicationStream({
+      batches: from([batch([], 'one'), batch([], 'two')], closed),
+      defaultSchema: 'app',
+      multipleDatabases: false
+    });
+    await stream.next();
+    await expect(stream.next()).rejects.toThrow('Consume all batch events');
+    expect(closed).toHaveBeenCalledOnce();
+  });
+
+  test('an abort after the last event does not interrupt finalization, leaving the stop to the consumer', async () => {
+    const controller = new AbortController();
+    const stream = parseMongoReplicationStream({
+      batches: from([batch([event('one')], 'safe'), batch([event('two')], 'later')]),
+      defaultSchema: 'app',
+      multipleDatabases: false,
+      signal: controller.signal
+    });
+    const output = (await stream.next()).value!;
+    const iterator = output.events[Symbol.iterator]();
+    expect(iterator.next().done).toBe(false);
+    controller.abort(new Error('stopped'));
+    // Consumers check the signal themselves before persisting this token.
+    expect(iterator.next().done).toBe(true);
+    expect(output.getResumeToken()).toEqual({ _data: 'safe' });
+    // The next batch pull is where the abort surfaces.
+    await expect(stream.next()).rejects.toThrow('stopped');
+  });
+});
+
+describe('shared replication filter', () => {
+  test('filters lazily, preserves control events and creates deletes with source metadata', async () => {
+    const checkpoint = { ...event('checkpoint'), ns: { db: 'app', coll: '_powersync_checkpoints' } };
+    const drop = { _id: { _data: 'drop' }, operationType: 'drop', ns: { db: 'app', coll: 'documents' } };
+    const invalidate = { _id: { _data: 'invalidate' }, operationType: 'invalidate' };
+    const leaving: mongo.Document = {
+      ...event('leaving'),
+      txnNumber: 7n,
+      clusterTime: new mongo.Timestamp({ t: 10, i: 1 })
+    };
+    const filter = vi.fn((change: { documentKey: mongo.Document }) => {
+      return change.documentKey._id == 'leaving'
+        ? MongoReplicationFilterResult.DELETE
+        : MongoReplicationFilterResult.EXCLUDE;
+    });
+    const stream = filterMongoReplicationStream({
+      batches: parseMongoReplicationStream({
+        batches: from([batch([checkpoint, drop, invalidate, leaving, event('excluded')], 'safe')]),
+        defaultSchema: 'app',
+        multipleDatabases: false
+      }),
+      filter
+    });
+    const output = (await stream.next()).value!;
+    expect(filter).not.toHaveBeenCalled();
+    const changes = [...output.events];
+    expect(changes.map(({ event }) => event.operationType)).toEqual(['insert', 'drop', 'invalidate', 'delete']);
+    expect(filter).toHaveBeenCalledTimes(2);
+    expect(changes[3]).toMatchObject({
+      hasBufferedChanges: true,
+      event: {
+        _id: leaving._id,
+        documentKey: leaving.documentKey,
+        ns: leaving.ns,
+        txnNumber: 7n,
+        clusterTime: leaving.clusterTime
+      }
+    });
+    expect(output.metadata.filteredCount).toBe(1);
+    expect(output.getResumeToken()).toEqual({ _data: 'safe' });
+    expect((await stream.next()).done).toBe(true);
+  });
+
+  test('preserves split-event progress and counts fully filtered batches through composed filters', async () => {
+    const large = event('large');
+    const source = parseMongoReplicationStream({
+      batches: from([
+        batch([event('excluded'), { ...large, fullDocument: undefined, splitEvent: { fragment: 1, of: 2 } }], 'unsafe'),
+        batch(
+          [{ _id: { _data: 'last' }, fullDocument: large.fullDocument, splitEvent: { fragment: 2, of: 2 } }],
+          'safe'
+        ),
+        batch([], 'idle')
+      ]),
+      defaultSchema: 'app',
+      multipleDatabases: false
+    });
+    const stream = filterMongoReplicationStream({
+      batches: filterMongoReplicationStream({ batches: source, filter: () => MongoReplicationFilterResult.EXCLUDE }),
+      filter: () => MongoReplicationFilterResult.KEEP
+    });
+    const first = (await stream.next()).value!;
+    expect([...first.events]).toEqual([]);
+    expect(first.metadata.filteredCount).toBe(1);
+    expect(first.getResumeToken()).toBeUndefined();
+    const second = (await stream.next()).value!;
+    expect([...second.events]).toEqual([]);
+    expect(second.metadata.filteredCount).toBe(1);
+    expect(second.getResumeToken()).toEqual({ _data: 'safe' });
+    expect(first.getResumeToken()).toBeUndefined();
+    const idle = (await stream.next()).value!;
+    expect([...idle.events]).toEqual([]);
+    expect(idle.metadata.filteredCount).toBe(0);
+    expect(idle.getResumeToken()).toEqual({ _data: 'idle' });
+    expect((await stream.next()).done).toBe(true);
+  });
+
+  test.each(['failure', 'return', 'unconsumed'] as const)('closes the source without progress on %s', async (end) => {
+    const closed = vi.fn();
+    const stream = filterMongoReplicationStream({
+      batches: parseMongoReplicationStream({
+        batches: from([batch([event('first'), event('second')], 'unsafe')], closed),
+        defaultSchema: 'app',
+        multipleDatabases: false
+      }),
+      filter: () => {
+        if (end == 'failure') {
+          throw new Error('filter failed');
+        }
+        return MongoReplicationFilterResult.KEEP;
+      }
+    });
+    let output: MongoReplicationStreamBatch | undefined;
+    if (end == 'unconsumed') {
+      output = (await stream.next()).value!;
+      await expect(stream.next()).rejects.toThrow('Consume all batch events');
+    } else {
+      const consume = async () => {
+        for await (const batch of stream) {
+          output = batch;
+          for (const _change of batch.events) {
+            return;
+          }
+        }
+      };
+      if (end == 'failure') {
+        await expect(consume()).rejects.toThrow('filter failed');
+      } else {
+        await consume();
+      }
+    }
+    expect(closed).toHaveBeenCalledOnce();
+    expect(() => output!.getResumeToken()).toThrow('Consume all batch events');
   });
 });
 
