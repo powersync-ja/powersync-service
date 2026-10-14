@@ -36,8 +36,15 @@ The storage layer exposes streams in these states:
 - `STOP`: the stream has been replaced or should no longer replicate.
 - `TERMINATED`: the stream has been stopped and its storage has been cleared.
 - `ERRORED`: the stream hit a permanent replication error but remains the stream clients see until replaced.
+- `INVALID`: the sync config was deployed with fatal validation errors, which is only possible with `exit_on_error: false`. It is persisted so diagnostics can report its errors, but it is never replicated or served to clients. The next deployment marks it `STOP`.
 
-The replicator starts jobs for streams returned by `getReplicatingReplicationStreams()`. It separately terminates streams returned by `getStoppedReplicationStreams()`.
+The replicator starts jobs for streams returned by `getReplicatingReplicationStreams()`. It separately terminates streams returned by `getStoppedReplicationStreams()`. Neither method returns `INVALID` streams.
+
+`getSyncConfigStatus()` returns the active config and the pending `PROCESSING` or `INVALID` deployment, if any. Every operator deployment stops earlier pending work. Diagnostics reports the pending deployment as `deploying_sync_rules`.
+
+Manual reprocessing reads `getSyncConfigStatus()` and rejects requests while a `PROCESSING` or `INVALID` deployment is pending. An invalid deployment must be replaced by deploying a new sync config first. Automatic recovery uses `getProcessingSyncConfig()`, which excludes invalid deployments and can still find recovery work while diagnostics reports an invalid attempt.
+
+Automatic recovery after source replication stream history loss is not an operator deployment. The replicator can rebuild the active config while an invalid deployment remains pending. Diagnostics continues reporting the invalid deployment, including after the recovery activates and the old stream is cleared. A process with that invalid filesystem config may handle the recovery only when its content, version label and storage version match the active config. Deploying a new config supersedes both the invalid attempt and any pending recovery work.
 
 In storage modes with embedded sync config state, the top-level stream state and the per-config states are related but not identical. MongoDB storage v3 can keep the stream itself `ACTIVE` while an embedded sync config is `PROCESSING`; the sync API continues reading the active config while the replication job processes both active and deploying work through the same source stream.
 

@@ -244,7 +244,11 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       const existingJob = existingJobs.get(jobId);
       const syncConfigMismatchMessage = 'Ignoring replication stream for sync config not loaded by this process';
       if (
-        !this.shouldHandleReplicationStream(replicationStream, options?.loadedSyncConfig, options?.loadedVersionLabel)
+        !(await this.shouldHandleReplicationStream(
+          replicationStream,
+          options?.loadedSyncConfig,
+          options?.loadedVersionLabel
+        ))
       ) {
         this.logReplicationStreamInfoOnce(replicationStream, 'sync-config-mismatch', () => {
           replicationStream.logger.info(syncConfigMismatchMessage);
@@ -381,7 +385,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
    *
    * This does not apply when sync config is loaded from the database/API, instead of in the config.
    */
-  private shouldHandleReplicationStream(
+  private async shouldHandleReplicationStream(
     replicationStream: storage.PersistedReplicationStream,
     loadedSyncRules: string | undefined,
     loadedVersionLabel: string | undefined
@@ -393,9 +397,24 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     const processingConfig = replicationStream.syncConfigContent.find(
       (syncConfig) => syncConfig.syncConfigState == storage.SyncRuleState.PROCESSING
     );
-    return (
+    if (
       processingConfig == null ||
       (processingConfig.sync_rules_content == loadedSyncRules && processingConfig.version_label == loadedVersionLabel)
+    ) {
+      return true;
+    }
+
+    // Automatic recovery rebuilds the active config, even when the filesystem contains an invalid
+    // deployment. Only accept that fallback for the exact invalid deployment loaded by this process.
+    const { active, next } = await this.storage.getSyncConfigStatus();
+    return (
+      next?.content.syncConfigState == storage.SyncRuleState.INVALID &&
+      next.content.sync_rules_content == loadedSyncRules &&
+      next.content.version_label == loadedVersionLabel &&
+      active != null &&
+      processingConfig.sync_rules_content == active.content.sync_rules_content &&
+      processingConfig.version_label == active.content.version_label &&
+      processingConfig.storageVersion == active.content.storageVersion
     );
   }
 

@@ -33,8 +33,20 @@ export enum SyncRuleState {
    *
    * It will transition to STOP when a new replication stream is activated.
    */
-  ERRORED = 'ERRORED'
+  ERRORED = 'ERRORED',
+
+  /**
+   * Replication stream was deployed with a sync config which contained fatal errors.
+   * This sync config will not be processed.
+   */
+  INVALID = 'INVALID'
 }
+
+/**
+ * States of a deployment that has not activated. A new deployment stops configs in these states.
+ * Automatic recovery may process the active config alongside an invalid deployment, which remains next.
+ */
+export const PENDING_SYNC_RULE_STATES: SyncRuleState[] = [SyncRuleState.PROCESSING, SyncRuleState.INVALID];
 
 export const DEFAULT_DOCUMENT_BATCH_LIMIT = 1000;
 export const DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES = 1 * 1024 * 1024;

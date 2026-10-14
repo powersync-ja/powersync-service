@@ -2,15 +2,17 @@ import { DiagnosticsOptions, getSyncRulesStatus } from '@/api/diagnostics.js';
 import { RouteAPI, SlotWalBudgetInfo } from '@/api/RouteAPI.js';
 import { ParsedSyncConfigSet, storage } from '@/index.js';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 const GB = 1024 * 1024 * 1024;
 
-const MINIMAL_SYNC_RULES = `
-bucket_definitions:
-  global:
-    data:
-      - SELECT id FROM test_table
+const MINIMAL_SYNC_RULES = /* yaml */ `
+  # Minimal valid config for diagnostics tests.
+  config:
+    edition: 3
+  streams:
+    global:
+      query: SELECT id FROM test_table
 `;
 
 function makeSyncRulesContent(overrides?: {
@@ -204,5 +206,54 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
 
     expect(result!.version_label).toBe('v6');
     expect(result!.errors).toEqual([expect.objectContaining({ level: 'fatal', message: 'Invalid sync config' })]);
+  });
+});
+
+describe('getSyncRulesStatus for an invalid config', () => {
+  // The status of an appended config can echo the stream-level state of the active job sharing the stream.
+  const sharedStreamStatus: storage.PersistedSyncConfigStatus = {
+    id: '2',
+    replicationStreamId: 1,
+    state: storage.SyncRuleState.INVALID,
+    last_checkpoint_lsn: 'some_lsn',
+    last_fatal_error: 'Replication slot lost',
+    last_fatal_error_ts: new Date(),
+    last_keepalive_ts: new Date(),
+    last_checkpoint_ts: new Date()
+  };
+
+  test('does not report stream-level errors or timestamps, and does not probe replication state', async () => {
+    const api = makeRouteAPI({ wal_status: 'extended', safe_wal_size: 1 * GB, max_slot_wal_keep_size: 10 * GB });
+    const lag = vi.spyOn(api, 'getReplicationLagBytes');
+    const walBudget = vi.spyOn(api, 'getSlotWalBudget' as keyof RouteAPI);
+    const systemStorage = makeSystemStorage();
+    const storageStatus = vi.spyOn(systemStorage, 'getStatus');
+
+    const result = await getSyncRulesStatus(
+      api,
+      makeSyncRulesContent({ status: sharedStreamStatus }),
+      { ...OPTIONS, active: false },
+      systemStorage
+    );
+
+    expect(result!.errors).toEqual([]);
+    expect(result!.connections[0].last_checkpoint_ts).toBeUndefined();
+    expect(result!.connections[0].last_keepalive_ts).toBeUndefined();
+    expect(result!.connections[0].initial_replication_done).toBe(false);
+    expect(lag).not.toHaveBeenCalled();
+    expect(walBudget).not.toHaveBeenCalled();
+    expect(storageStatus).not.toHaveBeenCalled();
+  });
+
+  test('still reports stream-level errors for a processing config', async () => {
+    const result = await getSyncRulesStatus(
+      makeRouteAPI(),
+      makeSyncRulesContent({ status: { ...sharedStreamStatus, state: storage.SyncRuleState.PROCESSING } }),
+      { ...OPTIONS, active: false },
+      makeSystemStorage()
+    );
+    expect(result!.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ level: 'fatal', message: 'Replication slot lost' })])
+    );
   });
 });

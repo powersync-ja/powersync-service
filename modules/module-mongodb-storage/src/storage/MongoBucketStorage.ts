@@ -182,15 +182,18 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
   async restartReplication(replicationStreamId: number) {
     await this.withTransaction(async (session) => {
-      const next = await this.getDeployingSyncConfigInternal(session);
+      const next = await this.getProcessingSyncConfigInternal(session);
       const active = await this.getActiveSyncConfigInternal(session);
 
+      // Both recovery branches preserve INVALID deployments: retrying processing or rebuilding the
+      // active config must keep the latest rejected operator deployment visible in diagnostics.
       if (next != null && next.content.replicationStreamId == replicationStreamId) {
         // We need to redo the "next" replication stream.
         // This creates a new stream, and stops the existing PROCESSING one.
         await this.updateSyncRulesInTransaction(
           next.content.asUpdateOptions({ forceNewReplicationStream: true }),
-          session
+          session,
+          true
         );
         const sharedActiveStream = active?.content.replicationStreamId == replicationStreamId;
         if (sharedActiveStream) {
@@ -201,7 +204,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         // Slot removed for "active" replication stream, while there is no "next" one.
         await this.updateSyncRulesInTransaction(
           active.content.asUpdateOptions({ forceNewReplicationStream: true }),
-          session
+          session,
+          true
         );
 
         // In this case we keep the old one as active for clients, so that that existing clients
@@ -297,7 +301,19 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     }
   }
 
-  private async updateSyncRulesInTransaction(options: storage.UpdateSyncRulesOptions, session: mongo.ClientSession) {
+  /**
+   * Persist replacement processing work or a new deployment attempt.
+   *
+   * @param preserveInvalid Automatic recovery passes true because rebuilding an existing config
+   * does not supersede the operator's latest rejected deployment. Leave false for a new operator
+   * deployment, which replaces earlier invalid attempts in diagnostics. Processing work is replaced
+   * in either case; preserving an invalid config never makes it eligible for replication.
+   */
+  private async updateSyncRulesInTransaction(
+    options: storage.UpdateSyncRulesOptions,
+    session: mongo.ClientSession,
+    preserveInvalid = false
+  ) {
     const storageVersion =
       options.storageVersion ??
       options.config.parsed.config.storageVersion ??
@@ -305,9 +321,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       storage.STORAGE_VERSION_4;
     const storageConfig = getMongoStorageConfig(storageVersion);
     if (storageConfig.incrementalReprocessing) {
-      return this.updateSyncConfigV3InTransaction(options, storageVersion, storageConfig, session);
+      return this.updateSyncConfigV3InTransaction(options, storageVersion, storageConfig, session, preserveInvalid);
     }
-    return this.updateSyncConfigV1InTransaction(options, storageVersion, session);
+    return this.updateSyncConfigV1InTransaction(options, storageVersion, session, preserveInvalid);
   }
 
   /**
@@ -319,7 +335,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     options: storage.UpdateSyncRulesOptions,
     storageVersion: number,
     storageConfig: StorageConfig,
-    session: mongo.ClientSession
+    session: mongo.ClientSession,
+    preserveInvalid: boolean
   ): Promise<MongoPersistedReplicationStream> {
     const versioned = this.db.versioned(storageConfig) as VersionedPowerSyncMongoV3;
 
@@ -330,6 +347,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       },
       { session, sort: { _id: -1 }, limit: 1 }
     );
+
+    const hasFatalErrors = storage.hasFatalSyncConfigErrors(options);
+
     if (active != null) {
       const existingConfigDocs = await this.loadSyncConfigDefinitions(versioned, active, session);
 
@@ -343,38 +363,22 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         )
       ) {
         logger.info(`Using incremental reprocessing`);
-        await this.stopExistingProcessingWork(session);
+        await this.stopExistingProcessingWork(session, preserveInvalid);
         return await this.appendSyncConfigToStream({
           versioned,
           existing: active,
           existingConfigDocs,
           options,
           storageVersion,
-          session
+          session,
+          hasFatalErrors
         });
       }
     }
 
-    await this.stopExistingProcessingWork(session);
+    await this.stopExistingProcessingWork(session, preserveInvalid);
 
-    const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
-      {
-        // Uses the legacy id "sync_rules" for backwards-compatibility. See AGENTS.md.
-        _id: 'sync_rules'
-      },
-      {
-        $inc: {
-          op_id: 1n
-        }
-      },
-      {
-        upsert: true,
-        returnDocument: 'after',
-        session
-      }
-    );
-
-    const id = Number(id_doc!.op_id);
+    const id = await this.nextDeploymentId(session);
     const replicationStreamName = generateReplicationStreamName(this.replicationStreamNamePrefix, id);
 
     const mapping =
@@ -406,7 +410,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       sync_configs: [
         {
           _id: syncConfigDoc._id,
-          state: storage.SyncRuleState.PROCESSING,
+          state: hasFatalErrors ? storage.SyncRuleState.INVALID : storage.SyncRuleState.PROCESSING,
           last_checkpoint: null,
           last_checkpoint_lsn: null,
           no_checkpoint_before: null,
@@ -414,7 +418,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         }
       ],
       snapshot_lsn: undefined,
-      state: storage.SyncRuleState.PROCESSING,
+      state: hasFatalErrors ? storage.SyncRuleState.INVALID : storage.SyncRuleState.PROCESSING,
       slot_name: replicationStreamName,
       last_checkpoint_ts: null,
       last_fatal_error: null,
@@ -424,7 +428,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     await this.db.sync_rules.insertOne(doc, { session });
     const rules = new MongoPersistedReplicationStream(this.db, doc, [syncConfigDoc]);
-    if (options.lock) {
+    if (options.lock && rules.state != storage.SyncRuleState.INVALID) {
       // We only lock when creating a new stream - otherwise we'll likely get lock contention
       // from an existing job on the stream, which would fail the entire transaction.
       // The lock is persisted on rules.current_lock
@@ -486,8 +490,17 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     options: storage.UpdateSyncRulesOptions;
     storageVersion: number;
     session: mongo.ClientSession;
+    hasFatalErrors: boolean;
   }): Promise<MongoPersistedReplicationStream> {
-    const { versioned, existing, existingConfigDocs, options: updateOptions, storageVersion, session } = options;
+    const {
+      versioned,
+      existing,
+      existingConfigDocs,
+      options: updateOptions,
+      storageVersion,
+      session,
+      hasFatalErrors
+    } = options;
     const compatibleConfigs = existingConfigDocs.map((doc) => ({
       plan: doc.serialized_plan!.plan,
       mapping: SingleSyncConfigBucketDefinitionMapping.fromPersistedMapping(doc.rule_mapping)
@@ -526,7 +539,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     await versioned.syncConfigDefinitions.insertOne(syncConfigDoc, { session });
     const syncConfigState: SyncRuleConfigStateV3 = {
       _id: syncConfigDoc._id,
-      state: storage.SyncRuleState.PROCESSING,
+      state: hasFatalErrors ? storage.SyncRuleState.INVALID : storage.SyncRuleState.PROCESSING,
       last_checkpoint: null,
       last_checkpoint_lsn: null,
       no_checkpoint_before: null,
@@ -540,8 +553,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           sync_configs: syncConfigState
         },
         $set: {
-          last_fatal_error: null,
-          last_fatal_error_ts: null
+          // An invalid config is never processed and does not restart the active job, so keep its error state.
+          ...(hasFatalErrors ? {} : { last_fatal_error: null, last_fatal_error_ts: null })
         }
       },
       { session }
@@ -573,22 +586,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     return rules!;
   }
 
-  private async withTransaction<T>(callback: (session: mongo.ClientSession) => Promise<T>): Promise<T> {
-    return this.client.withSession((session) => session.withTransaction(callback));
-  }
-
-  /**
-   * Update to a V1 sync config.
-   *
-   * Does support cases where existing replication streams are on V3.
-   */
-  private async updateSyncConfigV1InTransaction(
-    options: storage.UpdateSyncRulesOptions,
-    storageVersion: number,
-    session: mongo.ClientSession
-  ): Promise<MongoPersistedReplicationStream> {
-    await this.stopExistingProcessingWork(session);
-
+  private async nextDeploymentId(session: mongo.ClientSession): Promise<number> {
     const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
       {
         // Uses the legacy id "sync_rules" for backwards-compatibility. See AGENTS.md.
@@ -606,7 +604,30 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       }
     );
 
-    const id = Number(id_doc!.op_id);
+    return Number(id_doc!.op_id);
+  }
+
+  private async withTransaction<T>(
+    callback: (session: mongo.ClientSession) => Promise<T>,
+    options?: mongo.TransactionOptions
+  ): Promise<T> {
+    return this.client.withSession((session) => session.withTransaction(callback, options));
+  }
+
+  /**
+   * Update to a V1 sync config.
+   *
+   * Does support cases where existing replication streams are on V3.
+   */
+  private async updateSyncConfigV1InTransaction(
+    options: storage.UpdateSyncRulesOptions,
+    storageVersion: number,
+    session: mongo.ClientSession,
+    preserveInvalid: boolean
+  ): Promise<MongoPersistedReplicationStream> {
+    await this.stopExistingProcessingWork(session, preserveInvalid);
+
+    const id = await this.nextDeploymentId(session);
     const slot_name = generateReplicationStreamName(this.replicationStreamNamePrefix, id);
 
     // All V1 replication streams share both the `main` op id sequence and the `bucket_parameters`
@@ -629,7 +650,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       keepalive_op: null,
       snapshot_done: false,
       snapshot_lsn: undefined,
-      state: storage.SyncRuleState.PROCESSING,
+      state: storage.hasFatalSyncConfigErrors(options)
+        ? storage.SyncRuleState.INVALID
+        : storage.SyncRuleState.PROCESSING,
       slot_name: slot_name,
       last_checkpoint_ts: null,
       last_fatal_error: null,
@@ -640,7 +663,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     await this.db.sync_rules.insertOne(doc, { session });
     const rules = new MongoPersistedReplicationStream(this.db, doc);
-    if (options.lock) {
+    if (options.lock && rules.state != storage.SyncRuleState.INVALID) {
       // The lock is persisted on rules.current_lock
       await rules.lock(session);
     }
@@ -648,15 +671,18 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   }
 
   /**
-   * Stop top-level and embedded processing work before creating a replacement stream.
+   * Stop pending processing work before creating its replacement.
    *
    * Use in the same transaction that the replacement stream is created.
+   * With preserveInvalid=false, also stop invalid attempts superseded by an operator deployment.
+   * With preserveInvalid=true, retain those attempts for diagnostics during automatic recovery.
    */
-  private async stopExistingProcessingWork(session: mongo.ClientSession) {
+  private async stopExistingProcessingWork(session: mongo.ClientSession, preserveInvalid: boolean) {
+    // Recovery is not a new deployment and must retain the latest validation failure.
+    const pendingStates = preserveInvalid ? [storage.SyncRuleState.PROCESSING] : storage.PENDING_SYNC_RULE_STATES;
     await this.db.sync_rules.updateMany(
       {
-        state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] },
-        'sync_configs.state': storage.SyncRuleState.PROCESSING
+        'sync_configs.state': { $in: pendingStates }
       },
       {
         $set: {
@@ -665,16 +691,47 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       },
       {
         session,
-        arrayFilters: [{ 'config.state': storage.SyncRuleState.PROCESSING }]
+        arrayFilters: [{ 'config.state': { $in: pendingStates } }]
       }
     );
 
     await this.db.sync_rules.updateMany(
       {
-        state: storage.SyncRuleState.PROCESSING
+        state: { $in: pendingStates }
       },
       stopReplicationStreamPipeline(),
       { session }
+    );
+  }
+
+  async getSyncConfigStatus(): Promise<storage.SyncConfigStatus> {
+    return this.withTransaction(
+      async (session) => {
+        const activeStates = [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED];
+        const activeDoc = await this.db.sync_rules.findOne(
+          { state: { $in: activeStates } },
+          { session, sort: { _id: -1 } }
+        );
+        // Recovery can process the active config alongside an invalid deployment. Diagnostics must
+        // continue showing the invalid deployment until an operator replaces it.
+        const invalidStates = [storage.SyncRuleState.INVALID];
+        const invalidDoc = await this.db.sync_rules.findOne(
+          { $or: [{ state: storage.SyncRuleState.INVALID }, { 'sync_configs.state': storage.SyncRuleState.INVALID }] },
+          { session, sort: { _id: -1 } }
+        );
+        const nextStates = invalidDoc == null ? [storage.SyncRuleState.PROCESSING] : invalidStates;
+        const nextDoc =
+          invalidDoc ??
+          (await this.db.sync_rules.findOne(
+            { $or: [{ state: { $in: nextStates } }, { 'sync_configs.state': { $in: nextStates } }] },
+            { session, sort: { _id: -1 } }
+          ));
+        return {
+          active: await this.resolvedSyncConfigFromDoc(activeDoc, activeStates, { cacheActiveStorage: true }, session),
+          next: await this.resolvedSyncConfigFromDoc(nextDoc, nextStates, {}, session)
+        };
+      },
+      { readConcern: { level: 'snapshot' } }
     );
   }
 
@@ -737,11 +794,11 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     return new MongoPersistedReplicationStream(this.db, doc as SyncRuleDocumentV1);
   }
 
-  async getDeployingSyncConfig(): Promise<storage.ResolvedSyncConfig | null> {
-    return this.getDeployingSyncConfigInternal();
+  async getProcessingSyncConfig(): Promise<storage.ResolvedSyncConfig | null> {
+    return this.getProcessingSyncConfigInternal();
   }
 
-  private async getDeployingSyncConfigInternal(
+  private async getProcessingSyncConfigInternal(
     session?: mongo.ClientSession
   ): Promise<storage.ResolvedSyncConfig | null> {
     const doc = await this.db.sync_rules.findOne(

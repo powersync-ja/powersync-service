@@ -3,6 +3,7 @@ import { logger } from '@powersync/lib-services-framework';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { diagnostics, reprocess, validate } from '../../../src/routes/endpoints/admin.js';
+import { reprocessSyncRules } from '../../../src/routes/endpoints/sync-rules.js';
 import { mockServiceContext } from './mocks.js';
 
 describe('admin routes', () => {
@@ -33,13 +34,14 @@ describe('admin routes', () => {
     id?: number;
     syncConfigId?: string;
     active?: boolean;
+    state?: storage.SyncRuleState;
     content?: string;
     version_label?: string;
   }): storage.PersistedSyncConfigContent {
     const id = options.id ?? 1;
     const syncConfigId = options.syncConfigId ?? String(id);
     const active = options.active ?? true;
-    const state = active ? storage.SyncRuleState.ACTIVE : storage.SyncRuleState.PROCESSING;
+    const state = options.state ?? (active ? storage.SyncRuleState.ACTIVE : storage.SyncRuleState.PROCESSING);
     const lastKeepaliveTs = new Date('2026-01-01T00:00:00.000Z');
     const lastCheckpointTs = new Date('2026-01-01T00:00:00.000Z');
     const syncConfigStatus = {
@@ -160,45 +162,58 @@ streams:
   });
 
   describe('diagnostics', () => {
-    it('returns deploying config status', async () => {
-      const active = makeSyncConfigContent({ id: 1, syncConfigId: 'active-config', version_label: 'v5' });
-      const deploying = makeSyncConfigContent({ id: 2, syncConfigId: 'deploying-config', active: false });
-      const getInstance = vi.fn(() => ({
-        async getStatus() {
-          return {
+    it.each([storage.SyncRuleState.PROCESSING, storage.SyncRuleState.INVALID])(
+      'returns %s config status as the latest deployment attempt',
+      async (state) => {
+        const active = makeSyncConfigContent({ id: 1, syncConfigId: 'active-config', version_label: 'v5' });
+        const deploying = makeSyncConfigContent({ id: 2, syncConfigId: 'deploying-config', state });
+        const makeStorage = () => ({
+          getStatus: vi.fn(async () => ({
             snapshotDone: false,
             resumeLsn: null
-          };
-        }
-      }));
-      const activeBucketStorage = {
-        getActiveSyncConfig: vi.fn(async () => ({
-          content: active,
-          replicationStream: {},
-          storage: getInstance()
-        })),
-        getDeployingSyncConfig: vi.fn(async () => ({
-          content: deploying,
-          replicationStream: {},
-          storage: getInstance()
-        }))
-      };
+          }))
+        });
+        const nextStorage = makeStorage();
+        const activeBucketStorage = {
+          getSyncConfigStatus: vi.fn(async () => ({
+            active: { content: active, replicationStream: {}, storage: makeStorage() },
+            next: { content: deploying, replicationStream: {}, storage: nextStorage }
+          }))
+        };
 
-      const response = await diagnostics.handler({
-        context: makeContext(activeBucketStorage),
-        params: {},
-        request
-      });
+        const response = await diagnostics.handler({
+          context: makeContext(activeBucketStorage),
+          params: {},
+          request
+        });
 
-      expect(response.deploying_sync_rules?.connections[0].slot_name).toBe('slot_2');
-      expect(response.active_sync_rules?.connections[0].slot_name).toBe('slot_1');
-      expect(response.active_sync_rules?.version_label).toBe('v5');
-    });
+        expect(response.deploying_sync_rules?.connections[0].slot_name).toBe('slot_2');
+        expect(response.active_sync_rules?.connections[0].slot_name).toBe('slot_1');
+        expect(response.active_sync_rules?.version_label).toBe('v5');
+        // An invalid config never replicates, so its live replication state is not read.
+        expect(nextStorage.getStatus).toHaveBeenCalledTimes(state == storage.SyncRuleState.INVALID ? 0 : 1);
+      }
+    );
   });
 
-  describe('reprocess', () => {
-    it('reprocesses the active sync config', async () => {
-      const active = makeSyncConfigContent({ id: 7, syncConfigId: 'active-config', version_label: 'v6' });
+  describe.each([
+    { name: 'admin reprocess', route: reprocess, response: { connections: [{ slot_name: 'new_slot' }] } },
+    { name: 'sync config reprocess', route: reprocessSyncRules, response: { slot_name: 'new_slot' } }
+  ])('$name', ({ route, response: expectedResponse }) => {
+    it('reprocesses the active sync config when no deployment is pending', async () => {
+      const active = makeSyncConfigContent({
+        id: 7,
+        syncConfigId: 'active-config',
+        version_label: 'v6',
+        content: /* yaml */ `
+          # Active config to reprocess.
+          config:
+            edition: 3
+          streams:
+            todos:
+              query: SELECT * FROM todos
+        `
+      });
       const updateSyncRules = vi.fn(async () => ({
         replicationStreamId: 8,
         replicationStreamName: 'new_slot',
@@ -208,67 +223,72 @@ streams:
         current_lock: null
       }));
       const activeBucketStorage = {
-        getDeployingSyncConfig: vi.fn(async () => null),
-        getActiveSyncConfig: vi.fn(async () => ({
-          content: active,
-          replicationStream: {},
-          storage: {}
+        getSyncConfigStatus: vi.fn(async () => ({
+          active: { content: active, replicationStream: {}, storage: {} },
+          next: null
         })),
-        getSyncConfigContent: vi.fn(),
         updateSyncRules
       };
 
-      const response = await reprocess.handler({
+      const response = await route.handler({
         context: makeContext(activeBucketStorage),
         params: {},
         request
       });
 
-      expect(activeBucketStorage.getActiveSyncConfig).toHaveBeenCalledTimes(1);
-      expect(activeBucketStorage.getSyncConfigContent).not.toHaveBeenCalled();
-      expect(updateSyncRules).toHaveBeenCalledTimes(1);
-      expect(updateSyncRules).toHaveBeenCalledWith(
+      expect(activeBucketStorage.getSyncConfigStatus).toHaveBeenCalledTimes(1);
+      expect(updateSyncRules).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ version_label: 'v6', forceNewReplicationStream: true })
       );
-      expect(response.connections[0].slot_name).toBe('new_slot');
+      expect(response).toMatchObject(expectedResponse);
     });
 
-    it('rejects reprocess while a sync config is deploying', async () => {
+    it.each([
+      {
+        state: storage.SyncRuleState.PROCESSING,
+        description: 'Busy processing sync config - cannot reprocess'
+      },
+      {
+        state: storage.SyncRuleState.INVALID,
+        description:
+          'Cannot reprocess while the latest sync config deployment is invalid - deploy a new sync config first'
+      }
+    ])('rejects reprocess without changing the pending $state deployment', async ({ state, description }) => {
       const activeBucketStorage = {
-        getDeployingSyncConfig: vi.fn(async () => ({
-          content: makeSyncConfigContent({ id: 2, active: false }),
-          replicationStream: {},
-          storage: {}
+        getSyncConfigStatus: vi.fn(async () => ({
+          active: { content: makeSyncConfigContent({ id: 1 }), replicationStream: {}, storage: {} },
+          next: { content: makeSyncConfigContent({ id: 2, state }), replicationStream: {}, storage: {} }
         })),
-        getActiveSyncConfig: vi.fn(),
         updateSyncRules: vi.fn()
       };
 
       await expect(
-        reprocess.handler({
-          context: makeContext(activeBucketStorage),
-          params: {},
-          request
-        })
+        route.handler({ context: makeContext(activeBucketStorage), params: {}, request })
       ).rejects.toMatchObject({
-        errorData: {
-          status: 409,
-          code: 'PSYNC_S4106',
-          description: 'Busy processing sync config - cannot reprocess'
-        }
+        errorData: { status: 409, code: 'PSYNC_S4106', description }
       });
-      expect(activeBucketStorage.getActiveSyncConfig).not.toHaveBeenCalled();
+      expect(activeBucketStorage.updateSyncRules).not.toHaveBeenCalled();
+    });
+
+    it('rejects reprocess when no active sync config exists', async () => {
+      const activeBucketStorage = {
+        getSyncConfigStatus: vi.fn(async () => ({ active: null, next: null })),
+        updateSyncRules: vi.fn()
+      };
+      await expect(
+        route.handler({ context: makeContext(activeBucketStorage), params: {}, request })
+      ).rejects.toMatchObject({
+        errorData: { status: 422, code: 'PSYNC_S4104', description: 'No active sync config' }
+      });
       expect(activeBucketStorage.updateSyncRules).not.toHaveBeenCalled();
     });
 
     it('logs that bucket_definitions are deprecated', async () => {
       const warnSpy = vi.spyOn(logger, 'warn');
       const activeBucketStorage = {
-        getDeployingSyncConfig: vi.fn(async () => null),
-        getActiveSyncConfig: vi.fn(async () => ({
-          content: makeSyncConfigContent({}),
-          replicationStream: {},
-          storage: {}
+        getSyncConfigStatus: vi.fn(async () => ({
+          active: { content: makeSyncConfigContent({}), replicationStream: {}, storage: {} },
+          next: null
         })),
         updateSyncRules: vi.fn(async () => ({ replicationStreamName: 'new_slot' }))
       };

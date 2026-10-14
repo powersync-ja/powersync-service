@@ -162,6 +162,21 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   }
 
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<PostgresPersistedReplicationStream> {
+    return this.updateSyncRulesInternal(options);
+  }
+
+  /**
+   * Persist replacement processing work or a new deployment attempt.
+   *
+   * @param preserveInvalid Automatic recovery passes true because rebuilding an existing config
+   * does not supersede the operator's latest rejected deployment. Leave false for a new operator
+   * deployment, which replaces earlier invalid attempts in diagnostics. Processing work is replaced
+   * in either case; preserving an invalid config never makes it eligible for replication.
+   */
+  private async updateSyncRulesInternal(
+    options: storage.UpdateSyncRulesOptions,
+    preserveInvalid = false
+  ): Promise<PostgresPersistedReplicationStream> {
     const storageVersion =
       options.storageVersion ??
       options.config.parsed.config.storageVersion ??
@@ -175,13 +190,25 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       );
     }
     await this.initializeStorageVersion(storageConfig);
+    const hasFatalErrors = storage.hasFatalSyncConfigErrors(options);
     return this.db.transaction(async (db) => {
+      // Serialize supersession and insertion even when there are no pending rows to lock.
+      // Otherwise concurrent deployments can both finish the UPDATE before either inserts,
+      // leaving an older INVALID config visible after a newer valid config activates.
+      // This transaction-scoped lock allows reads, but blocks other sync_rules writes
+      // (including checkpoint updates) until commit or rollback; keep this transaction short.
+      await db.sql` LOCK TABLE sync_rules IN SHARE ROW EXCLUSIVE MODE `.execute();
+
       await db.sql`
         UPDATE sync_rules
         SET
           state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
         WHERE
           state = ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }}
+          OR (
+            NOT ${{ type: 'bool', value: preserveInvalid }}
+            AND state = ${{ type: 'varchar', value: storage.SyncRuleState.INVALID }}
+          )
       `.execute();
 
       // Uses the legacy sequence name "sync_rules_id_sequence" for backwards-compatibility. See AGENTS.md.
@@ -211,7 +238,10 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
             ),
             ${{ type: 'varchar', value: options.config.yaml }},
             ${{ type: 'json', value: options.config.plan }},
-            ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }},
+            ${{
+          type: 'varchar',
+          value: hasFatalErrors ? storage.SyncRuleState.INVALID : storage.SyncRuleState.PROCESSING
+        }},
             CONCAT(
               ${{ type: 'varchar', value: this.replicationStreamNamePrefix }},
               (
@@ -265,15 +295,17 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   }
 
   async restartReplication(replicationStreamId: number): Promise<void> {
-    const next = await this.getDeployingSyncConfig();
+    const next = await this.getProcessingSyncConfig();
     const active = await this.getActiveSyncConfig();
 
     // In both the below cases, we create a new replication stream.
     // The current one will continue serving sync requests until the next one has finished processing.
+    // Both recovery branches preserve INVALID deployments: retrying processing or rebuilding the
+    // active config must keep the latest rejected operator deployment visible in diagnostics.
     if (next != null && next.content.replicationStreamId == replicationStreamId) {
       // We need to redo the "next" replication stream
 
-      await this.updateSyncRules(next.content.asUpdateOptions());
+      await this.updateSyncRulesInternal(next.content.asUpdateOptions(), true);
       // Pro-actively stop replicating
       await this.db.sql`
         UPDATE sync_rules
@@ -285,7 +317,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       `.execute();
     } else if (next == null && active?.content.replicationStreamId == replicationStreamId) {
       // Slot removed for "active" replication stream, while there is no "next" one.
-      await this.updateSyncRules(active.content.asUpdateOptions());
+      await this.updateSyncRulesInternal(active.content.asUpdateOptions(), true);
 
       // Pro-actively stop replicating, but still serve clients with existing data
       await this.db.sql`
@@ -334,7 +366,57 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     return this.resolvedSyncConfigFromRow(activeRow, { cacheActiveStorage: true });
   }
 
-  async getDeployingSyncConfig(): Promise<storage.ResolvedSyncConfig | null> {
+  async getSyncConfigStatus(): Promise<storage.SyncConfigStatus> {
+    // A single statement reads both rows from one snapshot.
+    const rows = await this.db.sql`
+      (
+        SELECT
+          *
+        FROM
+          sync_rules
+        WHERE
+          state IN (
+            ${{ type: 'varchar', value: storage.SyncRuleState.ACTIVE }},
+            ${{ type: 'varchar', value: storage.SyncRuleState.ERRORED }}
+          )
+        ORDER BY
+          id DESC
+        LIMIT
+          1
+      )
+      UNION ALL
+      (
+        SELECT
+          *
+        FROM
+          sync_rules
+        WHERE
+          state IN (
+            ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }},
+            ${{ type: 'varchar', value: storage.SyncRuleState.INVALID }}
+          )
+        ORDER BY
+          CASE
+            WHEN state = ${{ type: 'varchar', value: storage.SyncRuleState.INVALID }} THEN 0
+            ELSE 1
+          END,
+          id DESC
+        LIMIT
+          1
+      )
+    `
+      .decoded(models.SyncRules)
+      .rows();
+    // An invalid deployment takes precedence over an automatic recovery of the active config.
+    const next = rows.find((row) => storage.PENDING_SYNC_RULE_STATES.includes(row.state));
+    const active = rows.find((row) => row != next);
+    return {
+      active: active == null ? null : this.resolvedSyncConfigFromRow(active, { cacheActiveStorage: true }),
+      next: next == null ? null : this.resolvedSyncConfigFromRow(next)
+    };
+  }
+
+  async getProcessingSyncConfig(): Promise<storage.ResolvedSyncConfig | null> {
     const row = await this.db.sql`
       SELECT
         *
