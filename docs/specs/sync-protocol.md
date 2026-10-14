@@ -84,8 +84,7 @@ When a tracked checkpoint (from the last [checkpoint](#streamingsynccheckpoint) 
 contains buckets in different priorities, the service sends ([data lines](#streamingsyncdata)) in priority order, starting with higher-priority
 buckets.
 
-If all data lines for buckets in a higher-priority group have been sent _and_ there is a lower-priority group before the checkpoint
-[is complete](#streamingsynccheckpointcomplete), the service emits a partial checkpoint complete message.
+Between data lines of different priorities, the service emits a partial checkpoint complete message:
 
 Format:
 
