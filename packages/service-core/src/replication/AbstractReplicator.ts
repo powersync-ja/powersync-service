@@ -1,5 +1,5 @@
 import { container, ErrorCode, logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SyncRulesErrors, type SyncConfig } from '@powersync/service-sync-rules';
+import { DEFAULT_TAG, SqlSyncRules, SyncRulesErrors, type SyncConfig } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -212,6 +212,12 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           // Capability checks need source-qualified tables, unlike the shared base-schema snapshot.
           const parsed = SqlSyncRules.fromYaml(loaded.compiled.yaml, {
             defaultSchema: this.defaultSchema,
+            connections: Object.fromEntries(
+              (this.options.configuration.connections ?? []).map((connection) => [
+                connection.tag ?? DEFAULT_TAG,
+                { type: connection.type }
+              ])
+            ),
             throwOnError: false
           });
           try {

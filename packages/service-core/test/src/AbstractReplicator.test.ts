@@ -10,6 +10,7 @@ import { PersistedReplicationStream } from '@/storage/PersistedReplicationStream
 import type { ReplicationLock } from '@/storage/ReplicationLock.js';
 import { SyncRulesBucketStorage } from '@/storage/SyncRulesBucketStorage.js';
 import { LoadedSyncConfig, loadSyncConfig } from '@/util/config/sync-rules/LoadedSyncConfig.js';
+import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { mockServiceContext } from './routes/mocks.js';
 
@@ -161,7 +162,7 @@ describe('AbstractReplicator startup sync config', () => {
           activeBucketStorage: { configureSyncRules }
         } as unknown as AbstractReplicatorOptions['storageEngine'],
         configuration: {
-          connections: [],
+          connections: [{ type: 'postgresql' }, { type: 'mongodb', tag: 'archive' }],
           sync_rules: {
             present: true,
             exit_on_error: exitOnError,
@@ -173,6 +174,7 @@ describe('AbstractReplicator startup sync config', () => {
         metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
         rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
       });
+      using parse = vi.spyOn(SqlSyncRules, 'fromYaml');
       replicator.registerSourceCapabilitiesAssertion((config) =>
         assertSourceCapabilities(
           {
@@ -195,6 +197,12 @@ describe('AbstractReplicator startup sync config', () => {
         await replicator.runStartupForTest();
         expect(calls).toEqual(['validate', 'persist']);
       }
+      expect(parse).toHaveBeenCalledWith(
+        yaml,
+        expect.objectContaining({
+          connections: { default: { type: 'postgresql' }, archive: { type: 'mongodb' } }
+        })
+      );
     }
   );
 
