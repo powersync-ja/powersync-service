@@ -37,8 +37,8 @@ import {
 import { CHECKPOINTS_COLLECTION, detectDocumentDb, timestampToDate } from './replication-utils.js';
 import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
 export interface ChangeStreamOptions {
-  connections: MongoManager;
   storage: storage.SyncRulesBucketStorage;
+  connections: MongoManager;
   metrics: MetricsEngine;
   abort_signal: AbortSignal;
   /**
@@ -130,7 +130,7 @@ export class ChangeStream {
   private lastPersistedResumeTimestamp = 0;
   private lastBatchCheckpoint = 0;
 
-  constructor(options: ChangeStreamOptions) {
+  constructor(private readonly options: ChangeStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
     this.group_id = options.storage.replicationStreamId;

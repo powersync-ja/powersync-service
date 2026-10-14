@@ -1,5 +1,5 @@
 import { logger, ServiceAssertionError } from '@powersync/lib-services-framework';
-import { DEFAULT_TAG, SourceTableRef, SyncConfigWithErrors } from '@powersync/service-sync-rules';
+import { DEFAULT_TAG, SourceTableRef, SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
 import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
@@ -68,7 +68,11 @@ export async function getSyncRulesStatus(
       version_label: syncConfig.version_label,
       content: include_content ? syncConfig.sync_rules_content : undefined,
       connections: [],
-      errors: [{ level: 'fatal', message: e.message, ts: now }]
+      // Report each sync config error separately, retaining its source location.
+      errors:
+        e instanceof SyncRulesErrors
+          ? e.errors.map((error) => syncConfigYamlErrorToReplicationError(error, now))
+          : [{ level: 'fatal', message: e.message, ts: now }]
     };
   }
 
@@ -81,20 +85,32 @@ export async function getSyncRulesStatus(
   let replication_lag_bytes: number | undefined = undefined;
   let slot_wal_budget: SlotWalBudgetInfo | undefined = undefined;
 
+  const validationErrors: ReplicationError[] = [];
   let tables_flat: TableInfo[] = [];
 
   if (check_connection) {
-    const source_table_patterns = rules.getSourceTables();
-    const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules);
-    tables_flat = resolved_tables.flatMap((info) => {
-      if (info.table) {
-        return [info.table];
-      } else if (info.tables) {
-        return info.tables;
-      } else {
-        return [];
-      }
-    });
+    try {
+      validationErrors.push(...((await apiHandler.validateSourceCapabilities?.(rules)) ?? []));
+    } catch (e) {
+      validationErrors.push({ level: 'fatal', message: e.message, ts: now });
+    }
+    // Table inspection is independent of source capability checks. Preserve both failures
+    // and continue collecting diagnostics that do not depend on table metadata.
+    try {
+      const source_table_patterns = rules.getSourceTables();
+      const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules);
+      tables_flat = resolved_tables.flatMap((info) => {
+        if (info.table) {
+          return [info.table];
+        } else if (info.tables) {
+          return info.tables;
+        } else {
+          return [];
+        }
+      });
+    } catch (e) {
+      validationErrors.push({ level: 'fatal', message: e.message, ts: now });
+    }
 
     if (systemStorage) {
       try {
@@ -151,7 +167,7 @@ export async function getSyncRulesStatus(
     });
   }
 
-  const errors = tables_flat.flatMap((info) => info.errors);
+  const errors = [...validationErrors, ...tables_flat.flatMap((info) => info.errors)];
   const statusSource = await syncConfig.getSyncConfigStatus();
 
   if (statusSource?.last_fatal_error) {

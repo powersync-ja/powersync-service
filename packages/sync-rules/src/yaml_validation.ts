@@ -43,6 +43,7 @@ export interface YamlMapState extends YamlState {
    * Extracts all items from this map, asserting that the keys are strings.
    */
   stringKeyedItems(): Iterable<YamlMapEntry>;
+
   get(item: string): YamlState | undefined;
 
   /**

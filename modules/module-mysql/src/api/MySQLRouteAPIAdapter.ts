@@ -32,7 +32,8 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
       // In MySQL Schema and Database are the same thing. There is no default database
-      defaultSchema: this.config.database
+      defaultSchema: this.config.database,
+      connections: { [this.config.tag ?? sync_rules.DEFAULT_TAG]: { type: this.config.type } }
     };
   }
 

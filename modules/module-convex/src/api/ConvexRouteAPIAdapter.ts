@@ -185,7 +185,8 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
 
   getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
-      defaultSchema: this.connectionManager.schema
+      defaultSchema: this.connectionManager.schema,
+      connections: { [this.connectionManager.connectionTag]: { type: this.config.type } }
     };
   }
 }

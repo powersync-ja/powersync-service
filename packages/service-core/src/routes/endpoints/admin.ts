@@ -161,15 +161,22 @@ export const reprocess = routeDefinition({
     // 1. This always re-parses the source YAML. If there are changes to the Sync Streams compiler, that can affect the sync plan.
     // 2. If the source does not set the storage version, this will update it do the current version.
     // We can consider tweaking this behavior in the future.
-    const updateOptions = storage.updateSyncRulesFromYaml(active.content.sync_rules_content, {
+    const parsed = SqlSyncRules.fromYaml(active.content.sync_rules_content, {
+      ...apiHandler.getParseSyncRulesOptions(),
+      schema: undefined,
       // This sync config already passed validation. But if the config is not valid anymore due
       // to a service change, we do want to report the error here.
-      validate: true,
-      version_label: active.content.version_label,
-      forceNewReplicationStream: true
+      throwOnError: true
     });
-    storage.logSyncConfigErrors(updateOptions.config.parsed);
-    const new_rules = await activeBucketStorage.updateSyncRules(updateOptions);
+    storage.logSyncConfigErrors(parsed);
+    await api.assertSourceCapabilities(apiHandler, parsed.config);
+
+    const new_rules = await activeBucketStorage.updateSyncRules(
+      storage.updateSyncRulesFromConfig(parsed, {
+        version_label: active.content.version_label,
+        forceNewReplicationStream: true
+      })
+    );
 
     const baseConfig = await apiHandler.getSourceConfig();
 
@@ -188,7 +195,6 @@ export const reprocess = routeDefinition({
 
 class FakeSyncRulesContentForValidation extends storage.PersistedSyncConfigContent {
   constructor(
-    private readonly apiHandler: api.RouteAPI,
     private readonly schema: SourceSchema,
     data: storage.PersistedSyncConfigContentData
   ) {
@@ -197,7 +203,7 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncConfigConte
 
   parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
     const syncConfig = SqlSyncRules.fromYaml(this.sync_rules_content, {
-      ...this.apiHandler.getParseSyncRulesOptions(),
+      ...options,
       schema: this.schema
     });
 
@@ -237,7 +243,7 @@ export const validate = routeDefinition({
     const schemaData = await api.getConnectionsSchema(apiHandler);
     const schema = new StaticSchema(schemaData.connections);
 
-    const sync_rules = new FakeSyncRulesContentForValidation(apiHandler, schema, {
+    const sync_rules = new FakeSyncRulesContentForValidation(schema, {
       // Dummy values
       replicationStreamId: 0,
       replicationStreamName: '',
