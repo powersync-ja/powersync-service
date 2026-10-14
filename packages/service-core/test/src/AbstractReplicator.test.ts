@@ -498,6 +498,33 @@ describe('invalid configured sync config', () => {
     );
   });
 
+  /**
+   * Previously persisted invalid work remains owned only when both local YAML and label match.
+   * This compatibility path also works without an active config (a rejected first deployment).
+   */
+  it.each(['matching', 'other-yaml', 'other-label'])(
+    'checks ownership of previously persisted invalid config: %s',
+    async (scenario) => {
+      const { replicator, getActiveSyncConfig } = await makeStartupReplicator(INVALID_CONFIG);
+      getActiveSyncConfig.mockResolvedValue(null);
+      const stream = {
+        syncConfigContent: [
+          {
+            syncConfigState: storage.SyncRuleState.PROCESSING,
+            sync_rules_content: scenario === 'other-yaml' ? VALID_CONFIG : INVALID_CONFIG,
+            version_label: scenario === 'other-label' ? 'another-worker' : 'local'
+          }
+        ]
+      } as unknown as PersistedReplicationStream;
+      expect(await replicator.shouldHandleStreamForTest(stream, INVALID_CONFIG, 'local', true)).toBe(
+        scenario === 'matching'
+      );
+      if (scenario === 'matching') {
+        expect(getActiveSyncConfig).not.toHaveBeenCalled();
+      }
+    }
+  );
+
   it.each(['matching', 'other-yaml', 'other-label', 'other-storage', 'no-active'])(
     'only accepts recovery matching the active config: %s',
     async (scenario) => {

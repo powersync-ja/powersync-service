@@ -17,7 +17,7 @@ When the service lifecycle starts, `ReplicationEngine.start()` starts every regi
 An `AbstractReplicator` is responsible for source-level orchestration. It does not apply individual source rows itself. Instead, it:
 
 1. Uses the sync config snapshot loaded and validated during service configuration resolution.
-2. Checks source capabilities and persists valid changes through `BucketStorageFactory.configureSyncRules()`. With `exit_on_error: false`, fatal errors are logged and the invalid config is skipped without changing storage.
+2. Checks source capabilities and persists valid changes through `BucketStorageFactory.configureSyncRules()`. With `exit_on_error: false`, fatal parse errors are logged and no new invalid config is persisted.
 3. Repeatedly refreshes the set of replication streams that should be running.
 4. Acquires a replication lock for new streams.
 5. Creates a source-specific `AbstractReplicationJob` with the locked `SyncRulesBucketStorage`.
@@ -25,7 +25,7 @@ An `AbstractReplicator` is responsible for source-level orchestration. It does n
 7. Stops jobs whose replication streams no longer need processing.
 8. Cleans up stopped replication streams by calling source cleanup and then storage termination.
 
-When the local config is invalid, active-only replication streams continue. Processing that matches the active config (including its version label, even when reprocessing selects a different storage version) is allowed for recovery or manual reprocessing; unrelated pending deployments remain excluded by this worker. Existing pending work is not cancelled in storage and may still be processed by another worker. If an active config shares a stream with unrelated processing work, this worker skips the entire stream; a worker with matching config must handle it.
+When the local config is invalid, active-only replication streams continue. Already-persisted processing configs matching the local YAML and version label remain owned by this worker, preserving behavior across upgrades even if that config is invalid. This avoids rejecting a shared active stream solely because an older service persisted invalid pending work; it does not guarantee the invalid config can replicate successfully. Processing that matches the active config (including its version label, even when reprocessing selects a different storage version) is allowed for recovery or manual reprocessing; unrelated pending deployments remain excluded by this worker. Existing pending work is not cancelled in storage and may still be processed by another worker. If an active config shares a stream with unrelated processing work, this worker skips the entire stream; a worker with matching config must handle it.
 
 For filesystem deployments, configure the API and replicators to use the same sync config file (or identical copies mounted in each container). This is the expected setup for self-hosted deployments.
 

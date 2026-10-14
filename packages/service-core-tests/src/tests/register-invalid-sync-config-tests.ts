@@ -66,6 +66,68 @@ class ConfigTestReplicator extends AbstractReplicator {
 export function registerInvalidSyncConfigTests(factory: storage.TestStorageFactory, storageVersion: number) {
   describe('invalid local sync config lifecycle', () => {
     /**
+     * An older service persisted invalid B while valid A was active. After upgrading with
+     * the same local B, startup must leave storage intact and retain ownership of B's stream.
+     * With incremental storage A and B share that stream, so rejecting it would also block A.
+     * This checks compatibility ownership, not successful evaluation of invalid B.
+     */
+    test('retains ownership of an invalid deployment persisted before upgrade', async () => {
+      await using backend = await factory();
+      const valid = /* yaml */ `
+        # Existing active deployment.
+        config:
+          edition: 3
+        streams:
+          todos:
+            query: SELECT id FROM todos
+      `;
+      const original = await backend.updateSyncRules(
+        updateSyncRulesFromYaml(valid, { storageVersion, version_label: 'active' })
+      );
+      const instance = await getTestStorage(backend, original);
+      {
+        await using writer = await instance.createWriter(BATCH_OPTIONS);
+        await writer.markAllSnapshotDone('1/1');
+        await writer.commit('1/1');
+      }
+
+      // Bypass the new startup guard to reproduce a deployment written by an older service.
+      const invalid = updateSyncRulesFromYaml(INVALID_CONFIG, { storageVersion, version_label: 'rejected' });
+      expect(invalid.config.parsed.errors.some((error) => error.type === 'fatal')).toBe(true);
+      const persisted = await backend.updateSyncRules(invalid);
+      if (storageVersion >= 3) {
+        expect(persisted.replicationStreamId).toBe(original.replicationStreamId);
+        expect(persisted.syncConfigContent.map((config) => config.syncConfigState)).toEqual([
+          storage.SyncRuleState.ACTIVE,
+          storage.SyncRuleState.PROCESSING
+        ]);
+      }
+      const loaded = await loadSyncConfig({ present: true, content: INVALID_CONFIG, exit_on_error: false });
+      const replicator = new ConfigTestReplicator({
+        id: 'upgrade-test',
+        configuration: {
+          connections: [],
+          sync_rules: { present: true, exit_on_error: false, version_label: 'rejected', loaded }
+        },
+        storageEngine: { activeBucketStorage: backend } as storage.StorageEngine,
+        metricsEngine: METRICS_HELPER.metricsEngine,
+        rateLimiter: { waitUntilAllowed: async () => {}, reportError: () => {}, mayPing: () => false }
+      });
+      const configure = vi.spyOn(backend, 'configureSyncRules');
+      const pendingBefore = await backend.getDeployingSyncConfig();
+      await replicator.initializeConfig();
+      expect(configure).not.toHaveBeenCalled();
+      expect((await backend.getDeployingSyncConfig())?.content.syncConfigId).toBe(pendingBefore?.content.syncConfigId);
+      expect((await backend.getActiveSyncConfig())?.content.sync_rules_content).toBe(valid);
+      const stream = (await backend.getReplicatingReplicationStreams()).find(
+        (stream) => stream.replicationStreamId === persisted.replicationStreamId
+      )!;
+      expect(stream).toBeDefined();
+      expect(await replicator.accepts(stream)).toBe(true);
+      expect(getInvalidLocalSyncConfigStatus(loaded, true, 'rejected')?.content).toBe(INVALID_CONFIG);
+    });
+
+    /**
      * Start with valid config A active, then restart a worker with invalid local config B.
      * B must stay out of storage while remaining visible in diagnostics throughout:
      * - automatic recovery of A after source history loss;

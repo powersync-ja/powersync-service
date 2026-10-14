@@ -466,6 +466,16 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       return true;
     }
 
+    // Preserve ownership of matching deployments already stored by an older service, even
+    // if this version rejects their YAML. In incremental storage they may share a stream
+    // with the active config. We block new invalid deployments, not existing processing work.
+    if (
+      processingConfig.sync_rules_content == loadedSyncRules &&
+      processingConfig.version_label == loadedVersionLabel
+    ) {
+      return true;
+    }
+
     if (loadedSyncConfigInvalid) {
       // Recovery and manual reprocessing may rebuild the active config while this process has
       // rejected its configured sync config. Allow that rebuild, but not another instance's unrelated
@@ -479,12 +489,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       );
     }
 
-    // At this point, we have a valid configured sync config and the stream has a pending deployment.
-    // Only handle the stream if that deployment matches the YAML and version label we loaded;
-    // otherwise, leave it to a worker that loaded that deployment.
-    return (
-      processingConfig.sync_rules_content == loadedSyncRules && processingConfig.version_label == loadedVersionLabel
-    );
+    // Leave unrelated pending deployments to a worker that loaded them.
+    return false;
   }
 
   protected createJobId(syncRuleId: number) {
