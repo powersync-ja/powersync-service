@@ -13,7 +13,7 @@ import { MapSourceVisitor, visitExpr } from '../expression_visitor.js';
 import * as plan from '../plan.js';
 import { StreamInput } from './bucket_source.js';
 import { PreparedParameterIndexLookupCreator } from './parameter_index_lookup_creator.js';
-import { AsyncJoinLookup, IntersectionConstraint, ResultSet, ResultSetColumn, ResultSetElement } from './result_set.js';
+import { AsyncJoinLookup, ResultSet, ResultSetColumn, ResultSetElement } from './result_set.js';
 
 /**
  * Finds bucket parameters for a given request or subscription.
@@ -65,10 +65,6 @@ export class RequestParameterEvaluators {
      */
     private readonly parameterValues: PreparedParameterValue[],
     /**
-     * Intersection constraints to take into consideration when adding rows to the result set.
-     */
-    private readonly intersectionConstraints: PendingIntersectionConstraint[],
-    /**
      * The materialized result set containing lookup values. {@link parameterValues} are read from this result set as a
      * final step.
      */
@@ -100,13 +96,7 @@ export class RequestParameterEvaluators {
     const copiedStages = this.lookupStages.map((s) => s.clone(cloneParameter));
     const outputValues = this.parameterValues.map(cloneParameter);
 
-    return new RequestParameterEvaluators(
-      this.stream,
-      copiedStages,
-      outputValues,
-      this.intersectionConstraints.map(({ inputs }) => ({ inputs: inputs.map(cloneParameter) })),
-      this.resultSet.clone()
-    );
+    return new RequestParameterEvaluators(this.stream, copiedStages, outputValues, this.resultSet.clone());
   }
 
   /**
@@ -119,84 +109,13 @@ export class RequestParameterEvaluators {
    */
   partiallyInstantiate(input: PartialInstantiationInput): SqliteParameterValue[][] | undefined {
     try {
-      const mappedIntersectionConstraints: IntersectionConstraint[] = [];
-
-      // Optimization: For request-parameter based lookups with a single column (the most common kind), use a set to
-      // immediately filter out rows that don't intersect with another request parameter. ResultSet.multiply does the
-      // same thing, but that requires going through the combination of all rows whereas the de-duplication here is
-      // linear.
-      interface RequestParameterIntersection {
-        fixedValue: SqliteParameterValue | undefined;
-        amountOfRequestParameters: number;
-        // Count in how many parameters a value was seen, we filter out values not present in all parameters.
-        rows: Map<SqliteParameterValue, number>;
-        materializedRows: SqliteParameterValue[][];
-      }
-
-      const parameterToIntersection = new Map<TableValuedExpandingLookup, RequestParameterIntersection[]>();
-
-      for (const constraint of this.intersectionConstraints) {
-        const mapped = this.#createIntersectionResult(constraint, input);
-
-        const parameterIntersection: RequestParameterIntersection = {
-          fixedValue: mapped.fixedValue,
-          amountOfRequestParameters: 0,
-          rows: new Map(),
-          materializedRows: []
-        };
-
-        for (const column of constraint.inputs) {
-          if (
-            column instanceof LookupParameterValue &&
-            column.lookup instanceof TableValuedExpandingLookup &&
-            column.lookup.columnCount == 1
-          ) {
-            parameterIntersection.amountOfRequestParameters++;
-
-            const existing = parameterToIntersection.get(column.lookup);
-
-            if (existing != null) {
-              existing.push(parameterIntersection);
-            } else {
-              parameterToIntersection.set(column.lookup, [parameterIntersection]);
-            }
-          }
-        }
-
-        if (parameterIntersection.amountOfRequestParameters < constraint.inputs.length) {
-          // If the intersection consists entirely of parameter lookups, it's fully covered by the optimization and
-          // doesn't need to be tracked in the result set.
-          mappedIntersectionConstraints.push(mapped);
-        }
-      }
-
-      this.resultSet.addIntersectionConstraints(mappedIntersectionConstraints);
-
       // At this point, we can resolve table-valued lookups and parameter values based only on request data.
       for (const stage of this.lookupStages) {
         for (const element of stage.lookups) {
           if (element instanceof TableValuedExpandingLookup) {
             const outputs = element.read(input.request);
-            const intersections = parameterToIntersection.get(element);
-            if (intersections == null || intersections.length == 0) {
-              this.resultSet.multiply(element.resultSetIndex, outputs);
-              this.#checkInstantiable();
-            } else {
-              // For this parameter to be part of the intersection optimization, it must return exactly one column.
-              for (const [value] of new Set(outputs)) {
-                for (const intersection of intersections) {
-                  const fixed = intersection.fixedValue;
-                  if (fixed != null && value !== fixed) continue;
-
-                  const matchedSources = (intersection.rows.get(value) ?? 0) + 1;
-
-                  intersection.rows.set(value, matchedSources);
-                  if (matchedSources === intersection.amountOfRequestParameters) {
-                    intersection.materializedRows.push([value]);
-                  }
-                }
-              }
-            }
+            this.resultSet.multiply(element.resultSetIndex, outputs);
+            this.#checkInstantiable();
           }
         }
 
@@ -205,28 +124,6 @@ export class RequestParameterEvaluators {
             instantiation.resolveWith(input);
           }
         }
-      }
-
-      for (const [parameter, intersections] of parameterToIntersection.entries()) {
-        if (intersections.length == 1) {
-          this.resultSet.multiply(parameter.resultSetIndex, intersections[0].materializedRows);
-        } else {
-          const rows = intersections.reduce((acc, intersection) =>
-            intersection.materializedRows.length < acc.materializedRows.length ? intersection : acc
-          ).materializedRows;
-
-          this.resultSet.multiply(
-            parameter.resultSetIndex,
-            rows.filter(([value]) => {
-              return intersections.every((intersection) => {
-                const matchingCount = intersection.rows.get(value);
-                return matchingCount === intersection.amountOfRequestParameters;
-              });
-            })
-          );
-        }
-
-        this.#checkInstantiable();
       }
 
       for (const parameter of this.parameterValues) {
@@ -304,30 +201,6 @@ export class RequestParameterEvaluators {
     });
   }
 
-  #createIntersectionResult(
-    constraint: PendingIntersectionConstraint,
-    input: PartialInstantiationInput
-  ): IntersectionConstraint {
-    // If any parameter of the intersection is a scalar value derived from a request, that value.
-    let fixedValue: SqliteParameterValue | undefined;
-    const intersection: ResultSetColumn[] = [];
-
-    for (const value of constraint.inputs) {
-      if (value instanceof RequestParameterValue) {
-        const evaluated = value.resolveWith(input);
-        if (fixedValue !== undefined && evaluated !== fixedValue) {
-          throw uninstantiableException;
-        }
-
-        fixedValue = evaluated;
-      } else {
-        intersection.push(value);
-      }
-    }
-
-    return { fixedValue, columns: intersection };
-  }
-
   async #instantiateLookup(lookup: ParameterIndexExpandingLookup, input: InstantiationInput) {
     const scope = input.hydrationState.getParameterIndexLookupScope(lookup.lookup);
     const resolvedLookup = lookup.lookup as PreparedParameterIndexLookupCreator;
@@ -391,7 +264,6 @@ export class RequestParameterEvaluators {
     const mappedStages: LookupStage[] = [];
     let amountOfLookups = 0;
     const lookupToStage = new Map<plan.ExpandingLookup, PreparedExpandingLookup>();
-    const intersections: PendingIntersectionConstraint[] = [];
 
     function mapParameterValue(value: plan.ParameterValue): PreparedParameterValue {
       if (value.type == 'request') {
@@ -407,12 +279,19 @@ export class RequestParameterEvaluators {
         const lookup = lookupToStage.get(value.lookup)!;
         return new LookupParameterValue(lookup, value.resultIndex);
       } else {
-        const intersectionInputs = mapParameterValues(value.values);
-        intersections.push({ inputs: intersectionInputs });
+        const inputs = value.values.map(mapParameterValue);
+        // For an intersection value, we use the input evaluated first as the parameter to use. For all other inputs, we
+        // remember to remove mismatching rows from the result set.
+        inputs.sort((a, b) => {
+          // Put request parameter values before anything else.
+          if (a instanceof RequestParameterValue) {
+            return b instanceof RequestParameterValue ? 0 : -1;
+          }
 
-        // Non-intersecting rows will be pruned from the result set or, for scalar parameter values, mark the querier
-        // as uninstantiable. So, we can replace the intersection value with any inner value.
-        return intersectionInputs[0];
+          return b instanceof RequestParameterValue ? 1 : b.lookup.stageIndex - a.lookup.stageIndex;
+        });
+
+        throw new Error('TODO: Intersections');
       }
     }
 
@@ -420,7 +299,8 @@ export class RequestParameterEvaluators {
       return values.map(mapParameterValue);
     }
 
-    for (const stage of lookupStages) {
+    for (let i = 0; i < lookupStages.length; i++) {
+      const stage = lookupStages[i];
       const mappedStage = new LookupStage([]);
 
       for (const lookup of stage) {
@@ -429,6 +309,7 @@ export class RequestParameterEvaluators {
         if (lookup.type == 'parameter') {
           resolved = new ParameterIndexExpandingLookup(
             amountOfLookups++,
+            i,
             input.preparedLookups.get(lookup.lookup)!,
             mapParameterValues(lookup.instantiation)
           );
@@ -465,7 +346,7 @@ export class RequestParameterEvaluators {
     }
 
     const rs = new ResultSet(amountOfLookups);
-    return new RequestParameterEvaluators(stream, mappedStages, mapParameterValues(values), intersections, rs);
+    return new RequestParameterEvaluators(stream, mappedStages, mapParameterValues(values), rs);
   }
 }
 
@@ -483,6 +364,8 @@ type CloneParameter = (original: PreparedParameterValue) => PreparedParameterVal
 abstract class BasePreparedExpandingLookup implements ResultSetElement {
   constructor(readonly resultSetIndex: number) {}
 
+  abstract get stageIndex(): number;
+
   abstract clone(parameters: CloneParameter): BasePreparedExpandingLookup;
 }
 
@@ -495,6 +378,8 @@ class TableValuedExpandingLookup extends BasePreparedExpandingLookup {
     super(resultSetIndex);
   }
 
+  override stageIndex = -1;
+
   override clone(): TableValuedExpandingLookup {
     // Immutable instance
     return this;
@@ -506,6 +391,7 @@ class ParameterIndexExpandingLookup extends BasePreparedExpandingLookup {
 
   constructor(
     resultSetIndex: number,
+    override readonly stageIndex: number,
     readonly lookup: ParameterIndexLookupCreator,
     readonly instantiation: PreparedParameterValue[]
   ) {
@@ -515,6 +401,7 @@ class ParameterIndexExpandingLookup extends BasePreparedExpandingLookup {
   override clone(cloneParameter: CloneParameter): ParameterIndexExpandingLookup {
     const lookup = new ParameterIndexExpandingLookup(
       this.resultSetIndex,
+      this.stageIndex,
       this.lookup,
       this.instantiation.map(cloneParameter)
     );
@@ -542,10 +429,6 @@ class LookupStage {
   clone(cloneParameter: CloneParameter): LookupStage {
     return new LookupStage(this.lookups.map((l) => l.clone(cloneParameter)));
   }
-}
-
-interface PendingIntersectionConstraint {
-  inputs: PreparedParameterValue[];
 }
 
 /**
