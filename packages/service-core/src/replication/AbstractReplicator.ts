@@ -440,7 +440,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
    * A rejected configured sync config may still run recovery processing matching the active config.
    * This does not apply when sync config is loaded from the database/API, instead of in the config.
    */
-  private async shouldHandleReplicationStream(
+  protected async shouldHandleReplicationStream(
     replicationStream: storage.PersistedReplicationStream,
     loadedSyncRules: string | undefined,
     loadedVersionLabel: string | undefined,

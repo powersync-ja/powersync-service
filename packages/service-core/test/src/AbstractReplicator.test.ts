@@ -75,7 +75,7 @@ class TestReplicator extends AbstractReplicator {
     loadedVersionLabel: string | undefined,
     invalid = false
   ): Promise<boolean> {
-    return (this as any).shouldHandleReplicationStream(replicationStream, loadedSyncRules, loadedVersionLabel, invalid);
+    return this.shouldHandleReplicationStream(replicationStream, loadedSyncRules, loadedVersionLabel, invalid);
   }
 
   get loggerForTest() {
