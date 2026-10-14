@@ -1172,7 +1172,6 @@ streams:
       /* yaml */ `
         # sync config fixture.
         config: ${edition == null ? '{}' : `{ edition: ${edition} }`}
-        bucket_definitions: {}
         streams: {}
       `,
       { ...PARSE_OPTIONS, throwOnError: true }
