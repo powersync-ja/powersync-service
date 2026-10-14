@@ -26,7 +26,7 @@ export class MSSQLModule extends replication.ReplicationModule<types.MSSQLConnec
 
     return new CDCReplicator({
       id: this.getDefaultId(normalisedConfig.database),
-      loadedSyncConfig: context.loadedSyncConfig,
+      syncConfig: context.configuration.sync_rules,
       storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,

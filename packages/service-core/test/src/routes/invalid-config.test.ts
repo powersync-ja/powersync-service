@@ -1,7 +1,7 @@
 import { getInvalidLocalSyncConfigStatus } from '@/api/diagnostics.js';
 import { BasicRouterRequest, Context, RouterEngine, storage, updateSyncRulesFromYaml } from '@/index.js';
 import { diagnostics } from '@/routes/endpoints/admin.js';
-import { loadSyncConfig } from '@/system/LoadedSyncConfig.js';
+import { loadSyncConfig } from '@/util/config/sync-rules/LoadedSyncConfig.js';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -52,20 +52,28 @@ async function makeContext(content: string, active = true, connected = true) {
   const api = service.routerEngine.getAPI();
   service.routerEngine = new RouterEngine();
   service.routerEngine.registerAPI(api);
-  service.loadedSyncConfig = await loadSyncConfig(service.configuration.sync_rules);
+  service.configuration.sync_rules.loaded = await loadSyncConfig(service.configuration.sync_rules);
   vi.spyOn(api, 'getConnectionStatus').mockResolvedValue({ connected, errors: [], id: 'test_id', uri: 'test' });
   return { context: { service_context: service } as Context, api, persisted };
 }
 
 describe('local invalid config diagnostics', () => {
-  it.each([INVALID_CONFIG, 'streams: ['])('reports fatal errors without persisted status', async (content) => {
-    const loaded = await loadSyncConfig({ present: true, content, exit_on_error: false, version_label: 'local' });
-    const result = getInvalidLocalSyncConfigStatus(loaded, true);
-    expect(result?.content).toBe(content);
-    expect(result?.version_label).toBe('local');
-    expect(result?.connections).toEqual([]);
-    expect(result?.errors).toEqual(expect.arrayContaining([expect.objectContaining({ level: 'fatal' })]));
-  });
+  it.each([INVALID_CONFIG, 'streams: [', '# empty sync config\n'])(
+    'reports fatal errors without persisted status',
+    async (content) => {
+      const loaded = await loadSyncConfig({
+        present: true,
+        content,
+        exit_on_error: false,
+        version_label: 'local'
+      });
+      const result = getInvalidLocalSyncConfigStatus(loaded, true, 'local');
+      expect(result?.content).toBe(content);
+      expect(result?.version_label).toBe('local');
+      expect(result?.connections).toEqual([]);
+      expect(result?.errors).toEqual(expect.arrayContaining([expect.objectContaining({ level: 'fatal' })]));
+    }
+  );
 
   it.each([true, false])(
     'overlays rejected config and preserves active diagnostics (connected=%s)',
@@ -143,7 +151,7 @@ describe('local invalid config diagnostics', () => {
       const path = join(dir, 'sync-config.yaml');
       const config = { present: true, path, exit_on_error: false };
       const loaded = await loadSyncConfig(config);
-      expect(loaded.mode).toBe('unavailable');
+      expect(loaded && 'error' in loaded ? loaded.error : undefined).toBeInstanceOf(Error);
       expect(getInvalidLocalSyncConfigStatus(loaded, true)).toBeUndefined();
       await writeFile(path, INVALID_CONFIG);
       expect(getInvalidLocalSyncConfigStatus(loaded, true)).toBeUndefined();

@@ -18,6 +18,7 @@ import {
 import { Base64SyncRulesCollector } from './sync-rules/impl/base64-sync-rules-collector.js';
 import { FileSystemSyncRulesCollector } from './sync-rules/impl/filesystem-sync-rules-collector.js';
 import { InlineSyncRulesCollector } from './sync-rules/impl/inline-sync-rules-collector.js';
+import { loadSyncConfig } from './sync-rules/LoadedSyncConfig.js';
 import { SyncRulesCollector } from './sync-rules/sync-collector.js';
 import { ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
 
@@ -163,7 +164,7 @@ export class CompoundConfigCollector {
       client_keystore: keyStore,
       api_tokens: baseConfig.api?.tokens ?? [],
       port: baseConfig.port ?? 8080,
-      sync_rules,
+      sync_rules: { ...sync_rules, loaded: await loadSyncConfig(sync_rules) },
       jwt_audiences,
 
       token_max_expiration: '1d', // 1 day
@@ -243,17 +244,11 @@ export class CompoundConfigCollector {
     baseConfig: configFile.PowerSyncConfig,
     runnerConfig: RunnerConfig
   ): Promise<SyncRulesConfig> {
-    if (baseConfig.sync_config?.source == 'api') {
-      if (runnerConfig.sync_config_base64) {
-        throw new Error('sync_config.source api cannot be combined with Base64 sync config');
-      }
-      return { source: 'api', present: false, exit_on_error: true };
-    }
     for (const collector of this.options.syncRulesCollectors) {
       try {
         const config = await collector.collect(baseConfig, runnerConfig);
         if (config) {
-          return { ...config, source: 'config' };
+          return config;
         }
         logger.debug(
           `Could not collect sync config with ${collector.name} method. Moving on to next method if available.`
@@ -265,9 +260,7 @@ export class CompoundConfigCollector {
     }
     return {
       present: false,
-      source: baseConfig.sync_config?.source ?? 'api',
-      exit_on_error: baseConfig.sync_config?.exit_on_error ?? true,
-      version_label: baseConfig.sync_config?.version_label
+      exit_on_error: true
     };
   }
 }

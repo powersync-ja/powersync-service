@@ -7,7 +7,7 @@ import winston from 'winston';
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
 import * as storage from '../storage/storage-index.js';
 import { StorageEngine } from '../storage/storage-index.js';
-import { LoadedSyncConfig } from '../system/LoadedSyncConfig.js';
+import { ResolvedPowerSyncConfig } from '../util/config/types.js';
 import { AbstractReplicationJob } from './AbstractReplicationJob.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { ConnectionTestResult } from './ReplicationModule.js';
@@ -30,7 +30,7 @@ export interface AbstractReplicatorOptions {
   id: string;
   storageEngine: StorageEngine;
   metricsEngine: MetricsEngine;
-  loadedSyncConfig: LoadedSyncConfig;
+  syncConfig: ResolvedPowerSyncConfig['sync_rules'];
   /**
    * This limits the effect of retries when there is a persistent issue.
    */
@@ -149,17 +149,20 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   }
 
   private async runLoop() {
-    const loaded = this.options.loadedSyncConfig;
-    if (loaded.mode == 'unavailable') {
+    const settings = this.options.syncConfig;
+    const loaded = settings.loaded;
+    if (loaded != null && 'error' in loaded) {
+      // The specified sync config could not be loaded
       throw loaded.error;
     }
-    const loadedSyncConfig = loaded.mode == 'configured' ? loaded.config?.yaml : undefined;
-    // A configured instance awaiting its first deployment has no valid local config either.
-    let loadedSyncConfigInvalid = loaded.mode == 'configured' && loaded.config == null;
+
+    // The loaded config does not use the correct default schema, we can use the content
+    const loadedSyncConfig = loaded?.compiled.yaml;
+    let loadedSyncConfigInvalid = false;
 
     let configuredLock: storage.ReplicationLock | undefined = undefined;
-    if (loaded.mode == 'configured' && loaded.config != null) {
-      const versionLabel = loaded.versionLabel;
+    if (loaded != null) {
+      const versionLabel = settings.version_label;
       this.logger.info(`Loaded sync config${versionLabel == null ? '' : ` ${versionLabel}`}`);
       try {
         // Configure new sync config, if they have changed.
@@ -168,7 +171,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         // versions before that check was added, so we keep the lock for now - for where te service version and sync config is updated at
         // the same time.
 
-        const updateOptions = { config: loaded.config, lock: true, version_label: versionLabel };
+        const updateOptions = { config: loaded.compiled, lock: true, version_label: versionLabel };
         storage.logSyncConfigErrors(updateOptions.config.parsed, this.logger);
         /**
          * Retain the context's configured sync config for comparison in the refresh loop.
@@ -186,8 +189,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
          * validation results from the service context.
          */
         loadedSyncConfigInvalid = updateOptions.config.parsed.errors.some((error) => error.type == 'fatal');
-        if (loadedSyncConfigInvalid && loaded.exitOnError) {
-          throw new SyncRulesErrors(loaded.config.parsed.errors);
+        if (loadedSyncConfigInvalid && settings.exit_on_error) {
+          throw new SyncRulesErrors(loaded.compiled.parsed.errors);
         }
         if (!loadedSyncConfigInvalid) {
           const { lock } = await this.storage.configureSyncRules(updateOptions);
@@ -199,10 +202,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         this.logger.error(`Failed to update sync config`, e);
         throw e;
       }
-    } else if (loaded.mode == 'configured') {
-      this.logger.info('No sync config supplied - awaiting a deployment through service configuration');
     } else {
-      this.logger.info('No sync config configured - configure via API');
+      this.logger.info('No sync config loaded - using stored deployments');
     }
     let useFastRefresh = true;
     const fastRefreshDeadline = Date.now() + FAST_REFRESH_TIMEOUT_MS;
@@ -213,7 +214,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           configuredLock,
           loadedSyncConfig,
           loadedSyncConfigInvalid,
-          loadedVersionLabel: loaded.mode == 'configured' ? loaded.versionLabel : undefined
+          loadedVersionLabel: settings.version_label
         });
         if (refreshResult.replicationJobStarted || Date.now() >= fastRefreshDeadline) {
           useFastRefresh = false;
@@ -415,12 +416,12 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     loadedVersionLabel: string | undefined,
     loadedSyncConfigInvalid = false
   ) {
-    if (loadedSyncRules == null && !loadedSyncConfigInvalid) {
-      // In API-managed mode, we handle any replication stream
+    if (loadedSyncRules == null) {
+      // Without loaded content, handle stored deployments regardless of their source.
       return true;
     }
 
-    // This instance uses configured mode; check pending deployment ownership below.
+    // A local config was loaded; check pending deployment ownership below.
     const processingConfig = replicationStream.syncConfigContent.find(
       (syncConfig) => syncConfig.syncConfigState == storage.SyncRuleState.PROCESSING
     );
@@ -431,7 +432,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
     if (loadedSyncConfigInvalid) {
       // Recovery and manual reprocessing may rebuild the active config while this process has
-      // rejected its configured sync config or has not received one yet. Allow that rebuild, but not another instance's unrelated
+      // rejected its configured sync config. Allow that rebuild, but not another instance's unrelated
       // pending deployment. An ERRORED active config still identifies the content being recovered.
       // Manual reprocessing can select a newer storage version, so match config identity only.
       const active = await this.storage.getActiveSyncConfig();

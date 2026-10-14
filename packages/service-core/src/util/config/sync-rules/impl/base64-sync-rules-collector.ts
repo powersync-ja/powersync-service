@@ -8,9 +8,6 @@ export class Base64SyncRulesCollector extends SyncRulesCollector {
   }
 
   async collect(baseConfig: configFile.PowerSyncConfig, runnerConfig: RunnerConfig): Promise<SyncRulesConfig | null> {
-    if (baseConfig.sync_config?.source == 'api') {
-      return null;
-    }
     const { sync_config_base64 } = runnerConfig;
     if (!sync_config_base64) {
       return null;

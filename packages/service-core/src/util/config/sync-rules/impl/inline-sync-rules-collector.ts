@@ -8,9 +8,6 @@ export class InlineSyncRulesCollector extends SyncRulesCollector {
   }
 
   async collect(baseConfig: configFile.PowerSyncConfig): Promise<SyncRulesConfig | null> {
-    if (baseConfig.sync_config?.source == 'api') {
-      return null;
-    }
     const content = baseConfig?.sync_config?.content;
     if (!content) {
       return null;

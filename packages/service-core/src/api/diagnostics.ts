@@ -3,7 +3,7 @@ import { DEFAULT_TAG, SourceTableRef, SyncConfigWithErrors } from '@powersync/se
 import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
-import { LoadedSyncConfig } from '../system/LoadedSyncConfig.js';
+import { LoadedSyncConfig } from '../util/config/sync-rules/LoadedSyncConfig.js';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
 import { RouteAPI, SlotWalBudgetInfo } from './RouteAPI.js';
 
@@ -38,19 +38,20 @@ export const DEFAULT_DATASOURCE_ID = 'default';
  * API-only instances with an unavailable file retain stored diagnostics.
  */
 export function getInvalidLocalSyncConfigStatus(
-  loaded: LoadedSyncConfig,
-  includeContent: boolean
+  loaded: LoadedSyncConfig | undefined,
+  includeContent: boolean,
+  versionLabel?: string
 ): SyncRulesStatus | undefined {
-  if (loaded.mode != 'configured' || loaded.config == null) {
+  if (loaded == null || !('compiled' in loaded)) {
     return undefined;
   }
-  const { parsed, yaml } = loaded.config;
+  const { parsed, yaml } = loaded.compiled;
   if (!parsed.errors.some((error) => error.type == 'fatal')) {
     return undefined;
   }
   const now = new Date().toISOString();
   return {
-    version_label: loaded.versionLabel,
+    version_label: versionLabel,
     content: includeContent ? yaml : undefined,
     connections: [],
     errors: parsed.errors.map((error) => syncConfigYamlErrorToReplicationError(error, now))

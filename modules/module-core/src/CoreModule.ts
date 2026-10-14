@@ -13,7 +13,6 @@ export class CoreModule extends core.modules.AbstractModule {
 
   public async initialize(context: core.ServiceContextContainer): Promise<void> {
     this.configureTags(context);
-    context.loadedSyncConfig = await core.system.loadSyncConfig(context.configuration.sync_rules);
 
     if ([core.system.ServiceContextMode.API, core.system.ServiceContextMode.UNIFIED].includes(context.serviceMode)) {
       // Service should include API routes

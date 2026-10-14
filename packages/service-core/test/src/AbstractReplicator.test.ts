@@ -6,7 +6,7 @@ import { reprocess } from '@/routes/endpoints/admin.js';
 import { reprocessSyncRules } from '@/routes/endpoints/sync-rules.js';
 import { PersistedReplicationStream } from '@/storage/PersistedReplicationStream.js';
 import { SyncRulesBucketStorage } from '@/storage/SyncRulesBucketStorage.js';
-import { LoadedSyncConfig, loadSyncConfig } from '@/system/LoadedSyncConfig.js';
+import { LoadedSyncConfig, loadSyncConfig } from '@/util/config/sync-rules/LoadedSyncConfig.js';
 import { describe, expect, it, vi } from 'vitest';
 import { mockServiceContext } from './routes/mocks.js';
 
@@ -17,7 +17,7 @@ class TestReplicator extends AbstractReplicator {
       id: 'test',
       storageEngine: {} as AbstractReplicatorOptions['storageEngine'],
       metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
-      loadedSyncConfig: { mode: 'api' },
+      syncConfig: { present: false, exit_on_error: true },
       rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
     }
   ) {
@@ -77,7 +77,7 @@ describe('AbstractReplicator heartbeat interval', () => {
     id: 'test',
     storageEngine: {} as AbstractReplicatorOptions['storageEngine'],
     metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
-    loadedSyncConfig: { mode: 'api' },
+    syncConfig: { present: false, exit_on_error: true },
     rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
   };
 
@@ -219,9 +219,16 @@ async function makeStartupReplicator(content: string, exitOnError = false, snaps
     storageEngine: {
       activeBucketStorage: { configureSyncRules, getActiveSyncConfig }
     } as unknown as AbstractReplicatorOptions['storageEngine'],
-    loadedSyncConfig:
-      snapshot ??
-      (await loadSyncConfig({ present: true, content, exit_on_error: exitOnError, version_label: 'local' })),
+    syncConfig: {
+      present: true,
+      content,
+      exit_on_error: exitOnError,
+      version_label: 'local',
+      loaded:
+        arguments.length >= 3
+          ? snapshot
+          : await loadSyncConfig({ present: true, content, exit_on_error: exitOnError, version_label: 'local' })
+    },
     metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
     rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
   });
@@ -229,37 +236,44 @@ async function makeStartupReplicator(content: string, exitOnError = false, snaps
 }
 
 describe('invalid configured sync config', () => {
-  it.each([INVALID_CONFIG, 'streams: ['])('logs and skips rejected YAML without storing it', async (yaml) => {
-    const { replicator, configureSyncRules } = await makeStartupReplicator(yaml);
-    const errors = vi.spyOn(replicator.loggerForTest, 'error');
-    await replicator.runStartupForTest();
-    expect(configureSyncRules).not.toHaveBeenCalled();
-    expect(errors).toHaveBeenCalledWith(expect.stringContaining('Sync config error:'));
-    errors.mockRestore();
-  });
+  it.each([INVALID_CONFIG, 'streams: [', '# empty sync config\n'])(
+    'logs and skips rejected YAML without storing it',
+    async (yaml) => {
+      const { replicator, configureSyncRules } = await makeStartupReplicator(yaml);
+      const errors = vi.spyOn(replicator.loggerForTest, 'error');
+      await replicator.runStartupForTest();
+      expect(configureSyncRules).not.toHaveBeenCalled();
+      expect(errors).toHaveBeenCalledWith(expect.stringContaining('Sync config error:'));
+      errors.mockRestore();
+    }
+  );
 
   it('uses the same compiled snapshot for deployment and diagnostics', async () => {
-    const loaded = await loadSyncConfig({ present: true, content: VALID_CONFIG, exit_on_error: false });
+    const loaded = await loadSyncConfig({
+      present: true,
+      content: VALID_CONFIG,
+      exit_on_error: false
+    });
     const { replicator, configureSyncRules } = await makeStartupReplicator(INVALID_CONFIG, false, loaded);
     await replicator.runStartupForTest();
-    expect(loaded.mode).toBe('configured');
-    if (loaded.mode == 'configured') {
-      expect(configureSyncRules.mock.calls[0][0].config).toBe(loaded.config);
+    expect(loaded != null && 'compiled' in loaded).toBe(true);
+    if (loaded != null && 'compiled' in loaded) {
+      expect(configureSyncRules.mock.calls[0][0].config).toBe(loaded.compiled);
     }
     expect(getInvalidLocalSyncConfigStatus(loaded, true)).toBeUndefined();
   });
 
   it('rejects a file read failure rather than treating it as API mode', async () => {
     const error = new Error('File unavailable');
-    const loaded: LoadedSyncConfig = { mode: 'unavailable', error };
+    const loaded: LoadedSyncConfig = { error };
     const { replicator, configureSyncRules } = await makeStartupReplicator('', false, loaded);
     await expect(replicator.runStartupForTest()).rejects.toBe(error);
     expect(configureSyncRules).not.toHaveBeenCalled();
     expect(getInvalidLocalSyncConfigStatus(loaded, true)).toBeUndefined();
   });
 
-  it('starts before configured content is supplied without accepting unrelated processing', async () => {
-    const loaded = await loadSyncConfig({ source: 'config', present: false, exit_on_error: true });
+  it('accepts stored processing before configured content is supplied', async () => {
+    const loaded = await loadSyncConfig({ present: false, exit_on_error: true });
     const { replicator, configureSyncRules, getActiveSyncConfig } = await makeStartupReplicator('', true, loaded);
     await replicator.runStartupForTest();
     expect(configureSyncRules).not.toHaveBeenCalled();
@@ -270,16 +284,18 @@ describe('invalid configured sync config', () => {
     };
     const stream = { syncConfigContent: [content] } as unknown as PersistedReplicationStream;
     getActiveSyncConfig.mockResolvedValue(null);
-    expect(await replicator.shouldHandleStreamForTest(stream, undefined, undefined, true)).toBe(false);
-    getActiveSyncConfig.mockResolvedValue({ content });
-    expect(await replicator.shouldHandleStreamForTest(stream, undefined, undefined, true)).toBe(true);
+    expect(await replicator.shouldHandleStreamForTest(stream, undefined, undefined)).toBe(true);
+    expect(getActiveSyncConfig).not.toHaveBeenCalled();
   });
 
-  it('still fails startup with exit_on_error enabled', async () => {
-    const { replicator, configureSyncRules } = await makeStartupReplicator(INVALID_CONFIG, true);
-    await expect(replicator.runStartupForTest()).rejects.toThrow();
-    expect(configureSyncRules).not.toHaveBeenCalled();
-  });
+  it.each([INVALID_CONFIG, '# empty sync config\n'])(
+    'still fails startup with exit_on_error enabled',
+    async (content) => {
+      const { replicator, configureSyncRules } = await makeStartupReplicator(content, true);
+      await expect(replicator.runStartupForTest()).rejects.toThrow();
+      expect(configureSyncRules).not.toHaveBeenCalled();
+    }
+  );
 
   it('persists valid config, including warnings', async () => {
     const { replicator, configureSyncRules } = await makeStartupReplicator(VALID_CONFIG);

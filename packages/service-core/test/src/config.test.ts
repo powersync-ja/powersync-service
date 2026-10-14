@@ -1,4 +1,3 @@
-import { loadSyncConfig } from '@/system/LoadedSyncConfig.js';
 // Vitest Unit Tests
 import { CompoundConfigCollector } from '@/index.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -252,8 +251,7 @@ describe('Config', () => {
       config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
     });
 
-    expect(result.sync_rules).toEqual({
-      source: 'config',
+    expect(result.sync_rules).toMatchObject({
       present: true,
       version_label: 'v6',
       exit_on_error: true,
@@ -283,8 +281,7 @@ describe('Config', () => {
       config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
     });
 
-    expect(result.sync_rules).toEqual({
-      source: 'config',
+    expect(result.sync_rules).toMatchObject({
       present: true,
       exit_on_error: true,
       content: expect.stringContaining('edition: 2')
@@ -315,8 +312,7 @@ describe('Config', () => {
       sync_config_base64: Buffer.from(yamlSyncConfig, 'utf-8').toString('base64')
     });
 
-    expect(result.sync_rules).toEqual({
-      source: 'config',
+    expect(result.sync_rules).toMatchObject({
       present: true,
       exit_on_error: true,
       content: expect.stringContaining('edition: 2')
@@ -350,8 +346,8 @@ describe('Config', () => {
   });
 });
 
-const SOURCE_TEST_CONFIG = /* yaml */ `
-  # Config used to test deployment source selection.
+const LOADED_TEST_CONFIG = /* yaml */ `
+  # Config used to test loading during configuration resolution.
   config:
     edition: 3
   streams:
@@ -359,68 +355,68 @@ const SOURCE_TEST_CONFIG = /* yaml */ `
       query: SELECT id FROM todos
 `;
 
-describe('sync config deployment source', () => {
+describe('resolved sync config loading', () => {
   it.each([
-    { name: 'omitted', sync: undefined, base64: false, source: 'api', mode: 'api' },
-    {
-      name: 'implicit file',
-      sync: { path: '/nonexistent-powersync-source-test/sync-config.yaml' },
-      base64: false,
-      source: 'config',
-      mode: 'unavailable'
-    },
-    { name: 'explicit API', sync: { source: 'api' }, base64: false, source: 'api', mode: 'api' },
-    { name: 'empty section', sync: {}, base64: false, source: 'api', mode: 'api' },
-    { name: 'empty section with Base64', sync: {}, base64: true, source: 'config', mode: 'configured' },
-    { name: 'options without content', sync: { exit_on_error: false }, base64: false, source: 'api', mode: 'api' },
-    { name: 'explicit config', sync: { source: 'config' }, base64: false, source: 'config', mode: 'configured' },
-    {
-      name: 'implicit inline',
-      sync: { content: SOURCE_TEST_CONFIG },
-      base64: false,
-      source: 'config',
-      mode: 'configured'
-    },
-    {
-      name: 'explicit inline',
-      sync: { source: 'config', content: SOURCE_TEST_CONFIG },
-      base64: false,
-      source: 'config',
-      mode: 'configured'
-    },
-    { name: 'implicit Base64', sync: undefined, base64: true, source: 'config', mode: 'configured' },
-    { name: 'explicit Base64', sync: { source: 'config' }, base64: true, source: 'config', mode: 'configured' }
-  ])('selects the deployment source for $name', async ({ sync, base64, source, mode }) => {
+    { name: 'omitted', sync: undefined, base64: false, present: false },
+    { name: 'empty section', sync: {}, base64: false, present: false },
+    { name: 'options without content', sync: { exit_on_error: false }, base64: false, present: false },
+    { name: 'inline', sync: { content: LOADED_TEST_CONFIG }, base64: false, present: true },
+    { name: 'Base64', sync: undefined, base64: true, present: true },
+    { name: 'empty section with Base64', sync: {}, base64: true, present: true }
+  ])('loads $name', async ({ sync, base64, present }) => {
     const result = await new CompoundConfigCollector().collectConfig({
       config_base64: Buffer.from(JSON.stringify({ storage: { type: 'mongodb' }, sync_config: sync })).toString(
         'base64'
       ),
-      sync_config_base64: base64 ? Buffer.from(SOURCE_TEST_CONFIG).toString('base64') : undefined
+      sync_config_base64: base64 ? Buffer.from(LOADED_TEST_CONFIG).toString('base64') : undefined
     });
-    expect(result.sync_rules.source).toBe(source);
-    const loaded = await loadSyncConfig(result.sync_rules);
-    expect(loaded.mode).toBe(mode);
-    if (loaded.mode == 'configured') {
-      expect(loaded.config?.yaml).toBe(base64 || (sync && 'content' in sync) ? SOURCE_TEST_CONFIG : undefined);
-      expect(loaded.config?.parsed.errors.filter((error) => error.type == 'fatal') ?? []).toEqual([]);
+    expect(result.sync_rules.present).toBe(present);
+    expect(
+      result.sync_rules.loaded && 'compiled' in result.sync_rules.loaded
+        ? result.sync_rules.loaded.compiled.yaml
+        : undefined
+    ).toBe(present ? LOADED_TEST_CONFIG : undefined);
+    if (!present) {
+      expect(result.sync_rules.loaded).toBeUndefined();
     }
   });
 
-  it.each(['path', 'content', 'version_label', 'exit_on_error', 'base64'])(
-    'rejects API source combined with %s',
-    async (field) => {
-      const sync = {
-        source: 'api',
-        ...(field == 'base64' ? {} : { [field]: field == 'exit_on_error' ? false : 'value' })
-      };
-      await expect(
-        new CompoundConfigCollector().collectConfig({
-          config_base64: Buffer.from(JSON.stringify({ storage: { type: 'mongodb' }, sync_config: sync })).toString(
-            'base64'
-          ),
-          sync_config_base64: field == 'base64' ? Buffer.from(SOURCE_TEST_CONFIG).toString('base64') : undefined
+  it('retains a configured file read failure', async () => {
+    const result = await new CompoundConfigCollector().collectConfig({
+      config_base64: Buffer.from(
+        JSON.stringify({
+          storage: { type: 'mongodb' },
+          sync_config: { path: '/nonexistent-powersync-source-test/sync-config.yaml' }
         })
-      ).rejects.toThrow(/cannot be combined/);
+      ).toString('base64')
+    });
+    expect(result.sync_rules.present).toBe(true);
+    expect(
+      result.sync_rules.loaded && 'error' in result.sync_rules.loaded ? result.sync_rules.loaded.error : undefined
+    ).toBeInstanceOf(Error);
+  });
+});
+
+describe('sync config parser exceptions', () => {
+  it.each([true, false])(
+    'preserves failures during configuration resolution (exit_on_error=%s)',
+    async (exitOnError) => {
+      const content = '# empty sync config\n';
+      const config = await new CompoundConfigCollector().collectConfig({
+        config_base64: Buffer.from(
+          JSON.stringify({ storage: { type: 'mongodb' }, sync_config: { content, exit_on_error: exitOnError } })
+        ).toString('base64')
+      });
+      const loaded = config.sync_rules.loaded;
+      if (loaded == null || !('compiled' in loaded)) {
+        throw new Error('Expected compiled config with validation errors');
+      }
+      expect(loaded.compiled.yaml).toBe(content);
+      expect(loaded.compiled.plan).toBeNull();
+      expect(loaded.compiled.parsed.errors).toEqual(
+        expect.arrayContaining([expect.objectContaining({ type: 'fatal' })])
+      );
+      expect(loaded).not.toHaveProperty('error');
     }
   );
 });
