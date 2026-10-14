@@ -1,14 +1,12 @@
 import { container, logger } from '@powersync/lib-services-framework';
 import winston from 'winston';
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
-import * as storage from '../storage/storage-index.js';
+import type { CreateJobOptions } from './AbstractReplicator.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 
-export interface AbstractReplicationJobOptions {
+export interface AbstractReplicationJobOptions extends CreateJobOptions {
   id: string;
-  storage: storage.SyncRulesBucketStorage;
   metrics: MetricsEngine;
-  lock: storage.ReplicationLock;
   rateLimiter: ErrorRateLimiter;
 }
 

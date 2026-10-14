@@ -1,5 +1,5 @@
 import { container, ErrorCode, logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
-import { SyncRulesErrors } from '@powersync/service-sync-rules';
+import { SqlSyncRules, SyncRulesErrors, type SyncConfig } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -30,7 +30,7 @@ export interface AbstractReplicatorOptions {
   id: string;
   storageEngine: StorageEngine;
   metricsEngine: MetricsEngine;
-  syncConfig: ResolvedPowerSyncConfig['sync_rules'];
+  configuration: Pick<ResolvedPowerSyncConfig, 'sync_rules' | 'connections'>;
   /**
    * This limits the effect of retries when there is a persistent issue.
    */
@@ -74,6 +74,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   private abortController: AbortController | undefined;
 
+  private assertSourceCapabilities: ((config: SyncConfig) => Promise<void>) | undefined;
+
   protected constructor(private options: AbstractReplicatorOptions) {
     this.logger = logger.child({ name: `Replicator:${options.id}` });
     const heartbeatIntervalSeconds = options.heartbeatIntervalSeconds ?? DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
@@ -102,6 +104,13 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     return this.options.storageEngine.activeBucketStorage;
   }
 
+  /**
+   * Default schema for source capability checks. Source modules with a known default override this.
+   */
+  protected get defaultSchema(): string {
+    return 'not_applicable';
+  }
+
   protected get rateLimiter() {
     return this.options.rateLimiter;
   }
@@ -112,6 +121,13 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   protected get stopped() {
     return this.abortController?.signal.aborted;
+  }
+
+  /**
+   * Register an assertion that blocks unsupported file-loaded sync configs before replication.
+   */
+  public registerSourceCapabilitiesAssertion(assertion: (config: SyncConfig) => Promise<void>): void {
+    this.assertSourceCapabilities = assertion;
   }
 
   public async start(): Promise<void> {
@@ -149,7 +165,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   }
 
   private async runLoop() {
-    const settings = this.options.syncConfig;
+    const settings = this.options.configuration.sync_rules;
     const loaded = settings.loaded;
     if (loaded != null && 'error' in loaded) {
       // The specified sync config could not be loaded
@@ -193,12 +209,26 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           throw new SyncRulesErrors(loaded.compiled.parsed.errors);
         }
         if (!loadedSyncConfigInvalid) {
+          // Capability checks need source-qualified tables, unlike the shared base-schema snapshot.
+          const parsed = SqlSyncRules.fromYaml(loaded.compiled.yaml, {
+            defaultSchema: this.defaultSchema,
+            throwOnError: false
+          });
+          try {
+            await this.assertSourceCapabilities?.(parsed.config);
+          } catch (error) {
+            if (settings.exit_on_error) {
+              throw error;
+            }
+            // Runtime capability failures remain inspectable through the stored deployment's
+            // diagnostics; the job-start assertion prevents unsafe replication.
+            this.logger.error('Source capability validation failed for the sync config', error);
+          }
           const { lock } = await this.storage.configureSyncRules(updateOptions);
           configuredLock = lock;
         }
       } catch (e) {
         // Log and re-raise to exit.
-        // Should only reach this due to validation errors if exit_on_error is true.
         this.logger.error(`Failed to update sync config`, e);
         throw e;
       }

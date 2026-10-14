@@ -15,12 +15,19 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
   private lastCursor: mongo.FindCursor | null = null;
   private collection: mongo.Collection;
   private batchSize: number;
+  private readonly filter: mongo.Filter<mongo.Document> | null;
 
-  public constructor(options: { collection: mongo.Collection; batchSize: number; key?: Uint8Array | null }) {
+  public constructor(options: {
+    collection: mongo.Collection;
+    batchSize: number;
+    key?: Uint8Array | null;
+    filter?: mongo.Filter<mongo.Document> | null;
+  }) {
     this.lastKey = options.key ? bson.deserialize(options.key, { useBigInt64: true })._id : null;
     this.lastCursor = null;
     this.collection = options.collection;
     this.batchSize = options.batchSize;
+    this.filter = options.filter ?? null;
   }
 
   async nextChunk(): Promise<
@@ -39,8 +46,14 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
       // any parsing as an operator.
       // Starting in MongoDB 5.0, this filter can use the _id index. Source:
       // https://www.mongodb.com/docs/manual/release-notes/5.0/#general-aggregation-improvements
-      const filter: mongo.Filter<mongo.Document> =
+      const continuationFilter: mongo.Filter<mongo.Document> =
         this.lastKey == null ? {} : { $expr: { $gt: ['$_id', { $literal: this.lastKey }] } };
+      const filter: mongo.Filter<mongo.Document> =
+        this.filter == null
+          ? continuationFilter
+          : this.lastKey == null
+            ? this.filter
+            : { $and: [this.filter, continuationFilter] };
       cursor = this.collection.find(filter, {
         readConcern: 'majority',
         limit: this.batchSize,
@@ -48,7 +61,10 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
         // See https://github.com/mongodb/node-mongodb-native/pull/4580
         batchSize: this.batchSize + 1,
         sort: { _id: 1 },
-        raw: true
+        raw: true,
+        // Replication predicates have stable binary semantics independent of a
+        // collection's default collation.
+        ...(this.filter == null ? {} : { collation: { locale: 'simple' } })
       });
       newCursor = true;
     }

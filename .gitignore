@@ -24,3 +24,6 @@ sync-config.yaml
 packages/*/manifest.json
 
 .clinic
+
+# Local implementation plans
+/plans/

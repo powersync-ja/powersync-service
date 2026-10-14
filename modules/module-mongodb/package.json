@@ -11,7 +11,8 @@
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
     "clean": "rm -rf ./dist && tsc -b --clean",
-    "test": "vitest"
+    "test": "vitest",
+    "benchmark:replication": "vitest run --config vitest.benchmark.config.ts"
   },
   "exports": {
     ".": "./dist/index.js",

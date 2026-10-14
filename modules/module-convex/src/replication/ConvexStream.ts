@@ -29,8 +29,8 @@ import { ConvexConnectionManager } from './ConvexConnectionManager.js';
 import { BinaryConvexSnapshotProgressCursor, decodeSnapshotProgressCursor } from './ConvexSnapshotProgressCursor.js';
 
 export interface ConvexStreamOptions {
-  connections: ConvexConnectionManager;
   storage: storage.SyncRulesBucketStorage;
+  connections: ConvexConnectionManager;
   metrics: MetricsEngine;
   abortSignal: AbortSignal;
   logger?: Logger;

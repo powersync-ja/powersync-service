@@ -17,11 +17,11 @@ When the service lifecycle starts, `ReplicationEngine.start()` starts every regi
 An `AbstractReplicator` is responsible for source-level orchestration. It does not apply individual source rows itself. Instead, it:
 
 1. Uses the sync config snapshot loaded and validated during service configuration resolution.
-2. Persists valid changes through `BucketStorageFactory.configureSyncRules()`. With `exit_on_error: false`, fatal errors are logged and the invalid config is skipped without changing storage.
+2. Checks source capabilities and persists valid changes through `BucketStorageFactory.configureSyncRules()`. With `exit_on_error: false`, fatal errors are logged and the invalid config is skipped without changing storage.
 3. Repeatedly refreshes the set of replication streams that should be running.
 4. Acquires a replication lock for new streams.
 5. Creates a source-specific `AbstractReplicationJob` with the locked `SyncRulesBucketStorage`.
-6. Starts the job.
+6. Starts the job, which delegates initialization, snapshots, and streaming to its source-specific stream helper.
 7. Stops jobs whose replication streams no longer need processing.
 8. Cleans up stopped replication streams by calling source cleanup and then storage termination.
 

@@ -1,7 +1,7 @@
 import { logger } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SyncRulesErrors, YamlError } from '@powersync/service-sync-rules';
-import { CompiledSyncConfig, updateSyncRulesFromYaml } from '../../../storage/BucketStorageFactory.js';
-import type { SyncRulesConfig } from '../types.js';
+import { DEFAULT_TAG, SqlSyncRules, SyncRulesErrors, YamlError } from '@powersync/service-sync-rules';
+import { CompiledSyncConfig, updateSyncRulesFromConfig } from '../../../storage/BucketStorageFactory.js';
+import type { ResolvedPowerSyncConfig, SyncRulesConfig } from '../types.js';
 import { ConfigurationFileSyncRulesProvider } from './sync-rules-provider.js';
 
 /**
@@ -22,7 +22,10 @@ export type LoadedSyncConfig =
     }
   | { error: unknown };
 
-export async function loadSyncConfig(configuration: SyncRulesConfig): Promise<LoadedSyncConfig | undefined> {
+export async function loadSyncConfig(
+  configuration: SyncRulesConfig,
+  connections?: ResolvedPowerSyncConfig['connections']
+): Promise<LoadedSyncConfig | undefined> {
   if (!configuration.present) {
     return undefined;
   }
@@ -39,7 +42,17 @@ export async function loadSyncConfig(configuration: SyncRulesConfig): Promise<Lo
   // Validate independently of source connectivity, and let replication enforce exit_on_error.
   let config: CompiledSyncConfig;
   try {
-    config = updateSyncRulesFromYaml(content, { validate: false }).config;
+    config = updateSyncRulesFromConfig(
+      SqlSyncRules.fromYaml(content, {
+        defaultSchema: 'not_applicable',
+        throwOnError: false,
+        connections:
+          connections &&
+          Object.fromEntries(
+            connections.map((connection) => [connection.tag ?? DEFAULT_TAG, { type: connection.type }])
+          )
+      })
+    ).config;
   } catch (error) {
     // Some malformed inputs throw even with validation disabled. Preserve the rejected YAML
     // and expose the failure through diagnostics, leaving exit_on_error to the replicator.

@@ -164,7 +164,10 @@ export class CompoundConfigCollector {
       client_keystore: keyStore,
       api_tokens: baseConfig.api?.tokens ?? [],
       port: baseConfig.port ?? 8080,
-      sync_rules: { ...sync_rules, loaded: await loadSyncConfig(sync_rules) },
+      sync_rules: {
+        ...sync_rules,
+        loaded: await loadSyncConfig(sync_rules, baseConfig.replication?.connections ?? [])
+      },
       jwt_audiences,
 
       token_max_expiration: '1d', // 1 day

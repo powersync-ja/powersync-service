@@ -1,10 +1,13 @@
 import { getInvalidLocalSyncConfigStatus } from '@/api/diagnostics.js';
+import type { RouteAPI } from '@/api/RouteAPI.js';
+import { assertSourceCapabilities } from '@/api/source-capabilities.js';
 import { BasicRouterRequest, Context, storage } from '@/index.js';
 import { AbstractReplicationJob } from '@/replication/AbstractReplicationJob.js';
 import { AbstractReplicator, AbstractReplicatorOptions, CreateJobOptions } from '@/replication/AbstractReplicator.js';
 import { reprocess } from '@/routes/endpoints/admin.js';
 import { reprocessSyncRules } from '@/routes/endpoints/sync-rules.js';
 import { PersistedReplicationStream } from '@/storage/PersistedReplicationStream.js';
+import type { ReplicationLock } from '@/storage/ReplicationLock.js';
 import { SyncRulesBucketStorage } from '@/storage/SyncRulesBucketStorage.js';
 import { LoadedSyncConfig, loadSyncConfig } from '@/util/config/sync-rules/LoadedSyncConfig.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -17,7 +20,7 @@ class TestReplicator extends AbstractReplicator {
       id: 'test',
       storageEngine: {} as AbstractReplicatorOptions['storageEngine'],
       metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
-      syncConfig: { present: false, exit_on_error: true },
+      configuration: { connections: [], sync_rules: { present: false, exit_on_error: true } },
       rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
     }
   ) {
@@ -51,6 +54,21 @@ class TestReplicator extends AbstractReplicator {
     return (this as any).heartbeatIntervalNanos;
   }
 
+  async runStartupForTest(): Promise<void> {
+    const controller = new AbortController();
+    controller.abort();
+    (this as any).abortController = controller;
+    await (this as any).runLoop();
+  }
+
+  async refreshForTest(configuredLock?: ReplicationLock): Promise<{ replicationJobStarted: boolean }> {
+    (this as any).abortController = new AbortController();
+    return (this as any).refresh({
+      configuredLock,
+      loadedVersionLabel: undefined
+    });
+  }
+
   shouldHandleStreamForTest(
     replicationStream: PersistedReplicationStream,
     loadedSyncRules: string | undefined,
@@ -60,24 +78,185 @@ class TestReplicator extends AbstractReplicator {
     return (this as any).shouldHandleReplicationStream(replicationStream, loadedSyncRules, loadedVersionLabel, invalid);
   }
 
-  async runStartupForTest() {
-    const controller = new AbortController();
-    controller.abort();
-    (this as any).abortController = controller;
-    await (this as any).runLoop();
-  }
-
   get loggerForTest() {
     return this.logger;
   }
 }
+
+describe('AbstractReplicator startup sync config', () => {
+  it.each([true, false])('respects exit_on_error=%s for unsupported file-loaded filters', async (exitOnError) => {
+    const yaml = /* yaml */ `
+      # sync config fixture.
+      config:
+        edition: 3
+        source_table_options:
+          orders:
+            mongodb_filter_expression: { $eq: ['$$doc.active', true] }
+      streams:
+        orders:
+          query: SELECT * FROM orders
+    `;
+    const configureSyncRules = vi.fn(
+      async (_options: import('@/storage/BucketStorageFactory.js').UpdateSyncRulesOptions) => ({ updated: false })
+    );
+    const replicator = new TestReplicator(async () => {}, {
+      id: 'test',
+      storageEngine: {
+        activeBucketStorage: { configureSyncRules }
+      } as unknown as AbstractReplicatorOptions['storageEngine'],
+      configuration: {
+        connections: [],
+        sync_rules: {
+          present: true,
+          exit_on_error: exitOnError,
+          loaded: await loadSyncConfig({ present: true, content: yaml, exit_on_error: exitOnError }, [
+            { type: 'postgresql' }
+          ])
+        }
+      },
+      metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
+      rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
+    });
+    const loaded = (replicator as any).options.configuration.sync_rules.loaded;
+    expect(getInvalidLocalSyncConfigStatus(loaded, true)?.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: 'fatal',
+          message: expect.stringContaining('only supported by MongoDB sources')
+        })
+      ])
+    );
+    if (exitOnError) {
+      await expect(replicator.runStartupForTest()).rejects.toThrow('only supported by MongoDB sources');
+      expect(configureSyncRules).not.toHaveBeenCalled();
+    } else {
+      await expect(replicator.runStartupForTest()).resolves.toBeUndefined();
+      expect(configureSyncRules).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(
+    [true, false].flatMap((exitOnError) =>
+      (['warning', 'valid', 'unexpected error'] as const).map((result) => ({ exitOnError, result }))
+    )
+  )(
+    'checks source capabilities before persistence: $result, exit_on_error=$exitOnError',
+    async ({ result, exitOnError }) => {
+      const yaml = /* yaml */ `
+        # sync config fixture.
+        config:
+          edition: 3
+        streams:
+          orders:
+            query: SELECT * FROM orders
+      `;
+      const calls: string[] = [];
+      const configureSyncRules = vi.fn(async () => {
+        calls.push('persist');
+        return { updated: false };
+      });
+      const replicator = new TestReplicator(async () => {}, {
+        id: 'test',
+        storageEngine: {
+          activeBucketStorage: { configureSyncRules }
+        } as unknown as AbstractReplicatorOptions['storageEngine'],
+        configuration: {
+          connections: [],
+          sync_rules: {
+            present: true,
+            exit_on_error: exitOnError,
+            loaded: await loadSyncConfig({ present: true, content: yaml, exit_on_error: exitOnError }, [
+              { type: 'postgresql' }
+            ])
+          }
+        },
+        metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
+        rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
+      });
+      replicator.registerSourceCapabilitiesAssertion((config) =>
+        assertSourceCapabilities(
+          {
+            async validateSourceCapabilities() {
+              calls.push('validate');
+              if (result === 'unexpected error') {
+                throw new Error('Source validation failed');
+              }
+              return result === 'warning' ? [{ level: 'warning', message: 'Missing index' }] : [];
+            }
+          } as unknown as RouteAPI,
+          config
+        )
+      );
+
+      if (result === 'unexpected error' && exitOnError) {
+        await expect(replicator.runStartupForTest()).rejects.toThrow('Source validation failed');
+        expect(calls).toEqual(['validate']);
+      } else {
+        await replicator.runStartupForTest();
+        expect(calls).toEqual(['validate', 'persist']);
+      }
+    }
+  );
+
+  it.each([true, false])('retains source-table options with exit_on_error=%s', async (exitOnError) => {
+    const yaml = /* yaml */ `
+      {
+        config: { edition: 3, source_table_options: { orders: { mongodb_filter_expression: 'disabled' } } },
+        streams: { orders: { query: SELECT * FROM orders } }
+      }
+    `;
+    const configureSyncRules = vi.fn(async () => ({ updated: false }));
+    const replicator = new TestReplicator(async () => {}, {
+      id: 'test',
+      storageEngine: {
+        activeBucketStorage: { configureSyncRules }
+      } as unknown as AbstractReplicatorOptions['storageEngine'],
+      configuration: {
+        connections: [],
+        sync_rules: {
+          present: true,
+          exit_on_error: exitOnError,
+          version_label: 'v2',
+          loaded: await loadSyncConfig({ present: true, content: yaml, exit_on_error: exitOnError })
+        }
+      },
+      metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
+      rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
+    });
+
+    await replicator.runStartupForTest();
+
+    expect(configureSyncRules).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        lock: true,
+        version_label: 'v2',
+        config: expect.objectContaining({
+          parsed: expect.objectContaining({
+            errors: [],
+            config: expect.objectContaining({
+              plan: expect.objectContaining({
+                sourceTableConfig: { orders: { mongodb_filter_expression: 'disabled' } }
+              })
+            })
+          }),
+          plan: expect.objectContaining({
+            plan: expect.objectContaining({
+              version: 3,
+              sourceTableConfig: { orders: { mongodb_filter_expression: 'disabled' } }
+            })
+          })
+        })
+      })
+    );
+  });
+});
 
 describe('AbstractReplicator heartbeat interval', () => {
   const options: AbstractReplicatorOptions = {
     id: 'test',
     storageEngine: {} as AbstractReplicatorOptions['storageEngine'],
     metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
-    syncConfig: { present: false, exit_on_error: true },
+    configuration: { connections: [], sync_rules: { present: false, exit_on_error: true } },
     rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
   };
 
@@ -219,15 +398,18 @@ async function makeStartupReplicator(content: string, exitOnError = false, snaps
     storageEngine: {
       activeBucketStorage: { configureSyncRules, getActiveSyncConfig }
     } as unknown as AbstractReplicatorOptions['storageEngine'],
-    syncConfig: {
-      present: true,
-      content,
-      exit_on_error: exitOnError,
-      version_label: 'local',
-      loaded:
-        arguments.length >= 3
-          ? snapshot
-          : await loadSyncConfig({ present: true, content, exit_on_error: exitOnError, version_label: 'local' })
+    configuration: {
+      connections: [],
+      sync_rules: {
+        present: true,
+        content,
+        exit_on_error: exitOnError,
+        version_label: 'local',
+        loaded:
+          arguments.length >= 3
+            ? snapshot
+            : await loadSyncConfig({ present: true, content, exit_on_error: exitOnError, version_label: 'local' })
+      }
     },
     metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
     rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
