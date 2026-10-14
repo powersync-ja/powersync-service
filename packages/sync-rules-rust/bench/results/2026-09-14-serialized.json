@@ -1,0 +1,387 @@
+{
+  "generatedAt": "2026-09-14T12:54:26.112Z",
+  "node": "v24.18.1",
+  "nodeSqlite": "3.53.1",
+  "rustSqlite": "3.51.3",
+  "platform": "linux",
+  "arch": "x64",
+  "cpu": "AMD Ryzen 9 7900X 12-Core Processor",
+  "cpuCount": 24,
+  "rowCount": 10000,
+  "iterations": 7,
+  "batchSize": 1000,
+  "scope": "Source row evaluation including Node/native boundary, projections, bucket names, parameter indexes and data payload JSON; excludes config compilation, source conversion, checksums and storage.",
+  "results": [
+    {
+      "scenario": "passthrough",
+      "implementation": "js-plain",
+      "medianMs": 35.499898999999914,
+      "rowsPerSecond": 281691,
+      "samplesMs": [
+        36.85018000000002, 35.499898999999914, 35.1998779999999, 39.30316300000004, 39.059181999999964,
+        33.547747999999956, 33.117697000000135
+      ]
+    },
+    {
+      "scenario": "passthrough",
+      "implementation": "js-sqlite",
+      "medianMs": 38.83639100000005,
+      "rowsPerSecond": 257490,
+      "samplesMs": [
+        39.40698199999997, 38.83639100000005, 37.049661000000015, 39.71455200000014, 35.698048999999855,
+        39.33435200000008, 34.96601899999996
+      ]
+    },
+    {
+      "scenario": "passthrough",
+      "implementation": "rust-sync",
+      "medianMs": 60.10819900000001,
+      "rowsPerSecond": 166367,
+      "samplesMs": [
+        66.79745500000001, 60.10819900000001, 63.74604199999999, 60.09115900000006, 58.73953800000004,
+        59.30444800000009, 63.3001720000002
+      ]
+    },
+    {
+      "scenario": "passthrough",
+      "implementation": "rust-async",
+      "medianMs": 66.09869400000025,
+      "rowsPerSecond": 151289,
+      "samplesMs": [
+        69.44156700000008, 66.70395499999995, 63.20957199999998, 66.82811399999991, 64.37434299999995,
+        66.09869400000025, 61.68029999999999
+      ]
+    },
+    {
+      "scenario": "projection-filter",
+      "implementation": "js-plain",
+      "medianMs": 18.17971499999976,
+      "rowsPerSecond": 550064,
+      "samplesMs": [
+        17.559553999999935, 17.880063999999948, 20.590725999999904, 22.04860800000006, 18.17971499999976,
+        17.944934000000103, 22.225728999999774
+      ]
+    },
+    {
+      "scenario": "projection-filter",
+      "implementation": "js-sqlite",
+      "medianMs": 23.087949000000208,
+      "rowsPerSecond": 433126,
+      "samplesMs": [
+        23.174368999999842, 21.109947999999804, 25.851301999999578, 23.8987189999998, 23.044848999999886,
+        20.83458699999983, 23.087949000000208
+      ]
+    },
+    {
+      "scenario": "projection-filter",
+      "implementation": "rust-sync",
+      "medianMs": 33.05467700000008,
+      "rowsPerSecond": 302529,
+      "samplesMs": [
+        32.63344700000016, 33.221056999999746, 35.461819000000105, 33.05467700000008, 32.9419469999998,
+        32.75434700000005, 35.56937999999991
+      ]
+    },
+    {
+      "scenario": "projection-filter",
+      "implementation": "rust-async",
+      "medianMs": 37.321230000000014,
+      "rowsPerSecond": 267944,
+      "samplesMs": [
+        37.321230000000014, 36.516489999999976, 38.117011999999704, 38.124240999999984, 36.32897000000003,
+        37.017159999999876, 40.26153199999999
+      ]
+    },
+    {
+      "scenario": "json",
+      "implementation": "js-plain",
+      "medianMs": 54.71395500000017,
+      "rowsPerSecond": 182769,
+      "samplesMs": [
+        58.225618000000395, 50.33298100000047, 48.81045999999969, 55.5491549999997, 54.71395500000017, 47.1156289999999,
+        54.92104500000005
+      ]
+    },
+    {
+      "scenario": "json",
+      "implementation": "js-sqlite",
+      "medianMs": 28.35796300000038,
+      "rowsPerSecond": 352635,
+      "samplesMs": [
+        27.469261999999617, 26.605091999999786, 28.166783000000578, 29.14997399999993, 28.35796300000038,
+        29.769345000000612, 29.3543039999995
+      ]
+    },
+    {
+      "scenario": "json",
+      "implementation": "rust-sync",
+      "medianMs": 35.98135000000002,
+      "rowsPerSecond": 277922,
+      "samplesMs": [
+        35.98135000000002, 39.78845199999978, 35.651020000000244, 36.51129999999921, 35.87260900000001,
+        35.03889799999979, 37.47613000000001
+      ]
+    },
+    {
+      "scenario": "json",
+      "implementation": "rust-async",
+      "medianMs": 38.81601200000023,
+      "rowsPerSecond": 257626,
+      "samplesMs": [
+        40.77161299999989, 37.52459099999942, 36.31380900000022, 39.88307299999997, 38.81601200000023,
+        38.62873200000013, 41.271544000000176
+      ]
+    },
+    {
+      "scenario": "native-functions",
+      "implementation": "js-plain",
+      "medianMs": 39.33544299999994,
+      "rowsPerSecond": 254224,
+      "samplesMs": [
+        38.41989199999989, 38.1030609999998, 40.70191299999988, 43.42685600000004, 38.47255199999927, 39.33544299999994,
+        40.960353999999825
+      ]
+    },
+    {
+      "scenario": "native-functions",
+      "implementation": "js-sqlite",
+      "medianMs": 51.63704200000029,
+      "rowsPerSecond": 193659,
+      "samplesMs": [
+        50.93040099999962, 51.699892999999975, 52.00336299999981, 51.62994199999957, 51.12860199999977,
+        51.63704200000029, 56.173445999999785
+      ]
+    },
+    {
+      "scenario": "native-functions",
+      "implementation": "rust-sync",
+      "medianMs": 46.55715799999962,
+      "rowsPerSecond": 214790,
+      "samplesMs": [
+        46.030917999999474, 46.00946699999986, 49.286699999999655, 46.55715799999962, 49.42336999999952,
+        45.88097800000014, 46.86660800000027
+      ]
+    },
+    {
+      "scenario": "native-functions",
+      "implementation": "rust-async",
+      "medianMs": 50.103341,
+      "rowsPerSecond": 199587,
+      "samplesMs": [
+        50.103341, 49.48283100000026, 51.995042999999896, 49.19560000000001, 49.827220999999554, 50.87506099999973,
+        50.4744210000008
+      ]
+    },
+    {
+      "scenario": "bucket-fanout",
+      "implementation": "js-plain",
+      "medianMs": 135.43185099999937,
+      "rowsPerSecond": 73838,
+      "samplesMs": [
+        142.2963779999991, 145.4162320000014, 133.8036000000011, 135.17920100000083, 138.76614400000108,
+        128.41150599999855, 135.43185099999937
+      ]
+    },
+    {
+      "scenario": "bucket-fanout",
+      "implementation": "js-sqlite",
+      "medianMs": 131.31088799999998,
+      "rowsPerSecond": 76155,
+      "samplesMs": [
+        133.11042999999881, 132.41260900000088, 125.09076300000015, 122.78502099999969, 131.63086699999985,
+        131.31088799999998, 128.19283499999983
+      ]
+    },
+    {
+      "scenario": "bucket-fanout",
+      "implementation": "rust-sync",
+      "medianMs": 133.143739000001,
+      "rowsPerSecond": 75107,
+      "samplesMs": [
+        134.5521719999997, 132.83172999999988, 131.86620799999946, 134.03028000000086, 127.45033500000136,
+        135.482340999999, 133.143739000001
+      ]
+    },
+    {
+      "scenario": "bucket-fanout",
+      "implementation": "rust-async",
+      "medianMs": 135.30109100000118,
+      "rowsPerSecond": 73909,
+      "samplesMs": [
+        130.81103799999983, 132.69835000000057, 129.96787600000062, 136.09213099999943, 148.9332119999999,
+        135.30109100000118, 135.69812199999978
+      ]
+    },
+    {
+      "scenario": "many-queries",
+      "implementation": "js-plain",
+      "medianMs": 113.03576299999986,
+      "rowsPerSecond": 88468,
+      "samplesMs": [
+        109.48854000000028, 113.03576299999986, 119.95037899999807, 110.51683100000082, 119.0848479999986,
+        109.31897000000026, 116.72851600000286
+      ]
+    },
+    {
+      "scenario": "many-queries",
+      "implementation": "js-sqlite",
+      "medianMs": 123.56030200000168,
+      "rowsPerSecond": 80932,
+      "samplesMs": [
+        121.37222999999904, 131.15665799999988, 123.2310209999996, 125.36010299999907, 119.73608800000147,
+        123.56030200000168, 124.89712300000247
+      ]
+    },
+    {
+      "scenario": "many-queries",
+      "implementation": "rust-sync",
+      "medianMs": 110.95663100000093,
+      "rowsPerSecond": 90125,
+      "samplesMs": [
+        110.95663100000093, 112.36171200000172, 111.32711200000267, 106.93183800000043, 111.91108199999871,
+        106.69775699999809, 109.457910000001
+      ]
+    },
+    {
+      "scenario": "many-queries",
+      "implementation": "rust-async",
+      "medianMs": 112.96717300000091,
+      "rowsPerSecond": 88521,
+      "samplesMs": [
+        111.37564199999906, 113.04306300000098, 113.9647530000002, 111.13471200000276, 112.96717300000091,
+        110.15524099999675, 113.1829429999998
+      ]
+    },
+    {
+      "scenario": "parameter-index",
+      "implementation": "js-plain",
+      "medianMs": 13.030510000000504,
+      "rowsPerSecond": 767430,
+      "samplesMs": [
+        12.541980000001786, 14.2602020000013, 13.030510000000504, 10.288218000001507, 17.612245000000257,
+        10.397009000000253, 14.245562000000064
+      ]
+    },
+    {
+      "scenario": "parameter-index",
+      "implementation": "js-sqlite",
+      "medianMs": 14.558422000001883,
+      "rowsPerSecond": 686888,
+      "samplesMs": [
+        13.851140999999188, 14.558422000001883, 14.372292000000016, 16.483603999997285, 13.311331000000791,
+        18.928665999999794, 18.17766499999925
+      ]
+    },
+    {
+      "scenario": "parameter-index",
+      "implementation": "rust-sync",
+      "medianMs": 34.266028999998525,
+      "rowsPerSecond": 291834,
+      "samplesMs": [
+        34.266028999998525, 35.86988900000142, 30.569064999999682, 32.165445999999065, 35.5120190000016,
+        30.32559400000173, 35.534568999999465
+      ]
+    },
+    {
+      "scenario": "parameter-index",
+      "implementation": "rust-async",
+      "medianMs": 34.78745899999922,
+      "rowsPerSecond": 287460,
+      "samplesMs": [
+        36.80427000000054, 33.67403800000102, 34.78745899999922, 38.29255199999898, 32.72893699999986,
+        38.65721199999825, 34.01869799999986
+      ]
+    },
+    {
+      "scenario": "parameter-expansion",
+      "implementation": "js-plain",
+      "medianMs": 29.347954000000755,
+      "rowsPerSecond": 340739,
+      "samplesMs": [
+        33.73461699999825, 32.386225999998715, 26.497652000001835, 29.347954000000755, 31.95167599999695,
+        27.363452999998117, 25.852811000000656
+      ]
+    },
+    {
+      "scenario": "parameter-expansion",
+      "implementation": "js-sqlite",
+      "medianMs": 28.823734000001423,
+      "rowsPerSecond": 346936,
+      "samplesMs": [
+        28.823734000001423, 33.070246999999654, 27.711291999999958, 25.463480999998865, 27.72529299999951,
+        32.14310699999987, 30.28594499999963
+      ]
+    },
+    {
+      "scenario": "parameter-expansion",
+      "implementation": "rust-sync",
+      "medianMs": 61.81527100000312,
+      "rowsPerSecond": 161772,
+      "samplesMs": [
+        57.83807799999704, 64.94906400000036, 60.883780000000115, 61.81527100000312, 62.233470999999554,
+        63.196812000001955, 59.851738999997906
+      ]
+    },
+    {
+      "scenario": "parameter-expansion",
+      "implementation": "rust-async",
+      "medianMs": 64.6074529999969,
+      "rowsPerSecond": 154781,
+      "samplesMs": [
+        63.57578199999989, 66.39448500000071, 62.30452199999854, 64.95204399999784, 69.13418699999966,
+        63.210832000000664, 64.6074529999969
+      ]
+    }
+  ],
+  "nativeExecution": [
+    {
+      "scenario": "passthrough",
+      "executionMs": 112.223602,
+      "resultCount": 70000,
+      "rowsPerSecond": 623755
+    },
+    {
+      "scenario": "projection-filter",
+      "executionMs": 71.669889,
+      "resultCount": 52500,
+      "rowsPerSecond": 976700
+    },
+    {
+      "scenario": "json",
+      "executionMs": 104.673386,
+      "resultCount": 70000,
+      "rowsPerSecond": 668747
+    },
+    {
+      "scenario": "native-functions",
+      "executionMs": 158.48022,
+      "resultCount": 70000,
+      "rowsPerSecond": 441695
+    },
+    {
+      "scenario": "bucket-fanout",
+      "executionMs": 388.35510899999997,
+      "resultCount": 280000,
+      "rowsPerSecond": 180247
+    },
+    {
+      "scenario": "many-queries",
+      "executionMs": 402.71221099999997,
+      "resultCount": 364000,
+      "rowsPerSecond": 173821
+    },
+    {
+      "scenario": "parameter-index",
+      "executionMs": 41.547684000000004,
+      "resultCount": 70000,
+      "rowsPerSecond": 1684811
+    },
+    {
+      "scenario": "parameter-expansion",
+      "executionMs": 114.350064,
+      "resultCount": 70000,
+      "rowsPerSecond": 612155
+    }
+  ],
+  "sink": 5531500
+}
