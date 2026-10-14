@@ -3,7 +3,7 @@ import { framework, PowerSyncMigrationManager, ServiceContext, TestStorageOption
 import { PostgresMigrationAgent } from '../migrations/PostgresMigrationAgent.js';
 import { PostgresBucketStorageFactory } from '../storage/PostgresBucketStorageFactory.js';
 import { PostgresReportStorage } from '../storage/PostgresReportStorage.js';
-import { normalizePostgresStorageConfig, PostgresStorageConfigDecoded } from '../types/types.js';
+import { normalizePostgresStorageConfig, OperationBatchLimits, PostgresStorageConfigDecoded } from '../types/types.js';
 import { truncateTables } from './db.js';
 
 export type PostgresTestStorageOptions = {
@@ -14,13 +14,19 @@ export type PostgresTestStorageOptions = {
    * This allows for providing a custom PostgresMigrationAgent.
    */
   migrationAgent?: (config: PostgresStorageConfigDecoded) => PostgresMigrationAgent;
+
+  /**
+   * Override the default batch limits for the storage factory.
+   */
+  batchLimits?: OperationBatchLimits;
 };
 
 export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
   const BASE_CONFIG = {
     type: 'postgresql' as const,
     uri: factoryOptions.url,
-    sslmode: 'disable' as const
+    sslmode: 'disable' as const,
+    batch_limits: factoryOptions.batchLimits
   };
 
   const TEST_CONNECTION_OPTIONS = normalizePostgresStorageConfig(BASE_CONFIG);
