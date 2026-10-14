@@ -13,6 +13,7 @@ import { internal_routes } from '@powersync/service-types';
 import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules';
 import * as api from '../../api/api-index.js';
 import * as storage from '../../storage/storage-index.js';
+import { POWERSYNC_VERSION } from '../../util/version.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -58,19 +59,28 @@ export const diagnostics = routeDefinition({
     const { context } = payload;
     const { service_context } = context;
     const include_content = payload.params.sync_rules_content ?? false;
+    const serviceResponse = {
+      service: {
+        version: POWERSYNC_VERSION
+      }
+    };
 
     const apiHandler = service_context.routerEngine.getAPI();
 
     const status = await apiHandler.getConnectionStatus();
     if (!status) {
       return internal_routes.DiagnosticsResponse.encode({
+        ...serviceResponse,
         connections: []
       });
     }
 
     const {
-      storageEngine: { activeBucketStorage }
+      storageEngine: { activeBucketStorage },
+      configuration: { sync_rules }
     } = service_context;
+
+    const sync_config_mode = sync_rules.present ? 'file' : 'api';
     const active = await activeBucketStorage.getActiveSyncConfig();
     const deploying = await activeBucketStorage.getDeployingSyncConfig();
 
@@ -102,6 +112,7 @@ export const diagnostics = routeDefinition({
           );
 
     return internal_routes.DiagnosticsResponse.encode({
+      ...serviceResponse,
       connections: [
         {
           ...status,
@@ -110,7 +121,8 @@ export const diagnostics = routeDefinition({
         }
       ],
       active_sync_rules: active_status,
-      deploying_sync_rules: deploying_status
+      deploying_sync_rules: deploying_status,
+      sync_config_mode
     });
   }
 });
