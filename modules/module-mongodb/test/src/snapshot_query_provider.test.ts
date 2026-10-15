@@ -7,7 +7,11 @@ import { describeWithStorage } from './util.js';
 
 describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB snapshot query provider', () => {
   describeWithStorage({ timeout: 30_000 }, ({ factory, storageVersion }) => {
-    test.each([false, true])('pages snapshots with an expression filter: %s', async (filtered) => {
+    test.each([
+      { filtered: false, retryUnknown: false },
+      { filtered: true, retryUnknown: false },
+      { filtered: true, retryUnknown: true }
+    ])('pages snapshots: %j', async ({ filtered, retryUnknown }) => {
       // Run the same snapshot with and without a provider predicate. The filtered case selects even
       // ids between 2 and 12 whose label is exactly 'live'; null must preserve the full snapshot.
       const getSnapshotFilter = vi.fn(() =>
@@ -57,9 +61,14 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB snapshot quer
       const count = vi.spyOn(mongo.Collection.prototype, 'countDocuments');
       const metadata = vi.spyOn(mongo.Collection.prototype, 'estimatedDocumentCount');
       try {
+        if (retryUnknown) {
+          // Leave the queued estimate unknown, then let the snapshot retry against the real source.
+          count.mockRejectedValueOnce(new Error('count unavailable'));
+          metadata.mockRejectedValueOnce(new Error('metadata unavailable'));
+        }
         await context.replicateSnapshot();
-        expect(count).toHaveBeenCalledTimes(filtered ? 1 : 0);
-        expect(metadata).toHaveBeenCalledTimes(filtered ? 0 : 2);
+        expect(count).toHaveBeenCalledTimes(retryUnknown ? 2 : filtered ? 1 : 0);
+        expect(metadata).toHaveBeenCalledTimes(retryUnknown ? 1 : filtered ? 0 : 2);
       } finally {
         count.mockRestore();
         metadata.mockRestore();
