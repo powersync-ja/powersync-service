@@ -477,7 +477,11 @@ export class MongoSnapshotter {
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
     const filter = this.queryProvider.getSnapshotFilter(table);
-    const totalEstimatedCount = await this.estimatedCountNumber(table, filter);
+    // Reuse the estimate recorded while queueing the initial snapshot, including an unknown total (-1),
+    // to avoid repeating a potentially expensive count and sample before copying rows. Tables discovered
+    // during streaming have no recorded estimate and still need one here.
+    const totalEstimatedCount =
+      table.snapshotStatus?.totalEstimatedCount ?? (await this.estimatedCountNumber(table, filter));
     let at = table.snapshotStatus?.replicatedCount ?? 0;
     const collection = this.client.db(table.schema).collection(table.name);
     await using query = new ChunkedSnapshotQuery({
