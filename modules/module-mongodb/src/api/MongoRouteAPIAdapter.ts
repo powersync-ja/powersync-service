@@ -4,7 +4,7 @@ import { api, ParseSyncConfigOptions, ReplicationHeadCallback } from '@powersync
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
-import { logger } from '@powersync/lib-services-framework';
+import { ErrorCode, logger } from '@powersync/lib-services-framework';
 import { CheckpointImplementation } from '../replication/checkpoints/CheckpointImplementation.js';
 import { createCheckpointImplementation } from '../replication/checkpoints/create-checkpoint-implementation.js';
 import { MongoManager } from '../replication/MongoManager.js';
@@ -35,8 +35,32 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
 
   getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
-      defaultSchema: this.defaultSchema
+      defaultSchema: this.defaultSchema,
+      connections: { [this.connectionTag]: { type: this.config.type } }
     };
+  }
+
+  async validateSourceCapabilities(config: sync_rules.SyncConfig): Promise<service_types.ValidationDiagnostic[]> {
+    return this.validateMongoFilters(config);
+  }
+
+  /**
+   * Validate MongoDB pre-filtering support. External modules can override this method to account for
+   * their plan parameters and filter capabilities while retaining other source-capability checks.
+   */
+  protected async validateMongoFilters(config: sync_rules.SyncConfig): Promise<service_types.ValidationDiagnostic[]> {
+    const filtered = sync_rules.hasMongoFilterExpressions(
+      config instanceof sync_rules.PrecompiledSyncConfig ? (config.plan.sourceTableConfig ?? {}) : {},
+      this.connectionTag
+    );
+    return filtered
+      ? [
+          {
+            level: 'fatal',
+            message: `[${ErrorCode.PSYNC_S1348}] MongoDB replication pre-filtering is not supported in the Open Edition.`
+          }
+        ]
+      : [];
   }
 
   async shutdown(): Promise<void> {

@@ -36,6 +36,7 @@ export class MSSQLModule extends replication.ReplicationModule<types.MSSQLConnec
       id: this.getDefaultId(normalisedConfig.database),
       syncRuleProvider: syncRuleProvider,
       storageEngine: context.storageEngine,
+      configuration: context.configuration,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
       rateLimiter: new MSSQLErrorRateLimiter(),

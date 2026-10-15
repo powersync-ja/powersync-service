@@ -51,8 +51,8 @@ import { MSSQLTableReconciliationState } from './MSSQLTableReconciliationContext
 import { SchemaChange, SchemaChangeType } from './SchemaChange.js';
 
 export interface CDCStreamOptions {
-  connections: MSSQLConnectionManager;
   storage: storage.SyncRulesBucketStorage;
+  connections: MSSQLConnectionManager;
   metrics: MetricsEngine;
   abortSignal: AbortSignal;
   logger?: Logger;
