@@ -16,6 +16,7 @@ import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { CheckpointImplementation } from './checkpoints/CheckpointImplementation.js';
 import { createCheckpointImplementation } from './checkpoints/create-checkpoint-implementation.js';
+import { estimateFilteredSnapshotCount } from './estimateFilteredSnapshotCount.js';
 import { MongoManager } from './MongoManager.js';
 import { getMongoRelation } from './MongoRelation.js';
 import {
@@ -581,12 +582,16 @@ export class MongoSnapshotter {
     table: storage.SourceTable,
     filter = this.queryProvider.getSnapshotFilter(table)
   ): Promise<number> {
-    // Collection metadata cannot estimate a filtered result. An exact count could require another
-    // expensive scan, so use the shared unknown-total sentinel and report only the replicated count.
+    const collection = this.client.db(table.schema).collection(table.name);
     if (filter != null) {
-      return -1;
+      return await estimateFilteredSnapshotCount({
+        collection,
+        filter,
+        signal: this.abortSignal,
+        logger: this.logger
+      });
     }
-    return await this.client.db(table.schema).collection(table.name).estimatedDocumentCount();
+    return await collection.estimatedDocumentCount();
   }
 
   private async getCollectionInfo(db: string, name: string): Promise<mongo.CollectionInfo | undefined> {
