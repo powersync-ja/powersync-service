@@ -2,4 +2,4 @@
 '@powersync/service-types': minor
 ---
 
-Add `sync_config_mode` and `ServiceInfo` to `DiagnosticsResponse`.
+Add `sync_config_source` and `ServiceInfo` to `DiagnosticsResponse`.
