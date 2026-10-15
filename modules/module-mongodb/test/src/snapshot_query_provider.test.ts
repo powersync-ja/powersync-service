@@ -55,11 +55,14 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB snapshot quer
         Array.from({ length: 14 }, (_, i) => ({ _id: i + 1, label: (i + 1) % 3 == 0 ? 'LIVE' : 'live' }))
       );
       const count = vi.spyOn(mongo.Collection.prototype, 'countDocuments');
+      const metadata = vi.spyOn(mongo.Collection.prototype, 'estimatedDocumentCount');
       try {
         await context.replicateSnapshot();
         expect(count).toHaveBeenCalledTimes(filtered ? 1 : 0);
+        expect(metadata).toHaveBeenCalledTimes(filtered ? 0 : 2);
       } finally {
         count.mockRestore();
+        metadata.mockRestore();
       }
       const rows = (await context.getBucketData('global|0[]')).filter((op) => op.op == 'PUT');
       // Matching ids 4, 8 and 10 require two pages at a page size of two. After the first page ends
