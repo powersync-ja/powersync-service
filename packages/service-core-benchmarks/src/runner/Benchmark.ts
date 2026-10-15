@@ -30,7 +30,6 @@ export abstract class Benchmark<Scenario extends BenchmarkScenario, RunContext, 
       environment: {},
       iterations: [],
       summary: null,
-      // TODO: Do we need to capture all these errors or am i going OTT?
       errors: []
     };
 
@@ -41,7 +40,6 @@ export abstract class Benchmark<Scenario extends BenchmarkScenario, RunContext, 
       return result;
     }
 
-    // TODO: make this not a let
     let runContext: RunContext;
     try {
       runContext = await this.setupRun(this.runSignal);
@@ -97,7 +95,6 @@ export abstract class Benchmark<Scenario extends BenchmarkScenario, RunContext, 
     };
     const runtime = createIterationRuntime(descriptor, this.runSignal, this.runOptions.clock ?? performanceClock);
 
-    // TODO: make this not a let
     let iterationContext: IterationContext;
     try {
       iterationContext = await this.setupIteration(runContext, runtime);
@@ -107,7 +104,6 @@ export abstract class Benchmark<Scenario extends BenchmarkScenario, RunContext, 
       return result;
     }
 
-    // TODO: Clean this up, its too stacked.
     try {
       const executionResult: ExecutionResult<Observation> = {
         succeeded: false
