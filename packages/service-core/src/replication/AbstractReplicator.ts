@@ -1,5 +1,5 @@
 import { container, ErrorCode, logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
-import { DEFAULT_TAG, SqlSyncRules, type SyncConfig } from '@powersync/service-sync-rules';
+import { DEFAULT_TAG, SqlSyncRules, SyncRulesErrors, type SyncConfig } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -7,8 +7,7 @@ import winston from 'winston';
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
 import * as storage from '../storage/storage-index.js';
 import { StorageEngine } from '../storage/storage-index.js';
-import { SyncRulesProvider } from '../util/config/sync-rules/sync-rules-provider.js';
-import type { ResolvedPowerSyncConfig } from '../util/config/types.js';
+import { ResolvedPowerSyncConfig } from '../util/config/types.js';
 import { AbstractReplicationJob } from './AbstractReplicationJob.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { ConnectionTestResult } from './ReplicationModule.js';
@@ -31,11 +30,7 @@ export interface AbstractReplicatorOptions {
   id: string;
   storageEngine: StorageEngine;
   metricsEngine: MetricsEngine;
-  syncRuleProvider: SyncRulesProvider;
-  /**
-   * Source connection metadata from the service config, used when parsing filesystem-loaded sync configs.
-   */
-  configuration?: Pick<ResolvedPowerSyncConfig, 'connections'>;
+  configuration: Pick<ResolvedPowerSyncConfig, 'sync_rules' | 'connections'>;
   /**
    * This limits the effect of retries when there is a persistent issue.
    */
@@ -109,12 +104,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     return this.options.storageEngine.activeBucketStorage;
   }
 
-  protected get syncRuleProvider() {
-    return this.options.syncRuleProvider;
-  }
-
   /**
-   * Default schema for startup sync config validation. Source modules with a known default should override this.
+   * Default schema for source capability checks. Source modules with a known default override this.
    */
   protected get defaultSchema(): string {
     return 'not_applicable';
@@ -174,11 +165,20 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   }
 
   private async runLoop() {
-    const loadedSyncConfig = await this.syncRuleProvider.get();
+    const settings = this.options.configuration.sync_rules;
+    const loaded = settings.loaded;
+    if (loaded != null && 'error' in loaded) {
+      // The specified sync config could not be loaded
+      throw loaded.error;
+    }
+
+    // The loaded config does not use the correct default schema, we can use the content
+    const loadedSyncConfig = loaded?.compiled.yaml;
+    let loadedSyncConfigInvalid = false;
 
     let configuredLock: storage.ReplicationLock | undefined = undefined;
-    if (loadedSyncConfig != null) {
-      const versionLabel = this.syncRuleProvider.versionLabel;
+    if (loaded != null) {
+      const versionLabel = settings.version_label;
       this.logger.info(`Loaded sync config${versionLabel == null ? '' : ` ${versionLabel}`}`);
       try {
         // Configure new sync config, if they have changed.
@@ -187,34 +187,50 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         // versions before that check was added, so we keep the lock for now - for where te service version and sync config is updated at
         // the same time.
 
-        const parsed = SqlSyncRules.fromYaml(loadedSyncConfig, {
-          schema: undefined,
-          defaultSchema: this.defaultSchema,
-          connections:
-            this.options.configuration?.connections &&
-            Object.fromEntries(
-              this.options.configuration.connections.map((connection) => [
+        const updateOptions = { config: loaded.compiled, lock: true, version_label: versionLabel };
+        storage.logSyncConfigErrors(updateOptions.config.parsed, this.logger);
+        /**
+         * Retain the context's configured sync config for comparison in the refresh loop.
+         *
+         * During a rolling deployment, another instance may submit a different config to storage.
+         * Comparing pending configs with loadedSyncConfig prevents this worker from processing
+         * a deployment it does not own.
+         *
+         * Recovery, such as after a Postgres replication slot is invalidated, creates replacement
+         * processing work. If our loaded config is invalid, we still allow replacement work that
+         * matches the active config's YAML and version label. Other pending configs require a
+         * worker that loaded them.
+         *
+         * Invalid configured sync configs are logged but not persisted; diagnostics reports the same
+         * validation results from the service context.
+         */
+        loadedSyncConfigInvalid = updateOptions.config.parsed.errors.some((error) => error.type == 'fatal');
+        if (loadedSyncConfigInvalid && settings.exit_on_error) {
+          throw new SyncRulesErrors(loaded.compiled.parsed.errors);
+        }
+        if (!loadedSyncConfigInvalid) {
+          // Capability checks need source-qualified tables, unlike the shared base-schema snapshot.
+          const parsed = SqlSyncRules.fromYaml(loaded.compiled.yaml, {
+            defaultSchema: this.defaultSchema,
+            connections: Object.fromEntries(
+              (this.options.configuration.connections ?? []).map((connection) => [
                 connection.tag ?? DEFAULT_TAG,
                 { type: connection.type }
               ])
             ),
-          throwOnError: this.syncRuleProvider.exitOnError
-        });
-        storage.logSyncConfigErrors(parsed, this.logger);
-        try {
-          await this.assertSourceCapabilities?.(parsed.config);
-        } catch (error) {
-          if (this.syncRuleProvider.exitOnError) throw error;
-          // Persist the config for diagnostics; the job-start check will prevent unsafe replication.
-          this.logger.error('Source capability validation failed for the sync config', error);
-        }
-        const { lock } = await this.storage.configureSyncRules(
-          storage.updateSyncRulesFromConfig(parsed, {
-            lock: true,
-            version_label: versionLabel
-          })
-        );
-        if (lock) {
+            throwOnError: false
+          });
+          try {
+            await this.assertSourceCapabilities?.(parsed.config);
+          } catch (error) {
+            if (settings.exit_on_error) {
+              throw error;
+            }
+            // Runtime capability failures remain inspectable through the stored deployment's
+            // diagnostics; the job-start assertion prevents unsafe replication.
+            this.logger.error('Source capability validation failed for the sync config', error);
+          }
+          const { lock } = await this.storage.configureSyncRules(updateOptions);
           configuredLock = lock;
         }
       } catch (e) {
@@ -223,7 +239,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         throw e;
       }
     } else {
-      this.logger.info('No sync config configured - configure via API');
+      this.logger.info('No sync config loaded - using stored deployments');
     }
     let useFastRefresh = true;
     const fastRefreshDeadline = Date.now() + FAST_REFRESH_TIMEOUT_MS;
@@ -233,7 +249,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         const refreshResult = await this.refresh({
           configuredLock,
           loadedSyncConfig,
-          loadedVersionLabel: this.syncRuleProvider.versionLabel
+          loadedSyncConfigInvalid,
+          loadedVersionLabel: settings.version_label
         });
         if (refreshResult.replicationJobStarted || Date.now() >= fastRefreshDeadline) {
           useFastRefresh = false;
@@ -266,6 +283,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   private async refresh(options?: {
     configuredLock?: storage.ReplicationLock;
     loadedSyncConfig?: string;
+    loadedSyncConfigInvalid?: boolean;
     loadedVersionLabel?: string;
   }): Promise<{ replicationJobStarted: boolean }> {
     if (this.stopped) {
@@ -285,7 +303,12 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       const existingJob = existingJobs.get(jobId);
       const syncConfigMismatchMessage = 'Ignoring replication stream for sync config not loaded by this process';
       if (
-        !this.shouldHandleReplicationStream(replicationStream, options?.loadedSyncConfig, options?.loadedVersionLabel)
+        !(await this.shouldHandleReplicationStream(
+          replicationStream,
+          options?.loadedSyncConfig,
+          options?.loadedVersionLabel,
+          options?.loadedSyncConfigInvalid
+        ))
       ) {
         this.logReplicationStreamInfoOnce(replicationStream, 'sync-config-mismatch', () => {
           replicationStream.logger.info(syncConfigMismatchMessage);
@@ -415,29 +438,59 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   }
 
   /**
-   * When we load sync config from the filesystem/config source, we ignore any config loaded by other processes.
+   * When we load sync config from the service configuration (file, Base64, or inline content), we ignore any config loaded by other processes.
    * The idea is that if a different process loads updated config, that process should process it, not this one.
    *
    * This specifically helps for cases with rolling deploys.
    *
+   * A rejected configured sync config may still run recovery processing matching the active config.
    * This does not apply when sync config is loaded from the database/API, instead of in the config.
    */
-  private shouldHandleReplicationStream(
+  protected async shouldHandleReplicationStream(
     replicationStream: storage.PersistedReplicationStream,
     loadedSyncRules: string | undefined,
-    loadedVersionLabel: string | undefined
+    loadedVersionLabel: string | undefined,
+    loadedSyncConfigInvalid = false
   ) {
     if (loadedSyncRules == null) {
+      // Without loaded content, handle stored deployments regardless of their source.
       return true;
     }
 
+    // A local config was loaded; check pending deployment ownership below.
     const processingConfig = replicationStream.syncConfigContent.find(
       (syncConfig) => syncConfig.syncConfigState == storage.SyncRuleState.PROCESSING
     );
-    return (
-      processingConfig == null ||
-      (processingConfig.sync_rules_content == loadedSyncRules && processingConfig.version_label == loadedVersionLabel)
-    );
+    if (processingConfig == null) {
+      // There aren't any processing configs here, there may be active configs, so this deployment can handle the stream.
+      return true;
+    }
+
+    // Preserve ownership of matching deployments already stored by an older service, even
+    // if this version rejects their YAML. In incremental storage they may share a stream
+    // with the active config. We block new invalid deployments, not existing processing work.
+    if (
+      processingConfig.sync_rules_content == loadedSyncRules &&
+      processingConfig.version_label == loadedVersionLabel
+    ) {
+      return true;
+    }
+
+    if (loadedSyncConfigInvalid) {
+      // Recovery and manual reprocessing may rebuild the active config while this process has
+      // rejected its configured sync config. Allow that rebuild, but not another instance's unrelated
+      // pending deployment. An ERRORED active config still identifies the content being recovered.
+      // Manual reprocessing can select a newer storage version, so match config identity only.
+      const active = await this.storage.getActiveSyncConfig();
+      return (
+        active != null &&
+        processingConfig.sync_rules_content == active.content.sync_rules_content &&
+        processingConfig.version_label == active.content.version_label
+      );
+    }
+
+    // Leave unrelated pending deployments to a worker that loaded them.
+    return false;
   }
 
   protected createJobId(syncRuleId: number) {

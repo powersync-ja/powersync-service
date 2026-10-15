@@ -1,11 +1,18 @@
+import { getInvalidLocalSyncConfigStatus } from '@/api/diagnostics.js';
 import type { RouteAPI } from '@/api/RouteAPI.js';
 import { assertSourceCapabilities } from '@/api/source-capabilities.js';
+import { BasicRouterRequest, Context, storage } from '@/index.js';
 import { AbstractReplicationJob } from '@/replication/AbstractReplicationJob.js';
 import { AbstractReplicator, AbstractReplicatorOptions, CreateJobOptions } from '@/replication/AbstractReplicator.js';
+import { reprocess } from '@/routes/endpoints/admin.js';
+import { reprocessSyncRules } from '@/routes/endpoints/sync-rules.js';
 import { PersistedReplicationStream } from '@/storage/PersistedReplicationStream.js';
 import type { ReplicationLock } from '@/storage/ReplicationLock.js';
 import { SyncRulesBucketStorage } from '@/storage/SyncRulesBucketStorage.js';
+import { LoadedSyncConfig, loadSyncConfig } from '@/util/config/sync-rules/LoadedSyncConfig.js';
+import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
+import { mockServiceContext } from './routes/mocks.js';
 
 class TestReplicator extends AbstractReplicator {
   constructor(
@@ -14,7 +21,7 @@ class TestReplicator extends AbstractReplicator {
       id: 'test',
       storageEngine: {} as AbstractReplicatorOptions['storageEngine'],
       metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
-      syncRuleProvider: {} as AbstractReplicatorOptions['syncRuleProvider'],
+      configuration: { connections: [], sync_rules: { present: false, exit_on_error: true } },
       rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
     }
   ) {
@@ -59,16 +66,21 @@ class TestReplicator extends AbstractReplicator {
     (this as any).abortController = new AbortController();
     return (this as any).refresh({
       configuredLock,
-      loadedVersionLabel: this.syncRuleProvider.versionLabel
+      loadedVersionLabel: undefined
     });
   }
 
   shouldHandleStreamForTest(
     replicationStream: PersistedReplicationStream,
     loadedSyncRules: string | undefined,
-    loadedVersionLabel: string | undefined
-  ): boolean {
-    return (this as any).shouldHandleReplicationStream(replicationStream, loadedSyncRules, loadedVersionLabel);
+    loadedVersionLabel: string | undefined,
+    invalid = false
+  ): Promise<boolean> {
+    return this.shouldHandleReplicationStream(replicationStream, loadedSyncRules, loadedVersionLabel, invalid);
+  }
+
+  get loggerForTest() {
+    return this.logger;
   }
 }
 
@@ -93,23 +105,34 @@ describe('AbstractReplicator startup sync config', () => {
       storageEngine: {
         activeBucketStorage: { configureSyncRules }
       } as unknown as AbstractReplicatorOptions['storageEngine'],
-      configuration: { connections: [{ type: 'postgresql' }] },
-      syncRuleProvider: { get: async () => yaml, exitOnError, versionLabel: undefined },
+      configuration: {
+        connections: [],
+        sync_rules: {
+          present: true,
+          exit_on_error: exitOnError,
+          loaded: await loadSyncConfig({ present: true, content: yaml, exit_on_error: exitOnError }, [
+            { type: 'postgresql' }
+          ])
+        }
+      },
       metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
       rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
     });
+    const loaded = (replicator as any).options.configuration.sync_rules.loaded;
+    expect(getInvalidLocalSyncConfigStatus(loaded, true)?.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          level: 'fatal',
+          message: expect.stringContaining('only supported by MongoDB sources')
+        })
+      ])
+    );
     if (exitOnError) {
       await expect(replicator.runStartupForTest()).rejects.toThrow('only supported by MongoDB sources');
       expect(configureSyncRules).not.toHaveBeenCalled();
     } else {
       await expect(replicator.runStartupForTest()).resolves.toBeUndefined();
-      expect(configureSyncRules).toHaveBeenCalledOnce();
-      expect(configureSyncRules.mock.calls[0][0].config.plan?.errors).toEqual([
-        expect.objectContaining({
-          level: 'fatal',
-          message: expect.stringContaining('only supported by MongoDB sources')
-        })
-      ]);
+      expect(configureSyncRules).not.toHaveBeenCalled();
     }
   });
 
@@ -138,16 +161,28 @@ describe('AbstractReplicator startup sync config', () => {
         storageEngine: {
           activeBucketStorage: { configureSyncRules }
         } as unknown as AbstractReplicatorOptions['storageEngine'],
-        syncRuleProvider: { get: async () => yaml, exitOnError, versionLabel: undefined },
+        configuration: {
+          connections: [{ type: 'postgresql' }, { type: 'mongodb', tag: 'archive' }],
+          sync_rules: {
+            present: true,
+            exit_on_error: exitOnError,
+            loaded: await loadSyncConfig({ present: true, content: yaml, exit_on_error: exitOnError }, [
+              { type: 'postgresql' }
+            ])
+          }
+        },
         metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
         rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
       });
+      using parse = vi.spyOn(SqlSyncRules, 'fromYaml');
       replicator.registerSourceCapabilitiesAssertion((config) =>
         assertSourceCapabilities(
           {
             async validateSourceCapabilities() {
               calls.push('validate');
-              if (result === 'unexpected error') throw new Error('Source validation failed');
+              if (result === 'unexpected error') {
+                throw new Error('Source validation failed');
+              }
               return result === 'warning' ? [{ level: 'warning', message: 'Missing index' }] : [];
             }
           } as unknown as RouteAPI,
@@ -162,6 +197,12 @@ describe('AbstractReplicator startup sync config', () => {
         await replicator.runStartupForTest();
         expect(calls).toEqual(['validate', 'persist']);
       }
+      expect(parse).toHaveBeenCalledWith(
+        yaml,
+        expect.objectContaining({
+          connections: { default: { type: 'postgresql' }, archive: { type: 'mongodb' } }
+        })
+      );
     }
   );
 
@@ -178,7 +219,15 @@ describe('AbstractReplicator startup sync config', () => {
       storageEngine: {
         activeBucketStorage: { configureSyncRules }
       } as unknown as AbstractReplicatorOptions['storageEngine'],
-      syncRuleProvider: { get: async () => yaml, exitOnError, versionLabel: 'v2' },
+      configuration: {
+        connections: [],
+        sync_rules: {
+          present: true,
+          exit_on_error: exitOnError,
+          version_label: 'v2',
+          loaded: await loadSyncConfig({ present: true, content: yaml, exit_on_error: exitOnError })
+        }
+      },
       metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
       rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
     });
@@ -215,7 +264,7 @@ describe('AbstractReplicator heartbeat interval', () => {
     id: 'test',
     storageEngine: {} as AbstractReplicatorOptions['storageEngine'],
     metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
-    syncRuleProvider: {} as AbstractReplicatorOptions['syncRuleProvider'],
+    configuration: { connections: [], sync_rules: { present: false, exit_on_error: true } },
     rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
   };
 
@@ -322,12 +371,223 @@ describe('AbstractReplicator rolling deployment config matching', () => {
       ]
     }) as unknown as PersistedReplicationStream;
 
-  it('requires both YAML and version label to match a processing config', () => {
+  it('requires both YAML and version label to match a processing config', async () => {
     const replicator = new TestReplicator(async () => {});
     const stream = processingStream('v2');
 
-    expect(replicator.shouldHandleStreamForTest(stream, 'bucket_definitions: {}', 'v2')).toBe(true);
-    expect(replicator.shouldHandleStreamForTest(stream, 'bucket_definitions: {}', 'v1')).toBe(false);
-    expect(replicator.shouldHandleStreamForTest(stream, 'bucket_definitions: {}', undefined)).toBe(false);
+    expect(await replicator.shouldHandleStreamForTest(stream, 'bucket_definitions: {}', 'v2')).toBe(true);
+    expect(await replicator.shouldHandleStreamForTest(stream, 'bucket_definitions: {}', 'v1')).toBe(false);
+    expect(await replicator.shouldHandleStreamForTest(stream, 'bucket_definitions: {}', undefined)).toBe(false);
+  });
+});
+
+const VALID_CONFIG = /* yaml */ `
+  # Active configuration.
+  config:
+    edition: 3
+  streams:
+    todos:
+      query: SELECT id FROM todos
+`;
+const INVALID_CONFIG = /* yaml */ `
+  # Rejected configured sync config.
+  config:
+    edition: 3
+  streams:
+    broken:
+      query: SELECT FROM
+`;
+
+async function makeStartupReplicator(content: string, exitOnError = false, snapshot?: LoadedSyncConfig) {
+  const configureSyncRules = vi.fn(async (_options: storage.UpdateSyncRulesOptions) => ({ updated: false }));
+  const getActiveSyncConfig = vi.fn();
+  const replicator = new TestReplicator(async () => {}, {
+    id: 'test',
+    storageEngine: {
+      activeBucketStorage: { configureSyncRules, getActiveSyncConfig }
+    } as unknown as AbstractReplicatorOptions['storageEngine'],
+    configuration: {
+      connections: [],
+      sync_rules: {
+        present: true,
+        content,
+        exit_on_error: exitOnError,
+        version_label: 'local',
+        loaded:
+          arguments.length >= 3
+            ? snapshot
+            : await loadSyncConfig({ present: true, content, exit_on_error: exitOnError, version_label: 'local' })
+      }
+    },
+    metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
+    rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
+  });
+  return { replicator, configureSyncRules, getActiveSyncConfig };
+}
+
+describe('invalid configured sync config', () => {
+  it.each([INVALID_CONFIG, 'streams: [', '# empty sync config\n'])(
+    'logs and skips rejected YAML without storing it',
+    async (yaml) => {
+      const { replicator, configureSyncRules } = await makeStartupReplicator(yaml);
+      const errors = vi.spyOn(replicator.loggerForTest, 'error');
+      await replicator.runStartupForTest();
+      expect(configureSyncRules).not.toHaveBeenCalled();
+      expect(errors).toHaveBeenCalledWith(expect.stringContaining('Sync config error:'));
+      errors.mockRestore();
+    }
+  );
+
+  it('uses the same compiled snapshot for deployment and diagnostics', async () => {
+    const loaded = await loadSyncConfig({
+      present: true,
+      content: VALID_CONFIG,
+      exit_on_error: false
+    });
+    const { replicator, configureSyncRules } = await makeStartupReplicator(INVALID_CONFIG, false, loaded);
+    await replicator.runStartupForTest();
+    expect(loaded != null && 'compiled' in loaded).toBe(true);
+    if (loaded != null && 'compiled' in loaded) {
+      expect(configureSyncRules.mock.calls[0][0].config).toBe(loaded.compiled);
+    }
+    expect(getInvalidLocalSyncConfigStatus(loaded, true)).toBeUndefined();
+  });
+
+  it('rejects a file read failure rather than treating it as API mode', async () => {
+    const error = new Error('File unavailable');
+    const loaded: LoadedSyncConfig = { error };
+    const { replicator, configureSyncRules } = await makeStartupReplicator('', false, loaded);
+    await expect(replicator.runStartupForTest()).rejects.toBe(error);
+    expect(configureSyncRules).not.toHaveBeenCalled();
+    expect(getInvalidLocalSyncConfigStatus(loaded, true)).toBeUndefined();
+  });
+
+  it('accepts stored processing before configured content is supplied', async () => {
+    const loaded = await loadSyncConfig({ present: false, exit_on_error: true });
+    const { replicator, configureSyncRules, getActiveSyncConfig } = await makeStartupReplicator('', true, loaded);
+    await replicator.runStartupForTest();
+    expect(configureSyncRules).not.toHaveBeenCalled();
+    const content = {
+      sync_rules_content: VALID_CONFIG,
+      version_label: 'active',
+      syncConfigState: storage.SyncRuleState.PROCESSING
+    };
+    const stream = { syncConfigContent: [content] } as unknown as PersistedReplicationStream;
+    getActiveSyncConfig.mockResolvedValue(null);
+    expect(await replicator.shouldHandleStreamForTest(stream, undefined, undefined)).toBe(true);
+    expect(getActiveSyncConfig).not.toHaveBeenCalled();
+  });
+
+  it.each([INVALID_CONFIG, '# empty sync config\n'])(
+    'still fails startup with exit_on_error enabled',
+    async (content) => {
+      const { replicator, configureSyncRules } = await makeStartupReplicator(content, true);
+      await expect(replicator.runStartupForTest()).rejects.toThrow();
+      expect(configureSyncRules).not.toHaveBeenCalled();
+    }
+  );
+
+  it('persists valid config, including warnings', async () => {
+    const { replicator, configureSyncRules } = await makeStartupReplicator(VALID_CONFIG);
+    await replicator.runStartupForTest();
+    expect(configureSyncRules).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        version_label: 'local',
+        config: expect.objectContaining({ yaml: VALID_CONFIG })
+      })
+    );
+  });
+
+  /**
+   * Previously persisted invalid work remains owned only when both local YAML and label match.
+   * This compatibility path also works without an active config (a rejected first deployment).
+   */
+  it.each(['matching', 'other-yaml', 'other-label'])(
+    'checks ownership of previously persisted invalid config: %s',
+    async (scenario) => {
+      const { replicator, getActiveSyncConfig } = await makeStartupReplicator(INVALID_CONFIG);
+      getActiveSyncConfig.mockResolvedValue(null);
+      const stream = {
+        syncConfigContent: [
+          {
+            syncConfigState: storage.SyncRuleState.PROCESSING,
+            sync_rules_content: scenario === 'other-yaml' ? VALID_CONFIG : INVALID_CONFIG,
+            version_label: scenario === 'other-label' ? 'another-worker' : 'local'
+          }
+        ]
+      } as unknown as PersistedReplicationStream;
+      expect(await replicator.shouldHandleStreamForTest(stream, INVALID_CONFIG, 'local', true)).toBe(
+        scenario === 'matching'
+      );
+      if (scenario === 'matching') {
+        expect(getActiveSyncConfig).not.toHaveBeenCalled();
+      }
+    }
+  );
+
+  it.each(['matching', 'other-yaml', 'other-label', 'other-storage', 'no-active'])(
+    'only accepts recovery matching the active config: %s',
+    async (scenario) => {
+      const { replicator, getActiveSyncConfig } = await makeStartupReplicator(INVALID_CONFIG);
+      const active = { sync_rules_content: VALID_CONFIG, version_label: 'active', storageVersion: 2 };
+      getActiveSyncConfig.mockResolvedValue(scenario == 'no-active' ? null : { content: active });
+      const processing = {
+        ...active,
+        syncConfigState: storage.SyncRuleState.PROCESSING,
+        ...(scenario == 'other-yaml' ? { sync_rules_content: INVALID_CONFIG } : {}),
+        ...(scenario == 'other-label' ? { version_label: 'different' } : {}),
+        ...(scenario == 'other-storage' ? { storageVersion: 4 } : {})
+      };
+      const stream = { syncConfigContent: [processing] } as unknown as PersistedReplicationStream;
+      expect(await replicator.shouldHandleStreamForTest(stream, INVALID_CONFIG, 'local', true)).toBe(
+        scenario == 'matching' || scenario == 'other-storage'
+      );
+    }
+  );
+
+  it.each([reprocess, reprocessSyncRules])('accepts a storage upgrade requested by $path', async (route) => {
+    const { replicator, getActiveSyncConfig } = await makeStartupReplicator(INVALID_CONFIG);
+    const active = { sync_rules_content: VALID_CONFIG, version_label: 'active', storageVersion: 2 };
+    getActiveSyncConfig.mockResolvedValue({ content: active });
+    let replacement: PersistedReplicationStream | undefined;
+    const updateSyncRules = vi.fn(async (options: storage.UpdateSyncRulesOptions) => {
+      // Model the backend selecting its v4 default for YAML without a storage_version.
+      expect(options.storageVersion).toBeUndefined();
+      expect(options.config.parsed.config.storageVersion).toBeUndefined();
+      replacement = {
+        replicationStreamName: 'replacement',
+        syncConfigContent: [
+          {
+            syncConfigState: storage.SyncRuleState.PROCESSING,
+            sync_rules_content: options.config.yaml,
+            version_label: options.version_label,
+            storageVersion: 4
+          }
+        ]
+      } as unknown as PersistedReplicationStream;
+      return replacement;
+    });
+    const service = mockServiceContext(null);
+    Object.assign(service.storageEngine.activeBucketStorage, {
+      getActiveSyncConfig,
+      getDeployingSyncConfig: async () => null,
+      updateSyncRules
+    });
+    await route.handler({
+      context: { service_context: service } as Context,
+      request: { headers: {}, hostname: '', protocol: 'http' } as BasicRouterRequest,
+      params: {}
+    });
+    expect(updateSyncRules).toHaveBeenCalledOnce();
+    expect(await replicator.shouldHandleStreamForTest(replacement!, INVALID_CONFIG, 'local', true)).toBe(true);
+  });
+
+  it('keeps active-only streams running without consulting recovery state', async () => {
+    const { replicator, getActiveSyncConfig } = await makeStartupReplicator(INVALID_CONFIG);
+    const stream = {
+      syncConfigContent: [{ syncConfigState: storage.SyncRuleState.ACTIVE }]
+    } as unknown as PersistedReplicationStream;
+    expect(await replicator.shouldHandleStreamForTest(stream, INVALID_CONFIG, 'local', true)).toBe(true);
+    expect(getActiveSyncConfig).not.toHaveBeenCalled();
   });
 });

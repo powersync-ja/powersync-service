@@ -18,6 +18,7 @@ import {
 import { Base64SyncRulesCollector } from './sync-rules/impl/base64-sync-rules-collector.js';
 import { FileSystemSyncRulesCollector } from './sync-rules/impl/filesystem-sync-rules-collector.js';
 import { InlineSyncRulesCollector } from './sync-rules/impl/inline-sync-rules-collector.js';
+import { loadSyncConfig } from './sync-rules/LoadedSyncConfig.js';
 import { SyncRulesCollector } from './sync-rules/sync-collector.js';
 import { ResolvedPowerSyncConfig, RunnerConfig, SyncRulesConfig } from './types.js';
 
@@ -163,7 +164,10 @@ export class CompoundConfigCollector {
       client_keystore: keyStore,
       api_tokens: baseConfig.api?.tokens ?? [],
       port: baseConfig.port ?? 8080,
-      sync_rules,
+      sync_rules: {
+        ...sync_rules,
+        loaded: await loadSyncConfig(sync_rules, baseConfig.replication?.connections ?? [])
+      },
       jwt_audiences,
 
       token_max_expiration: '1d', // 1 day

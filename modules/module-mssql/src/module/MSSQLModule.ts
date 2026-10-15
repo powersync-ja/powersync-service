@@ -1,11 +1,4 @@
-import {
-  api,
-  ConfigurationFileSyncRulesProvider,
-  ConnectionTestResult,
-  replication,
-  system,
-  TearDownOptions
-} from '@powersync/service-core';
+import { api, ConnectionTestResult, replication, system, TearDownOptions } from '@powersync/service-core';
 import { MSSQLRouteAPIAdapter } from '../api/MSSQLRouteAPIAdapter.js';
 import { CDCReplicator } from '../replication/CDCReplicator.js';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
@@ -29,14 +22,12 @@ export class MSSQLModule extends replication.ReplicationModule<types.MSSQLConnec
 
   protected createReplicator(context: system.ServiceContext): replication.AbstractReplicator {
     const normalisedConfig = this.resolveConfig(this.decodedConfig!);
-    const syncRuleProvider = new ConfigurationFileSyncRulesProvider(context.configuration.sync_rules);
     const connectionFactory = new MSSQLConnectionManagerFactory(normalisedConfig);
 
     return new CDCReplicator({
       id: this.getDefaultId(normalisedConfig.database),
-      syncRuleProvider: syncRuleProvider,
-      storageEngine: context.storageEngine,
       configuration: context.configuration,
+      storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
       rateLimiter: new MSSQLErrorRateLimiter(),

@@ -175,23 +175,29 @@ export interface StorageSyncConfigMetrics {
   attributed_object_storage_bytes: number;
 }
 
+/**
+ * Sync config content and its compiled representation, shared by startup validation and deployment.
+ * Validation errors are retained in parsed even when the config cannot be deployed.
+ */
+export interface CompiledSyncConfig {
+  yaml: string;
+  /**
+   * The serialized sync plan for the sync configuration, or `null` for configurations not using the Sync Streams
+   * compiler.
+   */
+  plan: SerializedSyncPlan | null;
+
+  /**
+   * Parsed sync config, primarily to generate a definition mapping.
+   * Not persisted, and the defaultSchema used for parsing is not relevant.
+   */
+  parsed: SyncConfigWithErrors;
+}
+
 export interface UpdateSyncRulesOptions {
   /** Optional operator-supplied label identifying this deployed sync config version. */
   version_label?: string;
-  config: {
-    yaml: string;
-    /**
-     * The serialized sync plan for the sync configuration, or `null` for configurations not using the Sync Streams
-     * compiler.
-     */
-    plan: SerializedSyncPlan | null;
-
-    /**
-     * Parsed sync config, primarily to generate a definition mapping.
-     * Not persisted, and the defaultSchema used for parsing is not relevant.
-     */
-    parsed: SyncConfigWithErrors;
-  };
+  config: CompiledSyncConfig;
   lock?: boolean;
   storageVersion?: number;
 

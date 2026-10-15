@@ -1,6 +1,7 @@
 import { configFile } from '@powersync/service-types';
 import { CompoundKeyCollector } from '../../auth/CompoundKeyCollector.js';
 import { KeyStore } from '../../auth/KeyStore.js';
+import type { LoadedSyncConfig } from './sync-rules/LoadedSyncConfig.js';
 
 export enum ServiceRunner {
   UNIFIED = 'unified',
@@ -34,7 +35,7 @@ export type ResolvedPowerSyncConfig = {
   storage: configFile.GenericStorageConfig;
   client_keystore: KeyStore<CompoundKeyCollector>;
   port: number;
-  sync_rules: SyncRulesConfig;
+  sync_rules: SyncRulesConfig & { loaded?: LoadedSyncConfig };
   api_tokens: string[];
   jwt_audiences: string[];
   token_max_expiration: string;

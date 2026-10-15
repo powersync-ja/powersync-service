@@ -16,15 +16,20 @@ When the service lifecycle starts, `ReplicationEngine.start()` starts every regi
 
 An `AbstractReplicator` is responsible for source-level orchestration. It does not apply individual source rows itself. Instead, it:
 
-1. Reads the sync config YAML from wherever the service configuration points to.
-2. Parses filesystem-loaded sync config and checks source capabilities. With `exit_on_error` enabled, failures stop startup before persistence. With it disabled, failures are logged and the config is persisted so diagnostics remain available.
-3. Persists changed sync config through `BucketStorageFactory.configureSyncRules()`.
-4. Repeatedly refreshes the set of replication streams that should be running.
-5. Acquires a replication lock for new streams.
-6. Creates a source-specific `AbstractReplicationJob` with the locked `SyncRulesBucketStorage`.
-7. Starts the job, which delegates initialization, snapshots, and streaming to its source-specific stream helper.
-8. Stops jobs whose replication streams no longer need processing.
-9. Cleans up stopped replication streams by calling source cleanup and then storage termination.
+1. Uses the sync config snapshot loaded and validated during service configuration resolution.
+2. Checks source capabilities and persists valid changes through `BucketStorageFactory.configureSyncRules()`. With `exit_on_error: false`, fatal parse errors are logged and no new invalid config is persisted.
+3. Repeatedly refreshes the set of replication streams that should be running.
+4. Acquires a replication lock for new streams.
+5. Creates a source-specific `AbstractReplicationJob` with the locked `SyncRulesBucketStorage`.
+6. Starts the job, which delegates initialization, snapshots, and streaming to its source-specific stream helper.
+7. Stops jobs whose replication streams no longer need processing.
+8. Cleans up stopped replication streams by calling source cleanup and then storage termination.
+
+When the local config is invalid, active-only replication streams continue. Already-persisted processing configs matching the local YAML and version label remain owned by this worker, preserving behavior across upgrades even if that config is invalid. This avoids rejecting a shared active stream solely because an older service persisted invalid pending work; it does not guarantee the invalid config can replicate successfully. Processing that matches the active config (including its version label, even when reprocessing selects a different storage version) is allowed for recovery or manual reprocessing; unrelated pending deployments remain excluded by this worker. Existing pending work is not cancelled in storage and may still be processed by another worker. If an active config shares a stream with unrelated processing work, this worker skips the entire stream; a worker with matching config must handle it.
+
+For filesystem deployments, configure the API and replicators to use the same sync config file (or identical copies mounted in each container). This is the expected setup for self-hosted deployments.
+
+Configuration resolution loads and validates sync config supplied through service configuration (file, Base64, or inline YAML) and exposes the snapshot on `ResolvedPowerSyncConfig.sync_rules.loaded`. Replication and diagnostics share its content and validation results until restart. It exposes fatal errors through `deploying_sync_rules`, without a storage record or replication status. This overrides pending stored diagnostics while the local config is invalid. Instances with different local configs can therefore report different diagnostics, and an API instance without access to the file cannot report its validation errors. Restart the API and replicators after changing the sync config. The context retains valid, invalid and unavailable-file results; consumers do not watch or reread the file.
 
 The refresh loop runs continuously until the service is stopped. It also periodically calls `keepAlive()` on running jobs when the rate limiter allows it.
 
