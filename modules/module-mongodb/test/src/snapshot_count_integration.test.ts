@@ -3,11 +3,12 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { createLogger } from '@powersync/lib-services-framework';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, test, vi } from 'vitest';
+import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
 import { connectMongoData } from './util.js';
 
 const LOGGER = createLogger({ silent: true });
 
-describe('filtered snapshot count integration', () => {
+describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('filtered snapshot count integration', () => {
   test('counts with simple collation even when the collection uses case-insensitive collation', async () => {
     const { client, db } = await connectMongoData();
     const collection = await db.createCollection(`snapshot_count_${randomUUID()}`, {
