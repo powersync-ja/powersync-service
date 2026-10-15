@@ -50,7 +50,7 @@ jobs:
           # If no changesets are available the status check will fail
           # We should not continue if there are no changesets    
           pnpm changeset status
-          
+
           # Dev images carry the version they lead to (e.g. 1.28.0-dev-…).
           node -e '
             const fs = require("fs");
@@ -59,7 +59,7 @@ jobs:
             config.snapshot = { ...config.snapshot, useCalculatedVersion: true };
             fs.writeFileSync(path, JSON.stringify(config, null, 2));
           '
-          
+
           pnpm changeset version --snapshot dev
 
         # This uses the service's package.json version for the Docker Image tag.
