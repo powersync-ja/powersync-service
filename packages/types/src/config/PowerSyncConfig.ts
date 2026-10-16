@@ -476,6 +476,27 @@ export const powerSyncConfig = t
       })
       .optional(),
 
+    enterprise_features: t
+      .object({
+        client_metrics_reporting: t
+          .object({
+            enabled: t.boolean
+              .meta({
+                description: 'Enables client metrics reporting. Defaults to false.'
+              })
+              .optional()
+          })
+          .meta({
+            description:
+              'Configuration for client metrics reporting when the reporting module is installed (Enterprise Self-Hosted only).'
+          })
+          .optional()
+      })
+      .meta({
+        description: 'Configuration for enterprise features.'
+      })
+      .optional(),
+
     telemetry: t
       .object({
         // When set, metrics will be available on this port for scraping by Prometheus.

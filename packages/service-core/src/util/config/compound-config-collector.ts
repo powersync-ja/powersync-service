@@ -169,6 +169,11 @@ export class CompoundConfigCollector {
       token_max_expiration: '1d', // 1 day
       metadata: baseConfig.metadata ?? {},
       migrations: baseConfig.migrations,
+      enterprise_features: {
+        client_metrics_reporting: {
+          enabled: baseConfig.enterprise_features?.client_metrics_reporting?.enabled ?? false
+        }
+      },
       telemetry: {
         prometheus_port: baseConfig.telemetry?.prometheus_port,
         disable_telemetry_sharing: baseConfig.telemetry?.disable_telemetry_sharing ?? false,

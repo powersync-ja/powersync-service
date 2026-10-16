@@ -43,6 +43,12 @@ export type ResolvedPowerSyncConfig = {
     disable_auto_migration?: boolean;
   };
 
+  enterprise_features: {
+    client_metrics_reporting: {
+      enabled: boolean;
+    };
+  };
+
   telemetry: {
     prometheus_port?: number;
     disable_telemetry_sharing: boolean;
