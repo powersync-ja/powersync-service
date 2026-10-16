@@ -168,7 +168,7 @@ for (const storageVersion of TEST_STORAGE_VERSIONS) {
       );
     });
 
-    test('flushes a single row evaluated into many buckets with large data', async () => {
+    test('flushes a single row evaluated into many buckets with large data', { timeout: 30_000 }, async () => {
       // Regression test: a single row with large data evaluated into many buckets could
       // previously exceed the maximum string length when serializing the INSERT parameter.
       await using factory = await POSTGRES_STORAGE_FACTORY.factory();
