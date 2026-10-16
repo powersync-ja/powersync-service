@@ -193,7 +193,7 @@ for (const storageVersion of TEST_STORAGE_VERSIONS) {
       });
       await writer.flush();
 
-      // 300 buckets x 300kB exceeds the default max_statement_size of 64MB.
+      // 300 buckets x 300kB exceeds MAX_FLUSH_STATEMENT_SIZE (64MB).
       expect(inserts.count('bucket_data')).toBeGreaterThan(1);
 
       const rows = await readBucketData(factory.db, bucketStorage.replicationStreamId);
