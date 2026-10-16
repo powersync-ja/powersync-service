@@ -57,7 +57,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
       ? [
           {
             level: 'fatal',
-            message: `[${ErrorCode.PSYNC_S1348}] MongoDB replication pre-filtering is not supported in the Open Edition.`
+            message: `[${ErrorCode.PSYNC_S1348}] MongoDB replication pre-filtering is not supported in this edition of the PowerSync service.`
           }
         ]
       : [];
