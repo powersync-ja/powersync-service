@@ -21,3 +21,7 @@ These docs are a work in progress. When changing behavior covered by a doc page,
 ## Module Notes
 
 - [Module docs](./modules/README.md): module-specific design notes for source connectors.
+
+## Benchmarks
+
+- [Benchmarking docs](./benchmarks/README.md): performance tests for the PowerSync service; what they are, how they work, and how to extend them.
