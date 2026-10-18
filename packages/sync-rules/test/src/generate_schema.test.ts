@@ -122,8 +122,8 @@ ${streams}
 
   test('ts', () => {
     expect(new TsSchemaGenerator().generate(rules, schema, {})).toEqual(
-      `import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/web';
-// OR: import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/react-native';
+      `import { column, Schema, Table, type PowerSyncDatabase, type SyncStream } from '@powersync/web';
+// OR: import { column, Schema, Table, type PowerSyncDatabase, type SyncStream } from '@powersync/react-native';
 
 const assets1 = new Table(
   {
@@ -167,8 +167,8 @@ export function typedStreams(db: PowerSyncDatabase) {
     );
 
     expect(new TsSchemaGenerator().generate(rules, schema, { includeTypeComments: true })).toEqual(
-      `import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/web';
-// OR: import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/react-native';
+      `import { column, Schema, Table, type PowerSyncDatabase, type SyncStream } from '@powersync/web';
+// OR: import { column, Schema, Table, type PowerSyncDatabase, type SyncStream } from '@powersync/react-native';
 
 const assets1 = new Table(
   {
