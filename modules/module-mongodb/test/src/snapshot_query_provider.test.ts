@@ -1,4 +1,5 @@
 import { DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER } from '@module/replication/MongoReplicationQueryProvider.js';
+import { mongo } from '@powersync/lib-service-mongodb';
 import { describe, expect, test, vi } from 'vitest';
 import { openChangeStreamTestContext } from './change_stream_test_setup.js';
 import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
@@ -6,7 +7,11 @@ import { describeWithStorage } from './util.js';
 
 describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB snapshot query provider', () => {
   describeWithStorage({ timeout: 30_000 }, ({ factory, storageVersion }) => {
-    test.each([false, true])('pages snapshots with an expression filter: %s', async (filtered) => {
+    test.each([
+      { filtered: false, retryUnknown: false },
+      { filtered: true, retryUnknown: false },
+      { filtered: true, retryUnknown: true }
+    ])('pages snapshots: %j', async ({ filtered, retryUnknown }) => {
       // Run the same snapshot with and without a provider predicate. The filtered case selects even
       // ids between 2 and 12 whose label is exactly 'live'; null must preserve the full snapshot.
       const getSnapshotFilter = vi.fn(() =>
@@ -53,7 +58,21 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB snapshot quer
       await collection.insertMany(
         Array.from({ length: 14 }, (_, i) => ({ _id: i + 1, label: (i + 1) % 3 == 0 ? 'LIVE' : 'live' }))
       );
-      await context.replicateSnapshot();
+      const count = vi.spyOn(mongo.Collection.prototype, 'countDocuments');
+      const metadata = vi.spyOn(mongo.Collection.prototype, 'estimatedDocumentCount');
+      try {
+        if (retryUnknown) {
+          // Leave the queued estimate unknown, then let the snapshot retry against the real source.
+          count.mockRejectedValueOnce(new Error('count unavailable'));
+          metadata.mockRejectedValueOnce(new Error('metadata unavailable'));
+        }
+        await context.replicateSnapshot();
+        expect(count).toHaveBeenCalledTimes(retryUnknown ? 2 : filtered ? 1 : 0);
+        expect(metadata).toHaveBeenCalledTimes(retryUnknown ? 1 : filtered ? 0 : 2);
+      } finally {
+        count.mockRestore();
+        metadata.mockRestore();
+      }
       const rows = (await context.getBucketData('global|0[]')).filter((op) => op.op == 'PUT');
       // Matching ids 4, 8 and 10 require two pages at a page size of two. After the first page ends
       // at id 8, pagination adds its own $expr requiring _id > 8. It must combine that condition

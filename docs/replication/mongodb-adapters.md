@@ -25,8 +25,16 @@ The snapshot query combines that predicate with its `_id` continuation using `$a
 replace an existing `$expr` or `_id` condition. Filtered snapshots use simple collation; unfiltered snapshots
 retain the existing collection-default behavior.
 
-Filtered snapshots report an unknown total and a running replicated count, such as `3/?`. The service does not
-run a separate filtered count query. Unfiltered snapshots retain the collection's estimated document count.
+Filtered snapshots first attempt an exact count using the snapshot predicate and simple collation, with a
+10-second timeout. If that fails, the service spends up to another 10 seconds estimating the filtered total:
+it reads the collection's estimated document count, samples 1% of the documents (at least one, capped at 10,000),
+and scales the fraction matching the predicate by the collection estimate. The sample runs before the filter,
+and the fraction uses the actual number of sampled documents.
+
+Known totals use the existing estimate notation, such as `3/~100`. If the fallback fails, its budget expires,
+or the sample has no matching documents, progress reports an unknown total, such as `3/?`. A sample with no
+matches does not establish that the filtered collection is empty. Replication cancellation interrupts the
+attempts. Unfiltered snapshots retain the collection's estimated document count.
 
 The provider can implement `validateSource({ connectionManager, isDocumentDb })` to reject unsupported source
 capabilities before queries open. Both replication and the snapshotter call it, so implementations should permit
