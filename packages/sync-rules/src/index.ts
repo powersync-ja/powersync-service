@@ -7,6 +7,7 @@ export * from './errors.js';
 export * from './events/CompiledEventSourceQuery.js';
 export * from './events/EventDescriptor.js';
 export * from './ExpressionType.js';
+export { parseSyncConfig, validateSyncConfig } from './from_yaml.js';
 export * from './HydratedSyncConfig.js';
 export * from './HydrationState.js';
 export * from './IdSequence.js';

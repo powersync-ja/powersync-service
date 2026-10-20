@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import { LineCounter, parseDocument } from 'yaml';
-import { SqlSyncRules } from '../../src/index.js';
+import { parseSyncConfig } from '../../src/index.js';
 import { fatalErrors } from './util.js';
 
-describe('SqlSyncRules.fromYaml errors', () => {
+describe('parseSyncConfig errors', () => {
   test('invalid edition', () => {
     checkErrors(`
 config:
@@ -163,7 +163,7 @@ function parseExpectedErrors(source: string): { withoutComments: string; errors:
 
 function checkErrors(yaml: string) {
   const { errors: expectedErrors, withoutComments: transformedYaml } = parseExpectedErrors(yaml);
-  const { errors } = SqlSyncRules.fromYaml(transformedYaml, { throwOnError: false, defaultSchema: 'schema' });
+  const { errors } = parseSyncConfig(transformedYaml, { throwOnError: false, defaultSchema: 'schema' });
 
   // Use our own LineCounter to translate the character offsets on errors back to line numbers, so that we can match
   // them up against the #error comments (which are only aware of line numbers).

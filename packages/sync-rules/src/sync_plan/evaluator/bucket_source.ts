@@ -1,5 +1,5 @@
 import { BucketInclusionReason, ResolvedBucket } from '../../BucketDescription.js';
-import { PendingQueriers } from '../../BucketParameterQuerier.js';
+import { PendingQueriers, RequestedStream } from '../../BucketParameterQuerier.js';
 import {
   BucketDataSource,
   BucketSource,
@@ -9,7 +9,6 @@ import {
   HydrationInput,
   ParameterIndexLookupCreator
 } from '../../BucketSource.js';
-import { RequestedStream } from '../../SqlSyncRules.js';
 import { RequestParameters, SqliteParameterValue } from '../../types.js';
 import { bucketDescription, JSONBucketNameSerialize, resolvedBucket } from '../../utils.js';
 import { mapExternalDataToInstantiation, ScalarExpressionEngine } from '../engine/scalar_expression_engine.js';

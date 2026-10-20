@@ -20,9 +20,9 @@ import {
   ParameterLookupDefinitionId,
   ParameterLookupRows,
   ParameterLookupScope,
+  parseSyncConfig,
   ScopedParameterLookup,
   SourceTableRef,
-  SqlSyncRules,
   TablePattern,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
@@ -58,7 +58,7 @@ describe('BucketChecksumState', () => {
 
   // Single global[] bucket.
   // We don't care about data in these tests
-  const SYNC_RULES_GLOBAL = SqlSyncRules.fromYaml(
+  const SYNC_RULES_GLOBAL = parseSyncConfig(
     `
 bucket_definitions:
   global:
@@ -68,7 +68,7 @@ bucket_definitions:
   ).config.hydrate({ hydrationState: versionedHydrationState(1), sqlite: nodeSqlite(sqlite) });
 
   // global[1] and global[2]
-  const SYNC_RULES_GLOBAL_TWO = SqlSyncRules.fromYaml(
+  const SYNC_RULES_GLOBAL_TWO = parseSyncConfig(
     `
 bucket_definitions:
   global:
@@ -81,7 +81,7 @@ bucket_definitions:
   ).config.hydrate({ hydrationState: versionedHydrationState(2), sqlite: nodeSqlite(sqlite) });
 
   // by_project[n]
-  const SYNC_RULES_DYNAMIC = SqlSyncRules.fromYaml(
+  const SYNC_RULES_DYNAMIC = parseSyncConfig(
     `
 bucket_definitions:
   by_project:
@@ -698,7 +698,7 @@ config:
 `;
       }
 
-      const rules = SqlSyncRules.fromYaml(source, {
+      const rules = parseSyncConfig(source, {
         defaultSchema: 'public'
       }).config.hydrate({ hydrationState: versionedHydrationState(1), sqlite: nodeSqlite(sqlite) });
 
@@ -1137,7 +1137,7 @@ config:
     });
 
     test('throws error with breakdown when too many parameters were fetched', async () => {
-      const syncRules = SqlSyncRules.fromYaml(
+      const syncRules = parseSyncConfig(
         `
 config:
   edition: 3
@@ -1241,7 +1241,7 @@ streams:
     });
 
     test('throws error when too many lookups are requested at once', async () => {
-      const syncRules = SqlSyncRules.fromYaml(
+      const syncRules = parseSyncConfig(
         `
 config:
   edition: 3
@@ -1309,7 +1309,7 @@ streams:
     test('throws error with breakdown when bucket limit is exceeded', async () => {
       // These streams are designed to return buckets without consuming too many parameters (as exceeding that limit is
       // a different error).
-      const SYNC_RULES_MULTI = SqlSyncRules.fromYaml(
+      const SYNC_RULES_MULTI = parseSyncConfig(
         `
 config:
   edition: 3
@@ -1387,7 +1387,7 @@ streams:
     });
 
     test('labels the bucket breakdown as bucket definitions for legacy sync rules', async () => {
-      const legacySyncRules = SqlSyncRules.fromYaml(
+      const legacySyncRules = parseSyncConfig(
         `
 bucket_definitions:
   projects:
@@ -1445,7 +1445,7 @@ streams:
         yamlDefinitions += `    query: SELECT * FROM tbl WHERE b = auth.parameter('${i}')\n`;
       }
 
-      const SYNC_RULES_MANY = SqlSyncRules.fromYaml(yamlDefinitions, { defaultSchema: 'public' }).config.hydrate({
+      const SYNC_RULES_MANY = parseSyncConfig(yamlDefinitions, { defaultSchema: 'public' }).config.hydrate({
         hydrationState: versionedHydrationState(5),
         sqlite: nodeSqlite(sqlite)
       });

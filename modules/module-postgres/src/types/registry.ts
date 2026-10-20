@@ -7,7 +7,7 @@ import {
   DatabaseInputValue,
   SqliteValue,
   SqliteValueType,
-  toSyncRulesValue
+  toSyncConfigValue
 } from '@powersync/service-sync-rules';
 
 interface BaseType {
@@ -98,7 +98,7 @@ class CustomTypeValue extends CustomSqliteValue {
   }
 
   toSqliteValue(context: CompatibilityContext): SqliteValue {
-    const value = toSyncRulesValue(this.decodeToDatabaseInputValue(context));
+    const value = toSyncConfigValue(this.decodeToDatabaseInputValue(context));
     return applyValueContext(value, context);
   }
 

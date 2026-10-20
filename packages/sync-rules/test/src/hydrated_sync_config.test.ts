@@ -5,8 +5,8 @@ import {
   HydratedSyncConfig,
   HydrateSyncConfigParams,
   nodeSqlite,
-  ScopedParameterLookup,
-  SqlSyncRules
+  parseSyncConfig,
+  ScopedParameterLookup
 } from '../../src/index.js';
 import { ASSETS, lookupScope, PARSE_OPTIONS, USERS } from './util.js';
 
@@ -17,7 +17,7 @@ describe('hydrated sync config', () => {
   };
 
   test('can evaluate rows across multiple sync configs', () => {
-    const { config: first } = SqlSyncRules.fromYaml(
+    const { config: first } = parseSyncConfig(
       `
 bucket_definitions:
   first:
@@ -26,7 +26,7 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const { config: second } = SqlSyncRules.fromYaml(
+    const { config: second } = parseSyncConfig(
       `
 bucket_definitions:
   second:
@@ -88,7 +88,7 @@ bucket_definitions:
   });
 
   test('matching sources can scope evaluation to source table memberships', () => {
-    const { config: first } = SqlSyncRules.fromYaml(
+    const { config: first } = parseSyncConfig(
       `
 bucket_definitions:
   first:
@@ -97,7 +97,7 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const { config: second } = SqlSyncRules.fromYaml(
+    const { config: second } = parseSyncConfig(
       `
 bucket_definitions:
   second:
@@ -153,8 +153,8 @@ bucket_definitions:
     data:
       - SELECT id FROM assets WHERE assets.user_id = bucket.user_id
     `;
-    const { config: first } = SqlSyncRules.fromYaml(yaml, PARSE_OPTIONS);
-    const { config: second } = SqlSyncRules.fromYaml(yaml, PARSE_OPTIONS);
+    const { config: first } = parseSyncConfig(yaml, PARSE_OPTIONS);
+    const { config: second } = parseSyncConfig(yaml, PARSE_OPTIONS);
 
     const hydrated = new HydratedSyncConfig({
       definitions: [first, second],
@@ -200,8 +200,8 @@ event_definitions:
     payloads:
       - SELECT user_id, checkpoint FROM checkpoints
 `;
-    const { config: first } = SqlSyncRules.fromYaml(yaml, PARSE_OPTIONS);
-    const { config: second } = SqlSyncRules.fromYaml(yaml, PARSE_OPTIONS);
+    const { config: first } = parseSyncConfig(yaml, PARSE_OPTIONS);
+    const { config: second } = parseSyncConfig(yaml, PARSE_OPTIONS);
 
     const hydrated = new HydratedSyncConfig({
       definitions: [first, second],
@@ -214,7 +214,7 @@ event_definitions:
   });
 
   test('requires matching compatibility contexts for multiple sync configs', () => {
-    const { config: legacy } = SqlSyncRules.fromYaml(
+    const { config: legacy } = parseSyncConfig(
       `
 bucket_definitions:
   first:
@@ -223,7 +223,7 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const { config: edition2 } = SqlSyncRules.fromYaml(
+    const { config: edition2 } = parseSyncConfig(
       `
 config:
   edition: 2

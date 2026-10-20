@@ -1,5 +1,6 @@
 import {
   BucketParameterQuerier,
+  GetQuerierOptions,
   PendingQueriers,
   ScopedParameterLookup,
   UnscopedParameterLookup
@@ -7,7 +8,6 @@ import {
 import { ColumnDefinition } from './ExpressionType.js';
 import { HydrationState, ParameterLookupDefinitionId } from './HydrationState.js';
 import { SourceTableRef } from './SourceTableRef.js';
-import { GetQuerierOptions } from './SqlSyncRules.js';
 import { ScalarExpressionEngine } from './sync_plan/engine/scalar_expression_engine.js';
 import { SQLite } from './sync_plan/engine/sqlite.js';
 import { TablePattern } from './TablePattern.js';

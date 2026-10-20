@@ -7,7 +7,7 @@ import {
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
 import { bucketRequest, getTestStorage, register, test_utils } from '@powersync/service-core-tests';
-import { RequestParameters, ScopedParameterLookup, SqlSyncRules } from '@powersync/service-sync-rules';
+import { parseSyncConfig, RequestParameters, ScopedParameterLookup } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
@@ -72,7 +72,7 @@ function objectIdGenerator(id: string) {
  * `ResolveTablesOptions.parsedSyncConfig`.
  */
 function parsedSyncConfigSetFor(yaml: string, storageVersion: number) {
-  const parsed = SqlSyncRules.fromYaml(yaml, test_utils.PARSE_OPTIONS);
+  const parsed = parseSyncConfig(yaml, test_utils.PARSE_OPTIONS);
   // These fixtures are legacy Sync Rules, which always report a deprecation warning.
   expect(parsed.errors.filter((error) => error.type !== 'warning')).toEqual([]);
   return new MongoParsedSyncConfigSet(1, getMongoStorageConfig(storageVersion), 'test_slot', [
