@@ -14,7 +14,7 @@ import {
   SqlSyncRules,
   TablePattern
 } from '../../src/index.js';
-import { compileSyncRulesSchemaValidator, createSyncRulesSchema } from '../../src/json_schema.js';
+import { compileSyncConfigSchemaValidator, createSyncConfigSchema } from '../../src/json_schema.js';
 
 const STREAMS = /* yaml */ ` streams:
     orders:
@@ -386,8 +386,8 @@ streams:
   });
 
   test('generated schema accepts supported table options and rejects unknown options', () => {
-    const schema = createSyncRulesSchema();
-    const validate = compileSyncRulesSchemaValidator(schema);
+    const schema = createSyncConfigSchema();
+    const validate = compileSyncConfigSchemaValidator(schema);
     expect(validate({ config: { edition: 3, source_table_options: { orders: {} } }, streams: {} })).toBe(true);
     expect(validate({ config: { edition: 3, source_table_options: { orders: { unknown: true } } }, streams: {} })).toBe(
       false

@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import * as YAML from 'yaml';
 import {
-  compileSyncRulesSchemaValidator,
-  createSyncRulesSchema,
+  compileSyncConfigSchemaValidator,
+  createSyncConfigSchema,
   hasMongoFilterExpressions,
   MONGO_FILTER_VALIDATOR,
   parseMongoFilterExpression,
@@ -123,8 +123,8 @@ describe('MongoDB expression validation', () => {
     expect(errors[0].location).toEqual({ start: 12, end: 17 });
   });
   test('editor schema has recursive references and matches valid nested input', () => {
-    const schema = createSyncRulesSchema();
-    const validate = compileSyncRulesSchemaValidator(schema);
+    const schema = createSyncConfigSchema();
+    const validate = compileSyncConfigSchemaValidator(schema);
     expect(
       validate(YAML.parse(config({ $and: [{ $eq: ['$$doc.active', true] }, { $or: [{ $in: ['$$doc.a', [1]] }] }] })))
     ).toBe(true);
