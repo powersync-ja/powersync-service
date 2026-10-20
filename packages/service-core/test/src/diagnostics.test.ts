@@ -1,7 +1,7 @@
 import { DiagnosticsOptions, getSyncRulesStatus } from '@/api/diagnostics.js';
 import { RouteAPI, SlotWalBudgetInfo } from '@/api/RouteAPI.js';
 import { ParsedSyncConfigSet, storage } from '@/index.js';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { parseSyncConfig } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
 const GB = 1024 * 1024 * 1024;
@@ -40,7 +40,7 @@ function makeSyncRulesContent(overrides?: {
     syncConfigState: status.state,
     version_label: overrides?.version_label,
     parsed(options?: any) {
-      const syncRules = SqlSyncRules.fromYaml(MINIMAL_SYNC_RULES, {
+      const syncRules = parseSyncConfig(MINIMAL_SYNC_RULES, {
         ...options,
         defaultSchema: 'public'
       });
@@ -217,7 +217,7 @@ streams:
 `;
     const content = makeSyncRulesContent();
     content.parsed = (options?: any) => {
-      SqlSyncRules.fromYaml(yaml, { ...options, defaultSchema: 'public', throwOnError: true });
+      parseSyncConfig(yaml, { ...options, defaultSchema: 'public', throwOnError: true });
       throw new Error('Expected parsing to fail');
     };
 

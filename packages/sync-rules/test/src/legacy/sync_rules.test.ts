@@ -5,8 +5,9 @@ import {
   BucketPriority,
   HydrateSyncConfigParams,
   nodeSqlite,
+  parseSyncConfig,
   ScopedParameterLookup,
-  SqlSyncRules
+  validateSyncConfig
 } from '../../../src/index.js';
 
 import {
@@ -37,13 +38,13 @@ describe('legacy Sync Rules', () => {
   };
 
   test('parse empty Sync Rules', () => {
-    const { config: rules } = SqlSyncRules.fromYaml('bucket_definitions: {}', PARSE_OPTIONS);
+    const { config: rules } = parseSyncConfig('bucket_definitions: {}', PARSE_OPTIONS);
     expect(rules.bucketParameterLookupSources).toEqual([]);
     expect(rules.bucketDataSources).toEqual([]);
   });
 
   test('parse global Sync Rules', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -82,7 +83,7 @@ bucket_definitions:
   });
 
   test('tracks source metadata on rows, lookups and bucket descriptions', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -114,7 +115,7 @@ bucket_definitions:
   });
 
   test('parse global Sync Rules with filter', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -151,7 +152,7 @@ bucket_definitions:
   });
 
   test('parse global Sync Rules with table filter', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -171,7 +172,7 @@ bucket_definitions:
   });
 
   test('parse bucket with parameters', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -218,7 +219,7 @@ bucket_definitions:
   test('bucket with parameters with custom hydrationState', async () => {
     // "end-to-end" test with custom hydrationState.
     // We don't test complex details here, but do cover bucket names and parameter lookup scope.
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 config:
   edition: 2
@@ -287,7 +288,7 @@ bucket_definitions:
   });
 
   test('parse bucket with parameters and OR condition', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -340,7 +341,7 @@ bucket_definitions:
 
   test('parse bucket with parameters and invalid OR condition', () => {
     expect(() => {
-      const rules = SqlSyncRules.fromYaml(
+      const rules = parseSyncConfig(
         `
 bucket_definitions:
   mybucket:
@@ -356,7 +357,7 @@ bucket_definitions:
   test('reject unsupported queries', () => {
     expect(
       fatalErrors(
-        SqlSyncRules.validate(
+        validateSyncConfig(
           `
 bucket_definitions:
   mybucket:
@@ -370,7 +371,7 @@ bucket_definitions:
 
     expect(
       fatalErrors(
-        SqlSyncRules.validate(
+        validateSyncConfig(
           `
 bucket_definitions:
   mybucket:
@@ -384,7 +385,7 @@ bucket_definitions:
 
     expect(
       fatalErrors(
-        SqlSyncRules.validate(
+        validateSyncConfig(
           `
 bucket_definitions:
   mybucket:
@@ -397,7 +398,7 @@ bucket_definitions:
     ).toMatchObject([{ message: 'LIMIT is not supported' }]);
 
     expect(() => {
-      const rules = SqlSyncRules.fromYaml(
+      const rules = parseSyncConfig(
         `
 bucket_definitions:
   mybucket:
@@ -409,7 +410,7 @@ bucket_definitions:
     }).toThrowError(/SKIP is not supported/);
 
     expect(() => {
-      const rules = SqlSyncRules.fromYaml(
+      const rules = parseSyncConfig(
         `
 bucket_definitions:
   mybucket:
@@ -421,7 +422,7 @@ bucket_definitions:
     }).toThrowError(/FOR is not supported/);
 
     expect(() => {
-      const rules = SqlSyncRules.fromYaml(
+      const rules = parseSyncConfig(
         `
 bucket_definitions:
   mybucket:
@@ -434,7 +435,7 @@ bucket_definitions:
   });
 
   test('transforming things', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -472,7 +473,7 @@ bucket_definitions:
 
   test('transforming things with upper-case functions', () => {
     // Testing that we can use different case for the function names
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -509,7 +510,7 @@ bucket_definitions:
   });
 
   test('transforming json', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -542,7 +543,7 @@ bucket_definitions:
   });
 
   test('IN json', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -586,7 +587,7 @@ bucket_definitions:
   });
 
   test('direct boolean param', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -666,7 +667,7 @@ bucket_definitions:
   });
 
   test('some math', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -693,7 +694,7 @@ bucket_definitions:
   });
 
   test('bucket with static numeric parameters', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -728,7 +729,7 @@ bucket_definitions:
   });
 
   test('static parameter query with function on token_parameter', () => {
-    const { config: rules, errors } = SqlSyncRules.fromYaml(
+    const { config: rules, errors } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -746,7 +747,7 @@ bucket_definitions:
   });
 
   test('custom table and id', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -788,7 +789,7 @@ bucket_definitions:
   });
 
   test('wildcard table', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -822,7 +823,7 @@ bucket_definitions:
   });
 
   test('wildcard without alias', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -854,7 +855,7 @@ bucket_definitions:
   });
 
   test('should filter schemas', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -903,7 +904,7 @@ bucket_definitions:
   });
 
   test('propagate parameter schema errors', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const rules = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -922,7 +923,7 @@ bucket_definitions:
   });
 
   test('null bucket definition', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const rules = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -939,7 +940,7 @@ bucket_definitions:
   });
 
   test('dangerous query errors', () => {
-    const { errors } = SqlSyncRules.fromYaml(
+    const { errors } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -959,7 +960,7 @@ bucket_definitions:
   });
 
   test('dangerous query errors - ignored', () => {
-    const { errors } = SqlSyncRules.fromYaml(
+    const { errors } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -974,7 +975,7 @@ bucket_definitions:
   });
 
   test('priorities on queries', () => {
-    const { config: rules, errors } = SqlSyncRules.fromYaml(
+    const { config: rules, errors } = parseSyncConfig(
       `
 bucket_definitions:
   highprio:
@@ -1000,7 +1001,7 @@ bucket_definitions:
   });
 
   test('priorities on bucket', () => {
-    const { config: rules, errors } = SqlSyncRules.fromYaml(
+    const { config: rules, errors } = parseSyncConfig(
       `
 bucket_definitions:
   highprio:
@@ -1027,7 +1028,7 @@ bucket_definitions:
 
   test(`invalid priority on bucket`, () => {
     expect(() =>
-      SqlSyncRules.fromYaml(
+      parseSyncConfig(
         `
 bucket_definitions:
   highprio:
@@ -1042,7 +1043,7 @@ bucket_definitions:
 
   test(`can't duplicate priority`, () => {
     expect(() =>
-      SqlSyncRules.fromYaml(
+      parseSyncConfig(
         `
 bucket_definitions:
   highprio:
@@ -1057,7 +1058,7 @@ bucket_definitions:
   });
 
   test('dynamic bucket definitions list', async () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -1100,7 +1101,7 @@ bucket_definitions:
   });
 
   test('event definition smoke test', () => {
-    const { config: rules, errors } = SqlSyncRules.fromYaml(
+    const { config: rules, errors } = parseSyncConfig(
       `
 bucket_definitions:
   bkt:
@@ -1131,7 +1132,7 @@ event_definitions:
   });
 
   test('suggests upgrading for Sync Streams on edition 2', () => {
-    const { config: rules, errors } = SqlSyncRules.fromYaml(
+    const { config: rules, errors } = parseSyncConfig(
       `
 config:
   edition: 2
@@ -1152,7 +1153,7 @@ streams:
   });
 
   test.each([undefined, 1])('rejects actual Sync Stream queries in edition %s', (edition) => {
-    const { errors } = SqlSyncRules.fromYaml(
+    const { errors } = parseSyncConfig(
       /* yaml */ `
         # sync config fixture.
         config: ${edition == null ? '{}' : `{ edition: ${edition} }`}
@@ -1168,7 +1169,7 @@ streams:
   });
 
   test.each([undefined, 1, 2])('only warns about an empty legacy streams block in edition %s', (edition) => {
-    const { errors } = SqlSyncRules.fromYaml(
+    const { errors } = parseSyncConfig(
       /* yaml */ `
         # sync config fixture.
         config: ${edition == null ? '{}' : `{ edition: ${edition} }`}
@@ -1187,7 +1188,7 @@ streams:
 
   test.each([undefined, 1, 2, 3])('reports consistent stream diagnostics in edition %s', (edition) => {
     for (const hasQuery of [false, true]) {
-      const { errors } = SqlSyncRules.fromYaml(
+      const { errors } = parseSyncConfig(
         /* yaml */ `
           # sync config fixture.
           config: ${edition == null ? '{}' : `{ edition: ${edition} }`}
@@ -1213,7 +1214,7 @@ streams:
   });
 
   test('warns that bucket_definitions are deprecated', () => {
-    const { errors } = SqlSyncRules.fromYaml(
+    const { errors } = parseSyncConfig(
       `
 bucket_definitions:
   mybucket:
@@ -1234,7 +1235,7 @@ bucket_definitions:
   });
 
   test('does not warn about bucket_definitions for a Sync Streams config', () => {
-    const { errors } = SqlSyncRules.fromYaml(
+    const { errors } = parseSyncConfig(
       `
 config:
   edition: 3
@@ -1253,7 +1254,7 @@ streams:
   });
 
   test('does not support CTEs', () => {
-    const { config: rules, errors } = SqlSyncRules.fromYaml(
+    const { config: rules, errors } = parseSyncConfig(
       `
 config:
   edition: 2
@@ -1278,7 +1279,7 @@ streams:
 
   test('applies subscription priorities', () => {
     for (const edition of [2, 3]) {
-      const { config: rules, errors } = SqlSyncRules.fromYaml(
+      const { config: rules, errors } = parseSyncConfig(
         `
 config:
   edition: ${edition}
@@ -1313,7 +1314,7 @@ streams:
   });
 
   test('parse storage version', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 config:
   edition: 3
@@ -1326,7 +1327,7 @@ streams: {}`,
   });
 
   test('warns on unstable storage version', () => {
-    const { config: rules, errors } = SqlSyncRules.fromYaml(
+    const { config: rules, errors } = parseSyncConfig(
       `
 config:
   edition: 3
@@ -1341,7 +1342,7 @@ streams: []`,
   });
 
   test('errors on unsupported storage version', () => {
-    const { config: rules, errors } = SqlSyncRules.fromYaml(
+    const { config: rules, errors } = parseSyncConfig(
       `
 config:
   edition: 3
@@ -1356,7 +1357,7 @@ streams: []`,
   });
 
   test(`can't use sqlite_expression_engine in old config edition`, () => {
-    const { config: rules, errors } = SqlSyncRules.fromYaml(
+    const { config: rules, errors } = parseSyncConfig(
       `
 config:
   unstable_sqlite_expression_engine: true
@@ -1369,7 +1370,7 @@ bucket_definitions:`,
   });
 
   test(`can't use sqlite_expression_engine without json compatibility`, () => {
-    const { config: rules, errors } = SqlSyncRules.fromYaml(
+    const { config: rules, errors } = parseSyncConfig(
       `
 config:
   edition: 3

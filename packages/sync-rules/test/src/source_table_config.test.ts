@@ -8,10 +8,10 @@ import {
   nodeSqlite,
   normalizeSourceTableConfig,
   parseSourceTableConfigKey,
+  parseSyncConfig,
   PrecompiledSyncConfig,
   serializeSyncPlan,
   sourceTableConfigsEqual,
-  SqlSyncRules,
   TablePattern
 } from '../../src/index.js';
 import { compileSyncConfigSchemaValidator, createSyncConfigSchema } from '../../src/json_schema.js';
@@ -25,7 +25,7 @@ function withStreams(config = 'config: { edition: 3 }'): string {
 }
 
 function parse(config: string) {
-  return SqlSyncRules.fromYaml(withStreams(config), { defaultSchema: 'app' });
+  return parseSyncConfig(withStreams(config), { defaultSchema: 'app' });
 }
 
 describe('source table configuration', () => {
@@ -56,12 +56,12 @@ describe('source table configuration', () => {
         streams: {}
       }
     `;
-    const { config } = SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app' });
+    const { config } = parseSyncConfig(yaml, { defaultSchema: 'app' });
     expect(config.storageVersion).toBe(2);
     expect((config as PrecompiledSyncConfig).plan.sourceTableConfig).toEqual({
       orders: { mongodb_filter_expression: 'disabled' }
     });
-    expect(() => SqlSyncRules.fromYaml(`${withStreams()}source_table_options: {}`, { defaultSchema: 'app' })).toThrow(
+    expect(() => parseSyncConfig(`${withStreams()}source_table_options: {}`, { defaultSchema: 'app' })).toThrow(
       "Unknown key 'source_table_options'."
     );
   });
@@ -92,7 +92,7 @@ describe('source table configuration', () => {
   });
 
   test.each(['Orders', '"Orders"'])('matches SQL stream identifier case for %s', (name) => {
-    const { config } = SqlSyncRules.fromYaml(
+    const { config } = parseSyncConfig(
       /* yaml */ `
         # sync config fixture.
         config:
@@ -163,10 +163,10 @@ describe('source table configuration', () => {
     ['Users%', 'users%']
   ])('rejects source-table keys %s and %s that resolve to the same pattern', (first, second) => {
     const yaml = withStreams(`config: { edition: 3, source_table_options: { '${first}': {}, '${second}': {} } }`);
-    expect(() => SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app' })).toThrow(
+    expect(() => parseSyncConfig(yaml, { defaultSchema: 'app' })).toThrow(
       `Source-table keys ${JSON.stringify(first)} and ${JSON.stringify(second)} resolve to the same pattern.`
     );
-    const { errors } = SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app', throwOnError: false });
+    const { errors } = parseSyncConfig(yaml, { defaultSchema: 'app', throwOnError: false });
     expect(errors).toHaveLength(1);
     expect(errors[0].type).toBe('fatal');
     expect(yaml.slice(errors[0].location.start, errors[0].location.end)).toBe(`'${second}'`);
@@ -180,7 +180,7 @@ describe('source table configuration', () => {
     ['users%', 'users']
   ])('accepts distinct source-table patterns %s and %s', (first, second) => {
     const yaml = withStreams(`config: { edition: 3, source_table_options: { '${first}': {}, '${second}': {} } }`);
-    expect(SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app' }).errors).toEqual([]);
+    expect(parseSyncConfig(yaml, { defaultSchema: 'app' }).errors).toEqual([]);
   });
 
   test('retains conservative equality of authored key spellings', () => {
@@ -240,7 +240,7 @@ streams:
   orders:
     query: SELECT * FROM SCHEMA.orders
 `.replace('SCHEMA', schema);
-    const fresh = SqlSyncRules.fromYaml(yaml, { defaultSchema: 'public' }).config as PrecompiledSyncConfig;
+    const fresh = parseSyncConfig(yaml, { defaultSchema: 'public' }).config as PrecompiledSyncConfig;
     const restored = deserializeSyncPlan(serializeSyncPlan(fresh.plan));
     const freshPattern = fresh.plan.dataSources[0].sourceTable.toTablePattern(fresh.defaultSchema);
     const restoredPattern = restored.dataSources[0].sourceTable.toTablePattern(fresh.defaultSchema);
@@ -317,11 +317,11 @@ streams:
 
   test('requires edition 3 and plan version 3 for configured tables', () => {
     expect(() =>
-      SqlSyncRules.fromYaml(/* yaml */ `{ config: { edition: 2, source_table_options: {} }, streams: {} }`, {
+      parseSyncConfig(/* yaml */ `{ config: { edition: 2, source_table_options: {} }, streams: {} }`, {
         defaultSchema: 'app'
       })
     ).toThrow('edition 3');
-    const config = SqlSyncRules.fromYaml(withStreams(), { defaultSchema: 'app' }).config as PrecompiledSyncConfig;
+    const config = parseSyncConfig(withStreams(), { defaultSchema: 'app' }).config as PrecompiledSyncConfig;
     const plan = serializeSyncPlan(config.plan);
     expect(plan.version).toBe(1);
     expect(plan).not.toHaveProperty('sourceTableConfig');

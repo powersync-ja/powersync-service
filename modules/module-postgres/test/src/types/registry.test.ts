@@ -6,7 +6,7 @@ import {
   CompatibilityEdition,
   CompatibilityOption,
   SqliteInputValue,
-  toSyncRulesValue
+  toSyncConfigValue
 } from '@powersync/service-sync-rules';
 import { beforeEach, describe, expect, test } from 'vitest';
 
@@ -19,7 +19,7 @@ describe('custom type registry', () => {
 
   function checkResult(raw: string, type: number, old: any, fixed: any): SqliteInputValue {
     const input = registry.decodeDatabaseValue(raw, type);
-    const syncRulesValue = toSyncRulesValue(input);
+    const syncRulesValue = toSyncConfigValue(input);
 
     expect(applyValueContext(syncRulesValue, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toStrictEqual(old);
     expect(

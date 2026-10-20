@@ -12,6 +12,7 @@ import {
   DEFAULT_HYDRATION_STATE,
   HydrateSyncConfigParams,
   nodeSqlite,
+  parseSyncConfig,
   SqlSyncRules
 } from '@powersync/service-sync-rules';
 import * as sqlite from 'node:sqlite';
@@ -197,7 +198,7 @@ describe('Stream Route', () => {
     // producing another checkpoint. Before the fix, awaiting watcher.return()
     // during cleanup queued it behind that pending next(), leaving the response
     // open until an unrelated checkpoint was written.
-    const syncRules = SqlSyncRules.fromYaml(
+    const syncRules = parseSyncConfig(
       `
 bucket_definitions:
   global:

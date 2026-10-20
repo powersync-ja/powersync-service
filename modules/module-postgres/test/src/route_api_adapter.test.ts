@@ -1,5 +1,5 @@
 import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js';
-import { SqlSyncRules, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '@powersync/service-sync-rules';
+import { parseSyncConfig, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { clearTestDb, connectPgPool, TEST_CONNECTION_OPTIONS } from './util.js';
 
@@ -66,7 +66,7 @@ describe('PostgresRouteAPIAdapter tests', () => {
       await clearTestDb(db);
       await db.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
 
-      const parsed = SqlSyncRules.fromYaml(
+      const parsed = parseSyncConfig(
         `
 bucket_definitions:
   global:
