@@ -1,200 +1,177 @@
-import { throwIfAborted } from 'ix/aborterror.js';
-import { AsyncIterableX } from 'ix/asynciterable/index.js';
-import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
+import { AbortError } from 'ix/aborterror.js';
 import { safeRace } from '../sync/safeRace.js';
+import type { IterableSource } from './BroadcastIterable.js';
+
+type ReadResult<T> = { index: number } & PromiseSettledResult<IteratorResult<T>>;
+type Failure = { error: unknown };
 
 /**
  * Merge multiple source AsyncIterables into one output AsyncIterable.
+ * The results from all iterables are interleaved. When any iterable is done, the output stops.
  *
- * The results from all iterables are interleaved.
+ * Sources receive a signal owned by this merge. They must use it to unblock pending reads:
+ * async generators queue return() behind next(), so closing an unabortable read can block forever.
+ * The signal is aborted before closing all source iterators, and completion waits for their cleanup.
+ * Cleanup failures propagate to the caller; multiple failures are combined in an AggregateError.
  *
- * When any iterable is done, the output stops.
- *
- * @param source The source AsyncIterables.
- * @param signal Optional signal to abort iteration.
- * @returns The merged AsyncIterable.
- */
-export function mergeAsyncIterables<T>(source: AsyncIterable<T>[], signal?: AbortSignal): AsyncIterable<T> {
-  return mergeAsyncIterablesNew(source, signal);
-  // return mergeAsyncIterablesOld(source, signal);
-}
-
-export function mergeAsyncIterablesNew<T>(source: AsyncIterable<T>[], signal?: AbortSignal): AsyncIterable<T> {
-  return new MergedAsyncIterable(source, signal);
-}
-
-export function mergeAsyncIterablesOld<T>(source: AsyncIterable<T>[], signal?: AbortSignal): AsyncIterable<T> {
-  return wrapWithAbort(new FixedMergeAsyncIterable(source, { race: true }), signal);
-}
-
-const NEVER_PROMISE = new Promise<never>(() => {});
-
-type MergeResult<T> = { value: T; index: number };
-
-function wrapPromiseWithIndex<T>(promise: Promise<T>, index: number) {
-  return promise.then((value) => ({ value, index })) as Promise<MergeResult<T>>;
-}
-
-/**
- * Re-implementation of FixedMergeAsyncIterable, without using async generators.
- *
- * The functionality should be the same in most cases.
- */
-class MergedAsyncIterable<T> implements AsyncIterable<T> {
-  private _source: AsyncIterable<T>[];
-  private _signal?: AbortSignal;
-
-  constructor(source: AsyncIterable<T>[], signal?: AbortSignal) {
-    this._source = source;
-    this._signal = signal;
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<T> {
-    const signal = this._signal;
-    throwIfAborted(signal);
-
-    const length = this._source.length;
-    const iterators = new Array<AsyncIterator<T>>(length);
-    const nexts = new Array<Promise<MergeResult<IteratorResult<T>>> | null>(length);
-
-    for (let i = 0; i < length; i++) {
-      const iterator = wrapWithAbort(this._source[i], signal)[Symbol.asyncIterator]();
-      iterators[i] = iterator;
-      nexts[i] = null;
-    }
-
-    const returnIterators = async (_value?: any): Promise<IteratorResult<T>> => {
-      for (let iter of iterators) {
-        // Do not wait for return() to complete, since it may block
-        iter.return?.();
-      }
-      return { value: undefined, done: true };
-    };
-
-    return {
-      next: async (): Promise<IteratorResult<T>> => {
-        for (let i = 0; i < length; i++) {
-          if (nexts[i] == null) {
-            nexts[i] = wrapPromiseWithIndex(iterators[i].next(), i);
-          }
-        }
-
-        try {
-          // IMPORTANT! safeRace here acts like Promise.race, but avoids major memory leaks.
-          const {
-            value: { done, value },
-            index
-          } = (await safeRace(nexts as Array<Promise<MergeResult<IteratorResult<T>>>>))!;
-          if (done) {
-            // One of the source iterators is done - return them all
-            await returnIterators();
-
-            return {
-              value: undefined,
-              done: true
-            };
-          } else {
-            // Consume the result, which will cause the next one to be requested on the
-            // next iteration.
-            nexts[index] = null;
-
-            return {
-              value: value,
-              done: false
-            };
-          }
-        } catch (e) {
-          // One of the source iterators raised an error - return all others
-          // and propagate the error
-          await returnIterators();
-          throw e;
-        }
-      },
-      return: () => {
-        return returnIterators();
-      },
-      throw: async (e) => {
-        for (let iter of iterators) {
-          // Do not wait for throw() to complete, since it may block
-          iter.throw?.(e);
-        }
-        throw e;
-      }
-    };
-  }
-}
-
-/**
- * Loosely based on IxJS merge, but with some changes:
- * 1. Fix an issue with uncaught errors.
- *      Partially fixed: https://github.com/ReactiveX/IxJS/pull/354
- *      Essentially, we only want to call next() on inner iterators when next() is called on the outer one.
+ * Loosely based on IxJS merge, with these differences:
+ * 1. Fix an issue with uncaught errors, partially fixed in https://github.com/ReactiveX/IxJS/pull/354.
+ *    Only call next() on inner iterators when next() is called on the outer one, and handle every
+ *    pending read immediately, including reads whose results are not consumed before shutdown.
  * 2. Call return() on all inner iterators when the outer one returns.
- * 3. Returning when the first iterator returns.
+ * 3. Return when the first iterator returns.
+ * Original implementation: https://github.com/ReactiveX/IxJS/blob/f07b7ef4095120f1ef21a4023030c75b36335cd1/src/asynciterable/merge.ts
  *
- * https://github.com/ReactiveX/IxJS/blob/f07b7ef4095120f1ef21a4023030c75b36335cd1/src/asynciterable/merge.ts
+ * @param sources Factories for source iterables that observe the supplied abort signal.
+ * @param signal Optional signal to abort iteration.
  */
-export class FixedMergeAsyncIterable<T> extends AsyncIterableX<T> {
-  private _source: AsyncIterable<T>[];
-  private _race: boolean;
+export function mergeAsyncIterables<T>(sources: IterableSource<T>[], signal?: AbortSignal): AsyncIterable<T> {
+  return {
+    [Symbol.asyncIterator]() {
+      return new MergedAsyncIterator(sources, signal);
+    }
+  };
+}
 
-  /**
-   *
-   * @param source
-   * @param options Specify `race: true` to stop the iterator when any inner one returns, instead of waiting for all.
-   */
-  constructor(source: AsyncIterable<T>[], options?: { race?: boolean }) {
-    super();
-    this._source = source;
-    this._race = options?.race ?? false;
+class MergedAsyncIterator<T> implements AsyncIterator<T> {
+  private readonly controller = new AbortController();
+  private readonly signal: AbortSignal;
+  private readonly iterators: AsyncIterator<T>[] = [];
+  private readonly pending: (Promise<ReadResult<T>> | null)[] = [];
+  private initialized = false;
+  private closing: Promise<unknown[]> | undefined;
+  private nextInFlight: Promise<void> = Promise.resolve();
+  private readonly onAbort = () => {
+    // Cleanup can start while the consumer is paused. Its settled errors remain available to next()/return().
+    void this.close({ error: new AbortError() });
+  };
+
+  constructor(
+    private readonly sources: IterableSource<T>[],
+    private readonly parentSignal?: AbortSignal
+  ) {
+    this.signal = parentSignal ? AbortSignal.any([parentSignal, this.controller.signal]) : this.controller.signal;
+    if (parentSignal && !parentSignal.aborted) {
+      parentSignal.addEventListener('abort', this.onAbort, { once: true });
+    }
   }
 
-  async *[Symbol.asyncIterator](signal?: AbortSignal): AsyncIterator<T> {
-    throwIfAborted(signal);
-    const length = this._source.length;
-    const iterators = new Array<AsyncIterator<T>>(length);
-    const nexts = new Array<Promise<MergeResult<IteratorResult<T>>>>(length);
-    let active = length;
-    for (let i = 0; i < length; i++) {
-      const iterator = wrapWithAbort(this._source[i], signal)[Symbol.asyncIterator]();
-      iterators[i] = iterator;
-      nexts[i] = wrapPromiseWithIndex(iterator.next(), i);
-    }
+  next(): Promise<IteratorResult<T>> {
+    // Serialize next() calls, while allowing return()/throw() to abort an in-flight read immediately.
+    const next = this.nextInFlight.then(() => this.read());
+    this.nextInFlight = next.then(
+      () => {},
+      () => {}
+    );
+    return next;
+  }
 
+  async return(): Promise<IteratorResult<T>> {
+    throwFailures(await this.close());
+    return { done: true, value: undefined };
+  }
+
+  async throw(error: unknown): Promise<IteratorResult<T>> {
+    throwFailures(await this.close({ error }, true));
+    return { done: true, value: undefined };
+  }
+
+  private async read(): Promise<IteratorResult<T>> {
+    if (this.closing) {
+      throwFailures(await this.closing);
+      return { done: true, value: undefined };
+    }
     try {
-      while (active > 0) {
-        // IMPORTANT! safeRace here acts like Promise.race, but avoids major memory leaks.
-        const {
-          value: { done, value },
-          index
-        } = await safeRace(nexts);
-        if (done) {
-          nexts[index] = NEVER_PROMISE;
-          active--;
-          if (this._race) {
-            break;
-          }
-        } else {
-          const iterator$ = iterators[index];
-          nexts[index] = NEVER_PROMISE;
-          try {
-            yield value;
-          } catch (e) {
-            // iter.throw() was called on the merged iterator
-            // Propagate the error to the source iterators
-            for (let iter of iterators) {
-              iter.throw?.(e);
-            }
-            throw e;
-          }
-          nexts[index] = wrapPromiseWithIndex(iterator$.next(), index);
+      if (this.signal.aborted) {
+        throw new AbortError();
+      }
+      if (!this.initialized) {
+        this.initialized = true;
+        for (const source of this.sources) {
+          this.iterators.push(source(this.signal)[Symbol.asyncIterator]());
+          this.pending.push(null);
         }
       }
-    } finally {
-      for (let iter of iterators) {
-        // This may be an early return - return all inner iterators
-        iter.return?.();
+      for (const [index, iterator] of this.iterators.entries()) {
+        if (this.pending[index] == null) {
+          // Settle errors immediately, even if another source wins and the consumer stops reading.
+          this.pending[index] = Promise.resolve()
+            .then(() => iterator.next())
+            .then(
+              (value): ReadResult<T> => ({ index, status: 'fulfilled', value }),
+              (reason): ReadResult<T> => ({ index, status: 'rejected', reason })
+            );
+        }
       }
+      if (this.pending.length === 0) {
+        return await this.return();
+      }
+      // Like Promise.race, but avoids retaining callbacks on long-lived pending reads.
+      const result = await safeRace(this.pending as Promise<ReadResult<T>>[]);
+      if (this.closing) {
+        throwFailures(await this.closing);
+        return { done: true, value: undefined };
+      }
+      if (result.status === 'rejected') {
+        throw result.reason;
+      }
+      if (result.value.done) {
+        return await this.return();
+      }
+      this.pending[result.index] = null;
+      return result.value;
+    } catch (error) {
+      throwFailures(await this.close({ error }));
+      throw error;
     }
+  }
+
+  private close(failure?: Failure, injectError = false): Promise<unknown[]> {
+    if (this.closing) {
+      return this.closing;
+    }
+    // Publish the closing state before invoking source code, including synchronous abort listeners.
+    this.closing = Promise.resolve().then(async () => {
+      this.parentSignal?.removeEventListener('abort', this.onAbort);
+      this.controller.abort();
+      const errors = failure ? [failure.error] : [];
+      const collect = (error: unknown) => {
+        // Aborting pending reads is expected. Do not hide the original failure or unrelated cleanup errors.
+        if (error !== this.signal.reason && !(error instanceof Error && error.name === 'AbortError')) {
+          if (!errors.includes(error)) errors.push(error);
+        }
+      };
+      const results = await Promise.allSettled(
+        this.iterators.map(async (iterator) => {
+          if (injectError && iterator.throw) {
+            try {
+              await iterator.throw(failure!.error);
+            } catch (error) {
+              collect(error);
+            }
+          }
+          // Even an iterator that catches throw() and yields again must be closed.
+          await iterator.return?.();
+        })
+      );
+      for (const result of results) {
+        if (result.status === 'rejected') collect(result.reason);
+      }
+      // A source can fail while another source is finishing. Observe those pending reads as well.
+      for (const result of await Promise.all(this.pending)) {
+        if (result?.status === 'rejected') collect(result.reason);
+      }
+      return errors;
+    });
+    return this.closing;
+  }
+}
+
+function throwFailures(errors: unknown[]): void {
+  if (errors.length === 1) {
+    throw errors[0];
+  }
+  if (errors.length > 1) {
+    throw new AggregateError(errors, 'Multiple errors while closing merged iterators', { cause: errors[0] });
   }
 }
