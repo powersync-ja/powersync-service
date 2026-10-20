@@ -89,4 +89,17 @@ describe('SourceTable', () => {
       expect(table.storeCurrentData).toBe(false);
     });
   });
+
+  describe('formatSnapshotProgress', () => {
+    test('delegates to the shared snapshot progress formatter', () => {
+      const table = makeTable({ snapshotComplete: false });
+      expect(table.formatSnapshotProgress()).toEqual('0/?');
+
+      table.snapshotStatus = { totalEstimatedCount: -1, replicatedCount: 50, lastKey: null };
+      expect(table.formatSnapshotProgress()).toEqual('50/?');
+
+      table.snapshotStatus = { totalEstimatedCount: 12_000, replicatedCount: 3000, lastKey: null };
+      expect(table.formatSnapshotProgress()).toEqual('3.0k/~12.0k (25%)');
+    });
+  });
 });
