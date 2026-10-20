@@ -1,5 +1,5 @@
 /*
-  PowerSync sync config SQL grammar: Sync Streams compiler (current).
+  PowerSync Sync Streams SQL grammar (edition 3).
 
   SQL appears in YAML at:
     - streams.<stream_name>.query

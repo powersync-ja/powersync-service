@@ -1,5 +1,5 @@
 /*
-  PowerSync sync config SQL grammar: Sync Streams alpha (syncStreamFromSql path, not the compiler). Deprecated.
+  PowerSync Sync Streams alpha SQL grammar (edition 2). Deprecated.
 
   SQL appears in YAML at:
     - streams.<stream_name>.query
