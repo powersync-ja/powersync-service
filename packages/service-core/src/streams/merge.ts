@@ -135,7 +135,9 @@ class MergedAsyncIterator<T> implements AsyncIterator<T> {
       const collect = (error: unknown) => {
         // Aborting pending reads is expected. Do not hide the original failure or unrelated cleanup errors.
         if (error !== this.signal.reason && !(error instanceof Error && error.name === 'AbortError')) {
-          if (!errors.includes(error)) errors.push(error);
+          if (!errors.includes(error)) {
+            errors.push(error);
+          }
         }
       };
       const results = await Promise.allSettled(
@@ -152,11 +154,15 @@ class MergedAsyncIterator<T> implements AsyncIterator<T> {
         })
       );
       for (const result of results) {
-        if (result.status === 'rejected') collect(result.reason);
+        if (result.status === 'rejected') {
+          collect(result.reason);
+        }
       }
       // A source can fail while another source is finishing. Observe those pending reads as well.
       for (const result of await Promise.all(this.pending)) {
-        if (result?.status === 'rejected') collect(result.reason);
+        if (result?.status === 'rejected') {
+          collect(result.reason);
+        }
       }
       return errors;
     });
