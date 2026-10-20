@@ -358,7 +358,7 @@ async function closeCheckpointWatcher(
   // pending next(): the watcher is then suspended at a yield and never observes the abort.
   // Abort before awaiting return(): async generators queue it behind a pending next().
   // This ordering prevents the connection stall fixed in #773, without detaching cleanup.
-  controller.abort();
+  controller.abort(iterationFailure?.error);
   // A pending read can fail in the watcher's finally block while its queued return() succeeds.
   // Observe both results so that cleanup failures are not silently lost.
   const [closed, read] = await Promise.all([settledPromise(Promise.resolve().then(() => watcher.return?.())), pending]);

@@ -1,4 +1,3 @@
-import { AbortError } from 'ix/aborterror.js';
 import { safeRace } from '../sync/safeRace.js';
 import type { IterableSource } from './BroadcastIterable.js';
 
@@ -43,7 +42,7 @@ class MergedAsyncIterator<T> implements AsyncIterator<T> {
   private nextInFlight: Promise<void> = Promise.resolve();
   private readonly onAbort = () => {
     // Cleanup can start while the consumer is paused. Its settled errors remain available to next()/return().
-    void this.close({ error: new AbortError() });
+    void this.close({ error: this.parentSignal!.reason });
   };
 
   constructor(
@@ -82,9 +81,7 @@ class MergedAsyncIterator<T> implements AsyncIterator<T> {
       return { done: true, value: undefined };
     }
     try {
-      if (this.signal.aborted) {
-        throw new AbortError();
-      }
+      this.signal.throwIfAborted();
       if (!this.initialized) {
         this.initialized = true;
         for (const source of this.sources) {
@@ -133,7 +130,7 @@ class MergedAsyncIterator<T> implements AsyncIterator<T> {
     // Publish the closing state before invoking source code, including synchronous abort listeners.
     this.closing = Promise.resolve().then(async () => {
       this.parentSignal?.removeEventListener('abort', this.onAbort);
-      this.controller.abort();
+      this.controller.abort(failure?.error);
       const errors = failure ? [failure.error] : [];
       const collect = (error: unknown) => {
         // Aborting pending reads is expected. Do not hide the original failure or unrelated cleanup errors.

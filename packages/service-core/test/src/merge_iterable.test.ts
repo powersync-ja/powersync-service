@@ -297,6 +297,45 @@ describe('merge iterables', () => {
 });
 
 describe('blocking merge cleanup', () => {
+  test.each([
+    { reason: new DOMException('Cancelled', 'AbortError') },
+    { reason: new Error('Cancelled') },
+    { reason: 'cancelled' },
+    { reason: 0 },
+    { reason: false },
+    { reason: null }
+  ])('preserves abort reason $reason before and during iteration', async ({ reason }) => {
+    const preAborted = mergeAsyncIterables([], AbortSignal.abort(reason))[Symbol.asyncIterator]();
+    await expect(preAborted.next()).rejects.toBe(reason);
+
+    const started = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    const source: IterableSource<number> = async function* (signal) {
+      started.resolve();
+      await timers.setTimeout(60_000, undefined, { signal });
+      yield 1;
+    };
+    const iterator = mergeAsyncIterables([source], controller.signal)[Symbol.asyncIterator]();
+    const outcome = expect(iterator.next()).rejects.toBe(reason);
+    await started.promise;
+    controller.abort(reason);
+    await outcome;
+  });
+
+  test('passes the iteration failure to source cancellation', async () => {
+    const error = new Error('source failed');
+    let sourceSignal: AbortSignal | undefined;
+    const failing: IterableSource<number> = async function* () {
+      throw error;
+    };
+    const other: IterableSource<number> = async function* (signal) {
+      sourceSignal = signal;
+      yield 1;
+    };
+    await expect(mergeAsyncIterables([failing, other])[Symbol.asyncIterator]().next()).rejects.toBe(error);
+    expect(sourceSignal!.reason).toBe(error);
+  });
+
   test('aborts a pending source read when another source completes', async () => {
     let closed = false;
     const waiting: IterableSource<number> = async function* (signal) {
