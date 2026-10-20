@@ -137,9 +137,7 @@ streams: {}
       schema,
       {}
     );
-    expect(generated.startsWith(`import { column, Schema, Table } from '@powersync/web';`)).toBe(
-      true
-    );
+    expect(generated.startsWith(`import { column, Schema, Table } from '@powersync/web';`)).toBe(true);
     expect(generated).not.toContain('SyncStream');
     expect(generated).not.toContain('PowerSyncDatabase');
   });
