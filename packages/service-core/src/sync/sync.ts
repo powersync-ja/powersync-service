@@ -114,14 +114,15 @@ async function* streamResponseInner(
     syncRequest: params,
     logger: logger
   });
-  // The checkpoint iterator can have a pending next() while a data batch fails.
-  // Aborting this on cleanup makes that pending next() settle, so the watcher subscription
-  // is released instead of staying open until another checkpoint arrives. See the cleanup
-  // in the finally block below.
+  // A checkpoint read or calculation can be pending while a data batch fails.
+  // Aborting this on cleanup stops that work once in-flight storage reads finish, so the
+  // watcher subscription is released instead of waiting for another checkpoint to arrive.
+  // See the cleanup in the finally block below.
   const checkpointWatchController = new AbortController();
+  const checkpointSignal = AbortSignal.any([signal, checkpointWatchController.signal]);
   const stream = bucketStorage.watchCheckpointChanges({
     user_id: checkpointUserId,
-    signal: AbortSignal.any([signal, checkpointWatchController.signal])
+    signal: checkpointSignal
   });
   const newCheckpoints = stream[Symbol.asyncIterator]();
 
@@ -139,7 +140,7 @@ async function* streamResponseInner(
     };
 
     try {
-      const line = await checksumState.buildNextCheckpointLine(next.value, trace.tracer);
+      const line = await checksumState.buildNextCheckpointLine(next.value, trace.tracer, checkpointSignal);
       return { done: false, value: { checkpoint: cp, line, trace: line == null ? null : trace } };
     } catch (e) {
       if (e instanceof storage.CheckpointChecksumInvalidatedError) {
