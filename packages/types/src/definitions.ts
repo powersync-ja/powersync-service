@@ -1,6 +1,11 @@
 import * as t from 'ts-codec';
 import { enumLiteral, orNull } from './codecs.js';
 
+export const ServiceInfo = t.object({
+  version: t.string
+});
+export type ServiceInfo = t.Encoded<typeof ServiceInfo>;
+
 export const SourceSpan = t.object({
   start_offset: t.number,
   end_offset: t.number

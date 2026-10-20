@@ -1,6 +1,6 @@
 import * as t from 'ts-codec';
-import { anyPrimitive } from './codecs.js';
-import { ConnectionStatus, InstanceSchema, SyncRulesStatus } from './definitions.js';
+import { anyPrimitive, enumLiteral } from './codecs.js';
+import { ConnectionStatus, InstanceSchema, ServiceInfo, SyncRulesStatus } from './definitions.js';
 import { SyncConfigReplicationProgress } from './progress.js';
 
 export const GetSchemaRequest = t.object({});
@@ -54,7 +54,11 @@ export const DiagnosticsResponse = t.object({
    *
    * Sync-config-level errors are listed here.
    */
-  deploying_sync_rules: SyncRulesStatus.optional()
+  deploying_sync_rules: SyncRulesStatus.optional(),
+
+  sync_config_source: enumLiteral('api', 'config').optional(),
+
+  service: ServiceInfo.optional()
 });
 export type DiagnosticsResponse = t.Encoded<typeof DiagnosticsResponse>;
 
