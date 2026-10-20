@@ -7,7 +7,7 @@ import { STORAGE_VERSIONS } from './StorageVersion.js';
 // Hack to make this work both in NodeJS and a browser
 const Ajv = ajvModule.default ?? ajvModule;
 
-export const syncRulesSchema: ajvModule.Schema = {
+export const syncConfigSchema: ajvModule.Schema = {
   type: 'object',
   definitions: MONGO_FILTER_JSON_SCHEMA_DEFINITIONS,
   properties: {
@@ -176,7 +176,17 @@ export const syncRulesSchema: ajvModule.Schema = {
   additionalProperties: false
 } as const;
 
-export const validateSyncRulesSchema: any = compileSyncRulesSchemaValidator(syncRulesSchema);
+export const validateSyncConfigSchema: any = compileSyncRulesSchemaValidator(syncConfigSchema);
+
+/**
+ * @deprecated Use {@link syncConfigSchema} instead.
+ */
+export const syncRulesSchema = syncConfigSchema;
+
+/**
+ * @deprecated Use {@link validateSyncConfigSchema} instead.
+ */
+export const validateSyncRulesSchema = validateSyncConfigSchema;
 
 export type SyncRulesSchemaValidator = ajvModule.ValidateFunction;
 
@@ -184,7 +194,7 @@ export type SyncRulesSchemaValidator = ajvModule.ValidateFunction;
  * An isolated composition shared by editor tooling, YAML validation and persisted source-table options.
  */
 export function createSyncRulesSchema(): JsonObject {
-  const schema = structuredClone(syncRulesSchema) as JsonObject;
+  const schema = structuredClone(syncConfigSchema) as JsonObject;
   return schema;
 }
 
