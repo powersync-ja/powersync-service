@@ -1,5 +1,5 @@
 /*
-  PowerSync sync-rules SQL grammar: bucket_definitions mode
+  PowerSync sync config SQL grammar: legacy Sync Rules (bucket_definitions). Deprecated.
 
   SQL appears in YAML at:
     - bucket_definitions.<bucket_name>.parameters

@@ -1,5 +1,5 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { SqlSyncRules, SyncConfigErrors, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 import { assertSourceCapabilities } from '../../api/source-capabilities.js';
@@ -224,7 +224,7 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
     const errors: string[] = [];
     const warnings = rules.errors.filter((error) => error.type === 'warning').map((error) => error.message);
     const recordError = (error: any) => {
-      errors.push(...(error instanceof SyncRulesErrors ? error.errors.map((e) => e.message) : [error.message]));
+      errors.push(...(error instanceof SyncConfigErrors ? error.errors.map((e) => e.message) : [error.message]));
     };
     try {
       const diagnostics = (await apiHandler.validateSourceCapabilities?.(rules.config)) ?? [];
@@ -251,7 +251,7 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
       data_tables: rules.config.debugGetOutputTables()
     };
   } catch (e) {
-    if (e instanceof SyncRulesErrors) {
+    if (e instanceof SyncConfigErrors) {
       return {
         valid: false,
         errors: e.errors.map((e) => e.message)

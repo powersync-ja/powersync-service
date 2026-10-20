@@ -1,5 +1,5 @@
 import { logger, ServiceAssertionError } from '@powersync/lib-services-framework';
-import { DEFAULT_TAG, SourceTableRef, SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { DEFAULT_TAG, SourceTableRef, SyncConfigErrors, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
@@ -70,7 +70,7 @@ export async function getSyncRulesStatus(
       connections: [],
       // Report each sync config error separately, retaining its source location.
       errors:
-        e instanceof SyncRulesErrors
+        e instanceof SyncConfigErrors
           ? e.errors.map((error) => syncConfigYamlErrorToReplicationError(error, now))
           : [{ level: 'fatal', message: e.message, ts: now }]
     };
