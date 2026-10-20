@@ -83,7 +83,9 @@ export async function* streamResponse(
   try {
     yield* merged;
   } catch (e) {
-    if (isAbortError(e)) {
+    // Parent cancellation ends this response normally, even when its reason is not an AbortError.
+    // Match the reason itself so unrelated iteration or cleanup failures still propagate.
+    if (isAbortError(e) || (signal?.aborted && Object.is(e, signal.reason))) {
       return;
     } else {
       throw e;
