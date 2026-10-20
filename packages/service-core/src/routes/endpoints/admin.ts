@@ -61,10 +61,16 @@ export const diagnostics = routeDefinition({
 
     const apiHandler = service_context.routerEngine.getAPI();
 
+    const rejectedConfig = api.getInvalidLocalSyncConfigStatus(
+      service_context.configuration.sync_rules.loaded,
+      include_content,
+      service_context.configuration.sync_rules.version_label
+    );
     const status = await apiHandler.getConnectionStatus();
     if (!status) {
       return internal_routes.DiagnosticsResponse.encode({
-        connections: []
+        connections: [],
+        deploying_sync_rules: rejectedConfig
       });
     }
 
@@ -86,8 +92,12 @@ export const diagnostics = routeDefinition({
       active?.storage
     );
 
+    // Prefer validation errors from this instance's configured content: rejected configs are
+    // never persisted, so stored pending work may belong to an earlier deployment. Fall back
+    // to stored deployment status when there is no rejected config to report.
     const deploying_status =
-      deploying == null
+      rejectedConfig ??
+      (deploying == null
         ? undefined
         : await api.getSyncRulesStatus(
             apiHandler,
@@ -99,7 +109,7 @@ export const diagnostics = routeDefinition({
               active: false
             },
             deploying.storage
-          );
+          ));
 
     return internal_routes.DiagnosticsResponse.encode({
       connections: [

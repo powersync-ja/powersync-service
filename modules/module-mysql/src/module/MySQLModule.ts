@@ -1,11 +1,4 @@
-import {
-  api,
-  ConfigurationFileSyncRulesProvider,
-  ConnectionTestResult,
-  replication,
-  system,
-  TearDownOptions
-} from '@powersync/service-core';
+import { api, ConnectionTestResult, replication, system, TearDownOptions } from '@powersync/service-core';
 
 import { MySQLRouteAPIAdapter } from '../api/MySQLRouteAPIAdapter.js';
 import { checkSourceConfiguration } from '../common/check-source-configuration.js';
@@ -31,14 +24,12 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
 
   protected createReplicator(context: system.ServiceContext): replication.AbstractReplicator {
     const normalisedConfig = this.resolveConfig(this.decodedConfig!);
-    const syncRuleProvider = new ConfigurationFileSyncRulesProvider(context.configuration.sync_rules);
     const connectionFactory = new MySQLConnectionManagerFactory(normalisedConfig);
 
     return new BinLogReplicator({
       id: this.getDefaultId(normalisedConfig.database),
-      syncRuleProvider: syncRuleProvider,
-      storageEngine: context.storageEngine,
       configuration: context.configuration,
+      storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
       rateLimiter: new MySQLErrorRateLimiter()
