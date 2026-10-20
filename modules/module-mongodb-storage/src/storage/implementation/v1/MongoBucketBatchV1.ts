@@ -219,8 +219,10 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         ? undefined
         : {
             lastKey: doc.snapshot_status.last_key?.buffer ?? null,
-            totalEstimatedCount: doc.snapshot_status.total_estimated_count,
-            replicatedCount: doc.snapshot_status.replicated_count
+            totalEstimatedCount: doc.snapshot_status.total_estimated_count ?? null,
+            replicatedCount: doc.snapshot_status.replicated_count,
+            updatedAt: doc.snapshot_status.updated_at ?? null,
+            replicationRate: doc.snapshot_status.replication_rate ?? null
           };
     return table;
   }

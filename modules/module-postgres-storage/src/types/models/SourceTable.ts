@@ -1,4 +1,4 @@
-import { JsonValue } from '@powersync/service-core';
+import { framework, JsonValue } from '@powersync/service-core';
 import { orNull } from '@powersync/service-types';
 import * as t from 'ts-codec';
 import { bigint, hexBuffer, jsonb, jsonb_raw, pgwire_number } from '../codecs.js';
@@ -31,6 +31,8 @@ export const SourceTable = t.object({
   snapshot_total_estimated_count: orNull(bigint),
   snapshot_replicated_count: orNull(bigint),
   snapshot_last_key: orNull(hexBuffer),
+  snapshot_updated_at: orNull(framework.codecs.date),
+  snapshot_replication_rate: orNull(t.number),
   /**
    * Source-specific metadata. Null for legacy records.
    */

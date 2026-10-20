@@ -54,7 +54,9 @@ describe('SourceTable', () => {
       table.snapshotStatus = {
         totalEstimatedCount: 100,
         replicatedCount: 50,
-        lastKey: Buffer.from('test')
+        lastKey: Buffer.from('test'),
+        updatedAt: new Date('2026-10-20T10:00:00.000Z'),
+        replicationRate: 12.5
       };
 
       const cloned = table.clone();
@@ -95,10 +97,22 @@ describe('SourceTable', () => {
       const table = makeTable({ snapshotComplete: false });
       expect(table.formatSnapshotProgress()).toEqual('0/?');
 
-      table.snapshotStatus = { totalEstimatedCount: -1, replicatedCount: 50, lastKey: null };
+      table.snapshotStatus = {
+        totalEstimatedCount: -1,
+        replicatedCount: 50,
+        lastKey: null,
+        updatedAt: null,
+        replicationRate: null
+      };
       expect(table.formatSnapshotProgress()).toEqual('50/?');
 
-      table.snapshotStatus = { totalEstimatedCount: 12_000, replicatedCount: 3000, lastKey: null };
+      table.snapshotStatus = {
+        totalEstimatedCount: 12_000,
+        replicatedCount: 3000,
+        lastKey: null,
+        updatedAt: null,
+        replicationRate: null
+      };
       expect(table.formatSnapshotProgress()).toEqual('3.0k/~12.0k (25%)');
     });
   });

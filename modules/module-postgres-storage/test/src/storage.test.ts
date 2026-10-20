@@ -26,6 +26,9 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
   describe(`Postgres Sync Bucket Storage - Checkpoints - v${storageVersion}`, () =>
     register.registerDataStorageCheckpointTests({ ...POSTGRES_STORAGE_FACTORY, storageVersion }));
 
+  describe(`Postgres Sync Bucket Storage - Snapshot progress - v${storageVersion}`, () =>
+    register.registerSnapshotProgressTests({ ...POSTGRES_STORAGE_FACTORY, storageVersion }));
+
   describe(`Postgres Sync Bucket Storage - pg-specific - v${storageVersion}`, () => {
     test('uses checkpoint_requested_at as the client-requested checkpoint marker', async () => {
       await using factory = await POSTGRES_STORAGE_FACTORY.factory();

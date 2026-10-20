@@ -63,11 +63,11 @@ export interface TableSnapshotStatus {
   /**
    * Time of the latest `replicatedCount` observation. Estimate-only updates leave it unchanged.
    */
-  updatedAt?: Date | null;
+  updatedAt: Date | null;
   /**
    * Records / second, moving window. Null until two observations are available.
    */
-  replicationRate?: number | null;
+  replicationRate: number | null;
 }
 
 /**
