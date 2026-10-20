@@ -12,6 +12,7 @@ import {
   StaticSchema,
   SwiftSchemaGenerator,
   TsSchemaGenerator,
+  TsSchemaLanguage,
   driftSchemaGenerator,
   sqlDelightSchemaGenerator
 } from '../../src/index.js';
@@ -118,6 +119,29 @@ ${streams}
   })
 ])
 `);
+  });
+
+  test('js without sync streams omits SyncStream imports', () => {
+    const { config: rulesWithoutStreams } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+
+streams: {}
+`,
+      PARSE_OPTIONS
+    );
+
+    const generated = new TsSchemaGenerator({ language: TsSchemaLanguage.js }).generate(
+      rulesWithoutStreams,
+      schema,
+      {}
+    );
+    expect(generated.startsWith(`import { column, Schema, Table } from '@powersync/web';`)).toBe(
+      true
+    );
+    expect(generated).not.toContain('SyncStream');
+    expect(generated).not.toContain('PowerSyncDatabase');
   });
 
   test('ts', () => {
