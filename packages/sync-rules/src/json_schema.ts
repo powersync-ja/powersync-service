@@ -176,7 +176,7 @@ export const syncConfigSchema: ajvModule.Schema = {
   additionalProperties: false
 } as const;
 
-export const validateSyncConfigSchema: any = compileSyncRulesSchemaValidator(syncConfigSchema);
+export const validateSyncConfigSchema: any = compileSyncConfigSchemaValidator(syncConfigSchema);
 
 /**
  * @deprecated Use {@link syncConfigSchema} instead.
@@ -188,12 +188,12 @@ export const syncRulesSchema = syncConfigSchema;
  */
 export const validateSyncRulesSchema = validateSyncConfigSchema;
 
-export type SyncRulesSchemaValidator = ajvModule.ValidateFunction;
+export type SyncConfigSchemaValidator = ajvModule.ValidateFunction;
 
 /**
  * An isolated composition shared by editor tooling, YAML validation and persisted source-table options.
  */
-export function createSyncRulesSchema(): JsonObject {
+export function createSyncConfigSchema(): JsonObject {
   const schema = structuredClone(syncConfigSchema) as JsonObject;
   return schema;
 }
@@ -201,7 +201,7 @@ export function createSyncRulesSchema(): JsonObject {
 /**
  * Permit editor annotations without weakening AJV's checks for unknown validation keywords.
  */
-export function compileSyncRulesSchemaValidator(schema: ajvModule.Schema): SyncRulesSchemaValidator {
+export function compileSyncConfigSchemaValidator(schema: ajvModule.Schema): SyncConfigSchemaValidator {
   return new Ajv({
     allErrors: true,
     keywords: [{ keyword: 'defaultSnippets', schemaType: 'array' }]
