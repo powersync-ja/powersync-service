@@ -1,5 +1,40 @@
 # @powersync/service-sync-rules
 
+## 0.44.0
+
+### Minor Changes
+
+- 44ce423: Add `config.source_table_options` to edition 3 sync configs, including MongoDB pre-filtering expressions. Generate editor schemas with examples and report validation errors at their YAML source locations.
+
+  MongoDB replication pre-filtering is not supported in the Open Edition; unsupported configurations report `PSYNC_S1348`. For example:
+
+  ```yaml
+  config:
+    edition: 3
+    source_table_options:
+      orders:
+        mongodb_filter_expression:
+          $and:
+            - $eq: ['$$doc.active', true]
+            - $in: ['$$doc.status', ['pending', 'shipped']]
+  streams:
+    orders:
+      query: SELECT * FROM orders
+  ```
+
+  Validation and deployment reject filters when the feature is unavailable. Parsing accepts an optional map of connection tags to connection types, rejecting MongoDB pre-filtering expressions on known non-MongoDB sources. Unknown connections or missing connection metadata produce advisory warnings. The service supplies connection metadata during validation, deployment, and filesystem loading. Filesystem-loaded sync configs also run source-capability checks. With `exit_on_error` disabled, configs remain available to diagnostics. Changing source-table options requires replacement processing when deploying a new sync config.
+
+  Source capability validation returns structured `ValidationDiagnostic` entries, allowing multiple fatal issues and
+  advisory warnings. Deployment and reprocessing reject fatal diagnostics while validation continues collecting
+  independent findings. Existing `ReplicationError` consumers retain the same diagnostic shape.
+
+### Patch Changes
+
+- e703ca5: Restore `schema/sync_rules.json` file removed in version `0.43.0`.
+- 324093e: Internal refactor to make it clearer how legacy `token_parameters` values are derived.
+- 57ef2f4: Report a non-fatal deprecation warning when a sync config uses legacy Sync Rules (`bucket_definitions:`). It appears in the `/api/admin/v1/diagnostics` and `/api/admin/v1/validate` responses with `level: 'warning'`, and the service now logs sync config errors and warnings when it loads or deploys a sync config.
+- 6700c71: Emit type-only imports for `PowerSyncDatabase` and `SyncStream` in generated TypeScript schemas.
+
 ## 0.43.0
 
 ### Minor Changes
