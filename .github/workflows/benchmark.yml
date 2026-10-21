@@ -33,7 +33,7 @@ jobs:
               core.setFailed('Use "Benchmark this" followed optionally by a Vitest tag expression.');
               return;
             }
-            core.setOutput('tags-filter', (match[1] ?? '').trim());
+            core.setOutput('tags-filter', (match[1] ?? 'profile:quick').trim());
 
       - name: Resolve pull request commit
         id: pr-head
