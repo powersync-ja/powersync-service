@@ -1,6 +1,6 @@
 ---
 '@powersync/service-sync-rules': minor
-'@powersync/service-core': minor
+'@powersync/service-core': patch
 '@powersync/service-types': minor
 '@powersync/service-errors': minor
 '@powersync/service-module-mongodb': minor
