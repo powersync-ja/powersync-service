@@ -1,4 +1,5 @@
 import { container, ErrorCode, logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
+import { DEFAULT_TAG, SqlSyncRules, type SyncConfig } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -7,6 +8,7 @@ import { MetricsEngine } from '../metrics/MetricsEngine.js';
 import * as storage from '../storage/storage-index.js';
 import { StorageEngine } from '../storage/storage-index.js';
 import { SyncRulesProvider } from '../util/config/sync-rules/sync-rules-provider.js';
+import type { ResolvedPowerSyncConfig } from '../util/config/types.js';
 import { AbstractReplicationJob } from './AbstractReplicationJob.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
 import { ConnectionTestResult } from './ReplicationModule.js';
@@ -30,6 +32,10 @@ export interface AbstractReplicatorOptions {
   storageEngine: StorageEngine;
   metricsEngine: MetricsEngine;
   syncRuleProvider: SyncRulesProvider;
+  /**
+   * Source connection metadata from the service config, used when parsing filesystem-loaded sync configs.
+   */
+  configuration?: Pick<ResolvedPowerSyncConfig, 'connections'>;
   /**
    * This limits the effect of retries when there is a persistent issue.
    */
@@ -73,6 +79,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   private abortController: AbortController | undefined;
 
+  private assertSourceCapabilities: ((config: SyncConfig) => Promise<void>) | undefined;
+
   protected constructor(private options: AbstractReplicatorOptions) {
     this.logger = logger.child({ name: `Replicator:${options.id}` });
     const heartbeatIntervalSeconds = options.heartbeatIntervalSeconds ?? DEFAULT_HEARTBEAT_INTERVAL_SECONDS;
@@ -105,6 +113,13 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     return this.options.syncRuleProvider;
   }
 
+  /**
+   * Default schema for startup sync config validation. Source modules with a known default should override this.
+   */
+  protected get defaultSchema(): string {
+    return 'not_applicable';
+  }
+
   protected get rateLimiter() {
     return this.options.rateLimiter;
   }
@@ -115,6 +130,13 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
   protected get stopped() {
     return this.abortController?.signal.aborted;
+  }
+
+  /**
+   * Register an assertion that blocks unsupported file-loaded sync configs before replication.
+   */
+  public registerSourceCapabilitiesAssertion(assertion: (config: SyncConfig) => Promise<void>): void {
+    this.assertSourceCapabilities = assertion;
   }
 
   public async start(): Promise<void> {
@@ -165,10 +187,30 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         // versions before that check was added, so we keep the lock for now - for where te service version and sync config is updated at
         // the same time.
 
+        const parsed = SqlSyncRules.fromYaml(loadedSyncConfig, {
+          schema: undefined,
+          defaultSchema: this.defaultSchema,
+          connections:
+            this.options.configuration?.connections &&
+            Object.fromEntries(
+              this.options.configuration.connections.map((connection) => [
+                connection.tag ?? DEFAULT_TAG,
+                { type: connection.type }
+              ])
+            ),
+          throwOnError: this.syncRuleProvider.exitOnError
+        });
+        storage.logSyncConfigErrors(parsed, this.logger);
+        try {
+          await this.assertSourceCapabilities?.(parsed.config);
+        } catch (error) {
+          if (this.syncRuleProvider.exitOnError) throw error;
+          // Persist the config for diagnostics; the job-start check will prevent unsafe replication.
+          this.logger.error('Source capability validation failed for the sync config', error);
+        }
         const { lock } = await this.storage.configureSyncRules(
-          storage.updateSyncRulesFromYaml(loadedSyncConfig, {
+          storage.updateSyncRulesFromConfig(parsed, {
             lock: true,
-            validate: this.syncRuleProvider.exitOnError,
             version_label: versionLabel
           })
         );
@@ -177,7 +219,6 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         }
       } catch (e) {
         // Log and re-raise to exit.
-        // Should only reach this due to validation errors if exit_on_error is true.
         this.logger.error(`Failed to update sync config`, e);
         throw e;
       }

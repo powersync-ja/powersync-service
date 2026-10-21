@@ -3,7 +3,7 @@ import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as timers from 'node:timers/promises';
 import { describe, expect, test } from 'vitest';
-import { ChangeStreamTestContext } from './change_stream_utils.js';
+import { openChangeStreamTestContext } from './change_stream_test_setup.js';
 import { env } from './env.js';
 import { describeWithStorage } from './util.js';
 
@@ -35,7 +35,7 @@ async function testResumingReplication(factory: TestStorageFactory, storageVersi
   let startRowCount: number;
 
   {
-    await using context = await ChangeStreamTestContext.open(factory, {
+    await using context = await openChangeStreamTestContext(factory, {
       storageVersion,
       streamOptions: { snapshotChunkLength: 1000 }
     });
@@ -88,7 +88,7 @@ async function testResumingReplication(factory: TestStorageFactory, storageVersi
 
   {
     // Bypass the usual "clear db on factory open" step.
-    await using context2 = await ChangeStreamTestContext.open(factory, {
+    await using context2 = await openChangeStreamTestContext(factory, {
       doNotClear: true,
       storageVersion,
       streamOptions: { snapshotChunkLength: 1000 }

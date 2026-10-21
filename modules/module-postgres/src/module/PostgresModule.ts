@@ -40,6 +40,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
       id: this.getDefaultId(normalisedConfig.database),
       syncRuleProvider: syncRuleProvider,
       storageEngine: context.storageEngine,
+      configuration: context.configuration,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
       rateLimiter: new PostgresErrorRateLimiter(),

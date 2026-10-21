@@ -73,7 +73,8 @@ function objectIdGenerator(id: string) {
  */
 function parsedSyncConfigSetFor(yaml: string, storageVersion: number) {
   const parsed = SqlSyncRules.fromYaml(yaml, test_utils.PARSE_OPTIONS);
-  expect(parsed.errors).toEqual([]);
+  // These fixtures are legacy Sync Rules, which always report a deprecation warning.
+  expect(parsed.errors.filter((error) => error.type !== 'warning')).toEqual([]);
   return new MongoParsedSyncConfigSet(1, getMongoStorageConfig(storageVersion), 'test_slot', [
     {
       syncConfigId: new bson.ObjectId().toHexString(),

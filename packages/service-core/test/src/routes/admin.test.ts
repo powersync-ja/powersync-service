@@ -1,8 +1,9 @@
 import { BasicRouterRequest, Context, JwtPayload, ParsedSyncConfigSet, storage } from '@/index.js';
-import { logger } from '@powersync/lib-services-framework';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { ErrorCode, logger } from '@powersync/lib-services-framework';
+import { PrecompiledSyncConfig, SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { diagnostics, reprocess, validate } from '../../../src/routes/endpoints/admin.js';
+import { deploySyncRules, reprocessSyncRules, validateSyncRules } from '../../../src/routes/endpoints/sync-rules.js';
 import { mockServiceContext } from './mocks.js';
 
 describe('admin routes', () => {
@@ -86,7 +87,136 @@ bucket_definitions:
     return content as unknown as storage.PersistedSyncConfigContent;
   }
 
+  it.each([false, true])(
+    'continues sync-config diagnostics after capability failure (table failure: %s)',
+    async (tableFailure) => {
+      const context = makeContext();
+      const api = context.service_context.routerEngine.getAPI();
+      vi.spyOn(context.service_context.routerEngine, 'getAPI').mockReturnValue(api);
+      api.validateSourceCapabilities = async () => {
+        throw new Error('Unsupported capability');
+      };
+      const tables = vi.spyOn(api, 'getDebugTablesInfo').mockImplementation(async () => {
+        if (tableFailure) throw new Error('Table inspection failed');
+        return [{ schema: 'public', pattern: 'items', wildcard: false, tables: [] }];
+      });
+      const response = await validateSyncRules.handler({
+        context,
+        request,
+        params: {
+          content: /* yaml */ `
+            # sync config fixture.
+            config:
+              edition: 3
+            streams:
+              items:
+                query: SELECT * FROM items
+          `
+        }
+      });
+      const body = JSON.parse(response.data);
+      expect(body.valid).toBe(false);
+      expect(body.errors).toEqual(
+        tableFailure ? ['Unsupported capability', 'Table inspection failed'] : ['Unsupported capability']
+      );
+      expect(tables).toHaveBeenCalledOnce();
+      expect(body.source_tables).toHaveLength(tableFailure ? 0 : 1);
+      expect(body.data_tables).toBeDefined();
+    }
+  );
+
+  it('keeps advisory capability diagnostics visible without invalidating the config', async () => {
+    const context = makeContext();
+    const api = context.service_context.routerEngine.getAPI();
+    vi.spyOn(context.service_context.routerEngine, 'getAPI').mockReturnValue(api);
+    api.validateSourceCapabilities = async () => [{ level: 'warning', message: 'Source advisory' }];
+    const response = await validateSyncRules.handler({
+      context,
+      request,
+      params: {
+        content: /* yaml */ `
+          # sync config fixture.
+          config:
+            edition: 3
+          streams:
+            items:
+              query: SELECT * FROM items
+        `
+      }
+    });
+    expect(JSON.parse(response.data)).toMatchObject({ valid: true, warnings: ['Source advisory'] });
+  });
+
+  it.each([true, false])('deployment checks source capabilities before persistence (allowed: %s)', async (allowed) => {
+    const updateSyncRules = vi.fn(async () => ({ replicationStreamName: 'new-slot' }));
+    const context = makeContext({ updateSyncRules });
+    context.service_context.configuration = {
+      sync_rules: { present: false }
+    } as typeof context.service_context.configuration;
+    const api = context.service_context.routerEngine.getAPI();
+    vi.spyOn(context.service_context.routerEngine, 'getAPI').mockReturnValue(api);
+    api.validateSourceCapabilities = async (config) => {
+      expect((config as PrecompiledSyncConfig).plan.sourceTableConfig?.orders?.mongodb_filter_expression).toEqual({
+        $eq: ['$$doc.active', true]
+      });
+      return allowed
+        ? [{ level: 'warning', message: 'Advisory source warning' }]
+        : [{ level: 'fatal', message: 'MongoDB pre-filtering is not available for this connection.' }];
+    };
+    const result = deploySyncRules.handler({
+      context,
+      request,
+      params: {
+        content: /* yaml */ `
+          # sync config fixture.
+          config:
+            edition: 3
+            source_table_options:
+              orders:
+                mongodb_filter_expression: { $eq: ['$$doc.active', true] }
+          streams:
+            orders:
+              query: SELECT * FROM orders
+        `
+      }
+    });
+    if (allowed) {
+      await expect(result).resolves.toEqual({ slot_name: 'new-slot' });
+      expect(updateSyncRules).toHaveBeenCalledOnce();
+    } else {
+      await expect(result).rejects.toThrow();
+      expect(updateSyncRules).not.toHaveBeenCalled();
+    }
+  });
+
   describe('validate', () => {
+    it('uses the service parser and includes its diagnostics', async () => {
+      const context = makeContext();
+      const api = context.service_context.routerEngine.getAPI();
+      vi.spyOn(context.service_context.routerEngine, 'getAPI').mockReturnValue(api);
+      api.validateSourceCapabilities = async () => {
+        throw new Error('Rejected by module validation.');
+      };
+      const response = await validate.handler({
+        context,
+        request,
+        params: {
+          sync_rules: /* yaml */ `
+            # sync config fixture.
+            config:
+              edition: 3
+            streams: {}
+          `
+        }
+      });
+      expect(response.errors).toContainEqual(
+        expect.objectContaining({
+          level: 'fatal',
+          message: 'Rejected by module validation.'
+        })
+      );
+    });
+
     it('reports errors with source location', async () => {
       const context = makeContext();
 
@@ -103,13 +233,59 @@ bucket_definitions:
         request
       });
 
-      expect(response.errors).toEqual([
+      expect(response.errors).toContainEqual(
         expect.objectContaining({
           level: 'warning',
           location: { start_offset: 70, end_offset: 83 },
           message: 'Table public.missing_table not found'
         })
-      ]);
+      );
+    });
+
+    it('warns that bucket_definitions are deprecated', async () => {
+      const context = makeContext();
+
+      const response = await validate.handler({
+        context,
+        params: {
+          sync_rules: `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT * FROM missing_table
+`
+        },
+        request
+      });
+
+      expect(response.errors).toContainEqual(
+        expect.objectContaining({
+          level: 'warning',
+          message: expect.stringContaining('Sync Rules (`bucket_definitions`) are deprecated')
+        })
+      );
+    });
+
+    it('does not report the deprecation warning for a Sync Streams config', async () => {
+      const context = makeContext();
+
+      const response = await validate.handler({
+        context,
+        params: {
+          sync_rules: `
+config:
+  edition: 3
+streams:
+  mystream:
+    query: SELECT * FROM missing_table
+`
+        },
+        request
+      });
+
+      expect(response.errors).not.toContainEqual(
+        expect.objectContaining({ message: expect.stringContaining('are deprecated') })
+      );
     });
   });
 
@@ -151,6 +327,39 @@ bucket_definitions:
   });
 
   describe('reprocess', () => {
+    it.each([reprocess, reprocessSyncRules].flatMap((route) => [false, true].map((throws) => ({ route, throws }))))(
+      'returns 422 for rejected reprocessing at $route.path (adapter throws: $throws)',
+      async ({ route, throws }) => {
+        const active = makeSyncConfigContent({ id: 7 });
+        const updateSyncRules = vi.fn();
+        const context = makeContext({
+          getDeployingSyncConfig: vi.fn(async () => null),
+          getActiveSyncConfig: vi.fn(async () => ({ content: active })),
+          updateSyncRules
+        });
+        const api = context.service_context.routerEngine.getAPI();
+        vi.spyOn(context.service_context.routerEngine, 'getAPI').mockReturnValue(api);
+        api.validateSourceCapabilities = async () => {
+          if (throws) {
+            throw new Error('Unsupported source');
+          }
+          return [
+            { level: 'warning', message: 'Advisory' },
+            { level: 'fatal', message: 'Unsupported source' }
+          ];
+        };
+        await expect(route.handler({ context, params: {}, request })).rejects.toMatchObject({
+          errorData: {
+            status: 422,
+            code: ErrorCode.PSYNC_R0001,
+            description: 'Source capability validation failed',
+            details: 'Unsupported source'
+          }
+        });
+        expect(updateSyncRules).not.toHaveBeenCalled();
+      }
+    );
+
     it('reprocesses the active sync config', async () => {
       const active = makeSyncConfigContent({ id: 7, syncConfigId: 'active-config', version_label: 'v6' });
       const updateSyncRules = vi.fn(async () => ({
@@ -213,6 +422,28 @@ bucket_definitions:
       });
       expect(activeBucketStorage.getActiveSyncConfig).not.toHaveBeenCalled();
       expect(activeBucketStorage.updateSyncRules).not.toHaveBeenCalled();
+    });
+
+    it('logs that bucket_definitions are deprecated', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn');
+      const activeBucketStorage = {
+        getDeployingSyncConfig: vi.fn(async () => null),
+        getActiveSyncConfig: vi.fn(async () => ({
+          content: makeSyncConfigContent({}),
+          replicationStream: {},
+          storage: {}
+        })),
+        updateSyncRules: vi.fn(async () => ({ replicationStreamName: 'new_slot' }))
+      };
+
+      await reprocess.handler({
+        context: makeContext(activeBucketStorage),
+        params: {},
+        request
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Sync Rules (`bucket_definitions`) are deprecated'));
+      warnSpy.mockRestore();
     });
   });
 });

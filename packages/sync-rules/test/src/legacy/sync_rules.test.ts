@@ -20,6 +20,7 @@ import { StaticSqlParameterQuery } from '../../../src/legacy/StaticSqlParameterQ
 import {
   ASSETS,
   BASIC_SCHEMA,
+  fatalErrors,
   findQuerierLookups,
   lookupScope,
   normalizeQuerierOptions,
@@ -354,38 +355,44 @@ bucket_definitions:
 
   test('reject unsupported queries', () => {
     expect(
-      SqlSyncRules.validate(
-        `
+      fatalErrors(
+        SqlSyncRules.validate(
+          `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.user_id LIMIT 1
     data: []
     `,
-        PARSE_OPTIONS
+          PARSE_OPTIONS
+        )
       )
     ).toMatchObject([{ message: 'LIMIT is not supported' }]);
 
     expect(
-      SqlSyncRules.validate(
-        `
+      fatalErrors(
+        SqlSyncRules.validate(
+          `
 bucket_definitions:
   mybucket:
     data:
       - SELECT DISTINCT id, description FROM assets
     `,
-        PARSE_OPTIONS
+          PARSE_OPTIONS
+        )
       )
     ).toMatchObject([{ message: 'DISTINCT is not supported' }]);
 
     expect(
-      SqlSyncRules.validate(
-        `
+      fatalErrors(
+        SqlSyncRules.validate(
+          `
 bucket_definitions:
   mybucket:
     parameters: SELECT token_parameters.user_id OFFSET 10
     data: []
     `,
-        PARSE_OPTIONS
+          PARSE_OPTIONS
+        )
       )
     ).toMatchObject([{ message: 'LIMIT is not supported' }]);
 
@@ -730,7 +737,7 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    expect(errors).toEqual([]);
+    expect(fatalErrors(errors)).toEqual([]);
     const hydrated = rules.hydrate(hydrationParams);
     expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'test' })).querier).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket["TEST"]', priority: 3 }],
@@ -906,12 +913,12 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(rules.errors).toMatchObject([
-      {
+    expect(rules.errors).toContainEqual(
+      expect.objectContaining({
         message: 'Column not found: other_id',
         type: 'warning'
-      }
-    ]);
+      })
+    );
   });
 
   test('null bucket definition', () => {
@@ -923,7 +930,7 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS, throwOnError: false }
     );
 
-    expect(rules.errors).toMatchObject([
+    expect(fatalErrors(rules.errors)).toMatchObject([
       {
         message: "'mybucket' bucket definition must be an object",
         type: 'fatal'
@@ -942,13 +949,13 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(errors).toMatchObject([
-      {
+    expect(errors).toContainEqual(
+      expect.objectContaining({
         message:
           "Potentially dangerous query based on parameters set by the client. The client can send any value for these parameters so it's not a good place to do authorization.",
         type: 'warning'
-      }
-    ]);
+      })
+    );
   });
 
   test('dangerous query errors - ignored', () => {
@@ -963,7 +970,7 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(errors).toEqual([]);
+    expect(fatalErrors(errors)).toEqual([]);
   });
 
   test('priorities on queries', () => {
@@ -981,7 +988,7 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(errors).toEqual([]);
+    expect(fatalErrors(errors)).toEqual([]);
 
     const hydrated = rules.hydrate(hydrationParams);
     expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
@@ -1007,7 +1014,7 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(errors).toEqual([]);
+    expect(fatalErrors(errors)).toEqual([]);
 
     const hydrated = rules.hydrate(hydrationParams);
     expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
@@ -1107,7 +1114,7 @@ event_definitions:
     `,
       PARSE_OPTIONS
     );
-    expect(errors).toStrictEqual([]);
+    expect(fatalErrors(errors)).toStrictEqual([]);
     expect(rules).not.toHaveProperty('eventDescriptors');
     expect(rules.eventDefinitions).toHaveLength(1);
 
@@ -1123,7 +1130,7 @@ event_definitions:
     });
   });
 
-  test('suggests upgrading for streams on edition 2', () => {
+  test('suggests upgrading for Sync Streams on edition 2', () => {
     const { config: rules, errors } = SqlSyncRules.fromYaml(
       `
 config:
@@ -1142,6 +1149,107 @@ streams:
 
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toContain('This is using the deprecated alpha version of Sync Streams');
+  });
+
+  test.each([undefined, 1])('rejects actual Sync Stream queries in edition %s', (edition) => {
+    const { errors } = SqlSyncRules.fromYaml(
+      /* yaml */ `
+        # sync config fixture.
+        config: ${edition == null ? '{}' : `{ edition: ${edition} }`}
+        streams:
+          a:
+            query: SELECT * FROM users
+      `,
+      { ...PARSE_OPTIONS, throwOnError: false }
+    );
+    expect(errors.filter((error) => error.type === 'fatal')).toEqual([
+      expect.objectContaining({ message: expect.stringContaining('Sync Streams require edition 3') })
+    ]);
+  });
+
+  test.each([undefined, 1, 2])('only warns about an empty legacy streams block in edition %s', (edition) => {
+    const { errors } = SqlSyncRules.fromYaml(
+      /* yaml */ `
+        # sync config fixture.
+        config: ${edition == null ? '{}' : `{ edition: ${edition} }`}
+        streams: {}
+      `,
+      { ...PARSE_OPTIONS, throwOnError: true }
+    );
+    expect(errors.every((error) => error.type === 'warning')).toBe(true);
+    expect(errors).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('deprecated alpha version of Sync Streams'),
+        type: 'warning'
+      })
+    );
+  });
+
+  test.each([undefined, 1, 2, 3])('reports consistent stream diagnostics in edition %s', (edition) => {
+    for (const hasQuery of [false, true]) {
+      const { errors } = SqlSyncRules.fromYaml(
+        /* yaml */ `
+          # sync config fixture.
+          config: ${edition == null ? '{}' : `{ edition: ${edition} }`}
+          streams: ${hasQuery ? '{ orders: { query: SELECT * FROM orders } }' : '{}'}
+        `,
+        { ...PARSE_OPTIONS, throwOnError: false }
+      );
+      const fatalErrors = errors.filter((error) => error.type === 'fatal');
+      const warnings = errors.filter((error) => error.type === 'warning');
+      expect(fatalErrors).toHaveLength(hasQuery && (edition ?? 1) < 2 ? 1 : 0);
+      expect(warnings).toHaveLength((edition ?? 1) < 3 ? 1 : 0);
+      if (fatalErrors.length > 0) {
+        expect(fatalErrors[0].message).toContain('require edition 3');
+        expect(fatalErrors[0].message).toBe(
+          'Sync Streams require edition 3. Add a `config: {edition: 3}` block to the sync config.'
+        );
+      }
+      if (warnings.length > 0) {
+        expect(warnings[0].message).toContain('deprecated alpha version of Sync Streams');
+        expect(warnings[0].message).toContain('Upgrade `config.edition` to version 3');
+      }
+    }
+  });
+
+  test('warns that bucket_definitions are deprecated', () => {
+    const { errors } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT * FROM assets
+    `,
+      {
+        ...PARSE_OPTIONS,
+        // Should not throw, this is a warning.
+        throwOnError: true
+      }
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].type).toEqual('warning');
+    expect(errors[0].message).toContain('Sync Rules (`bucket_definitions`) are deprecated');
+    expect(errors[0].message).toContain('https://docs.powersync.com/sync/rules/migrate-to-sync-streams');
+  });
+
+  test('does not warn about bucket_definitions for a Sync Streams config', () => {
+    const { errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+
+streams:
+  a:
+    query: SELECT * FROM users
+    `,
+      {
+        ...PARSE_OPTIONS,
+        throwOnError: true
+      }
+    );
+
+    expect(errors).toEqual([]);
   });
 
   test('does not support CTEs', () => {

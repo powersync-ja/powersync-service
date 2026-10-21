@@ -8,6 +8,7 @@ import { truncateTables } from './db.js';
 
 export type PostgresTestStorageOptions = {
   url: string;
+
   /**
    * Vitest can cause issues when loading .ts files for migrations.
    * This allows for providing a custom PostgresMigrationAgent.

@@ -1,7 +1,7 @@
 {
   "name": "@powersync/service-module-mongodb",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.21.2",
+  "version": "0.22.0",
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "publishConfig": {
@@ -11,7 +11,8 @@
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
     "clean": "rm -rf ./dist && tsc -b --clean",
-    "test": "vitest"
+    "test": "vitest",
+    "benchmark:replication": "vitest run --config vitest.benchmark.config.ts"
   },
   "exports": {
     ".": "./dist/index.js",

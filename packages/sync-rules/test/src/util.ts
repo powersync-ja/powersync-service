@@ -47,6 +47,14 @@ export const PARSE_OPTIONS = {
   compatibility: CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
 };
 
+/**
+ * Every legacy Sync Rules config reports a deprecation warning, so assertions about what is wrong with a config
+ * filter warnings out. Tests covering a specific warning assert on it directly instead.
+ */
+export function fatalErrors<T extends { type: 'warning' | 'fatal' }>(errors: readonly T[]): T[] {
+  return errors.filter((error) => error.type !== 'warning');
+}
+
 export const ASSETS = new TestSourceTable('assets');
 export const USERS = new TestSourceTable('users');
 

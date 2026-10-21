@@ -292,7 +292,7 @@ export const SyncConfig = t
       .optional()
   })
   .meta({
-    description: 'Configuration for synchronization rules that define data access patterns.'
+    description: 'The sync config defining which data syncs to which users.'
   });
 
 export const powerSyncConfig = t

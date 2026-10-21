@@ -1,7 +1,7 @@
 {
   "name": "@powersync/service-module-convex",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "publishConfig": {
@@ -34,7 +34,7 @@
     "@powersync/service-module-mongodb-storage": "workspace:*",
     "@powersync/service-module-postgres-storage": "workspace:*",
     "@convex-dev/auth": "^0.0.92",
-    "convex": "^1.38.0",
+    "convex": "^1.42.0",
     "dotenv": "^16.4.5"
   }
 }
