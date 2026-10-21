@@ -37,6 +37,7 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
       id: this.getDefaultId(normalisedConfig.database ?? ''),
       syncRuleProvider: syncRuleProvider,
       storageEngine: context.storageEngine,
+      configuration: context.configuration,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
       rateLimiter: new MongoErrorRateLimiter(),
@@ -47,7 +48,7 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
   /**
    * Combines base config with normalized connection settings
    */
-  private resolveConfig(config: types.MongoConnectionConfig): types.ResolvedConnectionConfig {
+  protected resolveConfig(config: types.MongoConnectionConfig): types.ResolvedConnectionConfig {
     return {
       ...config,
       ...types.normalizeConnectionConfig(config)

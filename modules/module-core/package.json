@@ -1,7 +1,7 @@
 {
   "name": "@powersync/service-module-core",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.2.36",
+  "version": "0.2.37",
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "publishConfig": {
@@ -23,6 +23,6 @@
     "@powersync/service-core": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
     "@powersync/service-types": "workspace:*",
-    "fastify": "^5.8.5"
+    "fastify": "^5.12.5"
   }
 }

@@ -965,6 +965,12 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
 
         totalOpCount += compactedOps.length;
 
+        // Pending groups can span many read batches when large PUT payloads
+        // shrink to MOVE ops. Retain only input metadata for verification,
+        // deletion and stats; even unchanged singletons do not need their ops.
+        // Surviving payloads remain referenced by compactedOps.
+        doc.ops = undefined;
+
         const candidate: PendingCompactionGroup = {
           inputs: [doc],
           ops: compactedOps,

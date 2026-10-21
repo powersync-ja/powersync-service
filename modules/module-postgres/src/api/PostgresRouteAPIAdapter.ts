@@ -38,7 +38,8 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
 
   getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
-      defaultSchema: 'public'
+      defaultSchema: 'public',
+      connections: { [this.connectionTag]: { type: this.config?.type ?? types.POSTGRES_CONNECTION_TYPE } }
     };
   }
 
