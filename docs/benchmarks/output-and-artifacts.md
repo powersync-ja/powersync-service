@@ -31,13 +31,13 @@ benchmark-artifacts/
                 output.md
 ```
 
-| File                              | Contents                                                                                                                                   |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `latest.json`                     | The ID of the latest started run. Used when no `--run-id` is provided.                                                                     |
-| `run.json`                        | Run metadata, including the commit SHA, start and finish times, command arguments, environment tag filter, status, and exit code.          |
-| `json/<scenario-id>.json`         | The result for one benchmark case, including all recorded iterations. The scenario ID is URL-encoded for use as a filename.                |
-| `report/output.json`              | The run metadata and all case results, with summaries recalculated from the recorded iterations.                                           |
-| `report/output.md`                | The formatted report, including the overview, detailed metrics, and diagnostics. Use this for reading or sharing results.                  |
+| File                      | Contents                                                                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `latest.json`             | The ID of the latest started run. Used when no `--run-id` is provided.                                                            |
+| `run.json`                | Run metadata, including the commit SHA, start and finish times, command arguments, environment tag filter, status, and exit code. |
+| `json/<scenario-id>.json` | The result for one benchmark case, including all recorded iterations. The scenario ID is URL-encoded for use as a filename.       |
+| `report/output.json`      | The run metadata and all case results, with summaries recalculated from the recorded iterations.                                  |
+| `report/output.md`        | The formatted report, including the overview, detailed metrics, and diagnostics. Use this for reading or sharing results.         |
 
 The `report` folder is created when the run starts, but its output files are only written when the report command runs.
 
@@ -87,7 +87,7 @@ A dash (`—`) means no value is available. Rate samples with a missing or non-p
 
 CPU values are time spent using the CPU, in milliseconds. They are separate from elapsed time. Memory values are recorded in bytes, with baseline, peak, average, and change values where the monitor supports them.
 
-Resource measurements cover the monitor's execution window rather than an individual timing boundary. Process memory uses RSS. Database memory uses Docker container usage with inactive file cache excluded. 
+Resource measurements cover the monitor's execution window rather than an individual timing boundary. Process memory uses RSS. Database memory uses Docker container usage with inactive file cache excluded.
 
 A monitor can be `available`, `unavailable`, or `failed`. For example, database measurements can be unavailable when the database is remote or Docker cannot be accessed. An unavailable monitor does not fail the benchmark. The report includes the reason, and its missing measurements are not treated as zero.
 
