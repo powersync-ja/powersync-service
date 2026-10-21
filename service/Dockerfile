@@ -72,12 +72,38 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 901 web && \
     adduser --gecos "" --disabled-password --uid 901 --ingroup web --home /home/web web
 
+# Install the latest system CA certificates.
+# Require the version fixing the October 2026 eMudhra compromise.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && dpkg --compare-versions \
+        "$(dpkg-query -W -f='${Version}' ca-certificates)" \
+        ge '20250419~deb12u2' \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download the latest Mozilla CA bundle.
+# Source: https://curl.se/docs/caextract.html
+# Mozilla CA bundle, updated 2026-10-20.
+# This intentionally fails the build if the upstream bundle is updated.
+# At that point, it would be better to revert these changes and use an upstream image with fixed bundles.
+ADD --chmod=644 --checksum=sha256:796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe \
+    https://curl.se/ca/cacert.pem \
+    /etc/ssl/mozilla-cacert.pem
+
+# SSL_CERT_DIR points to an empty directory to prevent OpenSSL from loading additional system trust anchors.
+RUN mkdir -p /opt/empty-ca-dir
+# Use the updated Mozilla bundle instead of Node.js's bundled CAs.
+ENV SSL_CERT_FILE="/etc/ssl/mozilla-cacert.pem" \
+    SSL_CERT_DIR="/opt/empty-ca-dir"
+
+
 # Kaniko complains that /workspace already exists, not sure why.
 RUN mkdir -p /workspace && chown -R web:web /workspace
 RUN mkdir -p .probes && chown -R web:web .probes
 
 USER 901
 
-ENTRYPOINT ["node", "service/lib/entry.js"]
+# Specifically avoid using NODE_OPTIONS for --use-openssl-ca, since some environments may override it.
+ENTRYPOINT ["node", "--use-openssl-ca", "service/lib/entry.js"]
 # This starts the unified service by default. 
 CMD ["start"]
