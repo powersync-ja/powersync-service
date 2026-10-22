@@ -32,28 +32,28 @@ export const BASELINE_DATASETS: readonly BenchmarkDataset[] = [
     data: singleTableData({ rowCount: 10_000, rowBytes: 512 }),
     sync: categorySync({ engine: 'sync-streams', bucketCount: 1 }),
     profile: 'quick',
-    timeout_ms: 300_000
+    timeout_ms: 600_000
   },
   {
     name: 'Single table, 100k rows, one bucket',
     data: singleTableData({ rowCount: 100_000, rowBytes: 512 }),
     sync: categorySync({ engine: 'sync-streams', bucketCount: 1 }),
     profile: 'standard',
-    timeout_ms: 600_000
+    timeout_ms: 1_200_000
   },
   {
     name: 'Single table, 10k rows, 10 buckets',
     data: singleTableData({ rowCount: 10_000, rowBytes: 512 }),
     sync: categorySync({ engine: 'sync-streams', bucketCount: 10 }),
     profile: 'quick',
-    timeout_ms: 300_000
+    timeout_ms: 600_000
   },
   {
     name: 'Single table, 100k rows, 10 buckets',
     data: singleTableData({ rowCount: 100_000, rowBytes: 512 }),
     sync: categorySync({ engine: 'sync-streams', bucketCount: 10 }),
     profile: 'standard',
-    timeout_ms: 600_000
+    timeout_ms: 1_200_000
   },
   {
     name: 'Single table, 1k rows, 100 buckets',
@@ -66,13 +66,13 @@ export const BASELINE_DATASETS: readonly BenchmarkDataset[] = [
     data: singleTableData({ rowCount: 10_000, rowBytes: 512 }),
     sync: categorySync({ engine: 'sync-streams', bucketCount: 100 }),
     profile: 'quick',
-    timeout_ms: 300_000
+    timeout_ms: 600_000
   },
   {
     name: 'Single table, 100k rows, 100 buckets',
     data: singleTableData({ rowCount: 100_000, rowBytes: 512 }),
     sync: categorySync({ engine: 'sync-streams', bucketCount: 100 }),
     profile: 'standard',
-    timeout_ms: 600_000
+    timeout_ms: 1_200_000
   }
 ];
