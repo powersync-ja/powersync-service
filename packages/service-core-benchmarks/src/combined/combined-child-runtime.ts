@@ -215,7 +215,15 @@ export class CombinedChildRuntime {
 
   private async collectEvidence(): Promise<CombinedChildEvidencePayload> {
     const bucketStorage = required(this.state.bucketStorage, 'bucket storage');
-    const [checkpoint, status] = await Promise.all([bucketStorage.getCheckpoint(), bucketStorage.getStatus()]);
+    const [checkpoint, status, activeConfig] = await Promise.all([
+      bucketStorage.getCheckpoint(),
+      bucketStorage.getStatus(),
+      required(this.state.resource, 'storage resource').factory.getActiveSyncConfig()
+    ]);
+    const syncConfigActive =
+      activeConfig?.replicationStream.replicationStreamName ===
+        required(this.state.replicationStream, 'replication stream').replicationStreamName &&
+      activeConfig?.content.syncConfigId === required(this.state.syncRulesContent, 'sync config content').syncConfigId;
     const lsn = checkpoint.lsn;
     const storageCheckpoint = checkpoint.checkpoint.toString(10);
     if (lsn == null) {
@@ -224,6 +232,7 @@ export class CombinedChildRuntime {
         checkpoint: null,
         evidence: new OperationAccumulator().summary(),
         snapshotDone: status.snapshotDone,
+        syncConfigActive,
         bucketCount: 0
       };
     }
@@ -248,6 +257,7 @@ export class CombinedChildRuntime {
       checkpoint: lsn,
       evidence,
       snapshotDone: status.snapshotDone,
+      syncConfigActive,
       bucketCount: buckets.length,
       checkpointVisibleAtNs
     };

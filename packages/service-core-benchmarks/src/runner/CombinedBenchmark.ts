@@ -139,9 +139,14 @@ export class CombinedBenchmark extends Benchmark<
       }
       if (firstCommittedAtNs == null) throw new Error('Streaming workload produced no committed target');
       runtime.metrics.startBoundary('http_read', 'source_committed');
-      const storageObservation = await resource.observeCheckpoint(target);
-      const clientObservation = await drainNdjsonUntilCheckpoint(streamReader, storageObservation.storageCheckpoint);
-      runtime.metrics.endBoundary('http_read', 'client_checkpoint_complete');
+      let storageObservation: CombinedBenchmarkObservation;
+      let clientObservation: NdjsonDrainObservation;
+      try {
+        storageObservation = await resource.observeCheckpoint(target);
+        clientObservation = await drainNdjsonUntilCheckpoint(streamReader, storageObservation.storageCheckpoint);
+      } finally {
+        runtime.metrics.endBoundary('http_read', 'client_checkpoint_complete');
+      }
       runtime.metrics.recordBoundary(
         'replication_streaming',
         'source_committed',

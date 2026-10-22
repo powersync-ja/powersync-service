@@ -52,7 +52,13 @@ export async function waitForCombinedTargetEvidence(
     }
     const comparison = options.comparePosition(evidence.checkpoint, options.target);
     const marker = evidence.evidence.markers[options.target.markerId]?.operation;
-    if (evidence.snapshotDone && comparison.comparable && comparison.reached && markerContainsTarget(marker)) {
+    if (
+      evidence.snapshotDone &&
+      evidence.syncConfigActive &&
+      comparison.comparable &&
+      comparison.reached &&
+      markerContainsTarget(marker)
+    ) {
       return {
         target: options.target,
         storageCheckpoint: evidence.storageCheckpoint,

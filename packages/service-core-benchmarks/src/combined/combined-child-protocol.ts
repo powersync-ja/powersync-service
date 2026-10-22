@@ -4,7 +4,7 @@ import type { ReplicationChildClassDescriptor } from '../replication/Replication
 import type { ReplicationReleaseObservation } from '../types/ReplicationBenchmark.js';
 import type { OperationEvidence } from '../utils/operation-evidence.js';
 
-export const COMBINED_CHILD_PROTOCOL_VERSION = 3 as const;
+export const COMBINED_CHILD_PROTOCOL_VERSION = 4 as const;
 
 export interface CombinedChildInitializePayload {
   readonly storage: ReplicationChildClassDescriptor;
@@ -38,6 +38,8 @@ interface CombinedChildEvidenceBase {
   readonly storageCheckpoint: string;
   readonly evidence: OperationEvidence;
   readonly snapshotDone: boolean;
+  /** A visible snapshot checkpoint can precede activation of the sync config served by the API. */
+  readonly syncConfigActive: boolean;
   readonly bucketCount: number;
 }
 
