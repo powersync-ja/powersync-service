@@ -153,6 +153,19 @@ export class SocketAdapter {
     this._socket.write(data, this._writeResume);
     await p;
     if (this._error) throw this._error; // TODO callstack
+
+    // handle CancelRequest from postgres
+    // need to watch for acknowledgement otherwise late cancellation can cancel the next query on a connection.
+    if (data.length === 16) {
+      const header = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      if (header.getInt32(0) === 16 && header.getInt32(4) === 80877102) {
+        const response = new Uint8Array(1);
+        while ((await this.read(response)) != null) {
+          // drain until the server closes the connection.
+        }
+      }
+    }
+
     return data.length;
   }
   // async closeWrite() {
