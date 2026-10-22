@@ -72,6 +72,15 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 901 web && \
     adduser --gecos "" --disabled-password --uid 901 --ingroup web --home /home/web web
 
+# Install the latest system CA certificates.
+# Require the version fixing the October 2026 eMudhra compromise.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && dpkg --compare-versions \
+        "$(dpkg-query -W -f='${Version}' ca-certificates)" \
+        ge '20250419+deb13u1' \
+    && rm -rf /var/lib/apt/lists/*
+
 # Kaniko complains that /workspace already exists, not sure why.
 RUN mkdir -p /workspace && chown -R web:web /workspace
 RUN mkdir -p .probes && chown -R web:web .probes
