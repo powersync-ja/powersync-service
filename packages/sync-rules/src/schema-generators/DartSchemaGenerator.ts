@@ -30,10 +30,11 @@ export class DartSchemaGenerator extends SchemaGenerator {
         }
 
         const dartMap = Object.keys(stream.parameters)
-          .map((parameter) => `'${parameter}': ${toCamelCase(parameter)},`)
+          .map((parameter) => `'${parameter}': ${toCamelCase(parameter)}`)
           .join(', ');
+        const dartMapStr = dartMap.length ? `${dartMap},` : '';
 
-        generatedCode += `  SyncStream ${toCamelCase(stream.name)}(${dartParameters}) => _db.syncStream('${stream.name}', {${dartMap}});\n`;
+        generatedCode += `  SyncStream ${toCamelCase(stream.name)}(${dartParameters}) => _db.syncStream('${stream.name}', {${dartMapStr}});\n`;
       }
 
       generatedCode += `}

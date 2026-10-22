@@ -98,6 +98,25 @@ ${streams}
 `);
   });
 
+  test('dart with multiple stream parameters', () => {
+    const { config: multiParamRules } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+
+streams:
+  filtered:
+    query: SELECT id, name FROM assets WHERE name = subscription.parameter('name') AND owner_id = subscription.parameter('owner_id')
+`,
+      PARSE_OPTIONS
+    );
+
+    const generated = new DartSchemaGenerator().generate(multiParamRules, schema);
+    expect(generated).toContain(
+      "SyncStream filtered({required String ownerId, required String name}) => _db.syncStream('filtered', {'owner_id': ownerId, 'name': name,});"
+    );
+  });
+
   test('js legacy', () => {
     expect(new JsLegacySchemaGenerator().generate(rules, schema)).toEqual(`new Schema([
   new Table({
