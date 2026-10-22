@@ -62,7 +62,7 @@ streams:
     const streams = `
 extension type TypedSyncStreams(PowerSyncDatabase _db) {
   SyncStream assetsOne() => _db.syncStream('assets_one', {});
-  SyncStream assets2({required String name}) => _db.syncStream('assets_2', {'name': name,});
+  SyncStream assets2({required String name}) => _db.syncStream('assets_2', {'name': name});
 }`;
 
     expect(new DartSchemaGenerator().generate(rules, schema)).toEqual(`Schema([
@@ -112,7 +112,7 @@ streams:
     );
 
     expect(new DartSchemaGenerator().generate(config, schema)).toContain(
-      `  SyncStream filtered({required String ownerId, required String name}) => _db.syncStream('filtered', {'owner_id': ownerId, 'name': name,});\n`
+      `  SyncStream filtered({required String ownerId, required String name}) => _db.syncStream('filtered', {'owner_id': ownerId, 'name': name});\n`
     );
   });
 
