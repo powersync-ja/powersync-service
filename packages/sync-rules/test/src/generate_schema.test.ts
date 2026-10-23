@@ -62,7 +62,7 @@ streams:
     const streams = `
 extension type TypedSyncStreams(PowerSyncDatabase _db) {
   SyncStream assetsOne() => _db.syncStream('assets_one', {});
-  SyncStream assets2({required String name}) => _db.syncStream('assets_2', {'name': name,});
+  SyncStream assets2({required String name}) => _db.syncStream('assets_2', {'name': name});
 }`;
 
     expect(new DartSchemaGenerator().generate(rules, schema)).toEqual(`Schema([
@@ -96,6 +96,24 @@ ${streams}
 ]);
 ${streams}
 `);
+  });
+
+  test('Dart with multiple Sync Stream parameters', () => {
+    const { config } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+
+streams:
+  filtered:
+    query: SELECT * FROM assets WHERE name = subscription.parameter('name') AND owner_id = subscription.parameter('owner_id')
+`,
+      PARSE_OPTIONS
+    );
+
+    expect(new DartSchemaGenerator().generate(config, schema)).toContain(
+      `  SyncStream filtered({required String ownerId, required String name}) => _db.syncStream('filtered', {'owner_id': ownerId, 'name': name});\n`
+    );
   });
 
   test('js legacy', () => {
