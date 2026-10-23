@@ -30,13 +30,23 @@ export async function loadModules(config: ResolvedPowerSyncConfig, loaders: Modu
 
   // Fail if any connection types are not found.
   if (missingConnectionModules.length > 0) {
-    throw new Error(`Invalid connection types: "${[...missingConnectionModules].join(', ')}"`);
+    const validConnections = Object.keys(loaders.connection);
+    const supportedMsg =
+      validConnections.length > 0
+        ? `. Supported types: ${validConnections.map((c) => `"${c}"`).join(', ')}`
+        : '';
+    throw new Error(`Invalid connection types: "${[...missingConnectionModules].join(', ')}"${supportedMsg}`);
   }
 
   if (loaders.storage[config.storage.type] !== undefined) {
     modulePromises.push(loaders.storage[config.storage.type]());
   } else {
-    throw new Error(`Invalid storage type: "${config.storage.type}"`);
+    const validStorage = Object.keys(loaders.storage);
+    const supportedMsg =
+      validStorage.length > 0
+        ? `. Supported types: ${validStorage.map((s) => `"${s}"`).join(', ')}`
+        : '';
+    throw new Error(`Invalid storage type: "${config.storage.type}"${supportedMsg}`);
   }
 
   // 2. Dynamically import and instantiate module classes and resolve all promises
