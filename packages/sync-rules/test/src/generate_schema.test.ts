@@ -98,7 +98,7 @@ ${streams}
 `);
   });
 
-  test('dart with multiple stream parameters', () => {
+  test('Dart with multiple Sync Stream parameters', () => {
     const { config } = SqlSyncRules.fromYaml(
       `
 config:
