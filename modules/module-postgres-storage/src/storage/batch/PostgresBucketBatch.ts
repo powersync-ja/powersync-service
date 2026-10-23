@@ -255,6 +255,20 @@ export class PostgresBucketBatch
         sourceTable.storeCurrentData = sendsCompleteRows !== true;
       }
 
+      if (!sourceTable.syncAny && !sourceTable.snapshotComplete) {
+        // A table that the sync config does not use has nothing to snapshot. Mark it as snapshotted
+        // here, so that markSnapshotDone() does not wait for a snapshot that never runs.
+        await db.sql`
+          UPDATE source_tables
+          SET
+            snapshot_done = TRUE
+          WHERE
+            id = ${{ type: 'varchar', value: sourceTable.id.toString() }}
+        `.execute();
+        sourceTable.snapshotComplete = true;
+        sourceTable.snapshotStatus = undefined;
+      }
+
       const dropTables = [
         ...materializedResolution.incompatibleTables,
         // PostgreSQL storage only keeps one SourceTable per physical table.
