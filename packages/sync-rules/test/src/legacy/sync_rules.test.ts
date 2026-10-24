@@ -30,19 +30,19 @@ import {
   USERS
 } from '../util.js';
 
-describe('sync rules', () => {
+describe('legacy Sync Rules', () => {
   const hydrationParams: HydrateSyncConfigParams = {
     hydrationState: DEFAULT_HYDRATION_STATE,
     sqlite: nodeSqlite(sqlite)
   };
 
-  test('parse empty sync rules', () => {
+  test('parse empty Sync Rules', () => {
     const { config: rules } = SqlSyncRules.fromYaml('bucket_definitions: {}', PARSE_OPTIONS);
     expect(rules.bucketParameterLookupSources).toEqual([]);
     expect(rules.bucketDataSources).toEqual([]);
   });
 
-  test('parse global sync rules', () => {
+  test('parse global Sync Rules', () => {
     const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
@@ -113,7 +113,7 @@ bucket_definitions:
     expect(parameterResults[0].lookup.source).toBe(rules.bucketParameterLookupSources[0]);
   });
 
-  test('parse global sync rules with filter', () => {
+  test('parse global Sync Rules with filter', () => {
     const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
@@ -150,7 +150,7 @@ bucket_definitions:
     });
   });
 
-  test('parse global sync rules with table filter', () => {
+  test('parse global Sync Rules with table filter', () => {
     const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:

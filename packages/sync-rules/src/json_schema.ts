@@ -7,7 +7,7 @@ import { STORAGE_VERSIONS } from './StorageVersion.js';
 // Hack to make this work both in NodeJS and a browser
 const Ajv = ajvModule.default ?? ajvModule;
 
-export const syncRulesSchema: ajvModule.Schema = {
+export const syncConfigSchema: ajvModule.Schema = {
   type: 'object',
   definitions: MONGO_FILTER_JSON_SCHEMA_DEFINITIONS,
   properties: {
@@ -176,22 +176,32 @@ export const syncRulesSchema: ajvModule.Schema = {
   additionalProperties: false
 } as const;
 
-export const validateSyncRulesSchema: any = compileSyncRulesSchemaValidator(syncRulesSchema);
+export const validateSyncConfigSchema: any = compileSyncConfigSchemaValidator(syncConfigSchema);
 
-export type SyncRulesSchemaValidator = ajvModule.ValidateFunction;
+/**
+ * @deprecated Use {@link syncConfigSchema} instead.
+ */
+export const syncRulesSchema = syncConfigSchema;
+
+/**
+ * @deprecated Use {@link validateSyncConfigSchema} instead.
+ */
+export const validateSyncRulesSchema = validateSyncConfigSchema;
+
+export type SyncConfigSchemaValidator = ajvModule.ValidateFunction;
 
 /**
  * An isolated composition shared by editor tooling, YAML validation and persisted source-table options.
  */
-export function createSyncRulesSchema(): JsonObject {
-  const schema = structuredClone(syncRulesSchema) as JsonObject;
+export function createSyncConfigSchema(): JsonObject {
+  const schema = structuredClone(syncConfigSchema) as JsonObject;
   return schema;
 }
 
 /**
  * Permit editor annotations without weakening AJV's checks for unknown validation keywords.
  */
-export function compileSyncRulesSchemaValidator(schema: ajvModule.Schema): SyncRulesSchemaValidator {
+export function compileSyncConfigSchemaValidator(schema: ajvModule.Schema): SyncConfigSchemaValidator {
   return new Ajv({
     allErrors: true,
     keywords: [{ keyword: 'defaultSnippets', schemaType: 'array' }]

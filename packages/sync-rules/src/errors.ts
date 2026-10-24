@@ -84,21 +84,45 @@ export class YamlError extends Error {
   }
 }
 
-export class SyncRulesErrors extends Error {
+export class SyncConfigErrors extends Error {
   static constructMessage(errors: YamlError[]) {
     return errors.map((e) => e.message).join(', ');
   }
   constructor(public errors: YamlError[]) {
-    super(SyncRulesErrors.constructMessage(errors));
+    super(SyncConfigErrors.constructMessage(errors));
   }
 }
 
-export type SyncRulesErrorCode = `PSYNC_${string}`;
-export class SyncRuleProcessingError extends Error {
-  public code: SyncRulesErrorCode;
+/**
+ * @deprecated Use {@link SyncConfigErrors} instead.
+ */
+export const SyncRulesErrors = SyncConfigErrors;
+/**
+ * @deprecated Use {@link SyncConfigErrors} instead.
+ */
+export type SyncRulesErrors = SyncConfigErrors;
 
-  constructor(code: SyncRulesErrorCode, message: string) {
+export type SyncConfigErrorCode = `PSYNC_${string}`;
+
+/**
+ * @deprecated Use {@link SyncConfigErrorCode} instead.
+ */
+export type SyncRulesErrorCode = SyncConfigErrorCode;
+
+export class SyncConfigProcessingError extends Error {
+  public code: SyncConfigErrorCode;
+
+  constructor(code: SyncConfigErrorCode, message: string) {
     super(`[${code}] ${message}`);
     this.code = code;
   }
 }
+
+/**
+ * @deprecated Use {@link SyncConfigProcessingError} instead.
+ */
+export const SyncRuleProcessingError = SyncConfigProcessingError;
+/**
+ * @deprecated Use {@link SyncConfigProcessingError} instead.
+ */
+export type SyncRuleProcessingError = SyncConfigProcessingError;

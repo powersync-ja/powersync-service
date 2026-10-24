@@ -90,8 +90,8 @@ abstract class BaseSourceRowProcessor {
   /**
    * Whether two source row processors behave identically.
    *
-   * If this is the case, they can be re-used across different stream definitions or even different sync rule instances
-   * (for incremental reprocessing).
+   * If this is the case, they be reused across Sync Stream definitions, including definitions in different compiled
+   * sync configs, for incremental reprocessing.
    */
   abstract behavesIdenticalTo(other: this): boolean;
 
