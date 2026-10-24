@@ -1,6 +1,7 @@
 export * from './AbstractReplicationJob.js';
 export * from './AbstractReplicator.js';
 export * from './ErrorRateLimiter.js';
+export * from './progress/snapshot-progress.js';
 export * from './RelationCache.js';
 export * from './replication-metrics.js';
 export * from './ReplicationEngine.js';

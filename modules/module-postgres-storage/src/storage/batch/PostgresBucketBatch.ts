@@ -15,6 +15,7 @@ import {
   ColumnDescriptor,
   deserializeReplicaId,
   InternalOpId,
+  mergeTableProgress,
   storage,
   utils
 } from '@powersync/service-core';
@@ -309,9 +310,12 @@ export class PostgresBucketBatch
 
     if (!sourceTable.snapshotComplete) {
       sourceTable.snapshotStatus = {
-        totalEstimatedCount: Number(row.snapshot_total_estimated_count ?? -1n),
+        totalEstimatedCount:
+          row.snapshot_total_estimated_count == null ? null : Number(row.snapshot_total_estimated_count),
         replicatedCount: Number(row.snapshot_replicated_count ?? 0n),
-        lastKey: row.snapshot_last_key
+        lastKey: row.snapshot_last_key,
+        updatedAt: row.snapshot_updated_at,
+        replicationRate: row.snapshot_replication_rate
       };
     }
     sourceTable.syncEvent = syncRules.tableTriggersEvent(ref);
@@ -856,19 +860,17 @@ export class PostgresBucketBatch
     progress: Partial<storage.TableSnapshotStatus>
   ): Promise<storage.SourceTable> {
     const copy = table.clone();
-    const snapshotStatus = {
-      totalEstimatedCount: progress.totalEstimatedCount ?? copy.snapshotStatus?.totalEstimatedCount ?? 0,
-      replicatedCount: progress.replicatedCount ?? copy.snapshotStatus?.replicatedCount ?? 0,
-      lastKey: progress.lastKey ?? copy.snapshotStatus?.lastKey ?? null
-    };
+    const snapshotStatus = mergeTableProgress(copy.snapshotStatus, progress, new Date());
     copy.snapshotStatus = snapshotStatus;
 
     await this.db.sql`
       UPDATE source_tables
       SET
-        snapshot_total_estimated_count = ${{ type: 'int4', value: snapshotStatus.totalEstimatedCount }},
-        snapshot_replicated_count = ${{ type: 'int4', value: snapshotStatus.replicatedCount }},
-        snapshot_last_key = ${{ type: 'bytea', value: snapshotStatus.lastKey }}
+        snapshot_total_estimated_count = ${{ type: 'int8', value: snapshotStatus.totalEstimatedCount }},
+        snapshot_replicated_count = ${{ type: 'int8', value: snapshotStatus.replicatedCount }},
+        snapshot_last_key = ${{ type: 'bytea', value: snapshotStatus.lastKey }},
+        snapshot_updated_at = ${{ type: 1184, value: snapshotStatus.updatedAt?.toISOString() ?? null }},
+        snapshot_replication_rate = ${{ type: 'float8', value: snapshotStatus.replicationRate }}
       WHERE
         id = ${{ type: 'varchar', value: table.id }}
     `.execute();

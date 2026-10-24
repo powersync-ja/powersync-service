@@ -24,6 +24,7 @@ import {
   deserializeBson,
   InternalOpId,
   isCompleteRow,
+  mergeTableProgress,
   PerformanceTracer,
   SaveOperationTag,
   storage,
@@ -1006,11 +1007,7 @@ export abstract class MongoBucketBatch
     progress: Partial<storage.TableSnapshotStatus>
   ): Promise<storage.SourceTable> {
     const copy = table.clone();
-    const snapshotStatus = {
-      totalEstimatedCount: progress.totalEstimatedCount ?? copy.snapshotStatus?.totalEstimatedCount ?? 0,
-      replicatedCount: progress.replicatedCount ?? copy.snapshotStatus?.replicatedCount ?? 0,
-      lastKey: progress.lastKey ?? copy.snapshotStatus?.lastKey ?? null
-    };
+    const snapshotStatus = mergeTableProgress(copy.snapshotStatus, progress, new Date());
     copy.snapshotStatus = snapshotStatus;
 
     await this.withTransaction(async () => {
@@ -1021,7 +1018,9 @@ export abstract class MongoBucketBatch
             snapshot_status: {
               last_key: snapshotStatus.lastKey == null ? null : new bson.Binary(snapshotStatus.lastKey),
               total_estimated_count: snapshotStatus.totalEstimatedCount,
-              replicated_count: snapshotStatus.replicatedCount
+              replicated_count: snapshotStatus.replicatedCount,
+              updated_at: snapshotStatus.updatedAt,
+              replication_rate: snapshotStatus.replicationRate
             }
           }
         },

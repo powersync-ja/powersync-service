@@ -6,5 +6,6 @@ export * from './register-data-storage-parameter-tests.js';
 export * from './register-migration-tests.js';
 export * from './register-parameter-compacting-tests.js';
 export * from './register-report-tests.js';
+export * from './register-snapshot-progress-tests.js';
 export * from './register-sync-tests.js';
 export * from './util.js';
