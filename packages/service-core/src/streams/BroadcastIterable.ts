@@ -1,4 +1,3 @@
-import { AbortError } from 'ix/aborterror.js';
 import { LastValueSink } from './LastValueSink.js';
 
 export type IterableSource<T> = (signal: AbortSignal) => AsyncIterable<T>;
@@ -47,8 +46,9 @@ export class BroadcastIterable<T> implements AsyncIterable<T> {
   private async loop(abortController: AbortController, sinks: Set<LastValueSink<T>>) {
     try {
       for await (let doc of this.source(abortController.signal)) {
-        if (abortController.signal.aborted || sinks.size == 0) {
-          throw new AbortError();
+        abortController.signal.throwIfAborted();
+        if (sinks.size == 0) {
+          throw new DOMException('No subscribers remain', 'AbortError');
         }
         this.last = doc;
         for (let sink of sinks) {
@@ -62,7 +62,7 @@ export class BroadcastIterable<T> implements AsyncIterable<T> {
       }
     } catch (e) {
       // Just in case the error is not from the source
-      abortController.abort();
+      abortController.abort(e);
 
       for (let listener of sinks) {
         listener.error(e);
@@ -77,12 +77,12 @@ export class BroadcastIterable<T> implements AsyncIterable<T> {
     }
   }
 
-  private removeSink(listener: LastValueSink<T>) {
+  private removeSink(listener: LastValueSink<T>, reason?: unknown) {
     this.subscribers?.delete(listener);
     if (this.subscribers?.size == 0) {
       // This is not immediate - there may be a delay until it is fully stopped,
       // depending on the underlying source.
-      this.abortController?.abort();
+      this.abortController?.abort(reason);
       this.last = undefined;
       this.subscribers = undefined;
       this.abortController = undefined;
@@ -98,12 +98,13 @@ export class BroadcastIterable<T> implements AsyncIterable<T> {
   }
 
   async *[Symbol.asyncIterator](signal?: AbortSignal): AsyncIterableIterator<T> {
+    signal?.throwIfAborted();
     const sink = new LastValueSink(this.last);
     this.addSink(sink);
     try {
       yield* sink.withSignal(signal);
     } finally {
-      this.removeSink(sink);
+      this.removeSink(sink, signal?.reason);
     }
   }
 
