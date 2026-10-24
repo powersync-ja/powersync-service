@@ -8,12 +8,12 @@ import {
   KotlinSchemaGenerator,
   RoomSchemaGenerator,
   RustSchemaGenerator,
-  SqlSyncRules,
   StaticSchema,
   SwiftSchemaGenerator,
   TsSchemaGenerator,
   TsSchemaLanguage,
   driftSchemaGenerator,
+  parseSyncConfig,
   sqlDelightSchemaGenerator
 } from '../../src/index.js';
 
@@ -42,7 +42,7 @@ describe('schema generation', () => {
     }
   ]);
 
-  const { config: rules } = SqlSyncRules.fromYaml(
+  const { config: rules } = parseSyncConfig(
     `
 config:
   edition: 3
