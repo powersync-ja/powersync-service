@@ -98,6 +98,25 @@ ${streams}
 `);
   });
 
+  test('dart multi-parameter sync stream does not produce double commas', () => {
+    const multiParamRules = SyncConfig.parseSyncRules(
+      `
+config:
+  edition: 3
+streams:
+  filtered:
+    query: SELECT id, name FROM assets WHERE name = subscription.parameter('name') AND owner_id = subscription.parameter('owner_id')
+`,
+      PARSE_OPTIONS
+    );
+
+    const generated = new DartSchemaGenerator().generate(multiParamRules, schema);
+    expect(generated).toContain(
+      "SyncStream filtered({required String name, required String ownerId}) => _db.syncStream('filtered', {'name': name, 'owner_id': ownerId,});"
+    );
+    expect(generated).not.toContain(',,');
+  });
+
   test('js legacy', () => {
     expect(new JsLegacySchemaGenerator().generate(rules, schema)).toEqual(`new Schema([
   new Table({
