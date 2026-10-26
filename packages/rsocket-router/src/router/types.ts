@@ -1,4 +1,4 @@
-import { router } from '@powersync/lib-services-framework';
+import { errors, router } from '@powersync/lib-services-framework';
 import * as t from 'ts-codec';
 
 import { OnExtensionSubscriber, OnNextSubscriber, OnTerminalSubscriber } from 'rsocket-core';
@@ -19,6 +19,11 @@ export type RequestMeta = t.Decoded<typeof RSocketRequestMeta>;
 
 export type ReactiveSocketRouterOptions<C> = {
   max_concurrent_connections?: number;
+  /**
+   * Invoked with the error returned to the client when a connection SETUP is rejected because
+   * `max_concurrent_connections` was exceeded.
+   */
+  on_concurrency_limit_rejected?: (error: errors.ServiceError) => void;
 };
 
 export type SocketResponder = OnTerminalSubscriber & OnNextSubscriber & OnExtensionSubscriber;

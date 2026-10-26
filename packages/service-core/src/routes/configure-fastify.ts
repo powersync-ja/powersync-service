@@ -6,6 +6,7 @@ import {
   registerFastifyRoutes
 } from './route-register.js';
 
+import { recordSyncConnection, SyncCloseReason, SyncTransport } from '../metrics/connection-metrics.js';
 import * as system from '../system/system-index.js';
 
 import { ADMIN_ROUTES } from './endpoints/admin.js';
@@ -123,7 +124,12 @@ export function configureFastifyServer(server: fastify.FastifyInstance, options:
     // Limit the active concurrent requests
     childContext.addHook(
       'onRequest',
-      createRequestQueueHook(routes.sync_stream?.queue_options ?? DEFAULT_ROUTE_OPTIONS.sync_stream.queue_options)
+      createRequestQueueHook(routes.sync_stream?.queue_options ?? DEFAULT_ROUTE_OPTIONS.sync_stream.queue_options, () =>
+        recordSyncConnection(service_context.metricsEngine, {
+          transport: SyncTransport.HttpStream,
+          closeReason: SyncCloseReason.ConcurrencyLimit
+        })
+      )
     );
   });
 }
