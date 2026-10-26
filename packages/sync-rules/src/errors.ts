@@ -93,22 +93,7 @@ export class SyncConfigErrors extends Error {
   }
 }
 
-/**
- * @deprecated Use {@link SyncConfigErrors} instead.
- */
-export const SyncRulesErrors = SyncConfigErrors;
-/**
- * @deprecated Use {@link SyncConfigErrors} instead.
- */
-export type SyncRulesErrors = SyncConfigErrors;
-
 export type SyncConfigErrorCode = `PSYNC_${string}`;
-
-/**
- * @deprecated Use {@link SyncConfigErrorCode} instead.
- */
-export type SyncRulesErrorCode = SyncConfigErrorCode;
-
 export class SyncConfigProcessingError extends Error {
   public code: SyncConfigErrorCode;
 
@@ -117,12 +102,3 @@ export class SyncConfigProcessingError extends Error {
     this.code = code;
   }
 }
-
-/**
- * @deprecated Use {@link SyncConfigProcessingError} instead.
- */
-export const SyncRuleProcessingError = SyncConfigProcessingError;
-/**
- * @deprecated Use {@link SyncConfigProcessingError} instead.
- */
-export type SyncRuleProcessingError = SyncConfigProcessingError;

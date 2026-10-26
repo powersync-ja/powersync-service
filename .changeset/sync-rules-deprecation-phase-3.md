@@ -1,7 +1,16 @@
 ---
-'@powersync/service-sync-rules': patch
+'@powersync/service-sync-rules': minor
 ---
 
-Rename sync config error and schema exports: `SyncConfigErrors`, `SyncConfigProcessingError`, `SyncConfigErrorCode`, `syncConfigSchema` and `validateSyncConfigSchema`. The previous names remain as deprecated aliases, so existing imports and `instanceof` checks keep working.
+Rename sync config error and schema exports. The previous names are removed, so update any direct imports:
 
-This also renames new schema helpers from the separate PR in this release to `createSyncConfigSchema`, `compileSyncConfigSchemaValidator` and `SyncConfigSchemaValidator`. These have not been in a stable release, so they have no aliases.
+- `SyncRulesErrors` → `SyncConfigErrors`
+- `SyncRuleProcessingError` → `SyncConfigProcessingError`
+- `SyncRulesErrorCode` → `SyncConfigErrorCode`
+- `syncRulesSchema` → `syncConfigSchema`
+- `validateSyncRulesSchema` → `validateSyncConfigSchema`
+- `createSyncRulesSchema` → `createSyncConfigSchema`
+- `compileSyncRulesSchemaValidator` → `compileSyncConfigSchemaValidator`
+- `SyncRulesSchemaValidator` → `SyncConfigSchemaValidator`
+
+Parsing and validation behavior is unchanged. The published `schema/sync_config.json` and `schema/sync_rules.json` files are unchanged.

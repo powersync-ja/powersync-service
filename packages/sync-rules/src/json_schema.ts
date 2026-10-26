@@ -178,16 +178,6 @@ export const syncConfigSchema: ajvModule.Schema = {
 
 export const validateSyncConfigSchema: any = compileSyncConfigSchemaValidator(syncConfigSchema);
 
-/**
- * @deprecated Use {@link syncConfigSchema} instead.
- */
-export const syncRulesSchema = syncConfigSchema;
-
-/**
- * @deprecated Use {@link validateSyncConfigSchema} instead.
- */
-export const validateSyncRulesSchema = validateSyncConfigSchema;
-
 export type SyncConfigSchemaValidator = ajvModule.ValidateFunction;
 
 /**
