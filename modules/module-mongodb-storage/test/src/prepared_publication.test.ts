@@ -66,8 +66,7 @@ describe.each([3, 4])('sealed publication v%s', (storageVersion) => {
     const originalPublish = PersistedBatchV3.prototype.publish;
     using _flush = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementationOnce(async function (
       this: PersistedBatchV3,
-      session,
-      options
+      ...args
     ) {
       builder = this;
       publication = this;
@@ -75,7 +74,7 @@ describe.each([3, 4])('sealed publication v%s', (storageVersion) => {
       expect(publication.ready).toBe(ready);
       expect(this.preparePayloads()).toBe(ready);
       await ready;
-      await originalPublish.call(this, session, options);
+      await originalPublish.apply(this, args);
       throw aborted;
     });
 
@@ -282,10 +281,10 @@ streams:
       const originalPublish = PersistedBatchV3.prototype.publish;
       using _flush = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementationOnce(async function (
         this: PersistedBatchV3,
-        session
+        ...args
       ) {
         publication = this;
-        await originalPublish.call(this, session);
+        await originalPublish.apply(this, args);
         throw abort;
       });
       for (const userId of ['old', 'new']) {

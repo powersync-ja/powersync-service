@@ -161,10 +161,11 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
     if (summary.replicationAttempts.at(-1)?.commands.bulkWrite != null) {
       // The source-size query and grouped source-record read (R = 2) now run
       // outside the transaction, once per preparation. A conflict omits the
-      // tail/commit but adds an abort command; replay sends no source reads.
+      // commit but adds an abort command; replay sends no source reads. The
+      // final data group now executes the independent head/checkpoint tail too.
       expect(summary.replicationAttempts.map((attempt) => attempt.commands)).toEqual([
         ...(conflict ? [{ findAndModify: 1, bulkWrite: 1, abortTransaction: 1 }] : []),
-        { findAndModify: 1, bulkWrite: 2, commitTransaction: 1 }
+        { findAndModify: 1, bulkWrite: 1, commitTransaction: 1 }
       ]);
     }
 

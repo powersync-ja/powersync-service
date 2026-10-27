@@ -271,7 +271,7 @@ export abstract class MongoBucketBatch
 
   /** Publish the checkpoint in the final flush transaction, or use the empty-commit path. */
   protected async flushAndCommit<T>(
-    checkpoint: (stream: SyncRuleDocumentBase, lastOp: InternalOpId) => Promise<T>,
+    checkpoint: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<T>,
     commitWithoutFlush: () => Promise<T>,
     options?: storage.BatchBucketFlushOptions,
     projection?: mongo.Document
@@ -283,8 +283,8 @@ export abstract class MongoBucketBatch
     while (this.batch != null || this.write_checkpoint_batch.length > 0) {
       await this.flushInner(
         options,
-        async (stream, lastOp) => {
-          result = await checkpoint(stream, lastOp);
+        async (stream, lastOp, writes) => {
+          result = await checkpoint(stream, lastOp, writes);
         },
         projection
       );
@@ -294,7 +294,7 @@ export abstract class MongoBucketBatch
 
   protected async flushInner(
     options?: storage.BatchBucketFlushOptions,
-    checkpoint?: (stream: SyncRuleDocumentBase, lastOp: InternalOpId) => Promise<void>,
+    checkpoint?: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<void>,
     projection?: mongo.Document
   ): Promise<storage.FlushedResult | null> {
     const batch = this.batch;
@@ -963,10 +963,11 @@ export abstract class MongoBucketBatch
   /**
    * Called after a replication transaction has successfully committed, with the last persisted op id.
    *
-   * v1 storage tracks this in memory to fold into the next checkpoint. v3 storage does not need it:
-   * the stream-level `last_persisted_op` is already advanced durably by
-   * {@link onReplicationTransactionFlush} or the combined checkpoint update within the same
-   * transaction, and empty commits read it from the document.
+   * v1 storage tracks this in memory to fold into the next checkpoint. v3 storage
+   * uses it only as a preparation-head hint: the authoritative `last_persisted_op`
+   * is advanced durably by {@link onReplicationTransactionFlush} or the combined
+   * checkpoint update in the same transaction, and every publication/empty commit
+   * validates or reads that head through its fresh fence.
    *
    * Keep calls to this adjacent to {@link withReplicationTransaction} usage - both must observe
    * every path that persists ops.

@@ -161,18 +161,26 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     return this.preparePayloads();
   }
 
-  async publish(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
+  async publish(
+    session: mongo.ClientSession,
+    options?: storage.BucketBatchCommitOptions,
+    additionalWrites?: MongoWriteBatch
+  ) {
     // Never start preparation from a transaction attempt. The eager coordinator
     // awaits readiness for the entire bounded prefix before opening a transaction.
     if (!this.payloadsReady) {
       throw new ReplicationAssertionError('Prepare publication payloads before starting the transaction');
     }
-    return this.write(session, options);
+    return this.write(session, options, additionalWrites);
   }
 
-  private async write(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
+  private async write(
+    session: mongo.ClientSession,
+    options?: storage.BucketBatchCommitOptions,
+    additionalWrites?: MongoWriteBatch
+  ) {
     const startAt = performance.now();
-    const writes = this.db.createWriteBatch(session, { ordered: false });
+    const writes = additionalWrites ?? this.db.createWriteBatch(session, { ordered: false });
     // Checked marker removal, references and usage must commit together. Recheck
     // expiry on every attempt; neither an expired nor a missing marker is a
     // transient MongoDB error that may replay this generation indefinitely.

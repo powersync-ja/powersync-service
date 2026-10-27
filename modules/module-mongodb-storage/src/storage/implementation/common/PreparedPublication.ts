@@ -1,5 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
+import { MongoWriteBatch } from '../MongoWriteBatch.js';
 
 export interface PublicationStats {
   bucketDataCount: number;
@@ -38,6 +39,15 @@ export interface PreparedPublication {
    */
   preparePayloads(session?: mongo.ClientSession): Promise<void>;
   readonly ready: Promise<void>;
-  /** Requires completed readiness before starting the publication transaction. */
-  publish(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions): Promise<PublicationStats>;
+  /**
+   * Requires completed readiness before starting the publication transaction.
+   * An optional batch supplies independent head/checkpoint writes to execute
+   * together with this group's data. This method owns execution of that batch;
+   * callers must not execute it again or include another group's dependent writes.
+   */
+  publish(
+    session: mongo.ClientSession,
+    options?: storage.BucketBatchCommitOptions,
+    additionalWrites?: MongoWriteBatch
+  ): Promise<PublicationStats>;
 }
