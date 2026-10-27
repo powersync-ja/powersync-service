@@ -261,9 +261,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         async (document) => {
           bodyCompleted = false;
           attempts++;
-          if (attempts % 10 === 0) {
-            this.logger.info(`Publishing prepared work - try ${attempts}`);
-          }
           if (attempts > 20 && Date.now() > retryDeadline) {
             throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
           }
@@ -290,7 +287,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           }
           bodyCompleted = true;
         },
-        this.session
+        this.session,
+        'Publishing prepared work'
       );
     } catch (error) {
       if (

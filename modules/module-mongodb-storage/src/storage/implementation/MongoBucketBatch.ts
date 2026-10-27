@@ -813,18 +813,21 @@ export abstract class MongoBucketBatch
   protected async withFencedTransaction<S, T>(
     acquireFence: () => Promise<S>,
     cb: (stream: S) => Promise<T>,
-    session = this.session
+    session = this.session,
+    description = 'Replication transaction'
   ): Promise<T> {
     this.options.replicationLock.throwIfAborted();
+    let attempts = 0;
     // Includes driver commit retries and the delays between transaction attempts.
     using _transactionSpan = this.tracer.span('storage', 'transaction');
     const result = await session.withTransaction(
       async () => {
+        attempts++;
         // One callback invocation per transaction attempt. Commit happens after
         // this span; command monitoring is needed to measure the full wire lifetime.
         using attemptSpan = this.tracer.span('storage', 'transaction_body');
-        const stream = await acquireFence();
         try {
+          const stream = await acquireFence();
           const result = await cb(stream);
           this.options.replicationLock.throwIfAborted();
           return result;
@@ -834,7 +837,17 @@ export abstract class MongoBucketBatch
             throw e;
           }
           if (e instanceof mongo.MongoError && e.hasErrorLabel('TransientTransactionError')) {
-            // Likely write conflict caused by concurrent writes to this replication stream.
+            // Keep the existing every-tenth-attempt cadence, including failures
+            // of the fence. Log the actual error rather than assuming every
+            // transient error is a write conflict. Omit stacks and bulk results.
+            if ((attempts + 1) % 10 === 0) {
+              this.logger.info(`${description} - try ${attempts + 1}`, {
+                error: e.message,
+                code: e.code,
+                codeName: e instanceof mongo.MongoServerError ? e.codeName : undefined,
+                errorLabels: e.errorLabels
+              });
+            }
           } else {
             this.logger.warn('Transaction error', e as Error);
           }
@@ -915,9 +928,6 @@ export abstract class MongoBucketBatch
           () => this.fence(this.session, projection),
           async (stream) => {
             flushTry += 1;
-            if (flushTry % 10 == 0) {
-              this.logger.info(`${description} - try ${flushTry}`);
-            }
             if (flushTry > 20 && Date.now() > lastTry) {
               throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
             }
@@ -935,7 +945,8 @@ export abstract class MongoBucketBatch
             }
             // Notifications and cleanup must wait until the transaction commits.
           },
-          this.session
+          this.session,
+          description
         );
         // This transaction-based path consumes after commit. Prepared work will
         // consume before uploads, independently of confirmed durable progress.
