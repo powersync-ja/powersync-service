@@ -13,6 +13,7 @@ import {
   ScopedParameterLookup,
   serializeSyncPlan,
   SourceTableRef,
+  SqliteJsonValue,
   SqliteRow,
   SqliteValue
 } from '../../../../src/index.js';
@@ -630,7 +631,7 @@ streams:
       });
       expect(errors).toStrictEqual([]);
       expect(querier.hasDynamicBuckets).toStrictEqual(false);
-      expect(querier.staticBuckets.map((b) => b.bucket)).toStrictEqual(z.map((param) => `stream|0[${param}]`));
+      expect(querier.staticBuckets.map((b) => b.bucket).sort()).toStrictEqual(z.map((param) => `stream|0[${param}]`));
     },
     1000
   );
@@ -711,6 +712,266 @@ streams:
 
     // There are no rows where x both intersects with y and z, so this should result in no buckets.
     expect(querier.staticBuckets.map((b) => b.bucket)).toStrictEqual([]);
+  });
+
+  syncTest('intersection of scalar request data', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT * FROM issues WHERE a = auth.parameter('x') AND a = auth.parameter('y')
+`);
+
+    function queryWith(x: string, y: string) {
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user', x, y }),
+        hasDefaultStreams: true,
+        streams: {}
+      });
+      expect(errors).toStrictEqual([]);
+      expect(querier.hasDynamicBuckets).toStrictEqual(false);
+      return querier.staticBuckets.map((e) => e.bucket);
+    }
+
+    expect(queryWith('p1', 'p2')).toStrictEqual([]);
+    expect(queryWith('p1', 'p1')).toStrictEqual(['stream|0["p1"]']);
+  });
+
+  syncTest(
+    'intersection of large expanded request data and parameter lookup',
+    async ({ sync }) => {
+      // The lookup output is only used for the intersection, so this should filter rows instead of multiplying them.
+      // This invokes far more parameters that we'd allow in practice, but still catches quadratic behavior.
+      const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT * FROM issues WHERE a IN auth.parameter('x') AND a IN (SELECT id FROM projects WHERE owner = auth.user_id())
+`);
+
+      const x: number[] = [];
+      const projects: Record<string, number>[] = [];
+      for (let i = 0; i < 50_000; i++) {
+        x.push(i);
+        // Add each project twice, which must not cause duplicate rows.
+        projects.push({ '0': i * 2 }, { '0': i * 2 });
+      }
+
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user', x }),
+        hasDefaultStreams: true,
+        streams: {}
+      });
+      expect(errors).toStrictEqual([]);
+
+      const buckets = await querier.queryDynamicBucketDescriptions({
+        async getParameterSets(lookups) {
+          expect(lookups).toHaveLength(1);
+          return [{ lookup: lookups[0], rows: projects }];
+        }
+      });
+
+      expect(buckets).toHaveLength(25_000);
+      expect(new Set(buckets.map((b) => b.bucket))).toContain('stream|0[49998]');
+      expect(new Set(buckets.map((b) => b.bucket))).not.toContain('stream|0[49999]');
+    },
+    1000
+  );
+
+  syncTest(
+    'intersection on parameter lookup with additional output',
+    async ({ sync }) => {
+      // b.c1 is intersected with auth.parameter('x') while b.c2 is used as an additional bucket parameter, so this
+      // requires a join on the intersected column.
+      const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT a.* FROM a, b WHERE a.c1 = b.c1 AND a.c1 IN auth.parameter('x') AND a.c2 = b.c2 AND b.u = auth.user_id()
+`);
+
+      const x: number[] = [];
+      const rows: Record<string, number>[] = [];
+      for (let i = 0; i < 50_000; i++) {
+        x.push(i);
+        rows.push({ '0': i + 49_990, '1': i });
+      }
+
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user', x }),
+        hasDefaultStreams: true,
+        streams: {}
+      });
+      expect(errors).toStrictEqual([]);
+
+      const buckets = await querier.queryDynamicBucketDescriptions({
+        async getParameterSets(lookups) {
+          expect(lookups).toHaveLength(1);
+          return [{ lookup: lookups[0], rows }];
+        }
+      });
+
+      // Only b rows with c1 in 49990..49999 match x.
+      const expected: string[] = [];
+      for (let c2 = 0; c2 < 10; c2++) {
+        expected.push(`stream|0[${c2},${c2 + 49_990}]`);
+      }
+      expect(buckets.map((b) => b.bucket).sort()).toStrictEqual(expected.sort());
+    },
+    1000
+  );
+
+  syncTest('intersection with duplicate expanded request data', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT * FROM issues WHERE a IN subscription.parameter('x') AND a IN auth.parameter('y')
+`);
+
+    function queryWith(x: string[], y: string[]) {
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user', y }),
+        hasDefaultStreams: false,
+        streams: {
+          stream: [{ priorityOverride: null, opaque_id: 0, parameters: { x: x as unknown as SqliteJsonValue } }]
+        }
+      });
+      expect(errors).toStrictEqual([]);
+      expect(querier.hasDynamicBuckets).toStrictEqual(false);
+      return querier.staticBuckets.map((e) => e.bucket);
+    }
+
+    expect(queryWith(['unauthorized', 'unauthorized'], ['allowed'])).toStrictEqual([]);
+    expect(queryWith(['allowed', 'allowed'], ['allowed'])).toStrictEqual(['stream|0["allowed"]']);
+    expect(queryWith(['allowed'], ['unauthorized', 'unauthorized'])).toStrictEqual([]);
+    expect(queryWith(['allowed'], ['allowed', 'allowed'])).toStrictEqual(['stream|0["allowed"]']);
+  });
+
+  syncTest(
+    'intersection on multiple columns of parameter lookups',
+    async ({ sync }) => {
+      // There are two intersections (on x and y) between the same two lookups, so rows of e need to match on both
+      // columns of a. This should use a composite index instead of comparing all pairs of rows.
+      const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      auto_subscribe: true
+      query: |
+        SELECT items.* FROM items
+          JOIN allowed a ON items.x = a.x AND items.y = a.y
+          JOIN enabled e ON items.x = e.x AND items.y = e.y
+        WHERE a.user_id = auth.user_id()
+`);
+
+      const allowed: Record<string, number>[] = [];
+      const enabled: Record<string, number>[] = [];
+      for (let i = 0; i < 50_000; i++) {
+        allowed.push({ '0': i, '1': -i });
+        // These share x and y values with rows in allowed, but never both.
+        enabled.push({ '0': i, '1': -(i + 1) });
+      }
+      enabled.push({ '0': 7, '1': -7 }, { '0': 7, '1': -7 });
+
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user' }),
+        hasDefaultStreams: true,
+        streams: {}
+      });
+      expect(errors).toStrictEqual([]);
+
+      const buckets = await querier.queryDynamicBucketDescriptions({
+        async getParameterSets(lookups, debugDefinition) {
+          expect(lookups).toHaveLength(1);
+
+          if (debugDefinition.endsWith(' on allowed')) {
+            return [{ lookup: lookups[0], rows: allowed }];
+          } else if (debugDefinition.endsWith(' on enabled')) {
+            return [{ lookup: lookups[0], rows: enabled }];
+          }
+
+          throw new Error(`Unexpected lookup: ${debugDefinition}`);
+        }
+      });
+
+      // Bucket parameters are ordered as (y, x).
+      expect(buckets.map((b) => b.bucket)).toStrictEqual(['stream|0[-7,7]']);
+    },
+    1000
+  );
+
+  syncTest('intersection on multiple columns of a lookup with an earlier representative', async ({ sync }) => {
+    // The intersection is between c.x, b.x1 and b.x2. Since c is looked up first, b needs to be joined on x1 and also
+    // match x2 = x1 in each row.
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT a.* FROM a, b, c WHERE a.x = b.x1 AND a.x = b.x2 AND a.x = c.x AND b.k = c.k AND c.u = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user' }),
+      hasDefaultStreams: true,
+      streams: {}
+    });
+    expect(errors).toStrictEqual([]);
+
+    // Rows on b by c.k, with x1 and x2 as outputs.
+    const rowsOnB: Record<string, [string, string][]> = {
+      k1: [
+        ['A', 'A'], // Matches c row (k1, A)
+        ['B', 'A'], // x1 matches c row (k1, B), but x2 doesn't
+        ['C', 'C'] // Consistent, but there's no c row (k1, C)
+      ],
+      k2: [['C', 'B']] // x1 matches c row (k2, C), but x2 doesn't
+    };
+
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups, debugDefinition) {
+        if (debugDefinition.endsWith(' on c')) {
+          expect(lookups).toHaveLength(1);
+          // Outputs are (k, x)
+          return [
+            {
+              lookup: lookups[0],
+              rows: [
+                { '0': 'k1', '1': 'A' },
+                { '0': 'k1', '1': 'B' },
+                { '0': 'k2', '1': 'C' }
+              ]
+            }
+          ];
+        } else if (debugDefinition.endsWith(' on b')) {
+          expect(lookups).toHaveLength(2);
+          return lookups.map((lookup) => {
+            const k = lookup.values[lookup.values.length - 1] as string;
+            return { lookup, rows: rowsOnB[k].map(([x1, x2]) => ({ '0': x1, '1': x2 })) };
+          });
+        }
+
+        throw new Error(`Unexpected lookup: ${debugDefinition}`);
+      }
+    });
+
+    expect(buckets.map((b) => b.bucket)).toStrictEqual(['stream|0["A"]']);
   });
 
   syncTest('parameter lookups', async ({ sync }) => {

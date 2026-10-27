@@ -13,7 +13,7 @@ import { MapSourceVisitor, visitExpr } from '../expression_visitor.js';
 import * as plan from '../plan.js';
 import { StreamInput } from './bucket_source.js';
 import { PreparedParameterIndexLookupCreator } from './parameter_index_lookup_creator.js';
-import { AsyncJoinLookup, ResultSet, ResultSetColumn, ResultSetElement } from './result_set.js';
+import { AsyncJoinLookup, JoinKey, JoinOptions, ResultSet, ResultSetColumn, ResultSetElement } from './result_set.js';
 
 /**
  * Finds bucket parameters for a given request or subscription.
@@ -65,6 +65,11 @@ export class RequestParameterEvaluators {
      */
     private readonly parameterValues: PreparedParameterValue[],
     /**
+     * Intersections, which have been replaced with their representative value in {@link lookupStages} and
+     * {@link parameterValues}. Other values of the intersection are checked when joining their lookup.
+     */
+    private readonly intersections: PreparedIntersection[],
+    /**
      * The materialized result set containing lookup values. {@link parameterValues} are read from this result set as a
      * final step.
      */
@@ -96,7 +101,18 @@ export class RequestParameterEvaluators {
     const copiedStages = this.lookupStages.map((s) => s.clone(cloneParameter));
     const outputValues = this.parameterValues.map(cloneParameter);
 
-    return new RequestParameterEvaluators(this.stream, copiedStages, outputValues, this.resultSet.clone());
+    const intersections = this.intersections.map(({ representative, others }) => ({
+      representative: cloneParameter(representative),
+      others: others.map(cloneParameter)
+    }));
+
+    return new RequestParameterEvaluators(
+      this.stream,
+      copiedStages,
+      outputValues,
+      intersections,
+      this.resultSet.clone()
+    );
   }
 
   /**
@@ -109,12 +125,30 @@ export class RequestParameterEvaluators {
    */
   partiallyInstantiate(input: PartialInstantiationInput): SqliteParameterValue[][] | undefined {
     try {
+      // Request parameters are evaluated before anything else, so they're always the representative of intersections
+      // they're a part of. Check that other request parameters in the intersection match.
+      for (const { representative, others } of this.intersections) {
+        if (representative instanceof RequestParameterValue) {
+          const value = representative.resolveWith(input);
+          for (const other of others) {
+            if (other instanceof RequestParameterValue && other.resolveWith(input) !== value) {
+              throw uninstantiableException;
+            }
+          }
+        }
+      }
+
       // At this point, we can resolve table-valued lookups and parameter values based only on request data.
       for (const stage of this.lookupStages) {
         for (const element of stage.lookups) {
           if (element instanceof TableValuedExpandingLookup) {
-            const outputs = element.read(input.request);
-            this.resultSet.multiply(element.resultSetIndex, outputs);
+            const { rowFilter, options } = this.#joinConditionFor(element, input);
+            let outputs = element.read(input.request);
+            if (rowFilter != null) {
+              outputs = outputs.filter(rowFilter);
+            }
+
+            this.resultSet.multiply(element.resultSetIndex, outputs, options);
             this.#checkInstantiable();
           }
         }
@@ -204,6 +238,7 @@ export class RequestParameterEvaluators {
   async #instantiateLookup(lookup: ParameterIndexExpandingLookup, input: InstantiationInput) {
     const scope = input.hydrationState.getParameterIndexLookupScope(lookup.lookup);
     const resolvedLookup = lookup.lookup as PreparedParameterIndexLookupCreator;
+    const { rowFilter, options } = this.#joinConditionFor(lookup, input);
 
     await this.resultSet.joinAsync(
       lookup.instantiation.filter((v) => v instanceof LookupParameterValue),
@@ -235,13 +270,64 @@ export class RequestParameterEvaluators {
               asArray.push(row[i.toString()] as SqliteParameterValue);
             }
 
-            join.foundRows.push(asArray);
+            if (rowFilter == null || rowFilter(asArray)) {
+              join.foundRows.push(asArray);
+            }
           }
         }
-      }
+      },
+      options
     );
     lookup.wasResolved = true;
     this.#checkInstantiable();
+  }
+
+  /**
+   * Translates intersection checks affecting the given lookup into a filter for added rows and join keys.
+   *
+   * Since the representative of an intersection is evaluated first, other values of the intersection only need to be
+   * compared against it when they're joined into the result set:
+   *
+   *  - If the representative is a request parameter, added rows are filtered to match it.
+   *  - If the representative is a column of the added lookup itself, added rows are filtered to be consistent.
+   *  - Otherwise, the representative is a column of a lookup that has already been joined. We use it as a join key.
+   */
+  #joinConditionFor(
+    lookup: PreparedExpandingLookup,
+    input: PartialInstantiationInput
+  ): { rowFilter?: (row: SqliteParameterValue[]) => boolean; options: JoinOptions } {
+    const index = lookup.resultSetIndex;
+    const checks: ((row: SqliteParameterValue[]) => boolean)[] = [];
+    const keys: JoinKey[] = [];
+
+    for (const { representative, others } of this.intersections) {
+      // A column in the added lookup that other columns in the intersection need to match.
+      let reference: number | undefined;
+      if (representative instanceof LookupParameterValue && representative.lookup.resultSetIndex === index) {
+        reference = representative.outputIndex;
+      }
+
+      for (const other of others) {
+        if (!(other instanceof LookupParameterValue) || other.lookup.resultSetIndex !== index) continue;
+        const column = other.outputIndex;
+
+        if (representative instanceof RequestParameterValue) {
+          const value = representative.resolveWith(input);
+          checks.push((row) => row[column] === value);
+        } else if (reference !== undefined) {
+          const referenceColumn = reference;
+          checks.push((row) => row[column] === row[referenceColumn]);
+        } else {
+          keys.push({ existing: representative, addedIndex: column });
+          reference = column;
+        }
+      }
+    }
+
+    return {
+      rowFilter: checks.length === 0 ? undefined : (row) => checks.every((check) => check(row)),
+      options: { keys, semiJoin: !lookup.outputUsed }
+    };
   }
 
   /**
@@ -264,8 +350,20 @@ export class RequestParameterEvaluators {
     const mappedStages: LookupStage[] = [];
     let amountOfLookups = 0;
     const lookupToStage = new Map<plan.ExpandingLookup, PreparedExpandingLookup>();
+    const mappedValues = new Map<plan.ParameterValue, PreparedParameterValue>();
+    const intersections: PreparedIntersection[] = [];
 
     function mapParameterValue(value: plan.ParameterValue): PreparedParameterValue {
+      let mapped = mappedValues.get(value);
+      if (mapped == null) {
+        mapped = mapParameterValueUncached(value);
+        mappedValues.set(value, mapped);
+      }
+
+      return mapped;
+    }
+
+    function mapParameterValueUncached(value: plan.ParameterValue): PreparedParameterValue {
       if (value.type == 'request') {
         // Prepare an expression evaluating the expression derived from request data.
         const mapper = mapExternalDataToInstantiation<plan.RequestSqlParameterValue>();
@@ -279,19 +377,11 @@ export class RequestParameterEvaluators {
         const lookup = lookupToStage.get(value.lookup)!;
         return new LookupParameterValue(lookup, value.resultIndex);
       } else {
-        const inputs = value.values.map(mapParameterValue);
         // For an intersection value, we use the input evaluated first as the parameter to use. For all other inputs, we
-        // remember to remove mismatching rows from the result set.
-        inputs.sort((a, b) => {
-          // Put request parameter values before anything else.
-          if (a instanceof RequestParameterValue) {
-            return b instanceof RequestParameterValue ? 0 : -1;
-          }
-
-          return b instanceof RequestParameterValue ? 1 : b.lookup.stageIndex - a.lookup.stageIndex;
-        });
-
-        throw new Error('TODO: Intersections');
+        // remember to remove mismatching rows from the result set when their lookup is joined.
+        const [representative, ...others] = value.values.map(mapParameterValue).sort(compareEvaluationOrder);
+        intersections.push({ representative, others });
+        return representative;
       }
     }
 
@@ -299,8 +389,7 @@ export class RequestParameterEvaluators {
       return values.map(mapParameterValue);
     }
 
-    for (let i = 0; i < lookupStages.length; i++) {
-      const stage = lookupStages[i];
+    for (const stage of lookupStages) {
       const mappedStage = new LookupStage([]);
 
       for (const lookup of stage) {
@@ -309,7 +398,6 @@ export class RequestParameterEvaluators {
         if (lookup.type == 'parameter') {
           resolved = new ParameterIndexExpandingLookup(
             amountOfLookups++,
-            i,
             input.preparedLookups.get(lookup.lookup)!,
             mapParameterValues(lookup.instantiation)
           );
@@ -345,8 +433,15 @@ export class RequestParameterEvaluators {
       mappedStages.push(mappedStage);
     }
 
+    const outputValues = mapParameterValues(values);
+    for (const value of [...mappedStages.flatMap((s) => [...s.inputParameters()]), ...outputValues]) {
+      if (value instanceof LookupParameterValue) {
+        value.lookup.outputUsed = true;
+      }
+    }
+
     const rs = new ResultSet(amountOfLookups);
-    return new RequestParameterEvaluators(stream, mappedStages, mapParameterValues(values), rs);
+    return new RequestParameterEvaluators(stream, mappedStages, outputValues, intersections, rs);
   }
 }
 
@@ -362,9 +457,16 @@ export type PreparedExpandingLookup = TableValuedExpandingLookup | ParameterInde
 type CloneParameter = (original: PreparedParameterValue) => PreparedParameterValue;
 
 abstract class BasePreparedExpandingLookup implements ResultSetElement {
-  constructor(readonly resultSetIndex: number) {}
+  /**
+   * Whether the output of this lookup is actually used as a parameter.
+   *
+   * When disabled, the lookup acts as a semi-join: Instead of using outputs from this lookup, we use another value that
+   * is part of the same intersection constraint. In that case, the only purpose of evaluating this lookup is to remove
+   * rows not matching the intersection constraint.
+   */
+  outputUsed = false;
 
-  abstract get stageIndex(): number;
+  constructor(readonly resultSetIndex: number) {}
 
   abstract clone(parameters: CloneParameter): BasePreparedExpandingLookup;
 }
@@ -378,10 +480,8 @@ class TableValuedExpandingLookup extends BasePreparedExpandingLookup {
     super(resultSetIndex);
   }
 
-  override stageIndex = -1;
-
   override clone(): TableValuedExpandingLookup {
-    // Immutable instance
+    // Immutable instance (apart from outputUsed, which is only modified during instantition)
     return this;
   }
 }
@@ -391,7 +491,6 @@ class ParameterIndexExpandingLookup extends BasePreparedExpandingLookup {
 
   constructor(
     resultSetIndex: number,
-    override readonly stageIndex: number,
     readonly lookup: ParameterIndexLookupCreator,
     readonly instantiation: PreparedParameterValue[]
   ) {
@@ -401,10 +500,10 @@ class ParameterIndexExpandingLookup extends BasePreparedExpandingLookup {
   override clone(cloneParameter: CloneParameter): ParameterIndexExpandingLookup {
     const lookup = new ParameterIndexExpandingLookup(
       this.resultSetIndex,
-      this.stageIndex,
       this.lookup,
       this.instantiation.map(cloneParameter)
     );
+    lookup.outputUsed = this.outputUsed;
     lookup.wasResolved = this.wasResolved;
     return lookup;
   }
@@ -429,6 +528,40 @@ class LookupStage {
   clone(cloneParameter: CloneParameter): LookupStage {
     return new LookupStage(this.lookups.map((l) => l.clone(cloneParameter)));
   }
+}
+
+interface PreparedIntersection {
+  /**
+   * The value of the intersection evaluated first, which replaces the intersection in parameter values.
+   */
+  representative: PreparedParameterValue;
+  /**
+   * Values that must match {@link representative}.
+   */
+  others: PreparedParameterValue[];
+}
+
+/**
+ * Sorts parameter values by the order in which they're evaluated.
+ *
+ * Request parameters are resolved first, followed by table-valued lookups (resolved on partial instantiations) and
+ * lookups on parameter indexes. Within each kind, lookups are evaluated in the order of their result set index.
+ */
+function compareEvaluationOrder(a: PreparedParameterValue, b: PreparedParameterValue): number {
+  const byKind = evaluationPhase(a) - evaluationPhase(b);
+  if (byKind !== 0 || a instanceof RequestParameterValue || b instanceof RequestParameterValue) {
+    return byKind;
+  }
+
+  return a.lookup.resultSetIndex - b.lookup.resultSetIndex;
+}
+
+function evaluationPhase(value: PreparedParameterValue): number {
+  if (value instanceof RequestParameterValue) {
+    return 0;
+  }
+
+  return value.lookup instanceof TableValuedExpandingLookup ? 1 : 2;
 }
 
 /**
@@ -520,12 +653,3 @@ function* filterParameterRows(rows: SqliteValue[][]): Generator<SqliteParameterV
     }
   }
 }
-
-/*
-
-Intersection notes:
-
-Intersection entirely on request parameters? Add to static request filter, pick any.
-
-Intersection with at least one lookup output? Add as pre-condition to stage where the output is used.
- */

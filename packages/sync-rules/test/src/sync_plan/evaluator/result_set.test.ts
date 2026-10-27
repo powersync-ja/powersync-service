@@ -73,6 +73,85 @@ describe('ResultSet', () => {
     });
   });
 
+  describe('multiply with join keys', () => {
+    const col0 = { lookup: element(0), outputIndex: 0 };
+    const col1 = { lookup: element(1), outputIndex: 0 };
+    const col1b = { lookup: element(1), outputIndex: 1 };
+
+    test('only combines rows with matching keys', () => {
+      const rs = new ResultSet(2);
+      rs.multiply(0, [['a'], ['b'], ['c']]);
+      rs.multiply(
+        1,
+        [
+          ['a', 1],
+          ['a', 2],
+          ['b', 3],
+          ['d', 4]
+        ],
+        { keys: [{ existing: col0, addedIndex: 0 }], semiJoin: false }
+      );
+
+      expect(rs.length).toStrictEqual(3);
+      expect(new Set(rs.projectUnique([col0, col1b]))).toStrictEqual(
+        new Set([
+          ['a', 1],
+          ['a', 2],
+          ['b', 3]
+        ])
+      );
+    });
+
+    test('composite keys', () => {
+      const rs = new ResultSet(2);
+      rs.multiply(0, [
+        [1, 'x'],
+        [1, 'y'],
+        [2, 'x']
+      ]);
+      rs.multiply(
+        1,
+        [
+          [1, 'y'],
+          [2, 'y'],
+          [2, 'x']
+        ],
+        {
+          keys: [
+            { existing: col0, addedIndex: 0 },
+            { existing: { lookup: element(0), outputIndex: 1 }, addedIndex: 1 }
+          ],
+          semiJoin: false
+        }
+      );
+
+      expect(new Set(rs.projectUnique([col1, col1b]))).toStrictEqual(
+        new Set([
+          [1, 'y'],
+          [2, 'x']
+        ])
+      );
+    });
+
+    test('semi join only filters rows', () => {
+      const rs = new ResultSet(2);
+      rs.multiply(0, [['a'], ['b'], ['c']]);
+      // Duplicate matches must not multiply existing rows.
+      rs.multiply(1, [['a'], ['a'], ['c']], { keys: [{ existing: col0, addedIndex: 0 }], semiJoin: true });
+
+      expect(rs.length).toStrictEqual(2);
+      expect(new Set(rs.projectUnique([col0]))).toStrictEqual(new Set([['a'], ['c']]));
+    });
+
+    test('semi join without keys keeps all rows', () => {
+      const rs = new ResultSet(2);
+      rs.multiply(0, [['a'], ['b']]);
+      rs.multiply(1, [['x'], ['y']], { keys: [], semiJoin: true });
+
+      expect(rs.length).toStrictEqual(2);
+    });
+  });
+
   describe('joinAsync', () => {
     const col0 = { lookup: element(0), outputIndex: 0 };
     const col1 = { lookup: element(1), outputIndex: 0 };
@@ -170,6 +249,40 @@ describe('ResultSet', () => {
         [2, 'x', 300],
         [2, 'x', 301]
       ]);
+    });
+
+    test('with join keys', async () => {
+      const rs = new ResultSet(2);
+      rs.multiply(0, [
+        ['a', 'k1'],
+        ['b', 'k1'],
+        ['c', 'k2']
+      ]);
+
+      // The lookup is keyed on column 1, but found rows must also match column 0.
+      await rs.joinAsync(
+        [{ lookup: element(0), outputIndex: 1 }],
+        1,
+        async (lookups) => {
+          expect(lookups).toHaveLength(2);
+          for (const lookup of lookups) {
+            if (lookup.inputs[0] == 'k1') {
+              lookup.foundRows.push(['a', 1], ['a', 2], ['c', 3]);
+            } else {
+              lookup.foundRows.push(['a', 4], ['c', 5]);
+            }
+          }
+        },
+        { keys: [{ existing: col0, addedIndex: 0 }], semiJoin: false }
+      );
+
+      expect(new Set(rs.projectUnique([col0, { lookup: element(1), outputIndex: 1 }]))).toStrictEqual(
+        new Set([
+          ['a', 1],
+          ['a', 2],
+          ['c', 5]
+        ])
+      );
     });
 
     test('empty join key', async () => {

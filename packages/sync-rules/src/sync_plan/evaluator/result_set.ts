@@ -53,8 +53,10 @@ export class ResultSet {
 
   /**
    * Adds a new result set by forming the cartesian product with the given values.
+   *
+   * With {@link JoinOptions.keys}, only pairs of existing and added rows with matching keys are combined.
    */
-  multiply(resultSetIndex: number, rows: SqliteParameterValue[][]) {
+  multiply(resultSetIndex: number, rows: SqliteParameterValue[][], options?: JoinOptions) {
     if (rows.length === 0) {
       this.#rows = [];
       return;
@@ -62,9 +64,10 @@ export class ResultSet {
 
     using add = this.#prepareAddingResultSet(resultSetIndex);
     const originalLength = this.#rows.length;
+    const matching = indexRows(rows, options?.keys);
 
     for (let i = 0; i < originalLength; i++) {
-      if (!this.#multiplyAtRow(resultSetIndex, i, rows)) {
+      if (!this.#addAtRow(resultSetIndex, i, matching(this.#rows[i]), options)) {
         add.deletedRows.push(i);
       }
     }
@@ -74,11 +77,13 @@ export class ResultSet {
    * @param keys - Join keys that are already present in the result set.
    * @param resultSetIndex - The index of the resl set being joined.
    * @param performLookup - Adds resolved rows to each unique instantiation of join keys.
+   * @param options - Additional constraints between existing rows and rows found by {@link performLookup}.
    */
   async joinAsync(
     keys: ResultSetColumn[],
     resultSetIndex: number,
-    performLookup: (lookups: AsyncJoinLookup[]) => Promise<void>
+    performLookup: (lookups: AsyncJoinLookup[]) => Promise<void>,
+    options?: JoinOptions
   ) {
     const lookupsByRow: AsyncJoinLookup[] = [];
     const uniqueLookups: AsyncJoinLookup[] = [];
@@ -92,10 +97,18 @@ export class ResultSet {
 
     using add = this.#prepareAddingResultSet(resultSetIndex);
 
+    // Rows found for a lookup are indexed once, and then re-used for all existing rows sharing that lookup.
+    const indexedLookups = new Map<AsyncJoinLookup, MatchingRows>();
     const originalLength = this.#rows.length;
     for (let i = 0; i < originalLength; i++) {
       const lookup = lookupsByRow[i];
-      if (lookup.foundRows.length === 0 || !this.#multiplyAtRow(resultSetIndex, i, lookup.foundRows)) {
+      let matching = indexedLookups.get(lookup);
+      if (matching == null) {
+        matching = indexRows(lookup.foundRows, options?.keys);
+        indexedLookups.set(lookup, matching);
+      }
+
+      if (!this.#addAtRow(resultSetIndex, i, matching(this.#rows[i]), options)) {
         // The row has no matching join partner, so remove it. We can't split it immediately because #multiplyAtRow is
         // still iterating through rows.
         add.deletedRows.push(i);
@@ -134,12 +147,31 @@ export class ResultSet {
   }
 
   /**
+   * Adds matching rows of a new result set to an existing row.
+   *
+   * Returns false if the original row needs to be removed because there are no matching rows.
+   */
+  #addAtRow(
+    resultSetIndex: number,
+    rowIndex: number,
+    rows: readonly SqliteParameterValue[][],
+    options: JoinOptions | undefined
+  ): boolean {
+    if (options?.semiJoin) {
+      // Values of the added result set are never read, so we only need to know whether a match exists and don't
+      // actually fill in values.
+      return rows.length > 0;
+    }
+
+    return this.#multiplyAtRow(resultSetIndex, rowIndex, rows);
+  }
+
+  /**
    * Adds the cartesian product of an existing row and a new result set.
    *
-   * Returns false if the original row needs to be removed because no row was added (e.g. because an intersection filter
-   * doesn't match).
+   * Returns false if the original row needs to be removed because no row was added.
    */
-  #multiplyAtRow(resultSetIndex: number, rowIndex: number, rows: SqliteParameterValue[][]): boolean {
+  #multiplyAtRow(resultSetIndex: number, rowIndex: number, rows: readonly SqliteParameterValue[][]): boolean {
     const originalRow = this.#rows[rowIndex];
 
     let isFirst = true;
@@ -208,6 +240,31 @@ export interface ResultSetColumn {
   outputIndex: number;
 }
 
+/**
+ * Requires a value already present in the result set to match an output of rows being added.
+ */
+export interface JoinKey {
+  existing: ResultSetColumn;
+  addedIndex: number;
+}
+
+export interface JoinOptions {
+  /**
+   * Constraints between existing and added rows. Rows are only combined if all keys match.
+   *
+   * Matching rows are found with an index on added rows, so this is more efficient than forming the cartesian product
+   * and filtering afterwards.
+   */
+  keys: JoinKey[];
+  /**
+   * Whether values of the added result set are never read.
+   *
+   * In that case, the added result set only filters existing rows (keeping those with at least one matching row) and
+   * doesn't multiply them.
+   */
+  semiJoin: boolean;
+}
+
 export interface AsyncJoinLookup {
   inputs: SqliteParameterValue[];
   foundRows: SqliteParameterValue[][];
@@ -218,7 +275,9 @@ export interface AsyncJoinLookup {
  *
  * While this is semantically a list of columns, that representation would require a lot of copying on each join.
  * So, we represent each lookup result as an array of values (that we can re-use when we create new rows for joins).
- * Result sets that have not yet been processed are represented as undefined.
+ *
+ * Result sets that have not yet been processed, or result sets that are only needed for semi-joins, are represented as
+ * undefined.
  */
 type ResultSetRow = (ReadonlyArray<SqliteParameterValue> | undefined)[];
 
@@ -229,6 +288,46 @@ function lookupInRow(row: ResultSetRow, column: ResultSetColumn): SqliteParamete
   }
 
   return valuesForResultSet[column.outputIndex];
+}
+
+/**
+ * Returns rows to add for an existing row.
+ */
+type MatchingRows = (existing: ResultSetRow) => readonly SqliteParameterValue[][];
+
+function indexRows(rows: SqliteParameterValue[][], keys: JoinKey[] | undefined): MatchingRows {
+  if (keys == null || keys.length === 0) {
+    return () => rows;
+  }
+
+  if (keys.length === 1) {
+    // Fast path, we can use native maps.
+    const [{ existing, addedIndex }] = keys;
+    const index = new Map<SqliteParameterValue, SqliteParameterValue[][]>();
+    for (const row of rows) {
+      const key = row[addedIndex];
+      const group = index.get(key);
+      if (group != null) {
+        group.push(row);
+      } else {
+        index.set(key, [row]);
+      }
+    }
+
+    return (row) => index.get(lookupInRow(row, existing)) ?? [];
+  } else {
+    const index = new HashMap<SqliteParameterValue[], SqliteParameterValue[][]>(parameterArrayEquality);
+    for (const row of rows) {
+      index
+        .putIfAbsent(
+          keys.map((k) => row[k.addedIndex]),
+          () => []
+        )
+        .push(row);
+    }
+
+    return (row) => index.get(keys.map((k) => lookupInRow(row, k.existing))) ?? [];
+  }
 }
 
 const parameterArrayEquality = listEquality(StableHasher.parameterValueEquality);
