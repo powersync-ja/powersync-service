@@ -56,9 +56,12 @@ describe.each([3, 4])('sealed publication v%s', (storageVersion) => {
     await using writer = context.writer;
     const { table, bucketStorage, stream } = context;
     const db = bucketStorage.db;
+    const createWriteBatch = factory.db.createWriteBatch.bind(factory.db);
     using _bulkMode = vi
       .spyOn(factory.db, 'createWriteBatch')
-      .mockImplementation((session, options) => new MongoWriteBatch(factory.db.client, !fallback, session, options));
+      .mockImplementation((session, options) =>
+        fallback ? new MongoWriteBatch(factory.db.client, false, session, options) : createWriteBatch(session, options)
+      );
     using put = vi.spyOn(objectStorage, 'put');
     let publication: PreparedPublication | undefined;
     let builder: PersistedBatchV3 | undefined;

@@ -69,6 +69,14 @@ function countStreamReads(client: mongo.MongoClient) {
   };
 }
 
+async function supportsClientBulkWrites(db: mongo.Db): Promise<boolean> {
+  // These integration fixtures run a replica set with one server version. Keep
+  // wire expectations conditional on that server's capabilities; forcing the
+  // client API on MongoDB 6/7 bypasses the production collection fallback.
+  const hello = await db.admin().command({ hello: 1 });
+  return hello.maxWireVersion >= 25;
+}
+
 describe.each([3, 4])('publication batching v%s', (version) => {
   test.each([
     { mode: 'disabled', fallback: false },
@@ -81,9 +89,13 @@ describe.each([3, 4])('publication batching v%s', (version) => {
     const context = await open(version, mode);
     await using factory = context.factory;
     await using writer = context.writer;
+    const clientBulks = !fallback && (await supportsClientBulkWrites(factory.db.db));
+    const createWriteBatch = factory.db.createWriteBatch.bind(factory.db);
     using _bulk = vi
       .spyOn(factory.db, 'createWriteBatch')
-      .mockImplementation((session, options) => new MongoWriteBatch(factory.db.client, !fallback, session, options));
+      .mockImplementation((session, options) =>
+        fallback ? new MongoWriteBatch(factory.db.client, false, session, options) : createWriteBatch(session, options)
+      );
     using monitor = new PublicationCommandMonitor(factory.db.client);
     using reads = countStreamReads(factory.db.client);
     using registration = vi.spyOn(ObjectStorageLifecycle.prototype, 'prepareUploads');
@@ -92,7 +104,7 @@ describe.each([3, 4])('publication batching v%s', (version) => {
     expect(reads.count).toBe(0);
     expect(registration).toHaveBeenCalledTimes(mode === 'offloaded' ? 1 : 0);
     expect(monitor.summary().replicationAttempts.map((attempt) => attempt.commands)).toEqual([
-      fallback
+      !clientBulks
         ? {
             findAndModify: 1,
             // Offloaded storage also updates the writer's usage document.
@@ -230,6 +242,7 @@ describe.each([3, 4])('publication batching v%s', (version) => {
     const context = await open(version, 'offloaded');
     await using factory = context.factory;
     await using writer = context.writer;
+    const clientBulks = await supportsClientBulkWrites(factory.db.db);
     using monitor = new PublicationCommandMonitor(factory.db.client);
     using reads = countStreamReads(factory.db.client);
     using put = vi.spyOn(context.objectStorage, 'put');
@@ -240,7 +253,9 @@ describe.each([3, 4])('publication batching v%s', (version) => {
     expect(reads.count).toBe(0);
     expect(put).toHaveBeenCalledTimes(1);
     expect(monitor.summary().replicationAttempts.map((attempt) => attempt.commands)).toEqual([
-      { findAndModify: 1, bulkWrite: 1, commitTransaction: 1 }
+      clientBulks
+        ? { findAndModify: 1, bulkWrite: 1, commitTransaction: 1 }
+        : { findAndModify: 1, update: 5, delete: 1, insert: 1, commitTransaction: 1 }
     ]);
     expect((await context.bucketStorage.getCheckpoint()).checkpoint).toBe(1002n);
   });

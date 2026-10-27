@@ -226,9 +226,14 @@ describe.each([3, 4])('replication uploads v%s', (version) => {
       const context = await open(version);
       await using factory = context.factory;
       await using writer = context.writer;
+      const createWriteBatch = factory.db.createWriteBatch.bind(factory.db);
       using _bulk = vi
         .spyOn(factory.db, 'createWriteBatch')
-        .mockImplementation((session, options) => new MongoWriteBatch(factory.db.client, !fallback, session, options));
+        .mockImplementation((session, options) =>
+          fallback
+            ? new MongoWriteBatch(factory.db.client, false, session, options)
+            : createWriteBatch(session, options)
+        );
       const put = context.objectStorage.put.bind(context.objectStorage);
       using _put = vi.spyOn(context.objectStorage, 'put').mockImplementationOnce(async (...args) => {
         await put(...args);
