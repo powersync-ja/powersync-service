@@ -3,7 +3,7 @@ import { SelectFromStatement, Statement } from 'pgsql-ast-parser';
 import { BucketDescription, BucketInclusionReason, BucketPriority, ResolvedBucket } from './BucketDescription.js';
 import { BucketDataSource } from './BucketSource.js';
 import { CompatibilityContext, CompatibilityOption } from './compatibility.js';
-import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
+import { SyncConfigProcessingError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
 import { SQLITE_FALSE, SQLITE_TRUE } from './sqliteBool.js';
 import {
@@ -216,7 +216,7 @@ export function filterJsonData(data: any, context: CompatibilityContext, depth =
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
     // TODO: Proper error class
-    throw new SyncRulesProcessingError(
+    throw new SyncConfigProcessingError(
       // FIXME: Use @powersync/service-errors
       'PSYNC_S1004',
       `json nested object depth exceeds the limit of ${DEPTH_LIMIT}`
