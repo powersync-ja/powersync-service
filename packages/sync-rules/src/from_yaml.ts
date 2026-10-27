@@ -8,9 +8,9 @@ import {
 } from './compatibility.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.js';
 import { CommonTableExpression } from './compiler/sqlite.js';
-import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
+import { SqlRuleError, SyncConfigErrors, YamlError } from './errors.js';
 import { PreparedEventDefinition } from './events/CompiledEventSourceQuery.js';
-import { validateSyncRulesSchema } from './json_schema.js';
+import { validateSyncConfigSchema } from './json_schema.js';
 import { QueryParseResult, SqlBucketDescriptor } from './legacy/SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './legacy/streams/from_sql.js';
 import { parseMongoFilterExpression } from './mongo/MongoFilterExpression.js';
@@ -94,7 +94,7 @@ export class SyncConfigFromYaml {
     // Check the remaining config structure after collecting specific expression diagnostics.
     // Retain the YAML tree so errors highlight the actual key/value.
     if (!this.#hasFatalError) {
-      const validate = validateSyncRulesSchema;
+      const validate = validateSyncConfigSchema;
       if (!validate(encoded)) {
         this.#errors.push(...mapAjvErrorsToYamlErrors(sourceLocationResolver, validate.errors!));
       }
@@ -256,7 +256,7 @@ export class SyncConfigFromYaml {
 
   #throwOnErrorIfRequested() {
     if (this.options.throwOnError && this.#hasFatalError) {
-      throw new SyncRulesErrors(this.#errors);
+      throw new SyncConfigErrors(this.#errors);
     }
   }
 

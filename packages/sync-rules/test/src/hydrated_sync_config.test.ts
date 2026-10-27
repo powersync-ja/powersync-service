@@ -10,7 +10,7 @@ import {
 } from '../../src/index.js';
 import { ASSETS, lookupScope, PARSE_OPTIONS, USERS } from './util.js';
 
-describe('hydrated sync rules', () => {
+describe('hydrated sync config', () => {
   const hydrationParams: HydrateSyncConfigParams = {
     hydrationState: DEFAULT_HYDRATION_STATE,
     sqlite: nodeSqlite(sqlite)

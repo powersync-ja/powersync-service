@@ -1,6 +1,6 @@
 import { BucketPriority } from './BucketDescription.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
-import { SyncRulesErrors, YamlError } from './errors.js';
+import { SyncConfigErrors, YamlError } from './errors.js';
 import { SyncConfigFromYaml } from './from_yaml.js';
 import { RequestParameters, SourceSchema, SqliteJsonRow } from './types.js';
 
@@ -78,7 +78,7 @@ export class SqlSyncRules extends SyncConfig {
       const rules = this.fromYaml(yaml, options);
       return rules.errors;
     } catch (e) {
-      if (e instanceof SyncRulesErrors) {
+      if (e instanceof SyncConfigErrors) {
         return e.errors;
       } else if (e instanceof YamlError) {
         return [e];

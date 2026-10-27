@@ -1,5 +1,5 @@
 /*
-  PowerSync sync-rules SQL grammar: new sync streams compiler.
+  PowerSync Sync Streams SQL grammar (edition 3).
 
   SQL appears in YAML at:
     - streams.<stream_name>.query
@@ -7,7 +7,7 @@
     - streams.<stream_name>.with.<cte_name>
 
   Notes:
-    - This grammar is used when config.sync_config_compiler = true (and edition >= 2)
+    - This grammar is used with `config: edition: 3`.
 */
 
 /* Top-level stream query form: streams.<name>.query / streams.<name>.queries[] */
