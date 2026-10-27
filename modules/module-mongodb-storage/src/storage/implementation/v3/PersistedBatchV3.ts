@@ -16,6 +16,7 @@ import {
 } from '../common/PersistedBatch.js';
 import { PreparedPublication } from '../common/PreparedPublication.js';
 import { SourceRecordLookupState } from '../common/SourceRecordStore.js';
+import { REPLICATION_WRITE_OPTIONS } from '../MongoReplicationOptions.js';
 import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { serializeBucketData } from './bucket-format.js';
 import { chunkBucketData } from './chunking.js';
@@ -29,7 +30,7 @@ import {
   taggedBucketParameterDocumentToTagged
 } from './models.js';
 import { ObjectStorage } from './object-storage/ObjectStorage.js';
-import { ObjectStorageLifecycle } from './object-storage/ObjectStorageLifecycle.js';
+import { ObjectStorageLifecycle, PreparedObjectStorageUpload } from './object-storage/ObjectStorageLifecycle.js';
 import { ObjectStorageUsage } from './object-storage/ObjectStorageUsage.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
@@ -69,6 +70,7 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
   private readonly signal?: AbortSignal;
   private sealed = false;
   private preparation?: Promise<void>;
+  private payloadsReady = false;
 
   constructor(
     private readonly db: VersionedPowerSyncMongoV3,
@@ -144,11 +146,15 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
   }
 
   /** Cache readiness, including failure; the v3 batch owns the entire lifecycle. */
-  preparePayloads(): Promise<void> {
+  preparePayloads(session?: mongo.ClientSession): Promise<void> {
     if (!this.sealed) {
       throw new ReplicationAssertionError('Cannot prepare an unsealed publication');
     }
-    return (this.preparation ??= Promise.resolve().then(() => this.preparePayloadsImpl()));
+    return (this.preparation ??= Promise.resolve()
+      .then(() => this.preparePayloadsImpl(session))
+      .then(() => {
+        this.payloadsReady = true;
+      }));
   }
 
   get ready(): Promise<void> {
@@ -156,15 +162,21 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
   }
 
   async publish(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
-    // A coordinator must also await readiness BEFORE starting its transaction.
-    // This guard alone does not keep uploads outside a transaction.
-    await this.ready;
+    // Never start preparation from a transaction attempt. The eager coordinator
+    // awaits readiness for the entire bounded prefix before opening a transaction.
+    if (!this.payloadsReady) {
+      throw new ReplicationAssertionError('Prepare publication payloads before starting the transaction');
+    }
     return this.write(session, options);
   }
 
   private async write(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
     const startAt = performance.now();
     const writes = this.db.createWriteBatch(session, { ordered: false });
+    // Checked marker removal, references and usage must commit together. Recheck
+    // expiry on every attempt; neither an expired nor a missing marker is a
+    // transient MongoDB error that may replay this generation indefinitely.
+    this.objectStorageLifecycle?.publishUploads(this.preparedUploads, writes);
     if (this.operations.bucketDataCount > 0) {
       await this.queueBucketData(writes);
     }
@@ -340,17 +352,22 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
   async flush(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
     // All v3/v4 writes use the same publication lifecycle. With object storage
     // disabled, payload preparation packs inline chunks and starts no uploads.
-    // This adapter still runs within the current transaction and is rebuilt on
-    // its retry, until the writer owns preparation separately.
+    // V3 writers use seal/prepare/publish directly to supply the ownership fence
+    // and head/checkpoint tail. Standalone callers of this low-level adapter own
+    // that scheduling context; prepare first, then atomically write the batch.
     const publication = this.seal();
-    await publication.preparePayloads();
-    return publication.publish(session, options);
+    if (session.inTransaction()) {
+      throw new ReplicationAssertionError('Prepare publication payloads before starting the transaction');
+    }
+    await publication.preparePayloads(session);
+    return session.withTransaction(() => publication.publish(session, options), REPLICATION_WRITE_OPTIONS);
   }
 
   private preparedBucketWrites?: { definitionId: BucketDefinitionId; documents: BucketDataDocumentV3[] }[];
   private readonly preparedUsageDeltas = new Map<BucketDefinitionId, bigint>();
+  private preparedUploads: PreparedObjectStorageUpload[] = [];
 
-  private async preparePayloadsImpl(): Promise<void> {
+  private async preparePayloadsImpl(session?: mongo.ClientSession): Promise<void> {
     const operationsByDefinition = new Map<BucketDefinitionId, BucketDataDoc[]>();
     for (const document of this.operations.bucketData) {
       const existing = operationsByDefinition.get(document.bucketKey.definitionId) ?? [];
@@ -358,7 +375,7 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
       operationsByDefinition.set(document.bucketKey.definitionId, existing);
     }
 
-    const uploads: (() => Promise<unknown>)[] = [];
+    const uploads: { path: string; payload: Uint8Array }[] = [];
     this.preparedBucketWrites = Array.from(operationsByDefinition, ([definitionId, documents]) => {
       const operationsByBucket = Map.groupBy(documents, (document) => document.bucketKey.bucket);
       const lifecycle = this.objectStorageLifecycle;
@@ -385,7 +402,7 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
             ...metadata,
             storage_ref: { path, file_size: payload.byteLength }
           });
-          uploads.push(() => lifecycle.bucketData.storeSerialized(path, payload, { signal: this.signal }));
+          uploads.push({ path, payload });
         }
       }
 
@@ -396,17 +413,23 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
       return { definitionId, documents: preparedDocuments };
     });
 
-    // S3ObjectStorage applies one shared concurrency limit across all callers,
-    // so replication can schedule its uploads together without creating a
-    // separate limiter here.
-    const results = await Promise.allSettled(uploads.map(async (upload) => upload()));
-    // A failure must not release the sealed state while a sibling PUT still
-    // uses it, including when cancellation caused the first rejection.
-    for (const result of results) {
-      if (result.status === 'rejected') {
-        throw result.reason;
-      }
+    const lifecycle = this.objectStorageLifecycle;
+    if (uploads.length === 0 || lifecycle == null) {
+      return;
     }
+    this.signal?.throwIfAborted();
+    // Seal every path/byte first, then register the whole group durably. No PUT
+    // may start after a partial or ambiguous registration failure.
+    this.preparedUploads = await lifecycle.prepareUploads(
+      uploads.map((upload) => upload.path),
+      new Date(),
+      session
+    );
+    this.signal?.throwIfAborted();
+    await lifecycle.storeUploads(
+      uploads.map(({ payload }, index) => ({ upload: this.preparedUploads[index], payload })),
+      { signal: this.signal }
+    );
   }
 
   private async queueBucketData(writes: MongoWriteBatch) {

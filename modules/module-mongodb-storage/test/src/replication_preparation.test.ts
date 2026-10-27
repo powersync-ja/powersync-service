@@ -248,13 +248,22 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
     });
     aborted.mockRestore();
     uncertain.mockRestore();
+    if (phase === 'after-commit') {
+      await expect(writer.setResumeLsn('1/2')).rejects.toThrow('restart replication');
+      await test_utils.releaseTestStorageLease(factory, context.stream.replicationStreamId);
+    }
+    const replayStorage =
+      phase === 'after-commit'
+        ? await getTestStorage(factory, (await factory.getReplicatingReplicationStreams())[0])
+        : context.bucketStorage;
     const repairs = vi.fn();
-    await using replay = await context.bucketStorage.createWriter({
+    await using replay = await replayStorage.createWriter({
       ...test_utils.BATCH_OPTIONS,
       markRecordUnavailable: repairs
     });
+    const replayTable = await test_utils.resolveTestTable(replay, 'items', ['id'], context.factoryGen, 1);
     await replay.save({
-      sourceTable: context.table,
+      sourceTable: replayTable,
       tag: storage.SaveOperationTag.UPDATE,
       after: { id: 'missing', description: undefined },
       afterReplicaId: 'missing'
@@ -262,7 +271,7 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
     await replay.flush();
     expect(repairs).toHaveBeenCalledTimes(1);
     await replay.save({
-      sourceTable: context.table,
+      sourceTable: replayTable,
       tag: storage.SaveOperationTag.INSERT,
       after: { id: 'missing', description: 'repaired' },
       afterReplicaId: 'missing'
@@ -606,7 +615,14 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
       release.resolve();
       await rejected;
       expect(read).toHaveBeenCalledTimes(1);
-      expect(put).not.toHaveBeenCalled();
+      // Ownership/config are revalidated after uploads. Work abandoned at that
+      // boundary retains its marker instead of publishing a stale reference.
+      expect(put).toHaveBeenCalledTimes(1);
+      expect(
+        await context.bucketStorage.db
+          .pendingObjectStorageDeletes(context.stream.replicationStreamId)
+          .countDocuments({ path: put.mock.calls[0][0] })
+      ).toBe(1);
       expect(writer.last_flushed_op).toBe(1n);
     } finally {
       release.resolve();
@@ -670,7 +686,7 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
 
   test('preserves read partitions and repeated-row state when a later data bulk rolls back', async () => {
     const context = await open(version, true);
-    await using _factory = context.factory;
+    await using factory = context.factory;
     await using writer = context.writer;
     using _blocks = vi.spyOn(OperationBatch.prototype, 'batched').mockImplementation(function* (this: OperationBatch) {
       for (const op of this.batch) {
@@ -678,7 +694,14 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
       }
     });
     using reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
-    using uploads = vi.spyOn(context.objectStorage, 'put');
+    using monitor = new PublicationCommandMonitor(factory.db.client);
+    const put = context.objectStorage.put.bind(context.objectStorage);
+    using uploads = vi.spyOn(context.objectStorage, 'put').mockImplementation(async (...args) => {
+      // All groups in this prefix must finish uploading before its first fence,
+      // even though each group later emits a separate data bulk on every retry.
+      expect(monitor.activeReplicationAttempts).toHaveLength(0);
+      await put(...args);
+    });
     const publish = PersistedBatchV3.prototype.publish;
     let writes = 0;
     using _retry = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementation(async function (
@@ -762,7 +785,7 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
       expect(put).toHaveBeenCalledTimes(1);
       release.resolve();
       await rejected;
-      expect(put).toHaveBeenCalledTimes(1);
+      expect(put).toHaveBeenCalledTimes(2);
       expect(read).toHaveBeenCalledTimes(2);
       expect(writer.last_flushed_op).toBe(1n);
       const records = await context.bucketStorage.db

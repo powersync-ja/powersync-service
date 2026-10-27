@@ -127,9 +127,12 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
     await writer.commit('1/4');
     const summary = monitor.summary();
     const attempts = monitor.replicationAttempts;
+    // Compaction during an offloaded PUT now finishes before replication opens
+    // its transaction. Inline work still injects compaction after the fence.
+    const conflict = compaction && !offloaded;
     expect(compacted).toBe(compaction);
-    expect(attempts).toHaveLength(compaction ? 2 : 1);
-    expect(attempts.map((attempt) => attempt.outcome)).toEqual(compaction ? ['aborted', 'committed'] : ['committed']);
+    expect(attempts).toHaveLength(conflict ? 2 : 1);
+    expect(attempts.map((attempt) => attempt.outcome)).toEqual(conflict ? ['aborted', 'committed'] : ['committed']);
     expect(monitor.activeReplicationAttempts).toHaveLength(0);
     const bodies = spans.filter((span) => span.name === 'storage:transaction_body');
     expect(bodies).toHaveLength(attempts.length);
@@ -147,13 +150,11 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
     }
     expect(tracer.stack).toHaveLength(0);
     expect(uploads).toHaveLength(offloaded ? 1 : 0);
-    // Step 3 reuses uploads across retries, while PUT placement remains inside
-    // the first transaction attempt until durable markers are added in step 4.
+    // Real compaction can run throughout a replication PUT without extending or
+    // invalidating a replication transaction: the fence has not started yet.
     for (const upload of uploads) {
-      expect(upload.transactions).toHaveLength(1);
-      const attempt = monitor.transactions.get(upload.transactions[0])!;
-      expect(attempt.startedAt).toBeLessThanOrEqual(upload.startedAt);
-      expect(attempt.endedAt).toBeGreaterThanOrEqual(upload.endedAt);
+      expect(upload.transactions).toHaveLength(0);
+      expect(attempts[0].startedAt).toBeGreaterThanOrEqual(upload.endedAt);
     }
     expect(new Set(uploads.map((upload) => upload.path)).size).toBe(uploads.length);
     expect(summary.replicationAttempts.at(-1)?.commands).toMatchObject({ findAndModify: 1, commitTransaction: 1 });
@@ -162,7 +163,7 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
       // outside the transaction, once per preparation. A conflict omits the
       // tail/commit but adds an abort command; replay sends no source reads.
       expect(summary.replicationAttempts.map((attempt) => attempt.commands)).toEqual([
-        ...(compaction ? [{ findAndModify: 1, bulkWrite: 1, abortTransaction: 1 }] : []),
+        ...(conflict ? [{ findAndModify: 1, bulkWrite: 1, abortTransaction: 1 }] : []),
         { findAndModify: 1, bulkWrite: 2, commitTransaction: 1 }
       ]);
     }

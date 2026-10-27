@@ -122,6 +122,9 @@ describe.each([3, 4])('sealed publication v%s', (storageVersion) => {
     expect(await data.countDocuments()).toBe(0);
     expect(await db.sourceRecords(stream.replicationStreamId, table.id as bson.ObjectId).countDocuments()).toBe(0);
     expect(await ObjectStorageUsage.readAllDefinitionUsage(db)).toEqual([]);
+    const markers = db.pendingObjectStorageDeletes(stream.replicationStreamId);
+    const markerFilter = { path: { $in: [...objectStorage.store.keys()] } };
+    expect(await markers.countDocuments(markerFilter)).toBe(offloaded ? 1 : 0);
     expect(put).toHaveBeenCalledTimes(offloaded ? 1 : 0);
     const paths = [...objectStorage.store.keys()];
     const bytes = paths.map((path) => Buffer.from(objectStorage.store.get(path)!.data));
@@ -154,6 +157,7 @@ describe.each([3, 4])('sealed publication v%s', (storageVersion) => {
 
     expect(put).toHaveBeenCalledTimes(offloaded ? 1 : 0);
     expect([...objectStorage.store.keys()]).toEqual(paths);
+    expect(await markers.countDocuments(markerFilter)).toBe(0);
     expect(paths.map((path) => Buffer.from(objectStorage.store.get(path)!.data))).toEqual(bytes);
     const documents = await data.find({}).toArray();
     expect(documents).toHaveLength(1);

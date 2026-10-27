@@ -33,9 +33,11 @@ export interface PreparedPublication {
    * starts no I/O, so the coordinator can establish ownership before yielding.
    * A rejected preparation is terminal for this generation; all started uploads
    * must have settled before this promise rejects.
+   * The eager coordinator supplies its lease-owned causal session for durable
+   * marker registration outside the publication transaction.
    */
-  preparePayloads(): Promise<void>;
+  preparePayloads(session?: mongo.ClientSession): Promise<void>;
   readonly ready: Promise<void>;
-  /** Callers also await readiness before starting the publication transaction. */
+  /** Requires completed readiness before starting the publication transaction. */
   publish(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions): Promise<PublicationStats>;
 }

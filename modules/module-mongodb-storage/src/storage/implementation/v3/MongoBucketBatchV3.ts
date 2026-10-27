@@ -208,35 +208,61 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     options: storage.BatchBucketFlushOptions | undefined,
     finish: (stream: ReplicationStreamDocumentV3) => Promise<void>
   ): Promise<void> {
+    // This gate covers every sealed batch in the prefix, including truncate/drop.
+    // The transaction must never wait for source reads, evaluation or S3 PUTs.
+    // Sequential preparation also avoids leaving another group's uploads running
+    // when one group fails; each group's readiness joins all of its own uploads.
+    for (const publication of publications) {
+      await publication.preparePayloads(this.session);
+    }
     let attempts = 0;
     const retryDeadline = Date.now() + 90_000;
-    await this.withFencedTransaction(
-      () => this.fence(this.session, projection),
-      async (document) => {
-        attempts++;
-        if (attempts % 10 === 0) {
-          this.logger.info(`Publishing prepared work - try ${attempts}`);
-        }
-        if (attempts > 20 && Date.now() > retryDeadline) {
-          throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
-        }
-        const stream = document as ReplicationStreamDocumentV3;
-        this.assertPreparationContext(stream);
-        if (this.persistedOpHead(stream) !== expectedHead) {
-          throw new PreparationInvalidatedError('Persisted stream head changed');
-        }
-        // Step 3 retains the existing in-transaction PUT placement. Step 4
-        // registers durable markers and moves this readiness gate before the
-        // transaction, for both row publications and truncate/drop publications.
-        for (const publication of publications) {
-          await publication.preparePayloads();
-          using _persist = this.tracer.span('storage', 'persist_flush');
-          await publication.publish(this.session, options);
-        }
-        await finish(stream);
-      },
-      this.session
-    );
+    let bodyCompleted = false;
+    try {
+      await this.withFencedTransaction(
+        () => this.fence(this.session, projection),
+        async (document) => {
+          bodyCompleted = false;
+          attempts++;
+          if (attempts % 10 === 0) {
+            this.logger.info(`Publishing prepared work - try ${attempts}`);
+          }
+          if (attempts > 20 && Date.now() > retryDeadline) {
+            throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
+          }
+          const stream = document as ReplicationStreamDocumentV3;
+          this.assertPreparationContext(stream);
+          if (this.persistedOpHead(stream) !== expectedHead) {
+            throw new PreparationInvalidatedError('Persisted stream head changed');
+          }
+          for (const publication of publications) {
+            using _persist = this.tracer.span('storage', 'persist_flush');
+            await publication.publish(this.session, options);
+          }
+          await finish(stream);
+          bodyCompleted = true;
+        },
+        this.session
+      );
+    } catch (error) {
+      if (
+        bodyCompleted ||
+        (error instanceof lib_mongo.mongo.MongoError && error.hasErrorLabel('UnknownTransactionCommitResult'))
+      ) {
+        // withTransaction already retries uncertain commits. If it gives up after
+        // a completed body, we cannot infer an abort or publish another generation.
+        // Stop queued writers as well; a new lease must recover persisted progress.
+        // In particular, do not recreate markers or delete objects here: a commit
+        // may have atomically removed those markers and made the objects live.
+        this.options.replicationLock.invalidate(
+          new ReplicationAbortedError(
+            'Publication commit was not confirmed; restart replication from persisted progress',
+            error
+          )
+        );
+      }
+      throw error;
+    }
   }
 
   private async prepareRows(session: lib_mongo.mongo.ClientSession, input: OperationBatch | null, head: bigint) {
