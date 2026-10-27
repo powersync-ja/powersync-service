@@ -36,6 +36,9 @@ export class InstanceClient<C extends sdk.NetworkClient = sdk.NetworkClient> ext
    * ```typescript
    * const diag = await client.diagnostics({ sync_rules_content: true });
    * // {
+   * //   service: {
+   * //     version: '1.27.0'
+   * //   },
    * //   connections: [
    * //     {
    * //       id: 'default',
@@ -67,7 +70,8 @@ export class InstanceClient<C extends sdk.NetworkClient = sdk.NetworkClient> ext
    * //     ],
    * //     errors: []
    * //   },
-   * //   deploying_sync_rules: undefined
+   * //   deploying_sync_rules: undefined,
+   * //   sync_config_source: 'config'
    * // }
    * ```
    */

@@ -12,6 +12,7 @@ import {
   StaticSchema,
   SwiftSchemaGenerator,
   TsSchemaGenerator,
+  TsSchemaLanguage,
   driftSchemaGenerator,
   sqlDelightSchemaGenerator
 } from '../../src/index.js';
@@ -61,7 +62,7 @@ streams:
     const streams = `
 extension type TypedSyncStreams(PowerSyncDatabase _db) {
   SyncStream assetsOne() => _db.syncStream('assets_one', {});
-  SyncStream assets2({required String name}) => _db.syncStream('assets_2', {'name': name,});
+  SyncStream assets2({required String name}) => _db.syncStream('assets_2', {'name': name});
 }`;
 
     expect(new DartSchemaGenerator().generate(rules, schema)).toEqual(`Schema([
@@ -97,6 +98,24 @@ ${streams}
 `);
   });
 
+  test('Dart with multiple Sync Stream parameters', () => {
+    const { config } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+
+streams:
+  filtered:
+    query: SELECT * FROM assets WHERE name = subscription.parameter('name') AND owner_id = subscription.parameter('owner_id')
+`,
+      PARSE_OPTIONS
+    );
+
+    expect(new DartSchemaGenerator().generate(config, schema)).toContain(
+      `  SyncStream filtered({required String ownerId, required String name}) => _db.syncStream('filtered', {'owner_id': ownerId, 'name': name});\n`
+    );
+  });
+
   test('js legacy', () => {
     expect(new JsLegacySchemaGenerator().generate(rules, schema)).toEqual(`new Schema([
   new Table({
@@ -120,10 +139,31 @@ ${streams}
 `);
   });
 
+  test('js without sync streams omits SyncStream imports', () => {
+    const { config: rulesWithoutStreams } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+
+streams: {}
+`,
+      PARSE_OPTIONS
+    );
+
+    const generated = new TsSchemaGenerator({ language: TsSchemaLanguage.js }).generate(
+      rulesWithoutStreams,
+      schema,
+      {}
+    );
+    expect(generated.startsWith(`import { column, Schema, Table } from '@powersync/web';`)).toBe(true);
+    expect(generated).not.toContain('SyncStream');
+    expect(generated).not.toContain('PowerSyncDatabase');
+  });
+
   test('ts', () => {
     expect(new TsSchemaGenerator().generate(rules, schema, {})).toEqual(
-      `import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/web';
-// OR: import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/react-native';
+      `import { column, Schema, Table, type PowerSyncDatabase, type SyncStream } from '@powersync/web';
+// OR: import { column, Schema, Table, type PowerSyncDatabase, type SyncStream } from '@powersync/react-native';
 
 const assets1 = new Table(
   {
@@ -167,8 +207,8 @@ export function typedStreams(db: PowerSyncDatabase) {
     );
 
     expect(new TsSchemaGenerator().generate(rules, schema, { includeTypeComments: true })).toEqual(
-      `import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/web';
-// OR: import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/react-native';
+      `import { column, Schema, Table, type PowerSyncDatabase, type SyncStream } from '@powersync/web';
+// OR: import { column, Schema, Table, type PowerSyncDatabase, type SyncStream } from '@powersync/react-native';
 
 const assets1 = new Table(
   {
