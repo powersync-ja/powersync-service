@@ -2,8 +2,8 @@ import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { PerformanceTracer, Span, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { compactActive, getTestStorage, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test, vi } from 'vitest';
-import { PersistedBatch } from '../../src/storage/implementation/common/PersistedBatch.js';
 import { MongoSyncBucketStorageV3 } from '../../src/storage/implementation/v3/MongoSyncBucketStorageV3.js';
+import { PersistedBatchV3 } from '../../src/storage/implementation/v3/PersistedBatchV3.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 import { PublicationCommandMonitor } from './helpers/PublicationCommandMonitor.js';
@@ -18,17 +18,19 @@ streams:
 
 describe.each([3, 4])('replication publication baseline v%s', (storageVersion) => {
   test.each([
-    { offloaded: false, compaction: false },
-    { offloaded: true, compaction: false },
-    { offloaded: false, compaction: true },
-    { offloaded: true, compaction: true }
-  ])('records wire commands and uploads: %j', async ({ offloaded, compaction }) => {
+    { enabled: false, offloaded: false, compaction: false },
+    { enabled: false, offloaded: false, compaction: true },
+    { enabled: true, offloaded: false, compaction: false },
+    { enabled: true, offloaded: true, compaction: false },
+    { enabled: true, offloaded: false, compaction: true },
+    { enabled: true, offloaded: true, compaction: true }
+  ])('records wire commands and uploads: %j', async ({ enabled, offloaded, compaction }) => {
     const objectStorage = new MemoryObjectStorage();
     const factoryGen = mongoTestStorageFactoryGenerator({
       url: env.MONGO_TEST_URL,
       isCI: env.CI,
       monitorCommands: true,
-      objectStorage,
+      objectStorage: enabled ? objectStorage : undefined,
       inlineThresholdBytes: offloaded ? 0 : 16 * 1024
     });
     await using factory = await factoryGen.factory();
@@ -104,9 +106,9 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
       await put(...args);
       sample.endedAt = performance.now();
     });
-    const flush = PersistedBatch.prototype.flush;
-    using flushSpy = vi.spyOn(PersistedBatch.prototype, 'flush').mockImplementation(async function (
-      this: PersistedBatch,
+    const flush = PersistedBatchV3.prototype.flush;
+    using flushSpy = vi.spyOn(PersistedBatchV3.prototype, 'flush').mockImplementation(async function (
+      this: PersistedBatchV3,
       ...args
     ) {
       // Inline batches have no PUT to pause. Compact after lookup/evaluation,
@@ -164,6 +166,7 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
       console.info(
         JSON.stringify({
           storageVersion,
+          objectStorageEnabled: enabled,
           offloaded,
           compaction,
           ...summary,

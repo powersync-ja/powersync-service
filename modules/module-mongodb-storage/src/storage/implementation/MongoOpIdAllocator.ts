@@ -29,7 +29,12 @@ export class MongoOpIdAllocator {
     return new MongoIdSequence(persistedOp, this.ranges.slice());
   }
 
-  committed(lastOp: bigint) {
+  /**
+   * Remove IDs assigned to sealed work, even if publication is later abandoned.
+   * This only consumes allocation capacity; it does not advance durable progress.
+   * Keep the unused tail available to the next publication under this lease.
+   */
+  consume(lastOp: bigint) {
     this.ranges = this.ranges
       .filter((range) => range.end > lastOp)
       .map((range) => ({ start: range.start > lastOp ? range.start : lastOp + 1n, end: range.end }));

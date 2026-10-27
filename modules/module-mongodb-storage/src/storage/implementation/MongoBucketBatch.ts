@@ -826,7 +826,9 @@ export abstract class MongoBucketBatch
             // Notifications and cleanup must wait until the transaction commits.
           }
         );
-        allocator.committed(lastOp);
+        // This transaction-based path consumes after commit. Prepared work will
+        // consume before uploads, independently of confirmed durable progress.
+        allocator.consume(lastOp);
         return;
       } catch (error) {
         if (!(error instanceof OpIdRangeExhausted)) {
