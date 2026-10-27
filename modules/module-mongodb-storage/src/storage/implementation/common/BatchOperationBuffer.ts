@@ -58,7 +58,8 @@ export class BatchOperationBuffer {
       checkDefinitionId(id: BucketDefinitionId | null): BucketDefinitionId;
       getBucketDefinitionId(source: BucketDataSource): BucketDefinitionId;
     },
-    private readonly logger: Logger = defaultLogger
+    private readonly logger: Logger = defaultLogger,
+    private readonly defer: (effect: () => void) => void = (effect) => effect()
   ) {
     this.currentSize = writtenSize;
   }
@@ -95,7 +96,10 @@ export class BatchOperationBuffer {
       const recordData = JSONBig.stringify(evaluated.data);
       const checksum = utils.hashData(evaluated.table, evaluated.id, recordData);
       if (recordData.length > MAX_ROW_SIZE) {
-        this.logger.error(`Row ${key} too large: ${recordData.length} bytes. Removing.`);
+        // Evaluation diagnostics follow the caller's row-attempt lifetime;
+        // publication logging below continues to use the real logger directly.
+        const message = `Row ${key} too large: ${recordData.length} bytes. Removing.`;
+        this.defer(() => this.logger.error(message));
         continue;
       }
 
@@ -263,6 +267,29 @@ export class BatchOperationBuffer {
       currentDataCount >= MAX_TRANSACTION_DOC_COUNT ||
       this.bucketParameters.length >= MAX_TRANSACTION_DOC_COUNT
     );
+  }
+
+  /** Adopt one fully evaluated row; unfinished rows never mutate this buffer. */
+  append(row: BatchOperationBuffer): void {
+    // A single high-fanout row may exceed a normal batch target. Avoid the
+    // JavaScript argument-count limit while retaining its operation order.
+    for (const operation of row.bucketData) {
+      this.bucketData.push(operation);
+    }
+    for (const parameter of row.bucketParameters) {
+      this.bucketParameters.push(parameter);
+    }
+    for (const [key, state] of row.bucketStates) {
+      const previous = this.bucketStates.get(key);
+      this.bucketStates.set(key, {
+        ...state,
+        incrementCount: (previous?.incrementCount ?? 0) + state.incrementCount,
+        incrementBytes: (previous?.incrementBytes ?? 0) + state.incrementBytes,
+        incrementChunks: (previous?.incrementChunks ?? 0) + state.incrementChunks
+      });
+    }
+    this.currentSize += row.currentSize;
+    this.debugLastOpId = row.debugLastOpId ?? this.debugLastOpId;
   }
 
   clear(): void {

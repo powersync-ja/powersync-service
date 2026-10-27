@@ -278,7 +278,6 @@ export abstract class MongoSyncBucketStorage
     const replicationLock = this.requireReplicationLock();
     return {
       logger: options.logger ?? this.logger,
-      db: this.db,
       parsedSyncConfig: this.getParsedSyncConfigSet(options),
       replicationStreamId: this.replicationStreamId,
       replicationStreamName: this.replicationStreamName,

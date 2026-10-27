@@ -36,6 +36,12 @@ import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 export const DEFAULT_INLINE_THRESHOLD_BYTES = 16 * 1024;
 
 export interface PersistedBatchV3Options extends PersistedBatchOptions {
+  /**
+   * Collect synchronous row-evaluation diagnostics using saveOperation's effect
+   * sink: discard them with failed rows/preparations and dispatch after confirmed
+   * commit. Defaults to immediate execution. Publication logs use logger directly.
+   */
+  defer?: (effect: () => void) => void;
   objectStorage?: ObjectStorage;
   inlineThresholdBytes?: number;
   /**
@@ -84,7 +90,8 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
         },
         getBucketDefinitionId: (source) => mapping.bucketSourceId(source)
       },
-      options?.logger
+      options?.logger,
+      options?.defer
     );
     this.inlineThresholdBytes = options?.inlineThresholdBytes ?? DEFAULT_INLINE_THRESHOLD_BYTES;
     this.signal = options?.signal;
@@ -111,6 +118,18 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     return this.operations.shouldFlushTransaction(this.currentData.size);
   }
 
+  append(row: PersistedBatchV3): void {
+    this.assertMutable();
+    this.operations.append(row.operations);
+    for (const [key, value] of row.currentData) {
+      this.currentData.set(key, value);
+    }
+    for (const [key, value] of row.sourceTablePendingDeletes) {
+      const previous = this.sourceTablePendingDeletes.get(key) ?? 0n;
+      this.sourceTablePendingDeletes.set(key, value > previous ? value : previous);
+    }
+  }
+
   /** Return the sealed view of this batch without starting I/O or moving its data. */
   seal(): PreparedPublication {
     this.assertMutable();
@@ -119,12 +138,16 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
   }
 
   private assertMutable(): void {
-    if (this.sealed) throw new Error('Cannot modify a sealed publication');
+    if (this.sealed) {
+      throw new Error('Cannot modify a sealed publication');
+    }
   }
 
   /** Cache readiness, including failure; the v3 batch owns the entire lifecycle. */
   preparePayloads(): Promise<void> {
-    if (!this.sealed) throw new ReplicationAssertionError('Cannot prepare an unsealed publication');
+    if (!this.sealed) {
+      throw new ReplicationAssertionError('Cannot prepare an unsealed publication');
+    }
     return (this.preparation ??= Promise.resolve().then(() => this.preparePayloadsImpl()));
   }
 
@@ -142,10 +165,18 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
   private async write(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
     const startAt = performance.now();
     const writes = this.db.createWriteBatch(session, { ordered: false });
-    if (this.operations.bucketDataCount > 0) await this.queueBucketData(writes);
-    if (this.operations.bucketParameters.length > 0) this.queueBucketParameters(writes);
-    if (this.currentData.size > 0) this.queueCurrentData(writes);
-    if (this.operations.bucketStates.size > 0) this.queueBucketStates(writes);
+    if (this.operations.bucketDataCount > 0) {
+      await this.queueBucketData(writes);
+    }
+    if (this.operations.bucketParameters.length > 0) {
+      this.queueBucketParameters(writes);
+    }
+    if (this.currentData.size > 0) {
+      this.queueCurrentData(writes);
+    }
+    if (this.operations.bucketStates.size > 0) {
+      this.queueBucketStates(writes);
+    }
     await writes.execute();
     return this.operations.logFlush(startAt, this.currentData.size, options);
   }

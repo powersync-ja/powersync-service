@@ -56,28 +56,26 @@ describe.each([3, 4])('sealed publication v%s', (storageVersion) => {
     await using writer = context.writer;
     const { table, bucketStorage, stream } = context;
     const db = bucketStorage.db;
-    using bulkMode = vi
+    using _bulkMode = vi
       .spyOn(factory.db, 'createWriteBatch')
       .mockImplementation((session, options) => new MongoWriteBatch(factory.db.client, !fallback, session, options));
     using put = vi.spyOn(objectStorage, 'put');
     let publication: PreparedPublication | undefined;
     let builder: PersistedBatchV3 | undefined;
     const aborted = new Error('abort after data writes');
-    using flush = vi.spyOn(PersistedBatchV3.prototype, 'flush').mockImplementationOnce(async function (
+    const originalPublish = PersistedBatchV3.prototype.publish;
+    using _flush = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementationOnce(async function (
       this: PersistedBatchV3,
       session,
       options
     ) {
       builder = this;
-      expect(() => this.preparePayloads()).toThrow('unsealed');
-      await expect(this.publish(session, options)).rejects.toThrow('unsealed');
-      publication = this.seal();
-      expect(put).not.toHaveBeenCalled();
+      publication = this;
       const ready = publication.preparePayloads();
       expect(publication.ready).toBe(ready);
       expect(this.preparePayloads()).toBe(ready);
       await ready;
-      await publication.publish(session, options);
+      await originalPublish.call(this, session, options);
       throw aborted;
     });
 
@@ -224,7 +222,7 @@ describe.each([3, 4])('sealed publication v%s', (storageVersion) => {
         mode === 'disabled' ? undefined : objectStorage,
         mode === 'inline' ? 16 * 1024 : 0
       );
-      await using factory = context.factory;
+      await using _factory = context.factory;
       await using writer = context.writer;
       using seal = vi.spyOn(PersistedBatchV3.prototype, 'seal');
       using publish = vi.spyOn(PersistedBatchV3.prototype, 'publish');
@@ -272,18 +270,18 @@ streams:
     query: SELECT * FROM items WHERE id IN (SELECT item_id FROM memberships WHERE user_id = auth.user_id())
 `
       );
-      await using factory = context.factory;
+      await using _factory = context.factory;
       await using writer = context.writer;
       const membership = await test_utils.resolveTestTable(writer, 'memberships', ['id'], context.factoryGen, 2);
       let publication: PreparedPublication | undefined;
       const abort = new Error('abort parameter writes');
-      using flush = vi.spyOn(PersistedBatchV3.prototype, 'flush').mockImplementationOnce(async function (
+      const originalPublish = PersistedBatchV3.prototype.publish;
+      using _flush = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementationOnce(async function (
         this: PersistedBatchV3,
         session
       ) {
-        publication = this.seal();
-        await publication.preparePayloads();
-        await publication.publish(session);
+        publication = this;
+        await originalPublish.call(this, session);
         throw abort;
       });
       for (const userId of ['old', 'new']) {
@@ -326,11 +324,11 @@ streams:
   test.each([false, true])('joins sibling uploads before rejecting readiness (cancellation: %s)', async (cancelled) => {
     const objectStorage = new MemoryObjectStorage();
     const context = await openStream(storageVersion, objectStorage);
-    await using factory = context.factory;
+    await using _factory = context.factory;
     await using writer = context.writer;
     let publication: PreparedPublication | undefined;
     const seal = PersistedBatchV3.prototype.seal;
-    using sealSpy = vi.spyOn(PersistedBatchV3.prototype, 'seal').mockImplementation(function (this: PersistedBatchV3) {
+    using _sealSpy = vi.spyOn(PersistedBatchV3.prototype, 'seal').mockImplementation(function (this: PersistedBatchV3) {
       publication = seal.call(this);
       return publication;
     });

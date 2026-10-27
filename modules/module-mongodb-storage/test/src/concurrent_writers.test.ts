@@ -41,6 +41,9 @@ async function insert(writer: storage.BucketStorageBatch, table: storage.SourceT
 
 describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
   const batchPrototype = version < 3 ? PersistedBatchV1.prototype : PersistedBatchV3.prototype;
+  const originalWrite = () => (version < 3 ? PersistedBatchV1.prototype.flush : PersistedBatchV3.prototype.publish);
+  const spyWrite = () =>
+    version < 3 ? vi.spyOn(PersistedBatchV1.prototype, 'flush') : vi.spyOn(PersistedBatchV3.prototype, 'publish');
   test('requires a lease to create a writer, including after another lease is released', async () => {
     await using factory = await factoryGen.factory();
     const stream = await factory.updateSyncRules(updateSyncRulesFromYaml(rules, { storageVersion: version }));
@@ -103,12 +106,9 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     await writer.commit('1/2');
     // Force a split after each row without needing a transaction-sized fixture.
     const split = vi.spyOn(batchPrototype, 'shouldFlushTransaction').mockReturnValue(true);
-    const flush = batchPrototype.flush;
+    const flush = originalWrite();
     const observed: bigint[] = [];
-    const inspect = vi.spyOn(batchPrototype, 'flush').mockImplementation(async function (
-      this: PersistedBatch,
-      ...args
-    ) {
+    const inspect = spyWrite().mockImplementation(async function (this: PersistedBatch, ...args) {
       observed.push((await a.bucketStorage.getCheckpoint()).checkpoint);
       return flush.apply(this, args);
     });
@@ -210,15 +210,14 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     let admissions = 0;
     const admission = vi.spyOn(mutex, 'exclusiveLock').mockImplementation(function (callback) {
       const result = exclusiveLock.call(mutex, callback);
-      if (++admissions === 3) queued.resolve();
+      if (++admissions === 3) {
+        queued.resolve();
+      }
       return result;
     });
     const transactions = vi.spyOn(mongo.ClientSession.prototype, 'withTransaction');
-    const flush = batchPrototype.flush;
-    const stalled = vi.spyOn(batchPrototype, 'flush').mockImplementationOnce(async function (
-      this: PersistedBatch,
-      ...args
-    ) {
+    const flush = originalWrite();
+    const stalled = spyWrite().mockImplementationOnce(async function (this: PersistedBatch, ...args) {
       entered.resolve();
       await release.promise;
       return flush.apply(this, args);
@@ -250,17 +249,22 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     await using factory = await factoryGen.factory();
     const a = await openStream(factory, version);
     await using writerA = a.writer;
+    // Keep A active and B processing, so independent publication is tested
+    // without replacing/stopping A's config or activating B under A's fence.
+    if (version >= 3) {
+      await writerA.commit('1/1');
+    }
     // An independent factory/client has no shared allocator or in-process coordination.
     await using other = await factoryGen.factory({ doNotClear: true });
     const b = await openStream(other, version);
     await using writerB = b.writer;
+    if (version >= 3) {
+      await writerB.markTableSnapshotRequired(b.table);
+    }
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
-    const flush = batchPrototype.flush;
-    const stalled = vi.spyOn(batchPrototype, 'flush').mockImplementationOnce(async function (
-      this: PersistedBatch,
-      ...args
-    ) {
+    const flush = originalWrite();
+    const stalled = spyWrite().mockImplementationOnce(async function (this: PersistedBatch, ...args) {
       entered.resolve();
       await release.promise;
       return flush.apply(this, args);
@@ -271,7 +275,8 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
       await entered.promise;
       await insert(writerB, b.table, 'b');
       await writerB.commit('1/2');
-      expect((await b.bucketStorage.getCheckpoint()).checkpoint).toBeGreaterThan(1n);
+      expect(writerB.last_flushed_op).toBeGreaterThan(1n);
+      expect((await b.bucketStorage.getCheckpoint()).checkpoint).toBe(version >= 3 ? 0n : writerB.last_flushed_op);
       expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(0n);
     } finally {
       release.resolve();
@@ -285,20 +290,23 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     expect(writerA.last_flushed_op).toBe(2n);
   });
 
-  test('another process can reserve and checkpoint while this process holds a stream transaction', async () => {
+  test('another process can reserve and commit progress while this process holds a stream transaction', async () => {
     await using factory = await factoryGen.factory();
     const a = await openStream(factory, version);
     await using writerA = a.writer;
+    if (version >= 3) {
+      await writerA.commit('1/1');
+    }
     const b = await openStream(factory, version);
+    if (version >= 3) {
+      await b.writer.markTableSnapshotRequired(b.table);
+    }
     await b.writer.dispose();
     await test_utils.releaseTestStorageLease(factory, b.stream.replicationStreamId);
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
-    const flush = batchPrototype.flush;
-    const stalled = vi.spyOn(batchPrototype, 'flush').mockImplementationOnce(async function (
-      this: PersistedBatch,
-      ...args
-    ) {
+    const flush = originalWrite();
+    const stalled = spyWrite().mockImplementationOnce(async function (this: PersistedBatch, ...args) {
       entered.resolve();
       await release.promise;
       return flush.apply(this, args);
@@ -318,7 +326,7 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
       ).catch((error) => {
         throw new Error(`${error.message}\n${error.stdout}\n${error.stderr}`);
       });
-      expect(child.stdout).toMatch(/checkpoint=[1-9][0-9]+/);
+      expect(child.stdout).toMatch(version >= 3 ? /persisted=[1-9][0-9]+/ : /checkpoint=[1-9][0-9]+/);
       expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(0n);
     } finally {
       release.resolve();
@@ -332,11 +340,8 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     const { writer: batch, table, bucketStorage } = await openStream(factory, version);
     await using writer = batch;
     const reservations = vi.spyOn(MongoOpIdAllocator.prototype, 'reserve');
-    const flush = batchPrototype.flush;
-    const retry = vi.spyOn(batchPrototype, 'flush').mockImplementationOnce(async function (
-      this: PersistedBatch,
-      ...args
-    ) {
+    const flush = originalWrite();
+    const retry = spyWrite().mockImplementationOnce(async function (this: PersistedBatch, ...args) {
       await flush.apply(this, args);
       throw new mongo.MongoServerError({ message: 'retry', code: 112, errorLabels: ['TransientTransactionError'] });
     });
@@ -368,11 +373,8 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     const abort = new AbortController();
     await using writer = await a.bucketStorage.createWriter({ ...test_utils.BATCH_OPTIONS, signal: abort.signal });
     const table = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, a.stream.replicationStreamId);
-    const flush = batchPrototype.flush;
-    const interrupted = vi.spyOn(batchPrototype, 'flush').mockImplementationOnce(async function (
-      this: PersistedBatch,
-      ...args
-    ) {
+    const flush = originalWrite();
+    const interrupted = spyWrite().mockImplementationOnce(async function (this: PersistedBatch, ...args) {
       const result = await flush.apply(this, args);
       if (when === 'during flush') {
         abort.abort();
@@ -472,7 +474,7 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     const stream = initial.stream as MongoPersistedReplicationStream;
     await test_utils.releaseTestStorageLease(factory, stream.replicationStreamId);
     const first = await stream.lock();
-    await using firstLifetime = { [Symbol.asyncDispose]: () => first.release() };
+    await using _firstLifetime = { [Symbol.asyncDispose]: () => first.release() };
     await using oldWriter = await factory.getInstance(stream).createWriter(test_utils.BATCH_OPTIONS);
     await using oldCheckpointWriter = await factory.getInstance(stream).createWriter(test_utils.BATCH_OPTIONS);
     const oldTable = await test_utils.resolveTestTable(oldWriter, 'items', ['id'], factoryGen, 1);
@@ -486,7 +488,7 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     await using other = await factoryGen.factory({ doNotClear: true });
     const nextStream = (await other.getReplicatingReplicationStreams())[0];
     const next = await nextStream.lock();
-    await using nextLifetime = { [Symbol.asyncDispose]: () => next.release() };
+    await using _nextLifetime = { [Symbol.asyncDispose]: () => next.release() };
     await using nextWriter = await other.getInstance(nextStream).createWriter(test_utils.BATCH_OPTIONS);
     const nextTable = await test_utils.resolveTestTable(nextWriter, 'items', ['id'], factoryGen, 1);
     await insert(nextWriter, nextTable, 'new');
@@ -529,7 +531,7 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
       await writer.commit('1/2');
       expect(writer.last_flushed_op).toBe(65_537n);
       expect((await bucketStorage.getCheckpoint()).checkpoint).toBe(65_537n);
-      expect(sequences).toHaveBeenCalledTimes(fallback ? 2 : 1);
+      expect(sequences).toHaveBeenCalledTimes(version < 3 ? (fallback ? 2 : 1) : fallback ? 3 : 2);
     } finally {
       capacity.mockRestore();
       sequences.mockRestore();
@@ -541,7 +543,7 @@ describe.each([1, 2])('legacy batch lifecycle v%s', (version) => {
   test('clears a successful flush and can accumulate the next writes independently', async () => {
     await using factory = await factoryGen.factory();
     const context = await openStream(factory, version);
-    await using writer = context.writer;
+    await using _writer = context.writer;
     const db = factory.db.versioned(
       context.bucketStorage.replicationStream.getStorageConfig()
     ) as VersionedPowerSyncMongoV1;
@@ -579,7 +581,7 @@ describe('operation ID reservations', () => {
   test('consumes abandoned IDs without advancing the durable head or discarding the unused tail', async () => {
     await using factory = await factoryGen.factory();
     const a = await openStream(factory, 4);
-    await using writer = a.writer;
+    await using _writer = a.writer;
     const allocator = factory.getOpIdAllocator(
       a.bucketStorage.replicationStream,
       a.bucketStorage.replicationStream.current_lock!
@@ -600,7 +602,7 @@ describe('operation ID reservations', () => {
   test('initializes and reserves disjoint ranges concurrently in one command each', async () => {
     await using factory = await factoryGen.factory();
     const a = await openStream(factory, 4);
-    await using writer = a.writer;
+    await using _writer = a.writer;
     const db = factory.db.versioned(a.bucketStorage.replicationStream.getStorageConfig());
     const allocators = Array.from({ length: 4 }, () => new MongoOpIdAllocator(db));
     const initialize = vi.spyOn(db.op_id_sequence, 'updateOne');
@@ -620,7 +622,7 @@ describe('operation ID reservations', () => {
   test('refills below 16k remaining IDs, preserving the tail across disjoint ranges', async () => {
     await using factory = await factoryGen.factory();
     const a = await openStream(factory, 4);
-    await using writer = a.writer;
+    await using _writer = a.writer;
     const db = factory.db.versioned(a.bucketStorage.replicationStream.getStorageConfig());
     const allocator = factory.getOpIdAllocator(
       a.bucketStorage.replicationStream,
@@ -647,7 +649,7 @@ describe('operation ID reservations', () => {
   test('refuses a reservation that would overflow without changing the watermark', async () => {
     await using factory = await factoryGen.factory();
     const a = await openStream(factory, 4);
-    await using writer = a.writer;
+    await using _writer = a.writer;
     const max = (1n << 63n) - 1n;
     await factory.db.op_id_sequence.insertOne({ _id: 'main', op_id: max - 65_536n });
     const allocator = factory.getOpIdAllocator(

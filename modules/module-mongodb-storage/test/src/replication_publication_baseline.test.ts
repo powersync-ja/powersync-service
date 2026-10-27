@@ -65,7 +65,7 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
     using monitor = new PublicationCommandMonitor(factory.db.client);
     const spans: Span[] = [];
     const span = tracer.span.bind(tracer);
-    using traceSpy = vi.spyOn(tracer, 'span').mockImplementation((...args) => {
+    using _traceSpy = vi.spyOn(tracer, 'span').mockImplementation((...args) => {
       const result = span(...args);
       spans.push(result);
       return result;
@@ -73,7 +73,9 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
     let compacted = false;
     let compacting = false;
     async function compactOnce() {
-      if (!compaction || compacted) return;
+      if (!compaction || compacted) {
+        return;
+      }
       compacted = true;
       compacting = true;
       try {
@@ -90,8 +92,10 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
 
     const uploads: { path: string; bytes: number; startedAt: number; endedAt: number; transactions: string[] }[] = [];
     const put = objectStorage.put.bind(objectStorage);
-    using putSpy = vi.spyOn(objectStorage, 'put').mockImplementation(async (...args) => {
-      if (compacting) return put(...args);
+    using _putSpy = vi.spyOn(objectStorage, 'put').mockImplementation(async (...args) => {
+      if (compacting) {
+        return put(...args);
+      }
       const sample = {
         path: args[0],
         bytes: args[1].byteLength,
@@ -106,14 +110,16 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
       await put(...args);
       sample.endedAt = performance.now();
     });
-    const flush = PersistedBatchV3.prototype.flush;
-    using flushSpy = vi.spyOn(PersistedBatchV3.prototype, 'flush').mockImplementation(async function (
+    const flush = PersistedBatchV3.prototype.publish;
+    using _flushSpy = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementation(async function (
       this: PersistedBatchV3,
       ...args
     ) {
       // Inline batches have no PUT to pause. Compact after lookup/evaluation,
       // immediately before the writer persists its bucket-state delta instead.
-      if (!offloaded) await compactOnce();
+      if (!offloaded) {
+        await compactOnce();
+      }
       return flush.apply(this, args);
     });
 
@@ -140,9 +146,9 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
       expect(bodies.some((body) => body.startAt <= persist.startAt && body.endAt >= persist.endAt)).toBe(true);
     }
     expect(tracer.stack).toHaveLength(0);
-    expect(uploads).toHaveLength(offloaded ? attempts.length : 0);
-    // Baseline behavior to change later: each retry uploads a fresh generation
-    // while the publication transaction is already open.
+    expect(uploads).toHaveLength(offloaded ? 1 : 0);
+    // Step 3 reuses uploads across retries, while PUT placement remains inside
+    // the first transaction attempt until durable markers are added in step 4.
     for (const upload of uploads) {
       expect(upload.transactions).toHaveLength(1);
       const attempt = monitor.transactions.get(upload.transactions[0])!;
@@ -150,15 +156,14 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
       expect(attempt.endedAt).toBeGreaterThanOrEqual(upload.endedAt);
     }
     expect(new Set(uploads.map((upload) => upload.path)).size).toBe(uploads.length);
-    if (offloaded && compaction) expect(uploads[0].bytes).toBe(uploads[1].bytes);
     expect(summary.replicationAttempts.at(-1)?.commands).toMatchObject({ findAndModify: 1, commitTransaction: 1 });
     if (summary.replicationAttempts.at(-1)?.commands.bulkWrite != null) {
-      // One source-size query and one grouped source-record read (R = 2),
-      // followed by the data and tail bulks. A conflict omits the tail/commit
-      // but adds an abort command. These are wire counts, not method calls.
+      // The source-size query and grouped source-record read (R = 2) now run
+      // outside the transaction, once per preparation. A conflict omits the
+      // tail/commit but adds an abort command; replay sends no source reads.
       expect(summary.replicationAttempts.map((attempt) => attempt.commands)).toEqual([
-        ...(compaction ? [{ findAndModify: 1, aggregate: 1, find: 1, bulkWrite: 1, abortTransaction: 1 }] : []),
-        { findAndModify: 1, aggregate: 1, find: 1, bulkWrite: 2, commitTransaction: 1 }
+        ...(compaction ? [{ findAndModify: 1, bulkWrite: 1, abortTransaction: 1 }] : []),
+        { findAndModify: 1, bulkWrite: 2, commitTransaction: 1 }
       ]);
     }
 
@@ -185,10 +190,11 @@ describe.each([3, 4])('replication publication baseline v%s', (storageVersion) =
       .find({})
       .toArray();
     const referencedPaths = documents.flatMap((doc) => (doc.storage_ref ? [doc.storage_ref.path] : []));
-    for (const path of referencedPaths) expect(objectStorage.store.has(path)).toBe(true);
+    for (const path of referencedPaths) {
+      expect(objectStorage.store.has(path)).toBe(true);
+    }
     if (offloaded && compaction) {
-      expect(referencedPaths).not.toContain(uploads[0].path);
-      expect(referencedPaths).toContain(uploads[1].path);
+      expect(referencedPaths).toContain(uploads[0].path);
       expect(objectStorage.store.has(uploads[0].path)).toBe(true);
     }
   });

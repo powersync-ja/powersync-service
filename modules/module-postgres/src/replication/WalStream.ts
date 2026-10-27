@@ -1101,6 +1101,12 @@ WHERE  oid = $1::regclass`,
     let resnapshot: { table: storage.SourceTable; key: PrimaryKeyValue }[] = [];
 
     const markRecordUnavailable = (record: SaveUpdate) => {
+      // Storage may deliver this after its data transaction commits, while it
+      // still holds writer admission. Keep this callback synchronous and limited
+      // to collecting keys: resnapshot() runs after flush() returns. The queue is
+      // ephemeral, so no checkpoint/resume position or WAL acknowledgement may
+      // advance until the queued repairs have completed. A failure must escape
+      // the replication attempt so replay can request unresolved repairs again.
       if (!IdSnapshotQuery.supports(record.sourceTable)) {
         // We only have a targeted resnapshot implementation for tables supported by IdSnapshotQuery.
         // For unsupported tables we cannot repair missing TOAST values here; leave the row unchanged
@@ -1191,6 +1197,9 @@ WHERE  oid = $1::regclass`,
                 // This _must_ be checked after the flush(), and before
                 // commit() or ack(). We never persist the resnapshot list,
                 // so we have to process it before marking our progress.
+                // flush() includes delivery of committed repair notifications;
+                // moving this check earlier or combining flush with commit loses
+                // the recovery boundary when a row has missing TOAST values.
                 if (resnapshot.length > 0) {
                   await this.resnapshot(batch, resnapshot);
                   resnapshot = [];

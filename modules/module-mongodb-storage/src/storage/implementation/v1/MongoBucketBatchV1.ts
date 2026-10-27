@@ -112,7 +112,9 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     );
   }
 
-  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
+  protected override async resolveTablesInternal(
+    options: storage.ResolveTablesOptions
+  ): Promise<storage.ResolveTablesResult> {
     const syncRules = options.parsedSyncConfig?.hydratedSyncConfig ?? this.sync_rules;
     const reconcile = options.reconcileSourceTables ?? storage.defaultSourceTableReconciler;
     const { connection_id, source } = options;
@@ -225,7 +227,9 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     return table;
   }
 
-  async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
+  protected override async getSourceTableStatusInternal(
+    table: storage.SourceTable
+  ): Promise<storage.SourceTable | null> {
     const doc = await this.db.sourceTablesV1(this.replicationStreamId).findOne(
       {
         group_id: this.replicationStreamId,
@@ -241,7 +245,10 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     return this.hydrateSourceTable(doc, table.ref.connectionTag, this.sync_rules, undefined);
   }
 
-  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
+  protected override async commitInternal(
+    lsn: string,
+    options?: storage.BucketBatchCommitOptions
+  ): Promise<storage.CheckpointResult> {
     const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
 
     using _ = this.tracer.span('storage', 'commit');
@@ -405,18 +412,14 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     };
   }
 
-  async keepalive(lsn: string): Promise<storage.CheckpointResult> {
-    return await this.commit(lsn, { createEmptyCheckpoints: true });
-  }
-
-  async setResumeLsn(lsn: string): Promise<void> {
+  protected override async setResumeLsnInternal(lsn: string): Promise<void> {
     using _ = this.tracer.span('storage', 'set_resume_lsn');
     // Losing occasional resume LSN would only reprocess source changes.
     // Keep the lease check atomic, but do not wait for majority replication of this resume hint.
     await this.updateStreamMetadata({ snapshot_lsn: { $literal: lsn } }, {}, { w: 1 });
   }
 
-  async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+  protected override async markAllSnapshotDoneInternal(no_checkpoint_before_lsn: string): Promise<void> {
     await this.updateStreamMetadata(this.snapshotDoneUpdate(no_checkpoint_before_lsn));
   }
 
@@ -427,7 +430,10 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     };
   }
 
-  async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
+  protected override async markSnapshotDoneInternal(
+    no_checkpoint_before_lsn: string,
+    options?: { throwOnConflict?: boolean }
+  ): Promise<void> {
     await this.withTransaction(async () => {
       // Protect against race conditions
       const blockingTables = await this.db
@@ -458,11 +464,11 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     });
   }
 
-  async markTableSnapshotRequired(_table: storage.SourceTable): Promise<void> {
+  protected override async markTableSnapshotRequiredInternal(_table: storage.SourceTable): Promise<void> {
     await this.updateStreamMetadata({ snapshot_done: false });
   }
 
-  async markTableSnapshotDone(
+  protected override async markTableSnapshotDoneInternal(
     tables: storage.SourceTable[],
     no_checkpoint_before_lsn?: string
   ): Promise<storage.SourceTable[]> {

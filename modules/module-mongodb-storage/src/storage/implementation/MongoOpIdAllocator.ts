@@ -2,6 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { VersionedPowerSyncMongo } from './db.js';
 import { MongoIdSequence, OpIdRange } from './MongoIdSequence.js';
+import { REPLICATION_WRITE_OPTIONS } from './MongoReplicationOptions.js';
 
 const RESERVATION_SIZE = 65_536n;
 const LOW_WATER_MARK = 16_384n;
@@ -91,7 +92,7 @@ export class MongoOpIdAllocator {
             }
           }
         ],
-        { upsert: true, returnDocument: 'before', writeConcern: { w: 'majority' } }
+        { upsert: true, returnDocument: 'before', ...REPLICATION_WRITE_OPTIONS }
       );
       const last = previous?.op_id ?? 0n;
       if (last > MAX_OP_ID - RESERVATION_SIZE) {
