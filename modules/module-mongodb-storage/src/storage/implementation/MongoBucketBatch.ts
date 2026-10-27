@@ -713,15 +713,21 @@ export abstract class MongoBucketBatch
     cb: (stream: S) => Promise<T>,
     session = this.session
   ): Promise<T> {
-    return this.withWriterLock(() =>
-      session.withTransaction(
+    return this.withWriterLock(async () => {
+      // Includes driver commit retries and the delays between transaction attempts.
+      using transactionSpan = this.tracer.span('storage', 'transaction');
+      return await session.withTransaction(
         async () => {
+          // One callback invocation per transaction attempt. Commit happens after
+          // this span; command monitoring is needed to measure the full wire lifetime.
+          using attemptSpan = this.tracer.span('storage', 'transaction_body');
           const stream = await acquireFence();
           try {
             const result = await cb(stream);
             this.options.replicationLock.throwIfAborted();
             return result;
           } catch (e: unknown) {
+            attemptSpan.end();
             if (e instanceof OpIdRangeExhausted) {
               throw e;
             }
@@ -737,8 +743,8 @@ export abstract class MongoBucketBatch
           }
         },
         { maxCommitTimeMS: 10000, writeConcern: { w: 'majority' } }
-      )
-    );
+      );
+    });
   }
 
   private async withWriterLock<T>(callback: () => Promise<T>): Promise<T> {
