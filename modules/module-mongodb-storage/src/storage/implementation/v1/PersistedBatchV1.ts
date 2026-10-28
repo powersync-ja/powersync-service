@@ -70,10 +70,18 @@ export class PersistedBatchV1 implements PersistedBatch {
   async flush(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
     const startAt = performance.now();
     const writes = this.db.createWriteBatch(session, { ordered: false });
-    if (this.operations.bucketDataCount > 0) await this.queueBucketData(writes);
-    if (this.operations.bucketParameters.length > 0) this.queueBucketParameters(writes);
-    if (this.currentData.size > 0) this.queueCurrentData(writes);
-    if (this.operations.bucketStates.size > 0) this.queueBucketStates(writes);
+    if (this.operations.bucketDataCount > 0) {
+      await this.queueBucketData(writes);
+    }
+    if (this.operations.bucketParameters.length > 0) {
+      this.queueBucketParameters(writes);
+    }
+    if (this.currentData.size > 0) {
+      this.queueCurrentData(writes);
+    }
+    if (this.operations.bucketStates.size > 0) {
+      this.queueBucketStates(writes);
+    }
     await writes.execute();
     const stats = this.operations.logFlush(startAt, this.currentData.size, options);
     this.currentData.clear();

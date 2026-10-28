@@ -44,7 +44,9 @@ export class PublicationCommandMonitor implements Disposable {
   summary() {
     const counts = (commands: CommandSample[]) => {
       const result: Record<string, number> = {};
-      for (const command of commands) result[command.name] = (result[command.name] ?? 0) + 1;
+      for (const command of commands) {
+        result[command.name] = (result[command.name] ?? 0) + 1;
+      }
       return result;
     };
     return {
@@ -84,7 +86,9 @@ export class PublicationCommandMonitor implements Disposable {
 
   private finish(requestId: number, failed: boolean, errorCode?: number) {
     const sample = this.requests.get(requestId);
-    if (sample == null) return;
+    if (sample == null) {
+      return;
+    }
     this.requests.delete(requestId);
     sample.endedAt = performance.now();
     sample.failed = failed;
