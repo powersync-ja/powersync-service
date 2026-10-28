@@ -134,12 +134,12 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
   }
 
   /** Cache readiness, including failure; the v3 batch owns the entire lifecycle. */
-  preparePayloads(session?: mongo.ClientSession): Promise<void> {
+  preparePayloads(): Promise<void> {
     if (!this.sealed) {
       throw new ReplicationAssertionError('Cannot prepare an unsealed publication');
     }
     return (this.preparation ??= Promise.resolve()
-      .then(() => this.preparePayloadsImpl(session))
+      .then(() => this.preparePayloadsImpl())
       .then(() => {
         this.payloadsReady = true;
       }));
@@ -343,7 +343,7 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
   private readonly preparedUsageDeltas = new Map<BucketDefinitionId, bigint>();
   private preparedUploads: PreparedObjectStorageUpload[] = [];
 
-  private async preparePayloadsImpl(session?: mongo.ClientSession): Promise<void> {
+  private async preparePayloadsImpl(): Promise<void> {
     const operationsByDefinition = new Map<BucketDefinitionId, BucketDataDoc[]>();
     for (const document of this.operations.bucketData) {
       const existing = operationsByDefinition.get(document.bucketKey.definitionId) ?? [];
@@ -398,8 +398,7 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     // may start after a partial or ambiguous registration failure.
     this.preparedUploads = await lifecycle.prepareUploads(
       uploads.map((upload) => upload.path),
-      new Date(),
-      session
+      new Date()
     );
     this.signal?.throwIfAborted();
     await lifecycle.storeUploads(

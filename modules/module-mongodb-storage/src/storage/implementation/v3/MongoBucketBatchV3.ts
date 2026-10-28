@@ -206,7 +206,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     // Sequential preparation also avoids leaving another group's uploads running
     // when one group fails; each group's readiness joins all of its own uploads.
     for (const publication of publications) {
-      await publication.preparePayloads(this.session);
+      await publication.preparePayloads();
     }
     let attempts = 0;
     const retryDeadline = Date.now() + 90_000;
