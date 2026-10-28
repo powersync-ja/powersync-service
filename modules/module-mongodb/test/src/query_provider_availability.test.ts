@@ -1,6 +1,6 @@
 import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { MetricsEngine, storage } from '@powersync/service-core';
-import { DEFAULT_HYDRATION_STATE, nodeSqlite, SqlSyncRules } from '@powersync/service-sync-rules';
+import { DEFAULT_HYDRATION_STATE, nodeSqlite, parseSyncConfig } from '@powersync/service-sync-rules';
 import * as sqlite from 'node:sqlite';
 import { afterEach, expect, test, vi } from 'vitest';
 import { ChangeStream } from '../../src/replication/ChangeStream.js';
@@ -32,7 +32,7 @@ test.each([
   { filtered: false, factory: false, blocked: false }
 ])('checks provider availability: %j', async ({ filtered, factory, blocked }) => {
   const yaml = filtered ? CONFIG : CONFIG.replace("{ $eq: ['$$doc.active', true] }", 'disabled');
-  const parsed = SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app' });
+  const parsed = parseSyncConfig(yaml, { defaultSchema: 'app' });
   const hydrated = parsed.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) });
   const reportError = vi.fn(async (_error: unknown) => {});
   // Stop allowed cases at the first snapshot check, without connecting to a database.

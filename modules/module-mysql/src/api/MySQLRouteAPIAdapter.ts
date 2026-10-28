@@ -104,7 +104,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
             return fields.map((c) => {
               const value = row[c.name];
               const sqlValue = sync_rules.applyValueContext(
-                sync_rules.toSyncRulesValue(value),
+                sync_rules.toSyncConfigValue(value),
                 sync_rules.CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
               );
               if (typeof sqlValue == 'bigint') {
@@ -134,7 +134,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
 
   async getDebugTablesInfo(
     tablePatterns: sync_rules.TablePattern[],
-    sqlSyncRules: sync_rules.SqlSyncRules
+    sqlSyncRules: sync_rules.SyncConfig
   ): Promise<api.PatternResult[]> {
     let result: api.PatternResult[] = [];
 
@@ -200,7 +200,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
   protected async getDebugTableInfo(
     tablePattern: sync_rules.TablePattern,
     tableName: string,
-    syncRules: sync_rules.SqlSyncRules
+    syncRules: sync_rules.SyncConfig
   ): Promise<service_types.TableInfo> {
     const { schema } = tablePattern;
 

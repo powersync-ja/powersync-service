@@ -2,7 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import {
   CompatibilityContext,
   CompatibilityEdition,
-  SqlSyncRules,
+  parseSyncConfig,
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
@@ -406,7 +406,7 @@ describe('mongo data types', () => {
     await setupTable(db);
     await insert(collection);
 
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   global:
@@ -453,7 +453,7 @@ bucket_definitions:
     await setupTable(db);
     await insert(collection);
 
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   global:
@@ -501,7 +501,7 @@ bucket_definitions:
     await setupTable(db);
     await insert(collection);
 
-    const { config: rules } = SqlSyncRules.fromYaml(
+    const { config: rules } = parseSyncConfig(
       `
 bucket_definitions:
   global:

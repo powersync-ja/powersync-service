@@ -1,7 +1,7 @@
 import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 import { updateSyncRulesFromConfig } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
-import { PrecompiledSyncConfig, SqlSyncRules } from '@powersync/service-sync-rules';
+import { PrecompiledSyncConfig, parseSyncConfig } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
 import { TEST_STORAGE_VERSIONS } from './util.js';
@@ -39,7 +39,7 @@ describe.for(TEST_STORAGE_VERSIONS)('source-table config with storage v%i', (sto
     let expected;
     {
       await using factory = await storageFactory().factory();
-      const parsed = SqlSyncRules.fromYaml(CONFIGURED, test_utils.PARSE_OPTIONS);
+      const parsed = parseSyncConfig(CONFIGURED, test_utils.PARSE_OPTIONS);
       expected = (parsed.config as PrecompiledSyncConfig).plan.sourceTableConfig;
       await factory.updateSyncRules(updateSyncRulesFromConfig(parsed, { storageVersion }));
     }
@@ -56,7 +56,7 @@ describe.for(TEST_STORAGE_VERSIONS)('source-table config with storage v%i', (sto
   test('continues loading unfiltered plans without source options', async () => {
     await using factory = await storageFactory().factory();
     await factory.updateSyncRules(
-      updateSyncRulesFromConfig(SqlSyncRules.fromYaml(STREAMS, test_utils.PARSE_OPTIONS), {
+      updateSyncRulesFromConfig(parseSyncConfig(STREAMS, test_utils.PARSE_OPTIONS), {
         storageVersion
       })
     );
@@ -69,7 +69,7 @@ describe.for(TEST_STORAGE_VERSIONS)('source-table config with storage v%i', (sto
     await using factory = await storageFactory().factory();
     const deploy = (yaml: string) =>
       factory.updateSyncRules(
-        updateSyncRulesFromConfig(SqlSyncRules.fromYaml(yaml, test_utils.PARSE_OPTIONS), {
+        updateSyncRulesFromConfig(parseSyncConfig(yaml, test_utils.PARSE_OPTIONS), {
           storageVersion
         })
       );

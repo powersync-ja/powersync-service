@@ -2,7 +2,7 @@ import { ConvexRouteAPIAdapter } from '@module/api/ConvexRouteAPIAdapter.js';
 import { ConvexJsonSchemasResult } from '@module/client/ConvexAPITypes.js';
 import { parseConvexLsn } from '@module/common/ConvexLSN.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
-import { ExpressionType, SqlSyncRules } from '@powersync/service-sync-rules';
+import { ExpressionType, parseSyncConfig } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 
 const HEAD_CURSOR = '1772817606884944123';
@@ -65,7 +65,7 @@ describe('ConvexRouteAPIAdapter', () => {
   it('builds debug table info for matching patterns', async () => {
     const adapter = createAdapter();
 
-    const syncRules = SqlSyncRules.fromYaml(
+    const syncRules = parseSyncConfig(
       `
 bucket_definitions:
   test:

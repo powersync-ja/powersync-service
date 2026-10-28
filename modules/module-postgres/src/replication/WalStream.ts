@@ -30,7 +30,7 @@ import {
   SqliteRow,
   TablePattern,
   ToastableSqliteRow,
-  toSyncRulesValue
+  toSyncConfigValue
 } from '@powersync/service-sync-rules';
 
 import { ReplicationMetric } from '@powersync/service-types';
@@ -652,7 +652,7 @@ WHERE  oid = $1::regclass`,
       let mappedValue: SqliteInputValue;
 
       if (typeof rawValue == 'string') {
-        mappedValue = toSyncRulesValue(types.registry.decodeDatabaseValue(rawValue, column.typeOid), false, true);
+        mappedValue = toSyncConfigValue(types.registry.decodeDatabaseValue(rawValue, column.typeOid), false, true);
       } else {
         // Binary format, expose as-is.
         mappedValue = rawValue;

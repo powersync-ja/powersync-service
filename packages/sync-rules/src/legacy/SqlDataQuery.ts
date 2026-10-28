@@ -4,9 +4,14 @@ import { CompatibilityContext } from '../compatibility.js';
 import { SqlRuleError } from '../errors.js';
 import { ExpressionType } from '../ExpressionType.js';
 import { SourceTableRef } from '../SourceTableRef.js';
-import { SyncRulesOptions } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
-import { ParameterMatchClause, QuerySchema, SqliteRow, UnscopedEvaluationResult } from '../types.js';
+import {
+  ParameterMatchClause,
+  QuerySchema,
+  SqliteRow,
+  SyncConfigParseOptions,
+  UnscopedEvaluationResult
+} from '../types.js';
 import { isSelectStatement, serializeBucketParameters } from '../utils.js';
 import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from './BaseSqlDataQuery.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
@@ -27,7 +32,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
   static fromSql(
     bucketParameters: string[],
     sql: string,
-    options: SyncRulesOptions,
+    options: SyncConfigParseOptions,
     compatibility: CompatibilityContext
   ) {
     const parsed = parse(sql, { locationTracking: true });

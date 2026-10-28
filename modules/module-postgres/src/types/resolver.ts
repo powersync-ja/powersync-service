@@ -1,5 +1,5 @@
 import * as pgwire from '@powersync/service-jpgwire';
-import { DatabaseInputRow, SqliteInputRow, toSyncRulesRow } from '@powersync/service-sync-rules';
+import { DatabaseInputRow, SqliteInputRow, toSyncConfigRow } from '@powersync/service-sync-rules';
 import semver from 'semver';
 import { getServerVersion } from '../utils/postgres_version.js';
 import { CustomTypeRegistry } from './registry.js';
@@ -170,7 +170,7 @@ WHERE a.attnum > 0
     const rawData = (message as any).afterRaw;
 
     const record = this.decodeTuple(message.relation, rawData);
-    return toSyncRulesRow(record);
+    return toSyncConfigRow(record);
   }
 
   /**
@@ -183,7 +183,7 @@ WHERE a.attnum > 0
       return undefined;
     }
     const record = this.decodeTuple(message.relation, rawData);
-    return toSyncRulesRow(record);
+    return toSyncConfigRow(record);
   }
 
   /**

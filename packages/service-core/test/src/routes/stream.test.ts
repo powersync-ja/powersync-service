@@ -12,6 +12,7 @@ import {
   DEFAULT_HYDRATION_STATE,
   HydrateSyncConfigParams,
   nodeSqlite,
+  parseSyncConfig,
   SqlSyncRules
 } from '@powersync/service-sync-rules';
 import { APIMetric } from '@powersync/service-types';
@@ -198,7 +199,7 @@ describe('Stream Route', () => {
       onTestFinished(() => recorder.shutdown());
       const storage = {
         getParsedSyncRules() {
-          return SqlSyncRules.fromYaml('config:\n  edition: 3\nstreams: {}', {
+          return parseSyncConfig('config:\n  edition: 3\nstreams: {}', {
             defaultSchema: 'public'
           }).config.hydrate(defaultHydrationOptions);
         },
@@ -268,7 +269,7 @@ describe('Stream Route', () => {
     // producing another checkpoint. Before the fix, awaiting watcher.return()
     // during cleanup queued it behind that pending next(), leaving the response
     // open until an unrelated checkpoint was written.
-    const syncRules = SqlSyncRules.fromYaml(
+    const syncRules = parseSyncConfig(
       `
 bucket_definitions:
   global:
