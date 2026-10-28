@@ -6,8 +6,9 @@ import {
   hasMongoFilterExpressions,
   MONGO_FILTER_VALIDATOR,
   parseMongoFilterExpression,
-  type SourceConnectionMap,
-  SqlSyncRules
+  parseSyncConfig,
+  validateSyncConfig,
+  type SourceConnectionMap
 } from '../../src/index.js';
 
 function config(expression: unknown, table = 'orders/~1') {
@@ -33,8 +34,8 @@ describe('MongoDB expression validation', () => {
             query: SELECT * FROM orders
       `;
       const options = { defaultSchema: 'app', connections: { default: { type: 'mongodb' } } };
-      expect(() => SqlSyncRules.fromYaml(yaml, options)).toThrow('alias count');
-      const { errors } = SqlSyncRules.fromYaml(yaml, { ...options, throwOnError: false });
+      expect(() => parseSyncConfig(yaml, options)).toThrow('alias count');
+      const { errors } = parseSyncConfig(yaml, { ...options, throwOnError: false });
       expect(errors).toHaveLength(1);
       expect(errors[0].type).toBe('fatal');
       expect(errors[0].message).toContain('alias count');
@@ -59,7 +60,7 @@ describe('MongoDB expression validation', () => {
         orders:
           query: SELECT * FROM orders
     `;
-    const errors = SqlSyncRules.validate(yaml, {
+    const errors = validateSyncConfig(yaml, {
       defaultSchema: 'app',
       connections: { default: { type: 'mongodb' } }
     });
@@ -75,7 +76,7 @@ describe('MongoDB expression validation', () => {
         config: { edition: 3, source_table_options: tableOptions ? { orders: value } : value },
         streams: { orders: { query: 'SELECT * FROM orders' } }
       });
-      const errors = SqlSyncRules.validate(yaml, { defaultSchema: 'app' });
+      const errors = validateSyncConfig(yaml, { defaultSchema: 'app' });
       expect(errors).toHaveLength(1);
       expect(errors[0].message).toBe(
         tableOptions
@@ -87,7 +88,7 @@ describe('MongoDB expression validation', () => {
   });
   test('reports independent nested errors with exact YAML locations', () => {
     const yaml = config({ $and: [{ $or: [{ $eq: [123, true] }, { $in: ['$$doc.a', []] }] }, { $or: [false] }] });
-    const errors = SqlSyncRules.validate(yaml, { defaultSchema: 'app' });
+    const errors = validateSyncConfig(yaml, { defaultSchema: 'app' });
     expect(errors).toHaveLength(3);
     expect(errors.map((error) => YAML.parse(yaml.slice(error.location.start, error.location.end)))).toEqual([
       123,
@@ -97,7 +98,7 @@ describe('MongoDB expression validation', () => {
   });
   test('unknown operator highlights its key, not the operand', () => {
     const yaml = config({ $and: [{ $gt: ['$$doc.a', 1] }] });
-    const [error] = SqlSyncRules.validate(yaml, { defaultSchema: 'app' });
+    const [error] = validateSyncConfig(yaml, { defaultSchema: 'app' });
     expect(yaml.slice(error.location.start, error.location.end).trim()).toBe('$gt');
   });
   test.each(['$and', '$or'])('%s rejects nonexpressions and empty operands', (operator) => {
@@ -160,7 +161,7 @@ describe('MongoDB filter connection types', () => {
     (table) => {
       const yaml = config(EXPRESSION, table);
       const options = { defaultSchema: 'app', connections: { default: { type: 'mongodb' } } };
-      expect(SqlSyncRules.fromYaml(yaml, options).errors).toEqual([]);
+      expect(parseSyncConfig(yaml, options).errors).toEqual([]);
     }
   );
 
@@ -169,8 +170,8 @@ describe('MongoDB filter connection types', () => {
     (type) => {
       const yaml = config(EXPRESSION, 'orders');
       const options = { defaultSchema: 'app', connections: { default: { type } } };
-      expect(() => SqlSyncRules.fromYaml(yaml, options)).toThrow('only supported by MongoDB sources');
-      const { errors } = SqlSyncRules.fromYaml(yaml, { ...options, throwOnError: false });
+      expect(() => parseSyncConfig(yaml, options)).toThrow('only supported by MongoDB sources');
+      const { errors } = parseSyncConfig(yaml, { ...options, throwOnError: false });
       expect(errors).toHaveLength(1);
       expect(errors[0].type).toBe('fatal');
       expect(errors[0].message).toContain(`Connection "default" has type "${type}".`);
@@ -190,8 +191,8 @@ describe('MongoDB filter connection types', () => {
       ];
       for (const connections of connectionMaps) {
         const options = { defaultSchema: 'app', connections };
-        expect(() => SqlSyncRules.fromYaml(yaml, options)).toThrow('only supports the "default" connection');
-        const { errors } = SqlSyncRules.fromYaml(yaml, { ...options, throwOnError: false });
+        expect(() => parseSyncConfig(yaml, options)).toThrow('only supports the "default" connection');
+        const { errors } = parseSyncConfig(yaml, { ...options, throwOnError: false });
         expect(errors).toHaveLength(1);
         expect(errors[0].type).toBe('fatal');
         expect(YAML.parse(yaml.slice(errors[0].location.start, errors[0].location.end))).toEqual(EXPRESSION);
@@ -201,7 +202,7 @@ describe('MongoDB filter connection types', () => {
 
   test('missing metadata produces an advisory warning at the expression', () => {
     const yaml = config(EXPRESSION, 'orders');
-    const { errors } = SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app' });
+    const { errors } = parseSyncConfig(yaml, { defaultSchema: 'app' });
     expect(errors).toHaveLength(1);
     expect(errors[0].type).toBe('warning');
     expect(errors[0].message).toBe(
@@ -212,9 +213,9 @@ describe('MongoDB filter connection types', () => {
 
   test('disabled filtering does not require connection metadata or MongoDB', () => {
     const yaml = config('disabled', 'orders');
-    expect(SqlSyncRules.fromYaml(yaml, { defaultSchema: 'app' }).errors).toEqual([]);
+    expect(parseSyncConfig(yaml, { defaultSchema: 'app' }).errors).toEqual([]);
     expect(
-      SqlSyncRules.fromYaml(yaml, {
+      parseSyncConfig(yaml, {
         defaultSchema: 'app',
         connections: { default: { type: 'postgresql' } }
       }).errors
