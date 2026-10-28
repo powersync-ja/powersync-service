@@ -16,7 +16,6 @@ import {
 } from '../common/PersistedBatch.js';
 import { PreparedPublication } from '../common/PreparedPublication.js';
 import { SourceRecordLookupState } from '../common/SourceRecordStore.js';
-import { REPLICATION_WRITE_OPTIONS } from '../MongoReplicationOptions.js';
 import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { serializeBucketData } from './bucket-format.js';
 import { chunkBucketData } from './chunking.js';
@@ -100,10 +99,6 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     return this.operations.currentSize;
   }
 
-  get size(): number {
-    return this.currentSize;
-  }
-
   saveBucketData(options: SaveBucketDataOptions): void {
     this.assertMutable();
     this.operations.saveBucketData(options);
@@ -148,10 +143,6 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
       .then(() => {
         this.payloadsReady = true;
       }));
-  }
-
-  get ready(): Promise<void> {
-    return this.preparePayloads();
   }
 
   async publish(
@@ -346,22 +337,6 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
       }
     });
     this.operations.currentSize += (values.data?.length() ?? 0) + 100;
-  }
-
-  // Flush methods
-
-  async flush(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
-    // All v3/v4 writes use the same publication lifecycle. With object storage
-    // disabled, payload preparation packs inline chunks and starts no uploads.
-    // V3 writers use seal/prepare/publish directly to supply the ownership fence
-    // and head/checkpoint tail. Standalone callers of this low-level adapter own
-    // that scheduling context; prepare first, then atomically write the batch.
-    const publication = this.seal();
-    if (session.inTransaction()) {
-      throw new ReplicationAssertionError('Prepare publication payloads before starting the transaction');
-    }
-    await publication.preparePayloads(session);
-    return session.withTransaction(() => publication.publish(session, options), REPLICATION_WRITE_OPTIONS);
   }
 
   private preparedBucketWrites?: { definitionId: BucketDefinitionId; documents: BucketDataDocumentV3[] }[];

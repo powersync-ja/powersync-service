@@ -1,10 +1,8 @@
-import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
 import { BucketDefinitionId, EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { MongoIdSequence } from '../MongoIdSequence.js';
-import { PublicationStats } from './PreparedPublication.js';
 import { SourceRecordBucketState, SourceRecordLookupState } from './SourceRecordStore.js';
 
 export interface SaveBucketDataOptions {
@@ -48,7 +46,6 @@ export interface PersistedBatch {
   ): void;
   upsertCurrentData(values: UpsertCurrentDataOptions): void;
   shouldFlushTransaction(): boolean;
-  flush(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions): Promise<PublicationStats>;
 }
 
 export interface BucketStateUpdate {

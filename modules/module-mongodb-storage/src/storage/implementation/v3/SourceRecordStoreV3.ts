@@ -214,16 +214,13 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     logger: Logger,
     session?: mongo.ClientSession
   ) {
+    // A previous owner's in-flight cleanup must commute with a new
+    // publisher: live upserts clear pending_delete and never match.
     return retryOnMongoMaxTimeMSExpired(
       () =>
         collection.deleteMany(
           {
-            pending_delete: { $exists: true, $lte: lastCheckpoint },
-            // A previous owner's in-flight cleanup must commute with a new
-            // publisher: live upserts clear pending_delete and never match.
-            data: null,
-            buckets: { $size: 0 },
-            lookups: { $size: 0 }
+            pending_delete: { $exists: true, $lte: lastCheckpoint }
           },
           {
             maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,

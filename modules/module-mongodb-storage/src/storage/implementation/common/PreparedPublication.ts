@@ -28,8 +28,6 @@ export interface PublicationStats {
  * commit may consume input, advance durable progress or notify readers.
  */
 export interface PreparedPublication {
-  /** The existing approximate write-size estimate, not a retained-memory bound. */
-  readonly size: number;
   /**
    * Explicitly start preparation after consuming assigned IDs. Sealing itself
    * starts no I/O, so the coordinator can establish ownership before yielding.
@@ -39,7 +37,6 @@ export interface PreparedPublication {
    * marker registration outside the publication transaction.
    */
   preparePayloads(session?: mongo.ClientSession): Promise<void>;
-  readonly ready: Promise<void>;
   /**
    * Requires completed readiness before starting the publication transaction.
    * An optional batch supplies independent head/checkpoint writes to execute

@@ -74,7 +74,6 @@ describe.each([3, 4])('sealed publication v%s', (storageVersion) => {
       builder = this;
       publication = this;
       const ready = publication.preparePayloads();
-      expect(publication.ready).toBe(ready);
       expect(this.preparePayloads()).toBe(ready);
       await ready;
       await originalPublish.apply(this, args);
@@ -131,13 +130,12 @@ describe.each([3, 4])('sealed publication v%s', (storageVersion) => {
     const paths = [...objectStorage.store.keys()];
     const bytes = paths.map((path) => Buffer.from(objectStorage.store.get(path)!.data));
 
-    // Mutators and flush must not reclaim ownership or clear sealed writes.
+    // Mutators must not reclaim ownership or clear sealed writes.
     expect(() => builder!.seal()).toThrow('sealed');
     expect(() => builder!.hardDeleteCurrentData(table.id as bson.ObjectId, test_utils.rid('C'))).toThrow('sealed');
     await db.client.withSession(async (session) => {
-      await expect(builder!.flush(session)).rejects.toThrow('sealed');
       let attempts = 0;
-      await publication!.ready;
+      await publication!.preparePayloads();
       await session.withTransaction(async () => {
         expect(await publication!.publish(session)).toEqual({
           bucketDataCount: 6,
@@ -305,7 +303,7 @@ streams:
       expect(indexId).toBeDefined();
       const parameters = db.parameterIndex(streamId, indexId);
       expect(await parameters.countDocuments()).toBe(0);
-      await publication!.ready;
+      await publication!.preparePayloads();
       await db.client.withSession(async (session) => {
         await session.withTransaction(() => publication!.publish(session));
       });
@@ -368,7 +366,7 @@ streams:
     const rejected = expect(commit).rejects.toThrow(failure);
     await siblingStarted.promise;
     let readySettled = false;
-    const readiness = publication!.ready.then(
+    const readiness = publication!.preparePayloads().then(
       () => {
         readySettled = true;
       },

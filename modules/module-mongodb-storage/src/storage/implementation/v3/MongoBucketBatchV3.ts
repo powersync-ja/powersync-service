@@ -155,8 +155,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     // markRecordUnavailable only synchronously queues connector-owned repair
     // keys. It must not mutate input, perform async work, or re-enter storage:
     // the writer mutex is still held. Delivery must finish before flush() returns;
-    // WalStream drains that queue before commit()/ack(). This publication
-    // persists data/head only when such a recovery callback is installed.
+    // WalStream drains that queue before commit()/ack().
     // Once committed, these writes cannot be rolled back if the callback
     // throws. Invalidate the whole local lease while the mutex is held, so
     // no writer sharing it (including queued calls) can advance progress
@@ -381,17 +380,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     return { publications, repairs, resumeBatch: resumeBatch?.hasData() ? resumeBatch : null, lastOp, hasWrites };
   }
 
-  protected override async truncateInternal(
-    sourceTables: storage.SourceTable[]
-  ): Promise<storage.FlushedResult | null> {
-    await this.flushInternal();
-    let lastOp: bigint | null = null;
-    for (const table of sourceTables) {
-      lastOp = await this.truncateSingleInternal(table);
-    }
-    return lastOp ? { flushed_op: lastOp } : null;
-  }
-
   protected override async truncateSingleInternal(sourceTable: storage.SourceTable): Promise<InternalOpId> {
     const sourceId = mongoTableId(sourceTable.id);
     const session = this.session;
@@ -453,21 +441,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         return lastOp;
       }
     }
-  }
-
-  protected override async dropInternal(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
-    await this.truncateInternal(sourceTables);
-    await this.withTransaction(async () => {
-      for (const table of sourceTables) {
-        await this.db
-          .sourceTables(this.replicationStreamId)
-          .deleteOne({ _id: mongoTableId(table.id) }, { session: this.session });
-      }
-    }, this.session);
-    await this.cleanupDroppedSourceTables(sourceTables);
-    // Preserve drop()'s existing result: truncate work is durable, and the
-    // subsequent flush has no remaining rows to report.
-    return null;
   }
 
   protected override persistedOpHead(stream: SyncRuleDocumentBase): InternalOpId {
@@ -1100,16 +1073,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       copy.snapshotComplete = true;
       return copy;
     });
-  }
-
-  protected override async batchCreateCustomWriteCheckpoints(
-    session: lib_mongo.mongo.ClientSession,
-    opId: InternalOpId,
-    checkpoints = this.write_checkpoint_batch
-  ): Promise<void> {
-    const writes = this.db.createWriteBatch(session, { ordered: false });
-    this.queueCustomWriteCheckpoints(writes, opId, checkpoints);
-    await writes.execute();
   }
 
   private queueCustomWriteCheckpoints(
