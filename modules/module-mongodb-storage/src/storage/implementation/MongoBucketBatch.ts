@@ -685,7 +685,7 @@ export abstract class MongoBucketBatch
       { session: this.session, ...(writeConcern == null ? {} : { writeConcern }) }
     );
     if (result.matchedCount === 0) {
-      throw new ReplicationAbortedError('Replication writer no longer owns the stream');
+      throw new ReplicationAbortedError('Replication writer lost its lease or metadata target changed');
     }
   }
 
