@@ -62,6 +62,7 @@ export class PostgresPersistedBatch {
 
   readonly maxTransactionBatchSize: number;
   readonly maxTransactionDocCount: number;
+  readonly maxStatementSize: number;
 
   /**
    * Ordered set of bucket_data insert operation parameters
@@ -83,6 +84,7 @@ export class PostgresPersistedBatch {
 
     this.maxTransactionBatchSize = options.max_estimated_size;
     this.maxTransactionDocCount = options.max_record_count;
+    this.maxStatementSize = options.max_statement_size;
 
     this.bucketDataInserts = [];
     this.parameterDataInserts = [];
@@ -304,7 +306,20 @@ export class PostgresPersistedBatch {
   }
 
   protected async flushBucketData(db: lib_postgres.WrappedConnection) {
-    if (this.bucketDataInserts.length > 0) {
+    if (this.bucketDataInserts.length == 0) {
+      return;
+    }
+
+    const chunks = chunkRowsBySize(this.bucketDataInserts, estimateBucketDataRowSize, this.maxStatementSize);
+    if (chunks.length > 1) {
+      logger.debug(
+        `powersync_${this.group_id} Flushing ${this.bucketDataInserts.length} bucket_data rows in ${chunks.length} statements.`
+      );
+    }
+
+    // Sequential statements in the same transaction preserve the order of the operations,
+    // since op_id is assigned from the sequence per row.
+    for (const chunk of chunks) {
       await db.sql`
         INSERT INTO
           bucket_data (
@@ -333,7 +348,7 @@ export class PostgresPersistedBatch {
           data,
           target_op
         FROM
-          json_to_recordset(${{ type: 'json', value: this.bucketDataInserts }}::json) AS t (
+          json_to_recordset(${{ type: 'json', value: chunk }}::json) AS t (
             group_id integer,
             bucket_name text,
             source_table text,
@@ -350,7 +365,18 @@ export class PostgresPersistedBatch {
   }
 
   protected async flushParameterData(db: lib_postgres.WrappedConnection) {
-    if (this.parameterDataInserts.length > 0) {
+    if (this.parameterDataInserts.length == 0) {
+      return;
+    }
+
+    const chunks = chunkRowsBySize(this.parameterDataInserts, estimateParameterDataRowSize, this.maxStatementSize);
+    if (chunks.length > 1) {
+      logger.debug(
+        `powersync_${this.group_id} Flushing ${this.parameterDataInserts.length} bucket_parameters rows in ${chunks.length} statements.`
+      );
+    }
+
+    for (const chunk of chunks) {
       await db.sql`
         INSERT INTO
           bucket_parameters (
@@ -367,7 +393,7 @@ export class PostgresPersistedBatch {
           decode(lookup, 'hex') AS lookup, -- Decode hex to bytea
           bucket_parameters
         FROM
-          json_to_recordset(${{ type: 'json', value: this.parameterDataInserts }}::json) AS t (
+          json_to_recordset(${{ type: 'json', value: chunk }}::json) AS t (
             group_id integer,
             source_table text,
             source_key text, -- Input as hex string
@@ -416,4 +442,43 @@ export class PostgresPersistedBatch {
 
 export function currentBucketKey(b: models.CurrentBucket) {
   return `${b.bucket}/${b.table}/${b.id}`;
+}
+
+/**
+ * Rough estimate of the serialized size of a bucket_data row, matching the `currentSize` accounting.
+ */
+export function estimateBucketDataRowSize(row: models.BucketData) {
+  return row.bucket_name.length + (row.data?.length ?? 0) + (row.source_key?.length ?? 0) + 100;
+}
+
+/**
+ * Rough estimate of the serialized size of a bucket_parameters row, matching the `currentSize` accounting.
+ */
+export function estimateParameterDataRowSize(row: models.BucketParameters) {
+  return row.lookup.length + row.bucket_parameters.length + row.source_key.length + 100;
+}
+
+/**
+ * Splits rows into consecutive chunks, each with a total estimated size of at most `maxSize`.
+ *
+ * The order of the rows is preserved. A single row larger than `maxSize` is placed in its own chunk.
+ */
+export function chunkRowsBySize<T>(rows: T[], estimateSize: (row: T) => number, maxSize: number): T[][] {
+  const chunks: T[][] = [];
+  let currentChunk: T[] = [];
+  let currentChunkSize = 0;
+  for (const row of rows) {
+    const size = estimateSize(row);
+    if (currentChunk.length > 0 && currentChunkSize + size > maxSize) {
+      chunks.push(currentChunk);
+      currentChunk = [];
+      currentChunkSize = 0;
+    }
+    currentChunk.push(row);
+    currentChunkSize += size;
+  }
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
+  }
+  return chunks;
 }

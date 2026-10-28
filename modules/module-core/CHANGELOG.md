@@ -1,5 +1,26 @@
 # @powersync/service-module-core
 
+## 0.2.38
+
+### Patch Changes
+
+- @powersync/service-core@1.27.2
+
+## 0.2.37
+
+### Patch Changes
+
+- 286b0f8: Update WebSocket and HTTP dependencies to address reported security vulnerabilities. Update the OpenTelemetry metrics exporters to remove the protobufjs dependency and include metrics security fixes.
+- Updated dependencies [44ce423]
+- Updated dependencies [51a1a89]
+- Updated dependencies [286b0f8]
+- Updated dependencies [51a1a89]
+- Updated dependencies [57ef2f4]
+  - @powersync/service-core@1.27.1
+  - @powersync/service-types@0.20.0
+  - @powersync/lib-services-framework@0.10.4
+  - @powersync/service-rsocket-router@0.2.29
+
 ## 0.2.36
 
 ### Patch Changes

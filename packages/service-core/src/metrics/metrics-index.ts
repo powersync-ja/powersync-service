@@ -1,3 +1,4 @@
+export * from './connection-metrics.js';
 export * from './metrics-interfaces.js';
 export * from './MetricsEngine.js';
 export * from './open-telemetry/OpenTelemetryMetricsFactory.js';

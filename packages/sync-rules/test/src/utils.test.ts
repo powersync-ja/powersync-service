@@ -11,10 +11,10 @@ import {
   ResolvedBucket,
   TimeValue,
   TimeValuePrecision,
-  toSyncRulesValue
+  toSyncConfigValue
 } from '../../src/index.js';
 
-describe('toSyncRulesValue', () => {
+describe('toSyncConfigValue', () => {
   const legacy = new CompatibilityContext({ edition: 1 });
   const syncStreams = new CompatibilityContext({ edition: 2 });
   const sourceOptions: DateTimeSourceOptions = {
@@ -25,14 +25,14 @@ describe('toSyncRulesValue', () => {
   test('custom value', () => {
     expect(
       applyValueContext(
-        toSyncRulesValue([1n, 'two', [new DateTimeValue('2025-08-19T00:00:00', undefined, sourceOptions)]]),
+        toSyncConfigValue([1n, 'two', [new DateTimeValue('2025-08-19T00:00:00', undefined, sourceOptions)]]),
         CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
       )
     ).toStrictEqual('[1,"two",["2025-08-19 00:00:00"]]');
 
     expect(
       applyValueContext(
-        toSyncRulesValue({ foo: { bar: new DateTimeValue('2025-08-19T00:00:00', undefined, sourceOptions) } }),
+        toSyncConfigValue({ foo: { bar: new DateTimeValue('2025-08-19T00:00:00', undefined, sourceOptions) } }),
         CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
       )
     ).toStrictEqual('{"foo":{"bar":"2025-08-19 00:00:00"}}');
@@ -48,12 +48,12 @@ describe('toSyncRulesValue', () => {
 
   test('booleans in json', () => {
     expect(
-      applyValueContext(toSyncRulesValue([1n, true]), CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)
+      applyValueContext(toSyncConfigValue([1n, true]), CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)
     ).toStrictEqual('[1,1]');
 
     expect(
       applyValueContext(
-        toSyncRulesValue([1n, true]),
+        toSyncConfigValue([1n, true]),
         new CompatibilityContext({
           edition: CompatibilityEdition.COMPILED_STREAMS,
           overrides: new Map([[CompatibilityOption.fixedBooleanInJson, true]])

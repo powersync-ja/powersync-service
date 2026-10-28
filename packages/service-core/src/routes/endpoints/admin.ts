@@ -4,8 +4,8 @@ import { ErrorCode, errors, router, schema } from '@powersync/lib-services-frame
 import {
   HydratedSyncConfig,
   nodeSqlite,
+  parseSyncConfig,
   SourceSchema,
-  SqlSyncRules,
   StaticSchema
 } from '@powersync/service-sync-rules';
 import { internal_routes, ServiceInfo } from '@powersync/service-types';
@@ -173,7 +173,7 @@ export const reprocess = routeDefinition({
     // 1. This always re-parses the source YAML. If there are changes to the Sync Streams compiler, that can affect the sync plan.
     // 2. If the source does not set the storage version, this will update it do the current version.
     // We can consider tweaking this behavior in the future.
-    const parsed = SqlSyncRules.fromYaml(active.content.sync_rules_content, {
+    const parsed = parseSyncConfig(active.content.sync_rules_content, {
       ...apiHandler.getParseSyncRulesOptions(),
       schema: undefined,
       // This sync config already passed validation. But if the config is not valid anymore due
@@ -214,7 +214,7 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncConfigConte
   }
 
   parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
-    const syncConfig = SqlSyncRules.fromYaml(this.sync_rules_content, {
+    const syncConfig = parseSyncConfig(this.sync_rules_content, {
       ...options,
       schema: this.schema
     });
