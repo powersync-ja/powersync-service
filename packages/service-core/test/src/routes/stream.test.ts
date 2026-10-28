@@ -199,7 +199,7 @@ describe('Stream Route', () => {
       onTestFinished(() => recorder.shutdown());
       const storage = {
         getParsedSyncRules() {
-          return SqlSyncRules.fromYaml('config:\n  edition: 3\nstreams: {}', {
+          return parseSyncConfig('config:\n  edition: 3\nstreams: {}', {
             defaultSchema: 'public'
           }).config.hydrate(defaultHydrationOptions);
         },

@@ -131,6 +131,12 @@ export abstract class SyncConfig {
     return this.bucketSources.map((rules) => rules.debugRepresentation());
   }
 }
+
+/**
+ * The {@link SyncConfig} returned when the YAML can't be parsed. It doesn't define any buckets, streams or events.
+ */
+export class InvalidSyncConfig extends SyncConfig {}
+
 export interface SyncConfigWithErrors {
   config: SyncConfig;
   errors: YamlError[];

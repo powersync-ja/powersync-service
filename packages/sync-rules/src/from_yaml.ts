@@ -25,7 +25,7 @@ import { SqlSyncRules } from './SqlSyncRules.js';
 import { validateStorageVersion } from './StorageVersion.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { CompiledEventDescriptor } from './sync_plan/plan.js';
-import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
+import { InvalidSyncConfig, SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { DEFAULT_TAG, ImplicitSchemaTablePattern, TablePattern } from './TablePattern.js';
 import {
   QueryParseOptions,
@@ -155,7 +155,7 @@ export class SyncConfigFromYaml {
 
       // Return an empty sync config instance if we couldn't parse YAML, it doesn't make sense to try parsing the broken
       // structure further.
-      return new SqlSyncRules(this.yaml);
+      return new InvalidSyncConfig(this.yaml);
     }
 
     using rootState = root;

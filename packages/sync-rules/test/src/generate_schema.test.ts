@@ -99,7 +99,7 @@ ${streams}
   });
 
   test('Dart with multiple Sync Stream parameters', () => {
-    const { config } = SqlSyncRules.fromYaml(
+    const { config } = parseSyncConfig(
       `
 config:
   edition: 3
@@ -140,7 +140,7 @@ streams:
   });
 
   test('js without sync streams omits SyncStream imports', () => {
-    const { config: rulesWithoutStreams } = SqlSyncRules.fromYaml(
+    const { config: rulesWithoutStreams } = parseSyncConfig(
       `
 config:
   edition: 3

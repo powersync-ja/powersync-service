@@ -1,5 +1,5 @@
 import { CHECKPOINT_INVALIDATE_ALL, ContextProvider, JwtPayload, SyncRulesBucketStorage } from '@/index.js';
-import { DEFAULT_HYDRATION_STATE, nodeSqlite, SqlSyncRules } from '@powersync/service-sync-rules';
+import { DEFAULT_HYDRATION_STATE, nodeSqlite, parseSyncConfig } from '@powersync/service-sync-rules';
 import { APIMetric } from '@powersync/service-types';
 import Fastify from 'fastify';
 import * as http from 'node:http';
@@ -16,7 +16,7 @@ describe('Sync stream client disconnect', () => {
   function busyStorage() {
     return {
       getParsedSyncRules: () =>
-        SqlSyncRules.fromYaml(
+        parseSyncConfig(
           `
 config:
   edition: 3

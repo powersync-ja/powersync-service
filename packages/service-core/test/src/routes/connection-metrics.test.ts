@@ -6,7 +6,7 @@ import {
   ReactiveStreamRequest,
   SocketRouterObserver
 } from '@powersync/service-rsocket-router';
-import { DEFAULT_HYDRATION_STATE, nodeSqlite, SqlSyncRules } from '@powersync/service-sync-rules';
+import { DEFAULT_HYDRATION_STATE, nodeSqlite, parseSyncConfig } from '@powersync/service-sync-rules';
 import { APIMetric } from '@powersync/service-types';
 import * as sqlite from 'node:sqlite';
 import { Readable } from 'node:stream';
@@ -110,7 +110,7 @@ function idleStorage() {
   const ending = Promise.withResolvers<void>();
   const storage: Partial<SyncRulesBucketStorage> = {
     getParsedSyncRules: () =>
-      SqlSyncRules.fromYaml('config:\n  edition: 3\nstreams: {}', {
+      parseSyncConfig('config:\n  edition: 3\nstreams: {}', {
         defaultSchema: 'public'
       }).config.hydrate({
         hydrationState: DEFAULT_HYDRATION_STATE,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { LineCounter, parseDocument } from 'yaml';
-import { parseSyncConfig } from '../../src/index.js';
+import { InvalidSyncConfig, parseSyncConfig } from '../../src/index.js';
 import { fatalErrors } from './util.js';
 
 describe('parseSyncConfig errors', () => {
@@ -131,6 +131,15 @@ streams:
     auto_subscribe: 1 #error "must be a boolean"
     query: SELECT * FROM users
 `);
+  });
+
+  test('returns an empty config for unparseable YAML', () => {
+    for (const yaml of ['streams: [', '- not a map']) {
+      const { config, errors } = parseSyncConfig(yaml, { throwOnError: false, defaultSchema: 'schema' });
+      expect(config).toBeInstanceOf(InvalidSyncConfig);
+      expect(config.bucketSources).toEqual([]);
+      expect(fatalErrors(errors)).not.toEqual([]);
+    }
   });
 });
 
