@@ -60,7 +60,7 @@ async function save(writer: storage.BucketStorageBatch, table: storage.SourceTab
 
 describe.each([3, 4])('eager replication preparation v%s', (version) => {
   test.each([false, true])(
-    'reads/evaluates once and defers effects across rollback (object storage: %s)',
+    'reads/evaluates once and delivers repairs after commit across rollback (object storage: %s)',
     async (enabled) => {
       const unavailable = vi.fn();
       const context = await open(version, enabled, { markRecordUnavailable: unavailable });
@@ -126,7 +126,7 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
     }
   );
 
-  test('defers oversized output diagnostics until commit and does not repeat them on publication retry', async () => {
+  test('logs oversized output during preparation without repeating it on publication retry', async () => {
     const logger = defaultLogger.child({ test: 'oversized output diagnostics' });
     const context = await open(version, false, { logger });
     await using _factory = context.factory;
@@ -138,7 +138,7 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
       this: PersistedBatchV3,
       ...args
     ) {
-      expect(logged).not.toHaveBeenCalled();
+      expect(logged).toHaveBeenCalledTimes(1);
       const result = await publish.apply(this, args);
       if (++attempts === 1) {
         throw new mongo.MongoServerError({
@@ -222,7 +222,7 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
       });
     } else {
       // Simulate a terminal lost commit response: the data committed, but the
-      // writer cannot confirm it and therefore must not dispatch its effects.
+      // writer cannot confirm it and therefore must not deliver repairs.
       uncertain.mockImplementationOnce(async (...args) => {
         await withTransaction(...args);
         throw failure;

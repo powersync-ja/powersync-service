@@ -56,10 +56,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     this.store = new SourceRecordStoreV3(this.db, this.replicationStreamId, this.mapping);
   }
 
-  protected createPersistedBatch(writtenSize: number, defer?: (effect: () => void) => void): PersistedBatchV3 {
+  protected createPersistedBatch(writtenSize: number): PersistedBatchV3 {
     return new PersistedBatchV3(this.db, this.replicationStreamId, this.mapping, writtenSize, {
       logger: this.logger,
-      defer,
       objectStorage: this.options.objectStorage,
       inlineThresholdBytes: this.options.inlineThresholdBytes,
       signal: this.options.signal,
@@ -158,19 +157,22 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     // the writer mutex is still held. Delivery must finish before flush() returns;
     // WalStream drains that queue before commit()/ack(). This publication
     // persists data/head only when such a recovery callback is installed.
-    // Once committed, these writes cannot be rolled back if a callback
+    // Once committed, these writes cannot be rolled back if the callback
     // throws. Invalidate the whole local lease while the mutex is held, so
     // no writer sharing it (including queued calls) can advance progress
     // past an undelivered repair. A fresh replication attempt must replay
     // from the old source position and redetect incomplete rows.
     try {
-      for (const effect of prepared.effects) {
-        effect();
+      const notify = this.markRecordUnavailable;
+      if (notify != null) {
+        for (const record of prepared.repairs) {
+          notify(record);
+        }
       }
     } catch (error) {
       this.options.replicationLock.invalidate(
         new ReplicationAbortedError(
-          'Committed replication effects failed; restart replication before advancing source progress',
+          'Committed replication repair notification failed; restart replication before advancing source progress',
           error
         )
       );
@@ -271,12 +273,12 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   private async prepareRows(session: lib_mongo.mongo.ClientSession, input: OperationBatch | null) {
     const publications: PreparedPublication[] = [];
-    const effects: (() => void)[] = [];
+    const repairs: storage.SaveUpdate[] = [];
     let resumeBatch: OperationBatch | null = null;
     let lastOp = 0n;
     let hasWrites = false;
     if (input == null) {
-      return { publications, effects, resumeBatch, lastOp, hasWrites };
+      return { publications, repairs, resumeBatch, lastOp, hasWrites };
     }
     using _preparation = this.tracer.span('storage', 'prepare');
     const allocator = this.options.opIdAllocator;
@@ -330,20 +332,21 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         }
         let next: LoadedSourceRecord | null;
         while (true) {
-          const rowEffects: (() => void)[] = [];
-          const defer = (effect: () => void) => {
-            rowEffects.push(effect);
-          };
-          const row = this.createPersistedBatch(0, defer);
+          const rowRepairs: storage.SaveUpdate[] = [];
+          const row = this.createPersistedBatch(0);
           const sequence = allocator.sequence(lastOp);
           try {
             using _evaluate = this.tracer.span('evaluate');
-            next = this.saveOperation(row, op, records.get(op.internalBeforeKey) ?? null, sequence, defer);
+            next = this.saveOperation(
+              row,
+              op,
+              records.get(op.internalBeforeKey) ?? null,
+              sequence,
+              this.markRecordUnavailable == null ? undefined : (record) => rowRepairs.push(record)
+            );
             group!.append(row);
             hasWrites ||= row.currentSize > 0;
-            for (const effect of rowEffects) {
-              effects.push(effect);
-            }
+            repairs.push(...rowRepairs);
             lastOp = sequence.last();
             break;
           } catch (error) {
@@ -375,7 +378,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         publications.push(group.seal());
       }
     }
-    return { publications, effects, resumeBatch: resumeBatch?.hasData() ? resumeBatch : null, lastOp, hasWrites };
+    return { publications, repairs, resumeBatch: resumeBatch?.hasData() ? resumeBatch : null, lastOp, hasWrites };
   }
 
   protected override async truncateInternal(

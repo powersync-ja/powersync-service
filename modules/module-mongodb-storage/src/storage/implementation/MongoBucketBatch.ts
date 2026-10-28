@@ -434,7 +434,7 @@ export abstract class MongoBucketBatch
           // If it will be used again later, it will be set again using nextData below
           sourceRecordLookup.delete(op.internalBeforeKey);
         }
-        const nextData = this.saveOperation(persistedBatch!, op, sourceRecord, op_seq);
+        const nextData = this.saveOperation(persistedBatch!, op, sourceRecord, op_seq, this.markRecordUnavailable);
         if (nextData != null) {
           // Update our current_data and size cache
           sourceRecordLookup.set(op.internalAfterKey!, nextData);
@@ -484,40 +484,17 @@ export abstract class MongoBucketBatch
   /**
    * Evaluate one source operation and append its storage writes to batch.
    *
-   * @param defer Receives synchronous side effects (logging, reporting and
-   * markRecordUnavailable notifications) in evaluation order. Calling defer
-   * registers an effect; saveOperation does not depend on its execution or return
-   * value. The supplied function owns when, and whether, to invoke the effect.
-   * It must accept it synchronously; this method does not await any async work.
-   *
-   * The two callers use different execution policies:
-   * - v1 uses the default immediate execution, preserving its existing behavior.
-   *   Effects can therefore run before commit and repeat on transaction retries.
-   * - v3/v4 collect effects for each row attempt. This method can throw after
-   *   registering effects or appending writes, so the caller must discard both
-   *   for a failed row. Abandoning a preparation also discards all its effects.
-   *   Publication retries reuse the successful preparation's list without
-   *   executing it. After confirmed commit, the coordinator invokes that list
-   *   once, in registration order, before flush() resolves successfully.
-   *
-   * Effects must be synchronous, must not mutate evaluation inputs or re-enter
-   * storage, and should not throw. Captured inputs must remain stable until
-   * execution. A post-commit exception cannot roll back storage: v3/v4 invalidate
-   * the lease and fail the flush, and remaining effects may never run.
-   *
-   * This is not a durable notification queue or an exactly-once guarantee across
-   * crashes/source replay. In particular, markRecordUnavailable only queues
-   * repair keys; the connector must finish those repairs after flush() and before
-   * advancing any resume/checkpoint position or acknowledging the source (see
-   * WalStream.streamChangesInternal). Failed attempts must stop replication;
-   * replay redetects incomplete rows and may report the same repair key again.
+   * Diagnostics run during evaluation. V1 calls markRecordUnavailable immediately;
+   * v3/v4 supply a collector and deliver repair notifications only after a
+   * confirmed publication. A failed row attempt may have registered a repair,
+   * so its caller must discard that row's collected notification on failure.
    */
   protected saveOperation(
     batch: PersistedBatch,
     operation: RecordOperation,
     sourceRecord: LoadedSourceRecord | null,
     opSeq: MongoIdSequence,
-    defer: (effect: () => void) => void = (effect) => effect()
+    onRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined
   ) {
     const record = operation.record;
     const beforeId = operation.beforeId;
@@ -564,7 +541,7 @@ export abstract class MongoBucketBatch
         }
       }
       if (!isCompleteRow(storeCurrentData, after!)) {
-        if (this.markRecordUnavailable != null) {
+        if (onRecordUnavailable != null) {
           // This will trigger a "resnapshot" of the record.
           // This is not relevant if storeCurrentData is false, since we'll get the full row
           // directly in the replication stream.
@@ -573,15 +550,12 @@ export abstract class MongoBucketBatch
           // fails. Its source position has not advanced, so WAL replay must
           // request repair again rather than treating mere record existence as
           // proof that the missing TOAST values have been recovered.
-          const callback = this.markRecordUnavailable;
-          defer(() => callback(record));
+          onRecordUnavailable(record);
         } else if (result == null) {
           // Log to help with debugging if there was a consistency issue
-          defer(() => {
-            this.logger.warn(
-              `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
-            );
-          });
+          this.logger.warn(
+            `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+          );
         }
       }
     } else if (record.tag == SaveOperationTag.DELETE) {
@@ -594,11 +568,9 @@ export abstract class MongoBucketBatch
         // Gate on the batch-level flag: FULL tables (per-record flag false) still get a
         // current_data entry, so a missing record on DELETE is meaningful for them too.
         if (this.storeCurrentData && this.markRecordUnavailable == null) {
-          defer(() => {
-            this.logger.warn(
-              `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
-            );
-          });
+          this.logger.warn(
+            `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+          );
         }
       } else {
         existing_buckets = result.buckets;
@@ -626,18 +598,16 @@ export abstract class MongoBucketBatch
         );
         afterData = new bson.Binary(bson.serialize(after!));
 
-        defer(() => {
-          container.reporter.captureMessage(
-            `Data too big on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${e.message}`,
-            {
-              level: errors.ErrorSeverity.WARNING,
-              metadata: {
-                replication_slot: this.replicationStreamName,
-                table: record.sourceTable.qualifiedName
-              }
+        container.reporter.captureMessage(
+          `Data too big on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${e.message}`,
+          {
+            level: errors.ErrorSeverity.WARNING,
+            metadata: {
+              replication_slot: this.replicationStreamName,
+              table: record.sourceTable.qualifiedName
             }
-          );
-        });
+          }
+        );
       }
     }
 
@@ -687,21 +657,19 @@ export abstract class MongoBucketBatch
         const evaluated = results;
 
         for (let error of syncErrors) {
-          defer(() => {
-            container.reporter.captureMessage(
-              `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
-              {
-                level: errors.ErrorSeverity.WARNING,
-                metadata: {
-                  replication_slot: this.replicationStreamName,
-                  table: record.sourceTable.qualifiedName
-                }
+          container.reporter.captureMessage(
+            `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
+            {
+              level: errors.ErrorSeverity.WARNING,
+              metadata: {
+                replication_slot: this.replicationStreamName,
+                table: record.sourceTable.qualifiedName
               }
-            );
-            this.logger.error(
-              `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`
-            );
-          });
+            }
+          );
+          this.logger.error(
+            `Failed to evaluate data query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`
+          );
         }
 
         // Save new one
@@ -724,21 +692,19 @@ export abstract class MongoBucketBatch
         );
 
         for (let error of paramErrors) {
-          defer(() => {
-            container.reporter.captureMessage(
-              `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
-              {
-                level: errors.ErrorSeverity.WARNING,
-                metadata: {
-                  replication_slot: this.replicationStreamName,
-                  table: record.sourceTable.qualifiedName
-                }
+          container.reporter.captureMessage(
+            `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${record.after?.id}: ${error.error}`,
+            {
+              level: errors.ErrorSeverity.WARNING,
+              metadata: {
+                replication_slot: this.replicationStreamName,
+                table: record.sourceTable.qualifiedName
               }
-            );
-            this.logger.error(
-              `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${after.id}: ${error.error}`
-            );
-          });
+            }
+          );
+          this.logger.error(
+            `Failed to evaluate parameter query on ${record.sourceTable.qualifiedName}.${after.id}: ${error.error}`
+          );
         }
 
         batch.saveParameterData({

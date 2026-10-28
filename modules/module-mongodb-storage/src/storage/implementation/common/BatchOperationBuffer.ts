@@ -58,8 +58,7 @@ export class BatchOperationBuffer {
       checkDefinitionId(id: BucketDefinitionId | null): BucketDefinitionId;
       getBucketDefinitionId(source: BucketDataSource): BucketDefinitionId;
     },
-    private readonly logger: Logger = defaultLogger,
-    private readonly defer: (effect: () => void) => void = (effect) => effect()
+    private readonly logger: Logger = defaultLogger
   ) {
     this.currentSize = writtenSize;
   }
@@ -96,10 +95,8 @@ export class BatchOperationBuffer {
       const recordData = JSONBig.stringify(evaluated.data);
       const checksum = utils.hashData(evaluated.table, evaluated.id, recordData);
       if (recordData.length > MAX_ROW_SIZE) {
-        // Evaluation diagnostics follow the caller's row-attempt lifetime;
-        // publication logging below continues to use the real logger directly.
         const message = `Row ${key} too large: ${recordData.length} bytes. Removing.`;
-        this.defer(() => this.logger.error(message));
+        this.logger.error(message);
         continue;
       }
 

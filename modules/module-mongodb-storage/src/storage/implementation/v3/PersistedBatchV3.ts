@@ -37,12 +37,6 @@ import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 export const DEFAULT_INLINE_THRESHOLD_BYTES = 16 * 1024;
 
 export interface PersistedBatchV3Options extends PersistedBatchOptions {
-  /**
-   * Collect synchronous row-evaluation diagnostics using saveOperation's effect
-   * sink: discard them with failed rows/preparations and dispatch after confirmed
-   * commit. Defaults to immediate execution. Publication logs use logger directly.
-   */
-  defer?: (effect: () => void) => void;
   objectStorage?: ObjectStorage;
   inlineThresholdBytes?: number;
   /**
@@ -92,8 +86,7 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
         },
         getBucketDefinitionId: (source) => mapping.bucketSourceId(source)
       },
-      options?.logger,
-      options?.defer
+      options?.logger
     );
     this.inlineThresholdBytes = options?.inlineThresholdBytes ?? DEFAULT_INLINE_THRESHOLD_BYTES;
     this.signal = options?.signal;

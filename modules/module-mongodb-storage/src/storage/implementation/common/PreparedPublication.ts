@@ -20,9 +20,9 @@ export interface PublicationStats {
  * fit a different context or overwrite its object paths. Publication also
  * asserts that assigned IDs advance the freshly fenced persisted head.
  *
- * No application effects run here. The coordinator must stage evaluation's
- * markRecordUnavailable callbacks and reporter/log messages separately, then
- * dispatch the successful preparation's effects only after confirmed commit.
+ * No application repair callbacks run here. The coordinator collects
+ * markRecordUnavailable records during evaluation and delivers them only after
+ * confirmed commit. Diagnostics run during evaluation.
  * Before/after-flush hooks, source events and custom checkpoint consumption also
  * belong to that coordinator, never to replayable writes. Only a confirmed
  * commit may consume input, advance durable progress or notify readers.
