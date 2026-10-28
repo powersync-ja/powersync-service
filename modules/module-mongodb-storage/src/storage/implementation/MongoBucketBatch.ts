@@ -595,7 +595,7 @@ export abstract class MongoBucketBatch
     acquireFence: () => Promise<S>,
     cb: (stream: S) => Promise<T>,
     session = this.session,
-    description = 'Replication transaction'
+    description?: string
   ): Promise<T> {
     this.options.replicationLock.throwIfAborted();
     let attempts = 0;
@@ -618,11 +618,10 @@ export abstract class MongoBucketBatch
             throw e;
           }
           if (e instanceof mongo.MongoError && e.hasErrorLabel('TransientTransactionError')) {
-            // Keep the existing every-tenth-attempt cadence, including failures
-            // of the fence. Log the actual error rather than assuming every
-            // transient error is a write conflict. Omit stacks and bulk results.
+            // Log every tenth attempt, including failures of the fence, without
+            // logging a stack or bulk result for every driver retry.
             if ((attempts + 1) % 10 === 0) {
-              this.logger.info(`${description} - try ${attempts + 1}`, {
+              this.logger.info(`${description ?? 'Replication transaction'} - try ${attempts + 1}`, {
                 error: e.message,
                 code: e.code,
                 codeName: e instanceof mongo.MongoServerError ? e.codeName : undefined,

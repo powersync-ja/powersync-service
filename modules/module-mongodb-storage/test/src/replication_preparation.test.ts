@@ -248,14 +248,9 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
     });
     aborted.mockRestore();
     uncertain.mockRestore();
-    if (phase === 'after-commit') {
-      await expect(writer.setResumeLsn('1/2')).rejects.toThrow('restart replication');
-      await test_utils.releaseTestStorageLease(factory, context.stream.replicationStreamId);
-    }
-    const replayStorage =
-      phase === 'after-commit'
-        ? await getTestStorage(factory, (await factory.getReplicatingReplicationStreams())[0])
-        : context.bucketStorage;
+    await expect(writer.setResumeLsn('1/2')).rejects.toThrow('restart replication');
+    await test_utils.releaseTestStorageLease(factory, context.stream.replicationStreamId);
+    const replayStorage = await getTestStorage(factory, (await factory.getReplicatingReplicationStreams())[0]);
     const repairs = vi.fn();
     await using replay = await replayStorage.createWriter({
       ...test_utils.BATCH_OPTIONS,

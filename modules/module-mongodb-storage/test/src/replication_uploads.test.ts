@@ -224,7 +224,7 @@ describe.each([3, 4])('replication uploads v%s', (version) => {
   });
 
   test.each([false, true])(
-    'missing markers roll back references, usage and progress (fallback: %s)',
+    'missing markers roll back references, usage and progress and stop the lease (fallback: %s)',
     async (fallback) => {
       const context = await open(version);
       await using factory = context.factory;
@@ -248,8 +248,8 @@ describe.each([3, 4])('replication uploads v%s', (version) => {
       expect(await ObjectStorageUsage.readAllDefinitionUsage(context.db)).toEqual([]);
       expect(writer.last_flushed_op).toBeNull();
       expect((await context.bucketStorage.getCheckpoint()).checkpoint).toBe(0n);
-      await writer.commit('1/2');
-      expect(await context.data.countDocuments()).toBe(1);
+      await expect(writer.commit('1/2')).rejects.toThrow('restart replication from persisted progress');
+      expect(await context.data.countDocuments()).toBe(0);
     }
   );
 

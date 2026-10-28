@@ -210,12 +210,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     }
     let attempts = 0;
     const retryDeadline = Date.now() + 90_000;
-    let bodyCompleted = false;
     try {
       await this.withFencedTransaction(
         () => this.fence(this.session, projection),
         async (document) => {
-          bodyCompleted = false;
           attempts++;
           if (attempts > 20 && Date.now() > retryDeadline) {
             throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
@@ -244,28 +242,17 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           } else {
             await writes.execute();
           }
-          bodyCompleted = true;
         },
         this.session,
         'Publishing prepared work'
       );
     } catch (error) {
-      if (
-        bodyCompleted ||
-        (error instanceof lib_mongo.mongo.MongoError && error.hasErrorLabel('UnknownTransactionCommitResult'))
-      ) {
-        // withTransaction already retries uncertain commits. If it gives up after
-        // a completed body, we cannot infer an abort or publish another generation.
-        // Stop queued writers as well; a new lease must recover persisted progress.
-        // In particular, do not recreate markers or delete objects here: a commit
-        // may have atomically removed those markers and made the objects live.
-        this.options.replicationLock.invalidate(
-          new ReplicationAbortedError(
-            'Publication commit was not confirmed; restart replication from persisted progress',
-            error
-          )
-        );
-      }
+      // Publication failed after the driver's retries or our attempt limit.
+      // Leave uploaded objects and markers alone: the commit may have succeeded.
+      // Stop every writer on this lease and recover from persisted source progress.
+      this.options.replicationLock.invalidate(
+        new ReplicationAbortedError('Publication failed; restart replication from persisted progress', error)
+      );
       throw error;
     }
   }
