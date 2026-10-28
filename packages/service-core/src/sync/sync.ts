@@ -21,6 +21,12 @@ interface ActiveCheckpointTrace {
   span: Span;
 }
 
+interface CheckpointAndLine {
+  checkpoint: storage.ReplicationCheckpoint;
+  line: CheckpointLine | null;
+  trace: ActiveCheckpointTrace | null;
+}
+
 export interface SyncStreamParameters {
   syncContext: SyncContext;
   bucketStorage: storage.SyncRulesBucketStorage;
@@ -54,47 +60,36 @@ export async function* streamResponse(
   } = options;
   const logger = options.logger ?? defaultLogger;
 
-  // We also need to be able to abort, so we create our own controller.
-  const controller = new AbortController();
-  if (signal) {
-    signal.addEventListener(
-      'abort',
-      () => {
-        controller.abort();
-      },
-      { once: true }
-    );
-    if (signal.aborted) {
-      controller.abort();
-    }
-  }
-  const ki = tokenStream(token, controller.signal, tokenStreamOptions);
-  const stream = streamResponseInner(
-    syncContext,
-    bucketStorage,
-    syncRules,
-    params,
-    token,
-    tracker,
-    controller.signal,
-    logger,
-    isEncodingAsBson
+  // Merge the two streams, and abort as soon as one of the streams ends or the consumer stops.
+  const merged = mergeAsyncIterables(
+    [
+      (signal) =>
+        streamResponseInner(
+          syncContext,
+          bucketStorage,
+          syncRules,
+          params,
+          token,
+          tracker,
+          signal,
+          logger,
+          isEncodingAsBson
+        ),
+      (signal) => tokenStream(token, signal, tokenStreamOptions)
+    ],
+    signal
   );
-  // Merge the two streams, and abort as soon as one of the streams end.
-  const merged = mergeAsyncIterables([stream, ki], controller.signal);
 
   try {
     yield* merged;
   } catch (e) {
-    if (isAbortError(e)) {
+    // Parent cancellation ends this response normally, even when its reason is not an AbortError.
+    // Match the reason itself so unrelated iteration or cleanup failures still propagate.
+    if (isAbortError(e) || (signal?.aborted && Object.is(e, signal.reason))) {
       return;
     } else {
       throw e;
     }
-  } finally {
-    // This ensures all the underlying streams are aborted as soon as possible if the
-    // parent loop stops.
-    controller.abort();
   }
 }
 
@@ -119,22 +114,17 @@ async function* streamResponseInner(
     syncRequest: params,
     logger: logger
   });
-  // The checkpoint iterator can have a pending next() while a data batch fails.
-  // Aborting this on cleanup makes that pending next() settle, so the watcher subscription
-  // is released instead of staying open until another checkpoint arrives. See the cleanup
-  // in the finally block below.
+  // A checkpoint read or calculation can be pending while a data batch fails.
+  // Aborting this on cleanup stops that work once in-flight storage reads finish, so the
+  // watcher subscription is released instead of waiting for another checkpoint to arrive.
+  // See the cleanup in the finally block below.
   const checkpointWatchController = new AbortController();
+  const checkpointSignal = AbortSignal.any([signal, checkpointWatchController.signal]);
   const stream = bucketStorage.watchCheckpointChanges({
     user_id: checkpointUserId,
-    signal: AbortSignal.any([signal, checkpointWatchController.signal])
+    signal: checkpointSignal
   });
   const newCheckpoints = stream[Symbol.asyncIterator]();
-
-  type CheckpointAndLine = {
-    checkpoint: storage.ReplicationCheckpoint;
-    line: CheckpointLine | null;
-    trace: ActiveCheckpointTrace | null;
-  };
 
   async function waitForNewCheckpointLine(): Promise<IteratorResult<CheckpointAndLine>> {
     const next = await newCheckpoints.next();
@@ -150,7 +140,7 @@ async function* streamResponseInner(
     };
 
     try {
-      const line = await checksumState.buildNextCheckpointLine(next.value, trace.tracer);
+      const line = await checksumState.buildNextCheckpointLine(next.value, trace.tracer, checkpointSignal);
       return { done: false, value: { checkpoint: cp, line, trace: line == null ? null : trace } };
     } catch (e) {
       if (e instanceof storage.CheckpointChecksumInvalidatedError) {
@@ -184,10 +174,10 @@ async function* streamResponseInner(
   }
 
   let activeCheckpoint: { checkpoint: storage.ReplicationCheckpoint; trace: ActiveCheckpointTrace } | null = null;
+  let iterationFailure: { error: unknown } | undefined;
+  let nextCheckpointPromise: Promise<PromiseSettledResult<IteratorResult<CheckpointAndLine>>> | undefined;
 
   try {
-    let nextCheckpointPromise: Promise<PromiseSettledResult<IteratorResult<CheckpointAndLine>>> | undefined;
-
     do {
       if (!nextCheckpointPromise) {
         // Wrap in a settledPromise, so that abort errors after the parent stopped iterating
@@ -344,6 +334,9 @@ async function* streamResponseInner(
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
     } while (!signal.aborted);
+  } catch (error) {
+    iterationFailure = { error };
+    throw error;
   } finally {
     if (activeCheckpoint != null) {
       const { checkpoint, trace } = activeCheckpoint;
@@ -353,17 +346,38 @@ async function* streamResponseInner(
       });
     }
 
-    // The abort makes a pending next() settle as soon as the storage watcher observes it,
-    // releasing the subscription. return() is still needed for the case where there is no
-    // pending next(): the watcher is then suspended at a yield and never observes the abort.
-    // Neither is awaited: async generators queue return() behind a pending next(), so
-    // awaiting it here would keep the connection open until the next checkpoint arrives.
-    checkpointWatchController.abort();
-    newCheckpoints.return?.().catch((e) => {
-      if (!isAbortError(e)) {
-        logger.warn('Error while closing the checkpoint watcher', e);
-      }
-    });
+    await closeCheckpointWatcher(checkpointWatchController, newCheckpoints, nextCheckpointPromise, iterationFailure);
+  }
+}
+
+async function closeCheckpointWatcher(
+  controller: AbortController,
+  watcher: AsyncIterator<unknown>,
+  pending: Promise<PromiseSettledResult<IteratorResult<CheckpointAndLine>>> | undefined,
+  iterationFailure?: { error: unknown }
+): Promise<void> {
+  // The abort makes a pending next() settle as soon as the storage watcher observes it,
+  // releasing the subscription. return() is still needed for the case where there is no
+  // pending next(): the watcher is then suspended at a yield and never observes the abort.
+  // Abort before awaiting return(): async generators queue it behind a pending next().
+  // This ordering prevents the connection stall fixed in #773, without detaching cleanup.
+  controller.abort(iterationFailure?.error);
+  // A pending read can fail in the watcher's finally block while its queued return() succeeds.
+  // Observe both results so that cleanup failures are not silently lost.
+  const [closed, read] = await Promise.all([settledPromise(Promise.resolve().then(() => watcher.return?.())), pending]);
+  const errors = iterationFailure ? [iterationFailure.error] : [];
+  for (const result of [closed, read]) {
+    if (result?.status === 'rejected' && !isAbortError(result.reason) && !errors.includes(result.reason)) {
+      errors.push(result.reason);
+    }
+  }
+  if (read?.status === 'fulfilled' && !read.value.done) {
+    read.value.value.trace?.span.end();
+  }
+  if (errors.length > 1) {
+    throw new AggregateError(errors, 'Checkpoint iteration and cleanup both failed', { cause: errors[0] });
+  } else if (errors.length === 1) {
+    throw errors[0];
   }
 }
 
