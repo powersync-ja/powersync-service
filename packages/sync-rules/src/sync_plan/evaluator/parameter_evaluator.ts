@@ -533,6 +533,8 @@ class LookupStage {
 interface PreparedIntersection {
   /**
    * The value of the intersection evaluated first, which replaces the intersection in parameter values.
+   *
+   * All other values are evaluated only to remove rows with non-intersecting values from the result set.
    */
   representative: PreparedParameterValue;
   /**

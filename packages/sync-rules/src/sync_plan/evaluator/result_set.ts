@@ -15,12 +15,23 @@ export class ResultSet {
   /**
    * @param totalLookups - The total amount of lookups that will be joined to this result set.
    */
-  constructor(totalLookups: number) {
-    this.#containsLookup = new Array(totalLookups).fill(false);
+  constructor(totalLookups: number | ResultSet) {
+    if (totalLookups instanceof ResultSet) {
+      // Clone an existing result set.
+      const source = totalLookups;
+      this.#containsLookup = source.#containsLookup.slice();
 
-    const initialRow = new Array(totalLookups);
-    initialRow.fill(undefined);
-    this.#rows = [initialRow];
+      this.#rows = source.#rows.map((row) => {
+        // We can shallow-clone rows, inner items are frozen once added into the result set.
+        return row.slice();
+      });
+    } else {
+      this.#containsLookup = new Array(totalLookups).fill(false);
+
+      const initialRow = new Array(totalLookups);
+      initialRow.fill(undefined);
+      this.#rows = [initialRow];
+    }
   }
 
   get length(): number {
@@ -28,16 +39,7 @@ export class ResultSet {
   }
 
   clone(): ResultSet {
-    const rs = new ResultSet(this.#containsLookup.length);
-    rs.#containsLookup = this.#containsLookup.slice();
-    rs.#rows.splice(0, 1); // Remove the initial unit row
-
-    for (const row of this.#rows) {
-      // We can shallow-clone rows, inner items are frozen once added into the result set.
-      rs.#rows.push(row.slice());
-    }
-
-    return rs;
+    return new ResultSet(this);
   }
 
   /**
@@ -98,15 +100,10 @@ export class ResultSet {
     using add = this.#prepareAddingResultSet(resultSetIndex);
 
     // Rows found for a lookup are indexed once, and then re-used for all existing rows sharing that lookup.
-    const indexedLookups = new Map<AsyncJoinLookup, MatchingRows>();
     const originalLength = this.#rows.length;
     for (let i = 0; i < originalLength; i++) {
       const lookup = lookupsByRow[i];
-      let matching = indexedLookups.get(lookup);
-      if (matching == null) {
-        matching = indexRows(lookup.foundRows, options?.keys);
-        indexedLookups.set(lookup, matching);
-      }
+      const matching = (lookup.joinIndex ??= indexRows(lookup.foundRows, options?.keys));
 
       if (!this.#addAtRow(resultSetIndex, i, matching(this.#rows[i]), options)) {
         // The row has no matching join partner, so remove it. We can't split it immediately because #multiplyAtRow is
@@ -268,6 +265,8 @@ export interface JoinOptions {
 export interface AsyncJoinLookup {
   inputs: SqliteParameterValue[];
   foundRows: SqliteParameterValue[][];
+  /** Set by {@link ResultSet.joinAsync} after the `performLookup` callback returns */
+  joinIndex?: MatchingRows;
 }
 
 /**
@@ -295,6 +294,11 @@ function lookupInRow(row: ResultSetRow, column: ResultSetColumn): SqliteParamete
  */
 type MatchingRows = (existing: ResultSetRow) => readonly SqliteParameterValue[][];
 
+/**
+ * Indexes rows to multiply into a result set by join keys.
+ *
+ * Returns a function that, given a row already present in the result set, efficiently finds joined rows.
+ */
 function indexRows(rows: SqliteParameterValue[][], keys: JoinKey[] | undefined): MatchingRows {
   if (keys == null || keys.length === 0) {
     return () => rows;
