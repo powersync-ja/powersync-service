@@ -1,0 +1,40 @@
+{
+  "name": "@powersync/service-core-benchmarks",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "0.0.1",
+  "exports": "./dist/index.js",
+  "license": "FSL-1.1-ALv2",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf ./dist && tsc -b --clean",
+    "benchmark:test": "vitest --config src/vitest.config.ts --run",
+    "benchmark:report": "node ./dist/scripts/report.js"
+  },
+  "dependencies": {
+    "@powersync/lib-services-framework": "workspace:^",
+    "@powersync/service-core": "workspace:^",
+    "@powersync/service-jsonbig": "workspace:^",
+    "@powersync/service-sync-rules": "workspace:^"
+  },
+  "peerDependencies": {
+    "vitest": "catalog:"
+  },
+  "devDependencies": {
+    "@powersync/lib-service-mongodb": "workspace:*",
+    "@powersync/lib-service-postgres": "workspace:*",
+    "@powersync/service-jpgwire": "workspace:*",
+    "@powersync/service-module-mongodb": "workspace:*",
+    "@powersync/service-module-core": "workspace:*",
+    "@powersync/service-module-mongodb-storage": "workspace:*",
+    "@powersync/service-module-postgres": "workspace:*",
+    "@powersync/service-module-postgres-storage": "workspace:*",
+    "@powersync/service-core-tests": "workspace:*",
+    "jose": "^4.15.9",
+    "ts-node": "^10.9.2",
+    "typescript": "catalog:"
+  }
+}

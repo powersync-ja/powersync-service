@@ -763,6 +763,61 @@ importers:
         specifier: ^5.0.1
         version: 5.0.1
 
+  packages/service-core-benchmarks:
+    dependencies:
+      '@powersync/lib-services-framework':
+        specifier: workspace:^
+        version: link:../../libs/lib-services
+      '@powersync/service-core':
+        specifier: workspace:^
+        version: link:../service-core
+      '@powersync/service-jsonbig':
+        specifier: workspace:^
+        version: link:../jsonbig
+      '@powersync/service-sync-rules':
+        specifier: workspace:^
+        version: link:../sync-rules
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@25.5.0)(@vitest/coverage-v8@4.1.11)(@vitest/ui@4.1.11)(vite@8.3.2(@types/node@25.5.0)(esbuild@0.27.0)(yaml@2.8.3))
+    devDependencies:
+      '@powersync/lib-service-mongodb':
+        specifier: workspace:*
+        version: link:../../libs/lib-mongodb
+      '@powersync/lib-service-postgres':
+        specifier: workspace:*
+        version: link:../../libs/lib-postgres
+      '@powersync/service-core-tests':
+        specifier: workspace:*
+        version: link:../service-core-tests
+      '@powersync/service-jpgwire':
+        specifier: workspace:*
+        version: link:../jpgwire
+      '@powersync/service-module-core':
+        specifier: workspace:*
+        version: link:../../modules/module-core
+      '@powersync/service-module-mongodb':
+        specifier: workspace:*
+        version: link:../../modules/module-mongodb
+      '@powersync/service-module-mongodb-storage':
+        specifier: workspace:*
+        version: link:../../modules/module-mongodb-storage
+      '@powersync/service-module-postgres':
+        specifier: workspace:*
+        version: link:../../modules/module-postgres
+      '@powersync/service-module-postgres-storage':
+        specifier: workspace:*
+        version: link:../../modules/module-postgres-storage
+      jose:
+        specifier: ^4.15.9
+        version: 4.15.9
+      ts-node:
+        specifier: ^10.9.2
+        version: 10.9.2(@types/node@25.5.0)(typescript@6.0.3)
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+
   packages/service-core-tests:
     dependencies:
       '@powersync/lib-services-framework':
@@ -1702,12 +1757,14 @@ packages:
   '@opentelemetry/sdk-trace-base@2.11.0':
     resolution: {integrity: sha512-H19x/TX/LZdqiYOjM7fqtSxwlplC5pgelavqbQdHbhdq0q/AI/TGkM2dfGuuynTXmJPeF2HoZVoPDu+TGoW78A==}
     engines: {node: ^18.19.0 || >=20.6.0}
+    deprecated: Use @opentelemetry/sdk-trace package
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
   '@opentelemetry/sdk-trace-base@2.8.0':
     resolution: {integrity: sha512-mhU4jp+vW0mGbFRd+GeXHvmfA4aDqWjBjLC3pE5XMpLs0IE2ryYb019Ts2AQrOq67gaTF25D91+fgvEHDZEnuQ==}
     engines: {node: ^18.19.0 || >=20.6.0}
+    deprecated: Use @opentelemetry/sdk-trace package
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 

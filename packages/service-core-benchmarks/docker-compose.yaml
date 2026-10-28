@@ -1,0 +1,65 @@
+services:
+  postgres-source:
+    image: postgres:18
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: powersync_source_test
+    command: ['postgres', '-c', 'wal_level=logical']
+    ports:
+      - '127.0.0.1:5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d powersync_source_test']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-storage:
+    image: postgres:18
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: powersync_storage_test
+    ports:
+      - '127.0.0.1:5431:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d powersync_storage_test']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongodb-source:
+    image: mongo:8.0
+    ulimits:
+      nofile: 65536
+    command:
+      ['mongod', '--port', '27017', '--replSet', 'test-rs', '--bind_ip_all', '--setParameter', 'enableTestCommands=1']
+    ports:
+      - '127.0.0.1:27017:27017'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --port 27017 --eval
+          "try { if (!db.hello().isWritablePrimary) rs.initiate({_id: 'test-rs', members: [{_id: 0, host: 'localhost:27017'}]}); } catch (e) {}
+          quit(db.hello().isWritablePrimary ? 0 : 1)"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongodb-storage:
+    image: mongo:8.0
+    ulimits:
+      nofile: 65536
+    command:
+      ['mongod', '--port', '27018', '--replSet', 'test-rs', '--bind_ip_all', '--setParameter', 'enableTestCommands=1']
+    ports:
+      - '127.0.0.1:27018:27018'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --port 27018 --eval
+          "try { if (!db.hello().isWritablePrimary) rs.initiate({_id: 'test-rs', members: [{_id: 0, host: 'localhost:27018'}]}); } catch (e) {}
+          quit(db.hello().isWritablePrimary ? 0 : 1)"
+      interval: 5s
+      timeout: 5s
+      retries: 10

@@ -1,0 +1,25 @@
+name: Start PostgreSQL Source DB
+description: Start the PostgreSQL container used by source replication benchmarks
+
+inputs:
+  postgres-version:
+    description: PostgreSQL image tag to use
+    required: false
+    default: '18'
+
+runs:
+  using: composite
+  steps:
+    - name: Start PostgreSQL (Source)
+      shell: bash
+      run: |
+        docker run \
+          --health-cmd pg_isready \
+          --health-interval 10s \
+          --health-timeout 5s \
+          --health-retries 5 \
+          -e POSTGRES_PASSWORD=postgres \
+          -e POSTGRES_DB=powersync_source_test \
+          -p 5432:5432 \
+          -d postgres:${{ inputs.postgres-version }} \
+          -c wal_level=logical
