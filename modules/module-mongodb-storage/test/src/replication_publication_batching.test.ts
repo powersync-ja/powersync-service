@@ -44,8 +44,7 @@ async function open(version: number, mode = 'disabled') {
   const writer = (await bucketStorage.createWriter(test_utils.BATCH_OPTIONS)) as MongoBucketBatchV3;
   const table = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
   await writer.markAllSnapshotDone('1/1');
-  // Reserve IDs, activate the config and finish the metadata barrier before
-  // measuring steady-state publication. The second commit seeds a confirmed head.
+  // Reserve IDs and activate the config before measuring steady-state publication.
   await save(writer, table, 'A');
   await writer.commit('1/1');
   await save(writer, table, 'B');
@@ -136,7 +135,7 @@ describe.each([3, 4])('publication batching v%s', (version) => {
     expect(await context.bucketStorage.getCheckpoint()).toMatchObject({ checkpoint: 4n, lsn: '1/4' });
   });
 
-  test('does not cache aborted progress and restores the majority-read path after failure', async () => {
+  test('aborted publication leaves progress unchanged and stops the lease', async () => {
     const context = await open(version);
     await using factory = context.factory;
     await using writer = context.writer;
@@ -152,54 +151,11 @@ describe.each([3, 4])('publication batching v%s', (version) => {
     await save(writer, context.table, 'C');
     await expect(writer.commit('1/3')).rejects.toThrow('abort combined data and checkpoint');
     expect(reads.count).toBe(0);
-    await writer.commit('1/3');
-    expect(reads.count).toBe(1);
-    expect(await context.bucketStorage.getCheckpoint()).toMatchObject({ checkpoint: 4n, lsn: '1/3' });
+    await expect(writer.commit('1/3')).rejects.toThrow('restart replication from persisted progress');
+    expect(await context.bucketStorage.getCheckpoint()).toMatchObject({ checkpoint: 2n, lsn: '1/2' });
   });
 
-  test.each(['resume', 'snapshot', 'resolve'])('drops the head hint across a %s metadata barrier', async (barrier) => {
-    const context = await open(version);
-    await using factory = context.factory;
-    await using writer = context.writer;
-    if (barrier === 'resume') {
-      await writer.setResumeLsn('1/2');
-    } else if (barrier === 'snapshot') {
-      await writer.markAllSnapshotDone('1/1');
-    } else {
-      await test_utils.resolveTestTable(writer, 'items', ['id'], context.factoryGen, 1);
-    }
-    using reads = countStreamReads(factory.db.client);
-    await save(writer, context.table, 'C');
-    await writer.commit('1/3');
-    expect(reads.count).toBe(1);
-    await save(writer, context.table, 'D');
-    await writer.commit('1/4');
-    expect(reads.count).toBe(1);
-  });
-
-  test.each(['disabled', 'offloaded'])('rebuilds a stale head hint using a fresh read (%s)', async (mode) => {
-    const context = await open(version, mode);
-    await using factory = context.factory;
-    await using writer = context.writer;
-    await factory.db.sync_rules.updateOne(
-      { _id: context.stream.replicationStreamId },
-      { $set: { last_persisted_op: 10n } },
-      { writeConcern: { w: 'majority' } }
-    );
-    using reads = countStreamReads(factory.db.client);
-    using put = vi.spyOn(context.objectStorage, 'put');
-    await save(writer, context.table, 'C');
-    await writer.commit('1/3');
-    expect(reads.count).toBe(1);
-    expect(writer.last_flushed_op).toBe(11n);
-    expect(put).toHaveBeenCalledTimes(mode === 'offloaded' ? 2 : 0);
-    await save(writer, context.table, 'D');
-    await writer.commit('1/4');
-    expect(reads.count).toBe(1);
-    expect(writer.last_flushed_op).toBe(12n);
-  });
-
-  test('validates live configs from the fence even when preparation used a head hint', async () => {
+  test('validates live configs from the fence', async () => {
     const context = await open(version);
     await using factory = context.factory;
     await using writer = context.writer;
@@ -213,16 +169,10 @@ describe.each([3, 4])('publication batching v%s', (version) => {
     await expect(writer.flush()).rejects.toThrow('reload');
     expect(reads.count).toBe(0);
     expect(writer.last_flushed_op).toBe(2n);
-    await factory.db.sync_rules.updateOne(
-      { _id: context.stream.replicationStreamId },
-      { $set: { 'sync_configs.$[].state': storage.SyncRuleState.ACTIVE } },
-      { writeConcern: { w: 'majority' } }
-    );
-    await writer.commit('1/3');
-    expect(reads.count).toBe(1);
+    await expect(writer.commit('1/3')).rejects.toThrow('restart replication from persisted progress');
   });
 
-  test('never carries a confirmed head hint into a replacement lease', async () => {
+  test('replacement lease publishes from durable progress', async () => {
     const context = await open(version);
     await using factory = context.factory;
     await using previous = context.writer;
@@ -234,7 +184,7 @@ describe.each([3, 4])('publication batching v%s', (version) => {
     using reads = countStreamReads(factory.db.client);
     await save(next, table, 'C');
     await next.commit('1/3');
-    expect(reads.count).toBe(1);
+    expect(reads.count).toBe(0);
     await expect(previous.commit('1/4')).rejects.toThrow('Replication lock released');
   });
 

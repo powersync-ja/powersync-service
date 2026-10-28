@@ -1,4 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 import { execFile } from 'node:child_process';
@@ -461,10 +462,18 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     await writerB.flush();
     const higher = writerB.last_flushed_op!;
     await insert(writerA, a.table, 'c');
-    await writerA.flush();
-    expect(writerA.last_flushed_op).toBeGreaterThan(higher);
-    await writerA.commit('1/2');
-    expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(writerA.last_flushed_op);
+    if (version >= 3) {
+      // Independent allocators on the same lease can reserve disjoint ranges in
+      // the opposite order from publication. The stale writer must stop.
+      await expect(writerA.flush()).rejects.toThrow('does not advance persisted stream head');
+      expect(writerA.last_flushed_op).toBeLessThan(higher);
+      await expect(writerA.commit('1/2')).rejects.toThrow('restart replication from persisted progress');
+    } else {
+      await writerA.flush();
+      expect(writerA.last_flushed_op).toBeGreaterThan(higher);
+      await writerA.commit('1/2');
+      expect((await a.bucketStorage.getCheckpoint()).checkpoint).toBe(writerA.last_flushed_op);
+    }
   });
 
   test('lease takeover fences stale row, metadata, and checkpoint writes', async () => {
@@ -496,12 +505,12 @@ describe.each([1, 2, 4])('concurrent writers v%s', (version) => {
     expect(nextWriter.last_flushed_op).toBeGreaterThan(abandonedEnd);
     await insert(oldWriter, oldTable, 'stale');
     await expect(oldWriter.flush()).rejects.toThrow('no longer owns');
-    await expect(oldWriter.setResumeLsn('9/9')).rejects.toThrow('no longer owns');
-    await expect(oldWriter.markAllSnapshotDone('9/9')).rejects.toThrow('no longer owns');
-    await expect(oldWriter.markTableSnapshotRequired(oldTable)).rejects.toThrow('no longer owns');
-    await expect(oldWriter.commit('9/9')).rejects.toThrow('no longer owns');
+    await expect(oldWriter.setResumeLsn('9/9')).rejects.toBeInstanceOf(ReplicationAbortedError);
+    await expect(oldWriter.markAllSnapshotDone('9/9')).rejects.toBeInstanceOf(ReplicationAbortedError);
+    await expect(oldWriter.markTableSnapshotRequired(oldTable)).rejects.toBeInstanceOf(ReplicationAbortedError);
+    await expect(oldWriter.commit('9/9')).rejects.toBeInstanceOf(ReplicationAbortedError);
     // No pending rows: this exercises the checkpoint fence, not the flush fence.
-    await expect(oldCheckpointWriter.commit('9/9')).rejects.toThrow('no longer owns');
+    await expect(oldCheckpointWriter.commit('9/9')).rejects.toBeInstanceOf(ReplicationAbortedError);
     await first.release();
     expect((await factory.db.sync_rules.findOne({ _id: stream.replicationStreamId }))!.lock?.id).toBe(
       (next as typeof first).lock_id
