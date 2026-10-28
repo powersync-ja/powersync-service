@@ -464,7 +464,7 @@ export abstract class MongoSyncBucketStorage
     }
 
     const stream = mergeAsyncIterables(
-      [this.checkpointChangesStream(signal), this.checkpointTimeoutStream(signal)],
+      [(signal) => this.checkpointChangesStream(signal), (signal) => this.checkpointTimeoutStream(signal)],
       signal
     );
 

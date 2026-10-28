@@ -346,9 +346,6 @@ importers:
       bson:
         specifier: ^6.10.4
         version: 6.10.4
-      ix:
-        specifier: ^5.0.0
-        version: 5.0.0
       lru-cache:
         specifier: ^10.2.2
         version: 10.4.3
@@ -545,9 +542,6 @@ importers:
       '@powersync/service-types':
         specifier: workspace:*
         version: link:../../packages/types
-      ix:
-        specifier: ^5.0.0
-        version: 5.0.0
       lru-cache:
         specifier: ^10.2.2
         version: 10.4.3
@@ -713,9 +707,6 @@ importers:
       ipaddr.js:
         specifier: ^2.1.0
         version: 2.2.0
-      ix:
-        specifier: ^5.0.0
-        version: 5.0.0
       jose:
         specifier: ^4.15.1
         version: 4.15.9
@@ -2186,9 +2177,6 @@ packages:
   '@types/node@12.20.55':
     resolution: {integrity: sha512-J8xLz7q2OFulZ2cyGTLE1TbbZcjpno7FaN6zdJNrgAdrJ+DZzh/uFR6YrTb4C+nXakvud8Q4+rbhoIWlYQbUFQ==}
 
-  '@types/node@13.13.52':
-    resolution: {integrity: sha512-s3nugnZumCC//n4moGGe6tkNMyYEdaDBitVjwPxXmR5lnMG5dHePinH2EdxkG3Rh1ghFHHixAG4NJhpJW1rthQ==}
-
   '@types/node@15.14.9':
     resolution: {integrity: sha512-qjd88DrCxupx/kJD5yQgZdcYKZKSIGBVDIBE1/LTGcNm3d2Np/jxojkdePDdfnBHJc5W7vSMpbJ1aB7p/Py69A==}
 
@@ -3074,9 +3062,6 @@ packages:
   istanbul-reports@3.2.0:
     resolution: {integrity: sha512-HGYWWS/ehqTV3xN10i23tkPkpH46MLCIMFNCaaKNavAXTF1RkqxawEPtnjnGZ6XKSInBKkiOA5BKS+aZiY3AvA==}
     engines: {node: '>=8'}
-
-  ix@5.0.0:
-    resolution: {integrity: sha512-6LyyrHnvNrSy5pKtW/KA+KKusHrB223aBJCJlIGPN7QBfDkEEtNrAkAz9lLLShIcdJntq6BiPCHuKaCM/9wwXw==}
 
   jose@4.15.9:
     resolution: {integrity: sha512-1vUQX+IdDMVPj4k8kOxgUqlcK518yluMuGZwqlr44FS1ppZB/5GWh4rZG89erpOBOJjU/OBsnCVFfapsRz6nEA==}
@@ -5781,8 +5766,6 @@ snapshots:
 
   '@types/node@12.20.55': {}
 
-  '@types/node@13.13.52': {}
-
   '@types/node@15.14.9': {}
 
   '@types/node@22.16.2':
@@ -6660,11 +6643,6 @@ snapshots:
     dependencies:
       html-escaper: 2.0.2
       istanbul-lib-report: 3.0.1
-
-  ix@5.0.0:
-    dependencies:
-      '@types/node': 13.13.52
-      tslib: 2.6.3
 
   jose@4.15.9: {}
 

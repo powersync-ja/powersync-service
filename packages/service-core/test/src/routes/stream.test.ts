@@ -263,118 +263,139 @@ describe('Stream Route', () => {
     });
   });
 
-  it('closes after a data fetch error while waiting for a new checkpoint', async () => {
-    // After 1,000 operations, the sync stream concurrently calls next() on the
-    // checkpoint watcher. This test then fails the next data fetch without
-    // producing another checkpoint. Before the fix, awaiting watcher.return()
-    // during cleanup queued it behind that pending next(), leaving the response
-    // open until an unrelated checkpoint was written.
-    const syncRules = parseSyncConfig(
-      `
+  it.each([false, true])(
+    'closes after a data fetch error while waiting for a new checkpoint (cleanupFails=%s)',
+    async (cleanupFails) => {
+      // After 1,000 operations, the sync stream concurrently calls next() on the
+      // checkpoint watcher. This test then fails the next data fetch without
+      // producing another checkpoint. Before the fix, awaiting watcher.return()
+      // during cleanup queued it behind that pending next(), leaving the response
+      // open until an unrelated checkpoint was written.
+      const syncRules = parseSyncConfig(
+        `
 bucket_definitions:
   global:
     data: []
       `,
-      { defaultSchema: 'public' }
-    ).config.hydrate(defaultHydrationOptions);
+        { defaultSchema: 'public' }
+      ).config.hydrate(defaultHydrationOptions);
 
-    let checkpointWatcherAborted = false;
-    let dataFetches = 0;
-    const storage = {
-      watchCheckpointChanges: async function* ({ signal }) {
-        yield {
-          base: {
-            checkpoint: 1n,
-            lsn: '1',
-            getParameterSets: async () => []
-          },
-          writeCheckpoint: null,
-          update: CHECKPOINT_INVALIDATE_ALL
-        };
+      let checkpointWatcherAborted = false;
+      let checkpointWatcherClosed = false;
+      const cleanupError = new Error('Checkpoint watcher cleanup failed');
+      let dataFetches = 0;
+      const storage = {
+        watchCheckpointChanges: async function* ({ signal }) {
+          try {
+            yield {
+              base: {
+                checkpoint: 1n,
+                lsn: '1',
+                getParameterSets: async () => []
+              },
+              writeCheckpoint: null,
+              update: CHECKPOINT_INVALIDATE_ALL
+            };
 
-        await new Promise<void>((_resolve, reject) => {
-          // There is intentionally no next checkpoint: cleanup must abort this
-          // pending wait rather than wait for it to complete naturally.
-          signal.addEventListener(
-            'abort',
-            () => {
-              checkpointWatcherAborted = true;
-              reject(new Error('Checkpoint watcher aborted'));
+            await new Promise<void>((_resolve, reject) => {
+              // There is intentionally no next checkpoint: cleanup must abort this
+              // pending wait rather than wait for it to complete naturally.
+              signal.addEventListener(
+                'abort',
+                () => {
+                  checkpointWatcherAborted = true;
+                  reject(signal.reason);
+                },
+                { once: true }
+              );
+            });
+          } finally {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            checkpointWatcherClosed = true;
+            if (cleanupFails) throw cleanupError;
+          }
+        },
+        getChecksums: async (_checkpoint, buckets) =>
+          new Map(buckets.map(({ bucket }) => [bucket, { bucket, checksum: 1, count: 1000 }])),
+        getBucketDataBatch: async function* () {
+          if (dataFetches++ > 0) {
+            throw new Error('Simulated data fetch failure');
+          }
+
+          yield {
+            chunkData: {
+              bucket: 'global[]',
+              data: Array.from({ length: 1000 }, () => ({ op: 'PUT' })),
+              has_more: true,
+              after: '0',
+              next_after: '1000'
             },
-            { once: true }
-          );
-        });
-      },
-      getChecksums: async (_checkpoint, buckets) =>
-        new Map(buckets.map(({ bucket }) => [bucket, { bucket, checksum: 1, count: 1000 }])),
-      getBucketDataBatch: async function* () {
-        if (dataFetches++ > 0) {
-          throw new Error('Simulated data fetch failure');
+            targetOp: null
+          };
+          yield { hasMore: true };
         }
+      } as Partial<SyncRulesBucketStorage>;
+      const serviceContext = mockServiceContext(storage);
+      const controller = new AbortController();
+      const checkpointLogger = logger.child({});
+      const checkpointLogSpy = vi.spyOn(checkpointLogger, 'info');
 
-        yield {
-          chunkData: {
-            bucket: 'global[]',
-            data: Array.from({ length: 1000 }, () => ({ op: 'PUT' })),
-            has_more: true,
-            after: '0',
-            next_after: '1000'
-          },
-          targetOp: null
-        };
-        yield { hasMore: true };
+      const response = (async () => {
+        for await (const _line of streamResponse({
+          syncContext: serviceContext.syncContext,
+          bucketStorage: storage as SyncRulesBucketStorage,
+          syncRules,
+          params: { client_id: 'test-client', raw_data: true },
+          token: new JwtPayload({ sub: 'test-user', exp: Date.now() / 1000 + 10_000 }),
+          tracker: new RequestTracker(serviceContext.metricsEngine),
+          isEncodingAsBson: false,
+          signal: controller.signal,
+          logger: checkpointLogger
+        })) {
+          // Consume the response until the simulated data fetch error is propagated.
+        }
+      })();
+
+      let timeout: NodeJS.Timeout | undefined;
+      const outcome = await Promise.race([
+        response.then(
+          () => new Error('Sync stream unexpectedly completed'),
+          (error) => error
+        ),
+        new Promise((resolve) => {
+          timeout = setTimeout(() => resolve(new Error('Sync stream did not close')), 500);
+        })
+      ]);
+      clearTimeout(timeout);
+
+      // Capture this before aborting below, which would set it regardless of the stream cleanup.
+      const abortedByCleanup = checkpointWatcherAborted;
+
+      controller.abort();
+      await response.catch(() => {});
+
+      expect(outcome).toBeInstanceOf(Error);
+      if (cleanupFails) {
+        expect(outcome).toBeInstanceOf(AggregateError);
+        expect((outcome as AggregateError).errors).toEqual([
+          expect.objectContaining({ message: 'Simulated data fetch failure' }),
+          cleanupError
+        ]);
+        expect((outcome as AggregateError).cause).toMatchObject({ message: 'Simulated data fetch failure' });
+      } else {
+        expect((outcome as Error).message).toContain('Simulated data fetch failure');
       }
-    } as Partial<SyncRulesBucketStorage>;
-    const serviceContext = mockServiceContext(storage);
-    const controller = new AbortController();
-    const checkpointLogger = logger.child({});
-    const checkpointLogSpy = vi.spyOn(checkpointLogger, 'info');
-
-    const response = (async () => {
-      for await (const _line of streamResponse({
-        syncContext: serviceContext.syncContext,
-        bucketStorage: storage as SyncRulesBucketStorage,
-        syncRules,
-        params: { client_id: 'test-client', raw_data: true },
-        token: new JwtPayload({ sub: 'test-user', exp: Date.now() / 1000 + 10_000 }),
-        tracker: new RequestTracker(serviceContext.metricsEngine),
-        isEncodingAsBson: false,
-        signal: controller.signal,
-        logger: checkpointLogger
-      })) {
-        // Consume the response until the simulated data fetch error is propagated.
-      }
-    })();
-
-    let timeout: NodeJS.Timeout | undefined;
-    const outcome = await Promise.race([
-      response.then(
-        () => new Error('Sync stream unexpectedly completed'),
-        (error) => error
-      ),
-      new Promise((resolve) => {
-        timeout = setTimeout(() => resolve(new Error('Sync stream did not close')), 500);
-      })
-    ]);
-    clearTimeout(timeout);
-
-    // Capture this before aborting below, which would set it regardless of the stream cleanup.
-    const abortedByCleanup = checkpointWatcherAborted;
-
-    controller.abort();
-    await response.catch(() => {});
-
-    expect(outcome).toBeInstanceOf(Error);
-    expect((outcome as Error).message).toContain('Simulated data fetch failure');
-    expect(abortedByCleanup).toBe(true);
-    expect(checkpointLogSpy).toHaveBeenCalledWith('checkpoint_interrupted: 1', {
-      checkpoint: 1n,
-      user_id: 'test-user',
-      operations_synced: 1000,
-      data_synced_bytes: 0,
-      ms: expect.any(Object)
-    });
-  });
+      expect(checkpointWatcherClosed).toBe(true);
+      expect(abortedByCleanup).toBe(true);
+      expect(checkpointLogSpy).toHaveBeenCalledWith('checkpoint_interrupted: 1', {
+        checkpoint: 1n,
+        user_id: 'test-user',
+        operations_synced: 1000,
+        data_synced_bytes: 0,
+        ms: expect.any(Object)
+      });
+    }
+  );
 });
 
 export async function drainWithTimeout(readable: Readable, ms = 2_000) {
