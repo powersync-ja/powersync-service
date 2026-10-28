@@ -24,9 +24,10 @@ export class MongoOpIdAllocator {
   }
 
   sequence(persistedOp: bigint): MongoIdSequence {
-    // The stream is fenced before reading this head. Another writer may have
-    // committed since this allocator was last used, including in another process.
-    // Never reuse reserved IDs below that durable head.
+    // Transactional writers pass the fenced stream head. Prepared v3/v4 writers
+    // pass their last ID within this publication (initially zero). Their per-lease
+    // ranges are globally disjoint, and assigned IDs are consumed before publish.
+    // Publication asserts that its final ID advances the fenced persisted head.
     return new MongoIdSequence(persistedOp, this.ranges.slice());
   }
 

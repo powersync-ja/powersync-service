@@ -361,37 +361,6 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
     expect(repairs.mock.calls[0][0].afterReplicaId).toBe('new');
   });
 
-  test('discards a superseded preparation notification and reports only the successful generation', async () => {
-    const repairs = vi.fn();
-    const context = await open(version, false, { markRecordUnavailable: repairs });
-    await using factory = context.factory;
-    await using writer = context.writer;
-    const load = SourceRecordStoreV3.prototype.loadDocuments;
-    using rebuild = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments').mockImplementationOnce(async function (
-      this: SourceRecordStoreV3,
-      ...args
-    ) {
-      const records = await load.apply(this, args);
-      await factory.db.sync_rules.updateOne(
-        { _id: context.stream.replicationStreamId },
-        { $set: { last_persisted_op: 2n } },
-        { writeConcern: { w: 'majority' } }
-      );
-      return records;
-    });
-    await save(writer, context.table, 'updated');
-    await writer.save({
-      sourceTable: context.table,
-      tag: storage.SaveOperationTag.UPDATE,
-      after: { id: 'missing', description: undefined },
-      afterReplicaId: 'missing'
-    });
-    await writer.flush();
-    expect(rebuild).toHaveBeenCalledTimes(2);
-    expect(repairs).toHaveBeenCalledTimes(1);
-    expect(writer.last_flushed_op).toBe(3n);
-  });
-
   test('disposing one writer preserves the lease session for other writers', async () => {
     const context = await open(version);
     await using factory = context.factory;
@@ -628,29 +597,6 @@ describe.each([3, 4])('eager replication preparation v%s', (version) => {
       release.resolve();
       await Promise.allSettled([publishing]);
     }
-  });
-
-  test('rebuilds a changed predecessor outside the MongoDB retry loop and consumes abandoned IDs', async () => {
-    const context = await open(version);
-    await using factory = context.factory;
-    await using writer = context.writer;
-    const read = SourceRecordStoreV3.prototype.loadDocuments;
-    using change = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments').mockImplementationOnce(async function (
-      this: SourceRecordStoreV3,
-      ...args
-    ) {
-      const records = await read.apply(this, args);
-      await factory.db.sync_rules.updateOne(
-        { _id: context.stream.replicationStreamId },
-        { $set: { last_persisted_op: 2n } },
-        { writeConcern: { w: 'majority' } }
-      );
-      return records;
-    });
-    await save(writer, context.table, 'rebuilt');
-    await writer.commit('1/2');
-    expect(change).toHaveBeenCalledTimes(2);
-    expect(writer.last_flushed_op).toBe(3n);
   });
 
   test('uses fresh fenced snapshot metadata for the checkpoint decision', async () => {

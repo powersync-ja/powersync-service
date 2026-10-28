@@ -167,7 +167,7 @@ describe.each([3, 4])('replication uploads v%s', (version) => {
     expect(context.objectStorage.store.size).toBe(0);
   });
 
-  test('a changed predecessor abandons its uploaded generation and rebuilds outside the transaction', async () => {
+  test('rejects an uploaded generation whose assigned ID does not advance the persisted head', async () => {
     const context = await open(version);
     await using _factory = context.factory;
     await using writer = context.writer;
@@ -180,18 +180,21 @@ describe.each([3, 4])('replication uploads v%s', (version) => {
         { writeConcern: { w: 'majority' } }
       );
     });
-    await writer.commit('1/2');
-    expect(uploads).toHaveBeenCalledTimes(2);
-    const [abandoned, published] = uploads.mock.calls.map(([path]) => path);
-    expect(abandoned).not.toBe(published);
+    await expect(writer.commit('1/2')).rejects.toThrow('does not advance persisted stream head');
+    expect(uploads).toHaveBeenCalledTimes(1);
+    const [abandoned] = uploads.mock.calls.map(([path]) => path);
     expect(await context.markers.find({}).toArray()).toMatchObject([{ path: abandoned }]);
-    expect(await context.data.find({}).toArray()).toMatchObject([{ storage_ref: { path: published } }]);
-    expect(writer.last_flushed_op).toBe(11n);
+    expect(await context.data.find({}).toArray()).toEqual([]);
+    expect(writer.last_flushed_op).toBeNull();
+    expect((await context.bucketStorage.getCheckpoint()).checkpoint).toBe(0n);
+    expect(await context.db.sync_rules.findOne({ _id: context.stream.replicationStreamId })).toMatchObject({
+      last_persisted_op: 10n
+    });
     await context.markers.updateMany({}, { $set: { delete_after: new Date(0) } });
     await context.lifecycle.cleanup(logger);
-    expect([...context.objectStorage.store.keys()]).toEqual([published]);
-    const [usage] = await ObjectStorageUsage.readAllDefinitionUsage(context.db);
-    expect(usage.active_bytes).toBe(BigInt(context.objectStorage.store.get(published)!.data.byteLength));
+    expect(context.objectStorage.store.size).toBe(0);
+    expect(await context.markers.countDocuments()).toBe(0);
+    expect(await ObjectStorageUsage.readAllDefinitionUsage(context.db)).toEqual([]);
   });
 
   test('stopped-stream termination clears abandoned replication objects and their markers', async () => {

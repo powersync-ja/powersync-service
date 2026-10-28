@@ -13,11 +13,12 @@ export interface PublicationStats {
  * Sealed view of a v3/v4 batch. Preparation runs once, including on failure;
  * publication creates fresh MongoDB writes on every attempt without clearing it.
  *
- * Scheduling metadata belongs to the caller: lease, expected predecessor head,
- * selected config/mappings, input suffix, checkpoint intent and durable progress.
- * Replay is valid only while that context and upload protection remain valid.
- * A changed owner/head/config or expired payload must abandon this generation,
- * never mutate it to fit a different context or overwrite its object paths.
+ * Scheduling metadata belongs to the caller: lease, selected config/mappings,
+ * input suffix, checkpoint intent and durable progress. Replay is valid only
+ * while that context and upload protection remain valid. A changed owner or
+ * config, or expired payload, must abandon this generation, never mutate it to
+ * fit a different context or overwrite its object paths. Publication also
+ * asserts that assigned IDs advance the freshly fenced persisted head.
  *
  * No application effects run here. The coordinator must stage evaluation's
  * markRecordUnavailable callbacks and reporter/log messages separately, then

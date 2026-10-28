@@ -975,10 +975,8 @@ export abstract class MongoBucketBatch
    * Called after a replication transaction has successfully committed, with the last persisted op id.
    *
    * v1 storage tracks this in memory to fold into the next checkpoint. v3 storage
-   * uses it only as a preparation-head hint: the authoritative `last_persisted_op`
-   * is advanced durably by {@link onReplicationTransactionFlush} or the combined
-   * checkpoint update in the same transaction, and every publication/empty commit
-   * validates or reads that head through its fresh fence.
+   * advances its authoritative `last_persisted_op` durably in the publication
+   * transaction and does not need an in-memory copy.
    *
    * Keep calls to this adjacent to {@link withReplicationTransaction} usage - both must observe
    * every path that persists ops.
