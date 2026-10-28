@@ -699,9 +699,6 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       await this.autoActivate(lsn);
       await this.db.notifyCheckpoint();
       this.persisted_op = null;
-      if (checkpointState.newLastCheckpoint != null) {
-        await this.sourceRecordStore.postCommitCleanup(checkpointState.newLastCheckpoint, this.logger);
-      }
     }
 
     return {

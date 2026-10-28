@@ -18,7 +18,7 @@ import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { OperationBatch } from '../OperationBatch.js';
 import { stopReplicationStreamPipeline } from '../SyncRuleStateUpdate.js';
 import { PreparedPublication } from '../common/PreparedPublication.js';
-import { LoadedSourceRecord, SourceRecordStore } from '../common/SourceRecordStore.js';
+import { LoadedSourceRecord } from '../common/SourceRecordStore.js';
 import { SyncRuleDocumentBase } from '../models.js';
 import { PersistedBatchV3 } from './PersistedBatchV3.js';
 import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
@@ -36,7 +36,7 @@ import {
 export class MongoBucketBatchV3 extends MongoBucketBatch {
   declare readonly db: VersionedPowerSyncMongoV3;
 
-  private readonly store: SourceRecordStore;
+  private readonly store: SourceRecordStoreV3;
   /** Avoid repeating idempotent createIndexes calls for every checkpoint flush. */
   private readonly initializedCustomCheckpointEventIds = new Set<EventDefinitionId>();
   // Used only to validate supplied checkpoint ids; it does not initialize collections.
@@ -66,7 +66,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     });
   }
 
-  protected get sourceRecordStore(): SourceRecordStore {
+  protected get sourceRecordStore(): SourceRecordStoreV3 {
     return this.store;
   }
 
@@ -817,7 +817,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       }
       await this.autoActivateV3(lsn);
       // All configs are now checkpointed at newCheckpoint (the stream head).
-      await this.sourceRecordStore.postCommitCleanup(newCheckpoint, this.logger, this.session);
+      await this.sourceRecordStore.postCommitCleanup(newCheckpoint, this.logger);
     }
     if (checkpointCreated) {
       await this.db.notifyCheckpoint();

@@ -1,5 +1,4 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { Logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { BucketDefinitionId, EvaluatedParameters, EvaluatedRow, ParameterIndexId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
@@ -44,5 +43,4 @@ export interface SourceRecordStore {
     sourceTableId: bson.ObjectId,
     limit: number
   ): Promise<LoadedSourceRecord[]>;
-  postCommitCleanup(lastCheckpoint: bigint, logger: Logger, session?: mongo.ClientSession): Promise<void>;
 }

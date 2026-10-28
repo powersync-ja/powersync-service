@@ -154,7 +154,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     );
   }
 
-  async postCommitCleanup(lastCheckpoint: bigint, logger: Logger, session?: mongo.ClientSession): Promise<void> {
+  async postCommitCleanup(lastCheckpoint: bigint, logger: Logger): Promise<void> {
     // This cleans up soft deletes in source_records collections.
     // Since there may be a lot (100+) of these collections in some cases, we track which
     // ones have dirty deletes in source_tables.
@@ -166,8 +166,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
           latest_pending_delete: { $exists: true }
         },
         {
-          projection: { _id: 1, latest_pending_delete: 1 },
-          session
+          projection: { _id: 1, latest_pending_delete: 1 }
         }
       )
       .toArray();
@@ -176,7 +175,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     const sourceTableUpdates: mongo.AnyBulkWriteOperation<SourceTableDocumentV3>[] = [];
     for (const sourceTable of dirtySourceTables) {
       const collection = this.db.sourceRecords(this.replicationStreamId, sourceTable._id);
-      const result = await this.deletePendingDeletes(collection, sourceTable._id, lastCheckpoint, logger, session);
+      const result = await this.deletePendingDeletes(collection, sourceTable._id, lastCheckpoint, logger);
       deletedCount += result.deletedCount;
 
       if (sourceTable.latest_pending_delete != null && sourceTable.latest_pending_delete <= lastCheckpoint) {
@@ -200,7 +199,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     if (sourceTableUpdates.length > 0) {
       await this.db
         .sourceTables(this.replicationStreamId)
-        .bulkWrite(sourceTableUpdates, { ordered: false, session, ...REPLICATION_WRITE_OPTIONS });
+        .bulkWrite(sourceTableUpdates, { ordered: false, ...REPLICATION_WRITE_OPTIONS });
     }
     if (deletedCount > 0) {
       logger.info(`Cleaned up ${deletedCount} pending delete current_data records for checkpoint ${lastCheckpoint}`);
@@ -211,8 +210,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     collection: mongo.Collection<CurrentDataDocumentV3>,
     sourceTableId: bson.ObjectId,
     lastCheckpoint: bigint,
-    logger: Logger,
-    session?: mongo.ClientSession
+    logger: Logger
   ) {
     // A previous owner's in-flight cleanup must commute with a new
     // publisher: live upserts clear pending_delete and never match.
@@ -224,7 +222,6 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
           },
           {
             maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
-            session,
             ...REPLICATION_WRITE_OPTIONS
           }
         ),
