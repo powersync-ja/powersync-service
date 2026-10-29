@@ -159,6 +159,17 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
   updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 
   /**
+   * Optionally admit snapshot progress behind this writer's preceding rows.
+   * Admission is bounded but does not imply durability. The receipt resolves
+   * only after both rows and progress commit, and rejects on publication failure.
+   * Counts and cursor are absolute, captured for this page; callers must keep
+   * fetched progress separate from durable SourceTable state and join receipts
+   * before completing a table or closing the writer. Other storage uses
+   * flush() followed by updateTableProgress().
+   */
+  queueTableProgress?(table: SourceTable, progress: TableSnapshotStatus): Promise<QueuedTableProgress>;
+
+  /**
    * Get the current status for an existing source table without creating or resolving a replacement table.
    */
   getSourceTableStatus(table: SourceTable): Promise<SourceTable | null>;
@@ -295,3 +306,8 @@ export interface BucketBatchCommitOptions extends BatchBucketFlushOptions {
 }
 
 export type ResolvedBucketBatchCommitOptions = Required<BucketBatchCommitOptions>;
+
+/** Durable completion of a queued snapshot page, separate from its admission. */
+export interface QueuedTableProgress {
+  durable: Promise<SourceTable>;
+}

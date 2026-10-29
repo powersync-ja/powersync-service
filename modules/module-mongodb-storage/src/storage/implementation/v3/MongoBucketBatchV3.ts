@@ -55,6 +55,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   private readonly pipeline: ReplicationPipelineV3;
   private queueAutomaticFlush = false;
   private pendingPublications = 0;
+  private lastPublication: Promise<void> = Promise.resolve();
   /** Avoid repeating idempotent createIndexes calls for every checkpoint flush. */
   private readonly initializedCustomCheckpointEventIds = new Set<EventDefinitionId>();
   // Used only to validate supplied checkpoint ids; it does not initialize collections.
@@ -126,6 +127,60 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     });
   }
 
+  async queueTableProgress(
+    table: storage.SourceTable,
+    progress: storage.TableSnapshotStatus
+  ): Promise<storage.QueuedTableProgress> {
+    // Do not use the metadata barrier: it drains the prefix we want to queue
+    // behind. Application still holds the lease mutex through admission.
+    return super.withWriterLock(async () => {
+      if (this.pipeline.inputOwner !== this) {
+        await this.pipeline.inputOwner?.sealPipelineInput();
+      }
+      this.pipeline.inputOwner = this;
+      const copy = table.clone();
+      copy.snapshotStatus = {
+        ...progress,
+        lastKey: progress.lastKey == null ? null : Uint8Array.from(progress.lastKey)
+      };
+      const snapshotStatus = {
+        last_key: copy.snapshotStatus.lastKey == null ? null : new bson.Binary(copy.snapshotStatus.lastKey),
+        total_estimated_count: progress.totalEstimatedCount,
+        replicated_count: progress.replicatedCount
+      };
+      const bytes = (bson.calculateObjectSize(snapshotStatus) + 256) * 4;
+      const finish = async (_stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => {
+        if (writes == null) {
+          throw new ReplicationAssertionError('Snapshot progress requires a publication write batch');
+        }
+        writes.updateOne(
+          this.db.sourceTables(this.replicationStreamId),
+          { _id: mongoTableId(table.id) },
+          {
+            $set: { snapshot_status: snapshotStatus }
+          }
+        );
+        this.onReplicationTransactionFlush(writes, lastOp);
+      };
+      this.queueAutomaticFlush = true;
+      try {
+        // Even an empty page must order behind preceding rows. A split input
+        // includes progress only in its final transaction, like a checkpoint.
+        do {
+          await this.flushInner(undefined, finish, undefined, bytes);
+        } while (this.batch != null || this.write_checkpoint_batch.length > 0);
+        const durable = this.lastPublication.then(() => copy);
+        void durable.catch(() => {});
+        return { durable };
+      } catch (error) {
+        this.pipeline.fail(error);
+        throw error;
+      } finally {
+        this.queueAutomaticFlush = false;
+      }
+    });
+  }
+
   override async [Symbol.asyncDispose](): Promise<void> {
     const pending = this.pendingPublications > 0 || this.batch?.hasData() || this.write_checkpoint_batch.length > 0;
     if (pending) {
@@ -173,7 +228,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   protected override async flushInner(
     options?: storage.BatchBucketFlushOptions,
     checkpoint?: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<void>,
-    projection?: lib_mongo.mongo.Document
+    projection?: lib_mongo.mongo.Document,
+    additionalRetainedBytes = 0
   ): Promise<storage.FlushedResult | null> {
     using _span = this.tracer.span('storage', 'flush');
     await this.hooks?.beforeBatchFlush?.(this);
@@ -196,6 +252,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const { publications, repairs, resumeBatch, changes, hasWrites, ready } = prepared;
     const retainedBytes =
       prepared.retainedBytes +
+      additionalRetainedBytes +
       checkpoints.reduce((bytes, checkpoint) => bytes + (bson.calculateObjectSize(checkpoint) + 256) * 4, 0);
     // Failure must stop admission even if capacity is occupied by an older
     // publisher and this prefix has not yet entered the FIFO.
@@ -295,6 +352,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       this.write_checkpoint_batch.splice(0, checkpoints.length);
       this.pendingPublications++;
       const receipt = this.pipeline.enqueue(changes, retainedBytes, ready, publish);
+      this.lastPublication = receipt;
       void receipt
         .finally(() => {
           this.pendingPublications--;
@@ -305,6 +363,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     await this.pipeline.drain();
     await ready;
     await publish(this.session);
+    this.lastPublication = Promise.resolve();
     this.batch = resumeBatch;
     this.write_checkpoint_batch.splice(0, checkpoints.length);
     return { flushed_op: lastOp };

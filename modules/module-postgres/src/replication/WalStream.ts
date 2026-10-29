@@ -741,8 +741,20 @@ WHERE  oid = $1::regclass`,
     }
     await q.initialize();
 
+    let durableAt = at;
+    await using progress = new storage.SnapshotProgress(batch, (updated) => {
+      table = updated;
+      const persistedAt = updated.snapshotStatus!.replicatedCount;
+      this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(persistedAt - durableAt);
+      durableAt = persistedAt;
+      this.relationCache.update(updated);
+      this.logger.info(`Replicating ${updated.qualifiedName} ${updated.formatSnapshotProgress()}`);
+      this.touch();
+    });
     let hasRemainingData = true;
     while (hasRemainingData) {
+      await progress.waitForCapacity();
+      let pageRows = 0;
       // Fetch 10k at a time.
       // The balance here is between latency overhead per FETCH call,
       // and not spending too much time on each FETCH call.
@@ -776,15 +788,16 @@ WHERE  oid = $1::regclass`,
         }
 
         at += chunk.rows.length;
-        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(chunk.rows.length);
+        pageRows += chunk.rows.length;
 
         this.touch();
       }
 
-      // Important: flush before marking progress
-      await batch.flush();
-      if (this.onSnapshotChunkFlushed) {
-        await this.onSnapshotChunkFlushed();
+      // Targeted repairs remain durable before returning to WAL processing.
+      // A source hook also keeps its existing flush-before-hook contract.
+      if (limited != null || this.onSnapshotChunkFlushed != null) {
+        await batch.flush();
+        await this.onSnapshotChunkFlushed?.();
       }
       const now = performance.now();
       if (now - this.lastSlotHealthCheckTime >= this.slotHealthCheckIntervalMs) {
@@ -804,20 +817,18 @@ WHERE  oid = $1::regclass`,
           totalEstimatedCount = await this.estimatedCountNumber(db, table);
           lastCountTime = performance.now();
         }
-        table = await batch.updateTableProgress(table, {
-          lastKey: lastKey,
+        await progress.update(table, {
+          lastKey: lastKey ?? null,
           replicatedCount: at,
-          totalEstimatedCount: totalEstimatedCount
+          totalEstimatedCount: totalEstimatedCount ?? 0
         });
-        this.relationCache.update(table);
-
-        this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
       } else {
+        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(pageRows);
         this.logger.info(`Replicating ${table.qualifiedName} ${at}/${limited.length} for resnapshot`);
       }
 
       if (this.abort_signal.aborted) {
-        // We only abort after flushing
+        // Progress disposal joins this admitted page before propagating abort.
         throw new ReplicationAbortedError(`Initial replication interrupted`);
       }
     }
