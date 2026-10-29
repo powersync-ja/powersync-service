@@ -328,7 +328,11 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
               op,
               records.get(op.internalBeforeKey) ?? null,
               sequence,
-              this.markRecordUnavailable == null ? undefined : (record) => rowRepairs.push(record)
+              this.markRecordUnavailable == null
+                ? undefined
+                : (record) => {
+                    rowRepairs.push(record);
+                  }
             );
             group!.append(row);
             hasWrites ||= row.currentSize > 0;

@@ -598,5 +598,9 @@ export const CHECKPOINT_INVALIDATE_ALL: CheckpointChanges = {
   invalidateParameterBuckets: true
 };
 
-/** Synchronously queues a repair; see CreateWriterOptions.markRecordUnavailable for ordering requirements. */
-export type BucketStorageMarkRecordUnavailable = (record: SaveUpdate) => void;
+/**
+ * Synchronously queues a repair; see CreateWriterOptions.markRecordUnavailable for ordering requirements.
+ *
+ * Requires an explicit undefined return type to avoid accidental async usage.
+ */
+export type BucketStorageMarkRecordUnavailable = (record: SaveUpdate) => undefined;

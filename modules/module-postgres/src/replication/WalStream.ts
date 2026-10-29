@@ -10,12 +10,12 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BucketStorageBatch,
+  BucketStorageMarkRecordUnavailable,
   formatBytes,
   getUuidReplicaIdentityBson,
   MetricsEngine,
   RelationCache,
   ReplicationLagTracker,
-  SaveUpdate,
   SourceEntityDescriptor,
   SourceTable,
   storage
@@ -1100,7 +1100,7 @@ WHERE  oid = $1::regclass`,
 
     let resnapshot: { table: storage.SourceTable; key: PrimaryKeyValue }[] = [];
 
-    const markRecordUnavailable = (record: SaveUpdate) => {
+    const markRecordUnavailable: BucketStorageMarkRecordUnavailable = (record) => {
       // Storage may deliver this after its data transaction commits, while it
       // still holds writer admission. Keep this callback synchronous and limited
       // to collecting keys: resnapshot() runs after flush() returns. The queue is
