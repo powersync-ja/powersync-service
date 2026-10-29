@@ -67,6 +67,13 @@ export interface WalStreamOptions {
   snapshotChunkLength?: number;
 
   /**
+   * Minimum time between durable snapshot progress updates, checked between pages.
+   * Defaults to 10_000ms; 0 persists every page. Final progress is always persisted.
+   * Automatic size-based storage flushes are independent of this interval.
+   */
+  snapshotProgressIntervalMs?: number;
+
+  /**
    * Called after each snapshot chunk is flushed, for testing.
    * This allows tests to perform actions (like generating WAL) synchronously
    * with the snapshot's chunk processing.
@@ -143,6 +150,7 @@ export class WalStream {
   private startedStreaming = false;
 
   private snapshotChunkLength: number;
+  private readonly snapshotProgressIntervalMs: number;
   private onSnapshotChunkFlushed?: () => Promise<void>;
 
   private replicationLag = new ReplicationLagTracker();
@@ -171,6 +179,7 @@ export class WalStream {
     this.slot_name = options.storage.replicationStreamName;
     this.connections = options.connections;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
+    this.snapshotProgressIntervalMs = options.snapshotProgressIntervalMs ?? 10_000;
     this.onSnapshotChunkFlushed = options.onSnapshotChunkFlushed;
     this.slotHealthCheckIntervalMs = options.slotHealthCheckIntervalMs ?? 120_000;
 
@@ -741,6 +750,7 @@ WHERE  oid = $1::regclass`,
     }
     await q.initialize();
 
+    let lastProgressAt = performance.now();
     let hasRemainingData = true;
     while (hasRemainingData) {
       // Fetch 10k at a time.
@@ -781,17 +791,26 @@ WHERE  oid = $1::regclass`,
         this.touch();
       }
 
-      // Important: flush before marking progress
-      await batch.flush();
-      if (this.onSnapshotChunkFlushed) {
-        await this.onSnapshotChunkFlushed();
-      }
       const now = performance.now();
+      // Targeted repairs and test hooks retain their per-page flush contract.
+      // Ordinary snapshots drain only at progress boundaries, table completion
+      // or graceful shutdown. Automatic size-based flushes remain unchanged.
+      const persistProgress =
+        limited != null ||
+        this.onSnapshotChunkFlushed != null ||
+        now - lastProgressAt >= this.snapshotProgressIntervalMs ||
+        !hasRemainingData ||
+        this.abort_signal.aborted;
+      if (persistProgress) {
+        // Important: flush before marking progress
+        await batch.flush();
+        await this.onSnapshotChunkFlushed?.();
+      }
       if (now - this.lastSlotHealthCheckTime >= this.slotHealthCheckIntervalMs) {
         this.lastSlotHealthCheckTime = now;
         await this.checkSlotHealth();
       }
-      if (limited == null) {
+      if (limited == null && persistProgress) {
         let lastKey: Uint8Array | undefined;
         if (q instanceof ChunkedSnapshotQuery) {
           lastKey = q.getLastKeySerialized();
@@ -812,7 +831,8 @@ WHERE  oid = $1::regclass`,
         this.relationCache.update(table);
 
         this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
-      } else {
+        lastProgressAt = performance.now();
+      } else if (limited != null) {
         this.logger.info(`Replicating ${table.qualifiedName} ${at}/${limited.length} for resnapshot`);
       }
 

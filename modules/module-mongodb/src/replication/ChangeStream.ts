@@ -57,6 +57,13 @@ export interface ChangeStreamOptions {
   snapshotChunkLength?: number;
 
   /**
+   * Minimum time between durable snapshot progress updates, checked between pages.
+   * Defaults to 10_000ms; 0 persists every page. Final progress is always persisted.
+   * Automatic size-based storage flushes are independent of this interval.
+   */
+  snapshotProgressIntervalMs?: number;
+
+  /**
    * Override keepalive interval for testing (defaults to 60_000ms).
    */
   keepaliveIntervalMs?: number;
@@ -650,9 +657,13 @@ export class ChangeStream {
         let lastTxnKey: string | null = null;
 
         streamLoop: for await (const sourceBatch of stream) {
-          if (this.abortSignal.aborted) break;
+          if (this.abortSignal.aborted) {
+            break;
+          }
           for (const { event: changeDocument, hasBufferedChanges } of sourceBatch.events) {
-            if (this.abortSignal.aborted) break streamLoop;
+            if (this.abortSignal.aborted) {
+              break streamLoop;
+            }
             this.touch();
             changesSinceProgress++;
             const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
@@ -812,7 +823,9 @@ export class ChangeStream {
               });
             }
           }
-          if (this.abortSignal.aborted) break;
+          if (this.abortSignal.aborted) {
+            break;
+          }
           this.touch();
           const batchFilteredCount = sourceBatch.metadata.filteredCount;
           if (batchFilteredCount != null) {

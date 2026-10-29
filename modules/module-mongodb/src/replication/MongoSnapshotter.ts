@@ -37,6 +37,12 @@ export interface MongoSnapshotterOptions {
   abortSignal: AbortSignal;
   maxAwaitTimeMS?: number;
   snapshotChunkLength?: number;
+  /**
+   * Minimum time between durable snapshot progress updates, checked between pages.
+   * Defaults to 10_000ms; 0 persists every page. Final progress is always persisted.
+   * Automatic size-based storage flushes are independent of this interval.
+   */
+  snapshotProgressIntervalMs?: number;
   logger?: Logger;
   checkpointStreamId: mongo.ObjectId;
   storageHooks?: storage.StorageHooks;
@@ -70,6 +76,7 @@ export class MongoSnapshotter {
   private readonly queryProvider: MongoReplicationQueryProvider;
   private readonly maxAwaitTimeMS: number;
   private readonly snapshotChunkLength: number;
+  private readonly snapshotProgressIntervalMs: number;
   private readonly abortSignal: AbortSignal;
   private readonly logger: Logger;
   private readonly checkpointStreamId: mongo.ObjectId;
@@ -94,6 +101,7 @@ export class MongoSnapshotter {
     this.defaultDb = options.connections.db;
     this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
+    this.snapshotProgressIntervalMs = options.snapshotProgressIntervalMs ?? 10_000;
     this.abortSignal = options.abortSignal;
     this.logger = options.logger ?? options.storage.logger;
     this.checkpointStreamId = options.checkpointStreamId;
@@ -499,56 +507,78 @@ export class MongoSnapshotter {
       this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
     }
 
-    let lastBatch = performance.now();
-    let nextChunkPromise = query.nextChunk();
-    while (true) {
-      const { docs: docBatch, lastKey, bytes: chunkBytes } = await nextChunkPromise;
-      if (docBatch.length == 0) {
-        // No more data - stop iterating
-        break;
+    let lastProgressAt = performance.now();
+    let pendingKey: Uint8Array | null = null;
+    let pendingProgress = false;
+    const persistProgress = async () => {
+      if (!pendingProgress) {
+        return;
       }
-      bytesReplicatedMetric.add(chunkBytes);
-      chunksReplicatedMetric.add(1);
-
-      if (this.abortSignal.aborted) {
-        throw new ReplicationAbortedError(`Aborted initial replication`, this.abortSignal.reason);
-      }
-
-      // Pre-fetch next batch, so that we can read and write concurrently
-      nextChunkPromise = query.nextChunk();
-      for (const buffer of docBatch) {
-        const { row, replicaId } = this.sourceRowConverter.rawToSqliteRow(buffer);
-        // This auto-flushes when the batch reaches its size limit
-        await batch.save({
-          tag: SaveOperationTag.INSERT,
-          sourceTable: table,
-          before: undefined,
-          beforeReplicaId: undefined,
-          after: row,
-          afterReplicaId: replicaId
-        });
-      }
-
-      // Important: flush before marking progress
+      // Important: flush before marking progress. Automatic size-based flushes
+      // keep storage work bounded between these less frequent durable barriers.
       await batch.flush();
-      at += docBatch.length;
-      rowsReplicatedMetric.add(docBatch.length);
-
       table = await batch.updateTableProgress(table, {
-        lastKey,
+        lastKey: pendingKey,
         replicatedCount: at,
         totalEstimatedCount
       });
-
-      const duration = performance.now() - lastBatch;
-      lastBatch = performance.now();
+      const now = performance.now();
       this.logger.info(
-        `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} in ${duration.toFixed(0)}ms`
+        `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} in ${(now - lastProgressAt).toFixed(0)}ms`
       );
-      this.touch();
+      lastProgressAt = now;
+      pendingProgress = false;
+    };
+    let nextChunkPromise = query.nextChunk();
+    try {
+      while (true) {
+        const { docs: docBatch, lastKey, bytes: chunkBytes } = await nextChunkPromise;
+        if (docBatch.length == 0) {
+          // No more data - stop iterating
+          break;
+        }
+        bytesReplicatedMetric.add(chunkBytes);
+        chunksReplicatedMetric.add(1);
+
+        if (this.abortSignal.aborted) {
+          // Preserve the last complete page on graceful shutdown, even if the
+          // persistence interval has not elapsed. Never advance into this page.
+          await persistProgress();
+          throw new ReplicationAbortedError(`Aborted initial replication`, this.abortSignal.reason);
+        }
+
+        // Pre-fetch next batch, so that we can read and write concurrently
+        nextChunkPromise = query.nextChunk();
+        for (const buffer of docBatch) {
+          const { row, replicaId } = this.sourceRowConverter.rawToSqliteRow(buffer);
+          // This auto-flushes when the batch reaches its size limit
+          await batch.save({
+            tag: SaveOperationTag.INSERT,
+            sourceTable: table,
+            before: undefined,
+            beforeReplicaId: undefined,
+            after: row,
+            afterReplicaId: replicaId
+          });
+        }
+
+        at += docBatch.length;
+        // Activity counters track processed source rows; the table cursor and
+        // progress log advance only at a durable persistence boundary.
+        rowsReplicatedMetric.add(docBatch.length);
+        pendingKey = lastKey;
+        pendingProgress = true;
+        if (performance.now() - lastProgressAt >= this.snapshotProgressIntervalMs || this.abortSignal.aborted) {
+          await persistProgress();
+        }
+        this.touch();
+      }
+      // A short snapshot must persist its final page too, before table completion.
+      await persistProgress();
+    } finally {
+      // In case the loop was interrupted, make sure we await the last promise.
+      await nextChunkPromise.catch(() => {});
     }
-    // In case the loop was interrupted, make sure we await the last promise.
-    await nextChunkPromise;
   }
 
   private async handleRelation(
