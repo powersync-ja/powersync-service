@@ -255,20 +255,6 @@ export class PostgresBucketBatch
         sourceTable.storeCurrentData = sendsCompleteRows !== true;
       }
 
-      if (!sourceTable.syncAny && !sourceTable.snapshotComplete) {
-        // A table that the sync config does not use has nothing to snapshot. Mark it as snapshotted
-        // here, so that markSnapshotDone() does not wait for a snapshot that never runs.
-        await db.sql`
-          UPDATE source_tables
-          SET
-            snapshot_done = TRUE
-          WHERE
-            id = ${{ type: 'varchar', value: sourceTable.id.toString() }}
-        `.execute();
-        sourceTable.snapshotComplete = true;
-        sourceTable.snapshotStatus = undefined;
-      }
-
       const dropTables = [
         ...materializedResolution.incompatibleTables,
         // PostgreSQL storage only keeps one SourceTable per physical table.
@@ -764,20 +750,25 @@ export class PostgresBucketBatch
     });
   }
 
-  async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
+  async markSnapshotDone(no_checkpoint_before_lsn: string, options?: storage.MarkSnapshotDoneOptions): Promise<void> {
     await this.db.transaction(async (db) => {
-      const blockingTables = await db.sql`
+      const pendingTables = await db.sql`
         SELECT
-          schema_name,
-          table_name
+          *
         FROM
           source_tables
         WHERE
           group_id = ${{ type: 'int4', value: this.group_id }}
           AND snapshot_done = FALSE
       `
-        .decoded(t.object({ schema_name: t.string, table_name: t.string }))
+        .decoded(models.SourceTable)
         .rows();
+      // Legacy rows may belong to unused tables that startup never resolves again.
+      // Only one source connection is supported, so match tables using the default tag.
+      // TODO: If multiple connections are supported, check only the relevant source connections.
+      const blockingTables = pendingTables.filter(
+        (row) => this.sourceTableFromRow(row, storage.SourceTable.DEFAULT_TAG, this.sync_rules).syncAny
+      );
       if (blockingTables.length > 0) {
         if (options?.throwOnConflict ?? true) {
           throw new ReplicationAssertionError(

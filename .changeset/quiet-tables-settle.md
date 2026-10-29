@@ -1,5 +1,7 @@
 ---
 '@powersync/service-module-postgres-storage': patch
+'@powersync/service-module-postgres': patch
+'@powersync/service-core': patch
 ---
 
-Fix Postgres storage initial replication getting stuck in `PSYNC_S1101` when the publication contains tables that the sync config does not use. Those tables are now marked as snapshotted while they are resolved, instead of blocking `markSnapshotDone` from completing.
+Fix Postgres replication with Postgres storage getting stuck in `PSYNC_S1101` after interrupted initial replication when the publication contains tables that the sync config does not use. Snapshot completion now ignores persisted unused tables for the source connection, allowing existing affected deployments to recover on restart while still requiring snapshots for tables used by the sync config.

@@ -9,6 +9,7 @@ Keep this file concise. Use it to route agents to the right docs and nearby impl
 - Prefer existing module patterns over new abstractions.
 - Keep changes scoped to the package or module relevant to the task.
 - For integration tests, prefer the existing test utilities and fixtures in the relevant module.
+- For embedded YAML formatting errors, follow the existing [source-table config fixtures](packages/service-core/test/src/source_table_config.test.ts). Use `/* yaml */` template literals with a leading YAML comment, such as `# sync config fixture.`. Do not use `// prettier-ignore` to bypass YAML formatting. Preserve the intended nesting when composing YAML fragments.
 - Prefer real implementations for tests that validate cross-module behavior. If a test only needs to observe calls or arguments, prefer Vitest spies such as `vi.spyOn()` before introducing mocks. Use mocks only when testing specific unit behavior or when a real dependency is impractical.
 
 ## Development Commands
