@@ -33,6 +33,18 @@ import {
   SourceTableReconciliationContext
 } from './source-table-utils.js';
 
+/**
+ * Maximum unfinished payload preparations within one flush. Two allow one
+ * group's uploads to overlap the next block's reads, evaluation and uploads,
+ * while stopping further block reads if both preparations stall.
+ *
+ * This bounds active preparation work, not total retained groups or bytes:
+ * completed groups remain retained until publication. Input and transaction
+ * limits still bound that prefix. This is a conservative starting point;
+ * increasing it needs throughput and retained-memory measurements.
+ */
+const MAX_CONCURRENT_PAYLOAD_PREPARATIONS = 2;
+
 export class MongoBucketBatchV3 extends MongoBucketBatch {
   declare readonly db: VersionedPowerSyncMongoV3;
 
@@ -203,8 +215,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   ): Promise<void> {
     // This gate covers every sealed batch in the prefix, including truncate/drop.
     // The transaction must never wait for source reads, evaluation or S3 PUTs.
-    // Sequential preparation also avoids leaving another group's uploads running
-    // when one group fails; each group's readiness joins all of its own uploads.
+    // Row preparation eagerly starts payload work with bounded concurrency and
+    // joins it before returning. Keep this idempotent gate for truncate/drop too.
     for (const publication of publications) {
       await publication.preparePayloads();
     }
@@ -288,85 +300,122 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     // No state is shared with another pending publication or another writer.
     const records = new Map<string, LoadedSourceRecord | null>();
     let writtenSize = 0;
-    for (const block of input.batched(sizes)) {
-      if (resumeBatch != null) {
-        for (const op of block) {
-          resumeBatch.push(op);
-        }
-        continue;
-      }
-      const missing = block.filter((op) => !records.has(op.internalBeforeKey));
-      if (missing.length > 0) {
-        using _lookup = this.tracer.span('storage', 'lookup');
-        const loaded = await this.sourceRecordStore.loadDocuments(
-          session,
-          missing.map((op) => ({
-            sourceTableId: mongoTableId(op.record.sourceTable.id),
-            replicaId: op.beforeId
-          })),
-          this.skipExistingRows
-        );
-        for (const op of missing) {
-          records.set(op.internalBeforeKey, loaded.get(op.internalBeforeKey) ?? null);
-        }
-      }
-      let group: PersistedBatchV3 | null = this.createPersistedBatch(writtenSize);
-      for (const op of block) {
+    // Overlap packing/uploads with the next block's reads and evaluation. The
+    // existing input and transaction limits still bound the retained prefix;
+    // this is deliberately not a queue across public writer operations.
+    const pending = new Set<Promise<void>>();
+    let preparationFailure: { error: unknown } | undefined;
+    const prepareGroup = (group: PersistedBatchV3) => {
+      const publication = group.seal();
+      // Paths may become externally visible as soon as preparation starts, so
+      // never reuse these IDs even if a later read or evaluation fails.
+      allocator.consume(lastOp);
+      publications.push(publication);
+      const task = publication
+        .preparePayloads()
+        .catch((error: unknown) => {
+          preparationFailure ??= { error };
+        })
+        .finally(() => pending.delete(task));
+      pending.add(task);
+    };
+    try {
+      for (const block of input.batched(sizes)) {
         if (resumeBatch != null) {
-          resumeBatch.push(op);
+          for (const op of block) {
+            resumeBatch.push(op);
+          }
           continue;
         }
-        let next: LoadedSourceRecord | null;
-        while (true) {
-          const rowRepairs: storage.SaveUpdate[] = [];
-          const row = this.createPersistedBatch(0);
-          const sequence = allocator.sequence(lastOp);
-          try {
-            using _evaluate = this.tracer.span('evaluate');
-            next = this.saveOperation(
-              row,
-              op,
-              records.get(op.internalBeforeKey) ?? null,
-              sequence,
-              this.markRecordUnavailable == null
-                ? undefined
-                : (record) => {
-                    rowRepairs.push(record);
-                  }
-            );
-            group!.append(row);
-            hasWrites ||= row.currentSize > 0;
-            repairs.push(...rowRepairs);
-            lastOp = sequence.last();
-            break;
-          } catch (error) {
-            if (!(error instanceof OpIdRangeExhausted)) {
-              throw error;
-            }
-            // Retry only the unfinished row; no payload has been uploaded yet.
-            this.options.replicationLock.throwIfAborted();
-            await allocator.reserve();
+        // Do not load another application block while all preparation slots are
+        // occupied. Completed groups remain owned by this bounded input flush.
+        if (pending.size >= MAX_CONCURRENT_PAYLOAD_PREPARATIONS) {
+          await Promise.race(pending);
+        }
+        if (preparationFailure != null) {
+          throw preparationFailure.error;
+        }
+        this.options.replicationLock.throwIfAborted();
+        const missing = block.filter((op) => !records.has(op.internalBeforeKey));
+        if (missing.length > 0) {
+          using _lookup = this.tracer.span('storage', 'lookup');
+          const loaded = await this.sourceRecordStore.loadDocuments(
+            session,
+            missing.map((op) => ({
+              sourceTableId: mongoTableId(op.record.sourceTable.id),
+              replicaId: op.beforeId
+            })),
+            this.skipExistingRows
+          );
+          for (const op of missing) {
+            records.set(op.internalBeforeKey, loaded.get(op.internalBeforeKey) ?? null);
           }
         }
-        if (op.afterId == null || !storage.replicaIdEquals(op.beforeId, op.afterId)) {
-          // Preserve evaluation's existing repeated-row behavior: a deleted
-          // identity no longer supplies raw values or membership to later rows.
-          records.set(op.internalBeforeKey, null);
+        let group: PersistedBatchV3 | null = this.createPersistedBatch(writtenSize);
+        for (const op of block) {
+          if (resumeBatch != null) {
+            resumeBatch.push(op);
+            continue;
+          }
+          let next: LoadedSourceRecord | null;
+          while (true) {
+            const rowRepairs: storage.SaveUpdate[] = [];
+            const row = this.createPersistedBatch(0);
+            const sequence = allocator.sequence(lastOp);
+            try {
+              using _evaluate = this.tracer.span('evaluate');
+              next = this.saveOperation(
+                row,
+                op,
+                records.get(op.internalBeforeKey) ?? null,
+                sequence,
+                this.markRecordUnavailable == null
+                  ? undefined
+                  : (record) => {
+                      rowRepairs.push(record);
+                    }
+              );
+              group!.append(row);
+              hasWrites ||= row.currentSize > 0;
+              repairs.push(...rowRepairs);
+              lastOp = sequence.last();
+              break;
+            } catch (error) {
+              if (!(error instanceof OpIdRangeExhausted)) {
+                throw error;
+              }
+              // Retry only the unfinished row; its payload has not been uploaded.
+              this.options.replicationLock.throwIfAborted();
+              await allocator.reserve();
+            }
+          }
+          if (op.afterId == null || !storage.replicaIdEquals(op.beforeId, op.afterId)) {
+            // Preserve evaluation's existing repeated-row behavior: a deleted
+            // identity no longer supplies raw values or membership to later rows.
+            records.set(op.internalBeforeKey, null);
+          }
+          if (next != null) {
+            records.set(op.internalAfterKey!, next);
+            sizes?.set(op.internalAfterKey!, next.data?.length() ?? 0);
+          }
+          if (group!.shouldFlushTransaction()) {
+            prepareGroup(group!);
+            group = null;
+            resumeBatch = new OperationBatch();
+          }
         }
-        if (next != null) {
-          records.set(op.internalAfterKey!, next);
-          sizes?.set(op.internalAfterKey!, next.data?.length() ?? 0);
-        }
-        if (group!.shouldFlushTransaction()) {
-          publications.push(group!.seal());
-          group = null;
-          resumeBatch = new OperationBatch();
+        if (group != null) {
+          writtenSize = group.currentSize;
+          prepareGroup(group);
         }
       }
-      if (group != null) {
-        writtenSize = group.currentSize;
-        publications.push(group.seal());
-      }
+    } finally {
+      // A read/evaluation failure must not release the writer lock or dispose
+      // storage while an earlier group's payload work is still running.
+      await Promise.all(pending);
+    }
+    if (preparationFailure != null) {
+      throw preparationFailure.error;
     }
     return { publications, repairs, resumeBatch: resumeBatch?.hasData() ? resumeBatch : null, lastOp, hasWrites };
   }
