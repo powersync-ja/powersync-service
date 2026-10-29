@@ -2,14 +2,16 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
+import { BatchOperationBuffer } from '../common/BatchOperationBuffer.js';
 
-import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import { mongoTableId } from '../../../utils/util.js';
 import { EMPTY_DATA } from '../MongoBucketBatchShared.js';
 import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import {
   BucketStateUpdate,
   PersistedBatch,
+  PersistedBatchOptions,
+  SaveBucketDataOptions,
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
@@ -23,20 +25,68 @@ import {
   taggedBucketParameterDocumentToV1
 } from './models.js';
 
-export class PersistedBatchV1 extends PersistedBatch {
-  declare protected readonly db: VersionedPowerSyncMongoV1;
+export class PersistedBatchV1 implements PersistedBatch {
+  private readonly operations: BatchOperationBuffer;
 
   // Each upsert supplies the complete source-record state. Only its final
   // state matters within a flush; bucket and parameter history is kept separately.
-  currentData = new Map<string, mongo.AnyBulkWriteOperation<CurrentDataDocument>>();
+  private readonly currentData = new Map<string, mongo.AnyBulkWriteOperation<CurrentDataDocument>>();
 
-  protected checkDefinitionId(_definitionId: BucketDefinitionId | null): BucketDefinitionId {
-    // V1 storage doesn't persist the id, and we don't use it.
-    return LEGACY_BUCKET_DATA_DEFINITION_ID;
+  constructor(
+    private readonly db: VersionedPowerSyncMongoV1,
+    private readonly group_id: number,
+    writtenSize: number,
+    options?: PersistedBatchOptions
+  ) {
+    this.operations = new BatchOperationBuffer(
+      group_id,
+      writtenSize,
+      {
+        checkDefinitionId: () => LEGACY_BUCKET_DATA_DEFINITION_ID,
+        getBucketDefinitionId: () => LEGACY_BUCKET_DATA_DEFINITION_ID
+      },
+      options?.logger
+    );
   }
 
-  protected getBucketDefinitionId(_bucketSource: BucketDataSource): BucketDefinitionId {
-    return LEGACY_BUCKET_DATA_DEFINITION_ID;
+  get currentSize(): number {
+    return this.operations.currentSize;
+  }
+
+  saveBucketData(options: SaveBucketDataOptions): void {
+    this.operations.saveBucketData(options);
+  }
+
+  shouldFlushTransaction(): boolean {
+    return this.operations.shouldFlushTransaction(this.currentData.size);
+  }
+
+  /**
+   * Keeps track of bulkwrite operations within a transaction.
+   *
+   * There may be multiple of these batches per transaction, but it may not span
+   * multiple transactions.
+   */
+  async flush(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
+    const startAt = performance.now();
+    const writes = this.db.createWriteBatch(session, { ordered: false });
+    if (this.operations.bucketDataCount > 0) {
+      await this.queueBucketData(writes);
+    }
+    if (this.operations.bucketParameters.length > 0) {
+      this.queueBucketParameters(writes);
+    }
+    if (this.currentData.size > 0) {
+      this.queueCurrentData(writes);
+    }
+    if (this.operations.bucketStates.size > 0) {
+      this.queueBucketStates(writes);
+    }
+    await writes.execute();
+    const stats = this.operations.logFlush(startAt, this.currentData.size, options);
+    this.currentData.clear();
+    this.operations.clear();
+    return stats;
   }
 
   saveParameterData(data: SaveParameterDataOptions) {
@@ -55,7 +105,7 @@ export class PersistedBatchV1 extends PersistedBatch {
       remaining_lookups.delete(binLookup.toString('base64'));
 
       const op_id = data.op_seq.next();
-      this.debugLastOpId = op_id;
+      this.operations.debugLastOpId = op_id;
       const values: BucketParameterDocument = {
         _id: op_id,
         key: {
@@ -66,17 +116,17 @@ export class PersistedBatchV1 extends PersistedBatch {
         lookup: binLookup,
         bucket_parameters: result.bucketParameters
       };
-      this.bucketParameters.push({
+      this.operations.bucketParameters.push({
         ...values,
         index: LEGACY_BUCKET_PARAMETER_INDEX_ID
       });
 
-      this.currentSize += 200;
+      this.operations.currentSize += 200;
     }
 
     for (let lookup of remaining_lookups.values()) {
       const op_id = data.op_seq.next();
-      this.debugLastOpId = op_id;
+      this.operations.debugLastOpId = op_id;
       const values: BucketParameterDocument = {
         _id: op_id,
         key: {
@@ -87,12 +137,12 @@ export class PersistedBatchV1 extends PersistedBatch {
         lookup,
         bucket_parameters: []
       };
-      this.bucketParameters.push({
+      this.operations.bucketParameters.push({
         ...values,
         index: LEGACY_BUCKET_PARAMETER_INDEX_ID
       });
 
-      this.currentSize += 200;
+      this.operations.currentSize += 200;
     }
   }
 
@@ -102,7 +152,7 @@ export class PersistedBatchV1 extends PersistedBatch {
         filter: { _id: this.currentDataId(sourceTableId, replicaId) }
       }
     });
-    this.currentSize += 50;
+    this.operations.currentSize += 50;
   }
 
   softDeleteCurrentData(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId, _checkpointGreaterThan: bigint) {
@@ -140,17 +190,13 @@ export class PersistedBatchV1 extends PersistedBatch {
         upsert: true
       }
     });
-    this.currentSize += (values.data?.length() ?? 0) + 100;
+    this.operations.currentSize += (values.data?.length() ?? 0) + 100;
   }
 
-  protected get currentDataCount() {
-    return this.currentData.size;
-  }
-
-  protected async queueBucketData(writes: MongoWriteBatch) {
+  private async queueBucketData(writes: MongoWriteBatch) {
     writes.bulkWriteUnordered(
       this.db.bucketDataV1,
-      this.bucketData.map((document) => ({
+      this.operations.bucketData.map((document) => ({
         insertOne: {
           document: serializeBucketDataV1(document)
         }
@@ -158,10 +204,10 @@ export class PersistedBatchV1 extends PersistedBatch {
     );
   }
 
-  protected queueBucketParameters(writes: MongoWriteBatch): void {
+  private queueBucketParameters(writes: MongoWriteBatch): void {
     writes.bulkWriteUnordered(
       this.db.parameterIndexV1,
-      this.bucketParameters.map((document) => ({
+      this.operations.bucketParameters.map((document) => ({
         insertOne: {
           document: taggedBucketParameterDocumentToV1(document)
         }
@@ -169,7 +215,7 @@ export class PersistedBatchV1 extends PersistedBatch {
     );
   }
 
-  protected queueCurrentData(writes: MongoWriteBatch): void {
+  private queueCurrentData(writes: MongoWriteBatch): void {
     if (this.currentData.size == 0) {
       return;
     }
@@ -177,16 +223,12 @@ export class PersistedBatchV1 extends PersistedBatch {
     writes.bulkWriteUnordered(this.db.sourceRecordsV1, [...this.currentData.values()]);
   }
 
-  protected queueBucketStates(writes: MongoWriteBatch): void {
+  private queueBucketStates(writes: MongoWriteBatch): void {
     writes.bulkWriteUnordered(this.db.bucketStateV1, this.getBucketStateUpdates());
   }
 
-  protected resetCurrentData() {
-    this.currentData.clear();
-  }
-
   private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<BucketStateDocumentV1>[] {
-    return Array.from(this.bucketStates.values()).map((state: BucketStateUpdate) => {
+    return Array.from(this.operations.bucketStates.values()).map((state: BucketStateUpdate) => {
       return {
         updateOne: {
           filter: {

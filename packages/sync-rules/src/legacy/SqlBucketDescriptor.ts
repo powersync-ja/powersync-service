@@ -1,4 +1,4 @@
-import { PendingQueriers } from '../BucketParameterQuerier.js';
+import { GetQuerierOptions, PendingQueriers } from '../BucketParameterQuerier.js';
 import {
   BucketDataEvaluator,
   BucketDataSource,
@@ -12,9 +12,14 @@ import { SqlRuleError } from '../errors.js';
 import { ColumnDefinition } from '../ExpressionType.js';
 import { IdSequence } from '../IdSequence.js';
 import { SourceTableRef } from '../SourceTableRef.js';
-import { GetQuerierOptions, SyncRulesOptions } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
-import { EvaluateRowOptions, QueryParseOptions, SourceSchema, UnscopedEvaluationResult } from '../types.js';
+import {
+  EvaluateRowOptions,
+  QueryParseOptions,
+  SourceSchema,
+  SyncConfigParseOptions,
+  UnscopedEvaluationResult
+} from '../types.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
 import { SqlParameterQuery } from './SqlParameterQuery.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
@@ -76,7 +81,7 @@ export class SqlBucketDescriptor implements BucketSource {
     return [...this.parameterQueries, ...this.globalParameterQueries];
   }
 
-  addDataQuery(sql: string, options: SyncRulesOptions, compatibility: CompatibilityContext): QueryParseResult {
+  addDataQuery(sql: string, options: SyncConfigParseOptions, compatibility: CompatibilityContext): QueryParseResult {
     if (this.bucketParametersInternal == null) {
       throw new Error('Bucket parameters must be defined');
     }

@@ -3,7 +3,6 @@ import { logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
 import { event_types } from '@powersync/service-types';
-import { toInteger } from 'ix/util/tointeger.js';
 import { v4 } from 'uuid';
 import { SdkReporting, SdkReportingDecoded } from '../types/models/SdkReporting.js';
 import { NormalizedPostgresStorageConfig } from '../types/types.js';
@@ -329,7 +328,7 @@ export class PostgresReportStorage implements storage.ReportStorage {
           )
         );
     `.execute();
-    const deletedRows = toInteger(result.results[1].status.split(' ')[1] || '0');
+    const deletedRows = Number(result.results[1].status.split(' ')[1] || '0');
     if (deletedRows > 0) {
       logger.info(
         `TTL from ${date.toISOString()}: ${deletedRows} PostgresSQL rows have been removed from connection_report_events.`

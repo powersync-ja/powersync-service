@@ -1,4 +1,5 @@
 import { MongoSyncBucketStorageV3 } from '@module/storage/implementation/v3/MongoSyncBucketStorageV3.js';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
   deserializeParameterLookup,
   JwtPayload,
@@ -7,7 +8,7 @@ import {
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
 import { bucketRequest, getTestStorage, register, test_utils } from '@powersync/service-core-tests';
-import { RequestParameters, ScopedParameterLookup, SqlSyncRules } from '@powersync/service-sync-rules';
+import { parseSyncConfig, RequestParameters, ScopedParameterLookup } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
@@ -72,7 +73,7 @@ function objectIdGenerator(id: string) {
  * `ResolveTablesOptions.parsedSyncConfig`.
  */
 function parsedSyncConfigSetFor(yaml: string, storageVersion: number) {
-  const parsed = SqlSyncRules.fromYaml(yaml, test_utils.PARSE_OPTIONS);
+  const parsed = parseSyncConfig(yaml, test_utils.PARSE_OPTIONS);
   // These fixtures are legacy Sync Rules, which always report a deprecation warning.
   expect(parsed.errors.filter((error) => error.type !== 'warning')).toEqual([]);
   return new MongoParsedSyncConfigSet(1, getMongoStorageConfig(storageVersion), 'test_slot', [
@@ -1343,6 +1344,22 @@ streams:
       expect(updatedActiveStorage.replicationStream.replicationJobId).toContain(
         (await factory.getActiveSyncConfig())!.content.syncConfigId
       );
+
+      // The full-stream writer still holds the old config's definition mapping.
+      // Both metadata writes and the next checkpoint must exit so a replacement
+      // job can load only live mappings.
+      await expect(
+        secondWriter.resolveTables({
+          connection_id: 1,
+          source: sourceDescriptor('todos', { objectId: 'todos-relation-after-activation' }),
+          idGenerator: objectIdGenerator('6544e3899293153fa7b3835e')
+        })
+      ).rejects.toBeInstanceOf(ReplicationAbortedError);
+      await expect(secondWriter.commit('3/1')).rejects.toBeInstanceOf(ReplicationAbortedError);
+      const persistedStream = (await (factory as MongoBucketStorage).db.sync_rules.findOne({
+        _id: first.replicationStreamId
+      })) as ReplicationStreamDocumentV3;
+      expect(persistedStream.resume_lsn).toBe('2/1');
     }
   );
 

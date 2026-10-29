@@ -1,6 +1,10 @@
 import * as sqlite from 'node:sqlite';
 
-import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
+import {
+  ReplicationAbortedError,
+  ReplicationAssertionError,
+  ServiceAssertionError
+} from '@powersync/lib-services-framework';
 import {
   BucketDefinitionMapping,
   MultiSyncConfigBucketDefinitionMapping,
@@ -26,6 +30,41 @@ import { StorageConfig } from './models.js';
 import { MongoHydrationState } from './MongoHydrationState.js';
 
 export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
+  /** Config definitions/mappings are immutable; only their embedded lifecycle state changes. */
+  assertPublicationConfigs(states: readonly { _id: { toHexString(): string }; state: storage.SyncRuleState }[]): void {
+    const configured = new Set(this.#configsWithMapping.map((config) => config.syncConfigId));
+    const live = new Set(
+      states
+        .filter((state) =>
+          [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ERRORED].includes(
+            state.state
+          )
+        )
+        .map((state) => state._id.toHexString())
+    );
+    // Snapshot/metadata writers may intentionally select only one processing
+    // config while another active config serves clients. Full-stream checkpoint
+    // writers separately require every replicating config in their checkpoint guard.
+    if (![...live].some((id) => configured.has(id))) {
+      throw new ReplicationAbortedError('Replication writer must reload the selected sync configs');
+    }
+    const mappings = this.#configsWithMapping
+      .filter((config) => live.has(config.syncConfigId!))
+      .map((config) => config.mapping!);
+    // A stopped selected config is harmless only when all its persisted outputs
+    // are still owned by live selected configs. Cleanup may remove every other id.
+    const activeBuckets = new Set(mappings.flatMap((mapping) => mapping.allBucketDefinitionIds()));
+    const activeParameters = new Set(mappings.flatMap((mapping) => mapping.allParameterIndexIds()));
+    const activeEvents = new Set(mappings.flatMap((mapping) => mapping.allEventDefinitionIds()));
+    if (
+      this.mapping.allBucketDefinitionIds().some((id) => !activeBuckets.has(id)) ||
+      this.mapping.allParameterIndexIds().some((id) => !activeParameters.has(id)) ||
+      this.mapping.allEventDefinitionIds().some((id) => !activeEvents.has(id))
+    ) {
+      throw new ReplicationAbortedError('Replication writer mappings are no longer live; reload the sync configs');
+    }
+  }
+
   public readonly hydrationState: HydrationState;
   public readonly syncConfigs: SyncConfigWithErrors[];
   public readonly replicationStreamName: string;
