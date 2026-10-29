@@ -34,7 +34,6 @@ import {
   MongoGetCheckpointChangesOptions,
   MongoSyncBucketStorageCheckpoint
 } from './common/MongoSyncBucketStorageCheckpoint.js';
-import { DEFAULT_INLINE_THRESHOLD_BYTES } from './common/PersistedBatch.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
@@ -46,6 +45,7 @@ import { MongoPersistedReplicationStream } from './MongoPersistedReplicationStre
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { MongoCheckpointAPIOptions, MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
+import { DEFAULT_INLINE_THRESHOLD_BYTES } from './v3/PersistedBatchV3.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
@@ -278,7 +278,6 @@ export abstract class MongoSyncBucketStorage
     const replicationLock = this.requireReplicationLock();
     return {
       logger: options.logger ?? this.logger,
-      db: this.db,
       parsedSyncConfig: this.getParsedSyncConfigSet(options),
       replicationStreamId: this.replicationStreamId,
       replicationStreamName: this.replicationStreamName,

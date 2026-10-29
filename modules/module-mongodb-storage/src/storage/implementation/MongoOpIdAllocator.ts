@@ -2,6 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { VersionedPowerSyncMongo } from './db.js';
 import { MongoIdSequence, OpIdRange } from './MongoIdSequence.js';
+import { REPLICATION_WRITE_OPTIONS } from './MongoReplicationOptions.js';
 
 const RESERVATION_SIZE = 65_536n;
 const LOW_WATER_MARK = 16_384n;
@@ -23,13 +24,19 @@ export class MongoOpIdAllocator {
   }
 
   sequence(persistedOp: bigint): MongoIdSequence {
-    // The stream is fenced before reading this head. Another writer may have
-    // committed since this allocator was last used, including in another process.
-    // Never reuse reserved IDs below that durable head.
+    // Transactional writers pass the fenced stream head. Prepared v3/v4 writers
+    // pass their last ID within this publication (initially zero). Their per-lease
+    // ranges are globally disjoint, and assigned IDs are consumed before publish.
+    // Publication asserts that its final ID advances the fenced persisted head.
     return new MongoIdSequence(persistedOp, this.ranges.slice());
   }
 
-  committed(lastOp: bigint) {
+  /**
+   * Remove IDs assigned to sealed work, even if publication is later abandoned.
+   * This only consumes allocation capacity; it does not advance durable progress.
+   * Keep the unused tail available to the next publication under this lease.
+   */
+  consume(lastOp: bigint) {
     this.ranges = this.ranges
       .filter((range) => range.end > lastOp)
       .map((range) => ({ start: range.start > lastOp ? range.start : lastOp + 1n, end: range.end }));
@@ -86,7 +93,7 @@ export class MongoOpIdAllocator {
             }
           }
         ],
-        { upsert: true, returnDocument: 'before', writeConcern: { w: 'majority' } }
+        { upsert: true, returnDocument: 'before', ...REPLICATION_WRITE_OPTIONS }
       );
       const last = previous?.op_id ?? 0n;
       if (last > MAX_OP_ID - RESERVATION_SIZE) {

@@ -1,5 +1,4 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { Logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
@@ -148,9 +147,5 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
     return (await cursor.toArray()).map((doc) =>
       this.createLoadedDocument(sourceTableId, doc._id, null, doc.buckets, doc.lookups)
     );
-  }
-
-  async postCommitCleanup(_lastCheckpoint: bigint, _logger: Logger): Promise<void> {
-    // No-op for V1.
   }
 }

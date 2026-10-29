@@ -26,6 +26,12 @@ Important stream-level fields:
 
 `resume_lsn` is shared by all configs in the stream. The per-config `last_checkpoint_lsn` values are consistency markers for client-visible checkpoints, not independent restart positions.
 
+### Prepared replication publications
+
+Storage v3/v4 reads source records and evaluates row changes before opening the publication transaction. Every writer holding the same replication lease uses its shared mutex through preparation and commit, so another local writer cannot change those records in between. The publication transaction writes a fence on the stream document: a previous lease owner cannot publish after a new owner takes over. Cleanup already started by a previous owner can overlap preparation; its conditional tombstone deletion must preserve newly live records. The transaction also checks the live stream and sync config state before writing.
+
+Operation IDs come from disjoint ranges reserved through the global `op_id_sequence`. An allocator belongs to one lease, and it consumes IDs assigned to prepared work even when that work is abandoned. A new lease gets a new allocator; unused IDs from an old lease are never returned to the global sequence. Therefore preparation does not need to read or compare `last_persisted_op` to allocate IDs. Publication checks that its final assigned ID exceeds the durable head read through the transaction fence; an empty publication instead uses that head as its checkpoint value. The durable head advances in the same transaction as published operations.
+
 Multiple replication streams may still exist concurrently when:
 
 1. Incremental reprocessing is not used, so nothing is shared between sync config versions.

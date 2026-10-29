@@ -1,4 +1,4 @@
-import { container, logger } from '@powersync/lib-services-framework';
+import { container, logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
 import winston from 'winston';
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
 import type { CreateJobOptions } from './AbstractReplicator.js';
@@ -71,6 +71,22 @@ export abstract class AbstractReplicationJob {
 
   protected get rateLimiter() {
     return this.options.rateLimiter;
+  }
+
+  /** Log expected restarts without reporting them as replication failures. */
+  protected shouldReportReplicationError(error: unknown): boolean {
+    if (this.isStopped) {
+      return false;
+    }
+    if (error instanceof ReplicationAbortedError) {
+      if (error.cause != null) {
+        this.logger.warn('Replication aborted', error);
+      } else {
+        this.logger.info('Replication aborted', error);
+      }
+      return false;
+    }
+    return true;
   }
 
   public get isStopped(): boolean {

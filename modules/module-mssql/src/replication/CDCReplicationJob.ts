@@ -37,8 +37,7 @@ export class CDCReplicationJob extends replication.AbstractReplicationJob {
       await this.replicateOnce();
     } catch (e) {
       // Fatal exception
-      if (!this.isStopped) {
-        // Ignore aborted errors
+      if (this.shouldReportReplicationError(e)) {
         this.logger.error(`Replication error`, e);
         if (e.cause != null) {
           this.logger.error(`cause`, e.cause);
