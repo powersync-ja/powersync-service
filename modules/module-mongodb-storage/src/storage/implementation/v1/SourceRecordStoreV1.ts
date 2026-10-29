@@ -21,7 +21,7 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
     private readonly groupId: number
   ) {}
 
-  mapEvaluatedBuckets(evaluated: EvaluatedRow[]): LoadedSourceRecord['buckets'] {
+  mapEvaluatedBuckets(evaluated: Omit<EvaluatedRow, 'data'>[]): LoadedSourceRecord['buckets'] {
     return evaluated.map((entry) => ({
       definitionId: null,
       bucket: entry.bucket,
