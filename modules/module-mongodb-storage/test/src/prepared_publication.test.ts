@@ -334,7 +334,9 @@ streams:
     await using writer = context.writer;
     // Force small read blocks without changing production input/batch targets.
     using _blocks = vi.spyOn(OperationBatch.prototype, 'batched').mockImplementation(function* (this: OperationBatch) {
-      for (const op of this.batch) yield [op];
+      for (const op of this.batch) {
+        yield [op];
+      }
     });
     using reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
     using publish = vi.spyOn(PersistedBatchV3.prototype, 'publish');
@@ -367,7 +369,9 @@ streams:
       expect(reads).toHaveBeenCalledTimes(3);
       expect(publish).not.toHaveBeenCalled();
     } finally {
-      for (const gate of release) gate.resolve();
+      for (const gate of release) {
+        gate.resolve();
+      }
       await commit;
     }
     expect(publish).toHaveBeenCalledTimes(3);
@@ -399,7 +403,9 @@ streams:
     await using _factory = context.factory;
     await using writer = context.writer;
     using _blocks = vi.spyOn(OperationBatch.prototype, 'batched').mockImplementation(function* (this: OperationBatch) {
-      for (const op of this.batch) yield [op];
+      for (const op of this.batch) {
+        yield [op];
+      }
     });
     for (const after of [
       { id: 'A', description: 'first' },
@@ -446,7 +452,9 @@ streams:
     await using _factory = context.factory;
     await using writer = context.writer;
     using _blocks = vi.spyOn(OperationBatch.prototype, 'batched').mockImplementation(function* (this: OperationBatch) {
-      for (const op of this.batch) yield [op];
+      for (const op of this.batch) {
+        yield [op];
+      }
     });
     const started = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();

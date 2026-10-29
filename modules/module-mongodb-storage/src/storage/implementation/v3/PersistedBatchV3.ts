@@ -99,6 +99,28 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     return this.operations.currentSize;
   }
 
+  /**
+   * BSON bytes plus conservative headroom for JS objects, membership maps,
+   * packed chunks and upload buffers. Separate from transaction-size targets.
+   * This estimate intentionally charges superseded representations until commit.
+   */
+  get estimatedRetainedBytes(): number {
+    let bytes = 0;
+    for (const operation of this.operations.bucketData) {
+      bytes += bson.calculateObjectSize(operation) + 256;
+    }
+    for (const parameter of this.operations.bucketParameters) {
+      bytes += bson.calculateObjectSize(parameter) + 256;
+    }
+    for (const entry of this.currentData.values()) {
+      bytes += bson.calculateObjectSize(entry.operation) + 256;
+    }
+    for (const state of this.operations.bucketStates.values()) {
+      bytes += bson.calculateObjectSize(state) + 256;
+    }
+    return bytes * 4;
+  }
+
   saveBucketData(options: SaveBucketDataOptions): void {
     this.assertMutable();
     this.operations.saveBucketData(options);

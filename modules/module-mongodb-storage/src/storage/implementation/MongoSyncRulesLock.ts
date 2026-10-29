@@ -4,6 +4,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ErrorCode, Logger, ReplicationAbortedError, ServiceError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import { VersionedPowerSyncMongo } from './db.js';
+import type { ReplicationPipelineV3 } from './v3/ReplicationPipelineV3.js';
 
 const LOCK_DURATION_MS = 60 * 1000;
 
@@ -12,11 +13,17 @@ const LOCK_DURATION_MS = 60 * 1000;
  * processes that replication stream at a time.
  */
 export class MongoSyncRulesLock implements storage.ReplicationLock {
-  /** Public writer operations hold this mutex through preparation, publication and cleanup. */
+  /**
+   * Serializes public operations and application reads. V1/v2 also hold it
+   * through publication; v3/v4 may publish on the lease pipeline's own session.
+   */
   readonly writerMutex = new utils.Mutex();
+  /** Initialized only for v3/v4; owned and joined by the lease. */
+  replicationPipeline?: ReplicationPipelineV3;
   /**
    * All writers use this causal session sequentially under writerMutex. Reusing
-   * it carries earlier writes into later majority reads without copying clocks.
+   * it carries earlier writes into later majority reads. The v3/v4 pipeline
+   * also carries confirmed publication clocks from its separate session.
    * Only lease teardown ends it; disposing one writer must not affect the rest.
    * Lease acquisition and renewal use independent operations and never wait here.
    */
@@ -113,7 +120,10 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
     } finally {
       // Let an active operation finish/abort before ending its session. Queued
       // writers check the aborted lease after acquiring the mutex and do no I/O.
-      await this.writerMutex.exclusiveLock(() => this.session.endSession());
+      await this.writerMutex.exclusiveLock(async () => {
+        await this.replicationPipeline?.dispose();
+        await this.session.endSession();
+      });
     }
   }
 

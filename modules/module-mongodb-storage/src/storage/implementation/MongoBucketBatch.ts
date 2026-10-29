@@ -189,7 +189,7 @@ export abstract class MongoBucketBatch
   protected abstract cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]): Promise<void>;
 
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
-    return this.withWriterLock(() => this.commitInternal(lsn, options));
+    return this.withWriterLock(() => this.commitInternal(lsn, options), false);
   }
 
   protected abstract commitInternal(
@@ -250,7 +250,7 @@ export abstract class MongoBucketBatch
   protected async prepareCustomWriteCheckpoints(): Promise<void> {}
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
-    return this.withWriterLock(() => this.flushInternal(options));
+    return this.withWriterLock(() => this.flushInternal(options), false);
   }
 
   /** Internal helpers require the public operation to hold the writer mutex. */
@@ -586,8 +586,9 @@ export abstract class MongoBucketBatch
   }
 
   /**
-   * Internal transaction helper: the public writer operation already holds the
-   * mutex. The first operation must modify the stream document conditional on
+   * Internal transaction helper: the caller serializes use of its session, via
+   * the writer mutex or the v3/v4 publication FIFO. The first operation must
+   * modify the stream document conditional on
    * lease ownership. This database fence is required on every retry even though
    * local writers are serialized; another process may have taken over the lease.
    */
@@ -595,18 +596,19 @@ export abstract class MongoBucketBatch
     acquireFence: () => Promise<S>,
     cb: (stream: S) => Promise<T>,
     session = this.session,
-    description?: string
+    description?: string,
+    tracer = this.tracer
   ): Promise<T> {
     this.options.replicationLock.throwIfAborted();
     let attempts = 0;
     // Includes driver commit retries and the delays between transaction attempts.
-    using _transactionSpan = this.tracer.span('storage', 'transaction');
+    using _transactionSpan = tracer.span('storage', 'transaction');
     const result = await session.withTransaction(
       async () => {
         attempts++;
         // One callback invocation per transaction attempt. Commit happens after
         // this span; command monitoring is needed to measure the full wire lifetime.
-        using attemptSpan = this.tracer.span('storage', 'transaction_body');
+        using attemptSpan = tracer.span('storage', 'transaction_body');
         try {
           const stream = await acquireFence();
           const result = await cb(stream);
@@ -632,7 +634,7 @@ export abstract class MongoBucketBatch
             this.logger.warn('Transaction error', e as Error);
           }
           const delay = Math.random() * 50;
-          using _ = this.tracer.span('storage', 'retry_delay');
+          using _ = tracer.span('storage', 'retry_delay');
           await timers.setTimeout(delay);
           throw e;
         }
@@ -649,7 +651,7 @@ export abstract class MongoBucketBatch
    * belongs inside this boundary so it cannot join another writer's transaction.
    * Transaction helpers still fence database ownership on every attempt.
    */
-  private async withWriterLock<T>(callback: () => Promise<T>): Promise<T> {
+  protected async withWriterLock<T>(callback: () => Promise<T>, _sealInput = true): Promise<T> {
     using lockSpan = this.tracer.span('storage', 'internal_lock');
     this.options.replicationLock.throwIfAborted();
     return this.options.replicationLock.writerMutex.exclusiveLock(async () => {
@@ -710,12 +712,17 @@ export abstract class MongoBucketBatch
   }
 
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
+    return this.saveInternal(record);
+  }
+
+  /** Save implementation; v3/v4 serialize admission before calling it. */
+  protected async saveInternal(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
     const storeCurrentData = this.storeCurrentData && sourceTable.storeCurrentData;
     // V3 source tables own disjoint event-definition ids for each physical table. Multiple
     // SourceTables may evaluate different events, but each definition is evaluated through
     // at most one record for this row change.
-    // Legacy storage leaves eventDefinitionIds undefined and selects by table ref.
+    // V1/v2 storage leaves eventDefinitionIds undefined and selects by table ref.
     if (sourceTable.syncEvent) {
       for (const { event, eventId } of this.getTableEvents(sourceTable)) {
         this.iterateListeners((cb) =>
@@ -747,12 +754,17 @@ export abstract class MongoBucketBatch
     this.batch.push(new RecordOperation(record));
 
     if (this.batch.shouldFlush()) {
-      const r = await this.flush();
+      const r = await this.automaticFlush();
       // HACK: Give other streams a  chance to also flush
       await timers.setTimeout(5);
       return r;
     }
     return null;
+  }
+
+  /** V1/v2 automatic flushes remain durable. */
+  protected automaticFlush(): Promise<storage.FlushedResult | null> {
+    return this.flush();
   }
 
   /**
@@ -851,7 +863,7 @@ export abstract class MongoBucketBatch
     // V3 storage assigns event-definition ids to each source table, so membership is authoritative.
     // Iterate the table's distinct ids and resolve each through the stream's deduped event map, so a
     // definition reused across configs has one evaluator for that id. The evaluator may still return
-    // multiple payloads from matching queries. Legacy storage leaves this undefined and selects by table ref.
+    // multiple payloads from matching queries. V1/v2 storage leaves this undefined and selects by table ref.
     if (table.eventDefinitionIds != null) {
       const eventById = this.options.parsedSyncConfig.eventById;
       const events: { event: HydratedEventDescriptor; eventId: EventDefinitionId }[] = [];
