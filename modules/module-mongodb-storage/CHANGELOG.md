@@ -1,5 +1,29 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.24.0
+
+### Minor Changes
+
+- ebba2a3: Restructure replication in MongoDB V4 storage to avoid orphaned objects on S3.
+
+### Patch Changes
+
+- b64957d: Improve propagation of abort errors and fix some unhandled rejections.
+- 0c0e688: [MongoDB storage] Move chunks to object storage during compacting, if relevant.
+- 070ef34: Prevent unused publication tables from blocking initial replication after an interruption with Postgres storage or MongoDB storage versions 1 and 2. Tables unused by the sync config no longer create persisted source-table records. Existing affected deployments must explicitly redeploy the sync config after upgrading; restarting the service or reloading unchanged configuration does not clear the existing state.
+- Updated dependencies [ebba2a3]
+- Updated dependencies [7cf585d]
+- Updated dependencies [b64957d]
+- Updated dependencies [070ef34]
+- Updated dependencies [85c5e12]
+- Updated dependencies [d951049]
+- Updated dependencies [a8d5c22]
+  - @powersync/service-core@1.28.0
+  - @powersync/service-sync-rules@0.45.0
+  - @powersync/service-types@0.21.0
+  - @powersync/lib-services-framework@0.10.5
+  - @powersync/lib-service-mongodb@0.6.35
+
 ## 0.23.2
 
 ### Patch Changes
