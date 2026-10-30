@@ -175,6 +175,13 @@ export class HydratedSyncConfig {
     return this.sourceDefinitions.some((definition) => definition.tableSyncsParameters(table));
   }
 
+  /**
+   * Whether the table participates in data queries, parameter lookups, or replication events.
+   */
+  tableSyncsAny(table: SourceTableRef): boolean {
+    return this.tableSyncsData(table) || this.tableSyncsParameters(table) || this.tableTriggersEvent(table);
+  }
+
   getMatchingSources(source: SourceTableRef): MatchingSources {
     const table: SourceTableRef = {
       connectionTag: source.connectionTag,
