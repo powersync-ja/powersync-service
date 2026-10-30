@@ -152,6 +152,15 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       const materializedResolution = storage.materializeSourceTableResolution(candidateTables, resolution);
       const compatibleTables = materializedResolution.compatibleTables;
 
+      if (!syncRules.tableSyncsAny(source)) {
+        // Still reconcile old mappings so renames out of scope remove previously replicated data.
+        result = {
+          tables: [],
+          dropTables: [...materializedResolution.incompatibleTables, ...compatibleTables]
+        };
+        return;
+      }
+
       // V1 keeps one record, preferring one that has already been snapshotted.
       const reuse = compatibleTables.find((table) => table.snapshotComplete) ?? compatibleTables[0] ?? null;
 

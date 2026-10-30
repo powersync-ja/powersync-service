@@ -95,6 +95,13 @@ Conceptually it does:
 
 Important: one physical table can resolve to multiple `SourceTable` records when sync config definitions have been added over time.
 
+Postgres storage and MongoDB storage v1/v2 return no source-table records for a table that the sync config
+does not use for data, parameters, or events. They still reconcile existing records and return obsolete
+mappings in `dropTables`, so renaming a replicated table out of scope removes its replicated data.
+Source connectors cache the empty result to distinguish an ignored relation from an undiscovered one.
+Incremental storage resolves records by definition membership and retains compatible historical coverage
+that can be reused by a later sync config.
+
 ### Source-owned candidate reconciliation
 
 `resolveTables` delegates compatibility checks to the connector through `reconcileSourceTables`. If none is provided, it uses the default identity comparison.

@@ -12,10 +12,6 @@ export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptio
   oldestUncommittedChange: null
 };
 
-export interface MarkSnapshotDoneOptions {
-  throwOnConflict?: boolean;
-}
-
 /**
  * Storage writer for a source-specific unit of replication work.
  *
@@ -140,13 +136,13 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * Mark the full replication snapshot as done without validating individual source table snapshot state.
    *
    * This is primarily intended for storage tests and setup helpers that manually construct storage state.
-   * Replicators should use `markSnapshotDone()` instead, because that validates that all required source tables
+   * Replicators should use `markSnapshotDone()` instead, because that validates that all known source tables
    * have completed snapshotting before allowing checkpoints to be unblocked.
    */
   markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
 
   /**
-   * Mark the full replication snapshot as done after validating that all required source tables have completed snapshotting.
+   * Mark the full replication snapshot as done after validating that all known source tables have completed snapshotting.
    *
    * Replicators should use this method when completing an initial snapshot. The validation prevents races where
    * new source tables are marked as requiring a snapshot while global snapshot finalization is running.
@@ -154,7 +150,7 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * If `throwOnConflict` is false, this will instead return early without throwing if there are source tables that still require snapshotting.
    * Use that only in cases where concurrency is expected, and can automatically retry/continue.
    */
-  markSnapshotDone(no_checkpoint_before_lsn: string, options?: MarkSnapshotDoneOptions): Promise<void>;
+  markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void>;
 
   /**
    * Persist resumable table snapshot progress such as row counts or source

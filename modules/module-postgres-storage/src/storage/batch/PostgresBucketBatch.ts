@@ -215,6 +215,14 @@ export class PostgresBucketBatch
       const materializedResolution = storage.materializeSourceTableResolution(candidateTables, resolution);
       const compatibleTables = materializedResolution.compatibleTables;
 
+      if (!syncRules.tableSyncsAny(source)) {
+        // Still reconcile old mappings so renames out of scope remove previously replicated data.
+        return {
+          tables: [],
+          dropTables: [...materializedResolution.incompatibleTables, ...compatibleTables]
+        };
+      }
+
       // Keep one record, preferring one that has already been snapshotted.
       const reuse = compatibleTables.find((candidate) => candidate.snapshotComplete) ?? compatibleTables[0] ?? null;
 
@@ -750,25 +758,20 @@ export class PostgresBucketBatch
     });
   }
 
-  async markSnapshotDone(no_checkpoint_before_lsn: string, options?: storage.MarkSnapshotDoneOptions): Promise<void> {
+  async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
     await this.db.transaction(async (db) => {
-      const pendingTables = await db.sql`
+      const blockingTables = await db.sql`
         SELECT
-          *
+          schema_name,
+          table_name
         FROM
           source_tables
         WHERE
           group_id = ${{ type: 'int4', value: this.group_id }}
           AND snapshot_done = FALSE
       `
-        .decoded(models.SourceTable)
+        .decoded(t.object({ schema_name: t.string, table_name: t.string }))
         .rows();
-      // Legacy rows may belong to unused tables that startup never resolves again.
-      // Only one source connection is supported, so match tables using the default tag.
-      // TODO: If multiple connections are supported, check only the relevant source connections.
-      const blockingTables = pendingTables.filter(
-        (row) => this.sourceTableFromRow(row, storage.SourceTable.DEFAULT_TAG, this.sync_rules).syncAny
-      );
       if (blockingTables.length > 0) {
         if (options?.throwOnConflict ?? true) {
           throw new ReplicationAssertionError(
