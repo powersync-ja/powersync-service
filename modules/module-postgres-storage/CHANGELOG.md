@@ -1,5 +1,26 @@
 # @powersync/service-module-postgres-storage
 
+## 0.19.5
+
+### Patch Changes
+
+- b64957d: Improve propagation of abort errors and fix some unhandled rejections.
+- f75978e: Fix replication failing with `RangeError: Invalid string length` when a single source row with large data is evaluated into many buckets. Bucket data and parameter data are now flushed in size-bounded INSERT statements.
+- 070ef34: Prevent unused publication tables from blocking initial replication after an interruption with Postgres storage or MongoDB storage versions 1 and 2. Tables unused by the sync config no longer create persisted source-table records. Existing affected deployments must explicitly redeploy the sync config after upgrading; restarting the service or reloading unchanged configuration does not clear the existing state.
+- Updated dependencies [ebba2a3]
+- Updated dependencies [7cf585d]
+- Updated dependencies [b64957d]
+- Updated dependencies [070ef34]
+- Updated dependencies [85c5e12]
+- Updated dependencies [d951049]
+- Updated dependencies [a8d5c22]
+  - @powersync/service-core@1.28.0
+  - @powersync/service-sync-rules@0.45.0
+  - @powersync/service-types@0.21.0
+  - @powersync/lib-services-framework@0.10.5
+  - @powersync/service-jpgwire@0.21.27
+  - @powersync/lib-service-postgres@0.5.8
+
 ## 0.19.4
 
 ### Patch Changes

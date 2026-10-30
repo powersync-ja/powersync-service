@@ -1,5 +1,25 @@
 # @powersync/service-core
 
+## 1.28.0
+
+### Minor Changes
+
+- ebba2a3: Restructure replication in MongoDB V4 storage to avoid orphaned objects on S3.
+- 85c5e12: Add `powersync_sync_connections_total` to track sync stream close outcomes and setup rejections across HTTP and RSocket.
+
+### Patch Changes
+
+- b64957d: Improve propagation of abort errors and fix some unhandled rejections.
+- Updated dependencies [7cf585d]
+- Updated dependencies [070ef34]
+- Updated dependencies [85c5e12]
+- Updated dependencies [d951049]
+- Updated dependencies [a8d5c22]
+  - @powersync/service-sync-rules@0.45.0
+  - @powersync/service-types@0.21.0
+  - @powersync/service-rsocket-router@0.3.0
+  - @powersync/lib-services-framework@0.10.5
+
 ## 1.27.2
 
 ## 1.27.1

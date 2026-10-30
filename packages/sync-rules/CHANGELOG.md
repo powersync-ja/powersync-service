@@ -1,5 +1,30 @@
 # @powersync/service-sync-rules
 
+## 0.45.0
+
+### Minor Changes
+
+- a8d5c22: Rename sync config error and schema exports. The previous names are removed, so update any direct imports:
+
+  - `SyncRulesErrors` → `SyncConfigErrors`
+  - `SyncRuleProcessingError` → `SyncConfigProcessingError`
+  - `SyncRulesErrorCode` → `SyncConfigErrorCode`
+  - `syncRulesSchema` → `syncConfigSchema`
+  - `validateSyncRulesSchema` → `validateSyncConfigSchema`
+  - `createSyncRulesSchema` → `createSyncConfigSchema`
+  - `compileSyncRulesSchemaValidator` → `compileSyncConfigSchemaValidator`
+  - `SyncRulesSchemaValidator` → `SyncConfigSchemaValidator`
+
+  Parsing and validation behavior is unchanged. The published `schema/sync_config.json` and `schema/sync_rules.json` files are unchanged.
+
+### Patch Changes
+
+- 7cf585d: Fix invalid Dart syntax in generated Sync Stream helpers for streams with more than one subscription parameter.
+- 070ef34: Prevent unused publication tables from blocking initial replication after an interruption with Postgres storage or MongoDB storage versions 1 and 2. Tables unused by the sync config no longer create persisted source-table records. Existing affected deployments must explicitly redeploy the sync config after upgrading; restarting the service or reloading unchanged configuration does not clear the existing state.
+- d951049: Add `parseSyncConfig()` and `validateSyncConfig()` to parse and validate a sync config for either engine. `SqlSyncRules.fromYaml()` and `SqlSyncRules.validate()` remain as deprecated wrappers, and `SqlSyncRules` itself is now marked deprecated as the legacy Sync Rules implementation. When the YAML can't be parsed, `parseSyncConfig()` returns an empty `InvalidSyncConfig` instead of an empty `SqlSyncRules`.
+
+  Rename `SyncRulesOptions` to `SyncConfigParseOptions`, and `toSyncRulesValue`, `toSyncRulesRow` and `toSyncRulesParameters` to `toSyncConfigValue`, `toSyncConfigRow` and `toSyncConfigParameters`. The previous names remain as deprecated aliases.
+
 ## 0.44.0
 
 ### Minor Changes
