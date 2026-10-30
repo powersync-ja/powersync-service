@@ -202,6 +202,19 @@ export class PostgresBucketBatch
       const resolution = await reconcile({ source, candidates });
       storage.validateSourceTableCandidateResolution(candidates, resolution);
 
+      const materializedResolution = storage.materializeSourceTableResolution(candidateTables, resolution);
+      const compatibleTables = materializedResolution.compatibleTables;
+
+      if (!syncRules.tableSyncsAny(source)) {
+        // Still reconcile old mappings so renames out of scope remove previously replicated data.
+        // Skip updating source_metadata below: these records are dropped by the caller in this
+        // same transaction, so persisting new metadata into them first is wasted work.
+        return {
+          tables: [],
+          dropTables: [...materializedResolution.incompatibleTables, ...compatibleTables]
+        };
+      }
+
       for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
         await db.sql`
           UPDATE source_tables
@@ -210,17 +223,6 @@ export class PostgresBucketBatch
           WHERE
             id = ${{ type: 'varchar', value: id.toString() }}
         `.execute();
-      }
-
-      const materializedResolution = storage.materializeSourceTableResolution(candidateTables, resolution);
-      const compatibleTables = materializedResolution.compatibleTables;
-
-      if (!syncRules.tableSyncsAny(source)) {
-        // Still reconcile old mappings so renames out of scope remove previously replicated data.
-        return {
-          tables: [],
-          dropTables: [...materializedResolution.incompatibleTables, ...compatibleTables]
-        };
       }
 
       // Keep one record, preferring one that has already been snapshotted.
