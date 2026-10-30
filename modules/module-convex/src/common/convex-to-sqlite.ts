@@ -4,7 +4,7 @@ import {
   DatabaseInputValue,
   ExpressionType,
   SqliteInputRow,
-  toSyncRulesRow
+  toSyncConfigRow
 } from '@powersync/service-sync-rules';
 import { ConvexRawDocument } from '../client/ConvexAPITypes.js';
 
@@ -51,7 +51,7 @@ export function toSqliteInputRow(change: ConvexRawDocument): SqliteInputRow {
     row[key] = toDatabaseValue(value);
   }
 
-  return toSyncRulesRow(row);
+  return toSyncConfigRow(row);
 }
 
 export function extractProperties(schema: Record<string, any>): Record<string, unknown> {

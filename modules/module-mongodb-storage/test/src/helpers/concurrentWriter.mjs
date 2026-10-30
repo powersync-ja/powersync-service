@@ -10,7 +10,7 @@ async function main() {
   const streamId = Number(process.argv[3]);
   const stream = (await factory.getReplicatingReplicationStreams()).find((s) => s.replicationStreamId === streamId);
   const lock = await stream.lock();
-  await using lockLifetime = { [Symbol.asyncDispose]: () => lock.release() };
+  await using _lockLifetime = { [Symbol.asyncDispose]: () => lock.release() };
   const bucketStorage = factory.getInstance(stream, { replicationLock: lock });
   await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
   const table = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, streamId);
@@ -21,7 +21,7 @@ async function main() {
     afterReplicaId: test_utils.rid('child')
   });
   await writer.commit('1/2');
-  console.log(`checkpoint=${(await bucketStorage.getCheckpoint()).checkpoint}`);
+  console.log(`checkpoint=${(await bucketStorage.getCheckpoint()).checkpoint}; persisted=${writer.last_flushed_op}`);
 }
 
 await main();

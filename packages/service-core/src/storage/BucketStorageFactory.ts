@@ -1,10 +1,10 @@
 import { BaseObserver, logger } from '@powersync/lib-services-framework';
 import {
+  parseSyncConfig,
   PrecompiledSyncConfig,
   SerializedSyncPlan as RawSerializedSyncPlan,
   SerializedCompatibilityContext,
   serializeSyncPlan,
-  SqlSyncRules,
   SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
 import { ReplicationError } from '@powersync/service-types';
@@ -228,7 +228,7 @@ export function updateSyncRulesFromYaml(
   options?: Omit<UpdateSyncRulesOptions, 'config'> & { validate?: boolean }
 ): UpdateSyncRulesOptions {
   const { validate, ...updateOptions } = options ?? {};
-  const config = SqlSyncRules.fromYaml(content, {
+  const config = parseSyncConfig(content, {
     // No schema-based validation at this point
     schema: undefined,
     defaultSchema: options?.defaultSchema ?? 'not_applicable', // Not needed for validation
