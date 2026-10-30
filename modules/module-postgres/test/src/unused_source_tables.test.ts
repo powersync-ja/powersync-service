@@ -1,10 +1,7 @@
 import { reduceBucket } from '@powersync/service-core-tests';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
-import { ObjectId } from 'bson';
-import { randomUUID } from 'node:crypto';
 import { describe, expect, test, vi } from 'vitest';
-import type { SourceTableDocumentV1 } from '../../../module-mongodb-storage/src/storage/implementation/v1/models.js';
 import { describeWithStorage } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
@@ -29,38 +26,6 @@ async function storedTableNames(context: WalStreamTestContext) {
   if (factory instanceof mongo_storage.MongoBucketStorage) {
     const rows = await factory.db.source_tables.find({ group_id: streamId }).toArray();
     return rows.map((row) => row.table_name).sort();
-  }
-  throw new Error('Unexpected storage backend');
-}
-
-/**
- * Reproduce the pending unused table persisted by an older service before its first checkpoint.
- */
-async function seedLegacyUnusedRecord(context: WalStreamTestContext) {
-  const factory = context.factory;
-  const streamId = context.storage!.replicationStreamId;
-  if (factory instanceof postgres_storage.PostgresBucketStorageFactory) {
-    await factory.db.sql`
-      INSERT INTO source_tables (id, group_id, connection_id, schema_name, table_name, snapshot_done)
-      VALUES (${{ type: 'varchar', value: randomUUID() }}, ${{ type: 'int4', value: streamId }},
-        1, 'public', 'test_unused_ignored', FALSE)
-    `.execute();
-    return;
-  }
-  if (factory instanceof mongo_storage.MongoBucketStorage) {
-    await factory.db.db.collection<SourceTableDocumentV1>('source_tables').insertOne({
-      _id: new ObjectId(),
-      group_id: streamId,
-      connection_id: 1,
-      relation_id: undefined,
-      schema_name: 'public',
-      table_name: 'test_unused_ignored',
-      replica_id_columns: null,
-      replica_id_columns2: [],
-      snapshot_done: false,
-      snapshot_status: undefined
-    });
-    return;
   }
   throw new Error('Unexpected storage backend');
 }
