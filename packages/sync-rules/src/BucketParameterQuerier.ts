@@ -1,10 +1,50 @@
 import { JSONBig } from '@powersync/service-jsonbig';
-import { ResolvedBucket } from './BucketDescription.js';
+import { BucketPriority, ResolvedBucket } from './BucketDescription.js';
 import { ParameterIndexLookupCreator } from './BucketSource.js';
 import { ParameterLookupScope } from './HydrationState.js';
-import { RequestedStream } from './SqlSyncRules.js';
 import { RequestParameters, SqliteJsonRow, SqliteJsonValue } from './types.js';
 import { normalizeParameterValue } from './utils.js';
+
+export interface RequestedStream {
+  /**
+   * Sync Streams can be requested with a different priority than the one originally used to define the stream.
+   *
+   * When set, buckets queried for this stream should use this override priority instead of the default one.
+   */
+  priorityOverride: BucketPriority | null;
+
+  /**
+   * The parameters for the explicit stream subscription.
+   *
+   * Unlike {@link GetQuerierOptions.globalParameters}, these parameters are only applied to the particular stream.
+   */
+  parameters: SqliteJsonRow | null;
+
+  /**
+   * An opaque id of the stream subscription, used to associate buckets with the stream subscriptions that have caused
+   * them to be included.
+   */
+  opaque_id: number;
+}
+
+export interface GetQuerierOptions {
+  globalParameters: RequestParameters;
+  /**
+   * Whether the client is subscribing to default query streams.
+   *
+   * Client do this by default, but can disable the behavior if needed.
+   */
+  hasDefaultStreams: boolean;
+  /**
+   *
+   * For streams, this is invoked to check whether the client has opened the relevant stream.
+   *
+   * @param name The name of the stream as it appears in the sync config definitions.
+   * @returns If the strema has been opened by the client, the stream parameters for that particular stream. Otherwise
+   * null.
+   */
+  streams: Record<string, RequestedStream[]>;
+}
 
 /**
  * Represents a set of parameter queries for a specific request.

@@ -8,12 +8,12 @@ import {
   KotlinSchemaGenerator,
   RoomSchemaGenerator,
   RustSchemaGenerator,
-  SqlSyncRules,
   StaticSchema,
   SwiftSchemaGenerator,
   TsSchemaGenerator,
   TsSchemaLanguage,
   driftSchemaGenerator,
+  parseSyncConfig,
   sqlDelightSchemaGenerator
 } from '../../src/index.js';
 
@@ -42,7 +42,7 @@ describe('schema generation', () => {
     }
   ]);
 
-  const { config: rules } = SqlSyncRules.fromYaml(
+  const { config: rules } = parseSyncConfig(
     `
 config:
   edition: 3
@@ -62,7 +62,7 @@ streams:
     const streams = `
 extension type TypedSyncStreams(PowerSyncDatabase _db) {
   SyncStream assetsOne() => _db.syncStream('assets_one', {});
-  SyncStream assets2({required String name}) => _db.syncStream('assets_2', {'name': name,});
+  SyncStream assets2({required String name}) => _db.syncStream('assets_2', {'name': name});
 }`;
 
     expect(new DartSchemaGenerator().generate(rules, schema)).toEqual(`Schema([
@@ -98,6 +98,24 @@ ${streams}
 `);
   });
 
+  test('Dart with multiple Sync Stream parameters', () => {
+    const { config } = parseSyncConfig(
+      `
+config:
+  edition: 3
+
+streams:
+  filtered:
+    query: SELECT * FROM assets WHERE name = subscription.parameter('name') AND owner_id = subscription.parameter('owner_id')
+`,
+      PARSE_OPTIONS
+    );
+
+    expect(new DartSchemaGenerator().generate(config, schema)).toContain(
+      `  SyncStream filtered({required String ownerId, required String name}) => _db.syncStream('filtered', {'owner_id': ownerId, 'name': name});\n`
+    );
+  });
+
   test('js legacy', () => {
     expect(new JsLegacySchemaGenerator().generate(rules, schema)).toEqual(`new Schema([
   new Table({
@@ -122,7 +140,7 @@ ${streams}
   });
 
   test('js without sync streams omits SyncStream imports', () => {
-    const { config: rulesWithoutStreams } = SqlSyncRules.fromYaml(
+    const { config: rulesWithoutStreams } = parseSyncConfig(
       `
 config:
   edition: 3

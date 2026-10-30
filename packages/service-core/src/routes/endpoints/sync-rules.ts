@@ -1,5 +1,5 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { parseSyncConfig, SyncConfigErrors, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 import { assertSourceCapabilities } from '../../api/source-capabilities.js';
@@ -58,7 +58,7 @@ export const deploySyncRules = routeDefinition({
     try {
       // First ensure the SyncConfig parses correctly
       const apiHandler = service_context.routerEngine.getAPI();
-      syncConfig = SqlSyncRules.fromYaml(content, {
+      syncConfig = parseSyncConfig(content, {
         ...apiHandler.getParseSyncRulesOptions(),
         // We don't do any schema-level validation at this point
         schema: undefined
@@ -182,7 +182,7 @@ export const reprocessSyncRules = routeDefinition({
     }
 
     const sync_rules = active.content;
-    const parsed = SqlSyncRules.fromYaml(sync_rules.sync_rules_content, {
+    const parsed = parseSyncConfig(sync_rules.sync_rules_content, {
       ...payload.context.service_context.routerEngine.getAPI().getParseSyncRulesOptions(),
       schema: undefined,
       // This sync config already passed validation. But if the rules are not valid anymore due
@@ -216,7 +216,7 @@ function replyPrettyJson(payload: any) {
 
 async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
   try {
-    const rules = SqlSyncRules.fromYaml(sync_rules, {
+    const rules = parseSyncConfig(sync_rules, {
       ...apiHandler.getParseSyncRulesOptions(),
       // No schema-based validation at this point
       schema: undefined
@@ -224,7 +224,7 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
     const errors: string[] = [];
     const warnings = rules.errors.filter((error) => error.type === 'warning').map((error) => error.message);
     const recordError = (error: any) => {
-      errors.push(...(error instanceof SyncRulesErrors ? error.errors.map((e) => e.message) : [error.message]));
+      errors.push(...(error instanceof SyncConfigErrors ? error.errors.map((e) => e.message) : [error.message]));
     };
     try {
       const diagnostics = (await apiHandler.validateSourceCapabilities?.(rules.config)) ?? [];
@@ -251,7 +251,7 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
       data_tables: rules.config.debugGetOutputTables()
     };
   } catch (e) {
-    if (e instanceof SyncRulesErrors) {
+    if (e instanceof SyncConfigErrors) {
       return {
         valid: false,
         errors: e.errors.map((e) => e.message)

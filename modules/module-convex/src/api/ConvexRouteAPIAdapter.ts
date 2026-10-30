@@ -194,7 +194,7 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
 function createTableInfo(options: {
   tablePattern: sync_rules.TablePattern;
   connectionTag: string;
-  syncRules: sync_rules.SqlSyncRules;
+  syncRules: sync_rules.SyncConfig;
   tableName?: string;
   errors?: service_types.ReplicationError[];
 }) {

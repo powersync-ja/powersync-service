@@ -9,6 +9,7 @@ Keep this file concise. Use it to route agents to the right docs and nearby impl
 - Prefer existing module patterns over new abstractions.
 - Keep changes scoped to the package or module relevant to the task.
 - For integration tests, prefer the existing test utilities and fixtures in the relevant module.
+- For embedded YAML formatting errors, follow the existing [source-table config fixtures](packages/service-core/test/src/source_table_config.test.ts). Use `/* yaml */` template literals with a leading YAML comment, such as `# sync config fixture.`. Do not use `// prettier-ignore` to bypass YAML formatting. Preserve the intended nesting when composing YAML fragments.
 - Prefer real implementations for tests that validate cross-module behavior. If a test only needs to observe calls or arguments, prefer Vitest spies such as `vi.spyOn()` before introducing mocks. Use mocks only when testing specific unit behavior or when a real dependency is impractical.
 
 ## Development Commands
@@ -39,7 +40,8 @@ Use this section when working on source replication modules, replication streams
 
 Sync Rules (`bucket_definitions:` with `parameters:` and `data:` queries) are deprecated in favour of Sync Streams (`streams:`).
 
-- **Sync config** is the whole deployed YAML, regardless of engine. Use `SyncConfig` in identifiers and lowercase "sync config" in comments and messages.
+- **Sync config** is the whole deployed YAML, regardless of engine, and the name for functionality shared across engines. Use `SyncConfig` in identifiers and lowercase "sync config" in comments and messages.
+- When code, behavior, or syntax applies to a specific engine, use **Sync Streams** / `SyncStreams` or **legacy Sync Rules** / `SyncRules` in naming. Apply this distinction in identifiers, comments, test names, and docs. For example, use "Sync Streams SQL grammar" for its query syntax and "sync config schema" for the whole YAML.
 - **Sync Streams** is the current engine. Every new or example sync config, including tests, fixtures, and templates, uses `streams:` with `config: edition: 3`. Do not add new `bucket_definitions:` examples or fixtures.
 - **Legacy Sync Rules** is the deprecated engine. Its implementation lives in `packages/sync-rules/src/legacy/` and is marked `@deprecated`. Do not add features there.
 - Capitalize "Sync Streams", "Sync Stream", "Sync Rules", and "legacy Sync Rules" in comments, JSDoc, messages, test names, and docs. Identifiers keep code casing (`SyncStreamsCompiler`, `streams:`, `sync_rules`).

@@ -8,9 +8,9 @@ import {
 } from './compatibility.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.js';
 import { CommonTableExpression } from './compiler/sqlite.js';
-import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
+import { SqlRuleError, SyncConfigErrors, YamlError } from './errors.js';
 import { PreparedEventDefinition } from './events/CompiledEventSourceQuery.js';
-import { validateSyncRulesSchema } from './json_schema.js';
+import { validateSyncConfigSchema } from './json_schema.js';
 import { QueryParseResult, SqlBucketDescriptor } from './legacy/SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './legacy/streams/from_sql.js';
 import { parseMongoFilterExpression } from './mongo/MongoFilterExpression.js';
@@ -21,13 +21,19 @@ import {
   normalizeSourceTableConfig,
   parseSourceTableConfigKey
 } from './SourceTableConfig.js';
-import { SqlSyncRules, type SourceConnectionMap } from './SqlSyncRules.js';
+import { SqlSyncRules } from './SqlSyncRules.js';
 import { validateStorageVersion } from './StorageVersion.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { CompiledEventDescriptor } from './sync_plan/plan.js';
-import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
+import { InvalidSyncConfig, SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { DEFAULT_TAG, ImplicitSchemaTablePattern, TablePattern } from './TablePattern.js';
-import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js';
+import {
+  QueryParseOptions,
+  SourceConnectionMap,
+  SourceSchema,
+  StreamParseOptions,
+  SyncConfigParseOptions
+} from './types.js';
 import { buildParsedToSourceValueMap, isBlockScalar, isQuotedScalar } from './yaml_scalar_map.js';
 import { createYamlSourceLocationResolver, mapAjvErrorsToYamlErrors } from './yaml_source_locations.js';
 import { documentState, YamlMapState, YamlScalarState, YamlState } from './yaml_validation.js';
@@ -35,9 +41,46 @@ import { documentState, YamlMapState, YamlScalarState, YamlState } from './yaml_
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
 /**
- * Reads `sync_rules.yaml` files containing a sync config.
+ * Parses a sync config from YAML, for either Sync Streams or legacy Sync Rules.
  *
- * @internal Only exposed through `SqlSyncRules.fromYaml`.
+ * Throws {@link SyncConfigErrors} on a fatal error, unless `options.throwOnError` is `false`.
+ */
+export function parseSyncConfig(yaml: string, options: SyncConfigParseOptions): SyncConfigWithErrors {
+  const parser = new SyncConfigFromYaml(
+    {
+      throwOnError: options.throwOnError ?? true,
+      schema: options.schema,
+      defaultSchema: options.defaultSchema,
+      connections: options.connections
+    },
+    yaml
+  );
+
+  return parser.read();
+}
+
+/**
+ * Validates a sync config from YAML, returning its errors and warnings instead of throwing.
+ */
+export function validateSyncConfig(yaml: string, options: SyncConfigParseOptions): YamlError[] {
+  try {
+    const rules = parseSyncConfig(yaml, options);
+    return rules.errors;
+  } catch (e) {
+    if (e instanceof SyncConfigErrors) {
+      return e.errors;
+    } else if (e instanceof YamlError) {
+      return [e];
+    } else {
+      return [new YamlError(e)];
+    }
+  }
+}
+
+/**
+ * Reads a sync config from YAML.
+ *
+ * @internal Only exposed through {@link parseSyncConfig}.
  */
 export class SyncConfigFromYaml {
   readonly #errors: YamlError[] = [];
@@ -94,7 +137,7 @@ export class SyncConfigFromYaml {
     // Check the remaining config structure after collecting specific expression diagnostics.
     // Retain the YAML tree so errors highlight the actual key/value.
     if (!this.#hasFatalError) {
-      const validate = validateSyncRulesSchema;
+      const validate = validateSyncConfigSchema;
       if (!validate(encoded)) {
         this.#errors.push(...mapAjvErrorsToYamlErrors(sourceLocationResolver, validate.errors!));
       }
@@ -112,7 +155,7 @@ export class SyncConfigFromYaml {
 
       // Return an empty sync config instance if we couldn't parse YAML, it doesn't make sense to try parsing the broken
       // structure further.
-      return new SqlSyncRules(this.yaml);
+      return new InvalidSyncConfig(this.yaml);
     }
 
     using rootState = root;
@@ -256,7 +299,7 @@ export class SyncConfigFromYaml {
 
   #throwOnErrorIfRequested() {
     if (this.options.throwOnError && this.#hasFatalError) {
-      throw new SyncRulesErrors(this.#errors);
+      throw new SyncConfigErrors(this.#errors);
     }
   }
 

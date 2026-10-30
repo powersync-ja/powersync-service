@@ -1,5 +1,7 @@
 # @powersync/service-core
 
+## 1.27.2
+
 ## 1.27.1
 
 ### Patch Changes
