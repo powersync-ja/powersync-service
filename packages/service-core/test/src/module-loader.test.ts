@@ -99,7 +99,20 @@ describe('module loader', () => {
       storage: { type: 'postgresql' }
     };
 
-    await expect(loadModules(config as any, mockLoaders)).rejects.toThrowError();
+    await expect(loadModules(config as any, mockLoaders)).rejects.toThrowError(
+      'Invalid connection types: "redis". Supported types: "mysql", "postgresql".'
+    );
+  });
+
+  it('should throw an error with supported storage types if storage type is invalid', async () => {
+    const config: MockConfig = {
+      connections: [{ type: 'mysql' }],
+      storage: { type: 'redis' }
+    };
+
+    await expect(loadModules(config as any, mockLoaders)).rejects.toThrowError(
+      'Invalid storage type: "redis". Supported types: "postgresql".'
+    );
   });
 
   it('should throw an error if one dynamic connection module import fails', async () => {

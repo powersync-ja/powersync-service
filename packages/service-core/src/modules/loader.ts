@@ -1,3 +1,4 @@
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { ResolvedPowerSyncConfig } from '../util/util-index.js';
 import { AbstractModule } from './AbstractModule.js';
 
@@ -9,6 +10,11 @@ export interface ModuleLoaders {
   storage: DynamicModuleMap;
   connection: DynamicModuleMap;
 }
+
+function quoteList(values: string[]): string {
+  return values.map((value) => `"${value}"`).join(', ');
+}
+
 /**
  * Utility function to dynamically load and instantiate modules.
  */
@@ -30,13 +36,21 @@ export async function loadModules(config: ResolvedPowerSyncConfig, loaders: Modu
 
   // Fail if any connection types are not found.
   if (missingConnectionModules.length > 0) {
-    throw new Error(`Invalid connection types: "${[...missingConnectionModules].join(', ')}"`);
+    const validConnections = Object.keys(loaders.connection);
+    throw new ServiceError(
+      ErrorCode.PSYNC_S3201,
+      `Invalid connection types: ${quoteList(missingConnectionModules)}${validConnections.length > 0 ? `. Supported types: ${quoteList(validConnections)}.` : ''}`
+    );
   }
 
   if (loaders.storage[config.storage.type] !== undefined) {
     modulePromises.push(loaders.storage[config.storage.type]());
   } else {
-    throw new Error(`Invalid storage type: "${config.storage.type}"`);
+    const validStorage = Object.keys(loaders.storage);
+    throw new ServiceError(
+      ErrorCode.PSYNC_S3201,
+      `Invalid storage type: "${config.storage.type}"${validStorage.length > 0 ? `. Supported types: ${quoteList(validStorage)}.` : ''}`
+    );
   }
 
   // 2. Dynamically import and instantiate module classes and resolve all promises
