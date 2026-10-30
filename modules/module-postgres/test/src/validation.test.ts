@@ -1,13 +1,13 @@
 import { getDebugTablesInfo } from '@module/replication/replication-utils.js';
 import * as pgwire from '@powersync/service-jpgwire';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { parseSyncConfig } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 
 import { INITIALIZED_STORAGE_FACTORY, TEST_CONNECTION_OPTIONS } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 function parseRules(syncRuleContent: string) {
-  return SqlSyncRules.fromYaml(syncRuleContent, { defaultSchema: 'public' }).config;
+  return parseSyncConfig(syncRuleContent, { defaultSchema: 'public' }).config;
 }
 
 async function validateSyncRules(context: WalStreamTestContext, syncRuleContent: string) {

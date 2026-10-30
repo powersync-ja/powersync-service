@@ -40,7 +40,8 @@ Use this section when working on source replication modules, replication streams
 
 Sync Rules (`bucket_definitions:` with `parameters:` and `data:` queries) are deprecated in favour of Sync Streams (`streams:`).
 
-- **Sync config** is the whole deployed YAML, regardless of engine. Use `SyncConfig` in identifiers and lowercase "sync config" in comments and messages.
+- **Sync config** is the whole deployed YAML, regardless of engine, and the name for functionality shared across engines. Use `SyncConfig` in identifiers and lowercase "sync config" in comments and messages.
+- When code, behavior, or syntax applies to a specific engine, use **Sync Streams** / `SyncStreams` or **legacy Sync Rules** / `SyncRules` in naming. Apply this distinction in identifiers, comments, test names, and docs. For example, use "Sync Streams SQL grammar" for its query syntax and "sync config schema" for the whole YAML.
 - **Sync Streams** is the current engine. Every new or example sync config, including tests, fixtures, and templates, uses `streams:` with `config: edition: 3`. Do not add new `bucket_definitions:` examples or fixtures.
 - **Legacy Sync Rules** is the deprecated engine. Its implementation lives in `packages/sync-rules/src/legacy/` and is marked `@deprecated`. Do not add features there.
 - Capitalize "Sync Streams", "Sync Stream", "Sync Rules", and "legacy Sync Rules" in comments, JSDoc, messages, test names, and docs. Identifiers keep code casing (`SyncStreamsCompiler`, `streams:`, `sync_rules`).

@@ -1,6 +1,6 @@
 import { BasicRouterRequest, Context, JwtPayload, ParsedSyncConfigSet, storage } from '@/index.js';
 import { ErrorCode, logger } from '@powersync/lib-services-framework';
-import { PrecompiledSyncConfig, SqlSyncRules } from '@powersync/service-sync-rules';
+import { PrecompiledSyncConfig, parseSyncConfig } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { diagnostics, reprocess, validate } from '../../../src/routes/endpoints/admin.js';
 import { deploySyncRules, reprocessSyncRules, validateSyncRules } from '../../../src/routes/endpoints/sync-rules.js';
@@ -70,7 +70,7 @@ bucket_definitions:
       syncConfigState: syncConfigStatus.state,
       version_label: options.version_label,
       parsed(options?: any) {
-        const syncRules = SqlSyncRules.fromYaml(content.sync_rules_content, {
+        const syncRules = parseSyncConfig(content.sync_rules_content, {
           ...options,
           defaultSchema: 'public'
         });

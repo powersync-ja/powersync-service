@@ -1,5 +1,5 @@
 import { api, ParseSyncConfigOptions, PatternResult, ReplicationLagOptions } from '@powersync/service-core';
-import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { SyncConfig, TablePattern } from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import sql from 'mssql';
 import { toExpressionTypeFromMSSQLType } from '../common/mssqls-to-sqlite.js';
@@ -170,7 +170,7 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
     };
   }
 
-  async getDebugTablesInfo(tablePatterns: TablePattern[], sqlSyncRules: SqlSyncRules): Promise<PatternResult[]> {
+  async getDebugTablesInfo(tablePatterns: TablePattern[], sqlSyncRules: SyncConfig): Promise<PatternResult[]> {
     const result: PatternResult[] = [];
 
     for (const tablePattern of tablePatterns) {

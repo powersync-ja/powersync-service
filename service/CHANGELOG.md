@@ -1,5 +1,20 @@
 # @powersync/service-image
 
+## 1.27.2
+
+### Patch Changes
+
+- 9a06627: Node v24.22.1
+  - @powersync/service-core@1.27.2
+  - @powersync/service-module-convex@0.4.4
+  - @powersync/service-module-core@0.2.38
+  - @powersync/service-module-mongodb@0.22.1
+  - @powersync/service-module-mongodb-storage@0.23.2
+  - @powersync/service-module-mssql@0.10.5
+  - @powersync/service-module-mysql@0.16.5
+  - @powersync/service-module-postgres@0.23.4
+  - @powersync/service-module-postgres-storage@0.19.4
+
 ## 1.27.1
 
 ### Patch Changes
