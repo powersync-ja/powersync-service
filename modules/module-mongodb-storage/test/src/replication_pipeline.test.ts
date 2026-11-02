@@ -69,27 +69,15 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
       return original.apply(this, args);
     });
     using reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
-    const secondUpload = Promise.withResolvers<void>();
-    const put = c.objects.put.bind(c.objects);
-    let uploadCount = 0;
-    using uploads = vi.spyOn(c.objects, 'put').mockImplementation(async (...args) => {
-      await put(...args);
-      if (++uploadCount === 2) {
-        secondUpload.resolve();
-      }
-    });
+    using uploads = vi.spyOn(c.objects, 'put');
     let third: Promise<storage.FlushedResult | null> | undefined;
     try {
       expect(await save(writer, c.table, 'A', 'first')).toBeNull();
       await entered.promise;
       expect(await save(writer, c.table, 'A', 'second')).toBeNull();
-      if (mode === 'offloaded') {
-        // Admission does not wait for uploads. Observe readiness without relying on a scheduling delay.
-        await secondUpload.promise;
-      }
       expect(publish).toHaveBeenCalledTimes(1);
       expect(reads).toHaveBeenCalledTimes(1); // The second row uses pending state.
-      expect(uploads).toHaveBeenCalledTimes(mode === 'offloaded' ? 2 : 0);
+      expect(uploads).toHaveBeenCalledTimes(mode === 'offloaded' ? 1 : 0);
       expect(writer.last_flushed_op).toBeNull();
       expect(c.pipeline.pendingCount).toBe(2);
       const waiting = Promise.withResolvers<void>();
@@ -122,13 +110,12 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
     ]);
   });
 
-  test('prepares and uploads the next prefix while an earlier upload is stalled', async () => {
+  test('prepares the successor while uploads remain serial', async () => {
     const c = await open(version, 'offloaded');
     await using _factory = c.factory;
     await using writer = c.writer;
     using _limit = vi.spyOn(OperationBatch.prototype, 'shouldFlush').mockReturnValue(true);
     const first = Promise.withResolvers<void>();
-    const second = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const put = c.objects.put.bind(c.objects);
     let count = 0;
@@ -136,8 +123,6 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
       if (++count === 1) {
         first.resolve();
         await release.promise;
-      } else {
-        second.resolve();
       }
       return put(...args);
     });
@@ -146,7 +131,7 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
     await first.promise;
     try {
       await save(writer, c.table, 'B', 'second');
-      await second.promise;
+      expect(_put).toHaveBeenCalledTimes(1);
       expect(publish).not.toHaveBeenCalled();
       expect(c.pipeline.pendingCount).toBe(2);
     } finally {
@@ -154,6 +139,38 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
       await writer.flush();
     }
     expect(publish).toHaveBeenCalledTimes(2);
+    expect(c.pipeline.accountedBytes).toBe(0);
+  });
+
+  test('interleaved snapshot and streaming saves retain normal input blocks', async () => {
+    const c = await open(version, 'offloaded');
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    await using snapshot = await c.buckets.createWriter({ ...test_utils.BATCH_OPTIONS, skipExistingRows: true });
+    using reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
+    using publish = vi.spyOn(PersistedBatchV3.prototype, 'publish');
+    using uploads = vi.spyOn(c.objects, 'put');
+    // Deliberately use the production 2,000-row input threshold, with alternating
+    // writers. Switching after every save must not create tiny transactions/objects.
+    for (let i = 0; i < 2000; i++) {
+      await save(writer, c.table, `stream-${i}`, 'streaming');
+      await snapshot.save({
+        sourceTable: c.table,
+        tag: storage.SaveOperationTag.INSERT,
+        afterReplicaId: test_utils.rid(`snapshot-${i}`),
+        after: { id: `snapshot-${i}`, description: 'snapshot' }
+      });
+      if (i === 1998) expect(reads).not.toHaveBeenCalled();
+    }
+    await snapshot.flush();
+    await writer.commit('1/2');
+    expect(reads).toHaveBeenCalledTimes(2);
+    expect(publish).toHaveBeenCalledTimes(2);
+    expect(uploads).toHaveBeenCalledTimes(2);
+    expect(
+      await c.buckets.db.sourceRecords(c.stream.replicationStreamId, c.table.id as bson.ObjectId).countDocuments()
+    ).toBe(4000);
+    expect((await c.buckets.getCheckpoint()).lsn).toBe('1/2');
     expect(c.pipeline.accountedBytes).toBe(0);
   });
 

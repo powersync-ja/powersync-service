@@ -4,35 +4,38 @@ import { getTestStorage, test_utils } from '@powersync/service-core-tests';
 import { writeFile } from 'node:fs/promises';
 import { setTimeout } from 'node:timers/promises';
 import { expect, test, vi } from 'vitest';
-import { OperationBatch } from '../../src/storage/implementation/OperationBatch.js';
 import { PersistedBatchV3 } from '../../src/storage/implementation/v3/PersistedBatchV3.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import { env } from './env.js';
+import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 import { PublicationCommandMonitor } from './helpers/PublicationCommandMonitor.js';
 
 /**
  * Opt-in scheduling experiment with real MongoDB and injected I/O latency.
  * Run with POWERSYNC_PIPELINE_BENCHMARK=1 and --silent=false through the MongoDB test wrapper.
  * Set POWERSYNC_PIPELINE_BENCHMARK_OUTPUT to also save the JSON report.
- * Serial mode drains at every input boundary; both modes keep identical batch
- * targets, payloads and command instrumentation. Timing ends at durable commit.
+ * Serial mode drains at every input boundary; both modes keep production batch
+ * targets and identical offloaded payloads and command instrumentation. Timing ends at durable commit.
  * This isolates overlap, rather than predicting production throughput or RSS.
  */
 test.skipIf(!process.env.POWERSYNC_PIPELINE_BENCHMARK)(
   'measures serial versus pipelined v4 publication',
   async () => {
-    const batchRows = 100;
-    const totalRows = 2000;
+    const batchRows = 2000;
+    const totalRows = 20000;
     const readDelayMs = 10;
     const publicationDelayMs = 20;
-    using _batch = vi.spyOn(OperationBatch.prototype, 'shouldFlush').mockImplementation(function (
-      this: OperationBatch
-    ) {
-      return this.length >= batchRows;
-    });
+    const uploadDelayMs = 10;
     const results: unknown[] = [];
     for (const serial of [true, false]) {
-      const gen = mongoTestStorageFactoryGenerator({ url: env.MONGO_TEST_URL, isCI: env.CI, monitorCommands: true });
+      const objects = new MemoryObjectStorage();
+      const gen = mongoTestStorageFactoryGenerator({
+        url: env.MONGO_TEST_URL,
+        isCI: env.CI,
+        monitorCommands: true,
+        objectStorage: objects,
+        inlineThresholdBytes: 0
+      });
       await using factory = await gen.factory();
       const stream = await factory.updateSyncRules(
         updateSyncRulesFromYaml(
@@ -73,6 +76,13 @@ streams:
         await setTimeout(publicationDelayMs);
         return publish.apply(this, args);
       });
+      const put = objects.put.bind(objects);
+      let uploadCount = 0;
+      using _upload = vi.spyOn(objects, 'put').mockImplementation(async (...args) => {
+        uploadCount++;
+        await setTimeout(uploadDelayMs);
+        return put(...args);
+      });
       using monitor = new PublicationCommandMonitor(factory.db.client);
       const peak = process.memoryUsage();
       const startedAt = performance.now();
@@ -104,6 +114,8 @@ streams:
         batchRows,
         readDelayMs,
         publicationDelayMs,
+        uploadDelayMs,
+        uploadCount,
         elapsedMs,
         rowsPerSecond: (totalRows * 1000) / elapsedMs,
         sampledProcessMemoryPeak: peak,

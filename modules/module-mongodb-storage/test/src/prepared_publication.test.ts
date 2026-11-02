@@ -327,7 +327,7 @@ streams:
     }
   );
 
-  test('overlaps block preparation with two uploads but stops reading at capacity', async () => {
+  test('finishes application before the sequential upload stage', async () => {
     const objectStorage = new MemoryObjectStorage();
     const context = await openStream(storageVersion, objectStorage);
     await using _factory = context.factory;
@@ -360,13 +360,14 @@ streams:
     }
     const commit = writer.commit('1/2');
     try {
-      await started[1].promise;
-      expect(reads).toHaveBeenCalledTimes(2);
+      await started[0].promise;
+      expect(reads).toHaveBeenCalledTimes(3);
+      expect(uploads).toBe(1);
       expect(publish).not.toHaveBeenCalled();
       expect(writer.last_flushed_op).toBeNull();
       release[0].resolve();
-      await started[2].promise;
-      expect(reads).toHaveBeenCalledTimes(3);
+      await started[1].promise;
+      expect(uploads).toBe(2);
       expect(publish).not.toHaveBeenCalled();
     } finally {
       for (const gate of release) {
@@ -446,48 +447,30 @@ streams:
     expect(await context.bucketStorage.getCheckpoint()).toMatchObject({ checkpoint: 2n, lsn: '1/2' });
   });
 
-  test.each(['read', 'upload'])('joins all started groups after a %s failure', async (stage) => {
+  test.each(['read', 'upload'])('does not publish after a %s failure', async (stage) => {
     const objectStorage = new MemoryObjectStorage();
     const context = await openStream(storageVersion, objectStorage);
     await using _factory = context.factory;
     await using writer = context.writer;
     using _blocks = vi.spyOn(OperationBatch.prototype, 'batched').mockImplementation(function* (this: OperationBatch) {
-      for (const op of this.batch) {
-        yield [op];
-      }
+      for (const op of this.batch) yield [op];
     });
-    const started = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    const failed = Promise.withResolvers<void>();
     const failure = new Error('failed ' + stage);
-    let finished = false;
-    const put = objectStorage.put.bind(objectStorage);
-    using uploads = vi.spyOn(objectStorage, 'put').mockImplementationOnce(async (...args) => {
-      started.resolve();
-      await release.promise;
-      await put(...args);
-      finished = true;
-    });
     const load = SourceRecordStoreV3.prototype.loadDocuments;
     let reads = 0;
     using _read = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments').mockImplementation(async function (
       this: SourceRecordStoreV3,
       ...args
     ) {
-      if (++reads === 2 && stage === 'read') {
-        await started.promise;
-        failed.resolve();
-        throw failure;
-      }
+      if (++reads === 2 && stage === 'read') throw failure;
       return load.apply(this, args);
     });
-    if (stage === 'upload') {
-      uploads.mockImplementationOnce(async () => {
-        await started.promise;
-        failed.resolve();
-        throw failure;
-      });
-    }
+    const put = objectStorage.put.bind(objectStorage);
+    let uploads = 0;
+    using _put = vi.spyOn(objectStorage, 'put').mockImplementation(async (...args) => {
+      if (++uploads === 2 && stage === 'upload') throw failure;
+      return put(...args);
+    });
     using publish = vi.spyOn(PersistedBatchV3.prototype, 'publish');
     for (const id of ['A', 'B']) {
       await writer.save({
@@ -497,31 +480,18 @@ streams:
         afterReplicaId: test_utils.rid(id)
       });
     }
-    let settled = false;
-    const commit = writer.commit('1/2').finally(() => {
-      settled = true;
-    });
-    const rejected = expect(commit).rejects.toThrow(failure);
-    try {
-      await failed.promise;
-      expect(settled).toBe(false);
-      expect(finished).toBe(false);
-      expect(publish).not.toHaveBeenCalled();
-    } finally {
-      release.resolve();
-      await rejected;
-    }
-    expect(finished).toBe(true);
+    await expect(writer.commit('1/2')).rejects.toThrow(failure);
     expect(writer.last_flushed_op).toBeNull();
     expect((await context.bucketStorage.getCheckpoint()).checkpoint).toBe(0n);
     expect(publish).not.toHaveBeenCalled();
-    // The completed first upload remains protected as an orphan, with no
-    // source progress or references pointing at this failed prefix.
+    // Read failure starts no uploads. A successful PUT preceding upload failure
+    // remains protected as an orphan, with no published references or progress.
+    expect(uploads).toBe(stage === 'read' ? 0 : 2);
     expect(
       await context.bucketStorage.db
         .pendingObjectStorageDeletes(context.stream.replicationStreamId)
         .countDocuments({ path: { $in: [...objectStorage.store.keys()] } })
-    ).toBe(1);
+    ).toBe(stage === 'read' ? 0 : 1);
   });
 
   test.each([false, true])('joins sibling uploads before rejecting readiness (cancellation: %s)', async (cancelled) => {
