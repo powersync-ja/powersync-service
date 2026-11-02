@@ -1,0 +1,42 @@
+diff --git a/mod.js b/mod.js
+index c5c99179680784aba4ece7c17f2f657bfa41c971..cedbce19bae5c15e55837d99e7418a62c84f402b 100644
+--- a/mod.js
++++ b/mod.js
+@@ -432,16 +432,35 @@ class PgConnection {
+     if (!this._backendKeyData) {
+       throw Error('CancelRequest attempt before BackendKeyData received');
+     }
+-    const socket = await _net.connect({ ...this._socketOptions, keepAlive: false });
++    let socket;
++    let timeout;
+     try {
++      socket = await _net.connect({ ...this._socketOptions, keepAlive: false });
+       // TODO ssl support
+       // if (this._ssl) {
+       //   socket = await this._sslNegotiate(socket);
+       // }
+       const m = new FrontendMessage.CancelRequest(this._backendKeyData);
+       this._logFemsg(m, null);
+-      await MessageWriter.writeMessage(socket, m);
++      await Promise.race([
++        (async () => {
++          await MessageWriter.writeMessage(socket, m);
++          // PostgreSQL sends no cancellation reply. Wait for EOF before letting
++          // the original connection send another query, as libpq does.
++          // EOF confirms request processing, not successful query cancellation.
++          const response = new Uint8Array(1);
++          while (await _net.read(socket, response) != null);
++        })(),
++        new Promise((_, reject) => {
++          timeout = setTimeout(() => reject(Error('postgres cancellation timed out')), 10_000);
++        }),
++      ]);
++    } catch (error) {
++      // A failed cancellation may still arrive later. Never reuse this backend.
++      this.destroy(error);
++      throw error;
+     } finally {
++      clearTimeout(timeout);
+       _net.closeNullable(socket);
+     }
+   }

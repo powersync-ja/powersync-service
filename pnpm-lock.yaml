@@ -32,6 +32,9 @@ overrides:
   convex>ws: ^8.22.0
   '@journeyapps-labs/common-sdk@1.0.x>@journeyapps-labs/micro-streaming': ^1.0.2
 
+patchedDependencies:
+  pgwire@0.8.1: 0f1408d42ef983d5bc889ffb5c9c2ad28249c3ab633d4f904dc0af2faa3a5171
+
 importers:
 
   .:
@@ -572,7 +575,7 @@ importers:
         version: 4.1.0
       pgwire:
         specifier: ^0.8.1
-        version: 0.8.1
+        version: 0.8.1(patch_hash=0f1408d42ef983d5bc889ffb5c9c2ad28249c3ab633d4f904dc0af2faa3a5171)
     devDependencies:
       vitest:
         specifier: 'catalog:'
@@ -7073,7 +7076,7 @@ snapshots:
       moo: 0.5.2
       nearley: 2.20.1
 
-  pgwire@0.8.1: {}
+  pgwire@0.8.1(patch_hash=0f1408d42ef983d5bc889ffb5c9c2ad28249c3ab633d4f904dc0af2faa3a5171): {}
 
   picocolors@1.1.1: {}
 
