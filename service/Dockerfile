@@ -2,6 +2,7 @@ FROM node:24.22.1-trixie AS builder
 WORKDIR /app
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
+COPY patches/pgwire@0.8.1.patch patches/
 COPY service/package.json service/tsconfig.json service/
 
 COPY packages/jpgwire/package.json packages/jpgwire/tsconfig.json packages/jpgwire/
