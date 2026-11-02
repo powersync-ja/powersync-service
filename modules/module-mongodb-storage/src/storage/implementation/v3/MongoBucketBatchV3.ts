@@ -132,7 +132,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       this.pipeline.fail(new ReplicationAbortedError('Disposed writer with pending replication work'));
     }
     await this.options.replicationLock.writerMutex.exclusiveLock(async () => {
-      if (pending) {
+      if (pending || this.options.replicationLock.signal.aborted) {
         await this.pipeline.join();
       }
       if (this.pipeline.inputOwner === this) {

@@ -412,7 +412,8 @@ export class MongoSnapshotter {
       storeCurrentData: false,
       skipExistingRows: true,
       hooks: this.storageHooks,
-      signal: this.abortSignal,
+      // Stop reading pages on cancellation, then persist the last complete page.
+      // The replication lease still cancels storage work if ownership is lost.
       tracer: new PerformanceTracer('MongoDB snapshot table')
     });
     // Get fresh table info, in case it was updated while queuing.
