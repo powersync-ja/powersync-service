@@ -248,16 +248,19 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     const batchOptions = this.writerBatchOptions(options);
     const doc = await this.syncRulesCollection.findOne(
       { _id: this.replicationStreamId },
-      { projection: { resume_lsn: 1 } }
+      { projection: { resume_lsn: 1, state: 1 } }
     );
 
-    return new MongoBucketBatchV3({
-      ...batchOptions,
-      // The stream-level replication position - per-config checkpoint LSNs are consistency
-      // markers and do not affect where replication resumes.
-      resumeFromLsn: doc?.resume_lsn ?? null,
-      syncConfigIds: this.syncConfigIds
-    });
+    return new MongoBucketBatchV3(
+      {
+        ...batchOptions,
+        // The stream-level replication position - per-config checkpoint LSNs are consistency
+        // markers and do not affect where replication resumes.
+        resumeFromLsn: doc?.resume_lsn ?? null,
+        syncConfigIds: this.syncConfigIds
+      },
+      doc?.state
+    );
   }
 
   protected async fetchCheckpointState(session: mongo.ClientSession): Promise<MongoCheckpointState | null> {

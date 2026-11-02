@@ -142,6 +142,239 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
     expect(c.pipeline.accountedBytes).toBe(0);
   });
 
+  test.each([false, true])('snapshots can fill both pipeline slots (active: %s)', async (active) => {
+    const c = await open(version, 'disabled');
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    // Open before activation: the policy must change for existing writers too.
+    await using snapshot = await c.buckets.createWriter({ ...test_utils.BATCH_OPTIONS, skipExistingRows: true });
+    if (active) await writer.commit('1/1');
+    using _limit = vi.spyOn(OperationBatch.prototype, 'shouldFlush').mockReturnValue(true);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const original = PersistedBatchV3.prototype.publish;
+    using publish = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementationOnce(async function (
+      this: PersistedBatchV3,
+      ...args
+    ) {
+      entered.resolve();
+      await release.promise;
+      return original.apply(this, args);
+    });
+    const insert = (id: string) =>
+      snapshot.save({
+        sourceTable: c.table,
+        tag: storage.SaveOperationTag.INSERT,
+        afterReplicaId: test_utils.rid(id),
+        after: { id }
+      });
+    try {
+      await insert('first');
+      await entered.promise;
+      await insert('second');
+      expect(c.pipeline.pendingCount).toBe(2);
+      expect(publish).toHaveBeenCalledTimes(1);
+    } finally {
+      release.resolve();
+      await snapshot.flush();
+    }
+    await writer.commit('1/2');
+    expect(
+      await c.buckets.db.sourceRecords(c.stream.replicationStreamId, c.table.id as bson.ObjectId).countDocuments()
+    ).toBe(2);
+  });
+
+  test('ACTIVE snapshots resume when queued streaming advances to publication', async () => {
+    const c = await open(version, 'disabled');
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    await using snapshot = await c.buckets.createWriter({ ...test_utils.BATCH_OPTIONS, skipExistingRows: true });
+    await writer.commit('1/1');
+    using _limit = vi.spyOn(OperationBatch.prototype, 'shouldFlush').mockReturnValue(true);
+    const entered = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    const release = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    const publish = PersistedBatchV3.prototype.publish;
+    let publications = 0;
+    using _publish = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementation(async function (
+      this: PersistedBatchV3,
+      ...args
+    ) {
+      const index = publications++;
+      if (index < 2) {
+        entered[index].resolve();
+        await release[index].promise;
+      }
+      return publish.apply(this, args);
+    });
+    let next: Promise<unknown> | undefined;
+    try {
+      await save(writer, c.table, 'stream-1', 'streaming');
+      await entered[0].promise;
+      await save(writer, c.table, 'stream-2', 'streaming');
+      const attempted = Promise.withResolvers<void>();
+      const run = c.pipeline.runWriter.bind(c.pipeline);
+      using _run = vi.spyOn(c.pipeline, 'runWriter').mockImplementation((snapshot, callback) => {
+        if (snapshot) attempted.resolve();
+        return run(snapshot, callback);
+      });
+      let finished = false;
+      next = snapshot
+        .save({
+          sourceTable: c.table,
+          tag: storage.SaveOperationTag.INSERT,
+          afterReplicaId: test_utils.rid('snapshot'),
+          after: { id: 'snapshot' }
+        })
+        .then(() => {
+          finished = true;
+        });
+      await attempted.promise;
+      // A paused snapshot does not hold the mutex. Merely buffered streaming
+      // rows must neither block here nor keep the snapshot paused later.
+      _limit.mockRestore();
+      await save(writer, c.table, 'partial', 'buffered');
+      expect(finished).toBe(false);
+      expect(c.pipeline.pendingCount).toBe(2);
+      release[0].resolve();
+      await entered[1].promise;
+      await next;
+      expect(finished).toBe(true);
+      expect(c.pipeline.pendingCount).toBe(2); // One streaming + one snapshot.
+      expect(publications).toBe(2); // Streaming publication is still stalled.
+    } finally {
+      for (const gate of release) gate.resolve();
+      await next;
+      await snapshot.flush();
+    }
+    await writer.commit('1/2');
+    expect(
+      await c.buckets.db.sourceRecords(c.stream.replicationStreamId, c.table.id as bson.ObjectId).countDocuments()
+    ).toBe(4);
+  });
+
+  test('large ACTIVE snapshot inputs yield between publication transactions', async () => {
+    const c = await open(version, 'disabled');
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    await writer.commit('1/1');
+    await using snapshot = await c.buckets.createWriter({ ...test_utils.BATCH_OPTIONS, skipExistingRows: true });
+    using _limit = vi.spyOn(OperationBatch.prototype, 'shouldFlush').mockImplementation(function (
+      this: OperationBatch
+    ) {
+      return this.batch[0].record.after?.id === 'stream' || this.length >= 3;
+    });
+    using _transaction = vi.spyOn(PersistedBatchV3.prototype, 'shouldFlushTransaction').mockReturnValue(true);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const publish = PersistedBatchV3.prototype.publish;
+    using _publish = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementationOnce(async function (
+      this: PersistedBatchV3,
+      ...args
+    ) {
+      entered.resolve();
+      await release.promise;
+      return publish.apply(this, args);
+    });
+    const input = (async () => {
+      for (let i = 0; i < 3; i++)
+        await snapshot.save({
+          sourceTable: c.table,
+          tag: storage.SaveOperationTag.INSERT,
+          afterReplicaId: test_utils.rid(`snapshot-${i}`),
+          after: { id: `snapshot-${i}` }
+        });
+    })();
+    let streaming: Promise<unknown> | undefined;
+    try {
+      await entered.promise;
+      // A second snapshot may already be queued. The remaining input must
+      // yield to a full streaming block before taking another available slot.
+      const attempted = Promise.withResolvers<void>();
+      const run = c.pipeline.runWriter.bind(c.pipeline);
+      using _run = vi.spyOn(c.pipeline, 'runWriter').mockImplementation((snapshot, callback) => {
+        if (!snapshot) attempted.resolve();
+        return run(snapshot, callback);
+      });
+      streaming = save(writer, c.table, 'stream', 'streaming');
+      await attempted.promise;
+    } finally {
+      release.resolve();
+      await streaming;
+      await input;
+    }
+    await snapshot.flush();
+    expect(writer.last_flushed_op!).toBeLessThan(snapshot.last_flushed_op!);
+    expect(snapshot.last_flushed_op).toBe(4n);
+  });
+
+  test.each([false, true])('streaming boundary priority is ACTIVE-only (%s)', async (active) => {
+    const c = await open(version, 'disabled');
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    if (active) await writer.commit('1/1');
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const held = c.lock.writerMutex.exclusiveLock(async () => {
+      entered.resolve();
+      await release.promise;
+    });
+    await entered.promise;
+    const order: string[] = [];
+    const snapshot = c.pipeline.runWriter(true, async () => {
+      order.push('snapshot');
+    });
+    const stream = c.pipeline.runWriter(false, async () => {
+      order.push('stream');
+    });
+    release.resolve();
+    await Promise.all([held, snapshot, stream]);
+    expect(order).toEqual(active ? ['stream', 'snapshot'] : ['snapshot', 'stream']);
+  });
+
+  test('lease loss rejects a snapshot waiting outside the writer mutex', async () => {
+    const c = await open(version, 'disabled');
+    await using _factory = c.factory;
+    await using writer = c.writer;
+    await writer.commit('1/1');
+    await using snapshot = await c.buckets.createWriter({ ...test_utils.BATCH_OPTIONS, skipExistingRows: true });
+    using _limit = vi.spyOn(OperationBatch.prototype, 'shouldFlush').mockReturnValue(true);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const publish = PersistedBatchV3.prototype.publish;
+    using _publish = vi.spyOn(PersistedBatchV3.prototype, 'publish').mockImplementationOnce(async function (
+      this: PersistedBatchV3,
+      ...args
+    ) {
+      entered.resolve();
+      await release.promise;
+      return publish.apply(this, args);
+    });
+    await save(writer, c.table, 'stream', 'streaming');
+    await entered.promise;
+    await save(writer, c.table, 'queued-stream', 'streaming');
+    const attempted = Promise.withResolvers<void>();
+    const run = c.pipeline.runWriter.bind(c.pipeline);
+    using _run = vi.spyOn(c.pipeline, 'runWriter').mockImplementation((snapshot, callback) => {
+      if (snapshot) attempted.resolve();
+      return run(snapshot, callback);
+    });
+    const pending = snapshot.save({
+      sourceTable: c.table,
+      tag: storage.SaveOperationTag.INSERT,
+      afterReplicaId: test_utils.rid('snapshot'),
+      after: { id: 'snapshot' }
+    });
+    const rejected = expect(pending).rejects.toThrow('lease lost');
+    try {
+      await attempted.promise;
+      c.lock.invalidate(new Error('lease lost'));
+      await rejected;
+    } finally {
+      release.resolve();
+      await c.pipeline.join();
+    }
+  });
+
   test('interleaved snapshot and streaming saves retain normal input blocks', async () => {
     const c = await open(version, 'offloaded');
     await using _factory = c.factory;
@@ -267,7 +500,7 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
     await using _factory = c.factory;
     await using writer = c.writer;
     await save(writer, c.table, 'A', 'initial');
-    await writer.commit('1/1');
+    await writer.flush(); // Keep PROCESSING to exercise speculative tombstones.
     await using snapshot = await c.buckets.createWriter({ ...test_utils.BATCH_OPTIONS, skipExistingRows: true });
     using _limit = vi.spyOn(OperationBatch.prototype, 'shouldFlush').mockReturnValue(true);
     const entered = Promise.withResolvers<void>();

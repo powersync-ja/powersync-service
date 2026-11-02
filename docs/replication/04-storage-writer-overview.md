@@ -44,6 +44,25 @@ before changing table state. Failed publication invalidates the lease and stops
 the successor; replay starts from persisted source progress. Partial-row repair
 notifications retain their synchronous durability barrier.
 
+When the replication stream is ACTIVE, snapshot writers (`skipExistingRows`)
+yield to storage-side streaming backlog: full streaming input blocks waiting for
+application, queued streaming publications, and outstanding streaming durability
+or metadata operations. A lone streaming publication or partially buffered input
+is not backlog. Snapshots may use both slots when streaming is idle, and can use
+the successor slot alongside a streaming publication once the backlog clears.
+
+Snapshot admission waits outside the writer mutex when capacity is full or
+streaming work has priority, then rechecks after acquiring it. Large inputs
+release admission between publication transactions. PROCESSING streams retain
+normal FIFO admission. The policy is shared by existing writers after activation
+and initialized from stream state when opening a writer.
+
+This preference is non-preemptive: an admitted snapshot block can still delay
+streaming. Publication remains FIFO, and mandatory metadata barriers still seal
+buffered inputs and drain earlier work. Sustained streaming backlog can starve
+snapshot work; no minimum background share is reserved. Unread source changes
+and source-side replication lag are not measured by this storage policy.
+
 The two slots and 64 MiB accounted-work target bound pipeline admission, with
 headroom estimates for packing. These are not RSS limits: an application block or
 single oversized row can exceed the byte target. Source pages and one input block

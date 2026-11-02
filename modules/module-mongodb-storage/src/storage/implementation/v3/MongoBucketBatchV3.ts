@@ -44,6 +44,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   private readonly pipeline: ReplicationPipelineV3;
   private queueAutomaticFlush = false;
   private pendingPublications = 0;
+  private automaticFlushRequested = false;
   /** Avoid repeating idempotent createIndexes calls for every checkpoint flush. */
   private readonly initializedCustomCheckpointEventIds = new Set<EventDefinitionId>();
   // Used only to validate supplied checkpoint ids; it does not initialize collections.
@@ -52,12 +53,13 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   private needsActivationV3 = true;
   private lastWaitingLogThrottledV3 = 0;
 
-  constructor(options: MongoBucketBatchOptions) {
+  constructor(options: MongoBucketBatchOptions, state?: storage.SyncRuleState) {
     super(options);
     this.pipeline = options.replicationLock.replicationPipeline ??= new ReplicationPipelineV3(
       options.replicationLock,
       options.opIdAllocator
     );
+    if (state === storage.SyncRuleState.ACTIVE) this.pipeline.markActive();
     const syncConfigIds = options.syncConfigIds ?? [];
     if (syncConfigIds.length == 0) {
       throw new ReplicationAssertionError('Missing sync config id for v3 batch');
@@ -68,7 +70,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   override async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
-    return super.withWriterLock(async () => {
+    const buffer = async () => {
       // Buffer one bounded input block while both publication slots are occupied.
       // Automatic flushing checks capacity before application; keep the mutex here
       // because another writer's metadata barrier can seal and replace this input.
@@ -83,6 +85,41 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         this.pipeline.fail(error);
         throw error;
       }
+    };
+    // Partial input is not a streaming backlog. Buffer under the mutex without
+    // claiming priority; full blocks enter application separately below.
+    let result = await super.withWriterLock(buffer);
+    if (this.automaticFlushRequested) {
+      try {
+        // A large input can span transactions. Release admission between them so
+        // ACTIVE snapshots can yield to streaming backlog without holding the lock.
+        while (
+          await this.admit(this.skipExistingRows, async () => {
+            if (!this.batch?.hasData() && this.write_checkpoint_batch.length === 0) return false;
+            this.queueAutomaticFlush = true;
+            try {
+              result = (await this.flushInner()) ?? result;
+            } finally {
+              this.queueAutomaticFlush = false;
+            }
+            return this.batch?.hasData() || this.write_checkpoint_batch.length > 0;
+          })
+        ) {}
+      } catch (error) {
+        this.pipeline.fail(error);
+        throw error;
+      } finally {
+        this.automaticFlushRequested = false;
+      }
+    }
+    return result;
+  }
+
+  private async admit<T>(snapshot: boolean, callback: () => Promise<T>): Promise<T> {
+    using span = this.tracer.span('storage', 'internal_lock');
+    return this.pipeline.runWriter(snapshot, async () => {
+      span.end();
+      return callback();
     });
   }
 
@@ -100,12 +137,13 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   protected override async automaticFlush(): Promise<storage.FlushedResult | null> {
-    return this.sealPipelineInput();
+    this.automaticFlushRequested = true;
+    return null;
   }
 
   /** Metadata, explicit flushes and checkpoints drain the admitted stream prefix. */
   protected override async withWriterLock<T>(callback: () => Promise<T>, sealInput = true): Promise<T> {
-    return super.withWriterLock(async () => {
+    return this.admit(this.skipExistingRows, async () => {
       if (sealInput) {
         for (const owner of this.pipeline.inputOwners) {
           await owner.sealPipelineInput();
@@ -296,6 +334,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   private assertPreparationContext(stream: ReplicationStreamDocumentV3): void {
+    if (stream.state === storage.SyncRuleState.ACTIVE) this.pipeline.markActive();
     if ([storage.SyncRuleState.STOP, storage.SyncRuleState.TERMINATED].includes(stream.state)) {
       throw new ReplicationAbortedError('Replication stream has stopped');
     }
@@ -1098,6 +1137,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       }
     }, session);
     if (activated) {
+      this.pipeline.markActive();
       this.logger.info(`Activated new replication stream at ${lsn}`);
       await this.db.notifyCheckpoint();
       this.needsActivationV3 = false;

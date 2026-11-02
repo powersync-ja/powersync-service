@@ -35,6 +35,76 @@ export class ReplicationPipelineV3 {
   private readonly pending: Publication[] = [];
   private reading?: Publication;
   private publishedTime?: mongo.Timestamp;
+  private active = false;
+  private streamingWork = 0;
+  private changed?: { promise: Promise<void>; resolve: () => void };
+
+  /** A live lease never returns from ACTIVE to PROCESSING. */
+  markActive(): void {
+    if (!this.active) {
+      this.active = true;
+      this.notifyAdmission();
+    }
+  }
+
+  private notifyAdmission(): void {
+    const changed = this.changed;
+    this.changed = undefined;
+    changed?.resolve();
+  }
+
+  private snapshotMustWait(): boolean {
+    return (
+      this.active &&
+      (this.streamingWork > 0 ||
+        this.pending.length >= 2 ||
+        (this.pending.length > 0 && this.accountedBytes > MAX_PENDING_BYTES))
+    );
+  }
+
+  /**
+   * ACTIVE snapshots yield to ready streaming blocks and durability operations,
+   * not per-row buffering or a lone publication. A queued streaming publication
+   * occupies the second slot, so capacity also prevents snapshot admission.
+   * Recheck under the mutex, but wait outside it so streaming can make progress.
+   * Publication remains FIFO; priority applies only before application.
+   */
+  async runWriter<T>(snapshot: boolean, callback: () => Promise<T>): Promise<T> {
+    if (!snapshot) this.streamingWork++;
+    try {
+      while (true) {
+        this.lock.throwIfAborted();
+        // Streaming work allocates no admission notification promise.
+        const changed = snapshot ? (this.changed ??= Promise.withResolvers<void>()).promise : null;
+        if (!snapshot || !this.snapshotMustWait()) {
+          const result = await this.lock.writerMutex.exclusiveLock(async () => {
+            this.lock.throwIfAborted();
+            if (snapshot && this.snapshotMustWait()) return null;
+            return { value: await callback() };
+          });
+          if (result != null) return result.value;
+        }
+        // Streaming always executes its callback above; only snapshots defer.
+        await this.waitFor(changed!);
+      }
+    } finally {
+      if (!snapshot) this.streamingWork--;
+      this.notifyAdmission();
+    }
+  }
+
+  private async waitFor(promise: Promise<void>): Promise<void> {
+    const signal = this.lock.signal;
+    const aborted = Promise.withResolvers<void>();
+    const onAbort = () => aborted.reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      signal.throwIfAborted();
+      await Promise.race([promise, aborted.promise]);
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
 
   constructor(
     private readonly lock: MongoSyncRulesLock,
@@ -58,16 +128,7 @@ export class ReplicationPipelineV3 {
   async capacity(bytes = 0): Promise<void> {
     this.lock.throwIfAborted();
     while (this.pending.length >= 2 || (this.pending.length > 0 && this.accountedBytes + bytes > MAX_PENDING_BYTES)) {
-      const signal = this.lock.signal;
-      const aborted = Promise.withResolvers<void>();
-      const onAbort = () => aborted.reject(signal.reason);
-      signal.addEventListener('abort', onAbort, { once: true });
-      try {
-        signal.throwIfAborted();
-        await Promise.race([this.pending[0].done, aborted.promise]);
-      } finally {
-        signal.removeEventListener('abort', onAbort);
-      }
+      await this.waitFor(this.pending[0].done);
       this.lock.throwIfAborted();
     }
   }
@@ -128,6 +189,7 @@ export class ReplicationPipelineV3 {
         throw error;
       } finally {
         this.pending.shift();
+        this.notifyAdmission();
       }
     })();
     // Failure aborts the lease before the successor starts. Keep teardown and
