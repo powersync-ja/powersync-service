@@ -940,6 +940,65 @@ event_definitions:
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
   });
 
+  test.runIf(storageVersion >= 3)('fetches parameter sets beyond the aggregation stage limit', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+    bucket_definitions:
+      global:
+        parameters:
+          - SELECT owner_id FROM test WHERE id = token_parameters.test
+        data:
+          - SELECT id, description, owner_id FROM test WHERE id = bucket.owner_id
+    `,
+        { storageVersion }
+      )
+    );
+    const bucketStorage = await getTestStorage(factory, syncRules);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
+
+    for (const id of ['row-first', 'row-middle', 'row-last']) {
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id, description: id, owner_id: `user-${id}` },
+        afterReplicaId: test_utils.rid(id)
+      });
+    }
+    await writer.markAllSnapshotDone('1/1');
+    await writer.commit('1/1');
+
+    const parsed = syncRules.syncConfigContent[0].parsed(test_utils.PARSE_OPTIONS);
+    const [parameterSource] = [...parsed.syncConfigs[0].config.bucketParameterLookupSources];
+    const scope = parsed.hydrationState.getParameterIndexLookupScope(parameterSource);
+
+    // MongoDB rejects aggregation pipelines with more than 1000 stages, and each
+    // lookup after the first adds a $unionWith stage (#873).
+    const lookups: ScopedParameterLookup[] = [];
+    for (let i = 0; i < 996; i++) {
+      let id = `missing-${i}`;
+      if (i == 0) {
+        id = 'row-first';
+      } else if (i == 900) {
+        id = 'row-middle';
+      } else if (i == 995) {
+        id = 'row-last';
+      }
+      lookups.push(ScopedParameterLookup.direct(scope, [id]));
+    }
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const parameterSets = await checkpoint.getParameterSets(lookups, 1000);
+
+    expect(parameterSets.length).toEqual(3);
+    const rowsByKey = new Map(parameterSets.map((set) => [set.lookup.indexKey[0], set.rows]));
+    expect(rowsByKey.get('row-first')).toEqual([{ owner_id: 'user-row-first' }]);
+    expect(rowsByKey.get('row-middle')).toEqual([{ owner_id: 'user-row-middle' }]);
+    expect(rowsByKey.get('row-last')).toEqual([{ owner_id: 'user-row-last' }]);
+  });
+
   test.runIf(storageVersion >= 3)('replaces an existing deploying sync config', async () => {
     await using factory = await storageConfig.factory();
 
