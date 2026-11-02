@@ -10,7 +10,7 @@ import type { ReplicationLock } from '@/storage/ReplicationLock.js';
 import { SyncRulesBucketStorage } from '@/storage/SyncRulesBucketStorage.js';
 import { SyncConfigEngine, SyncConfigResultStatus } from '@/system/SyncConfigEngine.js';
 import type { SyncRulesConfig } from '@/util/config/types.js';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import * as syncConfigParser from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { mockServiceContext } from './routes/mocks.js';
 
@@ -201,7 +201,7 @@ describe('AbstractReplicator startup sync config', () => {
         metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
         rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
       });
-      using parse = vi.spyOn(SqlSyncRules, 'fromYaml');
+      using parse = vi.spyOn(syncConfigParser, 'parseSyncConfig');
       replicator.source.validateSourceCapabilities = async () => {
         calls.push('validate');
         if (result === 'unexpected error') throw new Error('Source validation failed');

@@ -10,6 +10,23 @@ export const MAX_BATCH_ESTIMATED_SIZE = 5_000_000;
 
 export const MAX_BATCH_CURRENT_DATA_SIZE = 50_000_000;
 
+/**
+ * Maximum estimated size of the rows written by a single INSERT statement when flushing
+ * bucket_data and bucket_parameters.
+ *
+ * A single source row can produce many operations when it is evaluated into many buckets,
+ * which is not limited by `max_estimated_size`. Flushes larger than this limit are split
+ * into multiple statements in the same transaction.
+ *
+ * The rows are passed to Postgres as a single JSON parameter, which is serialized to a string
+ * before being sent. Node limits a string to roughly 512MB. The estimate used for chunking does
+ * not account for the JSON escaping of the already-serialized row data, so the actual parameter
+ * can be close to double the estimate. 64MB keeps a wide margin for that.
+ *
+ * This is not part of `batch_limits`: the limit comes from the runtime, not from the workload.
+ */
+export const MAX_FLUSH_STATEMENT_SIZE = 64_000_000;
+
 export const BatchLimits = t.object({
   /**
    * Maximum size of operations we write in a single transaction.
@@ -49,7 +66,12 @@ export const PostgresStorageConfig = configFile.BaseStorageConfig.and(lib_postgr
 export type PostgresStorageConfig = t.Encoded<typeof PostgresStorageConfig>;
 export type PostgresStorageConfigDecoded = t.Decoded<typeof PostgresStorageConfig>;
 
-export type RequiredOperationBatchLimits = Required<OperationBatchLimits>;
+export type RequiredOperationBatchLimits = Required<OperationBatchLimits> & {
+  /**
+   * Internal limit for the size of a single flush statement. See {@link MAX_FLUSH_STATEMENT_SIZE}.
+   */
+  max_statement_size: number;
+};
 
 export type NormalizedPostgresStorageConfig = pg_wire.NormalizedConnectionConfig & {
   batch_limits: RequiredOperationBatchLimits;
@@ -64,7 +86,8 @@ export const normalizePostgresStorageConfig = (
     batch_limits: {
       max_current_data_batch_size: baseConfig.batch_limits?.max_current_data_batch_size ?? MAX_BATCH_CURRENT_DATA_SIZE,
       max_estimated_size: baseConfig.batch_limits?.max_estimated_size ?? MAX_BATCH_ESTIMATED_SIZE,
-      max_record_count: baseConfig.batch_limits?.max_record_count ?? MAX_BATCH_RECORD_COUNT
+      max_record_count: baseConfig.batch_limits?.max_record_count ?? MAX_BATCH_RECORD_COUNT,
+      max_statement_size: MAX_FLUSH_STATEMENT_SIZE
     }
   };
 };

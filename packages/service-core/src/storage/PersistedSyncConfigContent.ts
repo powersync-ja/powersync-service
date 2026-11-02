@@ -9,9 +9,9 @@ import {
   HydratedSyncConfig,
   HydrationState,
   nodeSqlite,
+  parseSyncConfig,
   PrecompiledSyncConfig,
   SourceConnectionMap,
-  SqlSyncRules,
   SyncConfigWithErrors,
   versionedHydrationState,
   YamlError
@@ -36,7 +36,7 @@ export function parsePersistedSyncConfigContent(options: ParsePersistedSyncConfi
 
   if (compiledPlan == null) {
     // Fallback: Only parse from YAML if no compiled plan is available.
-    return SqlSyncRules.fromYaml(content, parseOptions);
+    return parseSyncConfig(content, parseOptions);
   }
 
   const plan = deserializeSyncPlan(compiledPlan.plan);

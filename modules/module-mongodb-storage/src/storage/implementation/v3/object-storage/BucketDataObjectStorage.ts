@@ -12,6 +12,15 @@ export class BucketDataObjectStorage {
     options?: ObjectStorageOperationOptions
   ): Promise<{ fileSize: number }> {
     const bsonBuffer = bson.serialize({ ops });
+    return this.storeSerialized(path, bsonBuffer, options);
+  }
+
+  /** Store an already sealed BSON { ops } payload without serializing it again. */
+  async storeSerialized(
+    path: string,
+    bsonBuffer: Uint8Array,
+    options?: ObjectStorageOperationOptions
+  ): Promise<{ fileSize: number }> {
     await this.storage.put(path, bsonBuffer, { contentType: 'application/bson', contentEncoding: null }, options);
     return { fileSize: bsonBuffer.byteLength };
   }

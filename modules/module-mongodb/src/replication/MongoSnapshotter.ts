@@ -16,6 +16,7 @@ import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { CheckpointImplementation } from './checkpoints/CheckpointImplementation.js';
 import { createCheckpointImplementation } from './checkpoints/create-checkpoint-implementation.js';
+import { estimateFilteredSnapshotCount } from './estimateFilteredSnapshotCount.js';
 import { MongoManager } from './MongoManager.js';
 import { getMongoRelation } from './MongoRelation.js';
 import {
@@ -476,7 +477,12 @@ export class MongoSnapshotter {
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
     const filter = this.queryProvider.getSnapshotFilter(table);
-    const totalEstimatedCount = await this.estimatedCountNumber(table, filter);
+    // Reuse known filtered estimates to avoid repeating an expensive count and sample. Unknown totals
+    // (-1) can also represent uninitialized progress, so retry them. Unfiltered metadata counts are cheap
+    // and refreshed before copying rows.
+    const previousEstimate = table.snapshotStatus?.totalEstimatedCount ?? -1;
+    const totalEstimatedCount =
+      filter != null && previousEstimate >= 0 ? previousEstimate : await this.estimatedCountNumber(table, filter);
     let at = table.snapshotStatus?.replicatedCount ?? 0;
     const collection = this.client.db(table.schema).collection(table.name);
     await using query = new ChunkedSnapshotQuery({
@@ -581,12 +587,16 @@ export class MongoSnapshotter {
     table: storage.SourceTable,
     filter = this.queryProvider.getSnapshotFilter(table)
   ): Promise<number> {
-    // Collection metadata cannot estimate a filtered result. An exact count could require another
-    // expensive scan, so use the shared unknown-total sentinel and report only the replicated count.
+    const collection = this.client.db(table.schema).collection(table.name);
     if (filter != null) {
-      return -1;
+      return await estimateFilteredSnapshotCount({
+        collection,
+        filter,
+        signal: this.abortSignal,
+        logger: this.logger
+      });
     }
-    return await this.client.db(table.schema).collection(table.name).estimatedDocumentCount();
+    return await collection.estimatedDocumentCount();
   }
 
   private async getCollectionInfo(db: string, name: string): Promise<mongo.CollectionInfo | undefined> {

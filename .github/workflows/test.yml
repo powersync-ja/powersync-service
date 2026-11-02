@@ -307,7 +307,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mongodb-version: ['6.0', '7.0', '8.0']
+        # Temporary: pin 8.0 until https://jira.mongodb.org/browse/SERVER-131779 is fixed in a release.
+        # Then restore the floating '8.0' tag.
+        mongodb-version: ['6.0', '7.0', '8.0.20']
 
     steps:
       - uses: actions/checkout@v4
@@ -422,7 +424,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mongodb-version: ['6.0', '7.0', '8.0']
+        # Temporary: pin 8.0 until https://jira.mongodb.org/browse/SERVER-131779 is fixed in a release.
+        # Then restore the floating '8.0' tag.
+        mongodb-version: ['6.0', '7.0', '8.0.20']
 
     steps:
       - uses: actions/checkout@v4

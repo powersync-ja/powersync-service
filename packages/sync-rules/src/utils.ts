@@ -3,7 +3,7 @@ import { SelectFromStatement, Statement } from 'pgsql-ast-parser';
 import { BucketDescription, BucketInclusionReason, BucketPriority, ResolvedBucket } from './BucketDescription.js';
 import { BucketDataSource } from './BucketSource.js';
 import { CompatibilityContext, CompatibilityOption } from './compatibility.js';
-import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
+import { SyncConfigProcessingError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
 import { SQLITE_FALSE, SQLITE_TRUE } from './sqliteBool.js';
 import {
@@ -216,7 +216,7 @@ export function filterJsonData(data: any, context: CompatibilityContext, depth =
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
     // TODO: Proper error class
-    throw new SyncRulesProcessingError(
+    throw new SyncConfigProcessingError(
       // FIXME: Use @powersync/service-errors
       'PSYNC_S1004',
       `json nested object depth exceeds the limit of ${DEPTH_LIMIT}`
@@ -257,10 +257,10 @@ export function filterJsonData(data: any, context: CompatibilityContext, depth =
 /**
  * Map database row to SqliteRow for use in sync config.
  */
-export function toSyncRulesRow(row: DatabaseInputRow): SqliteInputRow {
+export function toSyncConfigRow(row: DatabaseInputRow): SqliteInputRow {
   let record: SqliteInputRow = {};
   for (let key of Object.keys(row)) {
-    record[key] = toSyncRulesValue(row[key], false, true);
+    record[key] = toSyncConfigValue(row[key], false, true);
   }
   return record;
 }
@@ -270,10 +270,10 @@ export function toSyncRulesRow(row: DatabaseInputRow): SqliteInputRow {
  *
  * @param parameters Generic JSON input
  */
-export function toSyncRulesParameters(parameters: Record<string, any>, context: CompatibilityContext): SqliteJsonRow {
+export function toSyncConfigParameters(parameters: Record<string, any>, context: CompatibilityContext): SqliteJsonRow {
   let record: SqliteJsonRow = {};
   for (let key of Object.keys(parameters)) {
-    record[key] = applyValueContext(toSyncRulesValue(parameters[key], true, false), context) as SqliteJsonValue;
+    record[key] = applyValueContext(toSyncConfigValue(parameters[key], true, false), context) as SqliteJsonValue;
   }
   return record;
 }
@@ -283,7 +283,7 @@ export function toSyncRulesParameters(parameters: Record<string, any>, context: 
  *
  * Any object or array is converted to JSON TEXT.
  */
-export function toSyncRulesValue(
+export function toSyncConfigValue(
   data: DatabaseInputValue,
   autoBigNum?: boolean,
   keepUndefined?: boolean
@@ -318,6 +318,21 @@ export function toSyncRulesValue(
     return null;
   }
 }
+
+/**
+ * @deprecated Use {@link toSyncConfigRow} instead.
+ */
+export const toSyncRulesRow = toSyncConfigRow;
+
+/**
+ * @deprecated Use {@link toSyncConfigParameters} instead.
+ */
+export const toSyncRulesParameters = toSyncConfigParameters;
+
+/**
+ * @deprecated Use {@link toSyncConfigValue} instead.
+ */
+export const toSyncRulesValue = toSyncConfigValue;
 
 export function applyValueContext(value: SqliteInputValue, context: CompatibilityContext): SqliteValue {
   if (value instanceof CustomSqliteValue) {

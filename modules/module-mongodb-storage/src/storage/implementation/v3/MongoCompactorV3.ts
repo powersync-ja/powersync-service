@@ -645,7 +645,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     bucketContext: BucketDataContextV3,
     objectStorageUsage: ObjectStorageUsage
   ): Promise<BucketStatsWithChecksum> {
-    if (inputs.length == 1) {
+    if (inputs.length == 1 && !this.shouldMoveToObjectStorage(inputs[0])) {
       return statsForDocument(inputs[0]);
     }
 
@@ -1093,7 +1093,7 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     context: { replicationStreamId: number; definitionId: string },
     objectStorageUsage: ObjectStorageUsage
   ): Promise<CompactionGroupResult> {
-    if (group.inputs.length == 1 && !group.changed) {
+    if (group.inputs.length == 1 && !group.changed && !this.shouldMoveToObjectStorage(group.inputs[0])) {
       return {
         documentId: group.inputs[0]._id,
         stats: statsForDocument(group.inputs[0])
@@ -1588,6 +1588,14 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     objectStorageUsage.applyDelta(definitionId, newBytes - oldBytes, writes);
   }
 
+  private shouldMoveToObjectStorage(document: BucketDataDocumentV3): boolean {
+    return (
+      this.storage.objectStorage != null &&
+      document.storage_ref == null &&
+      document.size > this.storage.inlineThresholdBytes
+    );
+  }
+
   private async persistBucketData(
     bucket: string,
     chunks: BucketDataDoc[][],
@@ -1607,8 +1615,9 @@ export class MongoCompactorV3 extends MongoCompactor implements CompactIntervalC
     const store = new BucketDataObjectStorage(this.storage.objectStorage);
     const storagePaths = new Set<string>();
     const lifecycle = this.objectStorageLifecycle;
-    // Base placement on the final compacted size. Unchanged documents are not
-    // rewritten, while small MOVE/merge results and CLEAR ops stay inline.
+    // Base placement on the final compacted size. Unchanged documents are only
+    // rewritten to move them to object storage, while small MOVE/merge results
+    // and CLEAR ops stay inline.
     const storedIndexes = serializedChunks.flatMap((document, index) =>
       document.size > this.storage.inlineThresholdBytes ? [index] : []
     );

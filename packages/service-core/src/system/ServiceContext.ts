@@ -90,9 +90,6 @@ export class ServiceContextContainer implements ServiceContext {
 
     this.routerEngine = new routes.RouterEngine();
     this.syncConfigEngine = new SyncConfigEngine(configuration.sync_rules, () => this.routerEngine.getAPI());
-    this.lifeCycleEngine.withLifecycle(this.routerEngine, {
-      stop: (routerEngine) => routerEngine.shutDown()
-    });
 
     this.writeCheckpointBatcher = new utils.WriteCheckpointBatcher(
       () => this.routerEngine.getAPI(),

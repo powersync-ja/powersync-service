@@ -2,7 +2,7 @@ import type { RouteAPI } from '@/api/RouteAPI.js';
 import { ServiceContextContainer, ServiceContextMode } from '@/system/ServiceContext.js';
 import { SyncConfigEngine, SyncConfigRejectionReason, SyncConfigResultStatus } from '@/system/SyncConfigEngine.js';
 import { CompoundConfigCollector } from '@/util/config/compound-config-collector.js';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import * as syncConfigParser from '@powersync/service-sync-rules';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { mockServiceContext } from './routes/mocks.js';
 
 const CONTENT = /* yaml */ `
+  # sync config fixture.
   config:
     edition: 3
   streams:
@@ -51,7 +52,7 @@ describe('SyncConfigEngine', () => {
       expect(config.getSourceTables()[0].schema).toBe('source_db');
       return [{ level: 'warning', message: 'Advisory' }];
     });
-    const parse = vi.spyOn(SqlSyncRules, 'fromYaml');
+    const parse = vi.spyOn(syncConfigParser, 'parseSyncConfig');
     try {
       const settings = {
         present: true,

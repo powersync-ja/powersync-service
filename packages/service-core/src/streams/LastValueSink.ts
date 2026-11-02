@@ -1,5 +1,3 @@
-import { AbortError } from 'ix/aborterror.js';
-
 /**
  * An AsyncIterable that allows pushing values.
  *
@@ -13,27 +11,25 @@ export class LastValueSink<T> implements AsyncIterable<T> {
 
   constructor(initial: T | undefined) {
     if (initial != null) {
-      this.buffer = { value: initial, done: false, error: undefined };
+      this.buffer = { value: initial, done: false };
     }
   }
 
   write(value: T) {
     this.push({
       value,
-      done: false,
-      error: undefined
+      done: false
     });
   }
 
   end() {
     this.push({
       value: undefined,
-      done: true,
-      error: undefined
+      done: true
     });
   }
 
-  error(e: any) {
+  error(e: unknown) {
     this.push({
       value: undefined,
       done: true,
@@ -55,19 +51,17 @@ export class LastValueSink<T> implements AsyncIterable<T> {
       return;
     }
 
-    if (signal?.aborted) {
-      throw new AbortError();
-    }
+    signal.throwIfAborted();
 
     const onAbort = () => {
-      this.error(new AbortError());
+      this.error(signal.reason);
     };
-    signal?.addEventListener('abort', onAbort);
+    signal.addEventListener('abort', onAbort, { once: true });
 
     try {
       yield* this;
     } finally {
-      signal?.removeEventListener('abort', onAbort);
+      signal.removeEventListener('abort', onAbort);
     }
   }
 
@@ -82,7 +76,7 @@ export class LastValueSink<T> implements AsyncIterable<T> {
       const n = this.buffer!;
       this.buffer = undefined;
 
-      if (n.error) {
+      if ('error' in n) {
         throw n.error;
       } else if (n.done) {
         return;
@@ -96,5 +90,5 @@ export class LastValueSink<T> implements AsyncIterable<T> {
 interface NextResult<T> {
   value: T | undefined;
   done: boolean;
-  error: any;
+  error?: unknown;
 }

@@ -30,7 +30,6 @@ import { mapOpEntry } from '../utils/bucket-data.js';
 
 import * as framework from '@powersync/lib-services-framework';
 import type { Statement } from '@powersync/service-jpgwire';
-import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import * as t from 'ts-codec';
 import { ActiveCheckpointDecoded } from '../types/models/ActiveCheckpoint.js';
 import * as checkpointUtils from '../utils/checkpoints.js';
@@ -716,7 +715,7 @@ export class PostgresSyncRulesStorage
 
     const { signal, user_id } = options;
 
-    const iter = wrapWithAbort(this.sharedIterator, signal);
+    const iter = this.sharedIterator[Symbol.asyncIterator](signal);
     for await (const cp of iter) {
       const { checkpoint, lsn } = cp;
 

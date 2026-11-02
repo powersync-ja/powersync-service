@@ -5,7 +5,9 @@ inputs:
   mongodb-version:
     description: MongoDB version to start
     required: false
-    default: '8.0'
+    # Temporary: newer 8.0 releases incorrectly reject patched Ubuntu Azure kernels.
+    # Restore 8.0 once the fix in https://jira.mongodb.org/browse/SERVER-131779 is available.
+    default: '8.0.20'
 
 runs:
   using: composite

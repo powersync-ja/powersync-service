@@ -1,5 +1,5 @@
 # Action to publish development Docker images
-# Images are versioned as `0.0.0-{tag}-DATETIMESTAMP`
+# Images are versioned as `{calculated_version}-dev-DATETIMESTAMP`
 name: Development Image Release
 
 on: workflow_dispatch

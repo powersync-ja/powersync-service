@@ -5,10 +5,10 @@ import {
   DEFAULT_HYDRATION_STATE,
   deserializeSyncPlan,
   nodeSqlite,
+  parseSyncConfig,
   PrecompiledSyncConfig,
   serializedEventDefinitionEquality,
-  serializeSyncPlan,
-  SqlSyncRules
+  serializeSyncPlan
 } from '../../../src/index.js';
 import { TestSourceTable } from '../util.js';
 import { yamlToSyncPlan } from './utils.js';
@@ -29,7 +29,7 @@ event_definitions:
 
 describe('compiled replication events', () => {
   test('compiles, serializes and evaluates event payload queries', () => {
-    const { config, errors } = SqlSyncRules.fromYaml(CHECKPOINT_EVENT_YAML, {
+    const { config, errors } = parseSyncConfig(CHECKPOINT_EVENT_YAML, {
       defaultSchema: 'test_schema',
       throwOnError: false
     });
@@ -71,7 +71,7 @@ describe('compiled replication events', () => {
    * payload filters are ignored with a warning instead of being newly validated or applied during a service upgrade.
    */
   test('preserves legacy event payload filter behavior before edition 3', () => {
-    const { config, errors } = SqlSyncRules.fromYaml(
+    const { config, errors } = parseSyncConfig(
       `
 bucket_definitions:
   checkpoints:
@@ -100,7 +100,7 @@ event_definitions:
   });
 
   test('returns payloads from every matching source query', () => {
-    const { config, errors } = SqlSyncRules.fromYaml(
+    const { config, errors } = parseSyncConfig(
       yamlWithEventQueries(
         `SELECT 'wildcard' AS kind, checkpoint FROM "checkpoints_%"`,
         `SELECT 'exact' AS kind, checkpoint FROM checkpoints_2026`,

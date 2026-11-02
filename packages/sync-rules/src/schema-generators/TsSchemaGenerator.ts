@@ -73,20 +73,27 @@ ${streamsHelper ?? ''}`;
 
   private generateImports(includeSyncStreams: boolean) {
     const importStyle = this.options.imports ?? 'auto';
-    const importedNames = ['column', 'Schema', 'Table'];
-    if (includeSyncStreams) {
-      importedNames.push(...['PowerSyncDatabase', 'SyncStream']);
-    }
-    const importStart = `import { ${importedNames.join(', ')} } from`;
+    const importClause = this.importClause(includeSyncStreams);
 
     if (importStyle == TsSchemaImports.web) {
-      return `${importStart} '@powersync/web';`;
+      return `import { ${importClause} } from '@powersync/web';`;
     } else if (importStyle == TsSchemaImports.reactNative) {
-      return `${importStart} '@powersync/react-native';`;
+      return `import { ${importClause} } from '@powersync/react-native';`;
     } else {
-      return `${importStart} '@powersync/web';
-// OR: ${importStart} '@powersync/react-native';`;
+      return `import { ${importClause} } from '@powersync/web';
+// OR: import { ${importClause} } from '@powersync/react-native';`;
     }
+  }
+
+  private importClause(includeSyncStreams: boolean): string {
+    const importedNames = ['column', 'Schema', 'Table'];
+    if (!includeSyncStreams) {
+      return importedNames.join(', ');
+    }
+    if (this.language == TsSchemaLanguage.ts) {
+      return `${importedNames.join(', ')}, type PowerSyncDatabase, type SyncStream`;
+    }
+    return `${importedNames.join(', ')}, PowerSyncDatabase, SyncStream`;
   }
 
   private generateTable(name: string, columns: ColumnDefinition[], options?: GenerateSchemaOptions): string {

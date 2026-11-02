@@ -1,5 +1,5 @@
 import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { parseSyncConfig, SyncConfigErrors, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import { ValidationDiagnostic } from '@powersync/service-types';
 import type { RouteAPI } from '../api/RouteAPI.js';
 import { CompiledSyncConfig, updateSyncRulesFromConfig } from '../storage/BucketStorageFactory.js';
@@ -153,7 +153,7 @@ export class SyncConfigEngine {
     const diagnostics: ValidationDiagnostic[] = [];
     let parsed: SyncConfigWithErrors | undefined;
     try {
-      parsed = SqlSyncRules.fromYaml(content, { ...parseOptions, schema: undefined, throwOnError: false });
+      parsed = parseSyncConfig(content, { ...parseOptions, schema: undefined, throwOnError: false });
       diagnostics.push(...parsed.errors.map((error) => syncConfigYamlErrorToReplicationError(error, now)));
       const hasFatalParseErrors = diagnostics.some((error) => error.level === 'fatal');
       try {
@@ -195,7 +195,7 @@ export class SyncConfigEngine {
 }
 
 function validationFailureDiagnostics(error: unknown, ts: string): ValidationDiagnostic[] {
-  return error instanceof SyncRulesErrors
+  return error instanceof SyncConfigErrors
     ? error.errors.map((error) => syncConfigYamlErrorToReplicationError(error, ts))
     : [{ level: 'fatal', message: error instanceof Error ? error.message : String(error), ts }];
 }
