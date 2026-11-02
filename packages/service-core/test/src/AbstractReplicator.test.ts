@@ -477,17 +477,18 @@ describe('invalid configured sync config', () => {
     await expect(replicator.runStartupForTest()).rejects.toThrow();
     expect(stopProcessingSyncConfigs).not.toHaveBeenCalled();
   });
-  it.each([INVALID_CONFIG, 'streams: [', '# empty sync config\n'])(
-    'logs and skips rejected YAML without storing it',
-    async (yaml) => {
-      const { replicator, configureSyncRules } = await makeStartupReplicator(yaml);
-      const errors = vi.spyOn(replicator.loggerForTest, 'error');
-      await replicator.runStartupForTest();
-      expect(configureSyncRules).not.toHaveBeenCalled();
-      expect(errors).toHaveBeenCalledWith(expect.stringContaining('Sync config error:'));
-      errors.mockRestore();
-    }
-  );
+  it.each([
+    { inputKind: 'invalid query', yaml: INVALID_CONFIG },
+    { inputKind: 'malformed YAML', yaml: 'streams: [' },
+    { inputKind: 'empty config', yaml: '# empty sync config\n' }
+  ])('logs and skips rejected YAML without storing it: $inputKind', async ({ yaml }) => {
+    const { replicator, configureSyncRules } = await makeStartupReplicator(yaml);
+    const errors = vi.spyOn(replicator.loggerForTest, 'error');
+    await replicator.runStartupForTest();
+    expect(configureSyncRules).not.toHaveBeenCalled();
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining('Sync config error:'));
+    errors.mockRestore();
+  });
 
   it('uses the same compiled snapshot for deployment and diagnostics', async () => {
     const { replicator, configureSyncRules } = await makeStartupReplicator(VALID_CONFIG);
@@ -534,14 +535,14 @@ describe('invalid configured sync config', () => {
     expect(getActiveSyncConfig).not.toHaveBeenCalled();
   });
 
-  it.each([INVALID_CONFIG, '# empty sync config\n'])(
-    'still fails startup with exit_on_error enabled',
-    async (content) => {
-      const { replicator, configureSyncRules } = await makeStartupReplicator(content, true);
-      await expect(replicator.runStartupForTest()).rejects.toThrow();
-      expect(configureSyncRules).not.toHaveBeenCalled();
-    }
-  );
+  it.each([
+    { inputKind: 'invalid query', content: INVALID_CONFIG },
+    { inputKind: 'empty config', content: '# empty sync config\n' }
+  ])('still fails startup with exit_on_error enabled: $inputKind', async ({ content }) => {
+    const { replicator, configureSyncRules } = await makeStartupReplicator(content, true);
+    await expect(replicator.runStartupForTest()).rejects.toThrow();
+    expect(configureSyncRules).not.toHaveBeenCalled();
+  });
 
   it('persists valid config, including warnings', async () => {
     const { replicator, configureSyncRules } = await makeStartupReplicator(VALID_CONFIG);
@@ -558,87 +559,93 @@ describe('invalid configured sync config', () => {
    * Previously persisted invalid work remains owned only when both local YAML and label match.
    * This compatibility path also works without an active config (a rejected first deployment).
    */
-  it.each(['matching', 'other-yaml', 'other-label'])(
-    'checks ownership of previously persisted invalid config: %s',
-    async (scenario) => {
+  it.each([{ deploymentMatch: 'matching' }, { deploymentMatch: 'other-yaml' }, { deploymentMatch: 'other-label' }])(
+    'checks ownership of previously persisted invalid config: $deploymentMatch',
+    async ({ deploymentMatch }) => {
       const { replicator, getActiveSyncConfig } = await makeStartupReplicator(INVALID_CONFIG);
       getActiveSyncConfig.mockResolvedValue(null);
       const stream = {
         syncConfigContent: [
           {
             syncConfigState: storage.SyncRuleState.PROCESSING,
-            sync_rules_content: scenario === 'other-yaml' ? VALID_CONFIG : INVALID_CONFIG,
-            version_label: scenario === 'other-label' ? 'another-worker' : 'local'
+            sync_rules_content: deploymentMatch === 'other-yaml' ? VALID_CONFIG : INVALID_CONFIG,
+            version_label: deploymentMatch === 'other-label' ? 'another-worker' : 'local'
           }
         ]
       } as unknown as PersistedReplicationStream;
       expect(await replicator.shouldHandleStreamForTest(stream, INVALID_CONFIG, 'local', true)).toBe(
-        scenario === 'matching'
+        deploymentMatch === 'matching'
       );
-      if (scenario === 'matching') {
+      if (deploymentMatch === 'matching') {
         expect(getActiveSyncConfig).not.toHaveBeenCalled();
       }
     }
   );
 
-  it.each(['matching', 'other-yaml', 'other-label', 'other-storage', 'no-active'])(
-    'only accepts recovery matching the active config: %s',
-    async (scenario) => {
-      const { replicator, getActiveSyncConfig } = await makeStartupReplicator(INVALID_CONFIG);
-      const active = { sync_rules_content: VALID_CONFIG, version_label: 'active', storageVersion: 2 };
-      getActiveSyncConfig.mockResolvedValue(scenario == 'no-active' ? null : { content: active });
-      const processing = {
-        ...active,
-        syncConfigState: storage.SyncRuleState.PROCESSING,
-        ...(scenario == 'other-yaml' ? { sync_rules_content: INVALID_CONFIG } : {}),
-        ...(scenario == 'other-label' ? { version_label: 'different' } : {}),
-        // A storage upgrade does not change which YAML deployment the replacement belongs to.
-        ...(scenario == 'other-storage' ? { storageVersion: 4 } : {})
-      };
-      const stream = { syncConfigContent: [processing] } as unknown as PersistedReplicationStream;
-      expect(await replicator.shouldHandleStreamForTest(stream, INVALID_CONFIG, 'local', true)).toBe(
-        scenario == 'matching' || scenario == 'other-storage'
-      );
-    }
-  );
-
-  it.each([reprocess, reprocessSyncRules])('accepts a storage upgrade requested by $path', async (route) => {
+  it.each([
+    { recoveryMatch: 'matching' },
+    { recoveryMatch: 'other-yaml' },
+    { recoveryMatch: 'other-label' },
+    { recoveryMatch: 'other-storage' },
+    { recoveryMatch: 'no-active' }
+  ])('only accepts recovery matching the active config: $recoveryMatch', async ({ recoveryMatch }) => {
     const { replicator, getActiveSyncConfig } = await makeStartupReplicator(INVALID_CONFIG);
     const active = { sync_rules_content: VALID_CONFIG, version_label: 'active', storageVersion: 2 };
-    getActiveSyncConfig.mockResolvedValue({ content: active });
-    let replacement: PersistedReplicationStream | undefined;
-    const updateSyncRules = vi.fn(async (options: storage.UpdateSyncRulesOptions) => {
-      // Model the backend selecting its v4 default for YAML without a storage_version.
-      expect(options.storageVersion).toBeUndefined();
-      expect(options.config.parsed.config.storageVersion).toBeUndefined();
-      replacement = {
-        replicationStreamName: 'replacement',
-        syncConfigContent: [
-          {
-            syncConfigState: storage.SyncRuleState.PROCESSING,
-            sync_rules_content: options.config.yaml,
-            version_label: options.version_label,
-            storageVersion: 4
-          }
-        ]
-      } as unknown as PersistedReplicationStream;
-      return replacement;
-    });
-    // A separate API runner submits the rebuild; the replicator still holds rejected configured YAML.
-    const service = mockServiceContext(null);
-    Object.assign(service.storageEngine.activeBucketStorage, {
-      getActiveSyncConfig,
-      getDeployingSyncConfig: async () => null,
-      updateSyncRules
-    });
-    await route.handler({
-      context: { service_context: service } as Context,
-      request: { headers: {}, hostname: '', protocol: 'http' } as BasicRouterRequest,
-      params: {}
-    });
-    expect(updateSyncRules).toHaveBeenCalledOnce();
-    expect(await replicator.shouldHandleStreamForTest(replacement!, INVALID_CONFIG, 'local', true)).toBe(true);
+    getActiveSyncConfig.mockResolvedValue(recoveryMatch == 'no-active' ? null : { content: active });
+    const processing = {
+      ...active,
+      syncConfigState: storage.SyncRuleState.PROCESSING,
+      ...(recoveryMatch == 'other-yaml' ? { sync_rules_content: INVALID_CONFIG } : {}),
+      ...(recoveryMatch == 'other-label' ? { version_label: 'different' } : {}),
+      // A storage upgrade does not change which YAML deployment the replacement belongs to.
+      ...(recoveryMatch == 'other-storage' ? { storageVersion: 4 } : {})
+    };
+    const stream = { syncConfigContent: [processing] } as unknown as PersistedReplicationStream;
+    expect(await replicator.shouldHandleStreamForTest(stream, INVALID_CONFIG, 'local', true)).toBe(
+      recoveryMatch == 'matching' || recoveryMatch == 'other-storage'
+    );
   });
+
+  it.each([{ route: reprocess }, { route: reprocessSyncRules }])(
+    'accepts a storage upgrade requested by $route.path',
+    async ({ route }) => {
+      const { replicator, getActiveSyncConfig } = await makeStartupReplicator(INVALID_CONFIG);
+      const active = { sync_rules_content: VALID_CONFIG, version_label: 'active', storageVersion: 2 };
+      getActiveSyncConfig.mockResolvedValue({ content: active });
+      let replacement: PersistedReplicationStream | undefined;
+      const updateSyncRules = vi.fn(async (options: storage.UpdateSyncRulesOptions) => {
+        // Model the backend selecting its v4 default for YAML without a storage_version.
+        expect(options.storageVersion).toBeUndefined();
+        expect(options.config.parsed.config.storageVersion).toBeUndefined();
+        replacement = {
+          replicationStreamName: 'replacement',
+          syncConfigContent: [
+            {
+              syncConfigState: storage.SyncRuleState.PROCESSING,
+              sync_rules_content: options.config.yaml,
+              version_label: options.version_label,
+              storageVersion: 4
+            }
+          ]
+        } as unknown as PersistedReplicationStream;
+        return replacement;
+      });
+      // A separate API runner submits the rebuild; the replicator still holds rejected configured YAML.
+      const service = mockServiceContext(null);
+      Object.assign(service.storageEngine.activeBucketStorage, {
+        getActiveSyncConfig,
+        getDeployingSyncConfig: async () => null,
+        updateSyncRules
+      });
+      await route.handler({
+        context: { service_context: service } as Context,
+        request: { headers: {}, hostname: '', protocol: 'http' } as BasicRouterRequest,
+        params: {}
+      });
+      expect(updateSyncRules).toHaveBeenCalledOnce();
+      expect(await replicator.shouldHandleStreamForTest(replacement!, INVALID_CONFIG, 'local', true)).toBe(true);
+    }
+  );
 
   it('keeps active-only streams running without consulting recovery state', async () => {
     const { replicator, getActiveSyncConfig } = await makeStartupReplicator(INVALID_CONFIG);

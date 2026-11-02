@@ -79,17 +79,23 @@ describe('sync-rules routes', () => {
 
   describe('deploy', () => {
     it.each([
-      { present: true, content: 'streams: [', exit_on_error: false },
-      { present: true, exit_on_error: false }
-    ])('blocks deployment when a config is supplied regardless of the load result: %j', async (configuration) => {
-      const context = makeContext();
-      // Configured mode disables API deployment even if its YAML is rejected or unavailable.
-      context.service_context.configuration.sync_rules = configuration;
-      await expect(deploySyncRules.handler({ context, params: { content: '' }, request })).rejects.toMatchObject({
-        message: expect.stringContaining('Sync config API disabled')
-      });
-      expect(context.service_context.storageEngine.activeBucketStorage.updateSyncRules).not.toHaveBeenCalled();
-    });
+      {
+        inputState: 'invalid YAML',
+        configuration: { present: true, content: 'streams: [', exit_on_error: false }
+      },
+      { inputState: 'unavailable input', configuration: { present: true, exit_on_error: false } }
+    ])(
+      'blocks deployment when a config is supplied regardless of the load result: $inputState',
+      async ({ configuration }) => {
+        const context = makeContext();
+        // Configured mode disables API deployment even if its YAML is rejected or unavailable.
+        context.service_context.configuration.sync_rules = configuration;
+        await expect(deploySyncRules.handler({ context, params: { content: '' }, request })).rejects.toMatchObject({
+          message: expect.stringContaining('Sync config API disabled')
+        });
+        expect(context.service_context.storageEngine.activeBucketStorage.updateSyncRules).not.toHaveBeenCalled();
+      }
+    );
 
     it('logs that bucket_definitions are deprecated', async () => {
       const warnSpy = vi.spyOn(logger, 'warn');

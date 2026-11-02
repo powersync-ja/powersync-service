@@ -57,9 +57,9 @@ async function makeContext(content: string, active = true, connected = true) {
 }
 
 describe('local invalid config diagnostics', () => {
-  it.each([true, false])(
-    'overlays rejected config and preserves active diagnostics (connected=%s)',
-    async (connected) => {
+  it.each([{ connected: true }, { connected: false }])(
+    'overlays rejected config and preserves active diagnostics (connected=$connected)',
+    async ({ connected }) => {
       const { context } = await makeContext(INVALID_CONFIG, true, connected);
       const result = await diagnostics.handler({ context, request: REQUEST, params: { sync_rules_content: true } });
       // Rejected configured YAML appears under deploying_sync_rules without hiding the active deployment.
@@ -98,9 +98,9 @@ describe('local invalid config diagnostics', () => {
     expect(result.deploying_sync_rules?.connections[0].slot_name).toBe('stored_slot');
   });
 
-  it.each([true, false])(
-    'reports rejected source capabilities on an API instance (connected=%s)',
-    async (connected) => {
+  it.each([{ connected: true }, { connected: false }])(
+    'reports rejected source capabilities on an API instance (connected=$connected)',
+    async ({ connected }) => {
       const content = /* yaml */ `
         # Rejected local MongoDB deployment.
         config:

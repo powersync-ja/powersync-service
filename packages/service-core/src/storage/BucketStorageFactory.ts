@@ -83,6 +83,8 @@ export abstract class BucketStorageFactory
    * config, but also accounts for cases where the current sync config is not
    * the latest one.
    *
+   * Recovery of the active config must atomically recheck pending work and create its replacement,
+   * preserving any newer pending deployment rather than superseding it with the active config.
    * Replication should be restarted after this.
    */
   abstract restartReplication(replicationStreamId: number): Promise<void>;

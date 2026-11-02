@@ -393,9 +393,9 @@ describe('resolved sync config input sources', () => {
 });
 
 describe('deferred sync config parsing', () => {
-  it.each([true, false])(
-    'preserves malformed input for source-aware validation (exit_on_error=%s)',
-    async (exitOnError) => {
+  it.each([{ exitOnError: true }, { exitOnError: false }])(
+    'preserves malformed input for source-aware validation (exit_on_error=$exitOnError)',
+    async ({ exitOnError }) => {
       // Keep malformed input available for diagnostics regardless of the startup failure policy.
       const content = '# empty sync config\n';
       const config = await new CompoundConfigCollector().collectConfig({

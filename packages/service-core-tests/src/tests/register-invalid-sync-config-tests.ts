@@ -81,9 +81,9 @@ export function registerInvalidSyncConfigTests(
      * An older service persisted invalid B while valid A was active. After upgrading with
      * rejected local input, startup supersedes pending work while preserving active A.
      */
-    test.each([false, true])(
-      'stops pending work on rejection, including previously persisted invalid work: %s',
-      async (persistedInvalid) => {
+    test.each([{ persistedInvalid: false }, { persistedInvalid: true }])(
+      'stops pending work on rejection, including previously persisted invalid work: $persistedInvalid',
+      async ({ persistedInvalid }) => {
         await using backend = await factory();
         const valid = /* yaml */ `
           # Existing active deployment.
@@ -187,9 +187,14 @@ export function registerInvalidSyncConfigTests(
      * Recovery must produce replacement work the worker accepts, activate it, and clean
      * up the old stream without losing B's diagnostics or accepting unrelated deployments.
      */
-    test.each(['after startup', 'before startup', 'superseded recovery', 'missing recovery'] as const)(
-      'recovery %s retains rejected diagnostics through activation and cleanup',
-      async (recoveryTiming) => {
+    test.each([
+      { recoveryTiming: 'after startup' },
+      { recoveryTiming: 'before startup' },
+      { recoveryTiming: 'superseded recovery' },
+      { recoveryTiming: 'missing recovery' }
+    ] as const)(
+      'recovery $recoveryTiming retains rejected diagnostics through activation and cleanup',
+      async ({ recoveryTiming }) => {
         await using backend = await factory();
         const content = /* yaml */ `
           # Active stored deployment.

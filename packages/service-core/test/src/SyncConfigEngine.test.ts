@@ -114,12 +114,12 @@ describe('SyncConfigEngine', () => {
     }
   );
 
-  it.each([false, true])(
-    'collects source-capability failures alongside fatal parser diagnostics (throws=%s)',
-    async (throws) => {
+  it.each([{ capabilityCheckThrows: false }, { capabilityCheckThrows: true }])(
+    'collects source-capability failures alongside fatal parser diagnostics (throws=$capabilityCheckThrows)',
+    async ({ capabilityCheckThrows }) => {
       const adapter = source();
       const capability = vi.spyOn(adapter, 'validateSourceCapabilities').mockImplementation(async () => {
-        if (throws) throw new Error('Unsupported executor');
+        if (capabilityCheckThrows) throw new Error('Unsupported executor');
         return [{ level: 'fatal', message: 'Unsupported executor' }];
       });
       const result = await new SyncConfigEngine({ present: false, exit_on_error: false }, () => adapter).validate(
@@ -153,33 +153,33 @@ describe('SyncConfigEngine', () => {
     expect(await service.getConfigured()).toBe(configured);
   });
 
-  it.each([CONTENT, CONTENT.replace('SELECT * FROM orders', 'SELECT FROM')])(
-    'retains the first filesystem result until a new engine is created',
-    async (initial) => {
-      const dir = await mkdtemp(join(tmpdir(), 'sync-config-snapshot-'));
-      try {
-        const path = join(dir, 'sync-config.yaml');
-        const settings = { present: true, path, exit_on_error: false };
-        const adapter = source();
-        await writeFile(path, initial);
-        const engine = new SyncConfigEngine(settings, () => adapter);
-        const first = await engine.getConfigured();
-        expect(first.status).toBe(
-          initial === CONTENT ? SyncConfigResultStatus.ACCEPTED : SyncConfigResultStatus.REJECTED
-        );
-        const replacement = initial === CONTENT ? CONTENT.replace('SELECT * FROM orders', 'SELECT FROM') : CONTENT;
-        // File edits take effect after restart, represented here by constructing a new engine.
-        await writeFile(path, replacement);
-        expect(await engine.getConfigured()).toBe(first);
-        expect(await new SyncConfigEngine(settings, () => adapter).getConfigured()).toMatchObject({
-          content: replacement,
-          status: replacement === CONTENT ? SyncConfigResultStatus.ACCEPTED : SyncConfigResultStatus.REJECTED
-        });
-      } finally {
-        await rm(dir, { recursive: true, force: true });
-      }
+  it.each([
+    { inputKind: 'valid', initial: CONTENT },
+    { inputKind: 'invalid query', initial: CONTENT.replace('SELECT * FROM orders', 'SELECT FROM') }
+  ])('retains the first filesystem result until a new engine is created: $inputKind', async ({ initial }) => {
+    const dir = await mkdtemp(join(tmpdir(), 'sync-config-snapshot-'));
+    try {
+      const path = join(dir, 'sync-config.yaml');
+      const settings = { present: true, path, exit_on_error: false };
+      const adapter = source();
+      await writeFile(path, initial);
+      const engine = new SyncConfigEngine(settings, () => adapter);
+      const first = await engine.getConfigured();
+      expect(first.status).toBe(
+        initial === CONTENT ? SyncConfigResultStatus.ACCEPTED : SyncConfigResultStatus.REJECTED
+      );
+      const replacement = initial === CONTENT ? CONTENT.replace('SELECT * FROM orders', 'SELECT FROM') : CONTENT;
+      // File edits take effect after restart, represented here by constructing a new engine.
+      await writeFile(path, replacement);
+      expect(await engine.getConfigured()).toBe(first);
+      expect(await new SyncConfigEngine(settings, () => adapter).getConfigured()).toMatchObject({
+        content: replacement,
+        status: replacement === CONTENT ? SyncConfigResultStatus.ACCEPTED : SyncConfigResultStatus.REJECTED
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
     }
-  );
+  });
 
   it('retains an unavailable file result until a new engine is created', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'sync-config-unavailable-'));
