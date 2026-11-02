@@ -2,7 +2,6 @@ import * as sqlite from 'node:sqlite';
 
 import { expect } from 'vitest';
 import {
-  BaseJwtPayload,
   BucketDataScope,
   BucketDataSource,
   BucketParameterQuerier,
@@ -24,6 +23,7 @@ import {
   ParameterLookupDefinitionId,
   ParameterLookupScope,
   RequestedStream,
+  RequestJwtPayload,
   RequestParameters,
   ScopedEvaluateParameterRow,
   ScopedEvaluateRow,
@@ -46,6 +46,14 @@ export const PARSE_OPTIONS = {
   defaultSchema: 'test_schema',
   compatibility: CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
 };
+
+/**
+ * Every legacy Sync Rules config reports a deprecation warning, so assertions about what is wrong with a config
+ * filter warnings out. Tests covering a specific warning assert on it directly instead.
+ */
+export function fatalErrors<T extends { type: 'warning' | 'fatal' }>(errors: readonly T[]): T[] {
+  return errors.filter((error) => error.type !== 'warning');
+}
 
 export const ASSETS = new TestSourceTable('assets');
 export const USERS = new TestSourceTable('users');
@@ -83,7 +91,7 @@ export function requestParameters(
   jwtPayload: Record<string, any>,
   clientParameters?: Record<string, any>
 ): RequestParameters {
-  return new RequestParameters(new BaseJwtPayload(jwtPayload), clientParameters ?? {});
+  return new RequestParameters(new RequestJwtPayload(jwtPayload), clientParameters ?? {});
 }
 
 export function normalizeQuerierOptions(

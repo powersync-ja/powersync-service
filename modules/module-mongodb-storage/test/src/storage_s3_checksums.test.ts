@@ -4,7 +4,7 @@ import {
   storage,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { bucketRequest, compactActive, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, compactActive, getTestStorage, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
@@ -28,7 +28,7 @@ describe('V3 checksums with S3 object storage', () => {
     const { factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
 
     const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
@@ -75,7 +75,7 @@ describe('V3 checksums with S3 object storage', () => {
     const { factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
 
     const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);
@@ -114,7 +114,7 @@ describe('V3 checksums with S3 object storage', () => {
     const { factoryGen } = s3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
 
     const request = bucketRequest(syncRules.syncConfigContent[0], 'global[]', 0n);

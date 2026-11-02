@@ -14,6 +14,7 @@ import {
   ErrorCode,
   errors,
   Logger,
+  ReplicationAbortedError,
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
@@ -33,22 +34,21 @@ import { mongoTableId } from '../../utils/util.js';
 import { PersistedBatch } from './common/PersistedBatch.js';
 import { LoadedSourceRecord, SourceRecordStore } from './common/SourceRecordStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';
+import { SyncRuleDocumentBase } from './models.js';
 import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
-import { MongoIdSequence } from './MongoIdSequence.js';
+import { MongoIdSequence, OpIdRangeExhausted } from './MongoIdSequence.js';
+import { MongoOpIdAllocator } from './MongoOpIdAllocator.js';
 import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
+import { REPLICATION_WRITE_OPTIONS } from './MongoReplicationOptions.js';
+import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
+import { MongoWriteBatch } from './MongoWriteBatch.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
 import { ObjectStorage } from './v3/object-storage/ObjectStorage.js';
 import { createObjectStorageUsageWriterId } from './v3/object-storage/ObjectStorageUsage.js';
 
-// Currently, we can only have a single flush() at a time, since it locks the op_id sequence.
-// While the MongoDB transaction retry mechanism handles this okay, using an in-process Mutex
-// makes it more fair and has less overhead.
-//
-// In the future, we can investigate allowing multiple replication streams operating independently.
-const replicationMutex = new utils.Mutex();
-
 export interface MongoBucketBatchOptions {
-  db: VersionedPowerSyncMongo;
+  replicationLock: MongoSyncRulesLock;
+  opIdAllocator: MongoOpIdAllocator;
   /**
    * The parsed sync config set for this batch.
    *
@@ -94,8 +94,8 @@ export abstract class MongoBucketBatch
   protected readonly options: MongoBucketBatchOptions;
   protected logger: Logger;
 
-  private readonly client: mongo.MongoClient;
   readonly db: VersionedPowerSyncMongo;
+  /** Shared by this lease's writers; only use inside a serialized public operation. */
   public readonly session: mongo.ClientSession;
   protected readonly sync_rules: HydratedSyncConfig;
 
@@ -111,16 +111,16 @@ export abstract class MongoBucketBatch
    * via SourceTable.storeCurrentData. The effective per-record value is the conjunction of
    * the two.
    */
-  private readonly storeCurrentData: boolean;
+  protected readonly storeCurrentData: boolean;
   public readonly skipExistingRows: boolean;
   protected readonly mapping: BucketDefinitionMapping;
   protected readonly objectStorageUsageWriterId = createObjectStorageUsageWriterId();
 
-  private batch: OperationBatch | null = null;
+  protected batch: OperationBatch | null = null;
   protected write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
-  private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
-  private hooks: storage.StorageHooks | undefined;
-  private clearedError = false;
+  protected readonly markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  protected hooks: storage.StorageHooks | undefined;
+  protected clearedError = false;
 
   protected tracer: PerformanceTracer<'storage' | 'evaluate'>;
 
@@ -144,12 +144,19 @@ export abstract class MongoBucketBatch
   constructor(options: MongoBucketBatchOptions) {
     super();
     this.logger = options.logger;
-    this.options = options;
-    this.client = options.db.client;
-    this.db = options.db;
+    this.options = {
+      ...options,
+      signal:
+        options.signal == null
+          ? options.replicationLock.signal
+          : AbortSignal.any([options.signal, options.replicationLock.signal])
+    };
+    // A MongoDB session can only be used with its originating client. Writers
+    // created through another factory must still use this lease's database.
+    this.db = options.replicationLock.db;
     this.replicationStreamId = options.replicationStreamId;
     this.resumeFromLsn = options.resumeFromLsn;
-    this.session = this.client.startSession();
+    this.session = options.replicationLock.session;
     this.replicationStreamName = options.replicationStreamName;
     this.sync_rules = options.parsedSyncConfig.hydratedSyncConfig;
     this.storeCurrentData = options.storeCurrentData;
@@ -169,7 +176,11 @@ export abstract class MongoBucketBatch
     });
   }
 
-  abstract resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult>;
+  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
+    return this.withWriterLock(() => this.resolveTablesInternal(options));
+  }
+
+  protected abstract resolveTablesInternal(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult>;
 
   protected abstract createPersistedBatch(writtenSize: number): PersistedBatch;
 
@@ -177,31 +188,73 @@ export abstract class MongoBucketBatch
 
   protected abstract cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]): Promise<void>;
 
-  abstract commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult>;
+  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
+    return this.withWriterLock(() => this.commitInternal(lsn, options));
+  }
 
-  abstract keepalive(lsn: string): Promise<storage.CheckpointResult>;
+  protected abstract commitInternal(
+    lsn: string,
+    options?: storage.BucketBatchCommitOptions
+  ): Promise<storage.CheckpointResult>;
 
-  abstract setResumeLsn(lsn: string): Promise<void>;
+  async keepalive(lsn: string): Promise<storage.CheckpointResult> {
+    return this.commit(lsn, { createEmptyCheckpoints: true });
+  }
 
-  abstract getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null>;
+  async setResumeLsn(lsn: string): Promise<void> {
+    return this.withWriterLock(() => this.setResumeLsnInternal(lsn));
+  }
 
-  abstract markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
+  protected abstract setResumeLsnInternal(lsn: string): Promise<void>;
 
-  abstract markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void>;
+  async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
+    return this.withWriterLock(() => this.getSourceTableStatusInternal(table));
+  }
 
-  abstract markTableSnapshotRequired(table: storage.SourceTable): Promise<void>;
+  protected abstract getSourceTableStatusInternal(table: storage.SourceTable): Promise<storage.SourceTable | null>;
 
-  abstract markTableSnapshotDone(
+  async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+    return this.withWriterLock(() => this.markAllSnapshotDoneInternal(no_checkpoint_before_lsn));
+  }
+
+  protected abstract markAllSnapshotDoneInternal(no_checkpoint_before_lsn: string): Promise<void>;
+
+  async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
+    return this.withWriterLock(() => this.markSnapshotDoneInternal(no_checkpoint_before_lsn, options));
+  }
+
+  protected abstract markSnapshotDoneInternal(
+    no_checkpoint_before_lsn: string,
+    options?: { throwOnConflict?: boolean }
+  ): Promise<void>;
+
+  async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
+    return this.withWriterLock(() => this.markTableSnapshotRequiredInternal(table));
+  }
+
+  protected abstract markTableSnapshotRequiredInternal(table: storage.SourceTable): Promise<void>;
+
+  async markTableSnapshotDone(
+    tables: storage.SourceTable[],
+    no_checkpoint_before_lsn?: string
+  ): Promise<storage.SourceTable[]> {
+    return this.withWriterLock(() => this.markTableSnapshotDoneInternal(tables, no_checkpoint_before_lsn));
+  }
+
+  protected abstract markTableSnapshotDoneInternal(
     tables: storage.SourceTable[],
     no_checkpoint_before_lsn?: string
   ): Promise<storage.SourceTable[]>;
-
-  protected abstract batchCreateCustomWriteCheckpoints(session: mongo.ClientSession, opId: InternalOpId): Promise<void>;
 
   /** Perform any version-specific setup required before writing custom checkpoints. */
   protected async prepareCustomWriteCheckpoints(): Promise<void> {}
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
+    return this.withWriterLock(() => this.flushInternal(options));
+  }
+
+  /** Internal helpers require the public operation to hold the writer mutex. */
+  protected async flushInternal(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;
     // One flush may be split over multiple transactions.
     // Each flushInner() is one transaction.
@@ -214,182 +267,49 @@ export abstract class MongoBucketBatch
     return result;
   }
 
-  private async flushInner(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
-    const batch = this.batch;
-    let last_op: InternalOpId | null = null;
-    let resumeBatch: OperationBatch | null = null;
-    let clearedError = false;
-
-    using _ = this.tracer.span('storage', 'flush');
-
-    await this.hooks?.beforeBatchFlush?.(this);
-    if (this.write_checkpoint_batch.length > 0) {
-      // Collection/index creation cannot run inside the replication transaction.
-      await this.prepareCustomWriteCheckpoints();
+  /** Publish the checkpoint in the final flush transaction, or use the empty-commit path. */
+  protected async flushAndCommit<T>(
+    checkpoint: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<T>,
+    commitWithoutFlush: () => Promise<T>,
+    options?: storage.BatchBucketFlushOptions,
+    projection?: mongo.Document
+  ): Promise<T> {
+    if (this.batch == null && this.write_checkpoint_batch.length === 0) {
+      return commitWithoutFlush();
     }
-
-    await this.withReplicationTransaction(`Flushing ${batch?.length ?? 0} ops`, async (session, opSeq) => {
-      clearedError = false;
-      if (batch != null) {
-        const result = await this.replicateBatch(session, batch, opSeq, options);
-        resumeBatch = result.resumeBatch;
-        clearedError ||= result.clearedError;
-      }
-
-      if (this.write_checkpoint_batch.length > 0) {
-        this.logger.info(`Writing ${this.write_checkpoint_batch.length} custom write checkpoints`);
-        await this.batchCreateCustomWriteCheckpoints(session, opSeq.next());
-        this.write_checkpoint_batch = [];
-      }
-
-      last_op = opSeq.last();
-    });
-
-    if (clearedError) {
-      this.clearedError = true;
+    let result!: T;
+    while (this.batch != null || this.write_checkpoint_batch.length > 0) {
+      await this.flushInner(
+        options,
+        async (stream, lastOp, writes) => {
+          result = await checkpoint(stream, lastOp, writes);
+        },
+        projection
+      );
     }
-
-    // null if done, set if we need another flush
-    this.batch = resumeBatch;
-
-    if (last_op == null) {
-      throw new ReplicationAssertionError('Unexpected last_op == null');
-    }
-
-    this.recordPersistedOp(last_op);
-    this.last_flushed_op = last_op;
-    await this.hooks?.afterBatchFlush?.(this);
-    return { flushed_op: last_op };
+    return result;
   }
 
-  private async replicateBatch(
-    session: mongo.ClientSession,
-    batch: OperationBatch,
-    op_seq: MongoIdSequence,
-    options?: storage.BucketBatchCommitOptions
-  ): Promise<{ resumeBatch: OperationBatch | null; clearedError: boolean }> {
-    let sizes: Map<string, number> | undefined = undefined;
-    using _ = this.tracer.span('storage', 'replicate_batch');
-    // Only look up current_data sizes if the batch stores current_data and at least one
-    // table in it does too (per-table can disable it, e.g. Postgres REPLICA IDENTITY FULL).
-    const anyTableStoresCurrentData =
-      this.storeCurrentData && batch.batch.some((r) => r.record.sourceTable.storeCurrentData);
-    if (anyTableStoresCurrentData && !this.skipExistingRows) {
-      // We skip this step if no tables store current_data, since the sizes will
-      // always be small in that case.
+  protected abstract flushInner(
+    options?: storage.BatchBucketFlushOptions,
+    checkpoint?: (stream: SyncRuleDocumentBase, lastOp: InternalOpId, writes?: MongoWriteBatch) => Promise<void>,
+    projection?: mongo.Document
+  ): Promise<storage.FlushedResult | null>;
 
-      // With skipExistingRows, we don't load the full documents into memory,
-      // so we can also skip the size lookup step.
-
-      // Find sizes of current_data documents, to assist in intelligent batching without
-      // exceeding memory limits.
-      //
-      // A previous attempt tried to do batching by the results of the current_data query
-      // (automatically limited to 48MB(?) per batch by MongoDB). The issue is that it changes
-      // the order of processing, which then becomes really tricky to manage.
-      // This now takes 2+ queries, but doesn't have any issues with order of operations.
-      // Within this branch this.storeCurrentData is true, so the per-table flag is the
-      // effective value - only look up sizes for tables that actually store current_data.
-      const sizeLookups = batch.batch
-        .filter((r) => r.record.sourceTable.storeCurrentData)
-        .map((r) => ({
-          sourceTableId: mongoTableId(r.record.sourceTable.id),
-          replicaId: r.beforeId
-        }));
-
-      sizes = await this.sourceRecordStore.loadSizes(session, sizeLookups);
-    }
-
-    // If set, we need to start a new transaction with this batch.
-    let resumeBatch: OperationBatch | null = null;
-    let transactionSize = 0;
-
-    let didFlush = false;
-
-    // Now batch according to the sizes
-    // This is a single batch if storeCurrentData == false
-    for await (let b of batch.batched(sizes)) {
-      if (resumeBatch) {
-        for (let op of b) {
-          resumeBatch.push(op);
-        }
-        continue;
-      }
-      using lookupSpan = this.tracer.span('storage', 'lookup');
-      const lookups = b.map((r) => ({
-        sourceTableId: mongoTableId(r.record.sourceTable.id),
-        replicaId: r.beforeId
-      }));
-      let sourceRecordLookup = await this.sourceRecordStore.loadDocuments(session, lookups, this.skipExistingRows);
-      lookupSpan.end();
-
-      let persistedBatch: PersistedBatch | null = this.createPersistedBatch(transactionSize);
-
-      // The current code structure makes it tricky to cleanly split this span from the one
-      // where fluhsing. So we manually end and re-create this span whenever we flush.
-      let evalSpan = this.tracer.span('evaluate');
-      for (let op of b) {
-        if (resumeBatch) {
-          resumeBatch.push(op);
-          continue;
-        }
-        const sourceRecord = sourceRecordLookup.get(op.internalBeforeKey) ?? null;
-        if (sourceRecord != null) {
-          // If it will be used again later, it will be set again using nextData below
-          sourceRecordLookup.delete(op.internalBeforeKey);
-        }
-        const nextData = this.saveOperation(persistedBatch!, op, sourceRecord, op_seq);
-        if (nextData != null) {
-          // Update our current_data and size cache
-          sourceRecordLookup.set(op.internalAfterKey!, nextData);
-          sizes?.set(op.internalAfterKey!, nextData.data?.length() ?? 0);
-        }
-
-        if (persistedBatch!.shouldFlushTransaction()) {
-          evalSpan.end();
-          // Transaction is getting big.
-          // Flush, and resume in a new transaction.
-          using persistSpan = this.tracer.span('storage', 'persist_flush');
-          const { flushedAny } = await persistedBatch!.flush(this.session, options);
-
-          didFlush ||= flushedAny;
-          persistedBatch = null;
-          // Computing our current progress is a little tricky here, since
-          // we're stopping in the middle of a batch.
-          // We create a new batch, and push any remaining operations to it.
-          resumeBatch = new OperationBatch();
-          persistSpan.end();
-          evalSpan = this.tracer.span('evaluate');
-        }
-      }
-      evalSpan.end();
-
-      if (persistedBatch) {
-        transactionSize = persistedBatch.currentSize;
-        using _ = this.tracer.span('storage', 'persist_flush');
-        const { flushedAny } = await persistedBatch.flush(this.session, options);
-        didFlush ||= flushedAny;
-      }
-    }
-
-    const clearedError = didFlush && !this.clearedError;
-    if (clearedError) {
-      // No need to clear an error more than once per batch, since an error would always result in restarting the batch.
-      using _ = this.tracer.span('storage', 'clear_error');
-      await this.clearError(this.session);
-    }
-
-    return {
-      resumeBatch: resumeBatch?.hasData() ? resumeBatch : null,
-      clearedError
-    };
-  }
-
-  private saveOperation(
+  /**
+   * Evaluate one source operation and append its storage writes to batch.
+   *
+   * Diagnostics run during evaluation. V1 calls markRecordUnavailable immediately;
+   * v3/v4 supply a collector and deliver repair notifications only after a
+   * confirmed publication. A failed row attempt may have registered a repair,
+   * so its caller must discard that row's collected notification on failure.
+   */
+  protected saveOperation(
     batch: PersistedBatch,
     operation: RecordOperation,
     sourceRecord: LoadedSourceRecord | null,
-    opSeq: MongoIdSequence
+    opSeq: MongoIdSequence,
+    onRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined
   ) {
     const record = operation.record;
     const beforeId = operation.beforeId;
@@ -427,25 +347,30 @@ export abstract class MongoBucketBatch
         // Not an error if we re-apply a transaction
         existing_buckets = [];
         existing_lookups = [];
-        if (!isCompleteRow(storeCurrentData, after!)) {
-          if (this.markRecordUnavailable != null) {
-            // This will trigger a "resnapshot" of the record.
-            // This is not relevant if storeCurrentData is false, since we'll get the full row
-            // directly in the replication stream.
-            this.markRecordUnavailable(record);
-          } else {
-            // Log to help with debugging if there was a consistency issue
-            this.logger.warn(
-              `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
-            );
-          }
-        }
       } else {
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
         if (storeCurrentData && result.data != null) {
           const data = deserializeBson(result.data.buffer) as SqliteRow;
           after = storage.mergeToast<SqliteValue>(after!, data);
+        }
+      }
+      if (!isCompleteRow(storeCurrentData, after!)) {
+        if (onRecordUnavailable != null) {
+          // This will trigger a "resnapshot" of the record.
+          // This is not relevant if storeCurrentData is false, since we'll get the full row
+          // directly in the replication stream.
+          // Check after merging, including existing incomplete rows/tombstones.
+          // A flush can commit before a process dies or notification delivery
+          // fails. Its source position has not advanced, so WAL replay must
+          // request repair again rather than treating mere record existence as
+          // proof that the missing TOAST values have been recovered.
+          onRecordUnavailable(record);
+        } else if (result == null) {
+          // Log to help with debugging if there was a consistency issue
+          this.logger.warn(
+            `Cannot find previous record for update on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
+          );
         }
       }
     } else if (record.tag == SaveOperationTag.DELETE) {
@@ -457,7 +382,7 @@ export abstract class MongoBucketBatch
         // Log to help with debugging if there was a consistency issue.
         // Gate on the batch-level flag: FULL tables (per-record flag false) still get a
         // current_data entry, so a missing record on DELETE is meaningful for them too.
-        if (this.storeCurrentData && this.markRecordUnavailable == null) {
+        if (this.storeCurrentData && onRecordUnavailable == null) {
           this.logger.warn(
             `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
           );
@@ -640,129 +565,134 @@ export abstract class MongoBucketBatch
     return result;
   }
 
-  protected async withTransaction(cb: () => Promise<void>) {
-    using lockSpan = this.tracer.span('storage', 'internal_lock');
-    await replicationMutex.exclusiveLock(async () => {
-      lockSpan.end();
-      await this.session.withTransaction(
-        async () => {
-          try {
-            await cb();
-          } catch (e: unknown) {
-            if (e instanceof mongo.MongoError && e.hasErrorLabel('TransientTransactionError')) {
-              // Likely write conflict caused by concurrent write stream replicating
-            } else {
-              this.logger.warn('Transaction error', e as Error);
-            }
-            const delay = Math.random() * 50;
-            using _ = this.tracer.span('storage', 'retry_delay');
-            await timers.setTimeout(delay);
+  protected async fence(session = this.session, projection?: mongo.Document) {
+    // Graceful cancellation belongs to the source connector's page/batch boundary.
+    // It must still be able to persist progress for rows already flushed. Lease
+    // loss is different: the fence rejects every subsequent writer transaction.
+    return MongoSyncRulesLock.fence(
+      this.db,
+      this.replicationStreamId,
+      this.options.replicationLock,
+      session,
+      projection
+    );
+  }
+
+  protected async withTransaction<T>(
+    cb: (stream: SyncRuleDocumentBase) => Promise<T>,
+    session = this.session
+  ): Promise<T> {
+    return this.withFencedTransaction(() => this.fence(session), cb, session);
+  }
+
+  /**
+   * Internal transaction helper: the public writer operation already holds the
+   * mutex. The first operation must modify the stream document conditional on
+   * lease ownership. This database fence is required on every retry even though
+   * local writers are serialized; another process may have taken over the lease.
+   */
+  protected async withFencedTransaction<S, T>(
+    acquireFence: () => Promise<S>,
+    cb: (stream: S) => Promise<T>,
+    session = this.session,
+    description?: string
+  ): Promise<T> {
+    this.options.replicationLock.throwIfAborted();
+    let attempts = 0;
+    // Includes driver commit retries and the delays between transaction attempts.
+    using _transactionSpan = this.tracer.span('storage', 'transaction');
+    const result = await session.withTransaction(
+      async () => {
+        attempts++;
+        // One callback invocation per transaction attempt. Commit happens after
+        // this span; command monitoring is needed to measure the full wire lifetime.
+        using attemptSpan = this.tracer.span('storage', 'transaction_body');
+        try {
+          const stream = await acquireFence();
+          const result = await cb(stream);
+          this.options.replicationLock.throwIfAborted();
+          return result;
+        } catch (e: unknown) {
+          attemptSpan.end();
+          if (e instanceof OpIdRangeExhausted) {
             throw e;
           }
-        },
-        { maxCommitTimeMS: 10000 }
-      );
+          if (e instanceof mongo.MongoError && e.hasErrorLabel('TransientTransactionError')) {
+            // Log every tenth attempt, including failures of the fence, without
+            // logging a stack or bulk result for every driver retry.
+            if ((attempts + 1) % 10 === 0) {
+              this.logger.info(`${description ?? 'Replication transaction'} - try ${attempts + 1}`, {
+                error: e.message,
+                code: e.code,
+                codeName: e instanceof mongo.MongoServerError ? e.codeName : undefined,
+                errorLabels: e.errorLabels
+              });
+            }
+          } else {
+            this.logger.warn('Transaction error', e as Error);
+          }
+          const delay = Math.random() * 50;
+          using _ = this.tracer.span('storage', 'retry_delay');
+          await timers.setTimeout(delay);
+          throw e;
+        }
+      },
+      { maxCommitTimeMS: 10000, ...REPLICATION_WRITE_OPTIONS }
+    );
+    return result;
+  }
+
+  /**
+   * Public database operations acquire the lease's mutex once, then call only
+   * internal helpers until they finish. Those helpers must never call a public
+   * database operation or reacquire this mutex. All session use, including reads,
+   * belongs inside this boundary so it cannot join another writer's transaction.
+   * Transaction helpers still fence database ownership on every attempt.
+   */
+  private async withWriterLock<T>(callback: () => Promise<T>): Promise<T> {
+    using lockSpan = this.tracer.span('storage', 'internal_lock');
+    this.options.replicationLock.throwIfAborted();
+    return this.options.replicationLock.writerMutex.exclusiveLock(async () => {
+      lockSpan.end();
+      this.options.replicationLock.throwIfAborted();
+      return callback();
     });
   }
 
-  private async withReplicationTransaction(
-    description: string,
-    callback: (session: mongo.ClientSession, opSeq: MongoIdSequence) => Promise<void>
+  /** Internal single-document update; the public operation already holds the mutex. */
+  protected async updateStreamMetadata(
+    set: mongo.Document,
+    filter: mongo.Document = {},
+    writeConcern: mongo.WriteConcernSettings = REPLICATION_WRITE_OPTIONS.writeConcern
   ): Promise<void> {
-    let flushTry = 0;
-
-    const start = Date.now();
-    const lastTry = start + 90000;
-
-    const session = this.session;
-
-    await this.withTransaction(async () => {
-      flushTry += 1;
-      if (flushTry % 10 == 0) {
-        this.logger.info(`${description} - try ${flushTry}`);
-      }
-      if (flushTry > 20 && Date.now() > lastTry) {
-        throw new ServiceError(ErrorCode.PSYNC_S1402, 'Max transaction tries exceeded');
-      }
-
-      const next_op_id_doc = await this.db.op_id_sequence.findOneAndUpdate(
-        {
-          _id: 'main'
-        },
-        {
-          $setOnInsert: { op_id: 0n },
-          $set: {
-            // Force update to ensure we get a mongo lock
-            ts: Date.now()
-          }
-        },
-        {
-          upsert: true,
-          returnDocument: 'after',
-          session
-        }
-      );
-      const opSeq = new MongoIdSequence(next_op_id_doc?.op_id ?? 0n);
-
-      await callback(session, opSeq);
-
-      await this.db.op_id_sequence.updateOne(
-        {
-          _id: 'main'
-        },
-        {
-          $set: {
-            op_id: opSeq.last()
-          }
-        },
-        {
-          session
-        }
-      );
-
-      await this.db.sync_rules.updateOne(
-        {
-          _id: this.replicationStreamId
-        },
-        {
-          $set: {
-            last_keepalive_ts: new Date()
-          }
-        },
-        { session }
-      );
-
-      // Allow subclasses to persist additional flush-time state in the same transaction
-      // (e.g. v3 advances the stream-level last_persisted_op).
-      await this.onReplicationTransactionFlush(session, opSeq.last());
-      // We don't notify checkpoint here - we don't make any checkpoint updates directly
-    });
+    await this.writeStreamMetadata(set, filter, writeConcern);
   }
 
-  /**
-   * Hook called inside the replication flush transaction, after ops have been persisted.
-   *
-   * The base implementation does nothing; v3 storage overrides this to `$max` the stream-level
-   * `last_persisted_op` durably within the same transaction.
-   */
-  protected async onReplicationTransactionFlush(_session: mongo.ClientSession, _lastOp: InternalOpId): Promise<void> {
-    // No-op by default (v1 behaviour unchanged).
+  /** Caller must already be inside a fenced transaction holding the writer mutex. */
+  protected async updateStreamMetadataInTransaction(set: mongo.Document, filter: mongo.Document = {}): Promise<void> {
+    await this.writeStreamMetadata(set, filter);
   }
 
-  /**
-   * Called after a replication transaction has successfully committed, with the last persisted op id.
-   *
-   * v1 storage tracks this in memory to fold into the next checkpoint. v3 storage does not need it:
-   * the stream-level `last_persisted_op` is already advanced durably by
-   * {@link onReplicationTransactionFlush} within the same transaction, and checkpoints read it
-   * from the document.
-   *
-   * Keep calls to this adjacent to {@link withReplicationTransaction} usage - both must observe
-   * every path that persists ops.
-   */
-  protected recordPersistedOp(_lastOp: InternalOpId): void {
-    // No-op by default.
+  private async writeStreamMetadata(
+    set: mongo.Document,
+    filter: mongo.Document,
+    writeConcern?: mongo.WriteConcernSettings
+  ): Promise<void> {
+    const result = await this.db.sync_rules.updateOne(
+      { ...filter, ...MongoSyncRulesLock.ownerFilter(this.replicationStreamId, this.options.replicationLock) },
+      [{ $set: { ...set, ...MongoSyncRulesLock.heartbeatUpdate() } }],
+      { session: this.session, ...(writeConcern == null ? {} : { writeConcern }) }
+    );
+    if (result.matchedCount === 0) {
+      throw new ReplicationAbortedError('Replication writer lost its lease or metadata target changed');
+    }
   }
+
+  /** Highest durably persisted operation, including operations not yet checkpointed. */
+  protected abstract persistedOpHead(stream: SyncRuleDocumentBase): InternalOpId;
+
+  /** Advance the persisted head in the same transaction as the operations. */
+  protected abstract onReplicationTransactionFlush(writes: MongoWriteBatch, lastOp: InternalOpId): void;
 
   async [Symbol.asyncDispose]() {
     if (this.batch?.hasData() || this.write_checkpoint_batch.length > 0) {
@@ -771,7 +701,7 @@ export abstract class MongoBucketBatch
       // 2. SuppressedError is messy to deal with.
       this.logger.warn('Disposing writer with unflushed changes');
     }
-    await this.session.endSession();
+    // The lease owns the shared session and ends it after all writers stop.
     super.clearListeners();
   }
 
@@ -829,29 +759,37 @@ export abstract class MongoBucketBatch
    * Drop is equivalent to TRUNCATE, plus removing our record of the table.
    */
   async drop(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
-    await this.truncate(sourceTables);
-    const result = await this.flush();
+    return this.withWriterLock(() => this.dropInternal(sourceTables));
+  }
+
+  protected async dropInternal(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
+    await this.truncateInternal(sourceTables);
 
     await this.withTransaction(async () => {
       for (let table of sourceTables) {
-        await this.db.commonSourceTables(this.replicationStreamId).deleteOne({ _id: mongoTableId(table.id) });
+        await this.db
+          .commonSourceTables(this.replicationStreamId)
+          .deleteOne({ _id: mongoTableId(table.id) }, { session: this.session });
       }
     });
 
     await this.cleanupDroppedSourceTables(sourceTables);
-    return result;
+    return null;
   }
 
   async truncate(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
-    await this.flush();
+    return this.withWriterLock(() => this.truncateInternal(sourceTables));
+  }
+
+  protected async truncateInternal(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
+    await this.flushInternal();
 
     let last_op: InternalOpId | null = null;
     for (let table of sourceTables) {
-      last_op = await this.truncateSingle(table);
+      last_op = await this.truncateSingleInternal(table);
     }
 
     if (last_op) {
-      this.recordPersistedOp(last_op);
       return {
         flushed_op: last_op
       };
@@ -861,53 +799,19 @@ export abstract class MongoBucketBatch
   }
 
   async truncateSingle(sourceTable: storage.SourceTable): Promise<InternalOpId> {
-    let last_op: InternalOpId | null = null;
-
-    // To avoid too large transactions, we limit the amount of data we delete per transaction.
-    // Since we don't use the record data here, we don't have explicit size limits per batch.
-    const BATCH_LIMIT = 2000;
-
-    let lastBatchCount = BATCH_LIMIT;
-    while (lastBatchCount == BATCH_LIMIT) {
-      await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
-        using evalSpan = this.tracer.span('evaluate');
-        const sourceTableId = mongoTableId(sourceTable.id);
-        const batch = await this.sourceRecordStore.loadTruncateBatch(session, sourceTableId, BATCH_LIMIT);
-        const persistedBatch = this.createPersistedBatch(0);
-
-        for (let value of batch) {
-          persistedBatch.saveBucketData({
-            op_seq: opSeq,
-            before_buckets: value.buckets,
-            evaluated: [],
-            table: sourceTable,
-            sourceKey: value.replicaId
-          });
-          persistedBatch.saveParameterData({
-            op_seq: opSeq,
-            existing_lookups: value.lookups,
-            evaluated: [],
-            sourceTable: sourceTable,
-            sourceKey: value.replicaId
-          });
-
-          // Since this is not from streaming replication, we can do a hard delete
-          persistedBatch.hardDeleteCurrentData(sourceTableId, value.replicaId);
-        }
-        evalSpan.end();
-
-        using _ = this.tracer.span('storage', 'persist_flush');
-        await persistedBatch.flush(session);
-        lastBatchCount = batch.length;
-
-        last_op = opSeq.last();
-      });
-    }
-
-    return last_op!;
+    return this.withWriterLock(() => this.truncateSingleInternal(sourceTable));
   }
 
+  protected abstract truncateSingleInternal(sourceTable: storage.SourceTable): Promise<InternalOpId>;
+
   async updateTableProgress(
+    table: storage.SourceTable,
+    progress: Partial<storage.TableSnapshotStatus>
+  ): Promise<storage.SourceTable> {
+    return this.withWriterLock(() => this.updateTableProgressInternal(table, progress));
+  }
+
+  private async updateTableProgressInternal(
     table: storage.SourceTable,
     progress: Partial<storage.TableSnapshotStatus>
   ): Promise<storage.SourceTable> {
@@ -936,23 +840,6 @@ export abstract class MongoBucketBatch
     });
 
     return copy;
-  }
-
-  protected async clearError(session: mongo.ClientSession): Promise<void> {
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.replicationStreamId
-      },
-      {
-        $set: {
-          last_fatal_error: null,
-          last_fatal_error_ts: null
-        }
-      },
-      {
-        session
-      }
-    );
   }
 
   /**

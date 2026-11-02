@@ -12,6 +12,15 @@ export class BucketDataObjectStorage {
     options?: ObjectStorageOperationOptions
   ): Promise<{ fileSize: number }> {
     const bsonBuffer = bson.serialize({ ops });
+    return this.storeSerialized(path, bsonBuffer, options);
+  }
+
+  /** Store an already sealed BSON { ops } payload without serializing it again. */
+  async storeSerialized(
+    path: string,
+    bsonBuffer: Uint8Array,
+    options?: ObjectStorageOperationOptions
+  ): Promise<{ fileSize: number }> {
     await this.storage.put(path, bsonBuffer, { contentType: 'application/bson', contentEncoding: null }, options);
     return { fileSize: bsonBuffer.byteLength };
   }
@@ -54,9 +63,16 @@ export async function hydrateBucketDataDocuments(
     return;
   }
   using _ = options?.tracer?.span('s3', 'read');
-  await Promise.all(
+  const results = await Promise.allSettled(
     storedDocuments.map(async (document) => {
       document.ops = await store.retrieve(document.storage_ref!.path, { signal: options.signal });
     })
   );
+  // Drain every download before propagating failure so callers can release their
+  // worker slot and payloads without a sibling download hydrating a document later.
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      throw result.reason;
+    }
+  }
 }

@@ -1,20 +1,33 @@
 import * as t from 'ts-codec';
 import { enumLiteral, orNull } from './codecs.js';
 
+export const ServiceInfo = t.object({
+  version: t.string
+});
+export type ServiceInfo = t.Encoded<typeof ServiceInfo>;
+
 export const SourceSpan = t.object({
   start_offset: t.number,
   end_offset: t.number
 });
 export type SourceSpan = t.Encoded<typeof SourceSpan>;
 
-export const ReplicationError = t.object({
-  /** Warning: Could indicate an issue. Fatal: Prevents replicating. */
+export const ValidationDiagnostic = t.object({
+  /**
+   * Warnings are advisory; fatal diagnostics prevent the requested operation.
+   */
   level: enumLiteral('warning', 'fatal'),
   message: t.string,
   location: SourceSpan.optional(),
   ts: t.string.optional()
 });
-export type ReplicationError = t.Encoded<typeof ReplicationError>;
+export type ValidationDiagnostic = t.Encoded<typeof ValidationDiagnostic>;
+
+/**
+ * Replication status uses the shared diagnostic shape.
+ */
+export const ReplicationError = ValidationDiagnostic;
+export type ReplicationError = ValidationDiagnostic;
 
 export const TableInfo = t.object({
   schema: t.string,

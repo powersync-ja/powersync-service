@@ -1,8 +1,8 @@
 import crypto from 'crypto';
 
 import { mongo } from '@powersync/lib-service-mongodb';
-import { ErrorCode, Logger, ServiceError } from '@powersync/lib-services-framework';
-import { storage } from '@powersync/service-core';
+import { ErrorCode, Logger, ReplicationAbortedError, ServiceError } from '@powersync/lib-services-framework';
+import { storage, utils } from '@powersync/service-core';
 import { VersionedPowerSyncMongo } from './db.js';
 
 const LOCK_DURATION_MS = 60 * 1000;
@@ -12,6 +12,19 @@ const LOCK_DURATION_MS = 60 * 1000;
  * processes that replication stream at a time.
  */
 export class MongoSyncRulesLock implements storage.ReplicationLock {
+  /** Public writer operations hold this mutex through preparation, publication and cleanup. */
+  readonly writerMutex = new utils.Mutex();
+  /**
+   * All writers use this causal session sequentially under writerMutex. Reusing
+   * it carries earlier writes into later majority reads without copying clocks.
+   * Only lease teardown ends it; disposing one writer must not affect the rest.
+   * Lease acquisition and renewal use independent operations and never wait here.
+   */
+  readonly session: mongo.ClientSession;
+
+  private readonly abort = new AbortController();
+  readonly signal = this.abort.signal;
+
   private readonly refreshInterval: NodeJS.Timeout;
 
   /**
@@ -65,36 +78,98 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
   }
 
   constructor(
-    private db: VersionedPowerSyncMongo,
+    public readonly db: VersionedPowerSyncMongo,
     public sync_rules_id: number,
-    private lock_id: string,
+    public readonly lock_id: string,
     private logger: Logger
   ) {
+    this.session = db.client.startSession({ causalConsistency: true });
     this.refreshInterval = setInterval(async () => {
       try {
         await this.refresh();
       } catch (e) {
+        this.invalidate(e);
         this.logger.error('Failed to refresh lock', e);
-        clearInterval(this.refreshInterval);
       }
     }, 30_130);
   }
 
   async release(): Promise<void> {
-    clearInterval(this.refreshInterval);
-    const result = await this.db.sync_rules.updateOne(
-      {
-        _id: this.sync_rules_id,
-        'lock.id': this.lock_id
-      },
-      {
-        $unset: { lock: 1 }
+    this.invalidate(new Error('Replication lock released'));
+    try {
+      const result = await this.db.sync_rules.updateOne(
+        {
+          _id: this.sync_rules_id,
+          'lock.id': this.lock_id
+        },
+        {
+          $unset: { lock: 1 }
+        }
+      );
+      if (result.modifiedCount == 0) {
+        // Log and ignore
+        this.logger.warn(`Lock already released: ${this.sync_rules_id}/${this.lock_id}`);
       }
-    );
-    if (result.modifiedCount == 0) {
-      // Log and ignore
-      this.logger.warn(`Lock already released: ${this.sync_rules_id}/${this.lock_id}`);
+    } finally {
+      // Let an active operation finish/abort before ending its session. Queued
+      // writers check the aborted lease after acquiring the mutex and do no I/O.
+      await this.writerMutex.exclusiveLock(() => this.session.endSession());
     }
+  }
+
+  throwIfAborted(): void {
+    this.signal.throwIfAborted();
+  }
+
+  /**
+   * Stop all local writers, including queued operations, when continuing this
+   * replication attempt would be unsafe. The job still releases the database
+   * lease during teardown; otherwise it expires after renewal stops.
+   */
+  invalidate(reason: unknown): void {
+    this.abort.abort(reason);
+    clearInterval(this.refreshInterval);
+  }
+
+  static ownerFilter(streamId: number, lock: MongoSyncRulesLock) {
+    lock.throwIfAborted();
+    return { _id: streamId, 'lock.id': lock.lock_id };
+  }
+
+  static heartbeatUpdate() {
+    // Always change the existing heartbeat, even for writes in the same
+    // millisecond. A no-op update is not sufficient for a transactional fence.
+    return {
+      last_keepalive_ts: {
+        $max: ['$$NOW', { $add: [{ $ifNull: ['$last_keepalive_ts', new Date(0)] }, 1] }]
+      }
+    };
+  }
+
+  static assertOwned<T>(document: T | null): T {
+    if (document == null) {
+      throw new ReplicationAbortedError('Replication writer no longer owns the stream');
+    }
+    return document;
+  }
+
+  /**
+   * A write, not just an ownership read: takeover conflicts with every transaction
+   * that publishes under this owner. Every writer must hold a stream lease.
+   */
+  static async fence(
+    db: VersionedPowerSyncMongo,
+    streamId: number,
+    lock: MongoSyncRulesLock,
+    session: mongo.ClientSession,
+    projection: mongo.Document = { last_persisted_op: 1, last_checkpoint: 1, keepalive_op: 1 }
+  ) {
+    const doc = await db.sync_rules.findOneAndUpdate(
+      this.ownerFilter(streamId, lock),
+      [{ $set: this.heartbeatUpdate() }],
+      { session, returnDocument: 'after', projection }
+    );
+    return this.assertOwned(doc);
   }
 
   private async refresh(): Promise<void> {

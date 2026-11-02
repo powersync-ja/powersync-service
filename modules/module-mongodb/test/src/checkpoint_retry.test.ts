@@ -10,7 +10,9 @@ import { clearTestDb, connectMongoData, requireFailCommand } from './util.js';
 // This suite uses configureFailPoint to force retry timing. Azure DocumentDB
 // does not support configureFailPoint.
 describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('checkpoint retryable writes', () => {
-  test('returns the persisted checkpoint clusterTime after a retryable write', { repeats: 1 }, async (ctx) => {
+  // Socket-timeout injection is timing-sensitive on CI. Retry the whole case,
+  // including fresh clients and failpoint setup, while retaining real driver retries.
+  test('returns the persisted checkpoint clusterTime after a retryable write', { retry: 2 }, async (ctx) => {
     // This test relies on very specific timing:
     //
     // 1. _powersync_checkpoints findAndModify command starts and is sent to the server

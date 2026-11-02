@@ -27,7 +27,7 @@ export class TimeValuePrecision {
  * A historical issue of the PowerSync service that can only be changed in a backwards-incompatible manner.
  *
  * To avoid breaking existing users, fixes to those quirks are opt-in: Users either have to use `fixed_quirks` list when
- * defining sync rules or use a new feature such as sync streams where these issues are fixed by default.
+ * defining legacy Sync Rules or use a new feature such as Sync Streams where these issues are fixed by default.
  */
 export class CompatibilityOption {
   private constructor(
@@ -44,7 +44,7 @@ export class CompatibilityOption {
 
   static versionedBucketIds = new CompatibilityOption(
     'versioned_bucket_ids',
-    'Encode the version of sync rules in generated bucket ids, which avoids clients downloading data twice and improves client-side progress estimates.',
+    'Encode the version of the sync config in generated bucket ids, which avoids clients downloading data twice and improves client-side progress estimates.',
     CompatibilityEdition.SYNC_STREAMS
   );
 
@@ -66,12 +66,19 @@ export class CompatibilityOption {
     null
   );
 
+  static fixedBooleanInJson = new CompatibilityOption(
+    'fixed_booleans_in_json',
+    'Consistently sync boolean values of a JSON object or array in source data as booleans (instead of integers 0/1).',
+    null
+  );
+
   static byName: Record<string, CompatibilityOption> = Object.freeze({
     timestamps_iso8601: this.timestampsIso8601,
     versioned_bucket_ids: this.versionedBucketIds,
     fixed_json_extract: this.fixedJsonExtract,
     custom_postgres_types: this.customTypes,
-    unstable_sqlite_expression_engine: this.sqliteExpressionEngine
+    unstable_sqlite_expression_engine: this.sqliteExpressionEngine,
+    fixed_booleans_in_json: this.fixedBooleanInJson
   });
 }
 
@@ -85,8 +92,8 @@ export class CompatibilityContext {
   /**
    * The general compatibility level we're operating under.
    *
-   * This is {@link CompatibilityEdition.LEGACY} by default, but can be changed when defining sync rules to allow newer
-   * features.
+   * This is {@link CompatibilityEdition.LEGACY} by default, but can be changed when defining a sync config to allow
+   * newer features.
    */
   readonly edition: CompatibilityEdition;
 

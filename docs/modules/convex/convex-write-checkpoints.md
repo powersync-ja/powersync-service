@@ -167,7 +167,7 @@ same way. Convex `document_deltas` is not filtered by table at the API level for
 PowerSync; table filtering happens inside the replicator after it receives the
 delta page. A write to another Convex table should still advance the Convex delta
 cursor visible to the replicator, even if PowerSync later ignores that row
-because it is not included in sync rules.
+because it is not included in the sync config.
 
 So for Convex, the checkpoint marker is less about overcoming source-side stream
 filtering and more about guaranteeing source-side progress when there are no

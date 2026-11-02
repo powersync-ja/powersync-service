@@ -1,3 +1,4 @@
+import { getTestStorage } from '@powersync/service-core-tests';
 import * as bson from 'bson';
 import { afterEach, beforeAll, describe, expect, test } from 'vitest';
 import { WalStream, WalStreamOptions } from '../../src/replication/WalStream.js';
@@ -18,7 +19,6 @@ import { PgManager } from '@module/replication/PgManager.js';
 import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
   createCoreReplicationMetrics,
-  CURRENT_STORAGE_VERSION,
   initializeCoreReplicationMetrics,
   reduceBucket,
   updateSyncRulesFromYaml
@@ -34,7 +34,7 @@ describe.skipIf(!(env.CI || env.SLOW_TESTS))('slow tests', function () {
     {
       timeout: 120_000,
       // These tests are slow, so only test the current storage version
-      storageVersions: [CURRENT_STORAGE_VERSION]
+      storageVersions: 'current'
     },
     function ({ factory, storageVersion }) {
       defineSlowTests({ factory, storageVersion });
@@ -96,7 +96,7 @@ bucket_definitions:
       - SELECT * FROM "test_data"
     `;
     const syncRules = await f.updateSyncRules(updateSyncRulesFromYaml(syncRuleContent, { storageVersion }));
-    const storage = f.getInstance(syncRules);
+    const storage = await getTestStorage(f, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
     const helpers = new StorageDataHelpers(storage, syncRulesContent);
     abortController = new AbortController();
@@ -297,7 +297,7 @@ bucket_definitions:
 `;
 
     const syncRules = await f.updateSyncRules(updateSyncRulesFromYaml(syncRuleContent, { storageVersion }));
-    const storage = f.getInstance(syncRules);
+    const storage = await getTestStorage(f, syncRules);
 
     // 1. Setup some base data that will be replicated in initial replication
     await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);

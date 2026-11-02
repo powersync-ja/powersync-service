@@ -6,7 +6,7 @@ import {
   HydratedSyncConfig,
   HydrateSyncConfigParams,
   nodeSqlite,
-  SqlSyncRules,
+  parseSyncConfig,
   SyncConfig
 } from '../../../../src/index.js';
 
@@ -27,7 +27,7 @@ export const syncTest = test.extend<{ sync: SyncTest }>({
   sync: async ({}, use) => {
     await use({
       prepareWithoutHydration: (inputs, options) => {
-        const { config, errors } = SqlSyncRules.fromYaml(inputs, { defaultSchema: 'test_schema', throwOnError: false });
+        const { config, errors } = parseSyncConfig(inputs, { defaultSchema: 'test_schema', throwOnError: false });
         if (!options?.allowWarnings) {
           expect(errors).toStrictEqual([]);
         }

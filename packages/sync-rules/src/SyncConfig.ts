@@ -8,6 +8,7 @@ import { CompatibilityContext } from './compatibility.js';
 import { YamlError } from './errors.js';
 import { EventDefinition } from './events/EventDescriptor.js';
 import { HydratedSyncConfig } from './HydratedSyncConfig.js';
+import type { SourceTableConfigMap } from './SourceTableConfig.js';
 import { SourceTableRef } from './SourceTableRef.js';
 import { TablePattern } from './TablePattern.js';
 import { SqliteInputValue, SqliteRow, SqliteValue } from './types.js';
@@ -21,7 +22,9 @@ export abstract class SyncConfig {
   bucketDataSources: BucketDataSource[] = [];
   bucketParameterLookupSources: ParameterIndexLookupCreator[] = [];
   bucketSources: BucketSource[] = [];
-  /** Prepared event definitions. Executable event descriptors only exist on {@link HydratedSyncConfig}. */
+  /**
+   * Prepared event definitions. Executable event descriptors only exist on {@link HydratedSyncConfig}.
+   */
   eventDefinitions: EventDefinition[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
   /**
@@ -38,6 +41,13 @@ export abstract class SyncConfig {
 
   constructor(content: string) {
     this.content = content;
+  }
+
+  /**
+   * Source-table options (`config.source_table_options`). Only Sync Streams (edition 3) supports them.
+   */
+  get sourceTableConfig(): SourceTableConfigMap {
+    return {};
   }
 
   /**
@@ -121,6 +131,12 @@ export abstract class SyncConfig {
     return this.bucketSources.map((rules) => rules.debugRepresentation());
   }
 }
+
+/**
+ * The {@link SyncConfig} returned when the YAML can't be parsed. It doesn't define any buckets, streams or events.
+ */
+export class InvalidSyncConfig extends SyncConfig {}
+
 export interface SyncConfigWithErrors {
   config: SyncConfig;
   errors: YamlError[];

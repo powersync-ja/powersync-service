@@ -27,6 +27,7 @@ import {
   SyncConfig,
   TablePattern
 } from './index.js';
+import { SourceTableConfigMap } from './SourceTableConfig.js';
 import { SourceTableRef, sourceTableRefKey } from './SourceTableRef.js';
 import { createScalarExpressionEngine } from './sync_plan/engine/factory.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
@@ -47,6 +48,7 @@ export interface MatchingSources {
  * The persisted state specifically affects bucket names, as well as V3+ storage structure.
  */
 export class HydratedSyncConfig {
+  readonly sourceTableConfig: SourceTableConfigMap;
   /**
    * These are used by queriers, and do not support merging across multiple SyncConfigs.
    */
@@ -101,9 +103,12 @@ export class HydratedSyncConfig {
     const hydrationState = params.createParams.hydrationState;
     const definitions = params.definitions;
     if (definitions.length == 0) {
-      throw new Error('HydratedSyncRules requires at least one SyncConfig definition');
+      throw new Error('HydratedSyncConfig requires at least one SyncConfig definition');
     }
 
+    // The service validates that definitions sharing a source reader have compatible source-table options.
+    const firstConfig = definitions[0];
+    this.sourceTableConfig = firstConfig.sourceTableConfig;
     this.sourceDefinitions = [...definitions];
     this.compatibility = assertSharedCompatibility(this.sourceDefinitions);
     this.hydrationInput = {
@@ -168,6 +173,13 @@ export class HydratedSyncConfig {
 
   tableSyncsParameters(table: SourceTableRef): boolean {
     return this.sourceDefinitions.some((definition) => definition.tableSyncsParameters(table));
+  }
+
+  /**
+   * Whether the table participates in data queries, parameter lookups, or replication events.
+   */
+  tableSyncsAny(table: SourceTableRef): boolean {
+    return this.tableSyncsData(table) || this.tableSyncsParameters(table) || this.tableTriggersEvent(table);
   }
 
   getMatchingSources(source: SourceTableRef): MatchingSources {
@@ -288,7 +300,7 @@ export class HydratedSyncConfig {
   private assertSingleSourceDefinition(debugName: string) {
     // We may split the types in the future to enforce this on a type level instead of runtime level
     if (this.sourceDefinitions.length != 1) {
-      throw new Error(`${debugName} is not supported for HydratedSyncRules with multiple SyncConfigs`);
+      throw new Error(`${debugName} is not supported for HydratedSyncConfig with multiple SyncConfigs`);
     }
   }
 }
@@ -301,7 +313,7 @@ function assertSharedCompatibility(definitions: SyncConfig[]): CompatibilityCont
 
   for (const definition of definitions) {
     if (!definition.compatibility.equals(compatibility)) {
-      throw new Error('All SyncConfigs in a HydratedSyncRules instance must use the same CompatibilityContext');
+      throw new Error('All SyncConfigs in a HydratedSyncConfig instance must use the same CompatibilityContext');
     }
   }
 

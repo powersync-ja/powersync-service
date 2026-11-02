@@ -201,7 +201,7 @@ _sentinel_checkpoint.stream_id
   checkpoint heads, snapshot markers)
 ```
 
-`i` is intentionally shared and global. Write checkpoints and client-visible storage checkpoints must compare in one coordinate system that survives new `ChangeStream` instances and new sync rules; a per-stream counter would reset or become incomparable when a new stream starts.
+`i` is intentionally shared and global. Write checkpoints and client-visible storage checkpoints must compare in one coordinate system that survives new `ChangeStream` instances and new sync config deployments; a per-stream counter would reset or become incomparable when a new stream starts.
 
 `stream_id` makes a single counter double as a private barrier. A stream stamps its own id on its batch barriers so it can recognise them and ignore barriers written by other streams or processes, without one stream treating another's batching marker as its own commit boundary. Standalone bumps clear it to null, and every stream observes those as the global coordinate.
 
@@ -316,7 +316,7 @@ stream A: i = 25
 stream B: i = 1
 ```
 
-then using that stream-local value as the LSN coordinate would let a new stream or new sync rules deployment appear to move replication backwards from `25` to `1`, or at least into a different coordinate system — unsafe for clients, storage checkpoints, snapshot gates, and write checkpoint comparisons.
+then using that stream-local value as the LSN coordinate would let a new stream or new sync config deployment appear to move replication backwards from `25` to `1`, or at least into a different coordinate system — unsafe for clients, storage checkpoints, snapshot gates, and write checkpoint comparisons.
 
 The single shared `_sentinel_checkpoint.i` avoids that reset:
 
@@ -424,7 +424,7 @@ Committed DocumentDB replication checkpoints use a `SentinelLSN` shape:
 
 The sentinel counter is the comparable coordinate. The resume token is retained for `resumeAfter`, but should still be treated as opaque. A write checkpoint head can use only the counter portion because write checkpoints are never used to resume replication; they only need to compare against the current replicated position.
 
-The head is a standalone (null `stream_id`) bump rather than one of the current stream's own barriers because write checkpoints and client-visible storage checkpoints must compare in a stable coordinate system that survives new streams and new sync rules, and every stream observes standalone bumps as the global coordinate. A per-stream barrier would only be tracked by its own stream.
+The head is a standalone (null `stream_id`) bump rather than one of the current stream's own barriers because write checkpoints and client-visible storage checkpoints must compare in a stable coordinate system that survives new streams and new sync config deployments, and every stream observes standalone bumps as the global coordinate. A per-stream barrier would only be tracked by its own stream.
 
 The sentinel write response does not include `operationTime`; an observed `_powersync_checkpoints` write response was:
 

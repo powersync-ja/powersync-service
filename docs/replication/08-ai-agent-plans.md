@@ -71,7 +71,7 @@ Steps:
 11. Define how checkpoint requests will work on an idle database.
 12. Decide whether a checkpoint marker is required, such as a `_powersync_checkpoints` collection, support table, logical replication message, heartbeat, or source API barrier.
 13. Define whether schema changes are detected during streaming or require a new sync config deploy.
-14. Define the integration test fixture and test context strategy for this source, including how tests will start the source, create schema/data, reset state, configure storage, deploy sync rules, run the stream, wait for checkpoints, and skip when the fixture is unavailable.
+14. Define the integration test fixture and test context strategy for this source, including how tests will start the source, create schema/data, reset state, configure storage, deploy a sync config, run the stream, wait for checkpoints, and skip when the fixture is unavailable.
 15. Define which real bucket storage factory implementations the integration tests will import, such as MongoDB storage and Postgres storage, and whether any source-specific storage backend is required.
 16. List source limitations, such as missing transaction boundaries, partial update images, bounded retention, unsupported schema changes, or unavailable replica identity metadata.
 
@@ -108,7 +108,7 @@ Steps:
 8. Add module registration and package metadata following the existing module patterns.
 9. Add config codec and normalization unit tests.
 10. Add an `ExampleDBStreamTestContext` or equivalent helper based on the closest existing module's test context.
-11. Make the test context responsible for opening the bucket storage factory, creating the source connection manager/client, clearing source state unless `doNotClear` is requested, configuring sync rules, exposing the stream helper, starting and aborting replication, waiting for initial snapshot or checkpoint progress when supported, and disposing all resources.
+11. Make the test context responsible for opening the bucket storage factory, creating the source connection manager/client, clearing source state unless `doNotClear` is requested, configuring the sync config, exposing the stream helper, starting and aborting replication, waiting for initial snapshot or checkpoint progress when supported, and disposing all resources.
 12. Import real test storage factories from the storage modules the source should support, for example `mongo_storage.test_utils.mongoTestStorageFactoryGenerator()` from `@powersync/service-module-mongodb-storage` and `postgres_storage.test_utils.postgresTestSetup()` from `@powersync/service-module-postgres-storage`.
 13. Add storage-version and storage-backend coverage helpers when the module should run against multiple bucket storage implementations, following existing `describeWithStorage` patterns and environment flags such as `TEST_MONGO_STORAGE` and `TEST_POSTGRES_STORAGE`.
 14. Add an integration test that uses the source fixture and test context to verify connection testing succeeds for a valid config and fails cleanly for an invalid or unreachable config.
@@ -120,7 +120,7 @@ Acceptance checks:
 - Invalid configs fail at the codec or normalization boundary.
 - The source fixture can be reached by the module's connection test in CI or in an explicitly documented optional test mode.
 - The test context can open and dispose a source connection plus bucket storage without leaking background replication work.
-- Later phase tests can use the test context to deploy sync rules, access the source client, start or abort the stream, and wait for client-visible storage output.
+- Later phase tests can use the test context to deploy a sync config, access the source client, start or abort the stream, and wait for client-visible storage output.
 - Integration tests use imported real storage factories for storage-facing behavior. Spies may observe calls, but mocks are limited to focused unit tests or impractical real dependencies.
 - The module can be registered without starting a working stream.
 - Cleanup is safe to call when no source-side state exists.

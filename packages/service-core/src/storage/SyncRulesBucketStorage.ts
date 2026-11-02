@@ -11,7 +11,7 @@ import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
 import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
-import { ParseSyncConfigOptions } from './PersistedSyncConfigContent.js';
+import type { ParseSyncConfigOptions } from './PersistedSyncConfigContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
 import { SourceTableCandidateReconciler } from './SourceTableReconciler.js';
@@ -274,9 +274,25 @@ export interface CreateWriterOptions extends ParseSyncConfigOptions {
   skipExistingRows?: boolean;
 
   /**
-   * Callback called if we streamed an update to a record that we don't have yet.
+   * Callback called when an update cannot reconstruct a complete current row,
+   * including replay of an update whose incomplete row was already persisted.
    *
    * This is expected to happen in some initial replication edge cases, only if storeCurrentData = true.
+   *
+   * The callback must synchronously enqueue repair keys, without mutating the
+   * record, throwing, returning a promise, or re-entering storage. It can run
+   * during flush rather than save, including after the data transaction commits.
+   * It is not an indication that a source checkpoint has advanced. Notifications
+   * can repeat on source replay; consumers must tolerate repeated repair keys.
+   *
+   * Consumers must explicitly await flush(), complete its queued repairs, and
+   * only then commit/keepalive, persist a resume position, or acknowledge the
+   * source. Do not rely on commit() auto-flushing pending rows when supplying
+   * this callback. Repair failures must stop progress and restart replication;
+   * the in-memory repair queue is not durable. Keep input records stable until
+   * their flush completes so deferred callbacks observe the original key. The
+   * update's after record must contain the full repair key; the callback receives
+   * that original update, rather than the merged current row.
    */
   markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
 
@@ -402,6 +418,8 @@ export interface CompactOptions {
 }
 
 export interface CompactInitialReplicationOptions {
+  /** Internal/testing use: bypass the new-chunk threshold in MongoDB V3/V4 storage. */
+  forceChunkCompaction?: boolean;
   /**
    * Compact data up to this op id.
    *
@@ -580,4 +598,9 @@ export const CHECKPOINT_INVALIDATE_ALL: CheckpointChanges = {
   invalidateParameterBuckets: true
 };
 
-export type BucketStorageMarkRecordUnavailable = (record: SaveUpdate) => void;
+/**
+ * Synchronously queues a repair; see CreateWriterOptions.markRecordUnavailable for ordering requirements.
+ *
+ * Requires an explicit undefined return type to avoid accidental async usage.
+ */
+export type BucketStorageMarkRecordUnavailable = (record: SaveUpdate) => undefined;

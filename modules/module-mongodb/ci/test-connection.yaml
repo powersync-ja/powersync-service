@@ -1,0 +1,12 @@
+# Used by the MongoDB connection CLI check in .github/workflows/test.yml.
+replication:
+  connections:
+    - type: mongodb
+      uri: mongodb://localhost:27017/powersync_test
+
+storage:
+  type: mongodb
+  uri: mongodb://localhost:27017/powersync_test_connection
+
+telemetry:
+  disable_telemetry_sharing: true

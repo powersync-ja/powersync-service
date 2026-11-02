@@ -11,7 +11,7 @@ import {
   SyncRulesBucketStorage,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, getTestStorage, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import timers from 'timers/promises';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 
@@ -64,7 +64,9 @@ export class CDCStreamTestContext implements AsyncDisposable {
 
   async dispose() {
     this.abortController.abort();
-    await this.snapshotPromise;
+    // Let an interrupted snapshot finish before closing its connections.
+    // Its error is handled by the caller of replicateSnapshot().
+    await this.snapshotPromise?.catch(() => {});
     await this.streamPromise;
     await this.connectionManager.end();
     await this.factory?.[Symbol.asyncDispose]();
@@ -86,7 +88,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: LEGACY_STORAGE_VERSION })
     );
     this.syncRulesContent = replicationStream.syncConfigContent[0];
-    this.storage = this.factory.getInstance(replicationStream);
+    this.storage = await getTestStorage(this.factory, replicationStream);
     return this.storage!;
   }
 
@@ -97,7 +99,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
     }
 
     this.syncRulesContent = syncConfig.content;
-    this.storage = syncConfig.storage;
+    this.storage = await getTestStorage(this.factory, syncConfig.replicationStream);
     return this.storage!;
   }
 
@@ -108,7 +110,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
     }
 
     this.syncRulesContent = syncConfig.content;
-    this.storage = syncConfig.storage;
+    this.storage = await getTestStorage(this.factory, syncConfig.replicationStream);
     return this.storage!;
   }
 
@@ -154,7 +156,8 @@ export class CDCStreamTestContext implements AsyncDisposable {
   }
 
   async replicateSnapshot() {
-    await this.cdcStream.initReplication();
+    this.snapshotPromise = this.cdcStream.initReplication();
+    await this.snapshotPromise;
     this.replicationDone = true;
   }
 

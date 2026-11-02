@@ -1,16 +1,21 @@
 import ajvModule from 'ajv';
 import { CompatibilityEdition, CompatibilityOption, TimeValuePrecision } from './compatibility.js';
-import { DEFAULT_STORAGE_VERSION, STORAGE_VERSIONS } from './StorageVersion.js';
+import type { JsonObject } from './json.js';
+import { MONGO_FILTER_JSON_SCHEMA_DEFINITIONS } from './mongo/MongoFilterExpression.js';
+import { createSourceTableConfigSchema } from './SourceTableConfig.js';
+import { STORAGE_VERSIONS } from './StorageVersion.js';
 // Hack to make this work both in NodeJS and a browser
 const Ajv = ajvModule.default ?? ajvModule;
-const ajv = new Ajv({ allErrors: true, verbose: true });
 
-export const syncRulesSchema: ajvModule.Schema = {
+export const syncConfigSchema: ajvModule.Schema = {
   type: 'object',
+  definitions: MONGO_FILTER_JSON_SCHEMA_DEFINITIONS,
   properties: {
     bucket_definitions: {
       type: 'object',
-      description: 'List of bucket definitions',
+      deprecated: true,
+      description:
+        'Deprecated: legacy Sync Rules bucket definitions. They will be removed in the next major version of the PowerSync Service. Use `streams:` (Sync Streams) instead: https://docs.powersync.com/sync/rules/migrate-to-sync-streams',
       examples: [{ global: { data: 'select * from mytable' } }],
       patternProperties: {
         '.*': {
@@ -134,8 +139,9 @@ export const syncRulesSchema: ajvModule.Schema = {
     },
     config: {
       type: 'object',
-      description: 'Config declaring the compatibility level used to parse these definitions.',
+      description: 'Compatibility, storage, and source-table settings for these definitions.',
       properties: {
+        source_table_options: createSourceTableConfigSchema(),
         edition: {
           type: 'integer',
           default: CompatibilityEdition.LEGACY,
@@ -144,8 +150,7 @@ export const syncRulesSchema: ajvModule.Schema = {
         },
         storage_version: {
           type: 'integer',
-          description: 'Storage version used by the storage database. By default, version 2 is used.',
-          default: DEFAULT_STORAGE_VERSION.version,
+          description: 'Storage version used by the storage database.',
           enum: [...STORAGE_VERSIONS.keys()]
         },
         timestamp_max_precision: {
@@ -171,4 +176,24 @@ export const syncRulesSchema: ajvModule.Schema = {
   additionalProperties: false
 } as const;
 
-export const validateSyncRulesSchema: any = ajv.compile(syncRulesSchema);
+export const validateSyncConfigSchema: any = compileSyncConfigSchemaValidator(syncConfigSchema);
+
+export type SyncConfigSchemaValidator = ajvModule.ValidateFunction;
+
+/**
+ * An isolated composition shared by editor tooling, YAML validation and persisted source-table options.
+ */
+export function createSyncConfigSchema(): JsonObject {
+  const schema = structuredClone(syncConfigSchema) as JsonObject;
+  return schema;
+}
+
+/**
+ * Permit editor annotations without weakening AJV's checks for unknown validation keywords.
+ */
+export function compileSyncConfigSchemaValidator(schema: ajvModule.Schema): SyncConfigSchemaValidator {
+  return new Ajv({
+    allErrors: true,
+    keywords: [{ keyword: 'defaultSnippets', schemaType: 'array' }]
+  }).compile(schema);
+}

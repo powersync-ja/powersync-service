@@ -7,11 +7,13 @@ import {
   JsLegacySchemaGenerator,
   KotlinSchemaGenerator,
   RoomSchemaGenerator,
-  SqlSyncRules,
+  RustSchemaGenerator,
   StaticSchema,
   SwiftSchemaGenerator,
   TsSchemaGenerator,
+  TsSchemaLanguage,
   driftSchemaGenerator,
+  parseSyncConfig,
   sqlDelightSchemaGenerator
 } from '../../src/index.js';
 
@@ -40,7 +42,7 @@ describe('schema generation', () => {
     }
   ]);
 
-  const { config: rules } = SqlSyncRules.fromYaml(
+  const { config: rules } = parseSyncConfig(
     `
 config:
   edition: 3
@@ -60,7 +62,7 @@ streams:
     const streams = `
 extension type TypedSyncStreams(PowerSyncDatabase _db) {
   SyncStream assetsOne() => _db.syncStream('assets_one', {});
-  SyncStream assets2({required String name}) => _db.syncStream('assets_2', {'name': name,});
+  SyncStream assets2({required String name}) => _db.syncStream('assets_2', {'name': name});
 }`;
 
     expect(new DartSchemaGenerator().generate(rules, schema)).toEqual(`Schema([
@@ -96,6 +98,24 @@ ${streams}
 `);
   });
 
+  test('Dart with multiple Sync Stream parameters', () => {
+    const { config } = parseSyncConfig(
+      `
+config:
+  edition: 3
+
+streams:
+  filtered:
+    query: SELECT * FROM assets WHERE name = subscription.parameter('name') AND owner_id = subscription.parameter('owner_id')
+`,
+      PARSE_OPTIONS
+    );
+
+    expect(new DartSchemaGenerator().generate(config, schema)).toContain(
+      `  SyncStream filtered({required String ownerId, required String name}) => _db.syncStream('filtered', {'owner_id': ownerId, 'name': name});\n`
+    );
+  });
+
   test('js legacy', () => {
     expect(new JsLegacySchemaGenerator().generate(rules, schema)).toEqual(`new Schema([
   new Table({
@@ -119,10 +139,31 @@ ${streams}
 `);
   });
 
+  test('js without sync streams omits SyncStream imports', () => {
+    const { config: rulesWithoutStreams } = parseSyncConfig(
+      `
+config:
+  edition: 3
+
+streams: {}
+`,
+      PARSE_OPTIONS
+    );
+
+    const generated = new TsSchemaGenerator({ language: TsSchemaLanguage.js }).generate(
+      rulesWithoutStreams,
+      schema,
+      {}
+    );
+    expect(generated.startsWith(`import { column, Schema, Table } from '@powersync/web';`)).toBe(true);
+    expect(generated).not.toContain('SyncStream');
+    expect(generated).not.toContain('PowerSyncDatabase');
+  });
+
   test('ts', () => {
     expect(new TsSchemaGenerator().generate(rules, schema, {})).toEqual(
-      `import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/web';
-// OR: import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/react-native';
+      `import { column, Schema, Table, type PowerSyncDatabase, type SyncStream } from '@powersync/web';
+// OR: import { column, Schema, Table, type PowerSyncDatabase, type SyncStream } from '@powersync/react-native';
 
 const assets1 = new Table(
   {
@@ -166,8 +207,8 @@ export function typedStreams(db: PowerSyncDatabase) {
     );
 
     expect(new TsSchemaGenerator().generate(rules, schema, { includeTypeComments: true })).toEqual(
-      `import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/web';
-// OR: import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/react-native';
+      `import { column, Schema, Table, type PowerSyncDatabase, type SyncStream } from '@powersync/web';
+// OR: import { column, Schema, Table, type PowerSyncDatabase, type SyncStream } from '@powersync/react-native';
 
 const assets1 = new Table(
   {
@@ -380,6 +421,101 @@ struct TypedSyncStreams {
         return db.syncStream(name: "assets_2", params: [
             "name": JsonValue.string(name)
         ])
+    }
+}
+`);
+  });
+
+  test('rust', () => {
+    expect(new RustSchemaGenerator().generate(rules, schema)).toEqual(`use powersync::schema::{Column, Schema, Table};
+use powersync::{PowerSyncDatabase, SyncStream};
+use serde_json::json;
+
+pub fn app_schema() -> Schema {
+    let mut schema = Schema::default();
+
+    schema.tables.push(Table::create(
+        "assets1",
+        vec![
+            Column::text("name"),
+            Column::integer("count"),
+            Column::text("owner_id"),
+        ],
+        |_| {},
+    ));
+
+    schema.tables.push(Table::create(
+        "assets2",
+        vec![
+            Column::text("name"),
+            Column::integer("count"),
+            Column::text("other_id"),
+            Column::text("foo"),
+        ],
+        |_| {},
+    ));
+
+    schema
+}
+
+pub struct TypedSyncStreams<'a>(pub &'a PowerSyncDatabase);
+
+impl<'a> TypedSyncStreams<'a> {
+    pub fn assets_one(&self) -> SyncStream<'a> {
+        self.0.sync_stream("assets_one", None)
+    }
+
+    pub fn assets2(&self, name: &str) -> SyncStream<'a> {
+        let encoded_params = json!({"name": name});
+
+        self.0.sync_stream("assets_2", Some(&encoded_params))
+    }
+}
+`);
+
+    expect(new RustSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
+      .toEqual(`use powersync::schema::{Column, Schema, Table};
+use powersync::{PowerSyncDatabase, SyncStream};
+use serde_json::json;
+
+pub fn app_schema() -> Schema {
+    let mut schema = Schema::default();
+
+    schema.tables.push(Table::create(
+        "assets1",
+        vec![
+            Column::text("name"), // text
+            Column::integer("count"), // int4
+            Column::text("owner_id"), // uuid
+        ],
+        |_| {},
+    ));
+
+    schema.tables.push(Table::create(
+        "assets2",
+        vec![
+            Column::text("name"), // text
+            Column::integer("count"), // int4
+            Column::text("other_id"), // uuid
+            Column::text("foo"),
+        ],
+        |_| {},
+    ));
+
+    schema
+}
+
+pub struct TypedSyncStreams<'a>(pub &'a PowerSyncDatabase);
+
+impl<'a> TypedSyncStreams<'a> {
+    pub fn assets_one(&self) -> SyncStream<'a> {
+        self.0.sync_stream("assets_one", None)
+    }
+
+    pub fn assets2(&self, name: &str) -> SyncStream<'a> {
+        let encoded_params = json!({"name": name});
+
+        self.0.sync_stream("assets_2", Some(&encoded_params))
     }
 }
 `);

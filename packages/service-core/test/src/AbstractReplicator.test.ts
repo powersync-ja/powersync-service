@@ -1,6 +1,9 @@
+import type { RouteAPI } from '@/api/RouteAPI.js';
+import { assertSourceCapabilities } from '@/api/source-capabilities.js';
 import { AbstractReplicationJob } from '@/replication/AbstractReplicationJob.js';
 import { AbstractReplicator, AbstractReplicatorOptions, CreateJobOptions } from '@/replication/AbstractReplicator.js';
 import { PersistedReplicationStream } from '@/storage/PersistedReplicationStream.js';
+import type { ReplicationLock } from '@/storage/ReplicationLock.js';
 import { SyncRulesBucketStorage } from '@/storage/SyncRulesBucketStorage.js';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -45,6 +48,21 @@ class TestReplicator extends AbstractReplicator {
     return (this as any).heartbeatIntervalNanos;
   }
 
+  async runStartupForTest(): Promise<void> {
+    const controller = new AbortController();
+    controller.abort();
+    (this as any).abortController = controller;
+    await (this as any).runLoop();
+  }
+
+  async refreshForTest(configuredLock?: ReplicationLock): Promise<{ replicationJobStarted: boolean }> {
+    (this as any).abortController = new AbortController();
+    return (this as any).refresh({
+      configuredLock,
+      loadedVersionLabel: this.syncRuleProvider.versionLabel
+    });
+  }
+
   shouldHandleStreamForTest(
     replicationStream: PersistedReplicationStream,
     loadedSyncRules: string | undefined,
@@ -53,6 +71,144 @@ class TestReplicator extends AbstractReplicator {
     return (this as any).shouldHandleReplicationStream(replicationStream, loadedSyncRules, loadedVersionLabel);
   }
 }
+
+describe('AbstractReplicator startup sync config', () => {
+  it.each([true, false])('respects exit_on_error=%s for unsupported file-loaded filters', async (exitOnError) => {
+    const yaml = /* yaml */ `
+      # sync config fixture.
+      config:
+        edition: 3
+        source_table_options:
+          orders:
+            mongodb_filter_expression: { $eq: ['$$doc.active', true] }
+      streams:
+        orders:
+          query: SELECT * FROM orders
+    `;
+    const configureSyncRules = vi.fn(
+      async (_options: import('@/storage/BucketStorageFactory.js').UpdateSyncRulesOptions) => ({ updated: false })
+    );
+    const replicator = new TestReplicator(async () => {}, {
+      id: 'test',
+      storageEngine: {
+        activeBucketStorage: { configureSyncRules }
+      } as unknown as AbstractReplicatorOptions['storageEngine'],
+      configuration: { connections: [{ type: 'postgresql' }] },
+      syncRuleProvider: { get: async () => yaml, exitOnError, versionLabel: undefined },
+      metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
+      rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
+    });
+    if (exitOnError) {
+      await expect(replicator.runStartupForTest()).rejects.toThrow('only supported by MongoDB sources');
+      expect(configureSyncRules).not.toHaveBeenCalled();
+    } else {
+      await expect(replicator.runStartupForTest()).resolves.toBeUndefined();
+      expect(configureSyncRules).toHaveBeenCalledOnce();
+      expect(configureSyncRules.mock.calls[0][0].config.plan?.errors).toEqual([
+        expect.objectContaining({
+          level: 'fatal',
+          message: expect.stringContaining('only supported by MongoDB sources')
+        })
+      ]);
+    }
+  });
+
+  it.each(
+    [true, false].flatMap((exitOnError) =>
+      (['warning', 'valid', 'unexpected error'] as const).map((result) => ({ exitOnError, result }))
+    )
+  )(
+    'checks source capabilities before persistence: $result, exit_on_error=$exitOnError',
+    async ({ result, exitOnError }) => {
+      const yaml = /* yaml */ `
+        # sync config fixture.
+        config:
+          edition: 3
+        streams:
+          orders:
+            query: SELECT * FROM orders
+      `;
+      const calls: string[] = [];
+      const configureSyncRules = vi.fn(async () => {
+        calls.push('persist');
+        return { updated: false };
+      });
+      const replicator = new TestReplicator(async () => {}, {
+        id: 'test',
+        storageEngine: {
+          activeBucketStorage: { configureSyncRules }
+        } as unknown as AbstractReplicatorOptions['storageEngine'],
+        syncRuleProvider: { get: async () => yaml, exitOnError, versionLabel: undefined },
+        metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
+        rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
+      });
+      replicator.registerSourceCapabilitiesAssertion((config) =>
+        assertSourceCapabilities(
+          {
+            async validateSourceCapabilities() {
+              calls.push('validate');
+              if (result === 'unexpected error') throw new Error('Source validation failed');
+              return result === 'warning' ? [{ level: 'warning', message: 'Missing index' }] : [];
+            }
+          } as unknown as RouteAPI,
+          config
+        )
+      );
+
+      if (result === 'unexpected error' && exitOnError) {
+        await expect(replicator.runStartupForTest()).rejects.toThrow('Source validation failed');
+        expect(calls).toEqual(['validate']);
+      } else {
+        await replicator.runStartupForTest();
+        expect(calls).toEqual(['validate', 'persist']);
+      }
+    }
+  );
+
+  it.each([true, false])('retains source-table options with exit_on_error=%s', async (exitOnError) => {
+    const yaml = /* yaml */ `
+      {
+        config: { edition: 3, source_table_options: { orders: { mongodb_filter_expression: 'disabled' } } },
+        streams: { orders: { query: SELECT * FROM orders } }
+      }
+    `;
+    const configureSyncRules = vi.fn(async () => ({ updated: false }));
+    const replicator = new TestReplicator(async () => {}, {
+      id: 'test',
+      storageEngine: {
+        activeBucketStorage: { configureSyncRules }
+      } as unknown as AbstractReplicatorOptions['storageEngine'],
+      syncRuleProvider: { get: async () => yaml, exitOnError, versionLabel: 'v2' },
+      metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
+      rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
+    });
+
+    await replicator.runStartupForTest();
+
+    expect(configureSyncRules).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        lock: true,
+        version_label: 'v2',
+        config: expect.objectContaining({
+          parsed: expect.objectContaining({
+            errors: [],
+            config: expect.objectContaining({
+              plan: expect.objectContaining({
+                sourceTableConfig: { orders: { mongodb_filter_expression: 'disabled' } }
+              })
+            })
+          }),
+          plan: expect.objectContaining({
+            plan: expect.objectContaining({
+              version: 3,
+              sourceTableConfig: { orders: { mongodb_filter_expression: 'disabled' } }
+            })
+          })
+        })
+      })
+    );
+  });
+});
 
 describe('AbstractReplicator heartbeat interval', () => {
   const options: AbstractReplicatorOptions = {

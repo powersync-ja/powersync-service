@@ -1,20 +1,50 @@
 import { acquireSemaphoreAbortable, isAbortError } from '@/index.js';
 import { Semaphore, SemaphoreInterface } from 'async-mutex';
-import { AbortError } from 'ix/aborterror.js';
+import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test, vi } from 'vitest';
 
 describe('isAbortError', () => {
-  test('recognizes ix and native abort errors', () => {
+  test('recognizes DOM and Node abort errors', () => {
     const controller = new AbortController();
     controller.abort();
 
-    expect(isAbortError(new AbortError())).toBe(true);
+    expect(isAbortError(new DOMException('Cancelled', 'AbortError'))).toBe(true);
+    expect(isAbortError(Object.assign(new Error('Cancelled'), { name: 'AbortError' }))).toBe(true);
     expect(isAbortError(controller.signal.reason)).toBe(true);
     expect(isAbortError(new Error('not aborted'))).toBe(false);
+  });
+
+  test('recognizes timer cancellation with the original reason as its cause', async () => {
+    const controller = new AbortController();
+    const reason = new Error('cancelled');
+    const timer = setTimeout(60_000, undefined, { signal: controller.signal });
+    controller.abort(reason);
+    const error = await timer.catch((error) => error);
+    expect(isAbortError(error)).toBe(true);
+    expect(error.cause).toBe(reason);
   });
 });
 
 describe('acquireSemaphoreAbortable', () => {
+  test('waits for an available slot without a signal', async () => {
+    const semaphore = new Semaphore(1);
+    const [, release] = await semaphore.acquire();
+    const resolved = vi.fn();
+    const waiting = acquireSemaphoreAbortable(semaphore).then((result) => {
+      resolved();
+      return result;
+    });
+    await Promise.resolve();
+    expect(resolved).not.toHaveBeenCalled();
+
+    release();
+    const acquired = await waiting;
+    expect(acquired).not.toBe('aborted');
+    expect(semaphore.getValue()).toBe(0);
+    (acquired as [number, SemaphoreInterface.Releaser])[1]();
+    expect(semaphore.getValue()).toBe(1);
+  });
+
   test('can acquire', async () => {
     const semaphore = new Semaphore(1);
     const controller = new AbortController();

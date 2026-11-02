@@ -1,5 +1,5 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { bucketRequest, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, getTestStorage, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
@@ -80,7 +80,7 @@ function registerStoreCurrentDataTests(storageVersion: number) {
   test('resolveTables derives storeCurrentData fresh each call, with no persisted memory', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES, { storageVersion }));
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -114,7 +114,7 @@ function registerStoreCurrentDataTests(storageVersion: number) {
   test('storeCurrentData=false omits the row payload from current_data, data still syncs', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES, { storageVersion }));
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -146,7 +146,7 @@ function registerStoreCurrentDataTests(storageVersion: number) {
   test('storeCurrentData=true retains the row payload in current_data', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES, { storageVersion }));
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -179,7 +179,7 @@ function registerStoreCurrentDataTests(storageVersion: number) {
   test('storeCurrentData=false processes UPDATE without a stored copy', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES, { storageVersion }));
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);

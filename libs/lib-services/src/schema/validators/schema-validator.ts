@@ -39,7 +39,11 @@ export const createSchemaValidator = <T = any>(
   try {
     const ajv = new AJV.Ajv({
       allErrors: !(params.fail_fast ?? false),
-      keywords: [keywords.BufferNodeType],
+      /**
+       * Editors use `patternErrorMessage` for clearer pattern errors. Register it as an annotation so AJV's strict
+       * schema checks accept it; AJV still validates the pattern and uses its own error messages.
+       */
+      keywords: [keywords.BufferNodeType, { keyword: 'patternErrorMessage', schemaType: 'string' }],
       ...(params.ajv || {})
     });
 

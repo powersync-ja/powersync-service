@@ -27,8 +27,8 @@ import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { BinLogEventHandler, BinLogListener, Row, SchemaChange, SchemaChangeType } from './zongji/BinLogListener.js';
 
 export interface BinLogStreamOptions {
-  connections: MySQLConnectionManager;
   storage: storage.SyncRulesBucketStorage;
+  connections: MySQLConnectionManager;
   metrics: MetricsEngine;
   abortSignal: AbortSignal;
   logger?: Logger;

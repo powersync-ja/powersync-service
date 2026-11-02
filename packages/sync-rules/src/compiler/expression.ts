@@ -12,7 +12,7 @@ import { SourceResultSet } from './table.js';
 /**
  * An analyzed SQL expression tracking dependencies on non-static data (i.e. rows or connection sources).
  *
- * Consider the sync stream `SELECT * FROM issues WHERE is_public OR auth.param('is_admin')`. To be able to explicitly
+ * Consider the Sync Stream `SELECT * FROM issues WHERE is_public OR auth.param('is_admin')`. To be able to explicitly
  * track dependencies referenced in expressions, we transform them into a {@link SyncExpression}. For the `WHERE` clause
  * in that example, the {@link sqlExpression} would be `?1 OR (?2 ->> 'is_admin')`, where `?1` is a {@link ColumnInRow}
  * and `?2` is a {@link ConnectionParameter}.
@@ -199,7 +199,7 @@ export class ConnectionParameter implements EqualsIgnoringPrimaryResultSet, Equa
  * Tracks the original source location for translated {@link SqlExpression} nodes.
  *
  * We want to serialize translated expressions for sync plan, so embedding source offsets in them expands the size of
- * sync plans and is tedious. We only need access to node locations while compiling sync streams, which we store in this
+ * sync plans and is tedious. We only need access to node locations while compiling Sync Streams, which we store in this
  * in-memory map.
  */
 export class NodeLocations {
@@ -221,7 +221,7 @@ export interface SourceLocation {
   /**
    * An error reporter that can understand the given {@link location}.
    *
-   * Because sync streams might be composed of multiple source statements (like common table expressions) that can
+   * Because Sync Streams might be composed of multiple source statements (like common table expressions) that can
    * ultimately only be fully analyzed together, this is necessary to ensure we can report errors on the correct source
    * everywhere.
    */

@@ -8,6 +8,7 @@ import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/Ver
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { updateSyncRulesFromYaml } from '@powersync/service-core';
+import { getTestStorage } from '@powersync/service-core-tests';
 import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
@@ -33,7 +34,7 @@ type UsageEntry = {
 async function withUsageContext<T>(callback: (context: UsageContext) => Promise<T>): Promise<T> {
   await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
   const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-  const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+  const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
   const db = bucketStorage.db as VersionedPowerSyncMongoV3;
   const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
   return callback({ db, bucketStorage, definitionId });
@@ -123,14 +124,18 @@ describe('ObjectStorageUsage', () => {
       await expect(
         withTransaction(db, async (session) => {
           await bucketData.insertOne(document, { session });
-          await usage.applyDelta(definitionId, 123n, session);
+          const writes = db.createWriteBatch(session, { ordered: false });
+          usage.applyDelta(definitionId, 123n, writes);
+          await writes.execute();
           throw new Error('abort this attempt');
         })
       ).rejects.toThrow('abort this attempt');
 
       await withTransaction(db, async (session) => {
         await bucketData.insertOne(document, { session });
-        await usage.applyDelta(definitionId, 123n, session);
+        const writes = db.createWriteBatch(session, { ordered: false });
+        usage.applyDelta(definitionId, 123n, writes);
+        await writes.execute();
       });
 
       expect(await bucketData.countDocuments({ storage_ref: { $exists: true } })).toBe(1);
@@ -182,7 +187,11 @@ describe('ObjectStorageUsage', () => {
       const writerId = 'reused-writer';
       const usage = new ObjectStorageUsage(db, replicationStreamId, writerId);
 
-      await withTransaction(db, (session) => usage.applyDelta(definitionId, 10n, session));
+      await withTransaction(db, async (session) => {
+        const writes = db.createWriteBatch(session, { ordered: false });
+        usage.applyDelta(definitionId, 10n, writes);
+        await writes.execute();
+      });
       await db.objectStorageUsage.updateOne(
         { _id: { g: replicationStreamId, w: writerId } },
         { $set: { updated_at: new Date(0) } }
@@ -191,7 +200,11 @@ describe('ObjectStorageUsage', () => {
 
       // The folder committed first and deleted the writer shard. The writer's
       // next transaction must recreate it through the upsert.
-      await withTransaction(db, (session) => usage.applyDelta(definitionId, 4n, session));
+      await withTransaction(db, async (session) => {
+        const writes = db.createWriteBatch(session, { ordered: false });
+        usage.applyDelta(definitionId, 4n, writes);
+        await writes.execute();
+      });
       expect((await readUsageEntries(db, replicationStreamId))[0].active_bytes).toBe(14n);
 
       await db.objectStorageUsage.updateOne(

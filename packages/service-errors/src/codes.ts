@@ -328,6 +328,13 @@ export enum ErrorCode {
    */
   PSYNC_S1347 = 'PSYNC_S1347',
 
+  /**
+   * MongoDB replication pre-filtering is not supported in the Open Edition.
+   *
+   * Remove the pre-filtering expressions from the sync config or use an edition of the PowerSync service which supports them.
+   */
+  PSYNC_S1348 = 'PSYNC_S1348',
+
   // ## PSYNC_S14xx: MongoDB storage replication issues
 
   /**

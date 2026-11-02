@@ -1,5 +1,6 @@
 import { BucketPriority } from '../BucketDescription.js';
 import { ParameterLookupDefinitionId } from '../HydrationState.js';
+import type { SourceTableConfigMap } from '../SourceTableConfig.js';
 import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
 import { SqlExpression } from './expression.js';
@@ -11,7 +12,7 @@ import { SqlExpression } from './expression.js';
  *   2. how rows get filtered, mapped and put into parameter lookups.
  *   3. how connections use parameter lookups to infer buckets.
  *
- * Sync plans can be compiled from sync stream definitions. There is always a single plan for all stream definitions,
+ * Sync plans can be compiled from Sync Stream definitions. There is always a single plan for all stream definitions,
  * which allows re-using parameter lookups if multiple streams have similar subpatterns.
  *
  * Additionally, sync plans can be serialized to (and restored from) a simple JSON representation. We store sync plans
@@ -22,6 +23,7 @@ import { SqlExpression } from './expression.js';
  * but we must never alter the semantics for existing serialized plans.
  */
 export interface SyncPlan {
+  sourceTableConfig?: SourceTableConfigMap;
   dataSources: StreamDataSource[];
   buckets: StreamBucketDataSource[];
   parameterIndexes: StreamParameterIndexLookupCreator[];

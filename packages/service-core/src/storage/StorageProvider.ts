@@ -31,5 +31,8 @@ export interface StorageProvider {
    */
   type: string;
 
+  /**
+   * Creates active storage during storage-engine startup.
+   */
   getStorage(options: GetStorageOptions): Promise<ActiveStorage>;
 }

@@ -4,11 +4,11 @@ W3C EBNF grammars for the SQL dialects supported by PowerSync sync config.
 
 ## Source files
 
-| File                         | Description                                                          |
-| ---------------------------- | -------------------------------------------------------------------- |
-| `bucket-definitions.ebnf`    | Sync Rules (bucket definitions) — parameter queries and data queries |
-| `sync-streams-compiler.ebnf` | Sync Streams — stream queries, CTEs, subqueries                      |
-| `sync-streams-alpha.ebnf`    | Sync Streams alpha (deprecated, not used for docs generation)        |
+| File                         | Description                                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------------- |
+| `bucket-definitions.ebnf`    | Legacy Sync Rules (deprecated) — bucket definitions with parameter queries and data queries |
+| `sync-streams-compiler.ebnf` | Sync Streams — stream queries, CTEs, subqueries                                             |
+| `sync-streams-alpha.ebnf`    | Sync Streams alpha (deprecated, not used for docs generation)                               |
 
 These files are the source of truth. They are validated against the actual parser by the grammar parity tests in `test/src/grammar_parity/`.
 

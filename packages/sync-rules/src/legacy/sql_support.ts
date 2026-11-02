@@ -20,28 +20,44 @@ import {
 } from '../types.js';
 import { MATCH_CONST_FALSE, MATCH_CONST_TRUE } from './sql_filters.js';
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export function isParameterMatchClause(clause: CompiledClause): clause is ParameterMatchClause {
   return Array.isArray((clause as ParameterMatchClause).inputParameters);
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export function isRowValueClause(clause: CompiledClause): clause is RowValueClause {
   return typeof (clause as RowValueClause).evaluate == 'function';
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export function isStaticValueClause(clause: CompiledClause): clause is StaticValueClause {
   return isRowValueClause(clause) && typeof (clause as StaticValueClause).value != 'undefined';
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export function isParameterValueClause(clause: CompiledClause): clause is ParameterValueClause {
   // noinspection SuspiciousTypeOfGuard
   return typeof (clause as ParameterValueClause).key == 'string';
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export function isClauseError(clause: CompiledClause): clause is ClauseError {
   return (clause as ClauseError).error === true;
 }
 /**
  * Applies a combinator on row values that itself is also a row value.
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export function composeRowValues<T extends Record<string, RowValueClause>>(options: {
   values: T;
@@ -67,6 +83,7 @@ export function composeRowValues<T extends Record<string, RowValueClause>>(optio
 
 /**
  * Applies a combinator on parameter values that itself is also a parameter value.
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export function composeParameterValues<T extends Record<string, ParameterValueClause>>(options: {
   values: T;
@@ -91,6 +108,9 @@ export function composeParameterValues<T extends Record<string, ParameterValueCl
   };
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export function compileStaticOperator(op: string, left: RowValueClause, right: RowValueClause): RowValueClause {
   return {
     evaluate: (tables) => {
@@ -110,6 +130,9 @@ export function compileStaticOperator(op: string, left: RowValueClause, right: R
   };
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause {
   // Optimizations: If the two clauses both only depend on row or parameter data, we can merge them into a single
   // clause.
@@ -180,6 +203,9 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
   } satisfies ParameterMatchClause;
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export function orFilters(a: CompiledClause, b: CompiledClause): CompiledClause {
   // Optimizations: If the two clauses both only depend on row or parameter data, we can merge them into a single
   // clause.
@@ -209,6 +235,9 @@ export function orFilters(a: CompiledClause, b: CompiledClause): CompiledClause 
   return orParameterSetClauses(aFilter, bFilter);
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export function orParameterSetClauses(a: ParameterMatchClause, b: ParameterMatchClause): ParameterMatchClause {
   const aParams = a.inputParameters;
   const bParams = b.inputParameters;
@@ -252,6 +281,7 @@ export function orParameterSetClauses(a: ParameterMatchClause, b: ParameterMatch
  * Given any CompiledClause, convert it into a ParameterMatchClause.
  *
  * @param clause
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMatchClause {
   if (isParameterMatchClause(clause)) {
@@ -305,6 +335,9 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
   }
 }
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export function checkUnsupportedFeatures(sql: string, q: SelectFromStatement) {
   let errors: SqlRuleError[] = [];
   if (q.limit != null) {

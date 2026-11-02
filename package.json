@@ -22,7 +22,7 @@
     "clean:modules": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
     "clean": "pnpm run -r clean",
     "release": "pnpm build:production && pnpm changeset publish",
-    "test:core": "pnpm run -r --filter '!./modules/*' test",
+    "test:core": "pnpm run -r --filter \"!./modules/*\" test",
     "configure-hooks": "husky"
   },
   "devDependencies": {
@@ -46,9 +46,9 @@
     "rsocket-websocket-client": "1.0.0-alpha.3",
     "semver": "^7.5.4",
     "typescript": "catalog:",
-    "vite": "^8.0.9",
+    "vite": "^8.0.16",
     "vitest": "catalog:",
-    "ws": "^8.2.3"
+    "ws": "^8.22.0"
   },
   "packageManager": "pnpm@11.0.9"
 }

@@ -1,0 +1,334 @@
+import { DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER } from '@module/replication/MongoReplicationQueryProvider.js';
+import {
+  createMongoReplicationStreamBatch,
+  filterMongoReplicationStream
+} from '@module/replication/MongoReplicationStream.js';
+import type { MongoReplicationStreamBatch } from '@module/replication/MongoReplicationStreamTypes.js';
+import { MongoReplicationFilterResult } from '@module/replication/MongoReplicationStreamTypes.js';
+import { describe, expect, test, vi } from 'vitest';
+import { openChangeStreamTestContext } from './change_stream_test_setup.js';
+import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
+import { describeWithStorage } from './util.js';
+
+/**
+ * Use real source changes and bucket storage to distinguish saved recovery positions from published
+ * checkpoints. Reopening with doNotClear preserves both databases so recovery exercises persisted state.
+ */
+describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB durable adapter progress', () => {
+  describeWithStorage({ timeout: 30_000 }, ({ factory, storageVersion }) => {
+    test('does not acknowledge retained rows when flushing a later filtered boundary fails', async () => {
+      // Finish an empty snapshot and stop replication before inserting data. The next attempt must
+      // read these inserts from the change stream, starting at the recorded durable resume position.
+      let originalLsn: string;
+      {
+        await using context = await openChangeStreamTestContext(factory, { storageVersion });
+        await context.updateSyncRules(/* yaml */ `
+          # Sync config fixture.
+          config:
+            edition: 3
+          streams:
+            global:
+              query: SELECT _id AS id FROM documents WHERE _id = 1
+        `);
+        await context.db.createCollection('documents');
+        await context.replicateSnapshot();
+        await context.getCheckpoint();
+        await context.stop();
+        originalLsn = (await context.storage!.getStatus()).resumeLsn!;
+        await context.db
+          .collection<{ _id: number }>('documents')
+          .insertMany(Array.from({ length: 20 }, (_, i) => ({ _id: i + 1 })));
+      }
+
+      // Keep document 1 and discard the remaining documents in the provider. This leaves a real row
+      // write pending when the provider forwards progress covering both retained and excluded changes.
+      let failFlush = false;
+      const provider = {
+        ...DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER,
+        openChangeStream: ({ open }: Parameters<typeof DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER.openChangeStream>[0]) =>
+          (async function* (): AsyncGenerator<MongoReplicationStreamBatch> {
+            let retained = false;
+            const filteredStream = filterMongoReplicationStream({
+              batches: open({}),
+              filter: (event) => {
+                if (event.ns.coll == 'documents') {
+                  if (String(event.documentKey._id) != '1') {
+                    return MongoReplicationFilterResult.EXCLUDE;
+                  }
+                  retained = true;
+                }
+                return MongoReplicationFilterResult.KEEP;
+              }
+            });
+            for await (const batch of filteredStream) {
+              yield createMongoReplicationStreamBatch({
+                events: batch.events,
+                resolveResumeToken: () => {
+                  const progress = batch.getResumeToken();
+                  if (progress == null || (retained && batch.metadata.filteredCount == 0)) {
+                    return undefined;
+                  }
+                  retained = false;
+                  return progress;
+                },
+                resolveMetadata: () => batch.metadata
+              });
+            }
+          })()
+      };
+      {
+        const save = vi.fn();
+        const setResumeLsn = vi.fn();
+        await using context = await openChangeStreamTestContext(factory, {
+          storageVersion,
+          doNotClear: true,
+          streamOptions: {
+            snapshotChunkLength: 5,
+            createReplicationQueryProvider: () => provider,
+            storageHooks: {
+              beforeBatchFlush: async () => {
+                if (failFlush) throw new Error('injected retained-row flush failure');
+              }
+            }
+          }
+        });
+        await context.loadActiveSyncRules();
+        context.storage!.registerListener({
+          batchStarted: (batch) => {
+            const originalSave = batch.save.bind(batch);
+            vi.spyOn(batch, 'save').mockImplementation((...args) => {
+              // Arm the failure only once a retained row reaches storage; setup flushes may succeed.
+              save();
+              failFlush = true;
+              return originalSave(...args);
+            });
+            const originalSetResumeLsn = batch.setResumeLsn.bind(batch);
+            vi.spyOn(batch, 'setResumeLsn').mockImplementation((...args) => {
+              setResumeLsn();
+              return originalSetResumeLsn(...args);
+            });
+          }
+        });
+        const result = await context.startStreaming();
+        expect(result).toMatchObject({ status: 'rejected', reason: expect.any(Error) });
+        if (result.status == 'rejected') expect(String(result.reason)).toContain('retained-row flush failure');
+        // Saving the later token despite the failed flush would skip document 1 on restart.
+        expect(save).toHaveBeenCalledOnce();
+        expect(setResumeLsn).not.toHaveBeenCalled();
+        expect((await context.storage!.getStatus()).resumeLsn).toBe(originalLsn);
+      }
+      // Reopen from the last durable token with the same selection. The retained row must be replayed.
+      await using context = await openChangeStreamTestContext(factory, {
+        storageVersion,
+        doNotClear: true,
+        streamOptions: { createReplicationQueryProvider: () => provider }
+      });
+      await context.loadActiveSyncRules();
+      context.startStreaming();
+      expect(
+        (await context.getBucketData('global|0[]')).filter((op) => op.op == 'PUT').map((op) => op.object_id)
+      ).toEqual(['1']);
+    });
+
+    test('resumes ordinary changes from a token inside a transaction', async () => {
+      // Insert one transaction after stopping replication. Its 50 events share a clusterTime but span
+      // multiple small cursor batches, allowing recovery to stop partway through the transaction.
+      {
+        await using context = await openChangeStreamTestContext(factory, { storageVersion });
+        await context.updateSyncRules(
+          'config:\n  edition: 3\nstreams:\n  global:\n    query: SELECT _id AS id FROM documents'
+        );
+        await context.db.createCollection('documents');
+        await context.replicateSnapshot();
+        await context.getCheckpoint();
+        await context.stop();
+        const session = context.client.startSession();
+        await using sessionDisposer = { [Symbol.asyncDispose]: () => session.endSession() };
+        await session.withTransaction(async () => {
+          await context.db.collection<{ _id: string }>('documents').insertMany(
+            Array.from({ length: 50 }, (_, index) => ({ _id: String(index) })),
+            { session }
+          );
+        });
+      }
+      {
+        let progressCount = 0;
+        await using context = await openChangeStreamTestContext(factory, {
+          storageVersion,
+          doNotClear: true,
+          streamOptions: { snapshotChunkLength: 5 }
+        });
+        await context.loadActiveSyncRules();
+        context.storage!.registerListener({
+          batchStarted: (batch) => {
+            const setResumeLsn = batch.setResumeLsn.bind(batch);
+            vi.spyOn(batch, 'setResumeLsn').mockImplementation(async (lsn) => {
+              await setResumeLsn(lsn);
+              // Abort only after the third position is persisted, so reopening uses an exact token
+              // inside the transaction rather than the position recorded before any of its inserts.
+              if (++progressCount == 3) context.abort(new Error('stop inside transaction'));
+            });
+          }
+        });
+        await context.startStreaming();
+        expect(progressCount).toBe(3);
+      }
+      // Resume with the ordinary provider. Already flushed rows and the replayed suffix must together
+      // produce all 50 inserts; resuming must not discard later events with the same timestamp.
+      await using context = await openChangeStreamTestContext(factory, { storageVersion, doNotClear: true });
+      await context.loadActiveSyncRules();
+      context.startStreaming();
+      await context.getCheckpoint();
+      const operations = await context.getBucketData('global|0[]');
+      // Every insert in this transaction shares a clusterTime, but each has its own resume token.
+      // A timestamp dedupe guard here would lose the unprocessed suffix after the third batch.
+      expect(
+        operations
+          .filter((op) => op.op == 'PUT')
+          .map((op) => op.object_id)
+          .sort()
+      ).toEqual(Array.from({ length: 50 }, (_, index) => String(index)).sort());
+    });
+
+    test.each(['progress', 'flush failure', 'adapter failure'] as const)(
+      '%s before the pending checkpoint arrives',
+      async (scenario) => {
+        // Exclude every document change and stop before the startup checkpoint marker is consumed.
+        // Successful boundaries should advance recovery without publishing a checkpoint; failures
+        // either before yielding progress or while flushing it must preserve the previous position.
+        let originalLsn: string;
+        {
+          await using context = await openChangeStreamTestContext(factory, { storageVersion });
+          await context.updateSyncRules(
+            'config:\n  edition: 3\nstreams:\n  global:\n    query: SELECT _id AS id FROM documents'
+          );
+          await context.db.createCollection('documents');
+          await context.replicateSnapshot();
+          await context.getCheckpoint();
+          await context.stop();
+          originalLsn = (await context.storage!.getStatus()).resumeLsn!;
+          // All changes precede the barrier which the next replication attempt creates on startup.
+          await context.db
+            .collection<{ _id: number }>('documents')
+            .insertMany(Array.from({ length: 100 }, (_, _id) => ({ _id })));
+        }
+
+        const savedPositions: string[] = [];
+        let filtered = 0;
+        let beforeFailure: string | undefined;
+        let failFlush = false;
+        const save = vi.fn();
+        const resolve = vi.fn();
+        const commit = vi.fn();
+        await using context = await openChangeStreamTestContext(factory, {
+          storageVersion,
+          doNotClear: true,
+          streamOptions: {
+            snapshotChunkLength: 5,
+            // Keep the test inside the idle keepalive interval: filtered activity must still save
+            // progress while the checkpoint barrier is pending, rather than being treated as idle.
+            keepaliveIntervalMs: 60_000,
+            createReplicationQueryProvider: () => ({
+              ...DEFAULT_MONGO_REPLICATION_QUERY_PROVIDER,
+              openChangeStream({ open }) {
+                return (async function* (): AsyncGenerator<MongoReplicationStreamBatch> {
+                  for await (const batch of open({})) {
+                    let count = 0;
+                    const positionBeforeBatch = (await context.storage!.getStatus()).resumeLsn!;
+                    const events = (function* () {
+                      for (const change of batch.events) {
+                        if ('ns' in change.event && change.event.ns.coll == 'documents') {
+                          count++;
+                          continue;
+                        }
+                        yield change;
+                      }
+                    })();
+                    let forwardedProgress = false;
+                    yield createMongoReplicationStreamBatch({
+                      events: events,
+                      resolveResumeToken: () => {
+                        const progress = batch.getResumeToken();
+                        if (progress == null || count == 0) {
+                          return progress;
+                        }
+                        filtered += count;
+                        beforeFailure = positionBeforeBatch;
+                        if (scenario == 'adapter failure') throw new Error('injected adapter failure');
+                        failFlush = scenario == 'flush failure';
+                        forwardedProgress = true;
+                        return progress;
+                      },
+                      resolveMetadata: () => ({ filteredCount: count })
+                    });
+                    if (forwardedProgress) {
+                      // next() is requested only after this module has handled the batch, including its resume token. Inspect actual
+                      // persisted state here, without sleeps or waiting for a later checkpoint event.
+                      savedPositions.push((await context.storage!.getStatus()).resumeLsn!);
+                      // End the successful case deliberately while the later checkpoint marker is
+                      // still pending, so assertions observe progress independently of a commit.
+                      if (savedPositions.length == 3) throw new Error('stopped after three safe boundaries');
+                    }
+                  }
+                })();
+              }
+            })
+          }
+        });
+        await context.loadActiveSyncRules();
+        const checkpointBefore = await context.storage!.getCheckpoint();
+        context.storage!.registerListener({
+          batchStarted: (batch) => {
+            // All rows are filtered out, so storage may skip beforeBatchFlush for an empty batch.
+            // Inject at the public flush boundary to test flush-before-resume ordering on every backend.
+            const originalFlush = batch.flush.bind(batch);
+            vi.spyOn(batch, 'flush').mockImplementation(async (...args) => {
+              if (failFlush) throw new Error('injected flush failure');
+              return originalFlush(...args);
+            });
+            const originalSave = batch.save.bind(batch);
+            vi.spyOn(batch, 'save').mockImplementation((...args) => {
+              save();
+              return originalSave(...args);
+            });
+            // Observe calls while retaining the real relation resolver and commit behavior.
+            const originalResolve = batch.resolveTables.bind(batch);
+            vi.spyOn(batch, 'resolveTables').mockImplementation((...args) => {
+              resolve();
+              return originalResolve(...args);
+            });
+            const originalCommit = batch.commit.bind(batch);
+            vi.spyOn(batch, 'commit').mockImplementation((...args) => {
+              commit();
+              return originalCommit(...args);
+            });
+          }
+        });
+        const result = await context.startStreaming();
+        expect(result.status).toBe('rejected');
+        if (result.status != 'rejected') throw new Error('Expected the controlled stop');
+        expect(String(result.reason)).toContain(
+          scenario == 'progress' ? 'three safe boundaries' : `injected ${scenario}`
+        );
+        expect(filtered).toBeGreaterThan(0);
+        // Excluded changes must bypass relation lookup and row writes. No checkpoint marker should
+        // have been committed before this attempt stops, even in the successful-progress scenario.
+        expect(save).not.toHaveBeenCalled();
+        expect(resolve).not.toHaveBeenCalled();
+        expect(commit).not.toHaveBeenCalled();
+        const status = await context.storage!.getStatus();
+        if (scenario == 'progress') {
+          // Each handled boundary has its own durable position, despite producing no bucket rows.
+          expect(new Set(savedPositions).size).toBe(3);
+          expect(savedPositions.every((lsn) => lsn > originalLsn)).toBe(true);
+          expect(status.resumeLsn).toBe(savedPositions.at(-1));
+        } else {
+          // Neither failure path may acknowledge the boundary that failed to finish processing.
+          expect(status.resumeLsn).toBe(beforeFailure);
+        }
+        // Persisting source progress is not permission to expose a checkpoint past the pending barrier.
+        expect((await context.storage!.getCheckpoint()).lsn).toBe(checkpointBefore.lsn);
+      }
+    );
+  });
+});

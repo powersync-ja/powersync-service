@@ -270,7 +270,7 @@ exports[`sync - mongodb > storage v1 > encodes sync rules id in buckets for stre
           ],
         },
       ],
-      "last_op_id": "2",
+      "last_op_id": "65537",
       "streams": [
         {
           "errors": [],
@@ -292,17 +292,17 @@ exports[`sync - mongodb > storage v1 > encodes sync rules id in buckets for stre
           "object_id": "t1",
           "object_type": "test",
           "op": "PUT",
-          "op_id": "2",
+          "op_id": "65537",
           "subkey": "bfe6a7fc-1a36-5a95-877f-518ff63ecb56",
         },
       ],
       "has_more": false,
-      "next_after": "2",
+      "next_after": "65537",
     },
   },
   {
     "checkpoint_complete": {
-      "last_op_id": "2",
+      "last_op_id": "65537",
     },
   },
 ]
@@ -1265,7 +1265,7 @@ exports[`sync - mongodb > storage v2 > encodes sync rules id in buckets for stre
           ],
         },
       ],
-      "last_op_id": "2",
+      "last_op_id": "65537",
       "streams": [
         {
           "errors": [],
@@ -1287,17 +1287,17 @@ exports[`sync - mongodb > storage v2 > encodes sync rules id in buckets for stre
           "object_id": "t1",
           "object_type": "test",
           "op": "PUT",
-          "op_id": "2",
+          "op_id": "65537",
           "subkey": "bfe6a7fc-1a36-5a95-877f-518ff63ecb56",
         },
       ],
       "has_more": false,
-      "next_after": "2",
+      "next_after": "65537",
     },
   },
   {
     "checkpoint_complete": {
-      "last_op_id": "2",
+      "last_op_id": "65537",
     },
   },
 ]
@@ -2849,7 +2849,7 @@ exports[`sync - mongodb > storage v4 > encodes sync rules id in buckets for stre
           ],
         },
       ],
-      "last_op_id": "2",
+      "last_op_id": "65537",
       "streams": [
         {
           "errors": [],
@@ -2871,17 +2871,17 @@ exports[`sync - mongodb > storage v4 > encodes sync rules id in buckets for stre
           "object_id": "t1",
           "object_type": "test",
           "op": "PUT",
-          "op_id": "2",
+          "op_id": "65537",
           "subkey": "bfe6a7fc-1a36-5a95-877f-518ff63ecb56",
         },
       ],
       "has_more": false,
-      "next_after": "2",
+      "next_after": "65537",
     },
   },
   {
     "checkpoint_complete": {
-      "last_op_id": "2",
+      "last_op_id": "65537",
     },
   },
 ]

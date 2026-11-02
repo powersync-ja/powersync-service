@@ -1,5 +1,84 @@
 # @powersync/service-core
 
+## 1.27.2
+
+## 1.27.1
+
+### Patch Changes
+
+- 44ce423: Add `config.source_table_options` to edition 3 sync configs, including MongoDB pre-filtering expressions. Generate editor schemas with examples and report validation errors at their YAML source locations.
+
+  MongoDB replication pre-filtering is not supported in the Open Edition; unsupported configurations report `PSYNC_S1348`. For example:
+
+  ```yaml
+  config:
+    edition: 3
+    source_table_options:
+      orders:
+        mongodb_filter_expression:
+          $and:
+            - $eq: ['$$doc.active', true]
+            - $in: ['$$doc.status', ['pending', 'shipped']]
+  streams:
+    orders:
+      query: SELECT * FROM orders
+  ```
+
+  Validation and deployment reject filters when the feature is unavailable. Parsing accepts an optional map of connection tags to connection types, rejecting MongoDB pre-filtering expressions on known non-MongoDB sources. Unknown connections or missing connection metadata produce advisory warnings. The service supplies connection metadata during validation, deployment, and filesystem loading. Filesystem-loaded sync configs also run source-capability checks. With `exit_on_error` disabled, configs remain available to diagnostics. Changing source-table options requires replacement processing when deploying a new sync config.
+
+  Source capability validation returns structured `ValidationDiagnostic` entries, allowing multiple fatal issues and
+  advisory warnings. Deployment and reprocessing reject fatal diagnostics while validation continues collecting
+  independent findings. Existing `ReplicationError` consumers retain the same diagnostic shape.
+
+- 51a1a89: Add `service.version` and `sync_config_source` to diagnostics endpoint.
+- 286b0f8: Update WebSocket and HTTP dependencies to address reported security vulnerabilities. Update the OpenTelemetry metrics exporters to remove the protobufjs dependency and include metrics security fixes.
+- 57ef2f4: Report a non-fatal deprecation warning when a sync config uses legacy Sync Rules (`bucket_definitions:`). It appears in the `/api/admin/v1/diagnostics` and `/api/admin/v1/validate` responses with `level: 'warning'`, and the service now logs sync config errors and warnings when it loads or deploys a sync config.
+- Updated dependencies [44ce423]
+- Updated dependencies [e703ca5]
+- Updated dependencies [324093e]
+- Updated dependencies [286b0f8]
+- Updated dependencies [51a1a89]
+- Updated dependencies [57ef2f4]
+- Updated dependencies [6700c71]
+  - @powersync/service-sync-rules@0.44.0
+  - @powersync/service-types@0.20.0
+  - @powersync/lib-services-framework@0.10.4
+  - @powersync/service-rsocket-router@0.2.29
+
+## 1.27.0
+
+### Minor Changes
+
+- 5078032: Change the default MongoDB storage version from 2 to 4.
+- b70f467: Remove global replication lock for MongoDB storage.
+
+### Patch Changes
+
+- 0483d4e: Merge overlapping static and dynamic bucket selections in service-core, preserving subscription metadata and priority for all storage backends. This prevents duplicate bucket operations and client checksum failures with Postgres storage.
+- 28f024b: Fix errors during websocket parameter logging.
+- 424bbc0: Skip chunk-merge compact for small buckets after initial replication.
+- c60db6e: Mark legacy Sync Rules and the alpha Sync Streams implementation as `@deprecated`, and update the sync-rules README, templates, and examples to document Sync Streams first. Capitalize "Sync Streams" in log and error messages.
+- a8c3f15: Fix loading storage migrations on Windows: migration scripts are now imported via file URLs, since the Node.js ESM loader rejects absolute Windows paths such as `C:\...`.
+- Updated dependencies [5078032]
+- Updated dependencies [e87703a]
+- Updated dependencies [18f0c95]
+- Updated dependencies [c60db6e]
+- Updated dependencies [0483d4e]
+  - @powersync/service-types@0.19.0
+  - @powersync/service-sync-rules@0.43.0
+  - @powersync/lib-services-framework@0.10.3
+  - @powersync/service-rsocket-router@0.2.28
+
+## 1.26.1
+
+### Patch Changes
+
+- f842b4e: Concurrent storage version 4 chunk-merge compaction across buckets during. Configure the shared worker limit with `storage.chunk_compaction_concurrency` (default: 4 with object storage, otherwise 2). Full compactions remain sequential within each job.
+- Updated dependencies [5ae6f75]
+  - @powersync/service-sync-rules@0.42.0
+  - @powersync/lib-services-framework@0.10.2
+  - @powersync/service-rsocket-router@0.2.27
+
 ## 1.26.0
 
 ### Minor Changes

@@ -255,8 +255,7 @@ export class PostgresToSqlite {
         const left = this.translateNodeWithLocation(expr.left);
         const right = this.translateNodeWithLocation(expr.right);
         if (expr.op === 'LIKE') {
-          // We don't support LIKE in the old bucket definition system, and want to make sure we're clear about ICU,
-          // case sensitivity and changing the escape character first. TODO: Support later.
+          // TODO: Support later. We want to make sure we're clear about ICU, case sensitivity and changing the escape character first.
           this.options.errors.report('LIKE expressions are not currently supported.', expr);
           return { type: 'function', function: 'like', parameters: [left, right] };
         } else if (expr.op === 'NOT LIKE') {

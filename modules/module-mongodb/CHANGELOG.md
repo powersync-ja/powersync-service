@@ -1,5 +1,103 @@
 # @powersync/service-module-mongodb
 
+## 0.22.1
+
+### Patch Changes
+
+- @powersync/service-core@1.27.2
+
+## 0.22.0
+
+### Minor Changes
+
+- 44ce423: Add `config.source_table_options` to edition 3 sync configs, including MongoDB pre-filtering expressions. Generate editor schemas with examples and report validation errors at their YAML source locations.
+
+  MongoDB replication pre-filtering is not supported in the Open Edition; unsupported configurations report `PSYNC_S1348`. For example:
+
+  ```yaml
+  config:
+    edition: 3
+    source_table_options:
+      orders:
+        mongodb_filter_expression:
+          $and:
+            - $eq: ['$$doc.active', true]
+            - $in: ['$$doc.status', ['pending', 'shipped']]
+  streams:
+    orders:
+      query: SELECT * FROM orders
+  ```
+
+  Validation and deployment reject filters when the feature is unavailable. Parsing accepts an optional map of connection tags to connection types, rejecting MongoDB pre-filtering expressions on known non-MongoDB sources. Unknown connections or missing connection metadata produce advisory warnings. The service supplies connection metadata during validation, deployment, and filesystem loading. Filesystem-loaded sync configs also run source-capability checks. With `exit_on_error` disabled, configs remain available to diagnostics. Changing source-table options requires replacement processing when deploying a new sync config.
+
+  Source capability validation returns structured `ValidationDiagnostic` entries, allowing multiple fatal issues and
+  advisory warnings. Deployment and reprocessing reject fatal diagnostics while validation continues collecting
+  independent findings. Existing `ReplicationError` consumers retain the same diagnostic shape.
+
+- fff5024: Add a replication adapter interface for snapshot predicates and ChangeStream event batches. Both default and filtering providers parse events incrementally with shared split-event assembly. Persist safe resume positions after preceding writes have flushed, including when an adapter excludes all data events. Preserve exact-token resumes within transactions and export a pluggable, disposable ChangeStreamTestContext for module integration tests.
+
+  Expose a shared filtering helper with typed options and keep/exclude/delete decisions. The helper preserves checkpoint and DDL events, source batch boundaries and safe resume progress while counting exclusions. Export the shared stream and filter types from the replication module.
+
+  Report a replication error if a saved sync config requires MongoDB pre-filtering but no query provider factory is registered. Restore the required module, or remove the filters and deploy a new sync config to restart replication.
+
+### Patch Changes
+
+- f6ba406: Estimate filtered MongoDB snapshot totals with a total count, falling back to a bounded sample when the count fails or times out.
+- Updated dependencies [44ce423]
+- Updated dependencies [51a1a89]
+- Updated dependencies [e703ca5]
+- Updated dependencies [324093e]
+- Updated dependencies [286b0f8]
+- Updated dependencies [51a1a89]
+- Updated dependencies [57ef2f4]
+- Updated dependencies [6700c71]
+  - @powersync/service-sync-rules@0.44.0
+  - @powersync/service-core@1.27.1
+  - @powersync/service-types@0.20.0
+  - @powersync/lib-services-framework@0.10.4
+  - @powersync/lib-service-mongodb@0.6.34
+
+## 0.21.2
+
+### Patch Changes
+
+- 155febf: Report a MongoDB collection without columns when sampling it exceeds the query memory limit, instead of failing the whole schema request. Sampling a small collection of large documents can hit this limit, which previously blocked sync config validation and deployment for the entire connection.
+- 54d6f4b: Report a MongoDB view matched by a wildcard table pattern as a warning, instead of failing sync config validation. Previously, a view matching a pattern such as `"orders%"` made the whole validation request fail with `Cannot get name for wildcard table`.
+- 18f0c95: Add `fixed_booleans_in_json` to sync booleans in JSON columns as booleans instead of as 0/1 integer.
+- Updated dependencies [0483d4e]
+- Updated dependencies [28f024b]
+- Updated dependencies [5078032]
+- Updated dependencies [424bbc0]
+- Updated dependencies [e87703a]
+- Updated dependencies [b70f467]
+- Updated dependencies [18f0c95]
+- Updated dependencies [c60db6e]
+- Updated dependencies [0483d4e]
+- Updated dependencies [a8c3f15]
+  - @powersync/service-core@1.27.0
+  - @powersync/service-types@0.19.0
+  - @powersync/service-sync-rules@0.43.0
+  - @powersync/lib-services-framework@0.10.3
+  - @powersync/lib-service-mongodb@0.6.33
+
+## 0.21.1
+
+### Patch Changes
+
+- 2412d7a: Remove the client-side `maxAwaitTimeMS` workaround for Azure DocumentDB and label DocumentDB support as alpha.
+- 7cce8bd: Infer MongoDB collection schemas using aggregation so large sampled documents are not transferred into service memory. Query each collection in its own database with up to four aggregations at a time, and limit each aggregation to 30 seconds of server execution time.
+
+  Omit the aggregation collation option on Azure DocumentDB, which does not support it.
+
+  Cache DocumentDB detection on the route adapter for schema discovery and checkpoint requests.
+
+- Updated dependencies [f842b4e]
+- Updated dependencies [5ae6f75]
+  - @powersync/service-core@1.26.1
+  - @powersync/service-sync-rules@0.42.0
+  - @powersync/lib-services-framework@0.10.2
+  - @powersync/lib-service-mongodb@0.6.32
+
 ## 0.21.0
 
 ### Minor Changes

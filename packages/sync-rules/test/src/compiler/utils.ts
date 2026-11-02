@@ -2,13 +2,13 @@ import { expect } from 'vitest';
 import {
   deserializeSyncPlan,
   getLocation,
+  parseSyncConfig,
   ParsingErrorListener,
   PrecompiledSyncConfig,
   SerializedSyncPlan,
   serializeSyncPlan,
-  SqlSyncRules,
+  SyncConfigParseOptions,
   SyncPlan,
-  SyncRulesOptions,
   SyncStreamsCompiler
 } from '../../../src/index.js';
 
@@ -78,9 +78,9 @@ function compileSingleStream(...sql: string[]): [TranslationError[], SyncPlan] {
 
 export function yamlToSyncPlan(
   source: string,
-  options: SyncRulesOptions & { includeErrorSpans?: boolean } = { defaultSchema: 'test_schema' }
+  options: SyncConfigParseOptions & { includeErrorSpans?: boolean } = { defaultSchema: 'test_schema' }
 ): [TranslationError[], SyncPlan] {
-  const { config, errors } = SqlSyncRules.fromYaml(source, {
+  const { config, errors } = parseSyncConfig(source, {
     throwOnError: false,
     ...options
   });

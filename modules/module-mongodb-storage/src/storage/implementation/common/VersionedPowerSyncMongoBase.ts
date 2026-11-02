@@ -58,6 +58,10 @@ export abstract class BaseVersionedPowerSyncMongo {
     return this.upstream.notifyCheckpoint();
   }
 
+  createWriteBatch(session: mongo.ClientSession | undefined, options: { ordered: boolean }) {
+    return this.upstream.createWriteBatch(session, options);
+  }
+
   protected sourceRecordsCollectionName(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
     return this.upstream.sourceRecordsCollectionName(replicationStreamId, sourceTableId);
   }

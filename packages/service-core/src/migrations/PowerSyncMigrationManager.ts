@@ -1,6 +1,7 @@
 import * as framework from '@powersync/lib-services-framework';
 import fs from 'fs/promises';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import * as system from '../system/system-index.js';
 
 /**
@@ -28,7 +29,7 @@ export abstract class AbstractPowerSyncMigrationAgent extends framework.Abstract
 
     return await Promise.all(
       migrations.map(async (migration) => {
-        const module = await import(path.resolve(migrationsDir, migration));
+        const module = await import(pathToFileURL(path.resolve(migrationsDir, migration)).href);
         return {
           name: path.basename(migration).replace(path.extname(migration), ''),
           up: module.up,

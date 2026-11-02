@@ -1,5 +1,59 @@
 # @powersync/service-sync-rules
 
+## 0.44.0
+
+### Minor Changes
+
+- 44ce423: Add `config.source_table_options` to edition 3 sync configs, including MongoDB pre-filtering expressions. Generate editor schemas with examples and report validation errors at their YAML source locations.
+
+  MongoDB replication pre-filtering is not supported in the Open Edition; unsupported configurations report `PSYNC_S1348`. For example:
+
+  ```yaml
+  config:
+    edition: 3
+    source_table_options:
+      orders:
+        mongodb_filter_expression:
+          $and:
+            - $eq: ['$$doc.active', true]
+            - $in: ['$$doc.status', ['pending', 'shipped']]
+  streams:
+    orders:
+      query: SELECT * FROM orders
+  ```
+
+  Validation and deployment reject filters when the feature is unavailable. Parsing accepts an optional map of connection tags to connection types, rejecting MongoDB pre-filtering expressions on known non-MongoDB sources. Unknown connections or missing connection metadata produce advisory warnings. The service supplies connection metadata during validation, deployment, and filesystem loading. Filesystem-loaded sync configs also run source-capability checks. With `exit_on_error` disabled, configs remain available to diagnostics. Changing source-table options requires replacement processing when deploying a new sync config.
+
+  Source capability validation returns structured `ValidationDiagnostic` entries, allowing multiple fatal issues and
+  advisory warnings. Deployment and reprocessing reject fatal diagnostics while validation continues collecting
+  independent findings. Existing `ReplicationError` consumers retain the same diagnostic shape.
+
+### Patch Changes
+
+- e703ca5: Restore `schema/sync_rules.json` file removed in version `0.43.0`.
+- 324093e: Internal refactor to make it clearer how legacy `token_parameters` values are derived.
+- 57ef2f4: Report a non-fatal deprecation warning when a sync config uses legacy Sync Rules (`bucket_definitions:`). It appears in the `/api/admin/v1/diagnostics` and `/api/admin/v1/validate` responses with `level: 'warning'`, and the service now logs sync config errors and warnings when it loads or deploys a sync config.
+- 6700c71: Emit type-only imports for `PowerSyncDatabase` and `SyncStream` in generated TypeScript schemas.
+
+## 0.43.0
+
+### Minor Changes
+
+- 18f0c95: Add `fixed_booleans_in_json` to sync booleans in JSON columns as booleans instead of as 0/1 integer.
+
+### Patch Changes
+
+- 5078032: Change the default MongoDB storage version from 2 to 4.
+- e87703a: Export generated `schema/sync_config.json` file.
+- c60db6e: Mark legacy Sync Rules and the alpha Sync Streams implementation as `@deprecated`, and update the sync-rules README, templates, and examples to document Sync Streams first. Capitalize "Sync Streams" in log and error messages.
+- 0483d4e: Deduplicate inclusion reasons when merging buckets reached through more than one branch (e.g. overlapping subscriptions, or both a static and a dynamic parameter query), avoiding duplicate `subscriptions` entries on the wire.
+
+## 0.42.0
+
+### Minor Changes
+
+- 5ae6f75: Add a schema generator for the Rust SDK.
+
 ## 0.41.0
 
 ### Minor Changes

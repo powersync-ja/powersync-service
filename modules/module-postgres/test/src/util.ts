@@ -3,11 +3,10 @@ import * as types from '@module/types/types.js';
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger } from '@powersync/lib-services-framework';
 import { BucketStorageFactory, ReplicationCheckpoint, TestStorageFactory } from '@powersync/service-core';
-import { describeStorageCombinations } from '@powersync/service-core-tests';
+import { describeStorageCombinations, StorageCombinationTestOptions } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
-import { TestOptions } from 'vitest';
 import { env } from './env.js';
 
 export const TEST_URI = env.PG_TEST_URL;
@@ -21,13 +20,20 @@ export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.
   url: env.PG_STORAGE_TEST_URL
 });
 
+/**
+ * For tests that need a storage factory, but do not depend on the storage implementation.
+ */
+export const INITIALIZED_STORAGE_FACTORY = env.TEST_MONGO_STORAGE
+  ? INITIALIZED_MONGO_STORAGE_FACTORY
+  : INITIALIZED_POSTGRES_STORAGE_FACTORY;
+
 export interface StorageVersionTestContext {
   factory: TestStorageFactory;
   storageVersion: number;
 }
 
 export function describeWithStorage(
-  options: TestOptions & { storageVersions?: number[] },
+  options: StorageCombinationTestOptions,
   fn: (context: StorageVersionTestContext) => void
 ) {
   describeStorageCombinations(

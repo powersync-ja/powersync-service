@@ -1,0 +1,115 @@
+# Source-table options
+
+A sync config can specify source-specific replication options under `config.source_table_options`. This is a map from
+table names or patterns to option objects. The currently supported option is `mongodb_filter_expression`, which
+specifies MongoDB replication pre-filtering:
+
+```yaml
+config:
+  edition: 3
+  source_table_options:
+    orders:
+      mongodb_filter_expression:
+        $eq: ['$$doc.active', true]
+streams:
+  orders:
+    query: SELECT * FROM orders
+```
+
+Executing MongoDB replication pre-filtering requires additional external modules. The service parses and validates
+these expressions, but rejects their deployment when the configured source adapter does not support the feature.
+
+Parsing accepts an optional `connections` map keyed by connection tag, with values of the form `{ type: string }`.
+MongoDB pre-filtering expressions require a connection with `type: 'mongodb'`. Known non-MongoDB sources
+produce fatal diagnostics at the expression. Active filters with non-default connection tags are rejected until multiple connections are supported. Unknown default connection metadata produces an advisory warning. When connection metadata is omitted, expressions still parse but report
+an advisory warning that the connection type could not be checked. The service supplies connection metadata when
+parsing for validation, deployment, and filesystem loading. Disabled filters do not require MongoDB.
+
+## Table names and patterns
+
+Table keys use the same right-to-left qualification as Sync Stream queries: `table`, `database.table`, or
+`connection.database.table`. Omitted components use runtime defaults. Declaring source-table options does not add
+a replication source; the stream queries still select the source tables.
+
+Connection prefixes are retained in saved configuration, but active MongoDB filters require the `default` tag. Query hydration currently uses the
+`default` connection tag for explicitly qualified patterns. A connection prefix should not be used to select a
+different replication connection.
+
+Unquoted identifiers are converted to lowercase. Double-quoted identifiers preserve case and may contain dots.
+Use an outer YAML quote to retain the identifier quotes, for example `'"audit.events"': {}`. Inside a quoted
+identifier, two double quotes represent one literal double quote.
+
+Keys that resolve to the same connection, database, and table pattern are rejected. For example, `Users`, `users`,
+and `"users"` identify the same pattern, while `"Users"` remains distinct. Overlapping wildcard patterns are allowed.
+
+## MongoDB pre-filtering expressions
+
+`mongodb_filter_expression` accepts an expression or the string `disabled`. Expressions support:
+
+- `$eq`: a source field and a literal value, such as `{ $eq: ['$$doc.active', true] }`.
+- `$in`: a source field and a nonempty list of literal values.
+- `$and` and `$or`: nonempty lists of nested filter expressions.
+
+Source fields use the `$$doc.` prefix. Literal values include strings, numbers, booleans, and supported Extended JSON
+wrappers for BSON values. Unknown source-table options and invalid expressions are rejected during parsing.
+YAML aliases are not supported inside filter expressions.
+
+The sync-config JSON Schema includes expression shapes and examples for editor autocomplete. Runtime validation
+also checks BSON literal values and reports errors at the relevant YAML keys or values. Source capability checks
+run during validation, deployment, and reprocessing; validation can report capability failures alongside other
+diagnostics. File-loaded sync configs are checked after parsing at replication startup. With `exit_on_error`
+enabled, source-capability errors fail startup before persistence. With it disabled, failures are logged and
+configs are persisted for diagnostics. Source-specific replication startup checks validate execution requirements.
+Warnings remain advisory.
+
+### Why validate instead of calling `EJSON.deserialize`?
+
+The filter language uses a subset of [MongoDB Extended JSON v2](https://github.com/mongodb/specifications/blob/master/source/extended-json/extended-json.md)
+for typed constants; it is not a general-purpose EJSON parser. `EJSON.deserialize` converts wrapper objects into
+BSON values, but does not validate which filter operators, field references, or literal types this feature supports.
+For example, it can return an ordinary object for an unknown wrapper instead of rejecting it as an invalid operand.
+
+The Zod declarations serve both editor JSON Schema generation and runtime validation. Their issue paths identify
+the relevant YAML key or value, while custom payload errors avoid including configured literal values. Validation
+preserves the authored JSON-compatible wrappers in saved plans instead of replacing them with BSON instances;
+the external filter executor is responsible for interpreting those wrappers.
+
+The supported constants and differences are:
+
+- Strings, booleans, finite numbers, and `$oid`, `$numberInt`, `$numberLong`, `$numberDouble`, `$numberDecimal`,
+  `$uuid`, `$date`, `$timestamp`, and `$binary` wrappers are supported. Null, arbitrary documents, array literals
+  (other than the operand list for `$in`), and other EJSON types such as regular expressions and code are excluded.
+- `$literal` is an aggregation-expression escape, not an EJSON type wrapper. Here it accepts only strings and
+  permits text starting with `$`, which bare string constants cannot contain at the start.
+- Unwrapped integer-valued numbers must fit Int32. Larger integers require an explicit wrapper instead of relying
+  on the EJSON parser's numeric type inference. Integer wrapper strings disallow leading `+` and leading zeroes,
+  and are checked against their signed Int32/Int64 bounds before conversion. The installed BSON parser can wrap
+  overflowing values: `$numberInt: '2147483648'` becomes `-2147483648`; our validation rejects it.
+- Non-finite doubles and decimals are excluded even though EJSON supports them. Decimal128 representability is
+  checked with BSON's `Decimal128.fromString`; it is not reimplemented using JavaScript floating-point numbers.
+- Binary values require canonical padded base64 and exactly two hexadecimal subtype digits. EJSON permits a
+  one-digit subtype, and the installed BSON parser also accepts some noncanonical base64. After structural checks,
+  we delegate subtype constraints, including UUID byte length, to `EJSON.deserialize` with `relaxed: false`.
+- Date strings require a four-digit year, a `T` separator, and an explicit `Z` or numeric timezone. The finite
+  timestamp check follows the BSON library's `Date.parse` behavior, including normalization of some nonexistent
+  calendar dates. For example, `2026-02-29T00:00:00Z` is accepted as March 1. Pre-1970 strings and more than three
+  fractional digits are also accepted; this is not strict validation of the spec's date representation. Date
+  milliseconds must fit JavaScript Date's range of ±8,640,000,000,000,000, rather than BSON's full signed Int64 range.
+
+These restrictions define the filter language's validation contract. BSON conversion alone would remove the
+operator/type restrictions, editor support, precise diagnostics, and checks against silent numeric coercion.
+
+## Saved configuration
+
+Compiled plans retain the options in `sourceTableConfig`. Hydrated configs expose the options from the first underlying
+plan; configs sharing a replication reader must have identical options. Saved plans preserve authored
+table names and declaration order. Source-table options use sync-plan format 3; plans without them retain formats
+1 and 2. Loading a saved plan validates its source-table options without reparsing SQL.
+
+Changing source-table options requires replacement processing when deploying a new sync config.
+
+Source adapters return `ValidationDiagnostic[]` from `validateSourceCapabilities`. Each diagnostic has a `level`
+(`warning` or `fatal`), a `message`, and optional source location and timestamp. Deployment and reprocessing reject
+fatal diagnostics; warnings are advisory. Validation collects diagnostics and continues independent table checks.
+Unexpected adapter failures may still throw and are reported as fatal errors. `ReplicationError` remains an alias
+for the same diagnostic shape used in existing response fields.

@@ -41,7 +41,11 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   }
 
   async [Symbol.asyncDispose]() {
-    await this.db[Symbol.asyncDispose]();
+    try {
+      await super[Symbol.asyncDispose]();
+    } finally {
+      await this.db[Symbol.asyncDispose]();
+    }
   }
 
   async prepareStatements(connection: pg_wire.PgConnection) {
@@ -162,7 +166,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       options.storageVersion ??
       options.config.parsed.config.storageVersion ??
       this.options.defaultStorageVersion ??
-      storage.CURRENT_STORAGE_VERSION;
+      storage.STORAGE_VERSION_2;
     const storageConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
     if (storageConfig == null || storageVersion >= storage.STORAGE_VERSION_4) {
       throw new framework.ServiceError(
@@ -180,6 +184,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
           state = ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }}
       `.execute();
 
+      // Uses the legacy sequence name "sync_rules_id_sequence" for backwards-compatibility. See AGENTS.md.
       const newSyncRulesRow = await db.sql`
         WITH
           next_id AS (

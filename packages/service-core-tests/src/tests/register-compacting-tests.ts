@@ -1,5 +1,6 @@
 import { addChecksums, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { expect, test } from 'vitest';
+import { getTestStorage } from '../test-utils/leased-storage.js';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest } from '../test-utils/test-utils-index.js';
 import { bucketRequestMap, bucketRequests, compactActive } from './util.js';
@@ -16,7 +17,7 @@ bucket_definitions:
     data: [select * from test]
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -81,7 +82,9 @@ bucket_definitions:
     ]);
     expect(batchBefore.targetOp).toEqual(null);
 
+    // Select buckets explicitly to exercise compaction regardless of backend scheduling thresholds.
     await compactActive(factory, {
+      compactBuckets: ['global[]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
@@ -128,7 +131,7 @@ bucket_definitions:
     data: [select * from test]
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -203,6 +206,7 @@ bucket_definitions:
     ]);
 
     await compactActive(factory, {
+      compactBuckets: ['global[]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
@@ -249,7 +253,7 @@ bucket_definitions:
     data: [select * from test]
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -302,6 +306,7 @@ bucket_definitions:
     const checkpoint2 = writer2.last_flushed_op!;
 
     await compactActive(factory, {
+      compactBuckets: ['global[]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
@@ -340,7 +345,7 @@ bucket_definitions:
             data:
               - select * from test where b = bucket.b`)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -417,6 +422,7 @@ bucket_definitions:
     const checkpoint = writer.last_flushed_op!;
 
     await compactActive(factory, {
+      compactBuckets: ['grouped["b1"]', 'grouped["b2"]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       clearBatchLimit: 100,
       moveBatchLimit: 100,
       moveBatchQueryLimit: 100, // Larger limit for a larger window of operations
@@ -471,7 +477,7 @@ bucket_definitions:
     data: [select * from test]
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -508,6 +514,7 @@ bucket_definitions:
     await writer.flush();
 
     await compactActive(factory, {
+      compactBuckets: ['global[]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
@@ -550,7 +557,7 @@ bucket_definitions:
     data: [select * from test]
     `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -596,6 +603,7 @@ bucket_definitions:
     await writer2.flush();
 
     await compactActive(factory, {
+      compactBuckets: ['global[]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       clearBatchLimit: 20,
       moveBatchLimit: 10,
       moveBatchQueryLimit: 10,
@@ -625,7 +633,7 @@ bucket_definitions:
     data: [select * from test]
       `)
     );
-    const bucketStorage = factory.getInstance(syncRules);
+    const bucketStorage = await getTestStorage(factory, syncRules);
     const syncRulesContent = syncRules.syncConfigContent[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -659,6 +667,7 @@ bucket_definitions:
 
     // With default options, Postgres compaction should use the active checkpoint.
     await compactActive(factory, {
+      compactBuckets: ['global[]'].map((name) => bucketRequest(syncRulesContent, name).bucket),
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
       minBucketChanges: 1,

@@ -53,6 +53,9 @@ import { TableQuerySchema } from './TableQuerySchema.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import { DetectRequestParameters } from './validators.js';
 
+/**
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export interface SqlParameterQueryOptions {
   sourceTable: TablePattern;
   table: AvailableTable;
@@ -76,6 +79,7 @@ export interface SqlParameterQueryOptions {
  *
  *  SELECT id as user_id FROM users WHERE users.user_id = token_parameters.user_id
  *  SELECT id as user_id, token_parameters.is_admin as is_admin FROM users WHERE users.user_id = token_parameters.user_id
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export class SqlParameterQuery implements ParameterIndexLookupCreator, ParameterIndexLookupEvaluator {
   static fromSql(

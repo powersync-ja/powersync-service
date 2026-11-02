@@ -9,6 +9,7 @@ Keep this file concise. Use it to route agents to the right docs and nearby impl
 - Prefer existing module patterns over new abstractions.
 - Keep changes scoped to the package or module relevant to the task.
 - For integration tests, prefer the existing test utilities and fixtures in the relevant module.
+- For embedded YAML formatting errors, follow the existing [source-table config fixtures](packages/service-core/test/src/source_table_config.test.ts). Use `/* yaml */` template literals with a leading YAML comment, such as `# sync config fixture.`. Do not use `// prettier-ignore` to bypass YAML formatting. Preserve the intended nesting when composing YAML fragments.
 - Prefer real implementations for tests that validate cross-module behavior. If a test only needs to observe calls or arguments, prefer Vitest spies such as `vi.spyOn()` before introducing mocks. Use mocks only when testing specific unit behavior or when a real dependency is impractical.
 
 ## Development Commands
@@ -21,7 +22,7 @@ Keep this file concise. Use it to route agents to the right docs and nearby impl
 - Run core tests with `corepack pnpm test:core`. Run package tests with `corepack pnpm --filter './modules/module-postgres' test` or from the package directory with `corepack pnpm test`.
 - Focus Vitest runs with a file or test name where useful, for example `corepack pnpm --filter './modules/module-postgres' test test/src/wal_stream.test.ts --run -t "record too large"`.
 - Run `corepack pnpm format:dirty` before finishing changes that touch formatted source files. Use `corepack pnpm format:check` and `corepack pnpm validate:tsconfig-references` when formatting or project references may be affected.
-- Local service setup is documented in [`DEVELOP.md`](DEVELOP.md). The service usually needs Postgres and MongoDB test services plus local `service/powersync.yaml` and `service/sync-rules.yaml` files.
+- Local service setup is documented in [`DEVELOP.md`](DEVELOP.md). The service usually needs Postgres and MongoDB test services plus local `service/powersync.yaml` and `service/sync-config.yaml` files.
 - CI plans live in [`.github/workflows`](.github/workflows). Check them when choosing the closest local verification command for a change.
 
 ## Replication Work
@@ -34,6 +35,18 @@ Use this section when working on source replication modules, replication streams
 - Do not tell users to create or deploy a sync config "as a new replication stream." Replication streams, processing configs, and jobs are implementation details, not additional operator actions.
 - When the internal effect is useful context, explain it separately: a sync config deployment starts replacement processing, and the active sync config can keep serving clients while the replacement snapshots and catches up. Depending on storage support, that work may use a separate replication stream or a processing config in the existing stream.
 - For rolling source schema changes, state that the old table or capture instance must remain available until the new sync config becomes active. Call out expected downtime separately when the change requires disabling CDC or otherwise removes the active binding first.
+
+### Sync Rules Deprecation
+
+Sync Rules (`bucket_definitions:` with `parameters:` and `data:` queries) are deprecated in favour of Sync Streams (`streams:`).
+
+- **Sync config** is the whole deployed YAML, regardless of engine, and the name for functionality shared across engines. Use `SyncConfig` in identifiers and lowercase "sync config" in comments and messages.
+- When code, behavior, or syntax applies to a specific engine, use **Sync Streams** / `SyncStreams` or **legacy Sync Rules** / `SyncRules` in naming. Apply this distinction in identifiers, comments, test names, and docs. For example, use "Sync Streams SQL grammar" for its query syntax and "sync config schema" for the whole YAML.
+- **Sync Streams** is the current engine. Every new or example sync config, including tests, fixtures, and templates, uses `streams:` with `config: edition: 3`. Do not add new `bucket_definitions:` examples or fixtures.
+- **Legacy Sync Rules** is the deprecated engine. Its implementation lives in `packages/sync-rules/src/legacy/` and is marked `@deprecated`. Do not add features there.
+- Capitalize "Sync Streams", "Sync Stream", "Sync Rules", and "legacy Sync Rules" in comments, JSDoc, messages, test names, and docs. Identifiers keep code casing (`SyncStreamsCompiler`, `streams:`, `sync_rules`).
+- Lowercase "sync stream" means the client's streaming sync connection (`routes/endpoints/sync-stream.ts`, "Sync stream started"), a different concept. Reword ambiguous sentences to "the client's sync connection" or "the stream definition".
+- Never rename these public or persisted names: `/api/sync-rules/v1/*` route paths; JSON fields `sync_rules_content`, `active_sync_rules`, `deploying_sync_rules`, `sync_rules`, `bucket_definitions`, `data_queries`, `parameter_queries`; the MongoDB `sync_rules` collection, `custom_write_checkpoints.sync_rules_id`, index `user_sync_rule_unique`, `op_id_sequence` key `sync_rules`, and `rule_mapping`; the Postgres `sync_rules` table, `sync_rules_id_sequence`, `custom_write_checkpoints.sync_rules_id`, constraint `unique_user_sync`, and lock name prefix `sync_rules_`; `SyncRuleState` string values; migration scripts and changelogs; the npm package `@powersync/service-sync-rules`, `packages/sync-rules`, and `schema/sync_rules.json`; error codes `PSYNC_R0001` and `PSYNC_R2201`; the MySQL server-id format.
 
 ### Load Spec Context Selectively
 

@@ -1,14 +1,14 @@
 import { SqliteParameterValue } from '../types.js';
 
 /**
- * Stable value-based hashcodes for JavaScript. The sync streams compiler uses hashmaps derived from this to efficiently
+ * Stable value-based hashcodes for JavaScript. The Sync Streams compiler uses hashmaps derived from this to efficiently
  * de-duplicate equivalent expressions and lookups.
  *
  * This is copied from Dart SDK sources, which in turn based the algorithm on Jenkins hash functions.
  *
  * Because hash codes are stable across restarts, they should not be used for untrusted inputs to avoid attacks
  * provoking hash collisions and subpar hashmap performance. The sync rules package only uses these hashes to compile
- * sync streams, but the compiled IR processing source rows does not need these hashes.
+ * Sync Streams, but the compiled IR processing source rows does not need these hashes.
  */
 export class StableHasher {
   private static readonly seed: number = 614160925; // 'PowerSync'.hashCode on the Dart VM

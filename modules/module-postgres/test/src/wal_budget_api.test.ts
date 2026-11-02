@@ -1,5 +1,5 @@
 import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { describeWithStorage, StorageVersionTestContext } from './util.js';
 import { WalStreamTestContext, withMaxWalSize } from './wal_stream_utils.js';
 
@@ -36,15 +36,22 @@ bucket_definitions:
     await using _walSize = await withMaxWalSize(pool, '1GB');
 
     const adapter = new PostgresRouteAPIAdapter(pool);
-    const budget = await adapter.getSlotWalBudget({
-      slotName: context.storage!.replicationStreamName
-    });
+    // Already open pool connections apply the new limit asynchronously
+    const budget = await vi.waitFor(
+      async () => {
+        const budget = await adapter.getSlotWalBudget({
+          slotName: context.storage!.replicationStreamName
+        });
+        expect(budget).toBeDefined();
+        expect(budget!.safe_wal_size).toBeTypeOf('number');
+        expect(budget!.max_slot_wal_keep_size).toBeTypeOf('number');
+        return budget!;
+      },
+      { timeout: 5_000 }
+    );
 
-    expect(budget).toBeDefined();
-    expect(budget!.wal_status).toBeTypeOf('string');
-    expect(budget!.safe_wal_size).toBeTypeOf('number');
-    expect(budget!.max_slot_wal_keep_size).toBeTypeOf('number');
-    expect(budget!.max_slot_wal_keep_size).toBeGreaterThan(0);
+    expect(budget.wal_status).toBeTypeOf('string');
+    expect(budget.max_slot_wal_keep_size).toBeGreaterThan(0);
   });
 
   test('returns undefined max when unlimited', async () => {

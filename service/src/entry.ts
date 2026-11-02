@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { container, ContainerImplementation } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
 

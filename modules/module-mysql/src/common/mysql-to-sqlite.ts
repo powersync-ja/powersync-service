@@ -196,7 +196,7 @@ export function toSQLiteRow(
       result[key] = null;
     }
   }
-  return sync_rules.toSyncRulesRow(result);
+  return sync_rules.toSyncConfigRow(result);
 }
 
 export function toExpressionTypeFromMySQLType(mysqlType: string | undefined): ExpressionType {

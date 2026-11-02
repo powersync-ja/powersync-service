@@ -1,5 +1,49 @@
 # @powersync/service-core-tests
 
+## 0.18.4
+
+### Patch Changes
+
+- Updated dependencies [44ce423]
+- Updated dependencies [51a1a89]
+- Updated dependencies [e703ca5]
+- Updated dependencies [324093e]
+- Updated dependencies [286b0f8]
+- Updated dependencies [57ef2f4]
+- Updated dependencies [6700c71]
+  - @powersync/service-sync-rules@0.44.0
+  - @powersync/service-core@1.27.1
+  - @powersync/lib-services-framework@0.10.4
+
+## 0.18.3
+
+### Patch Changes
+
+- 5078032: Change the default MongoDB storage version from 2 to 4.
+- Updated dependencies [0483d4e]
+- Updated dependencies [28f024b]
+- Updated dependencies [5078032]
+- Updated dependencies [424bbc0]
+- Updated dependencies [e87703a]
+- Updated dependencies [b70f467]
+- Updated dependencies [18f0c95]
+- Updated dependencies [c60db6e]
+- Updated dependencies [0483d4e]
+- Updated dependencies [a8c3f15]
+  - @powersync/service-core@1.27.0
+  - @powersync/service-sync-rules@0.43.0
+  - @powersync/lib-services-framework@0.10.3
+
+## 0.18.2
+
+### Patch Changes
+
+- Updated dependencies [f842b4e]
+- Updated dependencies [5ae6f75]
+  - @powersync/service-core@1.26.1
+  - @powersync/service-sync-rules@0.42.0
+  - @powersync/lib-services-framework@0.10.2
+
 ## 0.18.1
 
 ### Patch Changes

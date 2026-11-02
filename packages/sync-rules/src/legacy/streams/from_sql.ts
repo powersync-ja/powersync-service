@@ -44,6 +44,9 @@ import {
 import { STREAM_FUNCTIONS } from './functions.js';
 import { SyncStream } from './stream.js';
 
+/**
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export function syncStreamFromSql(
   descriptorName: string,
   sql: string,
@@ -71,7 +74,7 @@ class SyncStreamCompiler {
   compile(): SyncStream {
     if (this.options.compatibility.edition < CompatibilityEdition.SYNC_STREAMS) {
       throw new SqlRuleError(
-        'Sync streams require edition 2 or later. Try adding a `config: {edition: 2} block to the end of the file.`',
+        'Sync Streams require edition 3. Add a `config: {edition: 3}` block to the sync config.',
         this.sql
       );
     }
@@ -374,7 +377,7 @@ class SyncStreamCompiler {
   }
 
   private compileSubquery(stmt: SelectStatement): [Subquery, SqlTools] | undefined {
-    // A subquery is similar to a data query in legacy sync rules. Importantly, despite being an expression, subqueries
+    // A subquery is similar to a data query in legacy Sync Rules. Importantly, despite being an expression, subqueries
     // can't reference columns from the outer query! The syntax is always `SELECT <single column> FROM <table> WHERE
     // <compiled clause>`.
     let validated;

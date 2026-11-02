@@ -2,6 +2,7 @@ import { DartSchemaGenerator } from './DartSchemaGenerator.js';
 import { DotNetClassSchemaGenerator, DotNetSchemaGenerator } from './DotNetSchemaGenerator.js';
 import { JsLegacySchemaGenerator } from './JsLegacySchemaGenerator.js';
 import { KotlinSchemaGenerator } from './KotlinSchemaGenerator.js';
+import { RustSchemaGenerator } from './RustSchemaGenerator.js';
 import { SwiftSchemaGenerator } from './SwiftSchemaGenerator.js';
 import { TsSchemaGenerator, TsSchemaLanguage } from './TsSchemaGenerator.js';
 
@@ -12,6 +13,7 @@ export const schemaGenerators = {
   js: new TsSchemaGenerator({ language: TsSchemaLanguage.js }),
   jsLegacy: new JsLegacySchemaGenerator(),
   kotlin: new KotlinSchemaGenerator(),
+  rust: new RustSchemaGenerator(),
   swift: new SwiftSchemaGenerator(),
   ts: new TsSchemaGenerator()
 };

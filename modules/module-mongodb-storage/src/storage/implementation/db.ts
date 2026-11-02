@@ -17,6 +17,7 @@ import {
   SyncRuleDocumentBase,
   WriteCheckpointDocument
 } from './models.js';
+import { MongoWriteBatch } from './MongoWriteBatch.js';
 import {
   BucketDataDocumentV1,
   BucketParameterDocument,
@@ -54,6 +55,19 @@ export class PowerSyncMongo {
 
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;
+  private get clientBulkWriteSupport(): boolean {
+    // The driver exposes topology at runtime, but omits this internal property
+    // from its public types. Reuse its handshake results without another command.
+    const client = this.client as mongo.MongoClient & { topology?: { description: mongo.TopologyDescription } };
+    const servers = [...(client.topology?.description.servers.values() ?? [])];
+    // MongoDB 8.0 introduced client bulkWrite at wire version 25. Unknown / mixed-version
+    // topologies use collection writes until all known servers support it.
+    return servers.length > 0 && servers.every((server) => server.maxWireVersion >= 25);
+  }
+
+  createWriteBatch(session: mongo.ClientSession | undefined, options: { ordered: boolean }): MongoWriteBatch {
+    return new MongoWriteBatch(this.client, this.clientBulkWriteSupport, session, options);
+  }
 
   constructor(client: mongo.MongoClient, options?: PowerSyncMongoOptions) {
     this.client = client;
@@ -67,6 +81,7 @@ export class PowerSyncMongo {
     this.bucket_data = db.collection('bucket_data');
     this.bucket_parameters = db.collection('bucket_parameters');
     this.op_id_sequence = db.collection('op_id_sequence');
+    // Uses legacy terminology instead of "sync config" for backwards-compatibility
     this.sync_rules = db.collection('sync_rules');
     this.source_tables = db.collection('source_tables');
     this.custom_write_checkpoints = db.collection('custom_write_checkpoints');

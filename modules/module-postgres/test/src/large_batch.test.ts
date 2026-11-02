@@ -1,4 +1,3 @@
-import { CURRENT_STORAGE_VERSION } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
 import { populateData } from '../../dist/utils/populate_test_data.js';
 import { env } from './env.js';
@@ -10,7 +9,7 @@ describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
     {
       timeout: 240_000,
       // These tests are slow, so only test the current storage version
-      storageVersions: [CURRENT_STORAGE_VERSION]
+      storageVersions: 'current'
     },
     defineBatchTests
   );

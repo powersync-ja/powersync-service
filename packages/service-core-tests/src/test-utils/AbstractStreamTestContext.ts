@@ -11,6 +11,7 @@ import {
 } from '@powersync/service-core';
 import { StorageDataHelpers } from './StorageDataHelpers.js';
 import { bucketRequest, getBatchArray } from './general-utils.js';
+import { getTestStorage } from './leased-storage.js';
 
 export abstract class AbstractStreamTestContext implements AsyncDisposable {
   protected abortController = new AbortController();
@@ -50,7 +51,7 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
     );
     this.replicationStream = stream;
     this.syncRulesContent = stream.syncConfigContent[0];
-    this.storage = this.factory.getInstance(stream);
+    this.storage = await getTestStorage(this.factory, stream);
     return this.storage!;
   }
 
@@ -62,7 +63,7 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
 
     this.syncRulesContent = syncConfig.content;
     this.replicationStream = syncConfig.replicationStream;
-    this.storage = syncConfig.storage;
+    this.storage = await getTestStorage(this.factory, syncConfig.replicationStream);
     return this.storage!;
   }
 
@@ -74,7 +75,7 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
 
     this.syncRulesContent = syncConfig.content;
     this.replicationStream = syncConfig.replicationStream;
-    this.storage = syncConfig.storage;
+    this.storage = await getTestStorage(this.factory, syncConfig.replicationStream);
     return this.storage!;
   }
 

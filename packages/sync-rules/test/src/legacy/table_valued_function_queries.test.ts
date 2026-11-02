@@ -1,17 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import {
-  CompatibilityContext,
-  CompatibilityEdition,
-  CompatibilityOption,
-  RequestJwtPayload
-} from '../../../src/index.js';
+import { CompatibilityContext, CompatibilityEdition, CompatibilityOption } from '../../../src/index.js';
 import { SqlParameterQuery } from '../../../src/legacy/SqlParameterQuery.js';
 import { StaticSqlParameterQuery } from '../../../src/legacy/StaticSqlParameterQuery.js';
 import { bucketDataScope, EMPTY_DATA_SOURCE, PARSE_OPTIONS, requestParameters } from '../util.js';
 
 describe('table-valued function queries', () => {
-  const emptyPayload: RequestJwtPayload = { userIdJson: '', parsedPayload: {} };
-
   test('json_each(array param)', function () {
     const sql = "SELECT json_each.value as v FROM json_each(request.parameters() -> 'array')";
     const query = SqlParameterQuery.fromSql(

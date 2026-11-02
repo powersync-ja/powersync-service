@@ -38,7 +38,8 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
 
   getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
-      defaultSchema: 'public'
+      defaultSchema: 'public',
+      connections: { [this.connectionTag]: { type: this.config?.type ?? types.POSTGRES_CONNECTION_TYPE } }
     };
   }
 
@@ -109,7 +110,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
             return row.raw.map((raw, i) => {
               const value = pgwire.PgType.decode(raw, row.columns[i].typeOid);
               const sqlValue = sync_rules.applyValueContext(
-                sync_rules.toSyncRulesValue(value),
+                sync_rules.toSyncConfigValue(value),
                 sync_rules.CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
               );
               if (typeof sqlValue == 'bigint') {
@@ -137,7 +138,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
 
   async getDebugTablesInfo(
     tablePatterns: sync_rules.TablePattern[],
-    sqlSyncRules: sync_rules.SqlSyncRules
+    sqlSyncRules: sync_rules.SyncConfig
   ): Promise<api.PatternResult[]> {
     if (!this.config) {
       throw new ServiceAssertionError(`config is required`);

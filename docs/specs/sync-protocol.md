@@ -4,7 +4,7 @@ This document is a work in progress - more details to be added over time.
 
 # Sync stream
 
-A sync stream contains 5 possible messages:
+A sync stream contains 6 possible messages:
 
 ## StreamingSyncCheckpoint
 
@@ -77,6 +77,35 @@ Format:
 `last_op_id` here _must_ match the `last_op_id` of the last `StreamingSyncCheckpoint` or `StreamingSyncCheckpointDiff` message sent.
 
 It is not required to have one `StreamingSyncCheckpointComplete` message for every `StreamingSyncCheckpoint` or `StreamingSyncCheckpointDiff`. In some cases, a checkpoint may be invalidated while data were being sent, in which case no matching `StreamingSyncCheckpointComplete` will be sent. Instead, another `StreamingSyncCheckpoint` or `StreamingSyncCheckpointDiff` will be sent with a new checkpoint.
+
+### StreamingSyncPartialCheckpointComplete
+
+When a tracked checkpoint (from the last [checkpoint](#streamingsynccheckpoint) or [diff checkpoint](#streamingsynccheckpointdiff))
+contains buckets in different priorities, the service sends ([data lines](#streamingsyncdata)) in priority order, starting with higher-priority
+buckets.
+
+Between data lines of different priorities, the service emits a partial checkpoint complete message:
+
+Format:
+
+```ts
+{
+  partial_checkpoint_complete: {
+    last_op_id: OpId;
+    priority: BucketPriority /* 0 | 1 | 2 | 3 */;
+  }
+}
+```
+
+Clients can use this to sync changes for a subset of buckets before having to download everything else.
+
+> [!IMPORTANT]
+> Buckets with the highest priority `0` [behave differently](https://docs.powersync.com/sync/streams/prioritized-sync#special-case-priority-0)
+> on the client. Clients need to recognize the case where a checkpoint consists of priority `0` buckets only, as no partial complete
+> message is sent in that case.
+
+Additionally, the service _may_ interrupt sending lower-priority data lines once a change in a higher-priority bucket is detected.
+In this cases, a new `StreamingSyncCheckpointDiff` line is sent before a (partial) complete message.
 
 ## StreamingSyncKeepalive
 

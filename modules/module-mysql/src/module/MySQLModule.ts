@@ -25,8 +25,6 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
     });
   }
 
-  async onInitialized(context: system.ServiceContextContainer): Promise<void> {}
-
   protected createRouteAPIAdapter(): api.RouteAPI {
     return new MySQLRouteAPIAdapter(this.resolveConfig(this.decodedConfig!));
   }
@@ -40,6 +38,7 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
       id: this.getDefaultId(normalisedConfig.database),
       syncRuleProvider: syncRuleProvider,
       storageEngine: context.storageEngine,
+      configuration: context.configuration,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,
       rateLimiter: new MySQLErrorRateLimiter()

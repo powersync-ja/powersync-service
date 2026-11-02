@@ -47,7 +47,7 @@ Copy the template configuration files and configure any changes to your local ne
 ```bash
 cd ./service
 cp local-dev/powersync-template.yaml powersync.yaml
-cp local-dev/sync-rules-template.yaml sync-rules.yaml
+cp local-dev/sync-config-template.yaml sync-config.yaml
 ```
 
 ## Starting Service

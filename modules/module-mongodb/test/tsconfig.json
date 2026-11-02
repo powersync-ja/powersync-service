@@ -6,9 +6,9 @@
       "@module/*": ["../src/*"],
       "@core-tests/*": ["../../../packages/service-core/test/src/*"]
     },
-    "rootDir": "src"
+    "rootDir": ".."
   },
-  "include": ["src"],
+  "include": ["src", "../benchmarks"],
   "references": [
     {
       "path": "../"

@@ -16,6 +16,8 @@ export interface MongoCompactOptions extends storage.CompactOptions {
    * the lightweight pass.
    */
   compactChunksOnly?: boolean;
+  /** Internal/testing use: bypass the new-chunk threshold during chunk-only compaction. */
+  forceChunkCompaction?: boolean;
 }
 
 const DEFAULT_CLEAR_BATCH_LIMIT = 5000;

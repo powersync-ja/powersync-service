@@ -20,9 +20,9 @@ import {
   ParameterLookupDefinitionId,
   ParameterLookupRows,
   ParameterLookupScope,
+  parseSyncConfig,
   ScopedParameterLookup,
   SourceTableRef,
-  SqlSyncRules,
   TablePattern,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
@@ -58,7 +58,7 @@ describe('BucketChecksumState', () => {
 
   // Single global[] bucket.
   // We don't care about data in these tests
-  const SYNC_RULES_GLOBAL = SqlSyncRules.fromYaml(
+  const SYNC_RULES_GLOBAL = parseSyncConfig(
     `
 bucket_definitions:
   global:
@@ -68,7 +68,7 @@ bucket_definitions:
   ).config.hydrate({ hydrationState: versionedHydrationState(1), sqlite: nodeSqlite(sqlite) });
 
   // global[1] and global[2]
-  const SYNC_RULES_GLOBAL_TWO = SqlSyncRules.fromYaml(
+  const SYNC_RULES_GLOBAL_TWO = parseSyncConfig(
     `
 bucket_definitions:
   global:
@@ -81,7 +81,7 @@ bucket_definitions:
   ).config.hydrate({ hydrationState: versionedHydrationState(2), sqlite: nodeSqlite(sqlite) });
 
   // by_project[n]
-  const SYNC_RULES_DYNAMIC = SqlSyncRules.fromYaml(
+  const SYNC_RULES_DYNAMIC = parseSyncConfig(
     `
 bucket_definitions:
   by_project:
@@ -698,7 +698,7 @@ config:
 `;
       }
 
-      const rules = SqlSyncRules.fromYaml(source, {
+      const rules = parseSyncConfig(source, {
         defaultSchema: 'public'
       }).config.hydrate({ hydrationState: versionedHydrationState(1), sqlite: nodeSqlite(sqlite) });
 
@@ -717,6 +717,195 @@ config:
       storage.updateTestChecksum({ bucket: '1#stream|0["default"]', checksum: 1, count: 1 });
       storage.updateTestChecksum({ bucket: '1#stream|0["a"]', checksum: 1, count: 1 });
       storage.updateTestChecksum({ bucket: '1#stream|0["b"]', checksum: 1, count: 1 });
+    });
+
+    // Auto-subscription includes profiles in both cases. The explicit subscription adds another
+    // inclusion reason and overrides priority 3 with priority 1; it does not enable the stream.
+    test.each([false, true])(
+      'fetches overlapping static and dynamic buckets only once (custom subscription: %s)',
+      async (subscribe) => {
+        // Alice's profile is selected directly through auth.user_id() and also
+        // through her membership in her own group. Both branches resolve to the same bucket.
+        const state = checksumState(
+          /* yaml */ `
+            # Select the same profile through static and dynamic parameters.
+            config:
+              edition: 3
+            streams:
+              profiles:
+                auto_subscribe: true
+                query: |
+                  SELECT id, name FROM profiles
+                  WHERE id = auth.user_id()
+                     OR id IN (SELECT member_id FROM memberships WHERE owner_id = auth.user_id())
+          `,
+          {
+            tokenPayload: new JwtPayload({ sub: 'alice' }),
+            syncRequest: {
+              streams: {
+                subscriptions: subscribe ? [{ stream: 'profiles', parameters: null, override_priority: 1 }] : []
+              }
+            }
+          }
+        );
+        const bucket = '1#profiles|0["alice"]';
+        storage.updateTestChecksum({ bucket, checksum: 1, count: 1 });
+
+        const line = (await state.buildNextCheckpointLine({
+          // Supply the membership lookup result without a database. '0' is the generated
+          // output column for member_id in the compiled parameter query.
+          base: storage.makeCheckpoint(1n, (lookups) => [{ lookup: lookups[0], rows: [{ '0': 'alice' }] }]),
+          writeCheckpoint: null,
+          update: CHECKPOINT_INVALIDATE_ALL
+        }))!;
+        line.advance();
+
+        // Check the request arrays directly: converting them to a Map would hide duplicates.
+        // Postgres fetches operations once per request, so duplicates here duplicate the data.
+        expect(line.bucketsToFetch.map((description) => description.bucket)).toEqual([bucket]);
+        expect(line.getFilteredBucketPositions().map((request) => request.bucket)).toEqual([bucket]);
+        // Merging must retain the default and any explicit subscription, using the lowest
+        // numeric priority (the highest sync priority) among them.
+        expect(line.checkpointLine).toMatchObject({
+          checkpoint: {
+            buckets: [
+              {
+                bucket,
+                checksum: 1,
+                count: 1,
+                priority: subscribe ? 1 : 3,
+                subscriptions: expect.arrayContaining(subscribe ? [{ default: 0 }, { sub: 0 }] : [{ default: 0 }])
+              }
+            ]
+          }
+        });
+
+        // Only bucket data changes at this checkpoint, so reuse the cached membership result.
+        // The first download is still pending; its next fetch must also contain only one request.
+        // Incremental requests are already deduplicated by a Set, so also check the description:
+        // it must retain the inclusion reasons from both the static and cached dynamic matches.
+        storage.updateTestChecksum({ bucket, checksum: 2, count: 2 });
+        const cachedLine = (await state.buildNextCheckpointLine({
+          base: storage.makeCheckpoint(2n),
+          writeCheckpoint: null,
+          update: {
+            invalidateDataBuckets: false,
+            invalidateParameterBuckets: false,
+            updatedDataBuckets: new Set([bucket]),
+            updatedParameterLookups: new Set()
+          }
+        }))!;
+        cachedLine.advance();
+        expect(cachedLine.getFilteredBucketPositions().map((request) => request.bucket)).toEqual([bucket]);
+        expect(cachedLine.bucketsToFetch).toMatchObject([
+          {
+            bucket,
+            priority: subscribe ? 1 : 3,
+            inclusion_reasons: expect.arrayContaining(subscribe ? ['default', { subscription: 0 }] : ['default'])
+          }
+        ]);
+        expect(cachedLine.checkpointLine).toMatchObject({
+          checkpoint_diff: {
+            updated_buckets: [
+              {
+                bucket,
+                checksum: 2,
+                count: 2,
+                priority: subscribe ? 1 : 3,
+                subscriptions: expect.arrayContaining(subscribe ? [{ default: 0 }, { sub: 0 }] : [{ default: 0 }])
+              }
+            ]
+          }
+        });
+
+        // Simulate Alice leaving the group by returning no membership rows. The direct auth
+        // match must keep her bucket. Change its checksum so a new checkpoint line is emitted.
+        storage.updateTestChecksum({ bucket, checksum: 3, count: 3 });
+        const staticLine = (await state.buildNextCheckpointLine({
+          base: storage.makeCheckpoint(3n, (lookups) => lookups.map((lookup) => ({ lookup, rows: [] }))),
+          writeCheckpoint: null,
+          update: CHECKPOINT_INVALIDATE_ALL
+        }))!;
+        staticLine.advance();
+        expect(staticLine.getFilteredBucketPositions().map((request) => request.bucket)).toEqual([bucket]);
+      }
+    );
+
+    test('preserves static subscription metadata when a dynamic match overlaps', async () => {
+      const state = checksumState(
+        /* yaml */ `
+          # The explicit subscription contributes priority through its static match.
+          config:
+            edition: 3
+          streams:
+            profiles:
+              auto_subscribe: true
+              query: |
+                SELECT id, name FROM profiles
+                WHERE id = auth.user_id()
+                   OR id IN (
+                     SELECT member_id FROM memberships
+                     WHERE owner_id = ifnull(subscription.parameter('owner_id'), auth.user_id())
+                   )
+        `,
+        {
+          tokenPayload: new JwtPayload({ sub: 'alice' }),
+          syncRequest: {
+            streams: {
+              subscriptions: [{ stream: 'profiles', parameters: { owner_id: 'bob' }, override_priority: 1 }]
+            }
+          }
+        }
+      );
+      const bucket = '1#profiles|0["alice"]';
+
+      // Both subscriptions select Alice statically, but only the default subscription finds
+      // her through memberships. Keeping only the dynamic description would lose sub: 0 and
+      // its priority override. Check both the initial and cached incremental checkpoints.
+      for (const checkpoint of [1n, 2n]) {
+        storage.updateTestChecksum({ bucket, checksum: Number(checkpoint), count: Number(checkpoint) });
+        const line = (await state.buildNextCheckpointLine({
+          base: storage.makeCheckpoint(
+            checkpoint,
+            checkpoint === 1n
+              ? (lookups) =>
+                  lookups.map((lookup) => ({
+                    lookup,
+                    rows: lookup.values.includes('alice') ? [{ '0': 'alice' }] : []
+                  }))
+              : undefined
+          ),
+          writeCheckpoint: null,
+          update:
+            checkpoint === 1n
+              ? CHECKPOINT_INVALIDATE_ALL
+              : {
+                  invalidateDataBuckets: false,
+                  invalidateParameterBuckets: false,
+                  updatedDataBuckets: new Set([bucket]),
+                  updatedParameterLookups: new Set()
+                }
+        }))!;
+        line.advance();
+        expect(line.bucketsToFetch).toMatchObject([
+          {
+            bucket,
+            priority: 1,
+            inclusion_reasons: expect.arrayContaining(['default', { subscription: 0 }])
+          }
+        ]);
+        const descriptions =
+          'checkpoint' in line.checkpointLine
+            ? line.checkpointLine.checkpoint.buckets
+            : line.checkpointLine.checkpoint_diff.updated_buckets;
+        expect(descriptions).toMatchObject([
+          {
+            bucket,
+            priority: 1,
+            subscriptions: expect.arrayContaining([{ default: 0 }, { sub: 0 }])
+          }
+        ]);
+      }
     });
 
     test('includes defaults', async () => {
@@ -948,7 +1137,7 @@ config:
     });
 
     test('throws error with breakdown when too many parameters were fetched', async () => {
-      const syncRules = SqlSyncRules.fromYaml(
+      const syncRules = parseSyncConfig(
         `
 config:
   edition: 3
@@ -1052,7 +1241,7 @@ streams:
     });
 
     test('throws error when too many lookups are requested at once', async () => {
-      const syncRules = SqlSyncRules.fromYaml(
+      const syncRules = parseSyncConfig(
         `
 config:
   edition: 3
@@ -1120,7 +1309,7 @@ streams:
     test('throws error with breakdown when bucket limit is exceeded', async () => {
       // These streams are designed to return buckets without consuming too many parameters (as exceeding that limit is
       // a different error).
-      const SYNC_RULES_MULTI = SqlSyncRules.fromYaml(
+      const SYNC_RULES_MULTI = parseSyncConfig(
         `
 config:
   edition: 3
@@ -1183,7 +1372,7 @@ streams:
       ).rejects.toThrow('Too many buckets: 60 (limit of 50');
 
       // Verify error log includes breakdown
-      expect(errorMessages[0]).toContain('(limit of 50)\nBuckets by sync stream:');
+      expect(errorMessages[0]).toContain('(limit of 50)\nBuckets by Sync Stream:');
       expect(errorMessages[0]).toContain('projects: 30');
       expect(errorMessages[0]).toContain('tasks: 20');
       expect(errorMessages[0]).toContain('comments: 10');
@@ -1198,7 +1387,7 @@ streams:
     });
 
     test('labels the bucket breakdown as bucket definitions for legacy sync rules', async () => {
-      const legacySyncRules = SqlSyncRules.fromYaml(
+      const legacySyncRules = parseSyncConfig(
         `
 bucket_definitions:
   projects:
@@ -1242,8 +1431,8 @@ bucket_definitions:
       expect(errorMessages[0]).toContain('projects: 60');
     });
 
-    test('limits bucket breakdown to top 100 sync streams', async () => {
-      // Create 105 sync streams with dynamic parameters.
+    test('limits bucket breakdown to top 100 Sync Streams', async () => {
+      // Create 105 Sync Streams with dynamic parameters.
       let yamlDefinitions = `
 config:
   edition: 3
@@ -1256,7 +1445,7 @@ streams:
         yamlDefinitions += `    query: SELECT * FROM tbl WHERE b = auth.parameter('${i}')\n`;
       }
 
-      const SYNC_RULES_MANY = SqlSyncRules.fromYaml(yamlDefinitions, { defaultSchema: 'public' }).config.hydrate({
+      const SYNC_RULES_MANY = parseSyncConfig(yamlDefinitions, { defaultSchema: 'public' }).config.hydrate({
         hydrationState: versionedHydrationState(5),
         sqlite: nodeSqlite(sqlite)
       });
@@ -1301,10 +1490,10 @@ streams:
 
       // Verify only the first 100 are shown.
       const errorMessage = errorMessages[0];
-      expect(errorMessage).toContain('Buckets by sync stream:');
-      expect(errorMessage).toContain('... and 5 more buckets from 5 sync streams');
+      expect(errorMessage).toContain('Buckets by Sync Stream:');
+      expect(errorMessage).toContain('... and 5 more buckets from 5 Sync Streams');
 
-      // Count how many sync streams are listed (should be exactly 100).
+      // Count how many Sync Streams are listed (should be exactly 100).
       const defMatches = errorMessage.match(/def\d+:/g);
       expect(defMatches?.length).toBe(100);
     });

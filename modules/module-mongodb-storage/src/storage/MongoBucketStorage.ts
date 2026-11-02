@@ -22,15 +22,18 @@ import {
   formatIncrementalSyncConfigUpdateLog,
   isCompatible
 } from '@powersync/service-core';
+import { Semaphore } from 'async-mutex';
 import { ObjectId } from 'bson';
-import { DEFAULT_CLEAR_BATCH_THROTTLE_RATE } from '../types/types.js';
+import { DEFAULT_CLEAR_BATCH_THROTTLE_RATE, normalizeChunkCompactionConcurrency } from '../types/types.js';
 import { generateReplicationStreamName } from '../utils/util.js';
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { PowerSyncMongo } from './implementation/db.js';
 import { getMongoStorageConfig, StorageConfig, SyncRuleDocumentBase } from './implementation/models.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
+import { MongoOpIdAllocator } from './implementation/MongoOpIdAllocator.js';
 import { MongoPersistedReplicationStream } from './implementation/MongoPersistedReplicationStream.js';
+import { MongoSyncRulesLock } from './implementation/MongoSyncRulesLock.js';
 import { stopReplicationStreamPipeline } from './implementation/SyncRuleStateUpdate.js';
 import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
 import { ObjectStorage } from './implementation/v3/object-storage/ObjectStorage.js';
@@ -42,6 +45,8 @@ export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
   objectStorage?: ObjectStorage;
   inlineThresholdBytes?: number;
+  /** Shared across chunk-compaction jobs. Default: 4 with object storage, otherwise 2. */
+  chunkCompactionConcurrency?: number;
   /**
    * Prefix for replication stream name and Postgres logical replication slot name.
    */
@@ -66,22 +71,45 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   private readonly client: mongo.MongoClient;
   public readonly replicationStreamNamePrefix: string;
 
+  private readonly opIdAllocators = new Map<number, { lock: MongoSyncRulesLock; allocator: MongoOpIdAllocator }>();
+
+  discardOpIdAllocator(streamId: number) {
+    this.opIdAllocators.get(streamId)?.allocator.discard();
+    this.opIdAllocators.delete(streamId);
+  }
+
+  getOpIdAllocator(stream: MongoPersistedReplicationStream, lock: MongoSyncRulesLock): MongoOpIdAllocator {
+    lock.throwIfAborted();
+    const previous = this.opIdAllocators.get(stream.replicationStreamId);
+    if (previous?.lock === lock) {
+      return previous.allocator;
+    }
+    previous?.allocator.discard();
+    const allocator = new MongoOpIdAllocator(this.db.versioned(stream.getStorageConfig()));
+    this.opIdAllocators.set(stream.replicationStreamId, { lock, allocator });
+    return allocator;
+  }
+
   private activeStorageCache: MongoSyncBucketStorage | undefined;
 
   public readonly db: PowerSyncMongo;
+  public readonly chunkCompactionConcurrency: number;
+  public readonly chunkCompactionSlots: Semaphore;
 
   constructor(
     db: PowerSyncMongo,
     private options: MongoBucketStorageOptions
   ) {
     super();
+    this.chunkCompactionConcurrency = normalizeChunkCompactionConcurrency(
+      options.chunkCompactionConcurrency,
+      options.objectStorage != null
+    );
+    // All replication streams created by this factory share the configured limit.
+    this.chunkCompactionSlots = new Semaphore(this.chunkCompactionConcurrency);
     this.client = db.client;
     this.db = db;
     this.replicationStreamNamePrefix = options.replicationStreamNamePrefix;
-  }
-
-  async [Symbol.asyncDispose]() {
-    // No-op
   }
 
   getInstance(
@@ -96,6 +124,15 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       replicationStreamId = Number(replicationStreamId);
     }
     const storageConfig = replicationStream.getStorageConfig();
+    if (options?.replicationLock != null) {
+      if (
+        !(options.replicationLock instanceof MongoSyncRulesLock) ||
+        options.replicationLock.sync_rules_id !== replicationStream.replicationStreamId
+      ) {
+        throw new ReplicationAssertionError('Replication lock does not belong to this MongoDB stream');
+      }
+      replicationStream.current_lock = options.replicationLock;
+    }
     const syncRuleStorage = createMongoSyncBucketStorage(
       this,
       replicationStreamId,
@@ -265,7 +302,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       options.storageVersion ??
       options.config.parsed.config.storageVersion ??
       this.options.defaultStorageVersion ??
-      storage.CURRENT_STORAGE_VERSION;
+      storage.STORAGE_VERSION_4;
     const storageConfig = getMongoStorageConfig(storageVersion);
     if (storageConfig.incrementalReprocessing) {
       return this.updateSyncConfigV3InTransaction(options, storageVersion, storageConfig, session);
@@ -322,6 +359,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
       {
+        // Uses the legacy id "sync_rules" for backwards-compatibility. See AGENTS.md.
         _id: 'sync_rules'
       },
       {
@@ -341,9 +379,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     const mapping =
       options.config.plan == null
-        ? // For legacy sync rules and streams, use the parsed config directly to create a mapping
+        ? // For legacy Sync Rules and Streams, use the parsed config directly to create a mapping
           SingleSyncConfigBucketDefinitionMapping.fromParsedSyncConfig(options.config.parsed)
-        : // For new sync streams, always use the serialized version
+        : // For new Sync Streams, always use the serialized version
           SingleSyncConfigBucketDefinitionMapping.constructIncrementalMappingFromSerializedPlans(
             [],
             options.config.plan.plan,
@@ -553,6 +591,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
       {
+        // Uses the legacy id "sync_rules" for backwards-compatibility. See AGENTS.md.
         _id: 'sync_rules'
       },
       {

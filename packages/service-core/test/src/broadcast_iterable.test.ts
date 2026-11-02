@@ -1,29 +1,43 @@
 import { BroadcastIterable, IterableSource } from '@/streams/BroadcastIterable.js';
-import { AsyncIterableX, interval } from 'ix/asynciterable/index.js';
-import { delayEach } from 'ix/asynciterable/operators/delayeach.js';
-import { take } from 'ix/asynciterable/operators/take.js';
-import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
-import { toArray } from 'ix/asynciterable/toarray.js';
-import * as timers from 'timers/promises';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// The global setTimeout, not the one from timers/promises: vi.useFakeTimers() only replaces the global timers
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function collect<T>(source: AsyncIterable<T>, options: { delayMs?: number; limit?: number } = {}): Promise<T[]> {
+  const results: T[] = [];
+  for await (const value of source) {
+    if (options.delayMs) await sleep(options.delayMs);
+    results.push(value);
+    if (results.length === options.limit) break;
+  }
+  return results;
+}
 
 describe('BroadcastIterable', () => {
-  it('should iterate', async () => {
-    const range = AsyncIterableX.from([1, 2, 3]);
-    const broadcast = new BroadcastIterable(() => range);
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-    const results = await toArray(broadcast);
+  it('should iterate', async () => {
+    const range = async function* () {
+      yield* [1, 2, 3];
+    };
+    const broadcast = new BroadcastIterable(range);
+
+    const results = await collect(broadcast);
     expect(results).toEqual([1, 2, 3]);
     expect(broadcast.active).toBe(false);
   });
 
   it('should skip values if sink is slow', async () => {
-    const range = AsyncIterableX.from([1, 2, 3]);
-    const broadcast = new BroadcastIterable(() => range);
+    const range = async function* () {
+      yield* [1, 2, 3];
+    };
+    const broadcast = new BroadcastIterable(range);
 
     // Delay reading each element
-    const delayed = delayEach(1)(broadcast);
-    const results = await toArray(delayed);
+    const results = await collect(broadcast, { delayMs: 1 });
 
     // We only get a single value, then done.
     expect(results).toEqual([1]);
@@ -31,31 +45,60 @@ describe('BroadcastIterable', () => {
   });
 
   it('should abort', async () => {
-    const range = AsyncIterableX.from([1, 2, 3]);
+    const range = async function* () {
+      yield* [1, 2, 3];
+    };
     let recordedSignal: AbortSignal | undefined;
     const broadcast = new BroadcastIterable((signal) => {
       recordedSignal = signal;
-      return range;
+      return range();
     });
 
     const controller = new AbortController();
     const iter = broadcast[Symbol.asyncIterator](controller.signal);
     await iter.next();
     controller.abort();
-    await expect(iter.next()).rejects.toThrow('The operation has been aborted');
+    await expect(iter.next()).rejects.toBe(controller.signal.reason);
     expect(recordedSignal!.aborted).toEqual(true);
+    expect(recordedSignal!.reason).toBe(controller.signal.reason);
   });
 
+  it.each([new Error('subscriber cancelled'), 'cancelled', 0, false, null])(
+    'preserves subscriber abort reason %s when stopping the shared source',
+    async (reason) => {
+      let sourceSignal: AbortSignal | undefined;
+      const broadcast = new BroadcastIterable(async function* (signal) {
+        sourceSignal = signal;
+        yield 1;
+        if (!signal.aborted) {
+          await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+        }
+      });
+      const controller = new AbortController();
+      const iterator = broadcast[Symbol.asyncIterator](controller.signal);
+      await iterator.next();
+      controller.abort(reason);
+      await expect(iterator.next()).rejects.toBe(reason);
+      expect(sourceSignal!.reason).toBe(reason);
+    }
+  );
+
   it('should handle indefinite sources', async () => {
-    const source: IterableSource<number> = (signal) => {
-      return wrapWithAbort(interval(1), signal);
+    vi.useFakeTimers();
+    const source: IterableSource<number> = async function* (signal) {
+      for (let i = 0; !signal.aborted; i++) {
+        await sleep(1);
+        signal.throwIfAborted();
+        yield i;
+      }
     };
 
     const broadcast = new BroadcastIterable(source);
 
-    const delayed = delayEach(10)(broadcast);
     expect(broadcast.active).toBe(false);
-    const results = await toArray(take(5)(delayed));
+    const resultsPromise = collect(broadcast, { delayMs: 10, limit: 5 });
+    await vi.advanceTimersByTimeAsync(100);
+    const results = await resultsPromise;
 
     expect(results.length).toEqual(5);
     expect(results[0]).toEqual(0);
@@ -66,6 +109,7 @@ describe('BroadcastIterable', () => {
   });
 
   it('should handle multiple subscribers', async () => {
+    vi.useFakeTimers();
     let sourceIndex = 0;
     const source = async function* (signal: AbortSignal) {
       // Test value out by 1000 means it may have used the wrong iteration of the source
@@ -75,7 +119,7 @@ describe('BroadcastIterable', () => {
       });
       for (let i = 0; !signal.aborted; i++) {
         yield base + i;
-        await Promise.race([abortedPromise, timers.setTimeout(1)]);
+        await Promise.race([abortedPromise, sleep(1)]);
       }
       // Test value out by 100 means this wasn't reached
       sourceIndex += 100;
@@ -83,11 +127,10 @@ describe('BroadcastIterable', () => {
 
     const broadcast = new BroadcastIterable(source);
 
-    const delayed1 = delayEach(9)(broadcast);
-    const delayed2 = delayEach(10)(broadcast);
     expect(broadcast.active).toBe(false);
-    const results1Promise = toArray(take(5)(delayed1));
-    const results2Promise = toArray(take(5)(delayed2));
+    const results1Promise = collect(broadcast, { delayMs: 9, limit: 5 });
+    const results2Promise = collect(broadcast, { delayMs: 10, limit: 5 });
+    await vi.advanceTimersByTimeAsync(100);
     const [results1, results2] = [await results1Promise, await results2Promise];
 
     expect(broadcast.active).toBe(false);
@@ -103,8 +146,9 @@ describe('BroadcastIterable', () => {
     expect(results2[4]).toBeLessThan(1045);
 
     // This starts a new source
-    const delayed3 = delayEach(10)(broadcast);
-    const results3 = await toArray(take(5)(delayed3));
+    const results3Promise = collect(broadcast, { delayMs: 10, limit: 5 });
+    await vi.advanceTimersByTimeAsync(100);
+    const results3 = await results3Promise;
     expect(results3.length).toEqual(5);
     expect(results3[0]).toEqual(2100);
     expect(results3[4]).toBeGreaterThan(2110);
@@ -112,6 +156,7 @@ describe('BroadcastIterable', () => {
   });
 
   it('should handle errors on multiple subscribers', async () => {
+    vi.useFakeTimers();
     let sourceIndex = 0;
     const source = async function* (signal: AbortSignal) {
       // Test value out by 1000 means it may have used the wrong iteration of the source
@@ -124,7 +169,7 @@ describe('BroadcastIterable', () => {
           throw new Error('simulated failure');
         }
         yield base + i;
-        await Promise.race([abortedPromise, timers.setTimeout(1)]);
+        await Promise.race([abortedPromise, sleep(1)]);
       }
       // Test value out by 100 means this wasn't reached
       sourceIndex += 100;
@@ -132,13 +177,13 @@ describe('BroadcastIterable', () => {
 
     const broadcast = new BroadcastIterable(source);
 
-    const delayed1 = delayEach(9)(broadcast);
-    const delayed2 = delayEach(10)(broadcast);
     expect(broadcast.active).toBe(false);
-    const results1Promise = toArray(take(5)(delayed1)) as Promise<number[]>;
-    const results2Promise = toArray(take(5)(delayed2)) as Promise<number[]>;
+    const results1Promise = collect(broadcast, { delayMs: 9, limit: 5 }) as Promise<number[]>;
+    const results2Promise = collect(broadcast, { delayMs: 10, limit: 5 }) as Promise<number[]>;
 
-    const [r1, r2] = await Promise.allSettled([results1Promise, results2Promise]);
+    const settled = Promise.allSettled([results1Promise, results2Promise]);
+    await vi.advanceTimersByTimeAsync(100);
+    const [r1, r2] = await settled;
 
     expect(r1).toEqual({ status: 'rejected', reason: new Error('simulated failure') });
     expect(r2).toEqual({ status: 'rejected', reason: new Error('simulated failure') });
@@ -146,8 +191,9 @@ describe('BroadcastIterable', () => {
     expect(broadcast.active).toBe(false);
 
     // This starts a new source
-    const delayed3 = delayEach(10)(broadcast);
-    const results3 = await toArray(take(5)(delayed3));
+    const results3Promise = collect(broadcast, { delayMs: 10, limit: 5 });
+    await vi.advanceTimersByTimeAsync(100);
+    const results3 = await results3Promise;
     expect(results3.length).toEqual(5);
     expect(results3[0]).toEqual(2000);
     expect(results3[4]).toBeGreaterThan(2010);

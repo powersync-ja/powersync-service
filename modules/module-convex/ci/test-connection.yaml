@@ -1,0 +1,13 @@
+# Used by the Convex connection CLI check in .github/workflows/test.yml.
+replication:
+  connections:
+    - type: convex
+      deployment_url: !env PS_CONVEX_URL
+      deploy_key: !env PS_CONVEX_DEPLOY_KEY
+
+storage:
+  type: mongodb
+  uri: mongodb://localhost:27017/powersync_test_connection
+
+telemetry:
+  disable_telemetry_sharing: true

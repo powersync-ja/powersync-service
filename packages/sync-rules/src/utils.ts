@@ -2,8 +2,8 @@ import { JSONBig, JsonContainer, Replacer, stringifyRaw } from '@powersync/servi
 import { SelectFromStatement, Statement } from 'pgsql-ast-parser';
 import { BucketDescription, BucketInclusionReason, BucketPriority, ResolvedBucket } from './BucketDescription.js';
 import { BucketDataSource } from './BucketSource.js';
-import { CompatibilityContext } from './compatibility.js';
-import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
+import { CompatibilityContext, CompatibilityOption } from './compatibility.js';
+import { SyncConfigProcessingError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
 import { SQLITE_FALSE, SQLITE_TRUE } from './sqliteBool.js';
 import {
@@ -59,21 +59,63 @@ export function resolvedBucket(
  * bucket.
  */
 export function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
-  const byBucketId: Record<string, ResolvedBucket> = {};
+  interface PendingResolvedBucket {
+    resolved: ResolvedBucket;
+    coveredByDefaultSubscription: boolean;
+    explicitSubscriptionReasons: number[];
+  }
+
+  const pending = new Map<string, PendingResolvedBucket>();
+  const allBuckets: ResolvedBucket[] = [];
 
   for (const bucket of buckets) {
-    const existing = byBucketId[bucket.bucket];
+    const existing = pending.get(bucket.bucket);
+    let resolved: PendingResolvedBucket;
 
     if (existing != null) {
-      existing.inclusion_reasons.push(...bucket.inclusion_reasons);
-      existing.priority = Math.min(existing.priority, bucket.priority) as BucketPriority;
+      resolved = existing;
+      existing.resolved.priority = Math.min(existing.resolved.priority, bucket.priority) as BucketPriority;
     } else {
       // Clone so that we can modify the merged value without affecting the input value
-      byBucketId[bucket.bucket] = cloneResolvedBucket(bucket);
+      const clone: ResolvedBucket = withBucketSource(
+        {
+          definition: bucket.definition,
+          bucket: bucket.bucket,
+          priority: bucket.priority,
+          inclusion_reasons: [] // Set while iterating over all sources
+        },
+        bucket.source
+      );
+      resolved = {
+        resolved: clone,
+        coveredByDefaultSubscription: false,
+        explicitSubscriptionReasons: []
+      };
+
+      allBuckets.push(clone);
+      pending.set(bucket.bucket, resolved);
+    }
+
+    // A stream can reach the same bucket through more than one branch (e.g. overlapping
+    // subscriptions, or both a static and a dynamic parameter query) with the same inclusion
+    // reason each time, so de-duplicate as we merge.
+    for (const reason of bucket.inclusion_reasons) {
+      if (reason === 'default') {
+        if (!resolved.coveredByDefaultSubscription) {
+          resolved.coveredByDefaultSubscription = true;
+          resolved.resolved.inclusion_reasons.push(reason);
+        }
+      } else {
+        // explicitSubscriptionReasons is a small array in practice, use a linear scan instead of a set
+        if (!resolved.explicitSubscriptionReasons.includes(reason.subscription)) {
+          resolved.explicitSubscriptionReasons.push(reason.subscription);
+          resolved.resolved.inclusion_reasons.push(reason);
+        }
+      }
     }
   }
 
-  return Object.values(byBucketId);
+  return allBuckets;
 }
 
 export function uniqueBy<T>(values: T[], key: (value: T) => string | undefined): T[] {
@@ -91,12 +133,6 @@ export function uniqueBy<T>(values: T[], key: (value: T) => string | undefined):
   }
 
   return result;
-}
-
-function cloneResolvedBucket(bucket: ResolvedBucket) {
-  let clone = structuredClone(bucket);
-  // The structured clone does not include the non-enumerable source - set it directly.
-  return withBucketSource(clone, bucket.source);
 }
 
 export function withBucketSource<T extends object>(
@@ -176,11 +212,11 @@ export function isValidParameterValue(value: SqliteValue): value is SqliteParame
   return value != null && isJsonValue(value);
 }
 
-function filterJsonData(data: any, context: CompatibilityContext, depth = 0): any {
+export function filterJsonData(data: any, context: CompatibilityContext, depth = 0): any {
   if (depth > DEPTH_LIMIT) {
     // This is primarily to prevent infinite recursion
     // TODO: Proper error class
-    throw new SyncRulesProcessingError(
+    throw new SyncConfigProcessingError(
       // FIXME: Use @powersync/service-errors
       'PSYNC_S1004',
       `json nested object depth exceeds the limit of ${DEPTH_LIMIT}`
@@ -191,6 +227,10 @@ function filterJsonData(data: any, context: CompatibilityContext, depth = 0): an
   } else if (typeof data == 'string' || typeof data == 'number') {
     return data;
   } else if (typeof data == 'boolean') {
+    if (context.isEnabled(CompatibilityOption.fixedBooleanInJson)) {
+      return data;
+    }
+
     return data ? SQLITE_TRUE : SQLITE_FALSE;
   } else if (typeof data == 'bigint') {
     return data;
@@ -217,10 +257,10 @@ function filterJsonData(data: any, context: CompatibilityContext, depth = 0): an
 /**
  * Map database row to SqliteRow for use in sync config.
  */
-export function toSyncRulesRow(row: DatabaseInputRow): SqliteInputRow {
+export function toSyncConfigRow(row: DatabaseInputRow): SqliteInputRow {
   let record: SqliteInputRow = {};
   for (let key of Object.keys(row)) {
-    record[key] = toSyncRulesValue(row[key], false, true);
+    record[key] = toSyncConfigValue(row[key], false, true);
   }
   return record;
 }
@@ -230,10 +270,10 @@ export function toSyncRulesRow(row: DatabaseInputRow): SqliteInputRow {
  *
  * @param parameters Generic JSON input
  */
-export function toSyncRulesParameters(parameters: Record<string, any>, context: CompatibilityContext): SqliteJsonRow {
+export function toSyncConfigParameters(parameters: Record<string, any>, context: CompatibilityContext): SqliteJsonRow {
   let record: SqliteJsonRow = {};
   for (let key of Object.keys(parameters)) {
-    record[key] = applyValueContext(toSyncRulesValue(parameters[key], true, false), context) as SqliteJsonValue;
+    record[key] = applyValueContext(toSyncConfigValue(parameters[key], true, false), context) as SqliteJsonValue;
   }
   return record;
 }
@@ -243,7 +283,7 @@ export function toSyncRulesParameters(parameters: Record<string, any>, context: 
  *
  * Any object or array is converted to JSON TEXT.
  */
-export function toSyncRulesValue(
+export function toSyncConfigValue(
   data: DatabaseInputValue,
   autoBigNum?: boolean,
   keepUndefined?: boolean
@@ -278,6 +318,21 @@ export function toSyncRulesValue(
     return null;
   }
 }
+
+/**
+ * @deprecated Use {@link toSyncConfigRow} instead.
+ */
+export const toSyncRulesRow = toSyncConfigRow;
+
+/**
+ * @deprecated Use {@link toSyncConfigParameters} instead.
+ */
+export const toSyncRulesParameters = toSyncConfigParameters;
+
+/**
+ * @deprecated Use {@link toSyncConfigValue} instead.
+ */
+export const toSyncRulesValue = toSyncConfigValue;
 
 export function applyValueContext(value: SqliteInputValue, context: CompatibilityContext): SqliteValue {
   if (value instanceof CustomSqliteValue) {

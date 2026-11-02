@@ -5,7 +5,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
-import { ChangeStreamTestContext } from './change_stream_utils.js';
+import { openChangeStreamTestContext } from './change_stream_test_setup.js';
 import { describeWithStorage, StorageVersionTestContext } from './util.js';
 
 describe('chunked snapshots', () => {
@@ -13,8 +13,8 @@ describe('chunked snapshots', () => {
 });
 
 function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext) {
-  const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
-    return ChangeStreamTestContext.open(factory, { ...options, storageVersion });
+  const openContext = (options?: Parameters<typeof openChangeStreamTestContext>[1]) => {
+    return openChangeStreamTestContext(factory, { ...options, storageVersion });
   };
 
   // This is not as sensitive to the id type as postgres, but we still test a couple of cases

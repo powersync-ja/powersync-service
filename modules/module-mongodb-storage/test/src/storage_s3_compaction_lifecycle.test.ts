@@ -1,7 +1,7 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { bucketRequest, compactActive, test_utils } from '@powersync/service-core-tests';
-import { describe, expect, test } from 'vitest';
+import { bucketRequest, compactActive, getTestStorage, test_utils } from '@powersync/service-core-tests';
+import { describe, expect, test, vi } from 'vitest';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { MongoSyncBucketStorageV3 } from '../../src/storage/implementation/v3/MongoSyncBucketStorageV3.js';
 import { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
@@ -53,11 +53,103 @@ async function expectUsageMatchesBucketData(bucketStorage: MongoSyncBucketStorag
 }
 
 describe('S3 compaction storage lifecycle', () => {
+  test.each(
+    [false, true].flatMap((compactChunksOnly) =>
+      [
+        ...[-1, 0, 1].map((thresholdOffset) => ({ thresholdOffset, initiallyInline: true })),
+        { thresholdOffset: -1, initiallyInline: false }
+      ].map((placement) => ({ compactChunksOnly, ...placement }))
+    )
+  )(
+    'unchanged chunk placement: V4, chunks only=$compactChunksOnly, inline=$initiallyInline, threshold offset=$thresholdOffset',
+    async ({ compactChunksOnly, thresholdOffset, initiallyInline }) => {
+      const { memoryStorage, factory: factoryGen } = memoryS3Factory({
+        inlineThresholdBytes: initiallyInline ? 10_000 : 0
+      });
+      await using factory = await factoryGen.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+config:
+  edition: 3
+streams:
+  global:
+    query: SELECT id, description FROM items
+`,
+          { storageVersion: 4 }
+        )
+      );
+      const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorageV3;
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
+      await writer.markAllSnapshotDone('1/1');
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'A', description: 'unchanged' },
+        afterReplicaId: test_utils.rid('A')
+      });
+      await writer.commit('1/1');
+
+      const definitionId = syncRules.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
+      const db = bucketStorage.db;
+      const collection = db.bucketData(bucketStorage.replicationStreamId, definitionId);
+      const [before] = await collection.find({}).toArray();
+      expect(before.ops != null).toBe(initiallyInline);
+      expect(before.storage_ref != null).toBe(!initiallyInline);
+      const checkpoint = await bucketStorage.getCheckpoint();
+      const request = bucketRequest(syncRules.syncConfigContent[0], 'global|0[]', 0n);
+      const dataBefore = await test_utils.getBatchArray(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+
+      // Simulate changing the threshold after this chunk was written.
+      const reconfiguredStorage = new MongoSyncBucketStorageV3(
+        factory,
+        bucketStorage.replicationStreamId,
+        bucketStorage.replicationStream,
+        bucketStorage.replicationStreamName,
+        undefined,
+        {
+          storageConfig: bucketStorage.storageConfig,
+          objectStorage: memoryStorage,
+          inlineThresholdBytes: before.size + thresholdOffset
+        }
+      );
+      const put = vi.spyOn(memoryStorage, 'put');
+      expect(
+        await reconfiguredStorage
+          .createMongoCompactor({
+            maxOpId: checkpoint.checkpoint,
+            ...(compactChunksOnly
+              ? { compactChunksOnly: true, forceChunkCompaction: true }
+              : { compactBuckets: [request.bucket] })
+          })
+          .compact()
+      ).toBe(1);
+
+      const documents = await collection.find({}).toArray();
+      expect(documents).toHaveLength(1);
+      const [after] = documents;
+      if (initiallyInline && thresholdOffset < 0) {
+        expect(after.storage_ref).toBeDefined();
+        expect(after.ops).toBeUndefined();
+        expect(put).toHaveBeenCalledTimes(1);
+        const { ops, ...metadata } = before;
+        expect(after).toMatchObject(metadata);
+      } else {
+        expect(after).toEqual(before);
+        expect(put).not.toHaveBeenCalled();
+      }
+      await expectUsageMatchesBucketData(reconfiguredStorage, definitionId);
+      const dataAfter = await test_utils.getBatchArray(reconfiguredStorage.getBucketDataBatch(checkpoint, [request]));
+      expect(test_utils.getBatchData(dataAfter)).toEqual(test_utils.getBatchData(dataBefore));
+    }
+  );
+
   test('a later compaction recovers from a transient object storage failure', async () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
@@ -106,7 +198,7 @@ describe('S3 compaction storage lifecycle', () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory({ inlineThresholdBytes: 10_000 });
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 10);
@@ -152,7 +244,7 @@ describe('S3 compaction storage lifecycle', () => {
     const { factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 11);
@@ -187,7 +279,7 @@ describe('S3 compaction storage lifecycle', () => {
     const { factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 12);
@@ -248,7 +340,7 @@ describe('S3 compaction storage lifecycle', () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
@@ -323,7 +415,7 @@ describe('S3 compaction storage lifecycle', () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'items', ['id'], factoryGen, 1);
@@ -396,7 +488,7 @@ describe('S3 compaction storage lifecycle', () => {
     const { memoryStorage, factory: factoryGen } = memoryS3Factory();
     await using factory = await factoryGen.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES_YAML, { storageVersion: 3 }));
-    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    const bucketStorage = (await getTestStorage(factory, syncRules)) as MongoSyncBucketStorage;
 
     // Write several operations, including a repeated object id, to exercise
     // the compaction round-trip.

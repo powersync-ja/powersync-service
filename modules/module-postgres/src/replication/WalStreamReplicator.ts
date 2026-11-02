@@ -1,4 +1,6 @@
 import { replication, storage } from '@powersync/service-core';
+import * as jpgwire from '@powersync/service-jpgwire';
+import { ReplicationMetric } from '@powersync/service-types';
 import { PostgresModule } from '../module/PostgresModule.js';
 import { getApplicationName } from '../utils/application-name.js';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
@@ -15,6 +17,20 @@ export class WalStreamReplicator extends replication.AbstractReplicator<WalStrea
   constructor(options: WalStreamReplicatorOptions) {
     super(options);
     this.connectionFactory = options.connectionFactory;
+  }
+
+  public override async start(): Promise<void> {
+    // Record replicated bytes using global jpgwire metrics. Only registered if this module is replicating.
+    // Connection checks do not start replication and do not register replication metrics.
+    const bytesReplicated = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
+    jpgwire.setMetricsRecorder({
+      addBytesRead(bytes) {
+        bytesReplicated.add(bytes);
+      }
+    });
+    this.logger.info('Successfully set up connection metrics recorder for Postgres replication.');
+
+    await super.start();
   }
 
   createJob(options: replication.CreateJobOptions): WalStreamReplicationJob {

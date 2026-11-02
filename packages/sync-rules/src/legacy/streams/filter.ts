@@ -28,6 +28,7 @@ import { StreamVariant } from './variant.js';
  *
  * This representation is only used to compile expressions into the {@link StreamVariant}s representing streams in the
  * end.
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export abstract class FilterOperator {
   /**
@@ -167,6 +168,7 @@ interface StreamCompilationContext {
  * parameters.
  * For {@link EvaluateSimpleCondition}, a wrapping {@link Not} clause is unecessary, because we can simply push the
  * negation into the inner evaluator.
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export class Not extends FilterOperator {
   readonly operand: FilterOperator;
@@ -181,6 +183,9 @@ export class Not extends FilterOperator {
   }
 }
 
+/**
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export class And extends FilterOperator {
   readonly inner: FilterOperator[];
 
@@ -197,6 +202,9 @@ export class And extends FilterOperator {
   }
 }
 
+/**
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export class Or extends FilterOperator {
   readonly inner: FilterOperator[];
 
@@ -230,6 +238,9 @@ export class Or extends FilterOperator {
   }
 }
 
+/**
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export class Subquery {
   private table: TablePattern;
   readonly column: RowValueClause;
@@ -306,6 +317,9 @@ export class Subquery {
   }
 }
 
+/**
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export type ScalarExpression = RowValueClause | ParameterValueClause;
 
 /**
@@ -326,6 +340,7 @@ export type ScalarExpression = RowValueClause | ParameterValueClause;
  *
  * However, these are not represented as {@link InOperator}s in the filter graph. Instead, we push the
  * `request.user_id()` filter into the subquery and then compile the operator into a {@link ExistsOperator}.
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export class InOperator extends FilterOperator {
   private left: RowValueClause;
@@ -367,6 +382,7 @@ export class InOperator extends FilterOperator {
 
 /**
  * An operator of the form `<left> && <right>`, where `right` is a subqery.
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export class OverlapOperator extends FilterOperator {
   private left: RowValueClause;
@@ -410,6 +426,7 @@ export class OverlapOperator extends FilterOperator {
  *
  * These queries are desugared to something that is semantically equivalent to
  * `WHERE EXISTS (SELECT _ FROM users WHERE is_admin AND id = request.user_id())`.
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export class ExistsOperator extends FilterOperator {
   private subquery: Subquery;
@@ -439,6 +456,7 @@ export class ExistsOperator extends FilterOperator {
  * parameter, but doesn't require a dynamic lookup.
  *
  * We only allow a few operators that are efficient to compute here (effectively just an equality operator).
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export class CompareRowValueWithStreamParameter extends FilterOperator {
   private match: ParameterMatchClause;
@@ -493,6 +511,7 @@ export class CompareRowValueWithStreamParameter extends FilterOperator {
 /**
  * A simple condition that is either static, only depends on the current row being matched, or only depends on the input
  * parameters.
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export class EvaluateSimpleCondition extends FilterOperator {
   expression: ScalarExpression;
@@ -531,6 +550,9 @@ export class EvaluateSimpleCondition extends FilterOperator {
   }
 }
 
+/**
+ * @deprecated Alpha Sync Streams implementation for `config.edition` 1 and 2, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
+ */
 export class SubqueryParameterLookupSource implements ParameterIndexLookupCreator, ParameterIndexLookupEvaluator {
   constructor(
     private parameterTable: TablePattern,

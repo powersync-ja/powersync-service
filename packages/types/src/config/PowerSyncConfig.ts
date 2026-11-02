@@ -249,8 +249,7 @@ export const BaseStorageConfig = t
       .optional(),
     default_storage_version: t.number
       .meta({
-        description:
-          'Storage version to use when deploying a sync config that does not specify storage_version. Defaults to 2.'
+        description: 'Storage version to use when deploying a sync config that does not specify storage_version.'
       })
       .optional()
   })
@@ -293,7 +292,7 @@ export const SyncConfig = t
       .optional()
   })
   .meta({
-    description: 'Configuration for synchronization rules that define data access patterns.'
+    description: 'The sync config defining which data syncs to which users.'
   });
 
 export const powerSyncConfig = t

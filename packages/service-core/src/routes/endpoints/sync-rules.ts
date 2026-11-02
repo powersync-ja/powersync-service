@@ -1,10 +1,11 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { parseSyncConfig, SyncConfigErrors, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
+import { assertSourceCapabilities } from '../../api/source-capabilities.js';
 
-import { RouteAPI } from '../../api/RouteAPI.js';
-import { updateSyncRulesFromConfig, updateSyncRulesFromYaml } from '../../storage/BucketStorageFactory.js';
+import { PatternResult, RouteAPI } from '../../api/RouteAPI.js';
+import { logSyncConfigErrors, updateSyncRulesFromConfig } from '../../storage/BucketStorageFactory.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -55,8 +56,9 @@ export const deploySyncRules = routeDefinition({
     let syncConfig: SyncConfigWithErrors;
 
     try {
+      // First ensure the SyncConfig parses correctly
       const apiHandler = service_context.routerEngine.getAPI();
-      syncConfig = SqlSyncRules.fromYaml(content, {
+      syncConfig = parseSyncConfig(content, {
         ...apiHandler.getParseSyncRulesOptions(),
         // We don't do any schema-level validation at this point
         schema: undefined
@@ -69,6 +71,10 @@ export const deploySyncRules = routeDefinition({
         details: e.message
       });
     }
+
+    logSyncConfigErrors(syncConfig);
+    // Validate if the current sources support the configuration specified in the sync config
+    await assertSourceCapabilities(service_context.routerEngine.getAPI(), syncConfig.config);
 
     const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules(updateSyncRulesFromConfig(syncConfig));
 
@@ -176,11 +182,18 @@ export const reprocessSyncRules = routeDefinition({
     }
 
     const sync_rules = active.content;
+    const parsed = parseSyncConfig(sync_rules.sync_rules_content, {
+      ...payload.context.service_context.routerEngine.getAPI().getParseSyncRulesOptions(),
+      schema: undefined,
+      // This sync config already passed validation. But if the rules are not valid anymore due
+      // to a service change, we do want to report the error here.
+      throwOnError: true
+    });
+    logSyncConfigErrors(parsed);
+    await assertSourceCapabilities(payload.context.service_context.routerEngine.getAPI(), parsed.config);
+
     const new_rules = await activeBucketStorage.updateSyncRules(
-      updateSyncRulesFromYaml(sync_rules.sync_rules_content, {
-        // This sync config already passed validation. But if the rules are not valid anymore due
-        // to a service change, we do want to report the error here.
-        validate: true,
+      updateSyncRulesFromConfig(parsed, {
         version_label: sync_rules.version_label,
         forceNewReplicationStream: true
       })
@@ -203,22 +216,42 @@ function replyPrettyJson(payload: any) {
 
 async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
   try {
-    const rules = SqlSyncRules.fromYaml(sync_rules, {
+    const rules = parseSyncConfig(sync_rules, {
       ...apiHandler.getParseSyncRulesOptions(),
       // No schema-based validation at this point
       schema: undefined
     });
-    const source_table_patterns = rules.config.getSourceTables();
-    const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules.config);
+    const errors: string[] = [];
+    const warnings = rules.errors.filter((error) => error.type === 'warning').map((error) => error.message);
+    const recordError = (error: any) => {
+      errors.push(...(error instanceof SyncConfigErrors ? error.errors.map((e) => e.message) : [error.message]));
+    };
+    try {
+      const diagnostics = (await apiHandler.validateSourceCapabilities?.(rules.config)) ?? [];
+      for (const diagnostic of diagnostics) {
+        (diagnostic.level === 'fatal' ? errors : warnings).push(diagnostic.message);
+      }
+    } catch (e) {
+      recordError(e);
+    }
+    let resolved_tables: PatternResult[] = [];
+    try {
+      const source_table_patterns = rules.config.getSourceTables();
+      resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules.config);
+    } catch (e) {
+      recordError(e);
+    }
 
     return {
-      valid: true,
+      valid: errors.length == 0,
+      ...(warnings.length > 0 ? { warnings } : {}),
+      ...(errors.length > 0 ? { errors } : {}),
       bucket_definitions: rules.config.debugRepresentation(),
       source_tables: resolved_tables,
       data_tables: rules.config.debugGetOutputTables()
     };
   } catch (e) {
-    if (e instanceof SyncRulesErrors) {
+    if (e instanceof SyncConfigErrors) {
       return {
         valid: false,
         errors: e.errors.map((e) => e.message)

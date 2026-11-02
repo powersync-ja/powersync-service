@@ -15,7 +15,7 @@ import {
   SyncRulesBucketStorage,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, getTestStorage, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import mysqlPromise from 'mysql2/promise';
 import timers from 'timers/promises';
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
@@ -75,7 +75,7 @@ export class BinlogStreamTestContext {
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: LEGACY_STORAGE_VERSION })
     );
     this.syncRulesContent = replicationStream.syncConfigContent[0];
-    this.storage = this.factory.getInstance(replicationStream);
+    this.storage = await getTestStorage(this.factory, replicationStream);
     return this.storage!;
   }
 
@@ -86,7 +86,7 @@ export class BinlogStreamTestContext {
     }
 
     this.syncRulesContent = syncConfig.content;
-    this.storage = syncConfig.storage;
+    this.storage = await getTestStorage(this.factory, syncConfig.replicationStream);
     return this.storage!;
   }
 
@@ -97,7 +97,7 @@ export class BinlogStreamTestContext {
     }
 
     this.syncRulesContent = syncConfig.content;
-    this.storage = syncConfig.storage;
+    this.storage = await getTestStorage(this.factory, syncConfig.replicationStream);
     this.replicationDone = true;
     return this.storage!;
   }

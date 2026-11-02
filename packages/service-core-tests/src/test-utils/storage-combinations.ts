@@ -20,13 +20,24 @@ export interface StorageCombinationTestConfig {
   postgres?: TestStorageConfig;
 }
 
+export type StorageCombinationTestOptions = TestOptions & {
+  /** Omit to test all supported versions, or use 'current' for each backend's default. */
+  storageVersions?: number[] | 'current';
+};
+
 export function describeStorageCombinations(
   config: StorageCombinationTestConfig,
-  options: TestOptions & { storageVersions?: number[] },
+  options: StorageCombinationTestOptions,
   fn: (context: StorageVersionTestContext) => void
 ) {
-  const describeFactory = (storageName: string, storage: TestStorageConfig, supportedStorageVersions: number[]) => {
-    const storageVersions = (options.storageVersions ?? supportedStorageVersions).filter((version) =>
+  const describeFactory = (
+    storageName: string,
+    storage: TestStorageConfig,
+    supportedStorageVersions: number[],
+    currentStorageVersion: number
+  ) => {
+    const requestedVersions = options.storageVersions === 'current' ? [currentStorageVersion] : options.storageVersions;
+    const storageVersions = (requestedVersions ?? supportedStorageVersions).filter((version) =>
       supportedStorageVersions.includes(version)
     );
     describe(`${storageName} storage`, options, function () {
@@ -42,10 +53,10 @@ export function describeStorageCombinations(
   };
 
   if (config.mongodb) {
-    describeFactory('mongodb', config.mongodb, MONGO_STORAGE_VERSIONS);
+    describeFactory('mongodb', config.mongodb, MONGO_STORAGE_VERSIONS, STORAGE_VERSION_4);
   }
 
   if (config.postgres) {
-    describeFactory('postgres', config.postgres, POSTGRES_STORAGE_VERSIONS);
+    describeFactory('postgres', config.postgres, POSTGRES_STORAGE_VERSIONS, STORAGE_VERSION_2);
   }
 }

@@ -49,7 +49,7 @@ so the usual "replica identity changed" path does not apply.
 ## How table discovery works
 
 Exact table patterns in Sync Streams rules do not need `json_schemas` for
-replication. The table name is already present in the sync rule, and the stream
+replication. The table name is already present in the stream definition, and the stream
 can resolve that table directly.
 
 Wildcard table patterns do need a source of table names during initial
@@ -114,7 +114,7 @@ clear the table before deleting it. In the Convex dashboard, use the "Clear
 Table" action first, then delete the table after those document removals have
 replicated. Deleting documents through Convex mutations is also valid when that
 path emits document delete deltas. Otherwise, treat dashboard table deletion or
-schema-only table removal as a sync-rule/deployment state change: review the
+schema-only table removal as a sync config or deployment state change: review the
 affected rules and re-replicate or clear affected PowerSync state as needed.
 
 ## Role of `json_schemas`

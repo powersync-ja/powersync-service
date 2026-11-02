@@ -20,7 +20,9 @@ export const FULL_COMPACT_RESCHEDULE_MARGIN_MS = 60 * 1000;
 export interface PendingCompactionGroup {
   /**
    * Input documents are ordered from oldest to newest, matching `ops`.
-   * Keeping the inputs intact lets unchanged singletons retain their object.
+   * Keeping input metadata lets unchanged singletons retain their stored object.
+   * Full compaction releases input ops after processing to avoid retaining
+   * superseded payloads while a pending group spans read batches.
    */
   inputs: BucketDataDocumentV3[];
   ops: BucketDataDoc[];
@@ -35,6 +37,7 @@ export interface CompactIntervalConfig {
 }
 export interface CompactTargetConfig {
   readonly maxOpIdCap: InternalOpId | undefined;
+  readonly forceChunkCompaction?: boolean;
 }
 
 export enum CompactionKind {
@@ -51,7 +54,7 @@ export interface ScheduledCompactionOptions {
   /** Process checks scheduled this far after the captured job start. */
   dueAheadMs?: number;
   /** Used by initial replication, which must not run a full compact. */
-  forceKind?: CompactionKind;
+  requestedKind?: CompactionKind;
 }
 
 export class CompactionContext {
@@ -243,8 +246,7 @@ export function chooseCompactionKind(
   // not wake before the exact full-compaction condition is true.
   const fullCheckWithMargin = new Date(fullCheckAt.getTime() + FULL_COMPACT_RESCHEDULE_MARGIN_MS);
   const compacted = state.compacted_state;
-  const chunksSinceCompact = Math.max(0, state.bucket_stats.chunks - (compacted?.chunks ?? 0));
-  const shouldCompactChunks = chunksSinceCompact >= MERGE_CHUNKS_THRESHOLD;
+  const shouldCompactChunks = hasEnoughChunksToMerge(state);
   const canCheckChunks =
     compacted == null || now.getTime() - compacted.at.getTime() >= config.minCompactChunkIntervalMs;
   // Too few new chunks cannot make chunk compaction eligible. Do not poll this
@@ -269,16 +271,25 @@ export function chooseCompactionKind(
   };
 }
 
-export function forcedCompactionKind(
+export function chooseRequestedCompactionKind(
   state: BucketStateDocumentV3,
-  forceKind: CompactionKind | undefined,
+  requestedKind: CompactionKind | undefined,
   config: CompactTargetConfig
 ): CompactionKind | null {
-  if (forceKind == null) {
+  if (requestedKind == null) {
+    return null;
+  }
+  // Initial replication bypasses the interval and never runs full compaction,
+  // but small buckets should still use the normal bulk-rescheduling path.
+  if (requestedKind == CompactionKind.Chunks && !config.forceChunkCompaction && !hasEnoughChunksToMerge(state)) {
     return null;
   }
   const maxOpId = config.maxOpIdCap == null || state.last_op < config.maxOpIdCap ? state.last_op : config.maxOpIdCap;
-  return state.compacted_state == null || state.compacted_state.op_id < maxOpId ? forceKind : null;
+  return state.compacted_state == null || state.compacted_state.op_id < maxOpId ? requestedKind : null;
+}
+
+function hasEnoughChunksToMerge(state: BucketStateDocumentV3): boolean {
+  return state.bucket_stats.chunks - (state.compacted_state?.chunks ?? 0) >= MERGE_CHUNKS_THRESHOLD;
 }
 
 /**

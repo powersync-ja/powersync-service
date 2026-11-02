@@ -1,9 +1,18 @@
 {
   "name": "@powersync/service-image",
-  "version": "1.26.0",
-  "private": true,
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "1.27.2",
   "license": "FSL-1.1-ALv2",
   "type": "module",
+  "files": [
+    "lib/**/*"
+  ],
+  "bin": {
+    "powersync-service": "lib/entry.js"
+  },
   "scripts": {
     "build": "tsc -b",
     "watch": "nodemon -w ../ -e ts -e js --delay 1 -x node --loader ts-node/esm src/entry.ts start",
@@ -21,10 +30,10 @@
     "@powersync/service-rsocket-router": "workspace:*",
     "@powersync/service-module-core": "workspace:*",
     "@powersync/service-module-convex": "workspace:*",
-    "@sentry/node": "^10.2.0"
+    "@sentry/node": "^10.75.2"
   },
   "devDependencies": {
-    "@sentry/types": "^10.2.0",
+    "@sentry/types": "^10.75.2",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2"
   }

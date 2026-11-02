@@ -73,7 +73,7 @@ There are two entry paths:
 
 These both produce a `SourceEntityDescriptor`, describing the table to replicate.
 
-### 2. Match sync-rule patterns
+### 2. Match sync config table patterns
 
 For each discovered table, the system finds all matching `TablePattern`s.
 
@@ -94,6 +94,13 @@ Conceptually it does:
 5. Return the records to replicate into and the incompatible records to drop.
 
 Important: one physical table can resolve to multiple `SourceTable` records when sync config definitions have been added over time.
+
+Postgres storage and MongoDB storage v1/v2 return no source-table records for a table that the sync config
+does not use for data, parameters, or events. They still reconcile existing records and return obsolete
+mappings in `dropTables`, so renaming a replicated table out of scope removes its replicated data.
+Source connectors cache the empty result to distinguish an ignored relation from an undiscovered one.
+Incremental storage resolves records by definition membership and retains compatible historical coverage
+that can be reused by a later sync config.
 
 ### Source-owned candidate reconciliation
 

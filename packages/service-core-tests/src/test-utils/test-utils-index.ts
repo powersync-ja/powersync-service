@@ -1,6 +1,7 @@
 export * from './AbstractStreamTestContext.js';
 export * from './bucket-validation.js';
 export * from './general-utils.js';
+export * from './leased-storage.js';
 export * from './MetricsHelper.js';
 export * from './storage-combinations.js';
 export * from './StorageDataHelpers.js';

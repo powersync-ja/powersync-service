@@ -4,6 +4,7 @@ import { isParameterMatchClause } from './sql_support.js';
 
 /**
  * Detects the use of request parameters in a compiled clause.
+ * @deprecated Legacy Sync Rules (`bucket_definitions`) implementation, kept for backwards compatibility until the next major version. See `src/legacy/README.md`.
  */
 export class DetectRequestParameters {
   /** request.user_id(), request.jwt(), token_parameters.* */

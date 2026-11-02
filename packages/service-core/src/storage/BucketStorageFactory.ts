@@ -1,10 +1,10 @@
 import { BaseObserver, logger } from '@powersync/lib-services-framework';
 import {
+  parseSyncConfig,
   PrecompiledSyncConfig,
   SerializedSyncPlan as RawSerializedSyncPlan,
   SerializedCompatibilityContext,
   serializeSyncPlan,
-  SqlSyncRules,
   SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
 import { ReplicationError } from '@powersync/service-types';
@@ -117,10 +117,14 @@ export abstract class BucketStorageFactory
    */
   abstract getSystemIdentifier(): Promise<BucketStorageSystemIdentifier>;
 
-  abstract [Symbol.asyncDispose](): PromiseLike<void>;
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.iterateAsyncListeners(async (listener) => listener.beforeDispose?.());
+  }
 }
 
 export interface BucketStorageFactoryListener {
+  /** Release owned resources before the factory closes its database connections. */
+  beforeDispose: () => Promise<void>;
   syncStorageCreated: (storage: SyncRulesBucketStorage) => void;
   replicationEvent: (event: ReplicationEventPayload) => void;
 }
@@ -177,7 +181,7 @@ export interface UpdateSyncRulesOptions {
   config: {
     yaml: string;
     /**
-     * The serialized sync plan for the sync configuration, or `null` for configurations not using the sync stream
+     * The serialized sync plan for the sync configuration, or `null` for configurations not using the Sync Streams
      * compiler.
      */
     plan: SerializedSyncPlan | null;
@@ -223,14 +227,15 @@ export function updateSyncRulesFromYaml(
   content: string,
   options?: Omit<UpdateSyncRulesOptions, 'config'> & { validate?: boolean }
 ): UpdateSyncRulesOptions {
-  const config = SqlSyncRules.fromYaml(content, {
+  const { validate, ...updateOptions } = options ?? {};
+  const config = parseSyncConfig(content, {
     // No schema-based validation at this point
     schema: undefined,
     defaultSchema: options?.defaultSchema ?? 'not_applicable', // Not needed for validation
-    throwOnError: options?.validate ?? false
+    throwOnError: validate ?? false
   });
 
-  return updateSyncRulesFromConfig(config, options);
+  return updateSyncRulesFromConfig(config, updateOptions);
 }
 
 export function updateSyncRulesFromConfig(
@@ -257,7 +262,31 @@ export function updateSyncRulesFromConfig(
   return { config: { yaml: config.content, plan, parsed }, ...options };
 }
 
+/**
+ * Logs the errors and warnings of a parsed sync config
+ *
+ * Call this where a sync config is loaded or deployed, so that operators see these in the service logs and not only
+ * in the diagnostics and validate API responses.
+ *
+ * Fatal errors usually throw during parsing before this is reached. They can reach this when the sync config is parsed
+ * without validation, such as at startup with `exit_on_error: false`.
+ */
+export function logSyncConfigErrors(parsed: SyncConfigWithErrors, log: typeof logger = logger) {
+  for (const error of parsed.errors) {
+    if (error.type == 'warning') {
+      log.warn(`Sync config warning: ${error.message}`);
+    } else {
+      log.error(`Sync config error: ${error.message}`);
+    }
+  }
+}
+
 export interface GetIntanceOptions {
+  /**
+   * The job lease, including a lease acquired during initial configuration.
+   * Required for writing; optional for reading.
+   */
+  replicationLock?: ReplicationLock;
   /**
    * Set to true to skip trigger any events for creating the instance.
    *
