@@ -69,7 +69,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   override async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     return super.withWriterLock(async () => {
-      await this.pipeline.capacity();
+      // Buffer one bounded input block while both publication slots are occupied.
+      // Automatic flushing checks capacity before application; keep the mutex here
+      // because another writer's metadata barrier can seal and replace this input.
       this.pipeline.inputOwners.add(this);
       try {
         const result = await this.saveInternal(record);
