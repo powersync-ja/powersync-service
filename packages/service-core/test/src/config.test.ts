@@ -376,6 +376,7 @@ describe('resolved sync config input sources', () => {
   });
 
   it('defers configured file loading to the sync config engine', async () => {
+    // Configuration collection records the path; source-aware admission owns reading the file.
     using readFile = vi.spyOn(fs, 'readFile');
     const result = await new CompoundConfigCollector().collectConfig({
       config_base64: Buffer.from(
@@ -395,6 +396,7 @@ describe('deferred sync config parsing', () => {
   it.each([true, false])(
     'preserves malformed input for source-aware validation (exit_on_error=%s)',
     async (exitOnError) => {
+      // Keep malformed input available for diagnostics regardless of the startup failure policy.
       const content = '# empty sync config\n';
       const config = await new CompoundConfigCollector().collectConfig({
         config_base64: Buffer.from(

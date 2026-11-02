@@ -62,6 +62,7 @@ describe('local invalid config diagnostics', () => {
     async (connected) => {
       const { context } = await makeContext(INVALID_CONFIG, true, connected);
       const result = await diagnostics.handler({ context, request: REQUEST, params: { sync_rules_content: true } });
+      // Rejected configured YAML appears under deploying_sync_rules without hiding the active deployment.
       expect(result.active_sync_rules?.content).toBe(VALID_CONFIG);
       expect(result.active_sync_rules?.connections[0].slot_name).toBe('stored_slot');
       expect(result.deploying_sync_rules?.content).toBe(INVALID_CONFIG);
@@ -163,6 +164,7 @@ describe('manual reprocessing with rejected local config', () => {
     async ({ route, capabilityFailure }) => {
       const { context, api } = await makeContext(capabilityFailure ? VALID_CONFIG : INVALID_CONFIG);
       const backend = context.service_context.storageEngine.activeBucketStorage;
+      // Ensure no pending deployment exists, so invalid configured YAML is what blocks reprocessing.
       vi.spyOn(backend, 'getDeployingSyncConfig').mockResolvedValue(null);
       if (capabilityFailure)
         api.validateSourceCapabilities = async () => [{ level: 'fatal', message: 'Unsupported executor' }];

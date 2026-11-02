@@ -74,6 +74,7 @@ class TestReplicator extends AbstractReplicator {
 
   async runStartupForTest(): Promise<void> {
     const controller = new AbortController();
+    // Keep startup admission real, but skip the continuous replication loop.
     controller.abort();
     (this as any).abortController = controller;
     await (this as any).runLoop();
@@ -202,6 +203,8 @@ describe('AbstractReplicator startup sync config', () => {
         rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
       });
       using parse = vi.spyOn(syncConfigParser, 'parseSyncConfig');
+      using loggedError = vi.spyOn(replicator.loggerForTest, 'error');
+      using loggedWarning = vi.spyOn(replicator.loggerForTest, 'warn');
       replicator.source.validateSourceCapabilities = async () => {
         calls.push('validate');
         if (result === 'unexpected error') throw new Error('Source validation failed');
@@ -220,8 +223,12 @@ describe('AbstractReplicator startup sync config', () => {
         await replicator.runStartupForTest();
         expect(calls).toEqual(rejected ? ['validate'] : ['validate', 'persist']);
       }
+      // Source diagnostics must use the same logging levels and prefixes as parser diagnostics.
       if (rejected) {
         expect(configureSyncRules).not.toHaveBeenCalled();
+        expect(loggedError).toHaveBeenCalledWith('Sync config error: Source validation failed');
+      } else if (result === 'warning') {
+        expect(loggedWarning).toHaveBeenCalledWith('Sync config warning: Missing index');
       }
       expect(parse).toHaveBeenCalledWith(
         yaml,
@@ -459,6 +466,7 @@ describe('invalid configured sync config', () => {
   it('cancels pending work once at startup without cancelling again on refresh', async () => {
     const { replicator, stopProcessingSyncConfigs } = await makeStartupReplicator(INVALID_CONFIG);
     await replicator.runStartupForTest();
+    // Later refreshes must leave deployments submitted by a newer runner alone.
     await replicator.refreshForTest(undefined, INVALID_CONFIG, true);
     await replicator.refreshForTest(undefined, INVALID_CONFIG, true);
     expect(stopProcessingSyncConfigs).toHaveBeenCalledOnce();
@@ -499,6 +507,7 @@ describe('invalid configured sync config', () => {
     });
     const result = await replicator.syncConfigEngineForTest.getConfigured();
     expect(result.status).toBe(SyncConfigResultStatus.UNAVAILABLE);
+    // Missing configured input is a startup failure, not permission to use API-managed deployments.
     if (result.status !== SyncConfigResultStatus.UNAVAILABLE) throw new Error('Expected input load failure');
     await expect(replicator.runStartupForTest()).rejects.toBe(result.error);
     expect(configureSyncRules).not.toHaveBeenCalled();
@@ -583,6 +592,7 @@ describe('invalid configured sync config', () => {
         syncConfigState: storage.SyncRuleState.PROCESSING,
         ...(scenario == 'other-yaml' ? { sync_rules_content: INVALID_CONFIG } : {}),
         ...(scenario == 'other-label' ? { version_label: 'different' } : {}),
+        // A storage upgrade does not change which YAML deployment the replacement belongs to.
         ...(scenario == 'other-storage' ? { storageVersion: 4 } : {})
       };
       const stream = { syncConfigContent: [processing] } as unknown as PersistedReplicationStream;
@@ -614,6 +624,7 @@ describe('invalid configured sync config', () => {
       } as unknown as PersistedReplicationStream;
       return replacement;
     });
+    // A separate API runner submits the rebuild; the replicator still holds rejected configured YAML.
     const service = mockServiceContext(null);
     Object.assign(service.storageEngine.activeBucketStorage, {
       getActiveSyncConfig,

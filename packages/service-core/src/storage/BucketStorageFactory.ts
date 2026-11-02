@@ -7,7 +7,7 @@ import {
   serializeSyncPlan,
   SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
-import { ReplicationError } from '@powersync/service-types';
+import { ReplicationError, ValidationDiagnostic } from '@powersync/service-types';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
 import { PersistedReplicationStream } from './PersistedReplicationStream.js';
 import { PersistedSyncConfigContent } from './PersistedSyncConfigContent.js';
@@ -274,20 +274,23 @@ export function updateSyncRulesFromConfig(
 }
 
 /**
- * Logs the errors and warnings of a parsed sync config
- *
- * Call this where a sync config is loaded or deployed, so that operators see these in the service logs and not only
- * in the diagnostics and validate API responses.
- *
- * Fatal errors usually throw during parsing before this is reached. They can reach this when the sync config is parsed
- * without validation, such as at startup with `exit_on_error: false`.
+ * Log parser errors and warnings from a parsed config, or combined parsing and source-capability
+ * diagnostics from SyncConfigEngine. Use when loading or deploying a sync config so operators see
+ * diagnostics in service logs as well as API responses. Fatal diagnostics are logged at error level;
+ * warnings remain advisory. Uses the supplied logger or the service logger by default.
  */
-export function logSyncConfigErrors(parsed: SyncConfigWithErrors, log: typeof logger = logger) {
-  for (const error of parsed.errors) {
-    if (error.type == 'warning') {
-      log.warn(`Sync config warning: ${error.message}`);
+export function logSyncConfigErrors(
+  result: SyncConfigWithErrors | ValidationDiagnostic[],
+  log: typeof logger = logger
+) {
+  const diagnostics = Array.isArray(result)
+    ? result
+    : result.errors.map((error) => ({ level: error.type, message: error.message }));
+  for (const diagnostic of diagnostics) {
+    if (diagnostic.level == 'warning') {
+      log.warn(`Sync config warning: ${diagnostic.message}`);
     } else {
-      log.error(`Sync config error: ${error.message}`);
+      log.error(`Sync config error: ${diagnostic.message}`);
     }
   }
 }

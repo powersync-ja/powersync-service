@@ -163,11 +163,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     const loadedSyncConfigInvalid = result.status === SyncConfigResultStatus.REJECTED;
     let configuredLock: storage.ReplicationLock | undefined;
     if (result.status === SyncConfigResultStatus.ACCEPTED || result.status === SyncConfigResultStatus.REJECTED) {
-      for (const diagnostic of result.diagnostics) {
-        const message = `Sync config ${diagnostic.level === 'fatal' ? 'error' : 'warning'}: ${diagnostic.message}`;
-        if (diagnostic.level === 'fatal') this.logger.error(message);
-        else this.logger.warn(message);
-      }
+      storage.logSyncConfigErrors(result.diagnostics, this.logger);
       if (result.status === SyncConfigResultStatus.REJECTED) {
         if (settings.exit_on_error) assertAcceptedSyncConfig(result);
         // A startup submission supersedes pending work even when its replacement is rejected.

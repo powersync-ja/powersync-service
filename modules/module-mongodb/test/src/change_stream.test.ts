@@ -86,6 +86,7 @@ streams:
       context.startStreaming();
       await context.getCheckpoint();
     }
+    // Resume the persisted active config in a new worker before submitting pending replacement work.
     await using context = await openContext({ doNotClear: true });
     await context.updateSyncRules(
       activeConfig +
@@ -95,15 +96,18 @@ streams:
 `
     );
     const pending = (await context.factory.getDeployingSyncConfig())!;
+    // Rejected startup admission uses this same cancellation path while retaining the active config.
     const oldJobId = pending.replicationStream.replicationJobId;
     await context.factory.stopProcessingSyncConfigs();
     expect(await context.factory.getDeployingSyncConfig()).toBeNull();
     const active = (await context.factory.getActiveSyncConfig())!;
     expect(active.content.sync_rules_content).toBe(activeConfig);
+    // Shared-stream cancellation changes job identity so the old A/B worker cannot keep writing.
     if (storageVersion >= 3) expect(active.replicationStream.replicationJobId).not.toBe(oldJobId);
     await context.loadActiveSyncRules();
     await context.replicateSnapshot();
     context.startStreaming();
+    // A source change must still reach client buckets after the replacement was cancelled.
     await context.db.collection('test_data').updateOne({ _id: id }, { $set: { description: 'after' } });
     const data = await context.getBucketData('global|0[]');
     expect(data).toEqual(

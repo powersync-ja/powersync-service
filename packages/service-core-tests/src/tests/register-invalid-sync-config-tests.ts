@@ -51,6 +51,7 @@ class ConfigTestReplicator extends AbstractReplicator {
   }
 
   async initializeConfig() {
+    // Run startup admission without entering the continuous replication loop.
     const controller = new AbortController();
     controller.abort();
     this['abortController'] = controller;
@@ -109,6 +110,7 @@ export function registerInvalidSyncConfigTests(
         });
         expect(invalid.config.parsed.errors.some((error) => error.type === 'fatal')).toBe(persistedInvalid);
         const persisted = await backend.updateSyncRules(invalid);
+        // Incremental storage keeps A and B in one stream, so cancellation must preserve A.
         if (storageVersion >= 3) {
           expect(persisted.replicationStreamId).toBe(original.replicationStreamId);
           expect(persisted.syncConfigContent.map((config) => config.syncConfigState)).toEqual([
@@ -135,6 +137,7 @@ export function registerInvalidSyncConfigTests(
             ? undefined
             : await (await getTestStorage(backend, persisted)).createWriter(BATCH_OPTIONS);
           await replicator.initializeConfig();
+          // A writer opened before cancellation must not activate the stopped config.
           if (staleWriter) {
             await staleWriter.markAllSnapshotDone('1/2');
             await staleWriter.commit('1/2');
@@ -196,8 +199,8 @@ export function registerInvalidSyncConfigTests(
             todos:
               query: SELECT id FROM todos
         `;
-        // Select the initial storage version outside the YAML. Reprocessing can then upgrade
-        // to the backend default, while recovery preserves the existing storage version.
+        // Set the initial storage version through deployment options, leaving it out of the YAML.
+        // Manual reprocessing can then use the backend's current default; recovery keeps the original version.
         const original = await backend.updateSyncRules(
           updateSyncRulesFromYaml(content, { version_label: 'active', storageVersion })
         );
@@ -240,6 +243,7 @@ export function registerInvalidSyncConfigTests(
               })
             );
           } else if (recoveryTiming === 'missing recovery') {
+            // Leave A errored without pending recovery; startup must restore runnable work.
             await backend.stopProcessingSyncConfigs();
           }
         }

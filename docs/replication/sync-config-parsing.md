@@ -23,7 +23,7 @@ Parsing accepts an optional `connections` map keyed by connection tag, with valu
 MongoDB pre-filtering expressions require a connection with `type: 'mongodb'`. Known non-MongoDB sources
 produce fatal diagnostics at the expression. Active filters with non-default connection tags are rejected until multiple connections are supported. Unknown default connection metadata produces an advisory warning. When connection metadata is omitted, expressions still parse but report
 an advisory warning that the connection type could not be checked. The service supplies connection metadata when
-parsing for validation, deployment, and filesystem loading. Disabled filters do not require MongoDB.
+parsing for validation, deployment, and loading configured sync configs. Disabled filters do not require MongoDB.
 
 ## Table names and patterns
 
@@ -57,7 +57,8 @@ YAML aliases are not supported inside filter expressions.
 The sync-config JSON Schema includes expression shapes and examples for editor autocomplete. Runtime validation
 also checks BSON literal values and reports errors at the relevant YAML keys or values. Source capability checks
 run during validation, deployment, and reprocessing; validation can report capability failures alongside other
-diagnostics. Configured sync configs are parsed and checked by the context-owned `SyncConfigEngine`, shared by replication startup and diagnostics after source adapters are registered. With `exit_on_error`
+diagnostics. Configured (file-loaded) sync configs are parsed and checked by the context-owned
+`SyncConfigEngine`, shared by replication startup and diagnostics after source adapters are registered. With `exit_on_error`
 enabled, source-capability errors fail startup before persistence. With it disabled, failures are logged and
 the rejected config is not persisted and pending processing work is stopped while the active config is preserved. The diagnostics API uses the same cached validation result and reports capability failures through `deploying_sync_rules`, including
 on API-only instances and when the source connection is unavailable. Source-specific replication startup checks validate execution requirements.

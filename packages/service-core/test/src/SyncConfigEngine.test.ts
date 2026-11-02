@@ -39,6 +39,7 @@ describe('SyncConfigEngine', () => {
     const adapter = source();
     const parseOptions = vi.spyOn(adapter, 'getParseSyncRulesOptions');
     const engine = context.syncConfigEngine;
+    // Source modules register after context construction; creating the engine must not resolve the adapter.
     context.routerEngine.registerAPI(adapter);
     expect(context.syncConfigEngine).toBe(engine);
     expect(parseOptions).not.toHaveBeenCalled();
@@ -60,6 +61,7 @@ describe('SyncConfigEngine', () => {
         content: CONTENT
       };
       const service = new SyncConfigEngine(settings, () => adapter);
+      // Startup and diagnostics can race on first use; both must share the same in-flight parse.
       const first = service.getConfigured();
       expect(service.getConfigured()).toBe(first);
       const [replication, diagnostics] = await Promise.all([first, service.getConfigured()]);
@@ -107,6 +109,7 @@ describe('SyncConfigEngine', () => {
         reason: SyncConfigRejectionReason.PARSE
       });
       expect(result.diagnostics.some((diagnostic) => diagnostic.level === 'fatal')).toBe(true);
+      // Partial parses still need capability diagnostics; a parser exception leaves no config to check.
       expect(capability).toHaveBeenCalledTimes(hasParsedConfig ? 1 : 0);
     }
   );
@@ -127,6 +130,7 @@ describe('SyncConfigEngine', () => {
         status: SyncConfigResultStatus.REJECTED,
         reason: SyncConfigRejectionReason.PARSE
       });
+      // Keep both failures for diagnostics, with parsing as the primary rejection reason.
       const fatal = result.diagnostics.filter((diagnostic) => diagnostic.level === 'fatal');
       expect(fatal.some((diagnostic) => diagnostic.message === 'Unsupported executor')).toBe(true);
       expect(fatal.some((diagnostic) => diagnostic.message !== 'Unsupported executor')).toBe(true);
@@ -143,6 +147,7 @@ describe('SyncConfigEngine', () => {
     expect(getRouteAPI).not.toHaveBeenCalled();
     expect(parseOptions).not.toHaveBeenCalled();
     expect(configured.status).toBe(SyncConfigResultStatus.ABSENT);
+    // An API submission must not become this runner's configured snapshot.
     expect((await service.validate('streams: [')).status).toBe(SyncConfigResultStatus.REJECTED);
     expect((await service.validate(CONTENT)).status).toBe(SyncConfigResultStatus.ACCEPTED);
     expect(await service.getConfigured()).toBe(configured);
@@ -163,6 +168,7 @@ describe('SyncConfigEngine', () => {
           initial === CONTENT ? SyncConfigResultStatus.ACCEPTED : SyncConfigResultStatus.REJECTED
         );
         const replacement = initial === CONTENT ? CONTENT.replace('SELECT * FROM orders', 'SELECT FROM') : CONTENT;
+        // File edits take effect after restart, represented here by constructing a new engine.
         await writeFile(path, replacement);
         expect(await engine.getConfigured()).toBe(first);
         expect(await new SyncConfigEngine(settings, () => adapter).getConfigured()).toMatchObject({
@@ -185,6 +191,7 @@ describe('SyncConfigEngine', () => {
       const engine = new SyncConfigEngine(settings, getRouteAPI);
       const first = await engine.getConfigured();
       expect(first).toMatchObject({ status: SyncConfigResultStatus.UNAVAILABLE, error: expect.any(Error) });
+      // A file appearing later must not silently switch the running process to another snapshot.
       await writeFile(settings.path, CONTENT);
       expect(await engine.getConfigured()).toBe(first);
       expect(getRouteAPI).not.toHaveBeenCalled();
