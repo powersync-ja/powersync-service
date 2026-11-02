@@ -669,16 +669,18 @@ bucket_definitions:
     const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
       factory,
       updateSyncRulesFromYaml(
-        `
-bucket_definitions:
-  global:
-    data:
-      - SELECT id, description FROM "%"
-`,
+        /* yaml */ `
+          # sync config fixture.
+          config:
+            edition: 3
+          streams:
+            global:
+              query: SELECT id, description FROM "%"
+        `,
         { storageVersion }
       )
     );
-    const bucketStorage = factory.getInstance(replicationStream);
+    const bucketStorage = await getTestStorage(factory, replicationStream);
     const unavailable: storage.SaveUpdate[] = [];
     await using writer = await bucketStorage.createWriter({
       ...test_utils.BATCH_OPTIONS,
@@ -724,12 +726,24 @@ bucket_definitions:
       },
       afterReplicaId: test_utils.rid('test2')
     });
-    await writer.commit('1/1');
-
+    await writer.flush();
     expect(unavailable.map((record) => record.after.id)).toEqual(['test2']);
 
+    // Complete the targeted resnapshot before committing source progress.
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'test2',
+        description: 'test2'
+      },
+      afterReplicaId: test_utils.rid('test2')
+    });
+    await writer.flush();
+    await writer.commit('1/1');
+
     const checkpoint = await bucketStorage.getCheckpoint();
-    const request = bucketRequest(syncRules, 'global[]');
+    const request = bucketRequest(syncRules, 'global|0[]');
     const batch = await test_utils.getBatchArray(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const data = batch[0].chunkData.data.map((d) => {
       return {
@@ -741,7 +755,8 @@ bucket_definitions:
 
     expect(data).toEqual([
       { op: 'PUT', object_id: 'test1', data: JSON.stringify({ id: 'test1', description: 'test1' }) },
-      { op: 'PUT', object_id: 'test1', data: JSON.stringify({ id: 'test1', description: 'test1' }) }
+      { op: 'PUT', object_id: 'test1', data: JSON.stringify({ id: 'test1', description: 'test1' }) },
+      { op: 'PUT', object_id: 'test2', data: JSON.stringify({ id: 'test2', description: 'test2' }) }
     ]);
   });
 
