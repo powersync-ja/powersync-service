@@ -664,6 +664,102 @@ bucket_definitions:
     ]);
   });
 
+  test('update without stored record only resnapshots when TOAST values are missing', async () => {
+    await using factory = await generateStorageFactory();
+    const { stream: replicationStream, content: syncRules } = await test_utils.deploySyncRules(
+      factory,
+      updateSyncRulesFromYaml(
+        /* yaml */ `
+          # sync config fixture.
+          config:
+            edition: 3
+          streams:
+            global:
+              query: SELECT id, description FROM "%"
+        `,
+        { storageVersion }
+      )
+    );
+    const bucketStorage = await getTestStorage(factory, replicationStream);
+    const unavailable: storage.SaveUpdate[] = [];
+    await using writer = await bucketStorage.createWriter({
+      ...test_utils.BATCH_OPTIONS,
+      markRecordUnavailable: (record) => {
+        unavailable.push(record);
+      }
+    });
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    await writer.markAllSnapshotDone('1/1');
+
+    // Complete row for a record we have no current_data for, e.g. streamed before the
+    // snapshot reached it. It can be evaluated and stored as-is, so no resnapshot is needed.
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.UPDATE,
+      after: {
+        id: 'test1',
+        description: 'test1'
+      },
+      afterReplicaId: test_utils.rid('test1')
+    });
+    await writer.flush();
+    expect(unavailable).toEqual([]);
+
+    // The stored copy is then used to fill in TOAST values on later updates.
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.UPDATE,
+      after: {
+        id: 'test1',
+        description: undefined
+      },
+      afterReplicaId: test_utils.rid('test1')
+    });
+
+    // Partial row for a record we have no current_data for: cannot be evaluated, must be resnapshotted.
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.UPDATE,
+      after: {
+        id: 'test2',
+        description: undefined
+      },
+      afterReplicaId: test_utils.rid('test2')
+    });
+    await writer.flush();
+    expect(unavailable.map((record) => record.after.id)).toEqual(['test2']);
+
+    // Complete the targeted resnapshot before committing source progress.
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'test2',
+        description: 'test2'
+      },
+      afterReplicaId: test_utils.rid('test2')
+    });
+    await writer.flush();
+    await writer.commit('1/1');
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const request = bucketRequest(syncRules, 'global|0[]');
+    const batch = await test_utils.getBatchArray(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+    const data = batch[0].chunkData.data.map((d) => {
+      return {
+        op: d.op,
+        object_id: d.object_id,
+        data: normalizeOplogData(d.data)
+      };
+    });
+
+    expect(data).toEqual([
+      { op: 'PUT', object_id: 'test1', data: JSON.stringify({ id: 'test1', description: 'test1' }) },
+      { op: 'PUT', object_id: 'test1', data: JSON.stringify({ id: 'test1', description: 'test1' }) },
+      { op: 'PUT', object_id: 'test2', data: JSON.stringify({ id: 'test2', description: 'test2' }) }
+    ]);
+  });
+
   test('batch with overlapping replica ids', async () => {
     // This test checks that we get the correct output when processing rows with:
     // 1. changing replica ids
