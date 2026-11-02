@@ -64,6 +64,14 @@ export interface ChangeStreamOptions {
   snapshotProgressIntervalMs?: number;
 
   /**
+   * Minimum time between restart-only resume updates, checked at safe source page boundaries.
+   * Defaults to 10_000ms; 0 persists every eligible page. Checkpoint commits remain immediate;
+   * published checkpoints count toward this interval. Shutdown persists the last fully consumed safe page.
+   * Automatic size-based storage flushes are independent of this interval.
+   */
+  streamingProgressIntervalMs?: number;
+
+  /**
    * Override keepalive interval for testing (defaults to 60_000ms).
    */
   keepaliveIntervalMs?: number;
@@ -135,6 +143,7 @@ export class ChangeStream {
   private readonly hasQueryProviderFactory: boolean;
 
   private keepaliveIntervalMs: number;
+  private readonly streamingProgressIntervalMs: number;
 
   private isDocumentDb = false;
   private _checkpointImplementation: CheckpointImplementation | null = null;
@@ -152,6 +161,7 @@ export class ChangeStream {
     this.connections = options.connections;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
     this.keepaliveIntervalMs = options.keepaliveIntervalMs ?? 60_000;
+    this.streamingProgressIntervalMs = options.streamingProgressIntervalMs ?? 10_000;
     if (options.maxAwaitTimeMS) {
       this.maxAwaitTimeMS = options.maxAwaitTimeMS;
     } else {
@@ -613,7 +623,8 @@ export class ChangeStream {
         // We get a complete postimage for every change, so we don't need to store the current data.
         storeCurrentData: false,
         hooks: this.storageHooks,
-        signal: this.abortSignal,
+        // Let the source loop stop on cancellation, then drain its last safe progress below.
+        // Storage still uses the replication lease signal to cancel work if ownership is lost.
         tracer
       },
       async (batch) => {
@@ -633,6 +644,28 @@ export class ChangeStream {
         let receivedBytes = 0;
         let changesSinceProgress = 0;
         let filteredSinceProgress: number | null = null;
+        let lastProgressAt = performance.now();
+        let durableResumeLsn = resumeFromLsn;
+        let pendingProgress: { lsn: string; timestamp: Date | null } | null = null;
+        const markProgressPersisted = (lsn: string, timestamp: Date | null) => {
+          durableResumeLsn = lsn;
+          lastProgressAt = performance.now();
+          // MongoDB's token timestamp may lag by about 10 seconds. DocumentDB tokens have no timestamp.
+          this.lastPersistedResumeTimestamp = timestamp?.getTime() ?? Date.now();
+          // A persisted position covers every earlier page in source order.
+          pendingProgress = null;
+        };
+        const persistProgress = async () => {
+          if (pendingProgress == null) {
+            return;
+          }
+          const { lsn, timestamp } = pendingProgress;
+          // Row writes must be durable before their source token. This advances recovery without
+          // publishing a checkpoint ahead of an outstanding barrier, transaction or snapshot.
+          await batch.flush({ oldestUncommittedChange: this.replicationLag.oldestUncommittedChange });
+          await batch.setResumeLsn(lsn);
+          markProgressPersisted(lsn, timestamp);
+        };
         const stream = this.openChangeStream({
           lsn: resumeFromLsn,
           filters,
@@ -656,241 +689,262 @@ export class ChangeStream {
         let lastKeepalive = performance.now();
         let lastTxnKey: string | null = null;
 
-        streamLoop: for await (const sourceBatch of stream) {
-          if (this.abortSignal.aborted) {
-            break;
-          }
-          for (const { event: changeDocument, hasBufferedChanges } of sourceBatch.events) {
+        try {
+          streamLoop: for await (const sourceBatch of stream) {
             if (this.abortSignal.aborted) {
-              break streamLoop;
+              break;
+            }
+            for (const { event: changeDocument, hasBufferedChanges } of sourceBatch.events) {
+              if (this.abortSignal.aborted) {
+                break streamLoop;
+              }
+              this.touch();
+              changesSinceProgress++;
+              const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
+
+              if (ns?.coll == CHECKPOINTS_COLLECTION) {
+                /**
+                 * Dropping the database does not provide an `invalidate` event.
+                 * We typically would receive `drop` events for the collection which we
+                 * would process below.
+                 *
+                 * However we don't commit the LSN after collections are dropped.
+                 * This prevents the `startAfter` or `resumeToken` from advancing past the drop events.
+                 * The stream also closes after the drop events.
+                 * This causes an infinite loop of processing the collection drop events.
+                 *
+                 * This check here invalidates the change stream if our `_powersync_checkpoints` collection
+                 * is dropped. This allows for detecting when the DB is dropped.
+                 */
+                if (changeDocument.operationType == 'drop') {
+                  throw new ChangeStreamInvalidatedError(
+                    'Internal collections have been dropped',
+                    new Error('_powersync_checkpoints collection was dropped')
+                  );
+                }
+
+                if (
+                  !(
+                    changeDocument.operationType == 'insert' ||
+                    changeDocument.operationType == 'update' ||
+                    changeDocument.operationType == 'replace'
+                  )
+                ) {
+                  continue;
+                }
+
+                // We handle two types of checkpoint events:
+                // 1. "Standalone" checkpoints, typically write checkpoints. We want to process these
+                //    immediately, regardless of where they were created.
+                // 2. "Batch" checkpoints for the current stream. This is used as a form of dynamic rate
+                //    limiting of commits, so we specifically want to exclude checkpoints from other streams.
+                //
+                // It may be useful to also throttle commits due to standalone checkpoints in the future.
+                // However, these typically have a much lower rate than batch checkpoints, so we don't do that for now.
+
+                const kind = this.checkpointImplementation.event.observe(changeDocument);
+
+                if (kind == 'foreign') {
+                  // Another stream's barrier - ignore.
+                  continue;
+                } else if (kind == 'standalone') {
+                  // Standalone / write checkpoint received.
+                  // When we are caught up, commit immediately to keep write checkpoint latency low.
+                  // Once there is already a batch checkpoint pending, or the driver has buffered more
+                  // change stream events, collapse standalone checkpoints into the normal batch
+                  // checkpoint flow to avoid commit churn under sustained load.
+                  if (hasBufferedChanges && waitForCheckpointLsn == null) {
+                    // Buffered changes - create a new batch checkpoint to rate limit commits
+                    using _ = tracer.span('source_checkpoint');
+                    waitForCheckpointLsn = await this.createBatchCheckpoint();
+                    continue;
+                  } else if (waitForCheckpointLsn != null) {
+                    // Skip this checkpoint - wait for the batch checkpoint.
+                    continue;
+                  } else {
+                    // No buffered changes, and no batch checkpoint pending - commit immediately.
+                  }
+                }
+                // kind == 'own-barrier' falls through to commit.
+
+                const lsn = this.checkpointImplementation.event.lsn(changeDocument);
+
+                if (
+                  waitForCheckpointLsn != null &&
+                  this.checkpointImplementation.event.resolvesBarrier(waitForCheckpointLsn, changeDocument)
+                ) {
+                  waitForCheckpointLsn = null;
+                }
+                const { checkpointBlocked, checkpointCreated } = await batch.commit(lsn, {
+                  oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
+                });
+
+                if (checkpointCreated) {
+                  // Only a published checkpoint guarantees persisted progress across all storage versions.
+                  // In particular, blocked commits in storage v1/v2 do not advance the resume position.
+                  markProgressPersisted(
+                    lsn,
+                    this.checkpointImplementation.lsnFromResumeToken(changeDocument._id).timestamp
+                  );
+                }
+
+                if (!checkpointBlocked || checkpointCreated) {
+                  this.replicationLag.markCommitted();
+                }
+              } else if (
+                changeDocument.operationType == 'insert' ||
+                changeDocument.operationType == 'update' ||
+                changeDocument.operationType == 'replace' ||
+                changeDocument.operationType == 'delete'
+              ) {
+                if (waitForCheckpointLsn == null) {
+                  using _ = tracer.span('source_checkpoint');
+                  waitForCheckpointLsn = await this.createBatchCheckpoint();
+                }
+
+                const rel = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
+                const tables = await this.getRelations(batch, rel, {
+                  // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
+                  // for whatever reason, then we do need to snapshot it.
+                  // This may result in some duplicate operations when a collection is created for the first time after
+                  // sync config was deployed.
+                  snapshot: true
+                });
+                const tablesToReplicate = tables.filter((table) => table.syncAny);
+                if (tablesToReplicate.length > 0) {
+                  this.replicationLag.trackUncommittedChange(
+                    // Standard MongoDB uses clusterTime, unchanged. DocumentDB has no
+                    // clusterTime, so fall back to wallTime there for the lag metric.
+                    changeDocument.clusterTime != null
+                      ? timestampToDate(changeDocument.clusterTime)
+                      : ((changeDocument as any).wallTime ?? null)
+                  );
+
+                  const transactionKeyValue = transactionKey(changeDocument);
+
+                  if (transactionKeyValue == null || lastTxnKey != transactionKeyValue) {
+                    // Very crude metric for counting transactions replicated.
+                    // We ignore operations other than basic CRUD, and ignore changes to _powersync_checkpoints.
+                    // Individual writes may not have a txnNumber, in which case we count them as separate transactions.
+                    lastTxnKey = transactionKeyValue;
+                    transactionsReplicatedMetric.add(1);
+                  }
+
+                  for (const table of tablesToReplicate) {
+                    await this.writeChange(batch, table, changeDocument);
+                  }
+                }
+              } else if (changeDocument.operationType == 'drop') {
+                const rel = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
+                const tables = await this.getRelations(batch, rel, {
+                  // We're "dropping" this collection, so never snapshot it.
+                  snapshot: false
+                });
+                const tablesToDrop = tables.filter((table) => table.syncAny);
+                if (tablesToDrop.length > 0) {
+                  await batch.drop(tablesToDrop);
+                }
+                this.relationCache.delete(rel);
+              } else if (changeDocument.operationType == 'rename') {
+                const relFrom = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
+                const relTo = getMongoRelation(changeDocument.to, this.connections.connectionTag);
+                const tablesFrom = await this.getRelations(batch, relFrom, {
+                  // We're "dropping" this collection, so never snapshot it.
+                  snapshot: false
+                });
+                const tablesToDrop = tablesFrom.filter((table) => table.syncAny);
+                if (tablesToDrop.length > 0) {
+                  await batch.drop(tablesToDrop);
+                }
+                this.relationCache.delete(relFrom);
+                // Here we do need to snapshot the new table
+                const collection = await this.getCollectionInfo(relTo.schema, relTo.name);
+                await this.handleRelation(batch, relTo, {
+                  // This is a new (renamed) collection, so always snapshot it.
+                  snapshot: true,
+                  collectionInfo: collection
+                });
+              }
+            }
+            if (this.abortSignal.aborted) {
+              break;
             }
             this.touch();
-            changesSinceProgress++;
-            const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
-
-            if (ns?.coll == CHECKPOINTS_COLLECTION) {
-              /**
-               * Dropping the database does not provide an `invalidate` event.
-               * We typically would receive `drop` events for the collection which we
-               * would process below.
-               *
-               * However we don't commit the LSN after collections are dropped.
-               * This prevents the `startAfter` or `resumeToken` from advancing past the drop events.
-               * The stream also closes after the drop events.
-               * This causes an infinite loop of processing the collection drop events.
-               *
-               * This check here invalidates the change stream if our `_powersync_checkpoints` collection
-               * is dropped. This allows for detecting when the DB is dropped.
-               */
-              if (changeDocument.operationType == 'drop') {
-                throw new ChangeStreamInvalidatedError(
-                  'Internal collections have been dropped',
-                  new Error('_powersync_checkpoints collection was dropped')
-                );
-              }
-
-              if (
-                !(
-                  changeDocument.operationType == 'insert' ||
-                  changeDocument.operationType == 'update' ||
-                  changeDocument.operationType == 'replace'
-                )
-              ) {
-                continue;
-              }
-
-              // We handle two types of checkpoint events:
-              // 1. "Standalone" checkpoints, typically write checkpoints. We want to process these
-              //    immediately, regardless of where they were created.
-              // 2. "Batch" checkpoints for the current stream. This is used as a form of dynamic rate
-              //    limiting of commits, so we specifically want to exclude checkpoints from other streams.
-              //
-              // It may be useful to also throttle commits due to standalone checkpoints in the future.
-              // However, these typically have a much lower rate than batch checkpoints, so we don't do that for now.
-
-              const kind = this.checkpointImplementation.event.observe(changeDocument);
-
-              if (kind == 'foreign') {
-                // Another stream's barrier - ignore.
-                continue;
-              } else if (kind == 'standalone') {
-                // Standalone / write checkpoint received.
-                // When we are caught up, commit immediately to keep write checkpoint latency low.
-                // Once there is already a batch checkpoint pending, or the driver has buffered more
-                // change stream events, collapse standalone checkpoints into the normal batch
-                // checkpoint flow to avoid commit churn under sustained load.
-                if (hasBufferedChanges && waitForCheckpointLsn == null) {
-                  // Buffered changes - create a new batch checkpoint to rate limit commits
-                  using _ = tracer.span('source_checkpoint');
-                  waitForCheckpointLsn = await this.createBatchCheckpoint();
+            const batchFilteredCount = sourceBatch.metadata.filteredCount;
+            if (batchFilteredCount != null) {
+              filteredSinceProgress = (filteredSinceProgress ?? 0) + batchFilteredCount;
+            }
+            const resumeToken = sourceBatch.getResumeToken();
+            if (resumeToken != null) {
+              const filteredCount = filteredSinceProgress;
+              if (changesSinceProgress == 0) {
+                // No retained changes since the previous progress boundary: this is either idle or filtered-only traffic.
+                // Case 1: No pending barrier and the keepalive interval has elapsed. Advance checkpoints as below,
+                // then make the resume token eligible for persistence.
+                // Case 2: Idle traffic with a recent keepalive. Skip this resume update, whether or not a barrier
+                // is pending, to preserve the idle throttle.
+                // Case 3: All other combinations. Make the token eligible without requesting a checkpoint.
+                // A pending barrier will provide the checkpoint boundary once replication reaches it. Filtered
+                // progress remains eligible during the keepalive interval, so excluded work is resumable.
+                const hadRecentKeepalive = performance.now() - lastKeepalive < this.keepaliveIntervalMs;
+                if (waitForCheckpointLsn == null && !hadRecentKeepalive) {
+                  if ((filteredCount ?? 0) > 0) {
+                    // Case 1a: A transaction can span batches: this batch may contain only filtered changes,
+                    // while retained changes from the same transaction are still unread. They share a timestamp,
+                    // so publishing a checkpoint here could acknowledge the transaction before its data is saved.
+                    // Request a source barrier; reaching it ensures those retained changes have been processed.
+                    // The progress token can still be saved below for recovery without publishing a checkpoint.
+                    using _ = tracer.span('source_checkpoint');
+                    waitForCheckpointLsn = await this.createBatchCheckpoint();
+                  } else {
+                    // Case 1b: Idle traffic. The timestamp implementation persists a keepalive directly;
+                    // the sentinel implementation writes a source marker whose event will commit later.
+                    await this.checkpointImplementation.keepalive(batch, resumeToken);
+                    this.replicationLag.markStarted();
+                  }
+                  this.touch();
+                  lastKeepalive = performance.now();
+                } else if ((filteredCount ?? 0) == 0 && hadRecentKeepalive) {
+                  // Case 2: Don't refresh idle tokens, but finish any earlier active progress when due.
+                  if (performance.now() - lastProgressAt >= this.streamingProgressIntervalMs) {
+                    await persistProgress();
+                  }
                   continue;
-                } else if (waitForCheckpointLsn != null) {
-                  // Skip this checkpoint - wait for the batch checkpoint.
-                  continue;
-                } else {
-                  // No buffered changes, and no batch checkpoint pending - commit immediately.
                 }
               }
-              // kind == 'own-barrier' falls through to commit.
 
-              const lsn = this.checkpointImplementation.event.lsn(changeDocument);
-
-              if (
-                waitForCheckpointLsn != null &&
-                this.checkpointImplementation.event.resolvesBarrier(waitForCheckpointLsn, changeDocument)
-              ) {
-                waitForCheckpointLsn = null;
+              const progress = this.checkpointImplementation.lsnFromResumeToken(resumeToken);
+              // Only exact equality proves a token is already covered: transaction events can share a
+              // timestamp, and sentinel tokens are opaque. Never deduplicate by timestamp or token order.
+              pendingProgress = progress.lsn == durableResumeLsn ? null : progress;
+              if (performance.now() - lastProgressAt >= this.streamingProgressIntervalMs) {
+                await persistProgress();
               }
-              const { checkpointBlocked, checkpointCreated } = await batch.commit(lsn, {
-                oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
+              processingSpan?.end();
+              const durationsMicroseconds = outerSpan.end();
+              const filteringDescription = filteredCount == null ? '' : ` and ${filteredCount} filtered events`;
+              this.logger.info(`Processed ${changesSinceProgress} changes${filteringDescription}`, {
+                count: changesSinceProgress,
+                ...(filteredCount == null ? {} : { filteredCount }),
+                bytes: receivedBytes,
+                duration: processingSpan?.durationMillis,
+                t: durationsMicroseconds
               });
-
-              if (!checkpointBlocked || checkpointCreated) {
-                this.replicationLag.markCommitted();
-              }
-            } else if (
-              changeDocument.operationType == 'insert' ||
-              changeDocument.operationType == 'update' ||
-              changeDocument.operationType == 'replace' ||
-              changeDocument.operationType == 'delete'
-            ) {
-              if (waitForCheckpointLsn == null) {
-                using _ = tracer.span('source_checkpoint');
-                waitForCheckpointLsn = await this.createBatchCheckpoint();
-              }
-
-              const rel = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
-              const tables = await this.getRelations(batch, rel, {
-                // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
-                // for whatever reason, then we do need to snapshot it.
-                // This may result in some duplicate operations when a collection is created for the first time after
-                // sync config was deployed.
-                snapshot: true
-              });
-              const tablesToReplicate = tables.filter((table) => table.syncAny);
-              if (tablesToReplicate.length > 0) {
-                this.replicationLag.trackUncommittedChange(
-                  // Standard MongoDB uses clusterTime, unchanged. DocumentDB has no
-                  // clusterTime, so fall back to wallTime there for the lag metric.
-                  changeDocument.clusterTime != null
-                    ? timestampToDate(changeDocument.clusterTime)
-                    : ((changeDocument as any).wallTime ?? null)
-                );
-
-                const transactionKeyValue = transactionKey(changeDocument);
-
-                if (transactionKeyValue == null || lastTxnKey != transactionKeyValue) {
-                  // Very crude metric for counting transactions replicated.
-                  // We ignore operations other than basic CRUD, and ignore changes to _powersync_checkpoints.
-                  // Individual writes may not have a txnNumber, in which case we count them as separate transactions.
-                  lastTxnKey = transactionKeyValue;
-                  transactionsReplicatedMetric.add(1);
-                }
-
-                for (const table of tablesToReplicate) {
-                  await this.writeChange(batch, table, changeDocument);
-                }
-              }
-            } else if (changeDocument.operationType == 'drop') {
-              const rel = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
-              const tables = await this.getRelations(batch, rel, {
-                // We're "dropping" this collection, so never snapshot it.
-                snapshot: false
-              });
-              const tablesToDrop = tables.filter((table) => table.syncAny);
-              if (tablesToDrop.length > 0) {
-                await batch.drop(tablesToDrop);
-              }
-              this.relationCache.delete(rel);
-            } else if (changeDocument.operationType == 'rename') {
-              const relFrom = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
-              const relTo = getMongoRelation(changeDocument.to, this.connections.connectionTag);
-              const tablesFrom = await this.getRelations(batch, relFrom, {
-                // We're "dropping" this collection, so never snapshot it.
-                snapshot: false
-              });
-              const tablesToDrop = tablesFrom.filter((table) => table.syncAny);
-              if (tablesToDrop.length > 0) {
-                await batch.drop(tablesToDrop);
-              }
-              this.relationCache.delete(relFrom);
-              // Here we do need to snapshot the new table
-              const collection = await this.getCollectionInfo(relTo.schema, relTo.name);
-              await this.handleRelation(batch, relTo, {
-                // This is a new (renamed) collection, so always snapshot it.
-                snapshot: true,
-                collectionInfo: collection
-              });
+              changesSinceProgress = 0;
+              filteredSinceProgress = null;
+              receivedBytes = 0;
+              outerSpan = tracer.span('batch');
+              continue;
             }
           }
-          if (this.abortSignal.aborted) {
-            break;
-          }
-          this.touch();
-          const batchFilteredCount = sourceBatch.metadata.filteredCount;
-          if (batchFilteredCount != null) {
-            filteredSinceProgress = (filteredSinceProgress ?? 0) + batchFilteredCount;
-          }
-          const resumeToken = sourceBatch.getResumeToken();
-          if (resumeToken != null) {
-            const filteredCount = filteredSinceProgress;
-            if (changesSinceProgress == 0) {
-              // No retained changes since the previous progress boundary: this is either idle or filtered-only traffic.
-              // Case 1: No pending barrier and the keepalive interval has elapsed. Advance checkpoints as below,
-              // then flush and save the resume token.
-              // Case 2: Idle traffic with a recent keepalive. Skip this resume update, whether or not a barrier
-              // is pending, to preserve the idle throttle.
-              // Case 3: All other combinations. Flush and save the resume token without requesting a checkpoint.
-              // A pending barrier will provide the checkpoint boundary once replication reaches it. Filtered
-              // progress still saves its token even during the keepalive interval, so excluded work is resumable.
-              const hadRecentKeepalive = performance.now() - lastKeepalive < this.keepaliveIntervalMs;
-              if (waitForCheckpointLsn == null && !hadRecentKeepalive) {
-                if ((filteredCount ?? 0) > 0) {
-                  // Case 1a: A transaction can span batches: this batch may contain only filtered changes,
-                  // while retained changes from the same transaction are still unread. They share a timestamp,
-                  // so publishing a checkpoint here could acknowledge the transaction before its data is saved.
-                  // Request a source barrier; reaching it ensures those retained changes have been processed.
-                  // The progress token can still be saved below for recovery without publishing a checkpoint.
-                  using _ = tracer.span('source_checkpoint');
-                  waitForCheckpointLsn = await this.createBatchCheckpoint();
-                } else {
-                  // Case 1b: Idle traffic. The timestamp implementation persists a keepalive directly;
-                  // the sentinel implementation writes a source marker whose event will commit later.
-                  await this.checkpointImplementation.keepalive(batch, resumeToken);
-                  this.replicationLag.markStarted();
-                }
-                this.touch();
-                lastKeepalive = performance.now();
-              } else if ((filteredCount ?? 0) == 0 && hadRecentKeepalive) {
-                // Case 2: Only idle progress skips resume persistence. Cases 1 and 3 fall through below.
-                continue;
-              }
-            }
-
-            const { lsn, timestamp } = this.checkpointImplementation.lsnFromResumeToken(resumeToken);
-            // Row writes must be durable before their source token. This advances recovery without
-            // publishing a checkpoint ahead of an outstanding barrier, transaction or snapshot.
-            await batch.flush({ oldestUncommittedChange: this.replicationLag.oldestUncommittedChange });
-            await batch.setResumeLsn(lsn);
-            // MongoDB's token timestamp may lag by about 10 seconds. DocumentDB tokens have no timestamp.
-            this.lastPersistedResumeTimestamp = timestamp?.getTime() ?? Date.now();
-            processingSpan?.end();
-            const durationsMicroseconds = outerSpan.end();
-            const filteringDescription = filteredCount == null ? '' : ` and ${filteredCount} filtered events`;
-            this.logger.info(`Processed ${changesSinceProgress} changes${filteringDescription}`, {
-              count: changesSinceProgress,
-              ...(filteredCount == null ? {} : { filteredCount }),
-              bytes: receivedBytes,
-              duration: processingSpan?.durationMillis,
-              t: durationsMicroseconds
-            });
-            changesSinceProgress = 0;
-            filteredSinceProgress = null;
-            receivedBytes = 0;
-            outerSpan = tracer.span('batch');
-            continue;
+        } catch (error) {
+          // Cursor cancellation can throw instead of ending iteration. Flush only the previously
+          // completed safe page; processing/adapter/storage failures must leave progress for replay.
+          if (!this.abortSignal.aborted || error !== this.abortSignal.reason) {
+            throw error;
           }
         }
+        await persistProgress();
       }
     );
 
