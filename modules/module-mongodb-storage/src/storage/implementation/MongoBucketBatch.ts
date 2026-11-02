@@ -754,17 +754,17 @@ export abstract class MongoBucketBatch
     this.batch.push(new RecordOperation(record));
 
     if (this.batch.shouldFlush()) {
-      const r = await this.automaticFlush();
-      // HACK: Give other streams a  chance to also flush
-      await timers.setTimeout(5);
-      return r;
+      return this.automaticFlush();
     }
     return null;
   }
 
   /** V1/v2 automatic flushes remain durable. */
-  protected automaticFlush(): Promise<storage.FlushedResult | null> {
-    return this.flush();
+  protected async automaticFlush(): Promise<storage.FlushedResult | null> {
+    const result = await this.flush();
+    // HACK: Give other streams a chance to also flush.
+    await timers.setTimeout(5);
+    return result;
   }
 
   /**

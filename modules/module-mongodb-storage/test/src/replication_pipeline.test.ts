@@ -69,23 +69,36 @@ describe.each([3, 4])('replication pipeline v%s', (version) => {
       return original.apply(this, args);
     });
     using reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
-    using uploads = vi.spyOn(c.objects, 'put');
-    expect(await save(writer, c.table, 'A', 'first')).toBeNull();
-    await entered.promise;
-    expect(await save(writer, c.table, 'A', 'second')).toBeNull();
-    expect(publish).toHaveBeenCalledTimes(1);
-    expect(reads).toHaveBeenCalledTimes(1); // The second row uses pending state.
-    expect(uploads).toHaveBeenCalledTimes(mode === 'offloaded' ? 2 : 0);
-    expect(writer.last_flushed_op).toBeNull();
-    expect(c.pipeline.pendingCount).toBe(2);
-    const waiting = Promise.withResolvers<void>();
-    const capacity = c.pipeline.capacity.bind(c.pipeline);
-    using _capacity = vi.spyOn(c.pipeline, 'capacity').mockImplementation(async (...args) => {
-      waiting.resolve();
-      return capacity(...args);
+    const secondUpload = Promise.withResolvers<void>();
+    const put = c.objects.put.bind(c.objects);
+    let uploadCount = 0;
+    using uploads = vi.spyOn(c.objects, 'put').mockImplementation(async (...args) => {
+      await put(...args);
+      if (++uploadCount === 2) {
+        secondUpload.resolve();
+      }
     });
-    const third = save(writer, c.table, 'B', 'third');
+    let third: Promise<storage.FlushedResult | null> | undefined;
     try {
+      expect(await save(writer, c.table, 'A', 'first')).toBeNull();
+      await entered.promise;
+      expect(await save(writer, c.table, 'A', 'second')).toBeNull();
+      if (mode === 'offloaded') {
+        // Admission does not wait for uploads. Observe readiness without relying on a scheduling delay.
+        await secondUpload.promise;
+      }
+      expect(publish).toHaveBeenCalledTimes(1);
+      expect(reads).toHaveBeenCalledTimes(1); // The second row uses pending state.
+      expect(uploads).toHaveBeenCalledTimes(mode === 'offloaded' ? 2 : 0);
+      expect(writer.last_flushed_op).toBeNull();
+      expect(c.pipeline.pendingCount).toBe(2);
+      const waiting = Promise.withResolvers<void>();
+      const capacity = c.pipeline.capacity.bind(c.pipeline);
+      using _capacity = vi.spyOn(c.pipeline, 'capacity').mockImplementation(async (...args) => {
+        waiting.resolve();
+        return capacity(...args);
+      });
+      third = save(writer, c.table, 'B', 'third');
       await waiting.promise;
       expect(reads).toHaveBeenCalledTimes(1);
       expect(publish).toHaveBeenCalledTimes(1);
