@@ -2,16 +2,14 @@ import {
   AbstractReplicationJob,
   AbstractReplicator,
   AbstractReplicatorOptions,
-  BasicRouterRequest,
-  Context,
   getInvalidLocalSyncConfigStatus,
-  loadSyncConfig,
-  routes,
+  RouteAPI,
   storage,
+  SyncConfigEngine,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
 import { describe, expect, test, vi } from 'vitest';
-import { BATCH_OPTIONS } from '../test-utils/general-utils.js';
+import { BATCH_OPTIONS, bucketRequest, getBatchArray, resolveTestTable, rid } from '../test-utils/general-utils.js';
 import { getTestStorage, releaseTestStorageLease } from '../test-utils/leased-storage.js';
 import { METRICS_HELPER } from '../test-utils/MetricsHelper.js';
 
@@ -29,8 +27,17 @@ const INVALID_CONFIG = /* yaml */ `
  * Source ingestion is outside this suite, so tests advance snapshots through the real writer.
  */
 class ConfigTestReplicator extends AbstractReplicator {
-  constructor(options: AbstractReplicatorOptions) {
-    super(options);
+  readonly syncConfigEngine: SyncConfigEngine;
+  constructor(options: Omit<AbstractReplicatorOptions, 'syncConfigEngine'>) {
+    const syncConfigEngine = new SyncConfigEngine(
+      options.configuration.sync_rules,
+      () =>
+        ({
+          getParseSyncRulesOptions: () => ({ defaultSchema: 'public' })
+        }) as RouteAPI
+    );
+    super({ ...options, syncConfigEngine });
+    this.syncConfigEngine = syncConfigEngine;
   }
 
   createJob(): AbstractReplicationJob {
@@ -63,82 +70,123 @@ class ConfigTestReplicator extends AbstractReplicator {
 /**
  * Shared backend coverage for rejected local configs through replacement activation and cleanup.
  */
-export function registerInvalidSyncConfigTests(factory: storage.TestStorageFactory, storageVersion: number) {
+export function registerInvalidSyncConfigTests(
+  config: Pick<storage.TestStorageConfig, 'factory' | 'tableIdStrings'>,
+  storageVersion: number
+) {
+  const { factory } = config;
   describe('invalid local sync config lifecycle', () => {
     /**
      * An older service persisted invalid B while valid A was active. After upgrading with
-     * the same local B, startup must leave storage intact and retain ownership of B's stream.
-     * With incremental storage A and B share that stream, so rejecting it would also block A.
-     * This checks compatibility ownership, not successful evaluation of invalid B.
+     * rejected local input, startup supersedes pending work while preserving active A.
      */
-    test('retains ownership of an invalid deployment persisted before upgrade', async () => {
-      await using backend = await factory();
-      const valid = /* yaml */ `
-        # Existing active deployment.
-        config:
-          edition: 3
-        streams:
-          todos:
-            query: SELECT id FROM todos
-      `;
-      const original = await backend.updateSyncRules(
-        updateSyncRulesFromYaml(valid, { storageVersion, version_label: 'active' })
-      );
-      const instance = await getTestStorage(backend, original);
-      {
-        await using writer = await instance.createWriter(BATCH_OPTIONS);
-        await writer.markAllSnapshotDone('1/1');
-        await writer.commit('1/1');
-      }
+    test.each([false, true])(
+      'stops pending work on rejection, including previously persisted invalid work: %s',
+      async (persistedInvalid) => {
+        await using backend = await factory();
+        const valid = /* yaml */ `
+          # Existing active deployment.
+          config:
+            edition: 3
+          streams:
+            todos:
+              query: SELECT id FROM todos
+        `;
+        const original = await backend.updateSyncRules(
+          updateSyncRulesFromYaml(valid, { storageVersion, version_label: 'active' })
+        );
+        const instance = await getTestStorage(backend, original);
+        {
+          await using writer = await instance.createWriter(BATCH_OPTIONS);
+          await writer.markAllSnapshotDone('1/1');
+          await writer.commit('1/1');
+        }
 
-      // Bypass the new startup guard to reproduce a deployment written by an older service.
-      const invalid = updateSyncRulesFromYaml(INVALID_CONFIG, { storageVersion, version_label: 'rejected' });
-      expect(invalid.config.parsed.errors.some((error) => error.type === 'fatal')).toBe(true);
-      const persisted = await backend.updateSyncRules(invalid);
-      if (storageVersion >= 3) {
-        expect(persisted.replicationStreamId).toBe(original.replicationStreamId);
-        expect(persisted.syncConfigContent.map((config) => config.syncConfigState)).toEqual([
-          storage.SyncRuleState.ACTIVE,
-          storage.SyncRuleState.PROCESSING
-        ]);
+        // Persist pending work directly, including invalid input an older service could have stored.
+        const invalid = updateSyncRulesFromYaml(persistedInvalid ? INVALID_CONFIG : valid + '\n# Pending B', {
+          storageVersion,
+          version_label: 'rejected'
+        });
+        expect(invalid.config.parsed.errors.some((error) => error.type === 'fatal')).toBe(persistedInvalid);
+        const persisted = await backend.updateSyncRules(invalid);
+        if (storageVersion >= 3) {
+          expect(persisted.replicationStreamId).toBe(original.replicationStreamId);
+          expect(persisted.syncConfigContent.map((config) => config.syncConfigState)).toEqual([
+            storage.SyncRuleState.ACTIVE,
+            storage.SyncRuleState.PROCESSING
+          ]);
+        }
+        const replicator = new ConfigTestReplicator({
+          id: 'upgrade-test',
+          configuration: {
+            connections: [],
+            sync_rules: { present: true, exit_on_error: false, version_label: 'rejected', content: INVALID_CONFIG }
+          },
+          storageEngine: { activeBucketStorage: backend } as storage.StorageEngine,
+          metricsEngine: METRICS_HELPER.metricsEngine,
+          rateLimiter: { waitUntilAllowed: async () => {}, reportError: () => {}, mayPing: () => false }
+        });
+        const configure = vi.spyOn(backend, 'configureSyncRules');
+        const pendingBefore = await backend.getDeployingSyncConfig();
+        expect(pendingBefore).not.toBeNull();
+        {
+          // Keep the old A/B writer open while startup cancels its pending config.
+          await using staleWriter = persistedInvalid
+            ? undefined
+            : await (await getTestStorage(backend, persisted)).createWriter(BATCH_OPTIONS);
+          await replicator.initializeConfig();
+          if (staleWriter) {
+            await staleWriter.markAllSnapshotDone('1/2');
+            await staleWriter.commit('1/2');
+          }
+        }
+        expect(configure).not.toHaveBeenCalled();
+        expect(await backend.getDeployingSyncConfig()).toBeNull();
+        expect((await backend.getActiveSyncConfig())?.content.sync_rules_content).toBe(valid);
+        const stream = (await backend.getReplicatingReplicationStreams()).find(
+          (stream) => stream.replicationStreamId === original.replicationStreamId
+        )!;
+        expect(stream).toBeDefined();
+        expect(await replicator.accepts(stream)).toBe(true);
+        const activeStorage = await getTestStorage(backend, stream);
+        {
+          await using writer = await activeStorage.createWriter(BATCH_OPTIONS);
+          const table = await resolveTestTable(writer, 'todos', ['id'], config);
+          await writer.save({
+            sourceTable: table,
+            tag: storage.SaveOperationTag.INSERT,
+            after: { id: 'after-cancellation' },
+            afterReplicaId: rid('after-cancellation')
+          });
+          await writer.markAllSnapshotDone('1/3');
+          await writer.commit('1/3');
+        }
+        const active = (await backend.getActiveSyncConfig())!;
+        const checkpoint = await activeStorage.getCheckpoint();
+        const data = await getBatchArray(
+          activeStorage.getBucketDataBatch(checkpoint, [bucketRequest(active.content, 'todos|0[]')])
+        );
+        expect(data.flatMap((chunk) => chunk.chunkData.data)).toEqual(
+          expect.arrayContaining([expect.objectContaining({ op: 'PUT', object_id: 'after-cancellation' })])
+        );
+        expect(checkpoint.lsn).toBe('1/3');
+
+        expect(
+          getInvalidLocalSyncConfigStatus(await replicator.syncConfigEngine.getConfigured(), true, 'rejected')?.content
+        ).toBe(INVALID_CONFIG);
       }
-      const loaded = await loadSyncConfig({ present: true, content: INVALID_CONFIG, exit_on_error: false });
-      const replicator = new ConfigTestReplicator({
-        id: 'upgrade-test',
-        configuration: {
-          connections: [],
-          sync_rules: { present: true, exit_on_error: false, version_label: 'rejected', loaded }
-        },
-        storageEngine: { activeBucketStorage: backend } as storage.StorageEngine,
-        metricsEngine: METRICS_HELPER.metricsEngine,
-        rateLimiter: { waitUntilAllowed: async () => {}, reportError: () => {}, mayPing: () => false }
-      });
-      const configure = vi.spyOn(backend, 'configureSyncRules');
-      const pendingBefore = await backend.getDeployingSyncConfig();
-      await replicator.initializeConfig();
-      expect(configure).not.toHaveBeenCalled();
-      expect((await backend.getDeployingSyncConfig())?.content.syncConfigId).toBe(pendingBefore?.content.syncConfigId);
-      expect((await backend.getActiveSyncConfig())?.content.sync_rules_content).toBe(valid);
-      const stream = (await backend.getReplicatingReplicationStreams()).find(
-        (stream) => stream.replicationStreamId === persisted.replicationStreamId
-      )!;
-      expect(stream).toBeDefined();
-      expect(await replicator.accepts(stream)).toBe(true);
-      expect(getInvalidLocalSyncConfigStatus(loaded, true, 'rejected')?.content).toBe(INVALID_CONFIG);
-    });
+    );
 
     /**
      * Start with valid config A active, then restart a worker with invalid local config B.
      * B must stay out of storage while remaining visible in diagnostics throughout:
      * - automatic recovery of A after source history loss;
-     * - an operator rebuilding A through the admin reprocess endpoint;
-     * - the equivalent request through the Sync Rules compatibility endpoint.
-     * Each path must produce replacement work the worker accepts, activate it, and clean
+     * Recovery must produce replacement work the worker accepts, activate it, and clean
      * up the old stream without losing B's diagnostics or accepting unrelated deployments.
      */
-    test.each(['recovery', 'admin reprocess', 'sync config reprocess'] as const)(
-      '%s retains rejected diagnostics through activation and cleanup',
-      async (operation) => {
+    test.each(['after startup', 'before startup', 'superseded recovery', 'missing recovery'] as const)(
+      'recovery %s retains rejected diagnostics through activation and cleanup',
+      async (recoveryTiming) => {
         await using backend = await factory();
         const content = /* yaml */ `
           # Active stored deployment.
@@ -169,8 +217,7 @@ export function registerInvalidSyncConfigTests(factory: storage.TestStorageFacto
           present: true,
           content: INVALID_CONFIG,
           version_label: 'rejected',
-          exit_on_error: false,
-          loaded: await loadSyncConfig({ present: true, content: INVALID_CONFIG, exit_on_error: false })
+          exit_on_error: false
         };
         const storageEngine = { activeBucketStorage: backend } as storage.StorageEngine;
         const replicator = new ConfigTestReplicator({
@@ -180,41 +227,41 @@ export function registerInvalidSyncConfigTests(factory: storage.TestStorageFacto
           metricsEngine: METRICS_HELPER.metricsEngine,
           rateLimiter: { waitUntilAllowed: async () => {}, reportError: () => {}, mayPing: () => false }
         });
+        if (recoveryTiming !== 'after startup') {
+          await backend.restartReplication(original.replicationStreamId);
+          expect((await backend.getActiveSyncConfig())?.replicationStream.state).toBe(storage.SyncRuleState.ERRORED);
+          if (recoveryTiming === 'superseded recovery') {
+            // A newer operator deployment can replace recovery before the rejected startup.
+            await backend.updateSyncRules(
+              updateSyncRulesFromYaml(content + '\n# Pending deployment', {
+                storageVersion,
+                version_label: 'unrelated',
+                forceNewReplicationStream: true
+              })
+            );
+          } else if (recoveryTiming === 'missing recovery') {
+            await backend.stopProcessingSyncConfigs();
+          }
+        }
         const configure = vi.spyOn(backend, 'configureSyncRules');
         await replicator.initializeConfig();
         expect(configure).not.toHaveBeenCalled();
-        expect(await backend.getDeployingSyncConfig()).toBeNull();
-        expect(await replicator.accepts((await backend.getReplicatingReplicationStreams())[0])).toBe(true);
-        const assertRejectedDiagnostics = () => {
-          const status = getInvalidLocalSyncConfigStatus(settings.loaded, true, settings.version_label);
+        if (recoveryTiming === 'after startup') expect(await backend.getDeployingSyncConfig()).toBeNull();
+        const runnable = await backend.getReplicatingReplicationStreams();
+        expect(runnable).toHaveLength(1);
+        expect(await replicator.accepts(runnable[0])).toBe(true);
+        const assertRejectedDiagnostics = async () => {
+          const status = getInvalidLocalSyncConfigStatus(
+            await replicator.syncConfigEngine.getConfigured(),
+            true,
+            settings.version_label
+          );
           expect(status?.content).toBe(INVALID_CONFIG);
           expect(status?.errors.some((error) => error.level === 'fatal')).toBe(true);
         };
-        assertRejectedDiagnostics();
+        await assertRejectedDiagnostics();
 
-        if (operation === 'recovery') {
-          // Simulate the storage restart requested after a lost source position. The old
-          // active config becomes errored but must still identify the work being recovered.
-          await backend.restartReplication(original.replicationStreamId);
-        } else {
-          // Exercise each public reprocessing handler while B is loaded. Both must rebuild A.
-          // Only the source adapter is a fixture; both routes operate on the real backend.
-          const context = {
-            service_context: {
-              configuration: { sync_rules: settings },
-              storageEngine,
-              routerEngine: {
-                getAPI: () => ({
-                  getParseSyncRulesOptions: () => ({ defaultSchema: 'public' }),
-                  getSourceConfig: async () => ({ id: 'test', tag: 'default' })
-                })
-              }
-            }
-          } as unknown as Context;
-          const route =
-            operation === 'admin reprocess' ? routes.endpoints.reprocess : routes.endpoints.reprocessSyncRules;
-          await route.handler({ context, request: {} as BasicRouterRequest, params: {} });
-        }
+        if (recoveryTiming === 'after startup') await backend.restartReplication(original.replicationStreamId);
         // A worker holding invalid B must recognize this replacement as recovery of A.
         const pending = await backend.getDeployingSyncConfig();
         expect(pending?.content.sync_rules_content).toBe(content);
@@ -224,7 +271,7 @@ export function registerInvalidSyncConfigTests(factory: storage.TestStorageFacto
         )!;
         expect(replacement).toBeDefined();
         expect(await replicator.accepts(replacement)).toBe(true);
-        assertRejectedDiagnostics();
+        await assertRejectedDiagnostics();
 
         // Activation replaces the active identity, but must leave the local rejection visible.
         await activate(replacement);
@@ -240,14 +287,14 @@ export function registerInvalidSyncConfigTests(factory: storage.TestStorageFacto
         }
         expect(await backend.getStoppedReplicationStreams()).toEqual([]);
         expect((await backend.getActiveSyncConfig())?.content.sync_rules_content).toBe(content);
-        assertRejectedDiagnostics();
+        await assertRejectedDiagnostics();
 
         // A deployment from another worker must not be mistaken for recovery of the active config.
         const unrelated = await backend.updateSyncRules(
           updateSyncRulesFromYaml(content, { version_label: 'another-deployment', forceNewReplicationStream: true })
         );
         expect(await replicator.accepts(unrelated)).toBe(false);
-        assertRejectedDiagnostics();
+        await assertRejectedDiagnostics();
       }
     );
   });

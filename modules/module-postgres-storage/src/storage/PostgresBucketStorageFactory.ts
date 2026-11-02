@@ -161,6 +161,16 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     };
   }
 
+  async stopProcessingSyncConfigs(): Promise<void> {
+    await this.db.sql`
+      UPDATE sync_rules
+      SET
+        state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
+      WHERE
+        state = ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }}
+    `.execute();
+  }
+
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<PostgresPersistedReplicationStream> {
     const storageVersion =
       options.storageVersion ??

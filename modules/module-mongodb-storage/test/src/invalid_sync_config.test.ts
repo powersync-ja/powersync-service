@@ -4,6 +4,6 @@ import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util
 
 for (const storageVersion of TEST_STORAGE_VERSIONS) {
   describe(`storage v${storageVersion}`, () => {
-    register.registerInvalidSyncConfigTests(INITIALIZED_MONGO_STORAGE_FACTORY.factory, storageVersion);
+    register.registerInvalidSyncConfigTests(INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion);
   });
 }

@@ -28,6 +28,7 @@ export class MongoModule extends replication.ReplicationModule<types.MongoConnec
     return new ChangeStreamReplicator({
       id: this.getDefaultId(normalisedConfig.database ?? ''),
       configuration: context.configuration,
+      syncConfigEngine: context.syncConfigEngine,
       storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,

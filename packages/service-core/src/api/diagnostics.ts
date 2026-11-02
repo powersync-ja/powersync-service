@@ -3,7 +3,7 @@ import { DEFAULT_TAG, SourceTableRef, SyncConfigWithErrors, SyncRulesErrors } fr
 import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
-import { LoadedSyncConfig } from '../util/config/sync-rules/LoadedSyncConfig.js';
+import { ConfiguredSyncConfigResult, SyncConfigResultStatus } from '../system/SyncConfigEngine.js';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
 import { RouteAPI, SlotWalBudgetInfo } from './RouteAPI.js';
 
@@ -34,27 +34,19 @@ export interface DiagnosticsOptions {
 export const DEFAULT_DATASOURCE_ID = 'default';
 
 /**
- * Report the context's rejected config without creating a persisted deployment.
- * API-only instances with an unavailable file retain stored diagnostics.
+ * Project the cached local admission result without creating a persisted deployment.
  */
 export function getInvalidLocalSyncConfigStatus(
-  loaded: LoadedSyncConfig | undefined,
+  result: ConfiguredSyncConfigResult,
   includeContent: boolean,
   versionLabel?: string
 ): SyncRulesStatus | undefined {
-  if (loaded == null || !('compiled' in loaded)) {
-    return undefined;
-  }
-  const { parsed, yaml } = loaded.compiled;
-  if (!parsed.errors.some((error) => error.type == 'fatal')) {
-    return undefined;
-  }
-  const now = new Date().toISOString();
+  if (result.status !== SyncConfigResultStatus.REJECTED) return undefined;
   return {
     version_label: versionLabel,
-    content: includeContent ? yaml : undefined,
+    content: includeContent ? result.content : undefined,
     connections: [],
-    errors: parsed.errors.map((error) => syncConfigYamlErrorToReplicationError(error, now))
+    errors: result.diagnostics
   };
 }
 

@@ -1,6 +1,5 @@
-import { getInvalidLocalSyncConfigStatus } from '@/api/diagnostics.js';
 import type { RouteAPI } from '@/api/RouteAPI.js';
-import { assertSourceCapabilities } from '@/api/source-capabilities.js';
+import { getInvalidLocalSyncConfigStatus } from '@/api/diagnostics.js';
 import { BasicRouterRequest, Context, storage } from '@/index.js';
 import { AbstractReplicationJob } from '@/replication/AbstractReplicationJob.js';
 import { AbstractReplicator, AbstractReplicatorOptions, CreateJobOptions } from '@/replication/AbstractReplicator.js';
@@ -9,15 +8,21 @@ import { reprocessSyncRules } from '@/routes/endpoints/sync-rules.js';
 import { PersistedReplicationStream } from '@/storage/PersistedReplicationStream.js';
 import type { ReplicationLock } from '@/storage/ReplicationLock.js';
 import { SyncRulesBucketStorage } from '@/storage/SyncRulesBucketStorage.js';
-import { LoadedSyncConfig, loadSyncConfig } from '@/util/config/sync-rules/LoadedSyncConfig.js';
+import { SyncConfigEngine, SyncConfigResultStatus } from '@/system/SyncConfigEngine.js';
+import type { SyncRulesConfig } from '@/util/config/types.js';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { mockServiceContext } from './routes/mocks.js';
 
+type TestReplicatorOptions = Omit<AbstractReplicatorOptions, 'syncConfigEngine'> & {
+  syncConfigEngine?: SyncConfigEngine;
+};
 class TestReplicator extends AbstractReplicator {
+  readonly source: RouteAPI;
+  readonly syncConfigEngineForTest: SyncConfigEngine;
   constructor(
     private readonly cleanup: (storage: SyncRulesBucketStorage) => Promise<void>,
-    options: AbstractReplicatorOptions = {
+    options: TestReplicatorOptions = {
       id: 'test',
       storageEngine: {} as AbstractReplicatorOptions['storageEngine'],
       metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
@@ -25,7 +30,19 @@ class TestReplicator extends AbstractReplicator {
       rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
     }
   ) {
-    super(options);
+    const source = {
+      getParseSyncRulesOptions: () => ({
+        defaultSchema: 'public',
+        connections: Object.fromEntries(
+          (options.configuration.connections ?? []).map((c) => [c.tag ?? 'default', { type: c.type }])
+        )
+      })
+    } as RouteAPI;
+    const syncConfigEngine =
+      options.syncConfigEngine ?? new SyncConfigEngine(options.configuration.sync_rules, () => source);
+    super({ ...options, syncConfigEngine });
+    this.source = source;
+    this.syncConfigEngineForTest = syncConfigEngine;
   }
 
   createJob(_options: CreateJobOptions): AbstractReplicationJob {
@@ -62,10 +79,16 @@ class TestReplicator extends AbstractReplicator {
     await (this as any).runLoop();
   }
 
-  async refreshForTest(configuredLock?: ReplicationLock): Promise<{ replicationJobStarted: boolean }> {
+  async refreshForTest(
+    configuredLock?: ReplicationLock,
+    loadedSyncConfig?: string,
+    invalid = false
+  ): Promise<{ replicationJobStarted: boolean }> {
     (this as any).abortController = new AbortController();
     return (this as any).refresh({
       configuredLock,
+      loadedSyncConfig,
+      loadedSyncConfigInvalid: invalid,
       loadedVersionLabel: undefined
     });
   }
@@ -103,22 +126,24 @@ describe('AbstractReplicator startup sync config', () => {
     const replicator = new TestReplicator(async () => {}, {
       id: 'test',
       storageEngine: {
-        activeBucketStorage: { configureSyncRules }
+        activeBucketStorage: {
+          configureSyncRules,
+          stopProcessingSyncConfigs: vi.fn(async () => {}),
+          getActiveSyncConfig: async () => null
+        }
       } as unknown as AbstractReplicatorOptions['storageEngine'],
       configuration: {
-        connections: [],
+        connections: [{ type: 'postgresql' }],
         sync_rules: {
           present: true,
           exit_on_error: exitOnError,
-          loaded: await loadSyncConfig({ present: true, content: yaml, exit_on_error: exitOnError }, [
-            { type: 'postgresql' }
-          ])
+          content: yaml
         }
       },
       metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
       rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
     });
-    const loaded = (replicator as any).options.configuration.sync_rules.loaded;
+    const loaded = await replicator.syncConfigEngineForTest.getConfigured();
     expect(getInvalidLocalSyncConfigStatus(loaded, true)?.errors).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -138,7 +163,7 @@ describe('AbstractReplicator startup sync config', () => {
 
   it.each(
     [true, false].flatMap((exitOnError) =>
-      (['warning', 'valid', 'unexpected error'] as const).map((result) => ({ exitOnError, result }))
+      (['warning', 'valid', 'fatal', 'unexpected error'] as const).map((result) => ({ exitOnError, result }))
     )
   )(
     'checks source capabilities before persistence: $result, exit_on_error=$exitOnError',
@@ -159,43 +184,44 @@ describe('AbstractReplicator startup sync config', () => {
       const replicator = new TestReplicator(async () => {}, {
         id: 'test',
         storageEngine: {
-          activeBucketStorage: { configureSyncRules }
+          activeBucketStorage: {
+            configureSyncRules,
+            stopProcessingSyncConfigs: vi.fn(async () => {}),
+            getActiveSyncConfig: async () => null
+          }
         } as unknown as AbstractReplicatorOptions['storageEngine'],
         configuration: {
           connections: [{ type: 'postgresql' }, { type: 'mongodb', tag: 'archive' }],
           sync_rules: {
             present: true,
             exit_on_error: exitOnError,
-            loaded: await loadSyncConfig({ present: true, content: yaml, exit_on_error: exitOnError }, [
-              { type: 'postgresql' }
-            ])
+            content: yaml
           }
         },
         metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
         rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
       });
       using parse = vi.spyOn(SqlSyncRules, 'fromYaml');
-      replicator.registerSourceCapabilitiesAssertion((config) =>
-        assertSourceCapabilities(
-          {
-            async validateSourceCapabilities() {
-              calls.push('validate');
-              if (result === 'unexpected error') {
-                throw new Error('Source validation failed');
-              }
-              return result === 'warning' ? [{ level: 'warning', message: 'Missing index' }] : [];
-            }
-          } as unknown as RouteAPI,
-          config
-        )
-      );
+      replicator.source.validateSourceCapabilities = async () => {
+        calls.push('validate');
+        if (result === 'unexpected error') throw new Error('Source validation failed');
+        return result === 'fatal'
+          ? [{ level: 'fatal', message: 'Source validation failed' }]
+          : result === 'warning'
+            ? [{ level: 'warning', message: 'Missing index' }]
+            : [];
+      };
 
-      if (result === 'unexpected error' && exitOnError) {
+      const rejected = result === 'fatal' || result === 'unexpected error';
+      if (rejected && exitOnError) {
         await expect(replicator.runStartupForTest()).rejects.toThrow('Source validation failed');
         expect(calls).toEqual(['validate']);
       } else {
         await replicator.runStartupForTest();
-        expect(calls).toEqual(['validate', 'persist']);
+        expect(calls).toEqual(rejected ? ['validate'] : ['validate', 'persist']);
+      }
+      if (rejected) {
+        expect(configureSyncRules).not.toHaveBeenCalled();
       }
       expect(parse).toHaveBeenCalledWith(
         yaml,
@@ -217,7 +243,11 @@ describe('AbstractReplicator startup sync config', () => {
     const replicator = new TestReplicator(async () => {}, {
       id: 'test',
       storageEngine: {
-        activeBucketStorage: { configureSyncRules }
+        activeBucketStorage: {
+          configureSyncRules,
+          stopProcessingSyncConfigs: vi.fn(async () => {}),
+          getActiveSyncConfig: async () => null
+        }
       } as unknown as AbstractReplicatorOptions['storageEngine'],
       configuration: {
         connections: [],
@@ -225,7 +255,7 @@ describe('AbstractReplicator startup sync config', () => {
           present: true,
           exit_on_error: exitOnError,
           version_label: 'v2',
-          loaded: await loadSyncConfig({ present: true, content: yaml, exit_on_error: exitOnError })
+          content: yaml
         }
       },
       metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
@@ -260,7 +290,7 @@ describe('AbstractReplicator startup sync config', () => {
 });
 
 describe('AbstractReplicator heartbeat interval', () => {
-  const options: AbstractReplicatorOptions = {
+  const options: TestReplicatorOptions = {
     id: 'test',
     storageEngine: {} as AbstractReplicatorOptions['storageEngine'],
     metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
@@ -398,34 +428,47 @@ const INVALID_CONFIG = /* yaml */ `
       query: SELECT FROM
 `;
 
-async function makeStartupReplicator(content: string, exitOnError = false, snapshot?: LoadedSyncConfig) {
+async function makeStartupReplicator(content: string, exitOnError = false, settings?: SyncRulesConfig) {
   const configureSyncRules = vi.fn(async (_options: storage.UpdateSyncRulesOptions) => ({ updated: false }));
   const getActiveSyncConfig = vi.fn();
+  const stopProcessingSyncConfigs = vi.fn(async () => {});
+  const restartReplication = vi.fn(async (_streamId: number) => {});
   const replicator = new TestReplicator(async () => {}, {
     id: 'test',
     storageEngine: {
-      activeBucketStorage: { configureSyncRules, getActiveSyncConfig }
+      activeBucketStorage: {
+        configureSyncRules,
+        getActiveSyncConfig,
+        stopProcessingSyncConfigs,
+        restartReplication,
+        getReplicatingReplicationStreams: async () => [],
+        getStoppedReplicationStreams: async () => []
+      }
     } as unknown as AbstractReplicatorOptions['storageEngine'],
     configuration: {
       connections: [],
-      sync_rules: {
-        present: true,
-        content,
-        exit_on_error: exitOnError,
-        version_label: 'local',
-        loaded:
-          arguments.length >= 3
-            ? snapshot
-            : await loadSyncConfig({ present: true, content, exit_on_error: exitOnError, version_label: 'local' })
-      }
+      sync_rules: settings ?? { present: true, content, exit_on_error: exitOnError, version_label: 'local' }
     },
     metricsEngine: {} as AbstractReplicatorOptions['metricsEngine'],
     rateLimiter: {} as AbstractReplicatorOptions['rateLimiter']
   });
-  return { replicator, configureSyncRules, getActiveSyncConfig };
+  return { replicator, configureSyncRules, getActiveSyncConfig, stopProcessingSyncConfigs, restartReplication };
 }
 
 describe('invalid configured sync config', () => {
+  it('cancels pending work once at startup without cancelling again on refresh', async () => {
+    const { replicator, stopProcessingSyncConfigs } = await makeStartupReplicator(INVALID_CONFIG);
+    await replicator.runStartupForTest();
+    await replicator.refreshForTest(undefined, INVALID_CONFIG, true);
+    await replicator.refreshForTest(undefined, INVALID_CONFIG, true);
+    expect(stopProcessingSyncConfigs).toHaveBeenCalledOnce();
+  });
+
+  it('does not cancel pending work when exit_on_error is enabled', async () => {
+    const { replicator, stopProcessingSyncConfigs } = await makeStartupReplicator(INVALID_CONFIG, true);
+    await expect(replicator.runStartupForTest()).rejects.toThrow();
+    expect(stopProcessingSyncConfigs).not.toHaveBeenCalled();
+  });
   it.each([INVALID_CONFIG, 'streams: [', '# empty sync config\n'])(
     'logs and skips rejected YAML without storing it',
     async (yaml) => {
@@ -439,32 +482,36 @@ describe('invalid configured sync config', () => {
   );
 
   it('uses the same compiled snapshot for deployment and diagnostics', async () => {
-    const loaded = await loadSyncConfig({
-      present: true,
-      content: VALID_CONFIG,
-      exit_on_error: false
-    });
-    const { replicator, configureSyncRules } = await makeStartupReplicator(INVALID_CONFIG, false, loaded);
+    const { replicator, configureSyncRules } = await makeStartupReplicator(VALID_CONFIG);
     await replicator.runStartupForTest();
-    expect(loaded != null && 'compiled' in loaded).toBe(true);
-    if (loaded != null && 'compiled' in loaded) {
-      expect(configureSyncRules.mock.calls[0][0].config).toBe(loaded.compiled);
-    }
-    expect(getInvalidLocalSyncConfigStatus(loaded, true)).toBeUndefined();
+    const result = await replicator.syncConfigEngineForTest.getConfigured();
+    expect(result.status).toBe(SyncConfigResultStatus.ACCEPTED);
+    if (result.status === SyncConfigResultStatus.ACCEPTED)
+      expect(configureSyncRules.mock.calls[0][0].config).toBe(result.compiled);
+    expect(getInvalidLocalSyncConfigStatus(result, true)).toBeUndefined();
   });
 
   it('rejects a file read failure rather than treating it as API mode', async () => {
-    const error = new Error('File unavailable');
-    const loaded: LoadedSyncConfig = { error };
-    const { replicator, configureSyncRules } = await makeStartupReplicator('', false, loaded);
-    await expect(replicator.runStartupForTest()).rejects.toBe(error);
+    const { replicator, configureSyncRules } = await makeStartupReplicator('', false, {
+      present: true,
+      path: '/nonexistent-powersync-engine-test/sync-config.yaml',
+      exit_on_error: false
+    });
+    const result = await replicator.syncConfigEngineForTest.getConfigured();
+    expect(result.status).toBe(SyncConfigResultStatus.UNAVAILABLE);
+    if (result.status !== SyncConfigResultStatus.UNAVAILABLE) throw new Error('Expected input load failure');
+    await expect(replicator.runStartupForTest()).rejects.toBe(result.error);
     expect(configureSyncRules).not.toHaveBeenCalled();
-    expect(getInvalidLocalSyncConfigStatus(loaded, true)).toBeUndefined();
+    expect(
+      getInvalidLocalSyncConfigStatus(await replicator.syncConfigEngineForTest.getConfigured(), true)
+    ).toBeUndefined();
   });
 
   it('accepts stored processing before configured content is supplied', async () => {
-    const loaded = await loadSyncConfig({ present: false, exit_on_error: true });
-    const { replicator, configureSyncRules, getActiveSyncConfig } = await makeStartupReplicator('', true, loaded);
+    const { replicator, configureSyncRules, getActiveSyncConfig } = await makeStartupReplicator('', true, {
+      present: false,
+      exit_on_error: true
+    });
     await replicator.runStartupForTest();
     expect(configureSyncRules).not.toHaveBeenCalled();
     const content = {

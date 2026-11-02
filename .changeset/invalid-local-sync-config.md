@@ -1,7 +1,11 @@
 ---
 '@powersync/service-core': patch
+'@powersync/service-module-mongodb-storage': patch
+'@powersync/service-module-postgres-storage': patch
 ---
 
-Skip persisting new sync configs supplied through service configuration (file, Base64, or inline YAML) with fatal validation errors when `exit_on_error: false`. Already-persisted processing configs that match the local YAML and version label retain their previous ownership behavior, even if invalid. This does not guarantee they can replicate successfully. Existing active replication continues, including recovery and manual reprocessing of the active config.
+Reject sync configs with fatal parsing or source-capability errors before they enter replication. A context-owned `SyncConfigEngine` shares one source-aware parsed config and validation result between replication startup, diagnostics, and manual reprocess guards. The engine loads filesystem, Base64, or inline input on first use and caches the result.
 
-Expose invalid local config and validation errors through diagnostics `deploying_sync_rules`. For filesystem deployments, the API and replicators should use the same sync config file or identical mounted copies. Service configuration resolution reads and validates the local config once. Replication and diagnostics share that snapshot until restart. It cannot report validation errors from a file unavailable to that instance. Existing pending deployments are retained in storage.
+With `exit_on_error: false`, a rejected startup submission stops pending processing work while preserving active replication, including when active and processing configs share a replication stream. This also stops invalid pending configs persisted by older services. Rejected content is exposed through diagnostics `deploying_sync_rules`. With `exit_on_error: true`, validation failures stop startup before storage changes. Warnings remain advisory.
+
+API-managed deployments share validation and continue rejecting fatal submissions before storage changes. Rejected API requests do not cancel accepted pending work or create a local diagnostic overlay.

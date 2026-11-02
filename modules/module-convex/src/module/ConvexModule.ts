@@ -27,6 +27,7 @@ export class ConvexModule extends replication.ReplicationModule<types.ConvexConn
     return new ConvexReplicator({
       id: this.getDefaultId(normalizedConfig.deployment_url),
       configuration: context.configuration,
+      syncConfigEngine: context.syncConfigEngine,
       storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
       connectionFactory,

@@ -71,6 +71,11 @@ export abstract class BucketStorageFactory
   abstract updateSyncRules(options: UpdateSyncRulesOptions): Promise<PersistedReplicationStream>;
 
   /**
+   * Stop pending processing atomically, preserving active configs. Used for rejected startup submissions.
+   */
+  abstract stopProcessingSyncConfigs(): Promise<void>;
+
+  /**
    * Indicate that a slot was removed, and we should re-sync by creating
    * a new replication stream.
    *

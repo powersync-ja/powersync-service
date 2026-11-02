@@ -29,6 +29,7 @@ export class MySQLModule extends replication.ReplicationModule<types.MySQLConnec
     return new BinLogReplicator({
       id: this.getDefaultId(normalisedConfig.database),
       configuration: context.configuration,
+      syncConfigEngine: context.syncConfigEngine,
       storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,

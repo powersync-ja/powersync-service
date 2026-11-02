@@ -31,6 +31,7 @@ export class PostgresModule extends replication.ReplicationModule<types.Postgres
     return new WalStreamReplicator({
       id: this.getDefaultId(normalisedConfig.database),
       configuration: context.configuration,
+      syncConfigEngine: context.syncConfigEngine,
       storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
       connectionFactory: connectionFactory,

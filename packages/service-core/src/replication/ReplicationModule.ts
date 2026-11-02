@@ -95,11 +95,6 @@ export abstract class ReplicationModule<TConfig extends types.configFile.DataSou
     context.routerEngine.registerAPI(sourceAPI);
     if (context.replicationEngine) {
       const replicator = this.createReplicator(context);
-      if (sourceAPI.validateSourceCapabilities != null) {
-        // KLUDGE: Reuse the adapter validation for filesystem-loaded configs.
-        // A shared validation interface could replace this registration through the route adapter in the future.
-        replicator.registerSourceCapabilitiesAssertion((config) => api.assertSourceCapabilities(sourceAPI, config));
-      }
       context.replicationEngine.register(replicator);
     }
   }

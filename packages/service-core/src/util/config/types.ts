@@ -1,7 +1,6 @@
 import { configFile } from '@powersync/service-types';
 import { CompoundKeyCollector } from '../../auth/CompoundKeyCollector.js';
 import { KeyStore } from '../../auth/KeyStore.js';
-import type { LoadedSyncConfig } from './sync-rules/LoadedSyncConfig.js';
 
 export enum ServiceRunner {
   UNIFIED = 'unified',
@@ -21,6 +20,10 @@ export type MigrationContext = {
 
 export type Runner = (config: RunnerConfig) => Promise<void>;
 
+/**
+ * Sync config supplied through service configuration: a filesystem path, Base64 input, or inline YAML.
+ * This excludes configs submitted through the deployment API; `present: false` selects API-managed mode.
+ */
 export type SyncRulesConfig = {
   present: boolean;
   version_label?: string;
@@ -35,7 +38,7 @@ export type ResolvedPowerSyncConfig = {
   storage: configFile.GenericStorageConfig;
   client_keystore: KeyStore<CompoundKeyCollector>;
   port: number;
-  sync_rules: SyncRulesConfig & { loaded?: LoadedSyncConfig };
+  sync_rules: SyncRulesConfig;
   api_tokens: string[];
   jwt_audiences: string[];
   token_max_expiration: string;

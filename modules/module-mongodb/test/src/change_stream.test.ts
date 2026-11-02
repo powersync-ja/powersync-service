@@ -67,6 +67,52 @@ bucket_definitions:
     ]);
   });
 
+  test('continues active source updates after cancelling a pending deployment', async () => {
+    const activeConfig = `
+config:
+  edition: 3
+streams:
+  global:
+    auto_subscribe: true
+    query: SELECT _id AS id, description FROM test_data
+`;
+    let id: mongo.ObjectId;
+    {
+      await using context = await openContext();
+      await context.updateSyncRules(activeConfig);
+      id = (await context.db.collection('test_data').insertOne({ description: 'before' })).insertedId;
+      await context.replicateSnapshot();
+      context.startStreaming();
+      await context.getCheckpoint();
+    }
+    await using context = await openContext({ doNotClear: true });
+    await context.updateSyncRules(
+      activeConfig +
+        `
+  pending:
+    query: SELECT _id AS id FROM pending_data
+`
+    );
+    const pending = (await context.factory.getDeployingSyncConfig())!;
+    const oldJobId = pending.replicationStream.replicationJobId;
+    await context.factory.stopProcessingSyncConfigs();
+    expect(await context.factory.getDeployingSyncConfig()).toBeNull();
+    const active = (await context.factory.getActiveSyncConfig())!;
+    expect(active.content.sync_rules_content).toBe(activeConfig);
+    if (storageVersion >= 3) expect(active.replicationStream.replicationJobId).not.toBe(oldJobId);
+    await context.loadActiveSyncRules();
+    await context.replicateSnapshot();
+    context.startStreaming();
+    await context.db.collection('test_data').updateOne({ _id: id }, { $set: { description: 'after' } });
+    const data = await context.getBucketData('global|0[]');
+    expect(data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining(test_utils.putOp('test_data', { id: id.toHexString(), description: 'after' }))
+      ])
+    );
+    expect((await context.factory.getActiveSyncConfig())?.content.sync_rules_content).toBe(activeConfig);
+  });
+
   test('replicating wildcard', async () => {
     await using context = await openContext();
     const { db } = context;
