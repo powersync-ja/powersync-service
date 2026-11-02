@@ -69,14 +69,15 @@ bucket_definitions:
   });
 
   test('continues active source updates after cancelling a pending deployment', async () => {
-    const activeConfig = `
-config:
-  edition: 3
-streams:
-  global:
-    auto_subscribe: true
-    query: SELECT _id AS id, description FROM test_data
-`;
+    const activeConfig = /* yaml */ `
+      # Active sync config fixture.
+      config:
+        edition: 3
+      streams:
+        global:
+          auto_subscribe: true
+          query: SELECT _id AS id, description FROM test_data
+    `;
     let id: mongo.ObjectId;
     {
       await using context = await openContext();
@@ -88,13 +89,17 @@ streams:
     }
     // Resume the persisted active config in a new worker before submitting pending replacement work.
     await using context = await openContext({ doNotClear: true });
-    await context.updateSyncRules(
-      activeConfig +
-        `
-  pending:
-    query: SELECT _id AS id FROM pending_data
-`
-    );
+    await context.updateSyncRules(/* yaml */ `
+      # Pending replacement sync config fixture.
+      config:
+        edition: 3
+      streams:
+        global:
+          auto_subscribe: true
+          query: SELECT _id AS id, description FROM test_data
+        pending:
+          query: SELECT _id AS id FROM pending_data
+    `);
     const pending = (await context.factory.getDeployingSyncConfig())!;
     // Rejected startup admission uses this same cancellation path while retaining the active config.
     const oldJobId = pending.replicationStream.replicationJobId;
