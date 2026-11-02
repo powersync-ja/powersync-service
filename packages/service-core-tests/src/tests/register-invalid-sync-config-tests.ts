@@ -255,7 +255,9 @@ export function registerInvalidSyncConfigTests(
         const configure = vi.spyOn(backend, 'configureSyncRules');
         await replicator.initializeConfig();
         expect(configure).not.toHaveBeenCalled();
-        if (recoveryTiming === 'after startup') expect(await backend.getDeployingSyncConfig()).toBeNull();
+        if (recoveryTiming === 'after startup') {
+          expect(await backend.getDeployingSyncConfig()).toBeNull();
+        }
         const runnable = await backend.getReplicatingReplicationStreams();
         expect(runnable).toHaveLength(1);
         expect(await replicator.accepts(runnable[0])).toBe(true);
@@ -270,7 +272,9 @@ export function registerInvalidSyncConfigTests(
         };
         await assertRejectedDiagnostics();
 
-        if (recoveryTiming === 'after startup') await backend.restartReplication(original.replicationStreamId);
+        if (recoveryTiming === 'after startup') {
+          await backend.restartReplication(original.replicationStreamId);
+        }
         // A worker holding invalid B must recognize this replacement as recovery of A.
         const pending = await backend.getDeployingSyncConfig();
         expect(pending?.content.sync_rules_content).toBe(content);

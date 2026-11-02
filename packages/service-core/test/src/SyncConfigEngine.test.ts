@@ -119,7 +119,9 @@ describe('SyncConfigEngine', () => {
     async ({ capabilityCheckThrows }) => {
       const adapter = source();
       const capability = vi.spyOn(adapter, 'validateSourceCapabilities').mockImplementation(async () => {
-        if (capabilityCheckThrows) throw new Error('Unsupported executor');
+        if (capabilityCheckThrows) {
+          throw new Error('Unsupported executor');
+        }
         return [{ level: 'fatal', message: 'Unsupported executor' }];
       });
       const result = await new SyncConfigEngine({ present: false, exit_on_error: false }, () => adapter).validate(

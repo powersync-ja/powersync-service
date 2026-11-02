@@ -128,11 +128,15 @@ export class SyncConfigEngine {
   }
 
   private async evaluateConfigured(): Promise<ConfiguredSyncConfigResult> {
-    if (!this.settings.present) return { status: SyncConfigResultStatus.ABSENT };
+    if (!this.settings.present) {
+      return { status: SyncConfigResultStatus.ABSENT };
+    }
     let content: string | undefined;
     try {
       content = await new ConfigurationFileSyncRulesProvider(this.settings).get();
-      if (content == null) throw new Error('Sync config is configured but no content or file path is available');
+      if (content == null) {
+        throw new Error('Sync config is configured but no content or file path is available');
+      }
     } catch (error) {
       logger.warn('Unable to read local sync config', error);
       return { status: SyncConfigResultStatus.UNAVAILABLE, error };
@@ -205,7 +209,9 @@ function validationFailureDiagnostics(error: unknown, ts: string): ValidationDia
  * @throws A 422 `PSYNC_R0001` service error containing fatal diagnostics when the input was rejected.
  */
 export function assertAcceptedSyncConfig(result: SyncConfigValidationResult): CompiledSyncConfig {
-  if (result.status === SyncConfigResultStatus.ACCEPTED) return result.compiled;
+  if (result.status === SyncConfigResultStatus.ACCEPTED) {
+    return result.compiled;
+  }
   throw new ServiceError({
     status: 422,
     code: ErrorCode.PSYNC_R0001,
@@ -235,5 +241,7 @@ export async function assertConfiguredSyncConfigValid(engine: SyncConfigEngine):
       details: 'Correct the sync config and restart the affected service processes'
     });
   }
-  if (result.status === SyncConfigResultStatus.UNAVAILABLE) throw result.error;
+  if (result.status === SyncConfigResultStatus.UNAVAILABLE) {
+    throw result.error;
+  }
 }

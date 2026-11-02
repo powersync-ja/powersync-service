@@ -103,7 +103,9 @@ streams:
     const active = (await context.factory.getActiveSyncConfig())!;
     expect(active.content.sync_rules_content).toBe(activeConfig);
     // Shared-stream cancellation changes job identity so the old A/B worker cannot keep writing.
-    if (storageVersion >= 3) expect(active.replicationStream.replicationJobId).not.toBe(oldJobId);
+    if (storageVersion >= 3) {
+      expect(active.replicationStream.replicationJobId).not.toBe(oldJobId);
+    }
     await context.loadActiveSyncRules();
     await context.replicateSnapshot();
     context.startStreaming();

@@ -41,7 +41,9 @@ export function getInvalidLocalSyncConfigStatus(
   includeContent: boolean,
   versionLabel?: string
 ): SyncRulesStatus | undefined {
-  if (result.status !== SyncConfigResultStatus.REJECTED) return undefined;
+  if (result.status !== SyncConfigResultStatus.REJECTED) {
+    return undefined;
+  }
   return {
     version_label: versionLabel,
     content: includeContent ? result.content : undefined,

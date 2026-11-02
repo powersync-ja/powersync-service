@@ -207,7 +207,9 @@ describe('AbstractReplicator startup sync config', () => {
       using loggedWarning = vi.spyOn(replicator.loggerForTest, 'warn');
       replicator.source.validateSourceCapabilities = async () => {
         calls.push('validate');
-        if (result === 'unexpected error') throw new Error('Source validation failed');
+        if (result === 'unexpected error') {
+          throw new Error('Source validation failed');
+        }
         return result === 'fatal'
           ? [{ level: 'fatal', message: 'Source validation failed' }]
           : result === 'warning'
@@ -495,8 +497,9 @@ describe('invalid configured sync config', () => {
     await replicator.runStartupForTest();
     const result = await replicator.syncConfigEngineForTest.getConfigured();
     expect(result.status).toBe(SyncConfigResultStatus.ACCEPTED);
-    if (result.status === SyncConfigResultStatus.ACCEPTED)
+    if (result.status === SyncConfigResultStatus.ACCEPTED) {
       expect(configureSyncRules.mock.calls[0][0].config).toBe(result.compiled);
+    }
     expect(getInvalidLocalSyncConfigStatus(result, true)).toBeUndefined();
   });
 
@@ -509,7 +512,9 @@ describe('invalid configured sync config', () => {
     const result = await replicator.syncConfigEngineForTest.getConfigured();
     expect(result.status).toBe(SyncConfigResultStatus.UNAVAILABLE);
     // Missing configured input is a startup failure, not permission to use API-managed deployments.
-    if (result.status !== SyncConfigResultStatus.UNAVAILABLE) throw new Error('Expected input load failure');
+    if (result.status !== SyncConfigResultStatus.UNAVAILABLE) {
+      throw new Error('Expected input load failure');
+    }
     await expect(replicator.runStartupForTest()).rejects.toBe(result.error);
     expect(configureSyncRules).not.toHaveBeenCalled();
     expect(

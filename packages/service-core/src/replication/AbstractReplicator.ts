@@ -155,7 +155,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   private async runLoop() {
     const settings = this.options.configuration.sync_rules;
     const result = await this.options.syncConfigEngine.getConfigured();
-    if (result.status === SyncConfigResultStatus.UNAVAILABLE) throw result.error;
+    if (result.status === SyncConfigResultStatus.UNAVAILABLE) {
+      throw result.error;
+    }
     const loadedSyncConfig =
       result.status === SyncConfigResultStatus.ACCEPTED || result.status === SyncConfigResultStatus.REJECTED
         ? result.content
@@ -165,7 +167,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     if (result.status === SyncConfigResultStatus.ACCEPTED || result.status === SyncConfigResultStatus.REJECTED) {
       storage.logSyncConfigErrors(result.diagnostics, this.logger);
       if (result.status === SyncConfigResultStatus.REJECTED) {
-        if (settings.exit_on_error) assertAcceptedSyncConfig(result);
+        if (settings.exit_on_error) {
+          assertAcceptedSyncConfig(result);
+        }
         // A startup submission supersedes pending work even when its replacement is rejected.
         // Do not repeat this on refresh: a later process startup is a new deployment.
         await this.storage.stopProcessingSyncConfigs();

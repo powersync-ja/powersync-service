@@ -166,8 +166,9 @@ describe('manual reprocessing with rejected local config', () => {
       const backend = context.service_context.storageEngine.activeBucketStorage;
       // Ensure no pending deployment exists, so invalid configured YAML is what blocks reprocessing.
       vi.spyOn(backend, 'getDeployingSyncConfig').mockResolvedValue(null);
-      if (capabilityFailure)
+      if (capabilityFailure) {
         api.validateSourceCapabilities = async () => [{ level: 'fatal', message: 'Unsupported executor' }];
+      }
       const update = vi.fn();
       backend.updateSyncRules = update;
       await expect(route.handler({ context, request: REQUEST, params: {} })).rejects.toMatchObject({

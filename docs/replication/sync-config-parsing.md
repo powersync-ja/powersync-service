@@ -62,7 +62,7 @@ diagnostics. Configured (file-loaded) sync configs are parsed and checked by the
 enabled, source-capability errors fail startup before persistence. With it disabled, failures are logged and
 the rejected config is not persisted and pending processing work is stopped while the active config is preserved. The diagnostics API uses the same cached validation result and reports capability failures through `deploying_sync_rules`, including
 on API-only instances and when the source connection is unavailable. Source-specific replication startup checks validate execution requirements.
-Warnings remain advisory.
+Warnings are advisory.
 
 ### Why validate instead of calling `EJSON.deserialize`?
 
