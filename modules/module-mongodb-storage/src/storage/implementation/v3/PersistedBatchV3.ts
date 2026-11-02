@@ -69,12 +69,12 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     private readonly db: VersionedPowerSyncMongoV3,
     private readonly group_id: number,
     private readonly mapping: BucketDefinitionMapping,
-    writtenSize: number,
+    private readonly initialWrittenSize: number,
     options?: PersistedBatchV3Options
   ) {
     this.operations = new BatchOperationBuffer(
       group_id,
-      writtenSize,
+      initialWrittenSize,
       {
         // V3-specific definition validation; v1 does not persist definition ids.
         checkDefinitionId: (definitionId) => {
@@ -100,25 +100,14 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
   }
 
   /**
-   * BSON bytes plus conservative headroom for JS objects, membership maps,
-   * packed chunks and upload buffers. Separate from transaction-size targets.
+   * Reuse the running size estimate with headroom for JS objects, membership
+   * maps, packed chunks and upload buffers, without traversing the batch again.
+   * Separate from transaction-size targets; this is not a measured heap size.
    * This estimate intentionally charges superseded representations until commit.
+   * Exclude the carried transaction size: earlier groups account for themselves.
    */
   get estimatedRetainedBytes(): number {
-    let bytes = 0;
-    for (const operation of this.operations.bucketData) {
-      bytes += bson.calculateObjectSize(operation) + 256;
-    }
-    for (const parameter of this.operations.bucketParameters) {
-      bytes += bson.calculateObjectSize(parameter) + 256;
-    }
-    for (const entry of this.currentData.values()) {
-      bytes += bson.calculateObjectSize(entry.operation) + 256;
-    }
-    for (const state of this.operations.bucketStates.values()) {
-      bytes += bson.calculateObjectSize(state) + 256;
-    }
-    return bytes * 4;
+    return (this.currentSize - this.initialWrittenSize) * 4;
   }
 
   saveBucketData(options: SaveBucketDataOptions): void {

@@ -340,6 +340,12 @@ streams:
     });
     using reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
     using publish = vi.spyOn(PersistedBatchV3.prototype, 'publish');
+    const groupSizes: { transaction: number; retained: number }[] = [];
+    const seal = PersistedBatchV3.prototype.seal;
+    using _seal = vi.spyOn(PersistedBatchV3.prototype, 'seal').mockImplementation(function (this: PersistedBatchV3) {
+      groupSizes.push({ transaction: this.currentSize, retained: this.estimatedRetainedBytes });
+      return seal.call(this);
+    });
     const started = Array.from({ length: 3 }, () => Promise.withResolvers<void>());
     const release = Array.from({ length: 3 }, () => Promise.withResolvers<void>());
     const put = objectStorage.put.bind(objectStorage);
@@ -377,6 +383,12 @@ streams:
     }
     expect(publish).toHaveBeenCalledTimes(3);
     expect(uploads).toBe(3);
+    // Equal-size rows in separate read groups retain equal work. Transaction
+    // sizing still accumulates, but must not be charged repeatedly to memory.
+    expect(groupSizes).toHaveLength(3);
+    expect(groupSizes[2].transaction).toBeGreaterThan(groupSizes[0].transaction);
+    expect(groupSizes[0].retained).toBeGreaterThan(0);
+    expect(groupSizes.map((group) => group.retained)).toEqual(Array(3).fill(groupSizes[0].retained));
     expect(await context.bucketStorage.getCheckpoint()).toMatchObject({ checkpoint: 3n, lsn: '1/2' });
     const definitionId = context.stream.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
     const documents = await context.bucketStorage.db
