@@ -161,11 +161,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sync-rules
       ajv:
-        specifier: ^8.18.0
-        version: 8.18.0
+        specifier: ^8.20.0
+        version: 8.20.0
       better-ajv-errors:
         specifier: ^2.0.3
-        version: 2.0.3(ajv@8.18.0)
+        version: 2.0.3(ajv@8.20.0)
       bson:
         specifier: ^6.10.4
         version: 6.10.4
@@ -791,8 +791,8 @@ importers:
         specifier: ^0.5.0
         version: 0.5.2
       ajv:
-        specifier: ^8.18.0
-        version: 8.18.0
+        specifier: ^8.20.0
+        version: 8.20.0
       bson:
         specifier: ^6.10.4
         version: 6.10.4
@@ -2326,9 +2326,6 @@ packages:
       ajv:
         optional: true
 
-  ajv@8.18.0:
-    resolution: {integrity: sha512-PlXPeEWMXMZ7sPYOHqmDyCJzcfNrUr3fGNKtezX14ykXOEIvyK81d+qydx89KY5O71FKMPaQ2vBfBFI5NHR63A==}
-
   ajv@8.20.0:
     resolution: {integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==}
 
@@ -2778,9 +2775,6 @@ packages:
 
   fast-uri@3.1.8:
     resolution: {integrity: sha512-GZMtZUTNRpOVIECoXwLNZS5xUGE+mVNbTB8h/7Rwh2TFWcBQiPzTgyZi05BF9UMZKkLJv8XBRJTlU7zg8+ZfMg==}
-
-  fast-uri@3.1.9:
-    resolution: {integrity: sha512-hS/0Wt3Ya043oKXs0sIxrMpKQITXhMLIrVAKKXi4gozGC9v7YRWVnXIZzjNPTO02M9BdxLCWqK1yRXgNziVyJQ==}
 
   fast-uri@4.2.3:
     resolution: {integrity: sha512-I1PXwP5eAhlNlcdpjt9CgB59op2ZvZfxw+BkqGFVIUOgNpCVTcTqp3HhTX7brxj5vsip+nSY4nTvff+eIA76hg==}
@@ -5103,8 +5097,8 @@ snapshots:
       '@apidevtools/json-schema-ref-parser': 14.2.1(@types/json-schema@7.0.15)
       '@journeyapps-labs/micro-codecs': 1.0.2
       '@journeyapps-labs/micro-errors': 1.0.1
-      ajv: 8.18.0
-      better-ajv-errors: 2.0.3(ajv@8.18.0)
+      ajv: 8.20.0
+      better-ajv-errors: 2.0.3(ajv@8.20.0)
       ts-codec: 1.3.0
       zod: 4.6.7
     transitivePeerDependencies:
@@ -5979,17 +5973,10 @@ snapshots:
     optionalDependencies:
       ajv: 8.20.0
 
-  ajv@8.18.0:
-    dependencies:
-      fast-deep-equal: 3.1.3
-      fast-uri: 3.1.8
-      json-schema-traverse: 1.0.0
-      require-from-string: 2.0.2
-
   ajv@8.20.0:
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.9
+      fast-uri: 3.1.8
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
@@ -6047,11 +6034,11 @@ snapshots:
 
   base64-js@1.5.1: {}
 
-  better-ajv-errors@2.0.3(ajv@8.18.0):
+  better-ajv-errors@2.0.3(ajv@8.20.0):
     dependencies:
       '@babel/code-frame': 7.28.6
       '@humanwhocodes/momoa': 2.0.4
-      ajv: 8.18.0
+      ajv: 8.20.0
       chalk: 4.1.2
       jsonpointer: 5.0.1
       leven: 3.1.0
@@ -6407,8 +6394,6 @@ snapshots:
   fast-safe-stringify@2.1.1: {}
 
   fast-uri@3.1.8: {}
-
-  fast-uri@3.1.9: {}
 
   fast-uri@4.2.3: {}
 
