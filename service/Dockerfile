@@ -1,4 +1,6 @@
-FROM node:24.22.1-trixie AS builder
+ARG ALPINE_VERSION=3.24
+
+FROM node:24.22.1-alpine${ALPINE_VERSION} AS builder
 WORKDIR /app
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
@@ -60,29 +62,24 @@ RUN pnpm build:production && \
 
 # === PROD ===
 
-FROM node:24.22.1-trixie-slim
+FROM alpine:${ALPINE_VERSION}
 WORKDIR /app
 
+# Copy only Node.js so package managers stay in the builder image.
+COPY --from=builder /usr/local/bin/node /usr/local/bin/node
 COPY --from=builder /app/ ./
 
 ARG SHA
 ENV SHA=${SHA}
 ENV NODE_ENV=production
 
-RUN addgroup --system --gid 901 web && \
-    adduser --gecos "" --disabled-password --uid 901 --ingroup web --home /home/web web
+RUN addgroup -S -g 901 web && \
+    adduser -S -D -u 901 -G web -h /home/web web
 
 # Install the latest system CA certificates.
 # Require the version fixing the October 2026 eMudhra compromise.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
-    && dpkg --compare-versions \
-        "$(dpkg-query -W -f='${Version}' ca-certificates)" \
-        ge '20250419+deb13u1' \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache 'ca-certificates>=20261020-r0' libatomic libstdc++
 
-# Kaniko complains that /workspace already exists, not sure why.
-RUN mkdir -p /workspace && chown -R web:web /workspace
 RUN mkdir -p .probes && chown -R web:web .probes
 
 USER 901
