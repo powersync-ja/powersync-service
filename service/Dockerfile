@@ -1,6 +1,6 @@
 ARG ALPINE_VERSION=3.24
 
-FROM node:24.22.1-alpine${ALPINE_VERSION} AS builder
+FROM node:24.22.2-alpine${ALPINE_VERSION} AS builder
 WORKDIR /app
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
