@@ -29,3 +29,5 @@ overrides:
   '@journeyapps-labs/common-sdk@1.0.x>@journeyapps-labs/micro-streaming': '^1.0.2'
   # Override to resolve GHSA-xcx6-jx8p-x3h5
   '@azure/identity>@azure/msal-node': '7.1.2'
+  # Override to resolve minor security issues
+  'fast-uri@3.1.8': '3.1.9'
