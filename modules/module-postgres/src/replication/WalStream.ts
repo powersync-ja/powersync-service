@@ -79,6 +79,12 @@ export interface WalStreamOptions {
    * Defaults to 120_000 (2 minutes).
    */
   slotHealthCheckIntervalMs?: number;
+
+  /**
+   * Whether to enable slot failover on Postgres 17+.
+   * Defaults to true if supported by server version (17+).
+   */
+  slotFailover?: boolean;
 }
 
 interface InitResult {
@@ -566,7 +572,9 @@ WHERE  oid = $1::regclass`,
 
       // We use the replication connection here, not a pool.
       // The replication slot must be created before we start snapshotting tables.
-      await rquery(replicationConnection, `CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput`);
+      const supportsFailover = await this.checkFailoverSlotSupport();
+      const optionsClause = supportsFailover ? ' (FAILOVER true)' : '';
+      await rquery(replicationConnection, `CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput${optionsClause}`);
 
       this.logger.info(`Created replication slot ${slotName}`);
     }
@@ -1324,6 +1332,17 @@ WHERE  oid = $1::regclass`,
   protected async checkLogicalMessageSupport() {
     const version = await this.connections.getServerVersion();
     return version ? version.compareMain('14.0.0') >= 0 : false;
+  }
+
+  /**
+   * Check if replication slot failover is supported (Postgres 17+) and not explicitly disabled.
+   */
+  async checkFailoverSlotSupport(): Promise<boolean> {
+    if (this.options.slotFailover === false) {
+      return false;
+    }
+    const version = await this.connections.getServerVersion();
+    return version ? version.compareMain('17.0.0') >= 0 : false;
   }
 
   getReplicationLagMillis(): number | undefined {
