@@ -23,7 +23,7 @@
     "@powersync/service-core": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
     "@powersync/service-types": "workspace:*",
-    "fastify": "^5.12.5"
+    "fastify": "^5.12.7"
   },
   "devDependencies": {
     "@opentelemetry/sdk-metrics": "^2.8.0"
