@@ -652,6 +652,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
    *
    * Use in the same transaction that the replacement stream is created.
    */
+  async stopProcessingSyncConfigs(): Promise<void> {
+    await this.withTransaction((session) => this.stopExistingProcessingWork(session));
+  }
+
   private async stopExistingProcessingWork(session: mongo.ClientSession) {
     await this.db.sync_rules.updateMany(
       {

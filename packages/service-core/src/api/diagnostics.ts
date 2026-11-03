@@ -3,6 +3,7 @@ import { DEFAULT_TAG, SourceTableRef, SyncConfigErrors, SyncConfigWithErrors } f
 import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
+import { ConfiguredSyncConfigResult, SyncConfigResultStatus } from '../system/SyncConfigEngine.js';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
 import { RouteAPI, SlotWalBudgetInfo } from './RouteAPI.js';
 
@@ -31,6 +32,25 @@ export interface DiagnosticsOptions {
 }
 
 export const DEFAULT_DATASOURCE_ID = 'default';
+
+/**
+ * Project the cached local admission result without creating a persisted deployment.
+ */
+export function getInvalidLocalSyncConfigStatus(
+  result: ConfiguredSyncConfigResult,
+  includeContent: boolean,
+  versionLabel?: string
+): SyncRulesStatus | undefined {
+  if (result.status !== SyncConfigResultStatus.REJECTED) {
+    return undefined;
+  }
+  return {
+    version_label: versionLabel,
+    content: includeContent ? result.content : undefined,
+    connections: [],
+    errors: result.diagnostics
+  };
+}
 
 export async function getSyncRulesStatus(
   apiHandler: RouteAPI,

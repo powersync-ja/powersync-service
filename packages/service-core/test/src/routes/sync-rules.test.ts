@@ -17,7 +17,6 @@ describe('sync-rules routes', () => {
       updateSyncRules: vi.fn(async () => ({ replicationStreamName: 'new_slot' }))
     };
     // Deploying through the API requires the sync config to not be set in the service config.
-    (service_context as any).configuration = { sync_rules: { present: false } };
 
     return {
       logger: logger,
@@ -79,6 +78,25 @@ describe('sync-rules routes', () => {
   });
 
   describe('deploy', () => {
+    it.each([
+      {
+        inputState: 'invalid YAML',
+        configuration: { present: true, content: 'streams: [', exit_on_error: false }
+      },
+      { inputState: 'unavailable input', configuration: { present: true, exit_on_error: false } }
+    ])(
+      'blocks deployment when a config is supplied regardless of the load result: $inputState',
+      async ({ configuration }) => {
+        const context = makeContext();
+        // Configured mode disables API deployment even if its YAML is rejected or unavailable.
+        context.service_context.configuration.sync_rules = configuration;
+        await expect(deploySyncRules.handler({ context, params: { content: '' }, request })).rejects.toMatchObject({
+          message: expect.stringContaining('Sync config API disabled')
+        });
+        expect(context.service_context.storageEngine.activeBucketStorage.updateSyncRules).not.toHaveBeenCalled();
+      }
+    );
+
     it('logs that bucket_definitions are deprecated', async () => {
       const warnSpy = vi.spyOn(logger, 'warn');
 

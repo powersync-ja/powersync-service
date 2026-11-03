@@ -20,6 +20,10 @@ export type MigrationContext = {
 
 export type Runner = (config: RunnerConfig) => Promise<void>;
 
+/**
+ * Sync config supplied through service configuration: a filesystem path, Base64 input, or inline YAML.
+ * This excludes configs submitted through the deployment API; `present: false` selects API-managed mode.
+ */
 export type SyncRulesConfig = {
   present: boolean;
   version_label?: string;

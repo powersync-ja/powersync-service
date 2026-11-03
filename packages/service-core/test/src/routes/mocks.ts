@@ -11,6 +11,7 @@ import {
   SyncContext,
   SyncRulesBucketStorage
 } from '@/index.js';
+import { SyncConfigEngine } from '@/system/SyncConfigEngine.js';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
 
 export function mockServiceContext(
@@ -43,12 +44,16 @@ export function mockServiceContext(
     });
     createCoreAPIMetrics(metricsEngine);
   }
+  let routeAPI: RouteAPI | undefined;
   const service_context: Partial<ServiceContext> = {
+    configuration: {
+      sync_rules: { present: false, exit_on_error: true }
+    } as ServiceContext['configuration'],
     syncContext: new SyncContext({ maxBuckets: 1, maxDataFetchConcurrency: 1, maxParameterQueryResults: 1 }),
     eventsEngine: new EventsEngine(),
     routerEngine: {
       getAPI() {
-        return {
+        return (routeAPI ??= {
           getParseSyncRulesOptions() {
             return { defaultSchema: 'public' };
           },
@@ -73,7 +78,7 @@ export function mockServiceContext(
           async getDebugTablesInfo() {
             return [];
           }
-        } satisfies Partial<RouteAPI> as unknown as RouteAPI;
+        } satisfies Partial<RouteAPI> as unknown as RouteAPI);
       },
       addStopHandler() {
         return () => {};
@@ -82,11 +87,13 @@ export function mockServiceContext(
     storageEngine,
     metricsEngine: metricsEngine,
     // Not used
-    configuration: null as any,
     lifeCycleEngine: null as any,
     migrations: null as any,
     replicationEngine: null as any,
     serviceMode: null as any
   };
+  service_context.syncConfigEngine = new SyncConfigEngine(service_context.configuration!.sync_rules, () =>
+    service_context.routerEngine!.getAPI()
+  );
   return service_context as ServiceContext;
 }
