@@ -944,14 +944,17 @@ event_definitions:
     await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
-        `
-    bucket_definitions:
-      global:
-        parameters:
-          - SELECT owner_id FROM test WHERE id = token_parameters.test
-        data:
-          - SELECT id, description, owner_id FROM test WHERE id = bucket.owner_id
-    `,
+        /* yaml */ `
+          # Parameter lookup batching regression fixture.
+          config:
+            edition: 3
+          streams:
+            by_owner:
+              auto_subscribe: true
+              query: |
+                SELECT * FROM test
+                WHERE id IN (SELECT owner_id FROM test WHERE id = auth.parameter('test'))
+        `,
         { storageVersion }
       )
     );
@@ -993,10 +996,12 @@ event_definitions:
     const parameterSets = await checkpoint.getParameterSets(lookups, 1000);
 
     expect(parameterSets.length).toEqual(3);
+    await expect(checkpoint.getParameterSets(lookups, 2)).rejects.toThrow('Too many parameter results');
+    expect(await checkpoint.getParameterSets(lookups, 3)).toEqual(parameterSets);
     const rowsByKey = new Map(parameterSets.map((set) => [set.lookup.indexKey[0], set.rows]));
-    expect(rowsByKey.get('row-first')).toEqual([{ owner_id: 'user-row-first' }]);
-    expect(rowsByKey.get('row-middle')).toEqual([{ owner_id: 'user-row-middle' }]);
-    expect(rowsByKey.get('row-last')).toEqual([{ owner_id: 'user-row-last' }]);
+    expect(rowsByKey.get('row-first')).toEqual([{ '0': 'user-row-first' }]);
+    expect(rowsByKey.get('row-middle')).toEqual([{ '0': 'user-row-middle' }]);
+    expect(rowsByKey.get('row-last')).toEqual([{ '0': 'user-row-last' }]);
   });
 
   test.runIf(storageVersion >= 3)('replaces an existing deploying sync config', async () => {

@@ -601,7 +601,9 @@ export async function getParameterSetsV3(
           throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
         });
 
-      rows.push(...batchRows);
+      for (const row of batchRows) {
+        rows.push(row);
+      }
     }
 
     if (rows.length > limit) {
