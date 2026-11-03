@@ -92,7 +92,6 @@ pnpm changeset add
 
 Merging a PR with Changesets will automatically create a PR with version bumps. That PR will be merged when releasing.
 
-
 ## Attribution
 
 This guide is based on the **contributing-gen**. [Make your own](https://github.com/bttger/contributing-gen)!
