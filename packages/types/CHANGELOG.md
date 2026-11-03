@@ -1,5 +1,15 @@
 # @powersync/service-types
 
+## 0.21.0
+
+### Minor Changes
+
+- 85c5e12: Add `powersync_sync_connections_total` to track sync stream close outcomes and setup rejections across HTTP and RSocket.
+
+### Patch Changes
+
+- 574ddbd: Change license from FSL to Apache-2.0
+
 ## 0.20.0
 
 ### Minor Changes
