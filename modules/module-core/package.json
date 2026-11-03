@@ -2,7 +2,7 @@
   "name": "@powersync/service-module-core",
   "repository": "https://github.com/powersync-ja/powersync-service",
   "version": "0.2.38",
-  "license": "FSL-1.1-ALv2",
+  "license": "Apache-2.0",
   "type": "module",
   "publishConfig": {
     "access": "public"

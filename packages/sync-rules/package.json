@@ -6,7 +6,7 @@
     ".": "./dist/index.js",
     "./schema/sync_config.json": "./schema/sync_config.json"
   },
-  "license": "FSL-1.1-ALv2",
+  "license": "Apache-2.0",
   "publishConfig": {
     "access": "public"
   },
