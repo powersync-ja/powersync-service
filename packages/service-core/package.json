@@ -48,7 +48,7 @@
     "@types/async": "^3.2.24",
     "@types/lodash": "^4.17.5",
     "@types/negotiator": "^0.6.4",
-    "fastify": "^5.12.5",
+    "fastify": "^5.12.7",
     "fastify-plugin": "^5.0.1"
   }
 }
