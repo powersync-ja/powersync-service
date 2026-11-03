@@ -1,7 +1,7 @@
 {
   "name": "@powersync/service-errors",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "exports": "./dist/index.js",
   "license": "Apache-2.0",
   "publishConfig": {

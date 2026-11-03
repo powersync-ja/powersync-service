@@ -1,5 +1,16 @@
 # @powersync/lib-service-postgres
 
+## 0.5.8
+
+### Patch Changes
+
+- 574ddbd: Change license from FSL to Apache-2.0
+- Updated dependencies [574ddbd]
+- Updated dependencies [85c5e12]
+  - @powersync/lib-services-framework@0.10.5
+  - @powersync/service-jpgwire@0.21.27
+  - @powersync/service-types@0.21.0
+
 ## 0.5.7
 
 ### Patch Changes

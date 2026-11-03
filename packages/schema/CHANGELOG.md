@@ -1,5 +1,11 @@
 # @powersync/service-schema
 
+## 1.28.0
+
+### Patch Changes
+
+- 574ddbd: Change license from FSL to Apache-2.0
+
 ## 1.27.2
 
 ## 1.27.1

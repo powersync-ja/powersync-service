@@ -1,7 +1,7 @@
 {
   "name": "@powersync/service-rsocket-router",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.2.29",
+  "version": "0.3.0",
   "exports": "./dist/index.js",
   "license": "Apache-2.0",
   "publishConfig": {

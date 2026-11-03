@@ -1,7 +1,7 @@
 {
   "name": "@powersync/service-jsonbig",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.17.13",
+  "version": "0.17.14",
   "exports": "./dist/index.js",
   "license": "Apache-2.0",
   "publishConfig": {
