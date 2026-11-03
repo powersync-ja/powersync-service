@@ -32,7 +32,7 @@ export async function waitForTargetEvidence(options: TargetEvidenceOptions): Pro
       return {
         target: options.target,
         checkpoint: evidence.checkpoint,
-        checkpointVisibleAtNs: process.hrtime.bigint().toString(),
+        checkpointVisibleAtNs: evidence.checkpointVisibleAtNs,
         replicationReleasedAtNs: options.releasedAtNs,
         evidence: evidence.evidence,
         snapshotDone: evidence.snapshotDone,

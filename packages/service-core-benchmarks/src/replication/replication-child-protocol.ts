@@ -30,12 +30,21 @@ export interface ReplicationChildCommandPayloads {
   readonly abort: Record<string, never>;
 }
 
-export interface ReplicationChildEvidencePayload {
-  readonly checkpoint: string | null;
+interface ReplicationChildEvidencePayloadBase {
   readonly evidence: OperationEvidence;
   readonly snapshotDone: boolean;
   readonly bucketCount: number;
 }
+
+export type ReplicationChildEvidencePayload =
+  | (ReplicationChildEvidencePayloadBase & {
+      readonly checkpoint: null;
+      readonly checkpointVisibleAtNs?: never;
+    })
+  | (ReplicationChildEvidencePayloadBase & {
+      readonly checkpoint: string;
+      readonly checkpointVisibleAtNs: string;
+    });
 
 export interface ReplicationChildResourceSamplePayload {
   readonly pid: number;

@@ -173,6 +173,8 @@ export class ReplicationChildRuntime {
         bucketCount: 0
       };
     }
+
+    const checkpointVisibleAtNs = process.hrtime.bigint().toString();
     const buckets = await resolveBenchmarkBuckets({
       syncRules: bucketStorage.getParsedSyncRules({
         defaultSchema: required(this.state.defaultSchema, 'default schema')
@@ -191,7 +193,8 @@ export class ReplicationChildRuntime {
       checkpoint: lsn,
       evidence,
       snapshotDone: status.snapshotDone,
-      bucketCount: buckets.length
+      bucketCount: buckets.length,
+      checkpointVisibleAtNs
     };
   }
 
