@@ -1,5 +1,36 @@
 # @powersync/service-module-postgres
 
+## 0.23.5
+
+### Patch Changes
+
+- ebba2a3: Tweak replication job abort handling.
+- 574ddbd: Change license from FSL to Apache-2.0
+- 071507a: Use the context-owned `SyncConfigEngine` for configured sync config loading and validation, sharing source-specific parsing defaults and capability checks with diagnostics. Reject new sync configs with fatal errors before storing them for replication, while retaining diagnostics when `exit_on_error` is disabled.
+- Updated dependencies [17a026d]
+- Updated dependencies [ebba2a3]
+- Updated dependencies [7cf585d]
+- Updated dependencies [574ddbd]
+- Updated dependencies [071507a]
+- Updated dependencies [b64957d]
+- Updated dependencies [070ef34]
+- Updated dependencies [85c5e12]
+- Updated dependencies [d951049]
+- Updated dependencies [a8d5c22]
+  - @powersync/service-core@1.28.0
+  - @powersync/service-sync-rules@0.45.0
+  - @powersync/lib-service-postgres@0.5.8
+  - @powersync/lib-services-framework@0.10.5
+  - @powersync/service-jpgwire@0.21.27
+  - @powersync/service-jsonbig@0.17.14
+  - @powersync/service-types@0.21.0
+
+## 0.23.4
+
+### Patch Changes
+
+- @powersync/service-core@1.27.2
+
 ## 0.23.3
 
 ### Patch Changes

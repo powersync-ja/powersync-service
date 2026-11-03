@@ -1,6 +1,6 @@
 import { logger } from '@powersync/lib-services-framework';
 import * as sync_rules from '@powersync/service-sync-rules';
-import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { SyncConfig, TablePattern } from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import sql from 'mssql';
 import { coerce, gte } from 'semver';
@@ -266,7 +266,7 @@ export interface GetDebugTableInfoOptions {
   connectionManager: MSSQLConnectionManager;
   tablePattern: TablePattern;
   table: ResolvedTable;
-  syncRules: SqlSyncRules;
+  syncRules: SyncConfig;
 }
 
 export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Promise<service_types.TableInfo> {

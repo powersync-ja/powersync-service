@@ -1,5 +1,31 @@
 # @powersync/service-module-core
 
+## 0.3.0
+
+### Minor Changes
+
+- 85c5e12: Add `powersync_sync_connections_total` to track sync stream close outcomes and setup rejections across HTTP and RSocket.
+
+### Patch Changes
+
+- 574ddbd: Change license from FSL to Apache-2.0
+- Updated dependencies [17a026d]
+- Updated dependencies [ebba2a3]
+- Updated dependencies [574ddbd]
+- Updated dependencies [071507a]
+- Updated dependencies [b64957d]
+- Updated dependencies [85c5e12]
+  - @powersync/service-core@1.28.0
+  - @powersync/service-rsocket-router@0.3.0
+  - @powersync/lib-services-framework@0.10.5
+  - @powersync/service-types@0.21.0
+
+## 0.2.38
+
+### Patch Changes
+
+- @powersync/service-core@1.27.2
+
 ## 0.2.37
 
 ### Patch Changes

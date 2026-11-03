@@ -25,7 +25,7 @@ export class ConvexReplicationJob extends replication.AbstractReplicationJob {
     try {
       await this.replicateOnce();
     } catch (error) {
-      if (!this.isStopped) {
+      if (this.shouldReportReplicationError(error)) {
         this.logger.error('Replication error', error);
         if (error?.cause != null) {
           this.logger.error('cause', error.cause);

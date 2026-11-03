@@ -31,7 +31,7 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
     try {
       await this.replicateOnce();
     } catch (e) {
-      if (!this.abortController.signal.aborted) {
+      if (this.shouldReportReplicationError(e)) {
         this.logger.error(`Replication error`, e);
         if (e.cause != null) {
           this.logger.error(`cause`, e.cause);

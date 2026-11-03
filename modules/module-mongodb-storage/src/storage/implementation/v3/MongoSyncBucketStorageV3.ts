@@ -560,37 +560,51 @@ export async function getParameterSetsV3(
       };
     };
 
-    const [firstLookup, ...remainingLookups] = lookups;
-    const firstQuery = firstLookup == null ? null : buildLookupPipeline(firstLookup, 0);
-    if (firstQuery == null) {
-      return [];
+    // Every lookup after the first adds a $unionWith stage, and MongoDB rejects
+    // pipelines with more than 1000 stages, so evaluate lookups in batches.
+    const MAX_LOOKUPS_PER_PIPELINE = 900;
+    const rows: { index: number; bucket_parameters: SqliteJsonRow }[] = [];
+
+    for (let start = 0; start < lookups.length; start += MAX_LOOKUPS_PER_PIPELINE) {
+      const remaining = limit + 1 - rows.length;
+      if (remaining <= 0) {
+        break;
+      }
+
+      const batch = lookups.slice(start, start + MAX_LOOKUPS_PER_PIPELINE);
+      const [firstLookup, ...remainingLookups] = batch;
+      const firstQuery = buildLookupPipeline(firstLookup, start);
+
+      const pipeline: mongo.Document[] = [
+        ...firstQuery.pipeline,
+        ...remainingLookups.map((lookup, indexInRemaining) => {
+          const query = buildLookupPipeline(lookup, start + indexInRemaining + 1);
+          return {
+            $unionWith: {
+              coll: query.collection.collectionName,
+              pipeline: query.pipeline
+            }
+          };
+        }),
+        { $unwind: '$bucket_parameters' },
+        { $limit: remaining }
+      ];
+
+      const batchRows = await firstQuery.collection
+        .aggregate<{ index: number; bucket_parameters: SqliteJsonRow }>(pipeline, {
+          session,
+          readConcern: 'snapshot',
+          maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
+        })
+        .toArray()
+        .catch((e) => {
+          throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
+        });
+
+      for (const row of batchRows) {
+        rows.push(row);
+      }
     }
-
-    const pipeline: mongo.Document[] = [
-      ...firstQuery.pipeline,
-      ...remainingLookups.map((lookup, indexInRemaining) => {
-        const query = buildLookupPipeline(lookup, indexInRemaining + 1);
-        return {
-          $unionWith: {
-            coll: query.collection.collectionName,
-            pipeline: query.pipeline
-          }
-        };
-      }),
-      { $unwind: '$bucket_parameters' },
-      { $limit: limit + 1 }
-    ];
-
-    const rows = await firstQuery.collection
-      .aggregate<{ index: number; bucket_parameters: SqliteJsonRow }>(pipeline, {
-        session,
-        readConcern: 'snapshot',
-        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-      })
-      .toArray()
-      .catch((e) => {
-        throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
-      });
 
     if (rows.length > limit) {
       throw new ParameterSetLimitExceededError(limit);

@@ -92,10 +92,6 @@ pnpm changeset add
 
 Merging a PR with Changesets will automatically create a PR with version bumps. That PR will be merged when releasing.
 
-## Legal Notice
-
-This repo requires acceptance of our [CLA](https://www.powersync.com/legal/cla) in order to contribute. We use [cla-assistant](https://cla-assistant.io/) to automate this process.
-
 ## Attribution
 
 This guide is based on the **contributing-gen**. [Make your own](https://github.com/bttger/contributing-gen)!

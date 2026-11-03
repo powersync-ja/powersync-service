@@ -54,9 +54,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
     } catch (e) {
       // Fatal exception
 
-      if (!this.isStopped) {
-        // Ignore aborted errors
-
+      if (this.shouldReportReplicationError(e)) {
         this.logger.error(`Replication error`, e);
         if (e.cause != null) {
           // Example:

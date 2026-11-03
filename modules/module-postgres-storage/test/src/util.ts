@@ -2,7 +2,7 @@ import { SUPPORTED_STORAGE_VERSIONS } from '@powersync/service-core';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { normalizePostgresStorageConfig, PostgresMigrationAgent } from '../../src/index.js';
-import { postgresTestSetup } from '../../src/utils/test-utils.js';
+import { postgresTestSetup, PostgresTestStorageOptions } from '../../src/utils/test-utils.js';
 import { env } from './env.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -28,10 +28,15 @@ class TestPostgresMigrationAgent extends PostgresMigrationAgent {
   }
 }
 
-export const POSTGRES_STORAGE_SETUP = postgresTestSetup({
-  url: env.PG_STORAGE_TEST_URL,
-  migrationAgent: (config) => new TestPostgresMigrationAgent(config)
-});
+export function createPostgresTestSetup(options?: Pick<PostgresTestStorageOptions, 'batchLimits'>) {
+  return postgresTestSetup({
+    url: env.PG_STORAGE_TEST_URL,
+    migrationAgent: (config) => new TestPostgresMigrationAgent(config),
+    ...options
+  });
+}
+
+export const POSTGRES_STORAGE_SETUP = createPostgresTestSetup();
 
 export const POSTGRES_STORAGE_FACTORY = POSTGRES_STORAGE_SETUP;
 export const POSTGRES_REPORT_STORAGE_FACTORY = POSTGRES_STORAGE_SETUP.reportFactory;

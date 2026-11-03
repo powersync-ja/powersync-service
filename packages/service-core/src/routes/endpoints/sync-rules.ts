@@ -1,11 +1,11 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { parseSyncConfig, SyncConfigErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
-import { assertSourceCapabilities } from '../../api/source-capabilities.js';
+import { assertAcceptedSyncConfig, assertConfiguredSyncConfigValid } from '../../system/SyncConfigEngine.js';
 
 import { PatternResult, RouteAPI } from '../../api/RouteAPI.js';
-import { logSyncConfigErrors, updateSyncRulesFromConfig } from '../../storage/BucketStorageFactory.js';
+import { logSyncConfigErrors } from '../../storage/BucketStorageFactory.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
@@ -53,30 +53,9 @@ export const deploySyncRules = routeDefinition({
       });
     }
     const content = payload.params.content;
-    let syncConfig: SyncConfigWithErrors;
-
-    try {
-      // First ensure the SyncConfig parses correctly
-      const apiHandler = service_context.routerEngine.getAPI();
-      syncConfig = SqlSyncRules.fromYaml(content, {
-        ...apiHandler.getParseSyncRulesOptions(),
-        // We don't do any schema-level validation at this point
-        schema: undefined
-      });
-    } catch (e) {
-      throw new errors.ServiceError({
-        status: 422,
-        code: ErrorCode.PSYNC_R0001,
-        description: 'Sync config parsing failed',
-        details: e.message
-      });
-    }
-
-    logSyncConfigErrors(syncConfig);
-    // Validate if the current sources support the configuration specified in the sync config
-    await assertSourceCapabilities(service_context.routerEngine.getAPI(), syncConfig.config);
-
-    const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules(updateSyncRulesFromConfig(syncConfig));
+    const compiled = assertAcceptedSyncConfig(await service_context.syncConfigEngine.validate(content));
+    logSyncConfigErrors(compiled.parsed);
+    const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules({ config: compiled });
 
     return {
       slot_name: sync_rules.replicationStreamName
@@ -160,9 +139,10 @@ export const reprocessSyncRules = routeDefinition({
   authorize: authApi,
   validator: schema.createTsCodecValidator(ReprocessSyncRulesRequest),
   handler: async (payload) => {
+    const service_context = payload.context.service_context;
     const {
       storageEngine: { activeBucketStorage }
-    } = payload.context.service_context;
+    } = service_context;
     const next = await activeBucketStorage.getDeployingSyncConfig();
     if (next != null) {
       throw new errors.ServiceError({
@@ -171,6 +151,8 @@ export const reprocessSyncRules = routeDefinition({
         description: 'Busy processing sync config - cannot reprocess'
       });
     }
+
+    await assertConfiguredSyncConfigValid(service_context.syncConfigEngine);
 
     const active = await activeBucketStorage.getActiveSyncConfig();
     if (active == null) {
@@ -182,22 +164,16 @@ export const reprocessSyncRules = routeDefinition({
     }
 
     const sync_rules = active.content;
-    const parsed = SqlSyncRules.fromYaml(sync_rules.sync_rules_content, {
-      ...payload.context.service_context.routerEngine.getAPI().getParseSyncRulesOptions(),
-      schema: undefined,
-      // This sync config already passed validation. But if the rules are not valid anymore due
-      // to a service change, we do want to report the error here.
-      throwOnError: true
-    });
-    logSyncConfigErrors(parsed);
-    await assertSourceCapabilities(payload.context.service_context.routerEngine.getAPI(), parsed.config);
-
-    const new_rules = await activeBucketStorage.updateSyncRules(
-      updateSyncRulesFromConfig(parsed, {
-        version_label: sync_rules.version_label,
-        forceNewReplicationStream: true
-      })
+    const compiled = assertAcceptedSyncConfig(
+      await service_context.syncConfigEngine.validate(sync_rules.sync_rules_content)
     );
+
+    logSyncConfigErrors(compiled.parsed);
+    const new_rules = await activeBucketStorage.updateSyncRules({
+      config: compiled,
+      version_label: sync_rules.version_label,
+      forceNewReplicationStream: true
+    });
     return {
       slot_name: new_rules.replicationStreamName
     };
@@ -216,7 +192,7 @@ function replyPrettyJson(payload: any) {
 
 async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
   try {
-    const rules = SqlSyncRules.fromYaml(sync_rules, {
+    const rules = parseSyncConfig(sync_rules, {
       ...apiHandler.getParseSyncRulesOptions(),
       // No schema-based validation at this point
       schema: undefined
@@ -224,7 +200,7 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
     const errors: string[] = [];
     const warnings = rules.errors.filter((error) => error.type === 'warning').map((error) => error.message);
     const recordError = (error: any) => {
-      errors.push(...(error instanceof SyncRulesErrors ? error.errors.map((e) => e.message) : [error.message]));
+      errors.push(...(error instanceof SyncConfigErrors ? error.errors.map((e) => e.message) : [error.message]));
     };
     try {
       const diagnostics = (await apiHandler.validateSourceCapabilities?.(rules.config)) ?? [];
@@ -251,7 +227,7 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
       data_tables: rules.config.debugGetOutputTables()
     };
   } catch (e) {
-    if (e instanceof SyncRulesErrors) {
+    if (e instanceof SyncConfigErrors) {
       return {
         valid: false,
         errors: e.errors.map((e) => e.message)

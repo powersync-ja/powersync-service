@@ -202,6 +202,19 @@ export class PostgresBucketBatch
       const resolution = await reconcile({ source, candidates });
       storage.validateSourceTableCandidateResolution(candidates, resolution);
 
+      const materializedResolution = storage.materializeSourceTableResolution(candidateTables, resolution);
+      const compatibleTables = materializedResolution.compatibleTables;
+
+      if (!syncRules.tableSyncsAny(source)) {
+        // Still reconcile old mappings so renames out of scope remove previously replicated data.
+        // Skip updating source_metadata below: these records are dropped by the caller in this
+        // same transaction, so persisting new metadata into them first is wasted work.
+        return {
+          tables: [],
+          dropTables: [...materializedResolution.incompatibleTables, ...compatibleTables]
+        };
+      }
+
       for (const { id, sourceMetadata } of storage.diffSourceTableUpdates(candidateTables, resolution)) {
         await db.sql`
           UPDATE source_tables
@@ -211,9 +224,6 @@ export class PostgresBucketBatch
             id = ${{ type: 'varchar', value: id.toString() }}
         `.execute();
       }
-
-      const materializedResolution = storage.materializeSourceTableResolution(candidateTables, resolution);
-      const compatibleTables = materializedResolution.compatibleTables;
 
       // Keep one record, preferring one that has already been snapshotted.
       const reuse = compatibleTables.find((candidate) => candidate.snapshotComplete) ?? compatibleTables[0] ?? null;
@@ -1060,9 +1070,9 @@ export class PostgresBucketBatch
         // Not an error if we re-apply a transaction
         existingBuckets = [];
         existingLookups = [];
-        // Log to help with debugging if there was a consistency issue
-
-        if (storeCurrentData) {
+        // A complete row is evaluated and stored in current_data below, so a resnapshot is only
+        // needed when TOAST values are missing.
+        if (!utils.isCompleteRow(storeCurrentData, after!)) {
           if (this.markRecordUnavailable != null) {
             // This will trigger a "resnapshot" of the record.
             // This is not relevant if storeCurrentData is false, since we'll get the full row

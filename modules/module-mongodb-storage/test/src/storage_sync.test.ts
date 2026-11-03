@@ -1,4 +1,5 @@
 import { MongoSyncBucketStorageV3 } from '@module/storage/implementation/v3/MongoSyncBucketStorageV3.js';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
   deserializeParameterLookup,
   JwtPayload,
@@ -7,7 +8,7 @@ import {
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
 import { bucketRequest, getTestStorage, register, test_utils } from '@powersync/service-core-tests';
-import { RequestParameters, ScopedParameterLookup, SqlSyncRules } from '@powersync/service-sync-rules';
+import { parseSyncConfig, RequestParameters, ScopedParameterLookup } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
@@ -72,7 +73,7 @@ function objectIdGenerator(id: string) {
  * `ResolveTablesOptions.parsedSyncConfig`.
  */
 function parsedSyncConfigSetFor(yaml: string, storageVersion: number) {
-  const parsed = SqlSyncRules.fromYaml(yaml, test_utils.PARSE_OPTIONS);
+  const parsed = parseSyncConfig(yaml, test_utils.PARSE_OPTIONS);
   // These fixtures are legacy Sync Rules, which always report a deprecation warning.
   expect(parsed.errors.filter((error) => error.type !== 'warning')).toEqual([]);
   return new MongoParsedSyncConfigSet(1, getMongoStorageConfig(storageVersion), 'test_slot', [
@@ -939,6 +940,70 @@ event_definitions:
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
   });
 
+  test.runIf(storageVersion >= 3)('fetches parameter sets beyond the aggregation stage limit', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        /* yaml */ `
+          # Parameter lookup batching regression fixture.
+          config:
+            edition: 3
+          streams:
+            by_owner:
+              auto_subscribe: true
+              query: |
+                SELECT * FROM test
+                WHERE id IN (SELECT owner_id FROM test WHERE id = auth.parameter('test'))
+        `,
+        { storageVersion }
+      )
+    );
+    const bucketStorage = await getTestStorage(factory, syncRules);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
+
+    for (const id of ['row-first', 'row-middle', 'row-last']) {
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id, description: id, owner_id: `user-${id}` },
+        afterReplicaId: test_utils.rid(id)
+      });
+    }
+    await writer.markAllSnapshotDone('1/1');
+    await writer.commit('1/1');
+
+    const parsed = syncRules.syncConfigContent[0].parsed(test_utils.PARSE_OPTIONS);
+    const [parameterSource] = [...parsed.syncConfigs[0].config.bucketParameterLookupSources];
+    const scope = parsed.hydrationState.getParameterIndexLookupScope(parameterSource);
+
+    // MongoDB rejects aggregation pipelines with more than 1000 stages, and each
+    // lookup after the first adds a $unionWith stage (#873).
+    const lookups: ScopedParameterLookup[] = [];
+    for (let i = 0; i < 996; i++) {
+      let id = `missing-${i}`;
+      if (i == 0) {
+        id = 'row-first';
+      } else if (i == 900) {
+        id = 'row-middle';
+      } else if (i == 995) {
+        id = 'row-last';
+      }
+      lookups.push(ScopedParameterLookup.direct(scope, [id]));
+    }
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const parameterSets = await checkpoint.getParameterSets(lookups, 1000);
+
+    expect(parameterSets.length).toEqual(3);
+    await expect(checkpoint.getParameterSets(lookups, 2)).rejects.toThrow('Too many parameter results');
+    expect(await checkpoint.getParameterSets(lookups, 3)).toEqual(parameterSets);
+    const rowsByKey = new Map(parameterSets.map((set) => [set.lookup.indexKey[0], set.rows]));
+    expect(rowsByKey.get('row-first')).toEqual([{ '0': 'user-row-first' }]);
+    expect(rowsByKey.get('row-middle')).toEqual([{ '0': 'user-row-middle' }]);
+    expect(rowsByKey.get('row-last')).toEqual([{ '0': 'user-row-last' }]);
+  });
+
   test.runIf(storageVersion >= 3)('replaces an existing deploying sync config', async () => {
     await using factory = await storageConfig.factory();
 
@@ -1343,6 +1408,22 @@ streams:
       expect(updatedActiveStorage.replicationStream.replicationJobId).toContain(
         (await factory.getActiveSyncConfig())!.content.syncConfigId
       );
+
+      // The full-stream writer still holds the old config's definition mapping.
+      // Both metadata writes and the next checkpoint must exit so a replacement
+      // job can load only live mappings.
+      await expect(
+        secondWriter.resolveTables({
+          connection_id: 1,
+          source: sourceDescriptor('todos', { objectId: 'todos-relation-after-activation' }),
+          idGenerator: objectIdGenerator('6544e3899293153fa7b3835e')
+        })
+      ).rejects.toBeInstanceOf(ReplicationAbortedError);
+      await expect(secondWriter.commit('3/1')).rejects.toBeInstanceOf(ReplicationAbortedError);
+      const persistedStream = (await (factory as MongoBucketStorage).db.sync_rules.findOne({
+        _id: first.replicationStreamId
+      })) as ReplicationStreamDocumentV3;
+      expect(persistedStream.resume_lsn).toBe('2/1');
     }
   );
 

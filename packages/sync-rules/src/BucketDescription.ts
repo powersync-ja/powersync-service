@@ -62,7 +62,7 @@ export interface BucketDescription extends NonEnumerableBucketDataSource {
  */
 export interface ResolvedBucket extends BucketDescription {
   /**
-   * The name of the sync rule or stream definition from which the bucket is derived.
+   * The name of the legacy Sync Rules bucket definition or Sync Stream definition from which the bucket is derived.
    */
   definition: string;
   inclusion_reasons: BucketInclusionReason[];

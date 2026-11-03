@@ -2,9 +2,9 @@ import {
   DEFAULT_HYDRATION_STATE,
   DEFAULT_TAG,
   nodeSqlite,
+  parseSyncConfig,
   PrecompiledSyncConfig,
-  serializeSyncPlan,
-  SqlSyncRules
+  serializeSyncPlan
 } from '@powersync/service-sync-rules';
 import * as sqlite from 'node:sqlite';
 import { describe, expect, test } from 'vitest';
@@ -32,7 +32,7 @@ event_definitions:
 
 describe('persisted compiled replication events', () => {
   test('dual-writes additive compiled events and restores the compiled evaluator', () => {
-    const parsed = SqlSyncRules.fromYaml(yamlWithEvents, { defaultSchema: 'test_schema' });
+    const parsed = parseSyncConfig(yamlWithEvents, { defaultSchema: 'test_schema' });
     const update = updateSyncRulesFromConfig(parsed);
     const compiled = update.config.plan!;
     const originalEvent = compiled.plan.events![0];
@@ -87,7 +87,7 @@ describe('persisted compiled replication events', () => {
   });
 
   test('restores raw event descriptors attached to version 1 and 2 plans', () => {
-    const parsed = SqlSyncRules.fromYaml(yamlWithoutEvents, { defaultSchema: 'test_schema' });
+    const parsed = parseSyncConfig(yamlWithoutEvents, { defaultSchema: 'test_schema' });
     const update = updateSyncRulesFromConfig(parsed);
     const legacy: SerializedSyncPlan = {
       ...update.config.plan!,
@@ -116,7 +116,7 @@ describe('persisted compiled replication events', () => {
     ['request parameters', 'SELECT user_id FROM checkpoints WHERE user_id = request.user_id()'],
     ['unsupported expressions', 'SELECT user_id FROM checkpoints WHERE active IN (1, 2)']
   ])('loads legacy event descriptors without validating ignored %s', (_description, eventQuery) => {
-    const parsed = SqlSyncRules.fromYaml(yamlWithoutEvents, { defaultSchema: 'test_schema' });
+    const parsed = parseSyncConfig(yamlWithoutEvents, { defaultSchema: 'test_schema' });
     const update = updateSyncRulesFromConfig(parsed);
     const legacy: SerializedSyncPlan = {
       ...update.config.plan!,
