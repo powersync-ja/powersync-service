@@ -1,26 +1,26 @@
 ---
-'@powersync/service-module-postgres-storage': minor
-'@powersync/service-module-mongodb-storage': minor
-'@powersync/service-core-tests': minor
-'@powersync/service-module-postgres': minor
-'@powersync/service-rsocket-router': minor
-'@powersync/service-client': minor
-'@powersync/service-errors': minor
-'@powersync/service-module-mongodb': minor
-'@powersync/service-module-convex': minor
-'@powersync/service-core': minor
-'@powersync/service-module-mssql': minor
-'@powersync/service-module-mysql': minor
-'@powersync/service-module-core': minor
-'@powersync/service-sync-rules': minor
-'@powersync/lib-service-postgres': minor
-'@powersync/lib-services-framework': minor
-'@powersync/lib-service-mongodb': minor
-'@powersync/service-jpgwire': minor
-'@powersync/service-jsonbig': minor
-'@powersync/service-schema': minor
-'@powersync/service-types': minor
-'@powersync/service-image': minor
+'@powersync/service-module-postgres-storage': patch
+'@powersync/service-module-mongodb-storage': patch
+'@powersync/service-core-tests': patch
+'@powersync/service-module-postgres': patch
+'@powersync/service-rsocket-router': patch
+'@powersync/service-client': patch
+'@powersync/service-errors': patch
+'@powersync/service-module-mongodb': patch
+'@powersync/service-module-convex': patch
+'@powersync/service-core': patch
+'@powersync/service-module-mssql': patch
+'@powersync/service-module-mysql': patch
+'@powersync/service-module-core': patch
+'@powersync/service-sync-rules': patch
+'@powersync/lib-service-postgres': patch
+'@powersync/lib-services-framework': patch
+'@powersync/lib-service-mongodb': patch
+'@powersync/service-jpgwire': patch
+'@powersync/service-jsonbig': patch
+'@powersync/service-schema': patch
+'@powersync/service-types': patch
+'@powersync/service-image': patch
 ---
 
 Change license from FSL to Apache-2.0
