@@ -33,7 +33,7 @@ const ALLOWED_COMMANDS: Record<ChildState, readonly ReplicationChildCommandKind[
   'iteration-ready': ['release_replication', 'monitor_start', 'cleanup_iteration', 'abort'],
   running: ['collect_evidence', 'monitor_start', 'monitor_stop', 'cleanup_iteration', 'abort'],
   'shutting-down': [],
-  failed: [],
+  failed: ['abort'],
   stopped: []
 };
 
@@ -89,8 +89,9 @@ export class ReplicationChildController {
   }
 
   async shutdown(): Promise<void> {
-    if (this.state === 'stopped') return;
-    const acknowledgement = this.request('shutdown', {}).then(
+    if (this.state === 'stopped' || this.exited) return;
+    const command = this.state === 'initialized' ? 'shutdown' : 'abort';
+    const acknowledgement = this.request(command, {}).then(
       () => true,
       () => false
     );

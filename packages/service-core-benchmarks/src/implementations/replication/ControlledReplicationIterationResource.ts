@@ -95,6 +95,12 @@ export class ControlledReplicationIterationResource implements ReplicationBenchm
       await this.controller.request('cleanup_iteration', {}, this.setup.iterationId);
     } catch (error) {
       errors.push(error);
+      // Stop replication before source cleanup can drop the slot and schema.
+      try {
+        await this.controller.shutdown();
+      } catch (shutdownError) {
+        errors.push(shutdownError);
+      }
     }
     try {
       await this.source.cleanup();
