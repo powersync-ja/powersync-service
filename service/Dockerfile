@@ -1,4 +1,4 @@
-FROM node:24.22.0-trixie AS builder
+FROM node:24.22.1-trixie AS builder
 WORKDIR /app
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
@@ -60,7 +60,7 @@ RUN pnpm build:production && \
 
 # === PROD ===
 
-FROM node:24.22.0-trixie-slim
+FROM node:24.22.1-trixie-slim
 WORKDIR /app
 
 COPY --from=builder /app/ ./
@@ -81,29 +81,13 @@ RUN apt-get update \
         ge '20250419+deb13u1' \
     && rm -rf /var/lib/apt/lists/*
 
-# Download the latest Mozilla CA bundle.
-# Source: https://curl.se/docs/caextract.html
-# Mozilla CA bundle, updated 2026-10-20.
-# This intentionally fails the build if the upstream bundle is updated.
-# At that point, it would be better to revert these changes and use an upstream image with fixed bundles.
-ADD --chmod=644 --checksum=sha256:796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe \
-    https://curl.se/ca/cacert.pem \
-    /etc/ssl/mozilla-cacert.pem
-
-# SSL_CERT_DIR points to an empty directory to prevent OpenSSL from loading additional system trust anchors.
-RUN mkdir -p /opt/empty-ca-dir
-# Use the updated Mozilla bundle instead of Node.js's bundled CAs.
-ENV SSL_CERT_FILE="/etc/ssl/mozilla-cacert.pem" \
-    SSL_CERT_DIR="/opt/empty-ca-dir"
-
-
 # Kaniko complains that /workspace already exists, not sure why.
 RUN mkdir -p /workspace && chown -R web:web /workspace
 RUN mkdir -p .probes && chown -R web:web .probes
 
 USER 901
 
-# Specifically avoid using NODE_OPTIONS for --use-openssl-ca, since some environments may override it.
-ENTRYPOINT ["node", "--use-openssl-ca", "service/lib/entry.js"]
+ENTRYPOINT ["node", "service/lib/entry.js"]
+
 # This starts the unified service by default. 
 CMD ["start"]

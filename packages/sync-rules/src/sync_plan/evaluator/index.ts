@@ -1,6 +1,7 @@
-import { SyncConfig } from '../../SyncConfig.js';
 import { CompatibilityContext } from '../../compatibility.js';
 import { PreparedEventDefinition } from '../../events/CompiledEventSourceQuery.js';
+import type { SourceTableConfigMap } from '../../SourceTableConfig.js';
+import { SyncConfig } from '../../SyncConfig.js';
 import * as plan from '../plan.js';
 import { PreparedStreamBucketDataSource } from './bucket_data_source.js';
 import { StreamBucketSource, StreamInput } from './bucket_source.js';
@@ -56,5 +57,9 @@ export class PrecompiledSyncConfig extends SyncConfig {
     for (const stream of plan.streams) {
       this.bucketSources.push(new StreamBucketSource(stream, streamInput));
     }
+  }
+
+  override get sourceTableConfig(): SourceTableConfigMap {
+    return this.plan.sourceTableConfig ?? {};
   }
 }

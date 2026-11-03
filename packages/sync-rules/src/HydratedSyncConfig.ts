@@ -30,7 +30,6 @@ import {
 import { SourceTableConfigMap } from './SourceTableConfig.js';
 import { SourceTableRef, sourceTableRefKey } from './SourceTableRef.js';
 import { createScalarExpressionEngine } from './sync_plan/engine/factory.js';
-import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
 import { applyRowContext, uniqueBy } from './utils.js';
 
@@ -109,8 +108,7 @@ export class HydratedSyncConfig {
 
     // The service validates that definitions sharing a source reader have compatible source-table options.
     const firstConfig = definitions[0];
-    this.sourceTableConfig =
-      firstConfig instanceof PrecompiledSyncConfig ? (firstConfig.plan.sourceTableConfig ?? {}) : {};
+    this.sourceTableConfig = firstConfig.sourceTableConfig;
     this.sourceDefinitions = [...definitions];
     this.compatibility = assertSharedCompatibility(this.sourceDefinitions);
     this.hydrationInput = {
@@ -175,6 +173,13 @@ export class HydratedSyncConfig {
 
   tableSyncsParameters(table: SourceTableRef): boolean {
     return this.sourceDefinitions.some((definition) => definition.tableSyncsParameters(table));
+  }
+
+  /**
+   * Whether the table participates in data queries, parameter lookups, or replication events.
+   */
+  tableSyncsAny(table: SourceTableRef): boolean {
+    return this.tableSyncsData(table) || this.tableSyncsParameters(table) || this.tableTriggersEvent(table);
   }
 
   getMatchingSources(source: SourceTableRef): MatchingSources {

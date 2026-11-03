@@ -7,6 +7,7 @@ import { createWriteCheckpoint, storage, WriteCheckpointBatcher } from '@powersy
 import { test_utils } from '@powersync/service-core-tests';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
+import { ChunkedSnapshotQuery } from '@module/replication/MongoSnapshotQuery.js';
 import { PostImagesOption } from '@module/types/types.js';
 import { openChangeStreamTestContext } from './change_stream_test_setup.js';
 import { DATABASE_TYPE, DatabaseType } from './DatabaseType.js';
@@ -110,14 +111,40 @@ bucket_definitions:
     // 4. Streaming sees the delete, writes the delete.
     // 5. Snapshot still sees row A and writes it.
     // The streaming delete should win, using skipExistingRows. For that to work, we rely on soft deletes.
-    // To trigger this case, we need the delete to trigger and process the delete in between the snapshot read and the snapshot write, which we can do using beforeBatchFlush.
+    // Trigger and process the delete after reading the snapshot chunk, before
+    // handing it to storage. beforeBatchFlush runs inside the lease's writer
+    // mutex, so waiting there for another writer would deadlock. Pausing the
+    // source read instead preserves the stale snapshot row without holding that
+    // mutex, and streaming can durably write its tombstone before the snapshot.
 
     let collection!: mongo.Collection;
     let testId!: mongo.ObjectId;
-    let interceptedSnapshotFlush = false;
+    let interceptedSnapshotRead = false;
     let sourceDeleteWritten = false;
     let sourceDeleteFlushBatch: storage.BucketStorageBatch | undefined;
     const streamDeleteFlushed = Promise.withResolvers<void>();
+    const nextChunk = ChunkedSnapshotQuery.prototype.nextChunk;
+    using _snapshotRead = vi.spyOn(ChunkedSnapshotQuery.prototype, 'nextChunk').mockImplementation(async function (
+      this: ChunkedSnapshotQuery,
+      ...args
+    ) {
+      const chunk = await nextChunk.apply(this, args);
+      if (chunk.docs.length === 0 || interceptedSnapshotRead) {
+        return chunk;
+      }
+      interceptedSnapshotRead = true;
+      await collection.deleteOne({ _id: testId });
+      sourceDeleteWritten = true;
+      if (supportsConcurrentSnapshots) {
+        await Promise.race([
+          streamDeleteFlushed.promise,
+          setTimeout(10_000).then(() => {
+            throw new Error('Timed out waiting for streamed delete to flush');
+          })
+        ]);
+      }
+      return chunk;
+    });
 
     await using context = await openContext({
       streamOptions: {
@@ -127,24 +154,6 @@ bucket_definitions:
             if (!batch.skipExistingRows && sourceDeleteWritten && sourceDeleteFlushBatch == null) {
               sourceDeleteFlushBatch = batch;
             }
-
-            // skipExistingRows means we're busy with snapshotting.
-            if (!batch.skipExistingRows || interceptedSnapshotFlush) {
-              return;
-            }
-
-            interceptedSnapshotFlush = true;
-            await collection.deleteOne({ _id: testId });
-            sourceDeleteWritten = true;
-            if (!supportsConcurrentSnapshots) {
-              return;
-            }
-            await Promise.race([
-              streamDeleteFlushed.promise,
-              setTimeout(10_000).then(() => {
-                throw new Error('Timed out waiting for streamed delete to flush');
-              })
-            ]);
           },
           afterBatchFlush: async (batch) => {
             if (batch == sourceDeleteFlushBatch) {
@@ -166,7 +175,7 @@ bucket_definitions:
 
     await context.replicateSnapshot();
 
-    expect(interceptedSnapshotFlush).toBe(true);
+    expect(interceptedSnapshotRead).toBe(true);
     await context.getCheckpoint();
 
     const data = await context.getBucketData('global[]');

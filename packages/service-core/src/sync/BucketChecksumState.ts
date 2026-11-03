@@ -136,13 +136,15 @@ export class BucketChecksumState {
    *
    * When the checkpoint line is sent to the client, call `CheckpointLine.advance()` to update the internal state.
    * A line may be safely discarded (not sent to the client) if `advance()` is not called.
+   * Cancellation is checked between storage reads; in-flight reads are allowed to finish.
    *
    * @param next The updated checkpoint
    * @returns A {@link CheckpointLine} if any of the buckets watched by this connected was updated, or otherwise `null`.
    */
   async buildNextCheckpointLine(
     next: storage.StorageCheckpointUpdate,
-    tracer?: PerformanceTracer<SyncCheckpointTraceCategory>
+    tracer?: PerformanceTracer<SyncCheckpointTraceCategory>,
+    signal?: AbortSignal
   ): Promise<CheckpointLine | null> {
     tracer ??= new PerformanceTracer<SyncCheckpointTraceCategory>(`sync checkpoint ${next.base.checkpoint}`);
 
@@ -151,7 +153,8 @@ export class BucketChecksumState {
 
     const storage = this.bucketStorage;
 
-    const update = await this.parameterState.getCheckpointUpdate(next, tracer);
+    const update = await this.parameterState.getCheckpointUpdate(next, tracer, signal);
+    signal?.throwIfAborted();
     const { buckets: allBuckets, updatedBuckets, usedParameterResults } = update;
     const forceFullChecksum = this.forceFullChecksumForNextCheckpoint;
 
@@ -240,6 +243,8 @@ export class BucketChecksumState {
       using _ = tracer.span('checksum');
       checksumMap = await storage.getChecksums(base, bucketList, { requestHint });
     }
+
+    signal?.throwIfAborted();
 
     // Subset of buckets for which there may be new data in this batch.
     let bucketsToFetch: ResolvedBucket[];
@@ -584,13 +589,15 @@ export class BucketParameterState {
 
   async getCheckpointUpdate(
     checkpoint: storage.StorageCheckpointUpdate,
-    tracer: PerformanceTracer<SyncCheckpointTraceCategory>
+    tracer: PerformanceTracer<SyncCheckpointTraceCategory>,
+    signal?: AbortSignal
   ): Promise<CheckpointUpdate> {
+    signal?.throwIfAborted();
     const querier = this.querier;
     let update: CheckpointUpdate;
     if (querier.hasDynamicBuckets) {
       try {
-        update = await this.getCheckpointUpdateDynamic(checkpoint, tracer);
+        update = await this.getCheckpointUpdateDynamic(checkpoint, tracer, signal);
       } catch (e: unknown) {
         if (e instanceof ParameterSetLimitExceededError) {
           // Too many parameter results, create a breakdown of which streams are responsible for the most queries and
@@ -655,7 +662,8 @@ export class BucketParameterState {
    */
   private async getCheckpointUpdateDynamic(
     checkpoint: storage.StorageCheckpointUpdate,
-    tracer: PerformanceTracer<SyncCheckpointTraceCategory>
+    tracer: PerformanceTracer<SyncCheckpointTraceCategory>,
+    signal?: AbortSignal
   ): Promise<CheckpointUpdate> {
     const querier = this.querier;
     const staticBuckets = this.staticBuckets.values();
@@ -695,6 +703,7 @@ export class BucketParameterState {
 
       dynamicBuckets = await querier.queryDynamicBucketDescriptions({
         getParameterSets: async (lookups, definition) => {
+          signal?.throwIfAborted();
           if (lookups.length > parameterLimit) {
             // Sync Streams can chain parameter lookups, so a large output from an earlier call may become the input
             // here. We reuse the output limit as a generous upper bound; legitimate queries are much smaller.
@@ -714,6 +723,7 @@ export class BucketParameterState {
           try {
             using _ = tracer.span('parameters', definition);
             const results = await checkpoint.base.getParameterSets(lookups, remainingBudget);
+            signal?.throwIfAborted();
             const numRows = results.reduce((a, b) => a + b.rows.length, 0);
 
             lookupLog.push({ definition, resultsOrLimit: numRows, didExceedLimit: false });
@@ -730,6 +740,8 @@ export class BucketParameterState {
           }
         }
       });
+
+      signal?.throwIfAborted();
 
       this.cachedDynamicBuckets = dynamicBuckets;
       this.cachedDynamicBucketSet = new Set<string>(dynamicBuckets.map((b) => b.bucket));

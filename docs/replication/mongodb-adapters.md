@@ -195,7 +195,7 @@ Opening clears the selected source database and storage by default. Reopen with 
 drains replication before inspecting durable state. Subclasses can reuse resource setup and failure cleanup with
 the protected `openWith({ options, createContext })` helper.
 
-`updateSyncRules(yaml)` parses sync configs with the shared `SqlSyncRules.fromYaml()` parser, which accepts
+`updateSyncRules(yaml)` parses sync configs with the shared `parseSyncConfig()` parser, which accepts
 `config.source_table_options` and MongoDB pre-filtering expressions. External modules supply a query provider
 for expression compilation and execution; they do not register additional sync config parsers.
 
