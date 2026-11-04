@@ -77,7 +77,8 @@ export function createMongoClient(config: BaseMongoConfigDecoded, options?: Mong
     maxPoolSize: options?.maxPoolSize ?? 8,
 
     maxConnecting: 3,
-    maxIdleTimeMS: 60_000
+    // High enough to keep connections available between storage metrics collections, which are cached for 60 seconds.
+    maxIdleTimeMS: 80_000
   });
 }
 
