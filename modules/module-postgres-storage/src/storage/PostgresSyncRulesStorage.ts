@@ -21,8 +21,8 @@ import {
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { LRUCache } from 'lru-cache';
 import * as sync_rules from '@powersync/service-sync-rules';
+import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { bigint, BIGINT_MAX, hexBuffer } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
@@ -54,6 +54,12 @@ export type PostgresSyncRulesStorageOptions = {
  * Number of rows deleted per batch when clearing storage for a replication stream.
  */
 export const CLEAR_BATCH_LIMIT = 50_000;
+
+/**
+ * Optional index used to find changed data buckets between checkpoints:
+ * CREATE INDEX CONCURRENTLY bucket_data_op_id_index ON bucket_data (group_id, op_id)
+ */
+export const BUCKET_DATA_OP_ID_INDEX = 'bucket_data_op_id_index';
 
 export class PostgresSyncRulesStorage
   extends framework.BaseObserver<storage.SyncRulesBucketStorageListener>
@@ -880,12 +886,72 @@ export class PostgresSyncRulesStorage
 
   private async getCheckpointChangesInternal(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
     return {
-      // Data bucket changes are not tracked yet: bucket_data has no index on op_id.
-      // Checksums are cached and shared between connections, so this is much cheaper than parameter queries.
-      invalidateDataBuckets: true,
-      updatedDataBuckets: new Set<string>(),
+      ...(await this.getDataBucketChanges(options)),
       ...(await this.getParameterBucketChanges(options))
     };
+  }
+
+  private opIdIndexCheckedAt = 0;
+  private opIdIndexReady = false;
+
+  /**
+   * Data bucket changes need an index on bucket_data (group_id, op_id). It is optional: without a migration,
+   * the storage schema stays compatible with the upstream service, and the index can be created (concurrently)
+   * by the operator. Without it, all data buckets are invalidated as before.
+   */
+  private async hasOpIdIndex(): Promise<boolean> {
+    const now = Date.now();
+    if (now - this.opIdIndexCheckedAt > 60_000) {
+      this.opIdIndexCheckedAt = now;
+      const row = await this.db.sql`
+        SELECT
+          i.indisvalid AS valid
+        FROM
+          pg_index i
+        WHERE
+          i.indexrelid = to_regclass(${{ type: 'varchar', value: BUCKET_DATA_OP_ID_INDEX }})
+      `
+        .decoded(t.object({ valid: t.boolean }))
+        .first();
+      this.opIdIndexReady = row?.valid === true;
+    }
+    return this.opIdIndexReady;
+  }
+
+  /**
+   * Data buckets with operations between the two checkpoints.
+   *
+   * Compaction keeps the highest op_id of each bucket (MOVE in place, CLEAR at the last removed op). If it removes
+   * operations of a bucket in this range, a later op_id of that bucket exists and is reported for a later
+   * checkpoint, so the connection only sees the change one checkpoint later.
+   */
+  private async getDataBucketChanges(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
+    if (!(await this.hasOpIdIndex())) {
+      return { invalidateDataBuckets: true, updatedDataBuckets: new Set<string>() };
+    }
+    // Bounds the rows read for a connection that skipped many checkpoints.
+    const limit = 10_000;
+    const rows = await this.db.sql`
+      SELECT
+        bucket_name
+      FROM
+        bucket_data
+      WHERE
+        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
+        AND op_id > ${{ type: 'int8', value: options.lastCheckpoint.checkpoint }}
+        AND op_id <= ${{ type: 'int8', value: options.nextCheckpoint.checkpoint }}
+      ORDER BY
+        op_id
+      LIMIT
+        ${{ type: 'int4', value: limit + 1 }}
+    `.rows<{ bucket_name: string }>();
+
+    if (rows.length > limit) {
+      return { invalidateDataBuckets: true, updatedDataBuckets: new Set<string>() };
+    }
+    return { invalidateDataBuckets: false, updatedDataBuckets: new Set(rows.map((r) => r.bucket_name)) };
   }
 
   /**

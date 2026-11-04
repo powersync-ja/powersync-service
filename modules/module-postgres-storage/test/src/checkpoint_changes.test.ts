@@ -1,7 +1,12 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { getTestStorage, test_utils } from '@powersync/service-core-tests';
-import { ParameterIndexLookupCreator, ScopedParameterLookup, UnscopedParameterLookup } from '@powersync/service-sync-rules';
+import {
+  ParameterIndexLookupCreator,
+  ScopedParameterLookup,
+  UnscopedParameterLookup
+} from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
+import { BUCKET_DATA_OP_ID_INDEX } from '../../src/storage/PostgresSyncRulesStorage.js';
 import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
 const SYNC_CONFIG = `
@@ -133,6 +138,61 @@ for (const storageVersion of TEST_STORAGE_VERSIONS) {
       const changes = await bucketStorage.getCheckpointChanges({ lastCheckpoint: cp1, nextCheckpoint: cp2 });
       expect(changes.invalidateParameterBuckets).toBe(true);
       expect(changes.updatedParameterLookups.size).toBe(0);
+    });
+
+    test('data bucket changes need the optional op_id index', async () => {
+      const { factory, bucketStorage } = await setup();
+      await using _factory = factory;
+      const db = (bucketStorage as any).db;
+      await db.sql`DROP INDEX IF EXISTS bucket_data_op_id_index`.execute();
+
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const paramTable = await test_utils.resolveTestTable(writer, 'param_a', ['id'], config, 1);
+      const dataTable = await test_utils.resolveTestTable(writer, 'a', ['id'], config, 2);
+      await writer.markAllSnapshotDone('1/1');
+      for (const [id, u] of [
+        ['g1', 'user1'],
+        ['g2', 'user2']
+      ]) {
+        await writer.save({
+          sourceTable: paramTable,
+          tag: storage.SaveOperationTag.INSERT,
+          after: { id, u },
+          afterReplicaId: test_utils.rid(id)
+        });
+      }
+      await writer.commit('1/1');
+      const cp1 = await bucketStorage.getCheckpoint();
+
+      await writer.save({
+        sourceTable: dataTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'd1', p: 'g1' },
+        afterReplicaId: test_utils.rid('d1')
+      });
+      await writer.commit('1/2');
+      const cp2 = await bucketStorage.getCheckpoint();
+
+      const withoutIndex = await bucketStorage.getCheckpointChanges({ lastCheckpoint: cp1, nextCheckpoint: cp2 });
+      expect(withoutIndex.invalidateDataBuckets).toBe(true);
+
+      try {
+        expect(BUCKET_DATA_OP_ID_INDEX).toBe('bucket_data_op_id_index');
+        await db.sql`CREATE INDEX bucket_data_op_id_index ON bucket_data (group_id, op_id)`.execute();
+        // New storage instance: the index check is cached.
+        const fresh = await getTestStorage(factory, (bucketStorage as any).replicationStream);
+        const changes = await fresh.getCheckpointChanges({ lastCheckpoint: cp1, nextCheckpoint: cp2 });
+        expect(changes.invalidateDataBuckets).toBe(false);
+        expect(changes.updatedDataBuckets.size).toBe(1);
+        const [bucket] = [...changes.updatedDataBuckets];
+        expect(bucket).toContain('"g1"');
+
+        const none = await fresh.getCheckpointChanges({ lastCheckpoint: cp2, nextCheckpoint: cp2 });
+        expect(none.invalidateDataBuckets).toBe(false);
+        expect(none.updatedDataBuckets.size).toBe(0);
+      } finally {
+        await db.sql`DROP INDEX IF EXISTS bucket_data_op_id_index`.execute();
+      }
     });
 
     test('watchCheckpointChanges reports parameter changes after the first checkpoint', async () => {
