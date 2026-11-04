@@ -21,9 +21,10 @@ import {
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
+import { LRUCache } from 'lru-cache';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
-import { bigint, BIGINT_MAX } from '../types/codecs.js';
+import { bigint, BIGINT_MAX, hexBuffer } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
 import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
@@ -710,7 +711,7 @@ export class PostgresSyncRulesStorage
   }
 
   async *watchCheckpointChanges(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
-    let lastCheckpoint: utils.InternalOpId | null = null;
+    let lastCheckpoint: storage.ReplicationCheckpoint | null = null;
     let lastWriteCheckpoint: bigint | null = null;
 
     const { signal, user_id } = options;
@@ -732,7 +733,7 @@ export class PostgresSyncRulesStorage
         }
       });
 
-      if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint) {
+      if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint?.checkpoint) {
         // No change - wait for next one
         // In some cases, many LSNs may be produced in a short time.
         // Add a delay to throttle the write checkpoint lookup a bit.
@@ -740,13 +741,20 @@ export class PostgresSyncRulesStorage
         continue;
       }
 
+      let update: CheckpointChanges;
+      if (lastCheckpoint == null || checkpoint < lastCheckpoint.checkpoint) {
+        update = CHECKPOINT_INVALIDATE_ALL;
+      } else {
+        update = await this.getCheckpointChanges({ lastCheckpoint, nextCheckpoint: cp });
+      }
+
       lastWriteCheckpoint = currentWriteCheckpoint;
-      lastCheckpoint = checkpoint;
+      lastCheckpoint = cp;
 
       yield {
         base: cp,
         writeCheckpoint: currentWriteCheckpoint,
-        update: CHECKPOINT_INVALIDATE_ALL
+        update
       };
     }
   }
@@ -841,9 +849,89 @@ export class PostgresSyncRulesStorage
     }
   }
 
+  /**
+   * Shared between all connections: every connection waking up on the same checkpoint asks for the same pair.
+   */
+  private checkpointChangesCache = new LRUCache<string, CheckpointChanges, { options: GetCheckpointChangesOptions }>({
+    max: 50,
+    maxSize: 12 * 1024 * 1024,
+    // When we have more fetches than the cache size, complete the fetches instead
+    // of failing with Error('evicted').
+    ignoreFetchAbort: true,
+    sizeCalculation: (value: CheckpointChanges) => {
+      const paramSize = [...value.updatedParameterLookups].reduce<number>((a, b) => a + b.length, 0);
+      const bucketSize = [...value.updatedDataBuckets].reduce<number>((a, b) => a + b.length, 0);
+      return 100 + paramSize + bucketSize;
+    },
+    fetchMethod: async (_key, _staleValue, options) => {
+      return this.getCheckpointChangesInternal(options.context.options);
+    }
+  });
+
   async getCheckpointChanges(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
-    // We do not track individual changes yet
-    return CHECKPOINT_INVALIDATE_ALL;
+    const { lastCheckpoint, nextCheckpoint } = options;
+    if (nextCheckpoint.checkpoint < lastCheckpoint.checkpoint) {
+      return CHECKPOINT_INVALIDATE_ALL;
+    }
+    const key = `${lastCheckpoint.checkpoint}__${nextCheckpoint.checkpoint}`;
+    const result = await this.checkpointChangesCache.fetch(key, { context: { options } });
+    return result!;
+  }
+
+  private async getCheckpointChangesInternal(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+    return {
+      // Data bucket changes are not tracked yet: bucket_data has no index on op_id.
+      // Checksums are cached and shared between connections, so this is much cheaper than parameter queries.
+      invalidateDataBuckets: true,
+      updatedDataBuckets: new Set<string>(),
+      ...(await this.getParameterBucketChanges(options))
+    };
+  }
+
+  /**
+   * Parameter lookups changed between the two checkpoints.
+   *
+   * bucket_parameters ids come from op_id_sequence, like bucket_data op_ids. Every row with an id up to a
+   * checkpoint is committed before the checkpoint is persisted (getParameterSets relies on the same property),
+   * so the rows in (lastCheckpoint, nextCheckpoint] are exactly the lookups written in between. REMOVE entries
+   * ('[]') get a new id as well.
+   *
+   * This depends on parameter rows never being deleted within that range. Postgres storage does not compact
+   * bucket_parameters yet; once it does, it needs an invalidation fence like MongoDB storage
+   * (parameterChangesInvalidBefore).
+   */
+  private async getParameterBucketChanges(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
+    const limit = 1000;
+    const rows = await this.db.sql`
+      SELECT DISTINCT
+        lookup
+      FROM
+        bucket_parameters
+      WHERE
+        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
+        AND id > ${{ type: 'int8', value: options.lastCheckpoint.checkpoint }}
+        AND id <= ${{ type: 'int8', value: options.nextCheckpoint.checkpoint }}
+      LIMIT
+        ${{ type: 'int4', value: limit + 1 }}
+    `
+      .decoded(changedLookupRow)
+      .rows();
+
+    if (rows.length > limit) {
+      return {
+        invalidateParameterBuckets: true,
+        updatedParameterLookups: new Set<string>()
+      };
+    }
+
+    return {
+      invalidateParameterBuckets: false,
+      updatedParameterLookups: new Set<string>(
+        rows.map((row) => JSONBig.stringify(storage.deserializeBson(row.lookup).l))
+      )
+    };
   }
 
   private makeActiveCheckpoint(row: models.ActiveCheckpointDecoded | null) {
@@ -865,6 +953,10 @@ class PostgresReplicationCheckpoint implements storage.ReplicationCheckpoint {
     return this.storage.getParameterSets(this, lookups, limit);
   }
 }
+
+const changedLookupRow = t.object({
+  lookup: hexBuffer
+});
 
 const parameterSetsRow = t.object({
   index: bigint,
