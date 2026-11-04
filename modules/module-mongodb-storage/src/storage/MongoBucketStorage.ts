@@ -862,7 +862,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const operations_aggregate = await aggregateStaticCollection(this.db.bucket_data);
     const v3OperationCollections = await this.db.listBucketDataCollectionsV3();
     // Query collections sequentially so metrics collection does not fill the connection pool on standby pods.
-    const v3_operation_aggregates = [];
+    const v3_operation_aggregates: mongo.Document[][] = [];
     for (const collection of v3OperationCollections) {
       v3_operation_aggregates.push(
         await collection
@@ -881,7 +881,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const parameters_aggregate = await aggregateStaticCollection(this.db.bucket_parameters);
 
     const v3ParameterCollections = await this.db.listAllParameterIndexCollectionsV3();
-    const v3_parameter_aggregates = [];
+    const v3_parameter_aggregates: mongo.Document[][] = [];
     for (const collection of v3ParameterCollections) {
       v3_parameter_aggregates.push(
         await collection
@@ -900,7 +900,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const v1_source_record_aggregate = await aggregateStaticCollection(this.db.current_data);
 
     const v3SourceRecordCollections = await this.db.listAllSourceRecordCollectionsV3();
-    const source_record_aggregates = [];
+    const source_record_aggregates: mongo.Document[][] = [];
     for (const collection of v3SourceRecordCollections) {
       source_record_aggregates.push(
         await collection
