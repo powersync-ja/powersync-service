@@ -861,9 +861,11 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     const operations_aggregate = await aggregateStaticCollection(this.db.bucket_data);
     const v3OperationCollections = await this.db.listBucketDataCollectionsV3();
-    const v3_operation_aggregates = await Promise.all(
-      v3OperationCollections.map((collection) =>
-        collection
+    // Query collections sequentially so metrics collection does not fill the connection pool on standby pods.
+    const v3_operation_aggregates = [];
+    for (const collection of v3OperationCollections) {
+      v3_operation_aggregates.push(
+        await collection
           .aggregate([
             {
               $collStats: {
@@ -873,15 +875,16 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           ])
           .toArray()
           .catch(ignoreNotExisting)
-      )
-    );
+      );
+    }
 
     const parameters_aggregate = await aggregateStaticCollection(this.db.bucket_parameters);
 
     const v3ParameterCollections = await this.db.listAllParameterIndexCollectionsV3();
-    const v3_parameter_aggregates = await Promise.all(
-      v3ParameterCollections.map((collection) =>
-        collection
+    const v3_parameter_aggregates = [];
+    for (const collection of v3ParameterCollections) {
+      v3_parameter_aggregates.push(
+        await collection
           .aggregate([
             {
               $collStats: {
@@ -891,15 +894,16 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           ])
           .toArray()
           .catch(ignoreNotExisting)
-      )
-    );
+      );
+    }
 
     const v1_source_record_aggregate = await aggregateStaticCollection(this.db.current_data);
 
     const v3SourceRecordCollections = await this.db.listAllSourceRecordCollectionsV3();
-    const source_record_aggregates = await Promise.all(
-      v3SourceRecordCollections.map((collection) =>
-        collection
+    const source_record_aggregates = [];
+    for (const collection of v3SourceRecordCollections) {
+      source_record_aggregates.push(
+        await collection
           .aggregate([
             {
               $collStats: {
@@ -909,8 +913,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           ])
           .toArray()
           .catch(ignoreNotExisting)
-      )
-    );
+      );
+    }
 
     const v3StorageConfig = getMongoStorageConfig(storage.STORAGE_VERSION_3) as StorageConfig & {
       incrementalReprocessing: true;
@@ -961,15 +965,13 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       number,
       { _id: ObjectId; bucket_data_source_ids: string[]; parameter_lookup_source_ids: string[] }[]
     >();
-    await Promise.all(
-      v3StreamDocs.map(async (stream) => {
-        const sourceTables = await v3Db
-          .sourceTables(stream._id)
-          .find({}, { projection: { _id: 1, bucket_data_source_ids: 1, parameter_lookup_source_ids: 1 } })
-          .toArray();
-        sourceTablesByStream.set(stream._id, sourceTables);
-      })
-    );
+    for (const stream of v3StreamDocs) {
+      const sourceTables = await v3Db
+        .sourceTables(stream._id)
+        .find({}, { projection: { _id: 1, bucket_data_source_ids: 1, parameter_lookup_source_ids: 1 } })
+        .toArray();
+      sourceTablesByStream.set(stream._id, sourceTables);
+    }
 
     const objectStorageSizeByDefinition = new Map<string, number>();
     for (const usage of objectStorageDefinitionUsage) {
