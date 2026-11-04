@@ -828,92 +828,44 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   }
 
   async getStorageMetrics(): Promise<storage.StorageMetrics> {
-    const ignoreNotExisting = (e: unknown) => {
-      if (lib_mongo.isMongoNamespaceNotFoundError(e)) {
-        // Collection doesn't exist - return 0
-        return [{ storageStats: { size: 0 } }];
-      } else {
-        return Promise.reject(e);
-      }
-    };
-
-    const aggregateStaticCollection = async <T extends mongo.Document>(collection: mongo.Collection<T>) => {
-      // We check whether the collection exists before getting the statistics. This avoids repeated
-      // errors in the MongoDB logs if the collection hasn't been created yet.
-      const exists =
-        (await this.db.db.listCollections({ name: collection.collectionName }, { nameOnly: true }).toArray()).length >
-        0;
-      if (!exists) {
-        return [{ storageStats: { size: 0 } }];
-      }
-
-      return collection
-        .aggregate([
-          {
-            $collStats: {
-              storageStats: {}
-            }
+    // We check which collections exist before getting statistics to avoid repeated errors in
+    // MongoDB logs for collections that have not been created yet.
+    const collections = await this.db.db
+      .listCollections(
+        {
+          name: {
+            $regex: '^(bucket_data|bucket_parameters|current_data)$|^(bucket_data_|parameter_index_|source_records_)'
           }
-        ])
-        .toArray()
-        .catch(ignoreNotExisting);
-    };
-
-    const operations_aggregate = await aggregateStaticCollection(this.db.bucket_data);
-    const v3OperationCollections = await this.db.listBucketDataCollectionsV3();
-    // Query collections sequentially so metrics collection does not fill the connection pool on standby pods.
-    const v3_operation_aggregates: mongo.Document[][] = [];
-    for (const collection of v3OperationCollections) {
-      v3_operation_aggregates.push(
-        await collection
-          .aggregate([
-            {
-              $collStats: {
-                storageStats: {}
-              }
-            }
-          ])
-          .toArray()
-          .catch(ignoreNotExisting)
-      );
-    }
-
-    const parameters_aggregate = await aggregateStaticCollection(this.db.bucket_parameters);
-
-    const v3ParameterCollections = await this.db.listAllParameterIndexCollectionsV3();
-    const v3_parameter_aggregates: mongo.Document[][] = [];
-    for (const collection of v3ParameterCollections) {
-      v3_parameter_aggregates.push(
-        await collection
-          .aggregate([
-            {
-              $collStats: {
-                storageStats: {}
-              }
-            }
-          ])
-          .toArray()
-          .catch(ignoreNotExisting)
-      );
-    }
-
-    const v1_source_record_aggregate = await aggregateStaticCollection(this.db.current_data);
-
-    const v3SourceRecordCollections = await this.db.listAllSourceRecordCollectionsV3();
-    const source_record_aggregates: mongo.Document[][] = [];
-    for (const collection of v3SourceRecordCollections) {
-      source_record_aggregates.push(
-        await collection
-          .aggregate([
-            {
-              $collStats: {
-                storageStats: {}
-              }
-            }
-          ])
-          .toArray()
-          .catch(ignoreNotExisting)
-      );
+        },
+        { nameOnly: true }
+      )
+      .toArray();
+    const sizesByCollection = new Map<string, number>();
+    const statsPipeline: mongo.Document[] = [
+      { $collStats: { storageStats: {} } },
+      { $project: { ns: 1, size: '$storageStats.size' } }
+    ];
+    // MongoDB has a limit of 1000 stages per aggregation pipeline. Additionally, we want
+    // to avoid too much work per aggregation, so we limit the number of collections per batch.
+    const COLLECTIONS_PER_BATCH = 100;
+    // Query batches sequentially so metrics collection does not fill the connection pool on standby pods.
+    // If a collection disappears during aggregation, let the next metrics collection retry.
+    for (let offset = 0; offset < collections.length; offset += COLLECTIONS_PER_BATCH) {
+      const batch = collections.slice(offset, offset + COLLECTIONS_PER_BATCH);
+      const pipeline = [
+        ...statsPipeline,
+        ...batch.slice(1).map((collection) => ({
+          $unionWith: { coll: collection.name, pipeline: statsPipeline }
+        }))
+      ];
+      const stats = await this.db.db
+        .collection(batch[0].name)
+        .aggregate<{ ns: string; size: number | bigint }>(pipeline)
+        .toArray();
+      for (const stat of stats) {
+        const name = stat.ns.slice(this.db.db.databaseName.length + 1);
+        sizesByCollection.set(name, (sizesByCollection.get(name) ?? 0) + Number(stat.size));
+      }
     }
 
     const v3StorageConfig = getMongoStorageConfig(storage.STORAGE_VERSION_3) as StorageConfig & {
@@ -926,29 +878,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       .find({ storage_version: { $gte: storage.STORAGE_VERSION_3 } }, { projection: { _id: 1, sync_configs: 1 } })
       .toArray()) as unknown as Pick<ReplicationStreamDocumentV3, '_id' | 'sync_configs'>[];
 
-    const collectionSizes = new Map<string, number>();
-    const addCollectionSize = (
-      collection: { collectionName: string },
-      aggregate: { storageStats?: { size?: number | bigint } }[],
-      prefix: string,
-      sizes: Map<string, number>
-    ) => {
-      const match = collection.collectionName.match(new RegExp(`^${prefix}(\\d+)_(.+)$`));
-      if (match == null) {
-        return;
-      }
-      sizes.set(`${prefix}${match[1]}:${match[2]}`, Number(aggregate[0]?.storageStats?.size ?? 0));
-    };
-
-    v3OperationCollections.forEach((collection, index) =>
-      addCollectionSize(collection, v3_operation_aggregates[index], 'bucket_data_', collectionSizes)
-    );
-    v3ParameterCollections.forEach((collection, index) =>
-      addCollectionSize(collection, v3_parameter_aggregates[index], 'parameter_index_', collectionSizes)
-    );
-    v3SourceRecordCollections.forEach((collection, index) =>
-      addCollectionSize(collection, source_record_aggregates[index], 'source_records_', collectionSizes)
-    );
+    const sumCollectionSizesByPrefix = (prefix: string) =>
+      [...sizesByCollection].reduce((total, [name, size]) => total + (name.startsWith(prefix) ? size : 0), 0);
 
     const syncConfigIds = v3StreamDocs.flatMap((stream) => (stream.sync_configs ?? []).map((config) => config._id));
     const syncConfigDefinitions =
@@ -982,7 +913,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     }
 
     const sumCollectionSizes = (prefix: string, streamId: number, ids: ReadonlySet<string>) =>
-      [...ids].reduce((total, id) => total + (collectionSizes.get(`${prefix}${streamId}:${id}`) ?? 0), 0);
+      [...ids].reduce((total, id) => total + (sizesByCollection.get(`${prefix}${streamId}_${id}`) ?? 0), 0);
 
     const syncConfigMetrics: storage.StorageSyncConfigMetrics[] = [];
     for (const stream of v3StreamDocs) {
@@ -1005,7 +936,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           ) {
             return total;
           }
-          return total + (collectionSizes.get(`source_records_${stream._id}:${sourceTable._id.toHexString()}`) ?? 0);
+          return total + (sizesByCollection.get(`source_records_${stream._id}_${sourceTable._id.toHexString()}`) ?? 0);
         }, 0);
 
         syncConfigMetrics.push({
@@ -1028,15 +959,11 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       0n
     );
     return {
-      operations_size_bytes:
-        Number(operations_aggregate[0].storageStats.size) +
-        v3_operation_aggregates.reduce((total, aggregate) => total + Number(aggregate[0].storageStats.size), 0),
+      operations_size_bytes: (sizesByCollection.get('bucket_data') ?? 0) + sumCollectionSizesByPrefix('bucket_data_'),
       parameters_size_bytes:
-        Number(parameters_aggregate[0].storageStats.size) +
-        v3_parameter_aggregates.reduce((total, aggregate) => total + Number(aggregate[0].storageStats.size), 0),
+        (sizesByCollection.get('bucket_parameters') ?? 0) + sumCollectionSizesByPrefix('parameter_index_'),
       replication_size_bytes:
-        Number(v1_source_record_aggregate[0]?.storageStats?.size ?? 0) +
-        source_record_aggregates.reduce((total, aggregate) => total + Number(aggregate[0]?.storageStats?.size ?? 0), 0),
+        (sizesByCollection.get('current_data') ?? 0) + sumCollectionSizesByPrefix('source_records_'),
       object_storage_size_bytes: Number(totalObjectStorageSize),
       sync_config_metrics: syncConfigMetrics
     };
