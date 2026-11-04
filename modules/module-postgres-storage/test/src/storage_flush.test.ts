@@ -146,7 +146,8 @@ for (const storageVersion of TEST_STORAGE_VERSIONS) {
         expect(rows[i].op_id).toBeGreaterThan(rows[i - 1].op_id);
       }
       for (const row of rows) {
-        expect(JSON.parse(row.data)).toEqual({ id: 'test1', tags: JSON.stringify(tags), description });
+        expect(row.op).toEqual('PUT');
+        expect(JSON.parse(row.data!)).toEqual({ id: 'test1', tags: JSON.stringify(tags), description });
       }
     });
 
@@ -233,7 +234,8 @@ for (const storageVersion of TEST_STORAGE_VERSIONS) {
       expect(rows.length).toEqual(tags.length);
       expect(new Set(rows.map((row) => row.bucket_name)).size).toEqual(tags.length);
       for (const row of rows) {
-        expect(JSON.parse(row.data).description).toEqual(description);
+        expect(row.op).toEqual('PUT');
+        expect(JSON.parse(row.data!).description).toEqual(description);
       }
     });
 
