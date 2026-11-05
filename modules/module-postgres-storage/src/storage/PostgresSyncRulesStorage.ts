@@ -718,6 +718,37 @@ export class PostgresSyncRulesStorage
     return this.makeActiveCheckpoint(activeCheckpointDocument);
   }
 
+  /**
+   * Pending write checkpoint lookups, by LSN.
+   */
+  private writeCheckpointLookups = new Map<string, { user_ids: Set<string>; result: Promise<Map<string, bigint>> }>();
+
+  /**
+   * All connections receive a new checkpoint from the shared iterator at about the same time. Instead of one write
+   * checkpoint query per connection, the lookups for the same LSN made until the next event loop iteration are combined
+   * into a single query.
+   */
+  private batchedLastWriteCheckpoint(user_id: string, lsn: string | null): Promise<bigint | null> {
+    const key = lsn ?? '';
+    let batch = this.writeCheckpointLookups.get(key);
+    if (batch == null) {
+      const user_ids = new Set<string>();
+      const result = new Promise<void>((resolve) => setImmediate(resolve)).then(() => {
+        // Lookups from here on start a new batch.
+        this.writeCheckpointLookups.delete(key);
+        return this.writeCheckpointAPI.lastWriteCheckpoints({
+          user_ids: [...user_ids],
+          sync_rules_id: this.replicationStreamId,
+          heads: lsn ? { 1: lsn } : {}
+        });
+      });
+      batch = { user_ids, result };
+      this.writeCheckpointLookups.set(key, batch);
+    }
+    batch.user_ids.add(user_id);
+    return batch.result.then((checkpoints) => checkpoints.get(user_id) ?? null);
+  }
+
   async *watchCheckpointChanges(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
     let lastCheckpoint: storage.ReplicationCheckpoint | null = null;
     let lastWriteCheckpoint: bigint | null = null;
@@ -732,14 +763,7 @@ export class PostgresSyncRulesStorage
       // What is important is:
       // 1. checkpoint (op_id) changes.
       // 2. write checkpoint changes for the specific user
-      const lsnFilters: Record<string, string> = lsn ? { 1: lsn } : {};
-
-      const currentWriteCheckpoint = await this.lastWriteCheckpoint({
-        user_id,
-        heads: {
-          ...lsnFilters
-        }
-      });
+      const currentWriteCheckpoint = await this.batchedLastWriteCheckpoint(user_id, lsn);
 
       if (currentWriteCheckpoint == lastWriteCheckpoint && checkpoint == lastCheckpoint?.checkpoint) {
         // No change - wait for next one
