@@ -123,9 +123,20 @@ export interface SourceTableDocument {
 }
 
 export interface SourceTableDocumentSnapshotStatus {
-  total_estimated_count: number;
+  /**
+   * Null when not estimated yet. Negative when unknown.
+   */
+  total_estimated_count: number | null;
   replicated_count: number;
   last_key: bson.Binary | null;
+  /**
+   * Time of the latest replicated_count observation. Absent on documents written by older versions.
+   */
+  updated_at?: Date | null;
+  /**
+   * Records / second, moving window. Absent on documents written by older versions.
+   */
+  replication_rate?: number | null;
 }
 
 /**

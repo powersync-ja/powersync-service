@@ -1,6 +1,7 @@
 import * as t from 'ts-codec';
 import { anyPrimitive, enumLiteral } from './codecs.js';
 import { ConnectionStatus, InstanceSchema, ServiceInfo, SyncRulesStatus } from './definitions.js';
+import { SyncConfigReplicationProgress } from './progress.js';
 
 export const GetSchemaRequest = t.object({});
 export type GetSchemaRequest = t.Encoded<typeof GetSchemaRequest>;
@@ -82,3 +83,11 @@ export type ValidateRequest = t.Encoded<typeof ValidateRequest>;
 
 export const ValidateResponse = SyncRulesStatus;
 export type ValidateResponse = t.Encoded<typeof ValidateResponse>;
+
+export const ReplicationProgressRequest = t.object({});
+export type ReplicationProgressRequest = t.Encoded<typeof ReplicationProgressRequest>;
+
+export const ReplicationProgressResponse = t.object({
+  sync_configs: t.array(SyncConfigReplicationProgress)
+});
+export type ReplicationProgressResponse = t.Encoded<typeof ReplicationProgressResponse>;
