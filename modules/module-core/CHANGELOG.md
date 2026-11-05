@@ -1,5 +1,12 @@
 # @powersync/service-module-core
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [a564bf5]
+  - @powersync/service-core@1.28.1
+
 ## 0.3.0
 
 ### Minor Changes
