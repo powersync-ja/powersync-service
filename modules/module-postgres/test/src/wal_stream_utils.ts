@@ -1,5 +1,6 @@
 import { PgManager } from '@module/replication/PgManager.js';
 import { PUBLICATION_NAME, WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
+import { NormalizedPostgresConnectionConfig } from '@module/types/types.js';
 import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
   BucketStorageFactory,
@@ -38,10 +39,18 @@ export class WalStreamTestContext implements AsyncDisposable {
    */
   static async open(
     factory: (options: storage.TestStorageOptions) => Promise<BucketStorageFactory>,
-    options?: { doNotClear?: boolean; storageVersion?: number; walStreamOptions?: Partial<WalStreamOptions> }
+    options?: {
+      doNotClear?: boolean;
+      storageVersion?: number;
+      walStreamOptions?: Partial<WalStreamOptions>;
+      /**
+       * Source database to replicate from. Defaults to TEST_CONNECTION_OPTIONS.
+       */
+      connectionOptions?: NormalizedPostgresConnectionConfig;
+    }
   ) {
     const f = await factory({ doNotClear: options?.doNotClear });
-    const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, {});
+    const connectionManager = new PgManager(options?.connectionOptions ?? TEST_CONNECTION_OPTIONS, {});
 
     if (!options?.doNotClear) {
       await clearTestDb(connectionManager.pool);
