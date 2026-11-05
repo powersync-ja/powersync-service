@@ -157,6 +157,12 @@ jobs:
       - name: Test Replication
         run: pnpm --filter='./modules/module-postgres' test
 
+      - name: Test Replication Slot Failover
+        env:
+          PG_FAILOVER_TEST_IMAGE: postgres:${{ matrix.postgres-version }}
+        working-directory: modules/module-postgres
+        run: pnpm test test/src/wal_stream_failover.test.ts
+
   run-postgres-storage-tests:
     name: Postgres Storage Test
     runs-on: ubuntu-latest
