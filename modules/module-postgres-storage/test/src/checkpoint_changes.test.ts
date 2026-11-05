@@ -9,13 +9,14 @@ import { describe, expect, test } from 'vitest';
 import { BUCKET_DATA_OP_ID_INDEX } from '../../src/storage/PostgresSyncRulesStorage.js';
 import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
-const SYNC_CONFIG = `
-config:
-  edition: 3
-streams:
-  a:
-    auto_subscribe: true
-    query: SELECT * FROM a WHERE p IN (SELECT id FROM param_a WHERE u = auth.user_id())
+const SYNC_CONFIG = /* yaml */ `
+  # sync config fixture.
+  config:
+    edition: 3
+  streams:
+    a:
+      auto_subscribe: true
+      query: SELECT * FROM a WHERE p IN (SELECT id FROM param_a WHERE u = auth.user_id())
 `;
 
 for (const storageVersion of TEST_STORAGE_VERSIONS) {
@@ -121,6 +122,13 @@ for (const storageVersion of TEST_STORAGE_VERSIONS) {
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       const paramTable = await test_utils.resolveTestTable(writer, 'param_a', ['id'], config, 1);
       await writer.markAllSnapshotDone('1/1');
+      // A row before cp1, so that the range is not mistaken for a cleared storage.
+      await writer.save({
+        sourceTable: paramTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'g', u: 'user' },
+        afterReplicaId: test_utils.rid('g')
+      });
       await writer.commit('1/1');
       const cp1 = await bucketStorage.getCheckpoint();
 
@@ -242,6 +250,43 @@ for (const storageVersion of TEST_STORAGE_VERSIONS) {
 
       abort.abort();
       await iter.return?.();
+    });
+
+    test('clearing the storage invalidates everything', async () => {
+      const { factory, bucketStorage } = await setup();
+      await using _factory = factory;
+      {
+        await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+        const paramTable = await test_utils.resolveTestTable(writer, 'param_a', ['id'], config, 1);
+        await writer.markAllSnapshotDone('1/1');
+        await writer.save({
+          sourceTable: paramTable,
+          tag: storage.SaveOperationTag.INSERT,
+          after: { id: 'g1', u: 'user1' },
+          afterReplicaId: test_utils.rid('g1')
+        });
+        await writer.commit('1/1');
+      }
+      const cp1 = await bucketStorage.getCheckpoint();
+
+      // Re-snapshot after clear(): user1's lookup disappears, op ids continue above cp1.
+      await bucketStorage.clear();
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const paramTable = await test_utils.resolveTestTable(writer, 'param_a', ['id'], config, 1);
+      await writer.markAllSnapshotDone('2/1');
+      await writer.save({
+        sourceTable: paramTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 'g2', u: 'user2' },
+        afterReplicaId: test_utils.rid('g2')
+      });
+      await writer.commit('2/1');
+      const cp2 = await bucketStorage.getCheckpoint();
+      expect(cp2.checkpoint).toBeGreaterThan(cp1.checkpoint);
+
+      const changes = await bucketStorage.getCheckpointChanges({ lastCheckpoint: cp1, nextCheckpoint: cp2 });
+      expect(changes.invalidateParameterBuckets).toBe(true);
+      expect(changes.invalidateDataBuckets).toBe(true);
     });
   });
 }

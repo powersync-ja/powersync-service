@@ -885,19 +885,61 @@ export class PostgresSyncRulesStorage
   }
 
   private async getCheckpointChangesInternal(options: GetCheckpointChangesOptions): Promise<CheckpointChanges> {
+    if (await this.clearedSince(options.lastCheckpoint)) {
+      return CHECKPOINT_INVALIDATE_ALL;
+    }
     return {
       ...(await this.getDataBucketChanges(options)),
       ...(await this.getParameterBucketChanges(options))
     };
   }
 
+  /**
+   * Whether the storage was cleared (and possibly re-snapshotted) since the given checkpoint.
+   *
+   * Unlike MongoDB storage, op_id_sequence is not reset by clear(), so the next checkpoint does not go backwards. The
+   * range queries would then only see the recreated rows, and lookups or buckets that disappeared would never be
+   * reported. clear() deletes all rows of the group, and new rows get ids above any earlier checkpoint. Outside of a
+   * clear, parameter rows are never removed, and compaction keeps the highest op_id of each bucket. So if no row of the
+   * group is at or below the last checkpoint, everything is invalidated. For a group that was empty at the last
+   * checkpoint this invalidates unnecessarily, which is harmless.
+   */
+  private async clearedSince(lastCheckpoint: storage.ReplicationCheckpoint): Promise<boolean> {
+    const row = await this.db.sql`
+      SELECT
+        (
+          EXISTS (
+            SELECT
+              1
+            FROM
+              bucket_parameters
+            WHERE
+              group_id = ${{ type: 'int4', value: this.replicationStreamId }}
+              AND id <= ${{ type: 'int8', value: lastCheckpoint.checkpoint }}
+          )
+          OR EXISTS (
+            SELECT
+              1
+            FROM
+              bucket_data
+            WHERE
+              group_id = ${{ type: 'int4', value: this.replicationStreamId }}
+              AND op_id <= ${{ type: 'int8', value: lastCheckpoint.checkpoint }}
+          )
+        ) AS kept
+    `
+      .decoded(t.object({ kept: t.boolean }))
+      .first();
+    return row?.kept !== true;
+  }
+
   private opIdIndexCheckedAt = 0;
   private opIdIndexReady = false;
 
   /**
-   * Data bucket changes need an index on bucket_data (group_id, op_id). It is optional: without a migration,
-   * the storage schema stays compatible with the upstream service, and the index can be created (concurrently)
-   * by the operator. Without it, all data buckets are invalidated as before.
+   * Data bucket changes need an index on bucket_data (group_id, op_id). It is optional and not created by a
+   * migration, so that it can be created concurrently on large existing storage. Without it, all data buckets are
+   * invalidated as before.
    */
   private async hasOpIdIndex(): Promise<boolean> {
     const now = Date.now();
