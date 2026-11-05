@@ -5,7 +5,8 @@ import {
   ScopedParameterLookup,
   UnscopedParameterLookup
 } from '@powersync/service-sync-rules';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
+import { PostgresWriteCheckpointAPI } from '../../src/storage/checkpoints/PostgresWriteCheckpointAPI.js';
 import { BUCKET_DATA_OP_ID_INDEX } from '../../src/storage/PostgresSyncRulesStorage.js';
 import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -287,6 +288,106 @@ for (const storageVersion of TEST_STORAGE_VERSIONS) {
       const changes = await bucketStorage.getCheckpointChanges({ lastCheckpoint: cp1, nextCheckpoint: cp2 });
       expect(changes.invalidateParameterBuckets).toBe(true);
       expect(changes.invalidateDataBuckets).toBe(true);
+    });
+
+    test('write checkpoint lookups of concurrent connections are combined', async () => {
+      const { factory, bucketStorage } = await setup();
+      await using _factory = factory;
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      await writer.markAllSnapshotDone('1/1');
+
+      const created = await bucketStorage.createManagedWriteCheckpoints([
+        { user_id: 'user1', heads: { '1': '5/0' } },
+        { user_id: 'user2', heads: { '1': '5/0' } }
+      ]);
+
+      const api: PostgresWriteCheckpointAPI = (bucketStorage as any).writeCheckpointAPI;
+      const batched = vi.spyOn(api, 'lastWriteCheckpoints');
+      const single = vi.spyOn(api, 'lastWriteCheckpoint');
+
+      const abort = new AbortController();
+      const watch = (user_id: string) =>
+        bucketStorage.watchCheckpointChanges({ user_id, signal: abort.signal })[Symbol.asyncIterator]();
+      const iters = [watch('user1'), watch('user2'), watch('user3')];
+
+      await writer.keepalive('5/0');
+      const results = await Promise.all(iters.map((iter) => iter.next()));
+
+      expect(results.map((r) => r.value!.writeCheckpoint)).toEqual([
+        created.writeCheckpoints.get('user1'),
+        created.writeCheckpoints.get('user2'),
+        null
+      ]);
+      expect(single).not.toHaveBeenCalled();
+      expect(batched).toHaveBeenCalledTimes(1);
+      expect([...batched.mock.calls[0][0].user_ids].sort()).toEqual(['user1', 'user2', 'user3']);
+
+      abort.abort();
+      await Promise.all(iters.map((iter) => iter.return?.()));
+    });
+
+    test('combined write checkpoint lookups match single lookups with custom write checkpoints', async () => {
+      const { factory, bucketStorage } = await setup();
+      await using _factory = factory;
+      const api: PostgresWriteCheckpointAPI = (bucketStorage as any).writeCheckpointAPI;
+      const sync_rules_id: number = (bucketStorage as any).replicationStreamId;
+      bucketStorage.setWriteCheckpointMode({ mode: storage.WriteCheckpointMode.CUSTOM } as any);
+
+      await api.batchCreateCustomWriteCheckpoints(
+        [
+          { user_id: 'user1', checkpoint: 7n, sync_rules_id },
+          { user_id: 'user2', checkpoint: 9n, sync_rules_id }
+        ],
+        0n
+      );
+
+      const batched = await api.lastWriteCheckpoints({
+        user_ids: ['user1', 'user2', 'user3'],
+        sync_rules_id,
+        heads: {}
+      });
+      expect(batched.get('user1')).toBe(7n);
+      expect(batched.get('user2')).toBe(9n);
+      expect(batched.has('user3')).toBe(false);
+      for (const user_id of ['user1', 'user2', 'user3']) {
+        const single = await api.lastWriteCheckpoint({ user_id, sync_rules_id, heads: {} });
+        expect(batched.get(user_id) ?? null).toEqual(single);
+      }
+    });
+
+    test('write checkpoint lookups for different LSNs are not combined, and failures do not stick', async () => {
+      const { factory, bucketStorage } = await setup();
+      await using _factory = factory;
+      const internals = bucketStorage as any;
+      const api: PostgresWriteCheckpointAPI = internals.writeCheckpointAPI;
+      const created = await bucketStorage.createManagedWriteCheckpoints([
+        { user_id: 'user1', heads: { '1': '5/0' } },
+        { user_id: 'user2', heads: { '1': '7/0' } }
+      ]);
+      const spy = vi.spyOn(api, 'lastWriteCheckpoints');
+
+      // Two LSNs in flight at the same time: one query each. user2 only qualifies at 7/0.
+      const [a1, a2, b1, b2] = await Promise.all([
+        internals.batchedLastWriteCheckpoint('user1', '5/0'),
+        internals.batchedLastWriteCheckpoint('user2', '5/0'),
+        internals.batchedLastWriteCheckpoint('user1', '7/0'),
+        internals.batchedLastWriteCheckpoint('user2', '7/0')
+      ]);
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(a1).toBe(created.writeCheckpoints.get('user1'));
+      expect(a2).toBeNull();
+      expect(b1).toBe(created.writeCheckpoints.get('user1'));
+      expect(b2).toBe(created.writeCheckpoints.get('user2'));
+
+      // A failing query rejects every lookup of that batch, and the next lookup starts a new batch.
+      spy.mockRejectedValueOnce(new Error('query failed'));
+      const failed = await Promise.allSettled([
+        internals.batchedLastWriteCheckpoint('user1', '5/0'),
+        internals.batchedLastWriteCheckpoint('user2', '5/0')
+      ]);
+      expect(failed.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+      expect(internals.writeCheckpointLookups.size).toBe(0);
+      expect(await internals.batchedLastWriteCheckpoint('user1', '5/0')).toBe(created.writeCheckpoints.get('user1'));
     });
   });
 }
