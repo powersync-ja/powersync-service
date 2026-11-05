@@ -58,7 +58,20 @@ async function open(version: number, options: Partial<storage.CreateWriterOption
     after: { id: 'A', description: 'offloaded' },
     afterReplicaId: test_utils.rid('A')
   });
-  return { factory, stream, bucketStorage, writer, table, db, objectStorage, markers, lifecycle, data, records };
+  return {
+    factory,
+    factoryGen,
+    stream,
+    bucketStorage,
+    writer,
+    table,
+    db,
+    objectStorage,
+    markers,
+    lifecycle,
+    data,
+    records
+  };
 }
 
 describe.each([3, 4])('replication uploads v%s', (version) => {
@@ -133,8 +146,20 @@ describe.each([3, 4])('replication uploads v%s', (version) => {
     expect(await context.markers.countDocuments()).toBe(1);
     expect(await context.records.countDocuments()).toBe(0);
     expect((await context.bucketStorage.getCheckpoint()).checkpoint).toBe(0n);
-    // A later explicit retry reevaluates the retained input using a fresh path.
-    await writer.commit('1/2');
+    // An ambiguous preparation invalidates the lease attempt. Replay under a
+    // fresh lease uses a new path and leaves the abandoned marker protected.
+    await expect(writer.commit('1/2')).rejects.toThrow('restart');
+    await test_utils.releaseTestStorageLease(context.factory, context.stream.replicationStreamId);
+    const restarted = await getTestStorage(context.factory, context.stream);
+    await using replay = await restarted.createWriter(test_utils.BATCH_OPTIONS);
+    const replayTable = await test_utils.resolveTestTable(replay, 'items', ['id'], context.factoryGen, 1);
+    await replay.save({
+      sourceTable: replayTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: { id: 'A', description: 'offloaded' },
+      afterReplicaId: test_utils.rid('A')
+    });
+    await replay.commit('1/2');
     expect(put).toHaveBeenCalledTimes(1);
     expect(await context.markers.countDocuments()).toBe(1);
     expect(await context.records.countDocuments()).toBe(1);

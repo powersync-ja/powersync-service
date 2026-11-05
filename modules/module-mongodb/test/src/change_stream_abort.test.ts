@@ -74,7 +74,11 @@ describe.skipIf(DATABASE_TYPE == DatabaseType.DOCUMENTDB)('MongoDB change stream
         await using context = await openChangeStreamTestContext(factory, {
           storageVersion,
           doNotClear: true,
-          streamOptions: { createReplicationQueryProvider: () => provider }
+          streamOptions: {
+            // This test isolates partially consumed batches from throttled earlier progress.
+            streamingProgressIntervalMs: 0,
+            createReplicationQueryProvider: () => provider
+          }
         });
         readResumeLsn = async () => (await context.storage!.getStatus()).resumeLsn;
         abort = (cause) => context.abort(cause);

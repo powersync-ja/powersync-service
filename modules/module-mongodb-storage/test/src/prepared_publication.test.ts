@@ -6,9 +6,11 @@ import * as bson from 'bson';
 import { describe, expect, test, vi } from 'vitest';
 import { PreparedPublication } from '../../src/storage/implementation/common/PreparedPublication.js';
 import { MongoWriteBatch } from '../../src/storage/implementation/MongoWriteBatch.js';
+import { OperationBatch } from '../../src/storage/implementation/OperationBatch.js';
 import { MongoSyncBucketStorageV3 } from '../../src/storage/implementation/v3/MongoSyncBucketStorageV3.js';
 import { ObjectStorageUsage } from '../../src/storage/implementation/v3/object-storage/ObjectStorageUsage.js';
 import { PersistedBatchV3 } from '../../src/storage/implementation/v3/PersistedBatchV3.js';
+import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import { env } from './env.js';
 import { MemoryObjectStorage } from './helpers/MemoryObjectStorage.js';
 
@@ -324,6 +326,185 @@ streams:
       expect(objectStorage.store.size).toBe(0);
     }
   );
+
+  test('finishes application before the sequential upload stage', async () => {
+    const objectStorage = new MemoryObjectStorage();
+    const context = await openStream(storageVersion, objectStorage);
+    await using _factory = context.factory;
+    await using writer = context.writer;
+    // Force small read blocks without changing production input/batch targets.
+    using _blocks = vi.spyOn(OperationBatch.prototype, 'batched').mockImplementation(function* (this: OperationBatch) {
+      for (const op of this.batch) {
+        yield [op];
+      }
+    });
+    using reads = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments');
+    using publish = vi.spyOn(PersistedBatchV3.prototype, 'publish');
+    const groupSizes: { transaction: number; retained: number }[] = [];
+    const seal = PersistedBatchV3.prototype.seal;
+    using _seal = vi.spyOn(PersistedBatchV3.prototype, 'seal').mockImplementation(function (this: PersistedBatchV3) {
+      groupSizes.push({ transaction: this.currentSize, retained: this.estimatedRetainedBytes });
+      return seal.call(this);
+    });
+    const started = Array.from({ length: 3 }, () => Promise.withResolvers<void>());
+    const release = Array.from({ length: 3 }, () => Promise.withResolvers<void>());
+    const put = objectStorage.put.bind(objectStorage);
+    let uploads = 0;
+    using _put = vi.spyOn(objectStorage, 'put').mockImplementation(async (...args) => {
+      const index = uploads++;
+      started[index].resolve();
+      await release[index].promise;
+      return put(...args);
+    });
+    for (const id of ['A', 'B', 'C']) {
+      await writer.save({
+        sourceTable: context.table,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id, description: id },
+        afterReplicaId: test_utils.rid(id)
+      });
+    }
+    const commit = writer.commit('1/2');
+    try {
+      await started[0].promise;
+      expect(reads).toHaveBeenCalledTimes(3);
+      expect(uploads).toBe(1);
+      expect(publish).not.toHaveBeenCalled();
+      expect(writer.last_flushed_op).toBeNull();
+      release[0].resolve();
+      await started[1].promise;
+      expect(uploads).toBe(2);
+      expect(publish).not.toHaveBeenCalled();
+    } finally {
+      for (const gate of release) {
+        gate.resolve();
+      }
+      await commit;
+    }
+    expect(publish).toHaveBeenCalledTimes(3);
+    expect(uploads).toBe(3);
+    // Equal-size rows in separate read groups retain equal work. Transaction
+    // sizing still accumulates, but must not be charged repeatedly to memory.
+    expect(groupSizes).toHaveLength(3);
+    expect(groupSizes[2].transaction).toBeGreaterThan(groupSizes[0].transaction);
+    expect(groupSizes[0].retained).toBeGreaterThan(0);
+    expect(groupSizes.map((group) => group.retained)).toEqual(Array(3).fill(groupSizes[0].retained));
+    expect(await context.bucketStorage.getCheckpoint()).toMatchObject({ checkpoint: 3n, lsn: '1/2' });
+    const definitionId = context.stream.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
+    const documents = await context.bucketStorage.db
+      .bucketData(context.stream.replicationStreamId, definitionId)
+      .find({})
+      .sort({ first_op: 1 })
+      .toArray();
+    expect(documents).toHaveLength(3);
+    expect(
+      documents
+        .map(
+          (doc) =>
+            bson.deserialize(
+              objectStorage.store.get(doc.storage_ref!.path)!.data,
+              storage.BSON_DESERIALIZE_INTERNAL_OPTIONS
+            ).ops[0].row_id
+        )
+        .sort()
+    ).toEqual(['A', 'B', 'C']);
+  });
+
+  test('retains partial-row state across eagerly prepared groups', async () => {
+    const objectStorage = new MemoryObjectStorage();
+    const context = await openStream(storageVersion, objectStorage);
+    await using _factory = context.factory;
+    await using writer = context.writer;
+    using _blocks = vi.spyOn(OperationBatch.prototype, 'batched').mockImplementation(function* (this: OperationBatch) {
+      for (const op of this.batch) {
+        yield [op];
+      }
+    });
+    for (const after of [
+      { id: 'A', description: 'first' },
+      { id: undefined, description: 'second' }
+    ]) {
+      await writer.save({
+        sourceTable: context.table,
+        tag: storage.SaveOperationTag.UPDATE,
+        after,
+        afterReplicaId: test_utils.rid('A')
+      });
+    }
+    await writer.commit('1/2');
+    const { db } = context.bucketStorage;
+    const streamId = context.stream.replicationStreamId;
+    const records = await db
+      .sourceRecords(streamId, context.table.id as bson.ObjectId)
+      .find({})
+      .toArray();
+    expect(records).toHaveLength(1);
+    expect(bson.deserialize(records[0].data!.buffer)).toEqual({ id: 'A', description: 'second' });
+    expect(records[0].buckets).toHaveLength(1);
+    const definitionId = context.stream.syncConfigContent[0].mapping.allBucketDefinitionIds()[0];
+    const documents = await db.bucketData(streamId, definitionId).find({}).toArray();
+    const operations = documents
+      .flatMap(
+        (doc) =>
+          bson.deserialize(
+            objectStorage.store.get(doc.storage_ref!.path)!.data,
+            storage.BSON_DESERIALIZE_INTERNAL_OPTIONS
+          ).ops
+      )
+      .sort((a, b) => Number(a.o - b.o));
+    expect(operations).toMatchObject([
+      { o: 1n, op: 'PUT', row_id: 'A', data: '{"id":"A","description":"first"}' },
+      { o: 2n, op: 'PUT', row_id: 'A', data: '{"id":"A","description":"second"}' }
+    ]);
+    expect(await context.bucketStorage.getCheckpoint()).toMatchObject({ checkpoint: 2n, lsn: '1/2' });
+  });
+
+  test.each(['read', 'upload'])('does not publish after a %s failure', async (stage) => {
+    const objectStorage = new MemoryObjectStorage();
+    const context = await openStream(storageVersion, objectStorage);
+    await using _factory = context.factory;
+    await using writer = context.writer;
+    using _blocks = vi.spyOn(OperationBatch.prototype, 'batched').mockImplementation(function* (this: OperationBatch) {
+      for (const op of this.batch) yield [op];
+    });
+    const failure = new Error('failed ' + stage);
+    const load = SourceRecordStoreV3.prototype.loadDocuments;
+    let reads = 0;
+    using _read = vi.spyOn(SourceRecordStoreV3.prototype, 'loadDocuments').mockImplementation(async function (
+      this: SourceRecordStoreV3,
+      ...args
+    ) {
+      if (++reads === 2 && stage === 'read') throw failure;
+      return load.apply(this, args);
+    });
+    const put = objectStorage.put.bind(objectStorage);
+    let uploads = 0;
+    using _put = vi.spyOn(objectStorage, 'put').mockImplementation(async (...args) => {
+      if (++uploads === 2 && stage === 'upload') throw failure;
+      return put(...args);
+    });
+    using publish = vi.spyOn(PersistedBatchV3.prototype, 'publish');
+    for (const id of ['A', 'B']) {
+      await writer.save({
+        sourceTable: context.table,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id },
+        afterReplicaId: test_utils.rid(id)
+      });
+    }
+    await expect(writer.commit('1/2')).rejects.toThrow(failure);
+    expect(writer.last_flushed_op).toBeNull();
+    expect((await context.bucketStorage.getCheckpoint()).checkpoint).toBe(0n);
+    expect(publish).not.toHaveBeenCalled();
+    // Read failure starts no uploads. A successful PUT preceding upload failure
+    // remains protected as an orphan, with no published references or progress.
+    expect(uploads).toBe(stage === 'read' ? 0 : 2);
+    expect(
+      await context.bucketStorage.db
+        .pendingObjectStorageDeletes(context.stream.replicationStreamId)
+        .countDocuments({ path: { $in: [...objectStorage.store.keys()] } })
+    ).toBe(stage === 'read' ? 0 : 1);
+  });
 
   test.each([false, true])('joins sibling uploads before rejecting readiness (cancellation: %s)', async (cancelled) => {
     const objectStorage = new MemoryObjectStorage();

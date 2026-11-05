@@ -21,6 +21,7 @@ import { PreparedPublication } from '../common/PreparedPublication.js';
 import { LoadedSourceRecord } from '../common/SourceRecordStore.js';
 import { SyncRuleDocumentBase } from '../models.js';
 import { PersistedBatchV3 } from './PersistedBatchV3.js';
+import { ReplicationPipelineV3 } from './ReplicationPipelineV3.js';
 import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { CustomCheckpointRequestDocumentV3, ReplicationStreamDocumentV3, SourceTableDocumentV3 } from './models.js';
@@ -33,10 +34,16 @@ import {
   SourceTableReconciliationContext
 } from './source-table-utils.js';
 
+/** Event-only rows need a count boundary too; they never fill OperationBatch. */
+const MAX_CHECKPOINTS_PER_INPUT = 2000;
+
 export class MongoBucketBatchV3 extends MongoBucketBatch {
   declare readonly db: VersionedPowerSyncMongoV3;
 
   private readonly store: SourceRecordStoreV3;
+  private readonly pipeline: ReplicationPipelineV3;
+  private queueAutomaticFlush = false;
+  private pendingPublications = 0;
   /** Avoid repeating idempotent createIndexes calls for every checkpoint flush. */
   private readonly initializedCustomCheckpointEventIds = new Set<EventDefinitionId>();
   // Used only to validate supplied checkpoint ids; it does not initialize collections.
@@ -47,6 +54,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   constructor(options: MongoBucketBatchOptions) {
     super(options);
+    this.pipeline = options.replicationLock.replicationPipeline ??= new ReplicationPipelineV3(
+      options.replicationLock,
+      options.opIdAllocator
+    );
     const syncConfigIds = options.syncConfigIds ?? [];
     if (syncConfigIds.length == 0) {
       throw new ReplicationAssertionError('Missing sync config id for v3 batch');
@@ -54,6 +65,69 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     this.syncConfigIds = syncConfigIds;
     this.knownEventIds = new Set(this.mapping.allEventDefinitionIds());
     this.store = new SourceRecordStoreV3(this.db, this.replicationStreamId, this.mapping);
+  }
+
+  override async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
+    return super.withWriterLock(async () => {
+      // Buffer one bounded input block while both publication slots are occupied.
+      // Automatic flushing checks capacity before application; keep the mutex here
+      // because another writer's metadata barrier can seal and replace this input.
+      this.pipeline.inputOwners.add(this);
+      try {
+        const result = await this.saveInternal(record);
+        if (this.write_checkpoint_batch.length >= MAX_CHECKPOINTS_PER_INPUT) {
+          return this.automaticFlush();
+        }
+        return result;
+      } catch (error) {
+        this.pipeline.fail(error);
+        throw error;
+      }
+    });
+  }
+
+  /** Submit a bounded input block, or a partial block at an explicit boundary. */
+  async sealPipelineInput(): Promise<storage.FlushedResult | null> {
+    if (!this.batch?.hasData() && this.write_checkpoint_batch.length === 0) {
+      return null;
+    }
+    this.queueAutomaticFlush = true;
+    try {
+      return await this.flushInternal();
+    } finally {
+      this.queueAutomaticFlush = false;
+    }
+  }
+
+  protected override async automaticFlush(): Promise<storage.FlushedResult | null> {
+    return this.sealPipelineInput();
+  }
+
+  /** Metadata, explicit flushes and checkpoints drain the admitted stream prefix. */
+  protected override async withWriterLock<T>(callback: () => Promise<T>, sealInput = true): Promise<T> {
+    return super.withWriterLock(async () => {
+      if (sealInput) {
+        for (const owner of this.pipeline.inputOwners) {
+          await owner.sealPipelineInput();
+        }
+      }
+      await this.pipeline.drain();
+      return callback();
+    });
+  }
+
+  override async [Symbol.asyncDispose](): Promise<void> {
+    const pending = this.pendingPublications > 0 || this.batch?.hasData() || this.write_checkpoint_batch.length > 0;
+    if (pending) {
+      this.pipeline.fail(new ReplicationAbortedError('Disposed writer with pending replication work'));
+    }
+    await this.options.replicationLock.writerMutex.exclusiveLock(async () => {
+      if (pending || this.options.replicationLock.signal.aborted) {
+        await this.pipeline.join();
+      }
+      this.pipeline.inputOwners.delete(this);
+      await super[Symbol.asyncDispose]();
+    });
   }
 
   protected createPersistedBatch(writtenSize: number): PersistedBatchV3 {
@@ -93,13 +167,25 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     await this.hooks?.beforeBatchFlush?.(this);
     const input = this.batch;
     const checkpoints = this.write_checkpoint_batch.slice();
-    const allocator = this.options.opIdAllocator;
+    const allocator = this.pipeline.allocator;
     await allocator.ensureCapacity();
     const contextProjection = { ...projection, state: 1, last_persisted_op: 1, sync_configs: 1 };
     if (checkpoints.length > 0) {
       await this.prepareCustomWriteCheckpoints();
     }
-    const prepared = await this.prepareRows(this.session, input);
+    await this.pipeline.capacity();
+    const overlay = this.pipeline.beginRead();
+    let prepared: Awaited<ReturnType<MongoBucketBatchV3['prepareRows']>>;
+    try {
+      prepared = await this.prepareRows(this.session, input, overlay);
+    } finally {
+      this.pipeline.endRead();
+    }
+    const { publications, repairs, resumeBatch, changes, hasWrites } = prepared;
+    const retainedBytes =
+      prepared.retainedBytes +
+      checkpoints.reduce((bytes, checkpoint) => bytes + (bson.calculateObjectSize(checkpoint) + 256) * 4, 0);
+    const publishCheckpoint = checkpoint != null && resumeBatch == null;
     let lastOp = prepared.lastOp;
     let checkpointOp: bigint | undefined;
     if (checkpoints.length > 0) {
@@ -118,66 +204,94 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     }
     // Reservations are globally disjoint and this lease's allocator consumes IDs
     // assigned to sealed work, even if publication is abandoned. The writer mutex
-    // excludes other writers under this lease during preparation and publication;
+    // serializes application under this lease; the shared overlay covers pending writes;
     // the transaction fence excludes a different lease owner. Thus preparation
     // does not need to read the persisted head to allocate IDs or reuse records.
     allocator.consume(lastOp);
-    const clearError = !this.clearedError && prepared.hasWrites;
-    await this.publishPrepared(lastOp, contextProjection, prepared.publications, options, async (stream, writes) => {
-      // An empty flush allocates no ID. Use the durable head from the
-      // fresh fence for its checkpoint and returned flushed operation.
-      if (lastOp === 0n) {
-        lastOp = this.persistedOpHead(stream);
-      }
-      if (clearError) {
-        writes.updateOne(
-          this.db.sync_rules,
-          { _id: this.replicationStreamId },
-          {
-            $set: { last_fatal_error: null, last_fatal_error_ts: null }
+    const clearError = !this.clearedError && hasWrites;
+    const publish = async (session: lib_mongo.mongo.ClientSession) => {
+      await this.publishPrepared(
+        lastOp,
+        contextProjection,
+        publications,
+        options,
+        async (stream, writes) => {
+          // An empty flush allocates no ID. Use the durable head from the
+          // fresh fence for its checkpoint and returned flushed operation.
+          if (lastOp === 0n) {
+            lastOp = this.persistedOpHead(stream);
           }
-        );
-      }
-      if (checkpointOp != null) {
-        this.queueCustomWriteCheckpoints(writes, checkpointOp, checkpoints);
-      }
-      if (checkpoint != null && prepared.resumeBatch == null) {
-        // Checkpoint decisions use this attempt's freshly fenced state.
-        await checkpoint(stream, lastOp, writes);
-      } else {
-        this.onReplicationTransactionFlush(writes, lastOp);
-      }
-    });
-    this.batch = prepared.resumeBatch;
-    this.write_checkpoint_batch.splice(0, checkpoints.length);
-    this.clearedError ||= clearError;
-    this.last_flushed_op = lastOp;
-    // markRecordUnavailable only synchronously queues connector-owned repair
-    // keys. It must not mutate input, perform async work, or re-enter storage:
-    // the writer mutex is still held. Delivery must finish before flush() returns;
-    // WalStream drains that queue before commit()/ack().
-    // Once committed, these writes cannot be rolled back if the callback
-    // throws. Invalidate the whole local lease while the mutex is held, so
-    // no writer sharing it (including queued calls) can advance progress
-    // past an undelivered repair. A fresh replication attempt must replay
-    // from the old source position and redetect incomplete rows.
-    try {
-      const notify = this.markRecordUnavailable;
-      if (notify != null) {
-        for (const record of prepared.repairs) {
-          notify(record);
-        }
-      }
-    } catch (error) {
-      this.options.replicationLock.invalidate(
-        new ReplicationAbortedError(
-          'Committed replication repair notification failed; restart replication before advancing source progress',
-          error
-        )
+          if (clearError) {
+            writes.updateOne(
+              this.db.sync_rules,
+              { _id: this.replicationStreamId },
+              {
+                $set: { last_fatal_error: null, last_fatal_error_ts: null }
+              }
+            );
+          }
+          if (checkpointOp != null) {
+            this.queueCustomWriteCheckpoints(writes, checkpointOp, checkpoints);
+          }
+          if (publishCheckpoint) {
+            // Checkpoint decisions use this attempt's freshly fenced state.
+            await checkpoint(stream, lastOp, writes);
+          } else {
+            this.onReplicationTransactionFlush(writes, lastOp);
+          }
+        },
+        session
       );
-      throw error;
+      this.clearedError ||= clearError;
+      this.last_flushed_op = lastOp;
+      // markRecordUnavailable only synchronously queues connector-owned repair
+      // keys. It must not mutate input, perform async work, or re-enter storage:
+      // publication is serialized, but queued publication does not hold the
+      // writer mutex. Delivery must finish before flush() returns;
+      // WalStream drains that queue before commit()/ack().
+      // Once committed, these writes cannot be rolled back if the callback
+      // throws. Invalidate the whole local lease before publication completes, so
+      // no writer sharing it (including queued calls) can advance progress
+      // past an undelivered repair. A fresh replication attempt must replay
+      // from the old source position and redetect incomplete rows.
+      try {
+        const notify = this.markRecordUnavailable;
+        if (notify != null) {
+          for (const record of repairs) {
+            notify(record);
+          }
+        }
+      } catch (error) {
+        this.options.replicationLock.invalidate(
+          new ReplicationAbortedError(
+            'Committed replication repair notification failed; restart replication before advancing source progress',
+            error
+          )
+        );
+        throw error;
+      }
+      await this.hooks?.afterBatchFlush?.(this);
+    };
+    // Repairs stay synchronous so the connector can repair rows before source
+    // progress advances. Ordinary rows may pipeline even for repair-capable sources.
+    const shouldQueue = this.queueAutomaticFlush && repairs.length === 0;
+    if (shouldQueue) {
+      await this.pipeline.capacity(retainedBytes);
+      this.batch = resumeBatch;
+      this.write_checkpoint_batch.splice(0, checkpoints.length);
+      this.pendingPublications++;
+      const receipt = this.pipeline.enqueue(changes, retainedBytes, publish);
+      void receipt
+        .finally(() => {
+          this.pendingPublications--;
+        })
+        .catch(() => {});
+      return null;
     }
-    await this.hooks?.afterBatchFlush?.(this);
+    await this.pipeline.drain();
+    await publish(this.session);
+    this.batch = resumeBatch;
+    this.write_checkpoint_batch.splice(0, checkpoints.length);
     return { flushed_op: lastOp };
   }
 
@@ -189,7 +303,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   /**
-   * Internal publisher: the public operation holds the mutex through commit.
+   * Internal publisher: called either by a durable barrier or by the lease FIFO.
    * finish() must only queue writes independent of the final data group, using
    * the fresh fence and planned IDs; it must not execute the supplied batch or
    * read results from unpublished data. Activation and cleanup remain separate.
@@ -199,20 +313,22 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     projection: lib_mongo.mongo.Document,
     publications: PreparedPublication[],
     options: storage.BatchBucketFlushOptions | undefined,
-    finish: (stream: ReplicationStreamDocumentV3, writes: MongoWriteBatch) => Promise<void>
+    finish: (stream: ReplicationStreamDocumentV3, writes: MongoWriteBatch) => Promise<void>,
+    session = this.session
   ): Promise<void> {
+    const tracer = session === this.session ? this.tracer : this.pipeline.tracer;
     // This gate covers every sealed batch in the prefix, including truncate/drop.
     // The transaction must never wait for source reads, evaluation or S3 PUTs.
-    // Sequential preparation also avoids leaving another group's uploads running
-    // when one group fails; each group's readiness joins all of its own uploads.
-    for (const publication of publications) {
-      await publication.preparePayloads();
-    }
+    // Uploads belong to the single publication stage, before opening a
+    // transaction. Keep this idempotent gate for truncate/drop too.
     let attempts = 0;
     const retryDeadline = Date.now() + 90_000;
     try {
+      for (const publication of publications) {
+        await publication.preparePayloads();
+      }
       await this.withFencedTransaction(
-        () => this.fence(this.session, projection),
+        () => this.fence(session, projection),
         async (document) => {
           attempts++;
           if (attempts > 20 && Date.now() > retryDeadline) {
@@ -230,25 +346,26 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           // Preserve their execution order; only the final group's writes are
           // independent of the head/checkpoint tail built from this fresh fence.
           for (const publication of publications.slice(0, -1)) {
-            using _persist = this.tracer.span('storage', 'persist_flush');
-            await publication.publish(this.session, options);
+            using _persist = tracer.span('storage', 'persist_flush');
+            await publication.publish(session, options);
           }
-          const writes = this.db.createWriteBatch(this.session, { ordered: false });
+          const writes = this.db.createWriteBatch(session, { ordered: false });
           await finish(stream, writes);
           const finalPublication = publications.at(-1);
           if (finalPublication != null) {
-            using _persist = this.tracer.span('storage', 'persist_flush');
-            await finalPublication.publish(this.session, options, writes);
+            using _persist = tracer.span('storage', 'persist_flush');
+            await finalPublication.publish(session, options, writes);
           } else {
             await writes.execute();
           }
         },
-        this.session,
-        'Publishing prepared work'
+        session,
+        'Publishing prepared work',
+        tracer
       );
     } catch (error) {
-      // Publication failed after the driver's retries or our attempt limit.
-      // Leave uploaded objects and markers alone: the commit may have succeeded.
+      // Upload preparation or publication failed. Marker registration or the
+      // commit may have succeeded, so leave uploaded objects and markers alone.
       // Stop every writer on this lease and recover from persisted source progress.
       this.options.replicationLock.invalidate(
         new ReplicationAbortedError('Publication failed; restart replication from persisted progress', error)
@@ -257,17 +374,31 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     }
   }
 
-  private async prepareRows(session: lib_mongo.mongo.ClientSession, input: OperationBatch | null) {
+  private async prepareRows(
+    session: lib_mongo.mongo.ClientSession,
+    input: OperationBatch | null,
+    overlay: ReadonlyMap<string, LoadedSourceRecord>
+  ) {
     const publications: PreparedPublication[] = [];
     const repairs: storage.SaveUpdate[] = [];
     let resumeBatch: OperationBatch | null = null;
     let lastOp = 0n;
     let hasWrites = false;
+    let retainedBytes = 0;
+    const changes = new Map<string, LoadedSourceRecord>();
     if (input == null) {
-      return { publications, repairs, resumeBatch, lastOp, hasWrites };
+      return {
+        publications,
+        repairs,
+        resumeBatch,
+        lastOp,
+        hasWrites,
+        changes,
+        retainedBytes
+      };
     }
     using _preparation = this.tracer.span('storage', 'prepare');
-    const allocator = this.options.opIdAllocator;
+    const allocator = this.pipeline.allocator;
     let sizes: Map<string, number> | undefined;
     // Keep the existing size-based read partitioning, including per-table raw
     // data storage and snapshot skip-existing exceptions. Move these reads;
@@ -284,10 +415,19 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           .map((op) => ({ sourceTableId: mongoTableId(op.record.sourceTable.id), replicaId: op.beforeId }))
       );
     }
-    // Only this bounded publication's observations/evaluated rows are retained.
-    // No state is shared with another pending publication or another writer.
-    const records = new Map<string, LoadedSourceRecord | null>();
+    // The predecessor's immutable delta overrides durable records. Its lifetime
+    // is pinned through this application, including reads that straddle commit.
+    for (const [key, record] of overlay) {
+      sizes?.set(key, record.data?.length() ?? 0);
+    }
+    const records = new Map<string, LoadedSourceRecord | null>(overlay);
     let writtenSize = 0;
+    // Sealing is pure: only the publication stage starts uploads. This leaves
+    // one predecessor's uploads/writes overlapping this block's reads/evaluation.
+    const prepareGroup = (group: PersistedBatchV3) => {
+      retainedBytes += group.estimatedRetainedBytes;
+      publications.push(group.seal());
+    };
     for (const block of input.batched(sizes)) {
       if (resumeBatch != null) {
         for (const op of block) {
@@ -295,6 +435,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         }
         continue;
       }
+      this.options.replicationLock.throwIfAborted();
+      this.pipeline.advanceReadTime();
       const missing = block.filter((op) => !records.has(op.internalBeforeKey));
       if (missing.length > 0) {
         using _lookup = this.tracer.span('storage', 'lookup');
@@ -343,7 +485,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
             if (!(error instanceof OpIdRangeExhausted)) {
               throw error;
             }
-            // Retry only the unfinished row; no payload has been uploaded yet.
+            // Retry only the unfinished row; its payload has not been uploaded.
             this.options.replicationLock.throwIfAborted();
             await allocator.reserve();
           }
@@ -352,30 +494,49 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           // Preserve evaluation's existing repeated-row behavior: a deleted
           // identity no longer supplies raw values or membership to later rows.
           records.set(op.internalBeforeKey, null);
+          // Persisted soft deletes still exist for snapshot skip-existing
+          // lookups, even though repeated streaming updates use empty state.
+          changes.set(op.internalBeforeKey, {
+            sourceTableId: mongoTableId(op.record.sourceTable.id),
+            replicaId: op.beforeId,
+            cacheKey: op.internalBeforeKey,
+            data: null,
+            buckets: [],
+            lookups: []
+          });
         }
         if (next != null) {
           records.set(op.internalAfterKey!, next);
+          changes.set(op.internalAfterKey!, next);
           sizes?.set(op.internalAfterKey!, next.data?.length() ?? 0);
         }
         if (group!.shouldFlushTransaction()) {
-          publications.push(group!.seal());
+          prepareGroup(group!);
           group = null;
           resumeBatch = new OperationBatch();
         }
       }
       if (group != null) {
         writtenSize = group.currentSize;
-        publications.push(group.seal());
+        prepareGroup(group);
       }
     }
-    return { publications, repairs, resumeBatch: resumeBatch?.hasData() ? resumeBatch : null, lastOp, hasWrites };
+    return {
+      publications,
+      repairs,
+      resumeBatch: resumeBatch?.hasData() ? resumeBatch : null,
+      lastOp,
+      hasWrites,
+      changes,
+      retainedBytes
+    };
   }
 
   protected override async truncateSingleInternal(sourceTable: storage.SourceTable): Promise<InternalOpId> {
     const sourceId = mongoTableId(sourceTable.id);
     const session = this.session;
     const projection = { state: 1, sync_configs: 1, last_persisted_op: 1 };
-    const allocator = this.options.opIdAllocator;
+    const allocator = this.pipeline.allocator;
     while (true) {
       await allocator.ensureCapacity();
       // Preserve the existing bounded table scan. Hard deletion lets the next

@@ -69,12 +69,12 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
     private readonly db: VersionedPowerSyncMongoV3,
     private readonly group_id: number,
     private readonly mapping: BucketDefinitionMapping,
-    writtenSize: number,
+    private readonly initialWrittenSize: number,
     options?: PersistedBatchV3Options
   ) {
     this.operations = new BatchOperationBuffer(
       group_id,
-      writtenSize,
+      initialWrittenSize,
       {
         // V3-specific definition validation; v1 does not persist definition ids.
         checkDefinitionId: (definitionId) => {
@@ -97,6 +97,17 @@ export class PersistedBatchV3 implements PersistedBatch, PreparedPublication {
 
   get currentSize(): number {
     return this.operations.currentSize;
+  }
+
+  /**
+   * Reuse the running size estimate with headroom for JS objects, membership
+   * maps, packed chunks and upload buffers, without traversing the batch again.
+   * Separate from transaction-size targets; this is not a measured heap size.
+   * This estimate intentionally charges superseded representations until commit.
+   * Exclude the carried transaction size: earlier groups account for themselves.
+   */
+  get estimatedRetainedBytes(): number {
+    return (this.currentSize - this.initialWrittenSize) * 4;
   }
 
   saveBucketData(options: SaveBucketDataOptions): void {
