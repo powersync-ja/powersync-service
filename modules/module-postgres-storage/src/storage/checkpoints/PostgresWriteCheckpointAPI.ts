@@ -219,6 +219,69 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     }
   }
 
+  /**
+   * Same as lastWriteCheckpoint, for several users in a single query.
+   * Users without a write checkpoint are not included in the result.
+   */
+  async lastWriteCheckpoints(filters: {
+    user_ids: string[];
+    sync_rules_id: number;
+    heads: Record<string, string>;
+  }): Promise<Map<string, bigint>> {
+    const { user_ids, sync_rules_id, heads } = filters;
+    const result = new Map<string, bigint>();
+    if (user_ids.length == 0) {
+      return result;
+    }
+    switch (this.writeCheckpointMode) {
+      case storage.WriteCheckpointMode.CUSTOM: {
+        const rows = await this.db.sql`
+          SELECT
+            *
+          FROM
+            custom_write_checkpoints
+          WHERE
+            user_id IN (
+              SELECT
+                jsonb_array_elements_text(${{ type: 'jsonb', value: user_ids }})
+            )
+            AND sync_rules_id = ${{ type: 'int4', value: sync_rules_id }}
+        `
+          .decoded(models.CustomWriteCheckpoint)
+          .rows();
+        for (const row of rows) {
+          result.set(row.user_id, row.write_checkpoint);
+        }
+        return result;
+      }
+      case storage.WriteCheckpointMode.MANAGED: {
+        const lsn = heads['1'];
+        if (lsn == null) {
+          // Can happen if we haven't replicated anything yet.
+          return result;
+        }
+        const rows = await this.db.sql`
+          SELECT
+            *
+          FROM
+            write_checkpoints
+          WHERE
+            user_id IN (
+              SELECT
+                jsonb_array_elements_text(${{ type: 'jsonb', value: user_ids }})
+            )
+            AND lsns ->> '1' <= ${{ type: 'varchar', value: lsn }}
+        `
+          .decoded(models.WriteCheckpoint)
+          .rows();
+        for (const row of rows) {
+          result.set(row.user_id, row.write_checkpoint);
+        }
+        return result;
+      }
+    }
+  }
+
   protected async lastCustomWriteCheckpoint(filters: storage.CustomWriteCheckpointFilters) {
     const { user_id, sync_rules_id } = filters;
     const row = await this.db.sql`
