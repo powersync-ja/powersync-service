@@ -22,6 +22,7 @@ import {
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
+import { orNull } from '@powersync/service-types';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { bigint, BIGINT_MAX, hexBuffer } from '../types/codecs.js';
@@ -577,7 +578,8 @@ export class PostgresSyncRulesStorage
         snapshot_done = FALSE,
         last_checkpoint_lsn = NULL,
         last_checkpoint = NULL,
-        no_checkpoint_before = NULL
+        no_checkpoint_before = NULL,
+        checkpoint_changes_invalid_before = nextval('op_id_sequence')
       WHERE
         id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
@@ -899,38 +901,22 @@ export class PostgresSyncRulesStorage
    *
    * Unlike MongoDB storage, op_id_sequence is not reset by clear(), so the next checkpoint does not go backwards. The
    * range queries would then only see the recreated rows, and lookups or buckets that disappeared would never be
-   * reported. clear() deletes all rows of the group, and new rows get ids above any earlier checkpoint. Outside of a
-   * clear, parameter rows are never removed, and compaction keeps the highest op_id of each bucket. So if no row of the
-   * group is at or below the last checkpoint, everything is invalidated. For a group that was empty at the last
-   * checkpoint this invalidates unnecessarily, which is harmless.
+   * reported. clear() stores a fence in checkpoint_changes_invalid_before: the next value of op_id_sequence, which is
+   * above every checkpoint made before the clear and below every op_id written after it. Changes cannot be derived
+   * for a checkpoint below the fence.
    */
   private async clearedSince(lastCheckpoint: storage.ReplicationCheckpoint): Promise<boolean> {
     const row = await this.db.sql`
       SELECT
-        (
-          EXISTS (
-            SELECT
-              1
-            FROM
-              bucket_parameters
-            WHERE
-              group_id = ${{ type: 'int4', value: this.replicationStreamId }}
-              AND id <= ${{ type: 'int8', value: lastCheckpoint.checkpoint }}
-          )
-          OR EXISTS (
-            SELECT
-              1
-            FROM
-              bucket_data
-            WHERE
-              group_id = ${{ type: 'int4', value: this.replicationStreamId }}
-              AND op_id <= ${{ type: 'int8', value: lastCheckpoint.checkpoint }}
-          )
-        ) AS kept
+        checkpoint_changes_invalid_before AS fence
+      FROM
+        sync_rules
+      WHERE
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `
-      .decoded(t.object({ kept: t.boolean }))
+      .decoded(t.object({ fence: orNull(bigint) }))
       .first();
-    return row?.kept !== true;
+    return row?.fence != null && lastCheckpoint.checkpoint < row.fence;
   }
 
   private opIdIndexCheckedAt = 0;
