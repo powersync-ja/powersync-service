@@ -22,7 +22,7 @@ import { WalStreamTestContext } from './wal_stream_utils.js';
  */
 describe.skipIf(env.PG_FAILOVER_TEST_IMAGE == null)('replication slot failover', { timeout: 120_000 }, () => {
   const image = env.PG_FAILOVER_TEST_IMAGE!;
-  const expectedMajorVersion = Number(/:(\d+)/.exec(image)![1]);
+  const expectedMajorVersion = Number(/:(\d+)/.exec(image)?.[1]);
 
   test('does not enable failover by default before Postgres 17', async ({ skip }) => {
     skip(expectedMajorVersion >= 17, 'Postgres 17+ supports failover slots');
@@ -242,15 +242,11 @@ class FailoverCluster implements AsyncDisposable {
   async waitForSlotSync(slotName: string, advance: () => Promise<void>, options = WAIT_OPTIONS) {
     await vi.waitFor(async () => {
       await advance();
-      const primarySlot = await getSlot(this.primaryPool, slotName);
       const [row] = pgwire.pgwireRows(
         await this.standbyPool.query({
           statement: `SELECT synced, temporary, invalidation_reason, confirmed_flush_lsn::text, catalog_xmin::text
                       FROM pg_replication_slots WHERE slot_name = $1`,
-          params: [
-            { type: 'varchar', value: slotName },
-            { type: 'varchar', value: String(primarySlot.confirmed_flush_lsn) }
-          ]
+          params: [{ type: 'varchar', value: slotName }]
         })
       );
       expect(row, `synced slot ${slotName} on the standby`).toMatchObject({
