@@ -378,19 +378,46 @@ jobs:
           # Start the local Convex backend in the background so the next test step can use it.
           pnpm run dev:convex > convex-dev.log 2>&1 &
 
+          convex_pid=$!
+
           # Wait until Convex has generated its local admin key and the schema API is responding.
-          timeout 120 bash -c '
-            until node --input-type=module -e '"'"'
-              import fs from "node:fs";
-              const config = JSON.parse(fs.readFileSync(".convex/local/default/config.json", "utf8"));
-              const response = await fetch("http://127.0.0.1:3210/api/json_schemas?format=json", {
-                headers: { Authorization: `Convex ${config.adminKey}` }
-              });
-              if (!response.ok) process.exit(1);
-            '"'"'; do
-              sleep 2
-            done
-          '
+          deadline=$((SECONDS + 120))
+          while true; do
+            if ! kill -0 "$convex_pid" 2>/dev/null; then
+              status=0
+              wait "$convex_pid" || status=$?
+              echo "::error::Convex exited before becoming ready (exit code $status)."
+              cat convex-dev.log
+              exit 1
+            fi
+
+            if node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const configPath = ".convex/local/default/config.json";
+          if (!fs.existsSync(configPath)) process.exit(1);
+          try {
+            const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+            const response = await fetch("http://127.0.0.1:3210/api/json_schemas?format=json", {
+              headers: { Authorization: `Convex ${config.adminKey}` },
+              signal: AbortSignal.timeout(5000)
+            });
+            if (!response.ok) throw new Error(`Schema API returned HTTP ${response.status} ${response.statusText}`);
+          } catch (error) {
+            console.error(`Convex is not ready: ${error.message}`);
+            process.exit(1);
+          }
+          NODE
+            then
+              break
+            fi
+
+            if (( SECONDS >= deadline )); then
+              echo "::error::Convex did not become ready within 120 seconds."
+              cat convex-dev.log
+              exit 1
+            fi
+            sleep 2
+          done
 
       - name: Test Replication
         run: pnpm --filter='./modules/module-convex' test
