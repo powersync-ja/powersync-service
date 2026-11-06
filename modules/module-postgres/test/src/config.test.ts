@@ -54,4 +54,16 @@ describe('Postgres connection config', () => {
       }
     });
   });
+
+  describe('slot_failover', () => {
+    test('normalizes slot_failover when set', () => {
+      expect(normalizeConnectionConfig({ ...BASE_CONFIG, slot_failover: true }).slot_failover).toBe(true);
+      expect(normalizeConnectionConfig({ ...BASE_CONFIG, slot_failover: false }).slot_failover).toBe(false);
+    });
+
+    test('leaves slot_failover unset by default', () => {
+      const normalized = normalizeConnectionConfig(BASE_CONFIG);
+      expect(normalized.slot_failover).toBeUndefined();
+    });
+  });
 });
