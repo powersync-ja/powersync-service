@@ -405,11 +405,14 @@ export abstract class MongoSyncBucketStorage
     this.factory.discardOpIdAllocator(this.replicationStreamId);
     await this.clearSyncRuleState();
 
-    await this.clearBucketData(signal);
-    await this.clearParameterIndexes(signal);
-    await this.clearSourceRecords(signal);
-    await this.clearBucketState(signal);
-    await this.clearSourceTables(signal);
+    const droppedV1Collections = await this.factory.dropUnusedV1StorageCollections(signal);
+    if (this.storageConfig.version >= storage.STORAGE_VERSION_3 || !droppedV1Collections) {
+      await this.clearBucketData(signal);
+      await this.clearParameterIndexes(signal);
+      await this.clearSourceRecords(signal);
+      await this.clearBucketState(signal);
+      await this.clearSourceTables(signal);
+    }
     await this.clearCustomCheckpointRequests(signal);
 
     this.#storageInitialized = false;
