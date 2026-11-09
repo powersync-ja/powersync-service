@@ -294,7 +294,43 @@ export class PostgresReplicationSourceAdapter implements ReplicationBenchmarkSou
 
   private async insertBatch(connection: jpgwire.PgConnection, table: string, batch: BenchmarkRow[]): Promise<void> {
     await connection.query({
-      statement: `INSERT INTO ${this.qualifiedTable(table)} (id, owner_id, category, version, updated_at, payload, is_target, partition_key, table_key) SELECT id, owner_id, category, version, updated_at, payload, is_target, partition_key, table_key FROM jsonb_to_recordset($1::jsonb) AS r(id text, owner_id text, category text, version integer, updated_at text, payload text, is_target integer, partition_key bigint, table_key text)`,
+      /* sql */
+      statement: `
+        INSERT INTO
+          ${this.qualifiedTable(table)} (
+            id,
+            owner_id,
+            category,
+            version,
+            updated_at,
+            payload,
+            is_target,
+            partition_key,
+            table_key
+          )
+        SELECT
+          id,
+          owner_id,
+          category,
+          version,
+          updated_at,
+          payload,
+          is_target,
+          partition_key,
+          table_key
+        FROM
+          jsonb_to_recordset($1::jsonb) AS r (
+            id text,
+            owner_id text,
+            category text,
+            version integer,
+            updated_at text,
+            payload text,
+            is_target integer,
+            partition_key bigint,
+            table_key text
+          )
+      `,
       params: [{ type: 'varchar', value: JSON.stringify(batch) }]
     });
   }
