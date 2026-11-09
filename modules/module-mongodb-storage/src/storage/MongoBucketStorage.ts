@@ -714,7 +714,12 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     if (storageConfig.incrementalReprocessing) {
       const v3 = doc as ReplicationStreamDocumentV3;
-      const matching = v3.sync_configs.filter((c) => stateFilter.includes(c.state));
+      // Cleanup of a stopped stream requires all embedded configs, regardless of
+      // their individual states, so every config's storage can be terminated.
+      const matching =
+        v3.state == storage.SyncRuleState.STOP && stateFilter.includes(storage.SyncRuleState.STOP)
+          ? v3.sync_configs
+          : v3.sync_configs.filter((c) => stateFilter.includes(c.state));
       if (matching.length == 0) {
         return null;
       }
