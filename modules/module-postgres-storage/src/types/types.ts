@@ -11,17 +11,18 @@ export const MAX_BATCH_ESTIMATED_SIZE = 5_000_000;
 export const MAX_BATCH_CURRENT_DATA_SIZE = 50_000_000;
 
 /**
- * Maximum estimated size of the rows written by a single INSERT statement when flushing
- * bucket_data and bucket_parameters.
+ * Upper bound for the estimated size of the rows written by a single INSERT statement when
+ * flushing bucket_data and bucket_parameters.
  *
- * A single source row can produce many operations when it is evaluated into many buckets,
- * which is not limited by `max_estimated_size`. Flushes larger than this limit are split
- * into multiple statements in the same transaction.
+ * Rows are inserted while they accumulate, once the pending rows would exceed the smaller of
+ * `max_estimated_size` and this limit. A single source row can produce many operations when it
+ * is evaluated into many buckets, which `max_estimated_size` alone does not bound since it is
+ * only checked between rows.
  *
  * The rows are passed to Postgres as a single JSON parameter, which is serialized to a string
- * before being sent. Node limits a string to roughly 512MB. The estimate used for chunking does
- * not account for the JSON escaping of the already-serialized row data, so the actual parameter
- * can be close to double the estimate. 64MB keeps a wide margin for that.
+ * before being sent. Node limits a string to roughly 512MB. The estimate does not account for
+ * the JSON escaping of the already-serialized row data, so the actual parameter can be close to
+ * double the estimate. 64MB keeps a wide margin for that.
  *
  * This is not part of `batch_limits`: the limit comes from the runtime, not from the workload.
  */

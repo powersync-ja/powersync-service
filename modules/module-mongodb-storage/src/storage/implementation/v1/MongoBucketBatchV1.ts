@@ -10,6 +10,7 @@ import { MongoIdSequence, OpIdRangeExhausted } from '../MongoIdSequence.js';
 import { MongoSyncRulesLock } from '../MongoSyncRulesLock.js';
 import { MongoWriteBatch } from '../MongoWriteBatch.js';
 import { OperationBatch } from '../OperationBatch.js';
+import { stopReplicationStreamPipeline } from '../SyncRuleStateUpdate.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { SyncRuleDocumentBase } from '../models.js';
 import { PersistedBatchV1 } from './PersistedBatchV1.js';
@@ -853,11 +854,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
             _id: { $ne: this.replicationStreamId },
             state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
           },
-          {
-            $set: {
-              state: storage.SyncRuleState.STOP
-            }
-          },
+          stopReplicationStreamPipeline(),
           { session }
         );
         activated = true;
