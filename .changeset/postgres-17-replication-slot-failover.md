@@ -1,5 +1,6 @@
 ---
-'@powersync/service-module-postgres': minor
+'@powersync/service-module-postgres': patch
+'@powersync/service-errors': patch
 '@powersync/service-image': minor
 ---
 
