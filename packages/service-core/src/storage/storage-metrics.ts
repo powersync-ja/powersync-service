@@ -61,7 +61,8 @@ export function initializeCoreStorageMetrics(engine: MetricsEngine, storage: Buc
   const object_storage_size_bytes = engine.getObservableGauge(StorageMetric.OBJECT_STORAGE_SIZE_BYTES);
   const attributed_object_storage_bytes = engine.getObservableGauge(StorageMetric.ATTRIBUTED_OBJECT_STORAGE_BYTES);
 
-  const MINIMUM_INTERVAL = 60_000;
+  // Expire before the next collection when metrics are collected once per minute.
+  const MINIMUM_INTERVAL = 55_000;
 
   /**
    * How long a sync config that is no longer present keeps being reported as zero.

@@ -1951,6 +1951,24 @@ streams:
     }
   );
 
+  test.runIf(storageVersion >= 3)('storage metrics collect sizes across union batches', async () => {
+    await using factory = await storageConfig.factory();
+    const mongoFactory = factory as MongoBucketStorage;
+    const before = await factory.getStorageMetrics();
+    let expectedSize = 0;
+    for (let index = 0; index < 101; index++) {
+      const collection = mongoFactory.db.db.collection(`bucket_data_999_metrics_${index}`);
+      await collection.insertOne({ value: 'x'.repeat(index + 1) });
+      const [stats] = await collection.aggregate([{ $collStats: { storageStats: {} } }]).toArray();
+      expectedSize += Number(stats.storageStats.size);
+    }
+
+    const after = await factory.getStorageMetrics();
+    expect(after.operations_size_bytes - before.operations_size_bytes).toBe(expectedSize);
+    expect(after.parameters_size_bytes).toBe(before.parameters_size_bytes);
+    expect(after.replication_size_bytes).toBe(before.replication_size_bytes);
+  });
+
   test.runIf(storageVersion < 3)('storage metrics include v1 current_data', async () => {
     await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(
