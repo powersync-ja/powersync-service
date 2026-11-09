@@ -1,3 +1,4 @@
+import ConnectionURI from 'mongodb-connection-string-url';
 import { fixtureEnvironment } from '../../../env.js';
 
 export interface MongoSourceBenchmarkConfiguration {
@@ -21,24 +22,17 @@ export function assertDistinctMongoSourceAndStorage(environment: Readonly<Record
 }
 
 export function canonicalMongoAuthority(url: string): string {
-  const match = /^(mongodb(?:\+srv)?):\/\/([^/?]+)(?:[/?]|$)/i.exec(url);
-  if (match == null) throw new Error('MongoDB benchmark URL must be a valid mongodb:// or mongodb+srv:// URL');
-
-  const scheme = match[1].toLowerCase();
-  const authorityWithCredentials = match[2];
-  const credentialSeparator = authorityWithCredentials.lastIndexOf('@');
-  const authority =
-    credentialSeparator === -1 ? authorityWithCredentials : authorityWithCredentials.slice(credentialSeparator + 1);
-  const hosts = authority
-    .split(',')
-    .map((host) => canonicalMongoHost(host.trim().toLowerCase(), scheme))
+  const uri = new ConnectionURI(url);
+  const scheme = uri.isSRV ? 'mongodb+srv' : 'mongodb';
+  const hosts = uri.hosts
+    .map((host) => getMongoHostWithDefaultPort(host.trim().toLowerCase(), scheme))
     .filter((host) => host.length > 0)
     .sort();
   if (hosts.length === 0) throw new Error('MongoDB benchmark URL must contain at least one host');
   return `${scheme}://${hosts.join(',')}`;
 }
 
-function canonicalMongoHost(host: string, scheme: string): string {
+function getMongoHostWithDefaultPort(host: string, scheme: string): string {
   if (host.length === 0 || scheme === 'mongodb+srv') return host;
   if (host.startsWith('[')) {
     const closingBracket = host.indexOf(']');
