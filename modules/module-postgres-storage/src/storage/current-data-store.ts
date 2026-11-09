@@ -4,7 +4,7 @@ import * as t from 'ts-codec';
 import * as models from '../types/models/CurrentData.js';
 import { pick } from '../utils/ts-codec.js';
 
-type Queryable = Pick<lib_postgres.DatabaseClient, 'sql' | 'streamRows'>;
+type Queryable = Pick<lib_postgres.DatabaseClient, 'sql' | 'streamRows' | 'queryRows'>;
 
 const TruncateCurrentDataCodec = pick(models.V1CurrentData, ['buckets', 'lookups', 'source_key']);
 const LookupKeyCodec = pick(models.V1CurrentData, ['source_key', 'source_table']);
@@ -27,15 +27,21 @@ export class PostgresCurrentDataStore {
     this.table = storageConfig.softDeleteCurrentData ? V3_CURRENT_DATA_TABLE : V1_CURRENT_DATA_TABLE;
   }
 
-  streamTruncateRows(
+  /**
+   * Reads up to `limit` live rows of a source table, locked for the truncate.
+   *
+   * The rows are read in full rather than streamed, since the caller writes on the same
+   * connection while processing them. See `PostgresPersistedBatch`.
+   */
+  queryTruncateRows(
     db: Queryable,
     options: {
       groupId: number;
       sourceTableId: string;
       limit: number;
     }
-  ) {
-    return db.streamRows<t.Encoded<typeof TruncateCurrentDataCodec>>({
+  ): Promise<t.Encoded<typeof TruncateCurrentDataCodec>[]> {
+    return db.queryRows<t.Encoded<typeof TruncateCurrentDataCodec>>({
       statement: `
         SELECT
           buckets,
