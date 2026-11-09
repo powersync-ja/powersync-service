@@ -31,8 +31,10 @@ export const PostgresConnectionConfig = service_types.configFile.DataSourceConfi
     heartbeat_interval_seconds: service_types.orNull(t.number).optional(),
     /**
      * Whether to enable logical replication slot failover (PostgreSQL 17+).
-     * When omitted or true, slots created on PostgreSQL 17+ enable failover sync.
-     * When false, slots are created without failover sync.
+     *
+     * This only affects new replication slots, and is disabled by default.
+     *
+     * @see {@link https://www.postgresql.org/docs/current/logical-replication-failover.html}
      */
     slot_failover: t.boolean.optional()
   })
@@ -67,7 +69,7 @@ export function normalizeConnectionConfig(options: PostgresConnectionConfig) {
     ...lib_postgres.normalizeConnectionConfig(options),
     snapshot_socket_timeout_ms: lib_postgres.parseConnectTimeout(options.snapshot_socket_timeout, undefined),
     heartbeat_interval_seconds: normalizeHeartbeatInterval(options.heartbeat_interval_seconds),
-    ...(options.slot_failover != null ? { slot_failover: options.slot_failover } : {})
+    slot_failover: options.slot_failover ?? false
   } satisfies NormalizedPostgresConnectionConfig & { heartbeat_interval_seconds: number };
 }
 

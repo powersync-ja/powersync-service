@@ -1,5 +1,6 @@
 ---
-'@powersync/service-module-postgres': patch
+'@powersync/service-module-postgres': minor
+'@powersync/service-image': minor
 ---
 
-Enable logical replication slot failover automatically on PostgreSQL 17+, allowing replication slots to sync to physical standbys during switchovers. Failover can also be configured explicitly using the `slot_failover` connection option.
+Add the `slot_failover` boolean option for PostgreSQL sources, allowing replication slots to sync to physical standbys during switchovers.

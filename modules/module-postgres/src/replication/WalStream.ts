@@ -81,8 +81,10 @@ export interface WalStreamOptions {
   slotHealthCheckIntervalMs?: number;
 
   /**
-   * Whether to enable slot failover on Postgres 17+.
-   * Defaults to true if supported by server version (17+).
+   * Whether to include `FAILOVER true` in `CREATE_REPLICATION_SLOT` to enable
+   * {@link https://www.postgresql.org/docs/current/logical-replication-failover.html | Logical Replication Failover}.
+   *
+   * This is only supported on Postgres 17 or later, only affects new replication slots, and is disabled by default.
    */
   slotFailover?: boolean;
 }
@@ -572,8 +574,8 @@ WHERE  oid = $1::regclass`,
 
       // We use the replication connection here, not a pool.
       // The replication slot must be created before we start snapshotting tables.
-      const supportsFailover = await this.checkFailoverSlotSupport();
-      const optionsClause = supportsFailover ? ' (FAILOVER true)' : '';
+      const useFailover = await this.#useFailoverSlot();
+      const optionsClause = useFailover ? ' (FAILOVER true)' : '';
       await rquery(replicationConnection, `CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput${optionsClause}`);
 
       this.logger.info(`Created replication slot ${slotName}`);
@@ -1335,14 +1337,23 @@ WHERE  oid = $1::regclass`,
   }
 
   /**
-   * Check if replication slot failover is supported (Postgres 17+) and not explicitly disabled.
+   * Whether to create replication slots with failover support. Requires Postgres 17+ and the option to be enabled.
    */
-  async checkFailoverSlotSupport(): Promise<boolean> {
-    if (this.options.slotFailover === false) {
+  async #useFailoverSlot(): Promise<boolean> {
+    if (!this.options.slotFailover) {
       return false;
     }
+
     const version = await this.connections.getServerVersion();
-    return version ? version.compareMain('17.0.0') >= 0 : false;
+    if (!version || version.compareMain('17.0.0') < 0) {
+      throw new DatabaseConnectionError(
+        ErrorCode.PSYNC_S1147,
+        `The slot_failover option requires PostgreSQL 17 or later.`,
+        new Error()
+      );
+    }
+
+    return true;
   }
 
   getReplicationLagMillis(): number | undefined {

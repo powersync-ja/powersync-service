@@ -24,7 +24,7 @@ describe.skipIf(env.PG_FAILOVER_TEST_IMAGE == null)('replication slot failover',
   const image = env.PG_FAILOVER_TEST_IMAGE!;
   const expectedMajorVersion = Number(/:(\d+)/.exec(image)?.[1]);
 
-  test('does not enable failover by default before Postgres 17', async ({ skip }) => {
+  test('fails below Postgres 17', async ({ skip }) => {
     skip(expectedMajorVersion >= 17, 'Postgres 17+ supports failover slots');
 
     const primary = await startPrimary(image);
@@ -33,21 +33,19 @@ describe.skipIf(env.PG_FAILOVER_TEST_IMAGE == null)('replication slot failover',
     });
 
     await using context = await WalStreamTestContext.open(INITIALIZED_STORAGE_FACTORY.factory, {
-      connectionOptions: primary.connectionConfig
+      connectionOptions: primary.connectionConfig,
+      walStreamOptions: { slotFailover: true }
     });
     const { pool } = context;
     await context.updateSyncRules(SYNC_CONFIG);
     await pool.query(`CREATE TABLE test_data(id text primary key, description text)`);
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'before')`);
 
-    await context.initializeReplication();
-    expect(await context.getBucketData('synced|0[]')).toMatchObject([
-      putOp('test_data', { id: 't1', description: 'before' })
-    ]);
-
-    expect(await context.walStream.checkFailoverSlotSupport()).toBe(false);
+    await expect(context.initializeReplication()).rejects.toThrow(
+      `The slot_failover option requires PostgreSQL 17 or later.`
+    );
     const slot = await getSlot(pool, context.storage!.replicationStreamName);
-    expect(slot).toBeDefined();
+    expect(slot).toBeUndefined();
   });
 
   test('resumes replication on a promoted standby', async ({ skip }) => {
@@ -55,19 +53,23 @@ describe.skipIf(env.PG_FAILOVER_TEST_IMAGE == null)('replication slot failover',
 
     await using cluster = await FailoverCluster.start(image);
 
-    const { replicationStreamId } = await replicateOnPrimary(cluster, {}, async (context, slotName) => {
-      expect((await getSlot(cluster.primaryPool, slotName)).failover).toBe(true);
-      // Spamming pg_log_standby_snapshot makes the standy persist the replication slot faster, but isn't necessary
-      // for the correctness of this test.
-      await cluster.waitForSlotSync(
-        slotName,
-        async () => {
-          await cluster.primaryPool.query(`SELECT pg_log_standby_snapshot()`);
-          await context.getCheckpoint();
-        },
-        { timeout: 30_000, interval: 100 }
-      );
-    });
+    const { replicationStreamId } = await replicateOnPrimary(
+      cluster,
+      { slotFailover: true },
+      async (context, slotName) => {
+        expect((await getSlot(cluster.primaryPool, slotName)).failover).toBe(true);
+        // Spamming pg_log_standby_snapshot makes the standy persist the replication slot faster, but isn't necessary
+        // for the correctness of this test.
+        await cluster.waitForSlotSync(
+          slotName,
+          async () => {
+            await cluster.primaryPool.query(`SELECT pg_log_standby_snapshot()`);
+            await context.getCheckpoint();
+          },
+          { timeout: 30_000, interval: 100 }
+        );
+      }
+    );
 
     // Written while replication is stopped. This must be picked up from the synced slot after failover.
     await cluster.primaryPool.query(`INSERT INTO test_data(id, description) VALUES('t3', 'gap')`);
@@ -123,7 +125,7 @@ describe.skipIf(env.PG_FAILOVER_TEST_IMAGE == null)('replication slot failover',
  */
 async function replicateOnPrimary(
   cluster: FailoverCluster,
-  options: { slotFailover?: boolean },
+  options: { slotFailover: boolean },
   beforeStop?: (context: WalStreamTestContext, slotName: string) => Promise<void>
 ) {
   await using context = await WalStreamTestContext.open(INITIALIZED_STORAGE_FACTORY.factory, {
