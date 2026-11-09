@@ -52,6 +52,8 @@ export interface MongoBucketStorageOptions {
    */
   replicationStreamNamePrefix: string;
   readPreference?: mongo.ReadPreference;
+  /** Read preference for collection discovery and collection stats used by storage metrics. */
+  statsReadPreference?: mongo.ReadPreference;
   checksumCacheTtlMs?: number;
   clearBatchThrottleRate?: number;
   defaultStorageVersion?: number;
@@ -842,7 +844,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
             $regex: '^(bucket_data|bucket_parameters|current_data)$|^(bucket_data_|parameter_index_|source_records_)'
           }
         },
-        { nameOnly: true }
+        { nameOnly: true, readPreference: this.options.statsReadPreference }
       )
       .toArray();
     const sizesByCollection = new Map<string, number>();
@@ -865,7 +867,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       ];
       const stats = await this.db.db
         .collection(batch[0].name)
-        .aggregate<{ ns: string; size: number | bigint }>(pipeline)
+        .aggregate<{ ns: string; size: number | bigint }>(pipeline, {
+          readPreference: this.options.statsReadPreference
+        })
         .toArray();
       for (const stat of stats) {
         const name = stat.ns.slice(this.db.db.databaseName.length + 1);
