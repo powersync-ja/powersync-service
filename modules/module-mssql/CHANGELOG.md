@@ -1,5 +1,11 @@
 # @powersync/service-module-mssql
 
+## 0.10.8
+
+### Patch Changes
+
+- @powersync/service-core@1.28.2
+
 ## 0.10.7
 
 ### Patch Changes

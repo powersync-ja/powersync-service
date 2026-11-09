@@ -1,5 +1,13 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.24.2
+
+### Patch Changes
+
+- 2d50d1e: Fix cleanup of MongoDB replication streams when deploying a sync config that switches from storage version 4 to version 2.
+- 1c953e3: Add `storage.stats_read_preference` for MongoDB collection discovery and collection stats used by storage metrics.
+  - @powersync/service-core@1.28.2
+
 ## 0.24.1
 
 ### Patch Changes
